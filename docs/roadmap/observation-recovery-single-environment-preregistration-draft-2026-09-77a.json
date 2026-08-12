@@ -1,0 +1,103 @@
+{
+  "schema_version": "observation_recovery_single_environment_preregistration_draft_v1",
+  "status": "DRAFT_NOT_FROZEN_ALPHA_UNALLOCATED_NOT_EXECUTABLE",
+  "mission": "2026-09-77a",
+  "question": "Under the immutable current-master environment bundled by -09-77a, does point_in_time_wu_observable_tail_recovery_v2 improve the forecast on the frozen 368-event B decision stratum relative to the incumbent run in that same environment?",
+  "question_not_asked": "What would production have served historically?",
+  "environment": {
+    "source_base_commit": "ab6159d312a87a0095229e6034f15cfd55892847",
+    "content_bundle": "docs/roadmap/repair-ceiling-single-environment-runtime-bundle-53ec30351dd222b3.zip",
+    "content_bundle_sha256": "53ec30351dd222b33bda0d7dae24c68cff4f316971f580239fa98c697f082653",
+    "environment_content_id": "8d4b68345042b2e873632b8cf82c53583b6031561ff137b57b93dcfcac56d286",
+    "binding_rule": "Extract this immutable bundle and import every weather module from its src tree. Use only the bundled artifact and config bytes. Fail if any weather module resolves outside that tree or any bundled file hash differs.",
+    "historical_binding_forbidden": true
+  },
+  "population": {
+    "stratum": "B",
+    "rows": 368,
+    "target_date_clusters": 11,
+    "market_clusters": 12,
+    "market_days": 66,
+    "windows": [
+      "peak_heating_window",
+      "settlement_window"
+    ],
+    "regime_boundary": "Every row is before 2026-07-31; no C row or post-boundary row may enter.",
+    "row_keys": [
+      "market_id",
+      "target_date",
+      "snapshot_id",
+      "captured_at_utc"
+    ],
+    "undefined_row_rule": "A candidate-undefined row remains undefined and fails the preregistration; it may not be relabelled neutral or dropped."
+  },
+  "arms": {
+    "incumbent_q": "The bundled current pipeline on each captured raw payload as-is.",
+    "candidate_p": {
+      "name": "point_in_time_wu_observable_tail_recovery_v2",
+      "definition": "At capture t, trust every row in the current WU payload. Recover a previously published missing row only when the current payload contains no row at or after that row's target-date-local minute. A current row at the same minute replaces prior values.",
+      "change_scope": "Replace only sources.wu_history.data.rows; retain every other captured input unchanged.",
+      "point_in_time_rule": "Use the current raw payload and only strict-prior payload rows. No future snapshot may be consumed."
+    },
+    "same_environment_required": true,
+    "same_input_keys_required": true
+  },
+  "pre_execution_controls": {
+    "incumbent_defined_rows": 368,
+    "candidate_defined_rows": 368,
+    "paired_defined_rows": 368,
+    "candidate_changed_rows": 366,
+    "zero_recovery_clone_rows": 2,
+    "same_model_arm_order_state_failures": 0,
+    "strict_prior_failures": 0,
+    "probability_mass_tolerance": 1e-10,
+    "module_escapes_allowed": 0,
+    "bundle_verification_required": true
+  },
+  "outcome_free_power_screen": {
+    "ceiling_formula_as_instructed": "sum(p_k^2)-sum(q_k^2)+2*max_k(q_k-p_k)",
+    "orientation": "With p=candidate and q=incumbent, this is the maximum candidate-minus-incumbent Brier difference over possible realized bands. It is an outcome-free screen, not the realized improvement estimand.",
+    "mean": 0.47200491655284416,
+    "crossed_standard_error": 0.05476851886084563,
+    "mean_minus_q_se": 0.3016808857706521,
+    "mean_plus_q_se": 0.6423289473350362,
+    "uniform_q": 3.1098893,
+    "candidate_field_mde_at_80_percent_power": 0.21641837918681833,
+    "corrected_twelve_market_floor": 0.04513456747873035,
+    "binding_smallest_detectable_effect": 0.21641837918681833,
+    "screen_result": "ABOVE: even mean-minus-q*SE exceeds the binding MDE. This licenses drafting only."
+  },
+  "future_outcome_protocol_if_and_only_if_operator_freezes_this_draft_and_allocates_alpha": {
+    "primary_estimand": "Mean paired multiclass Brier improvement, Brier(incumbent q, y) minus Brier(candidate p, y), on the 368 frozen rows.",
+    "primary_row_formula": "sum(q_k^2)-sum(p_k^2)+2*(p_b-q_b)",
+    "realized_band_access": "The realized band b may be materialized only after a separate operator alpha allocation and immutable freeze of this draft.",
+    "inference": "10,000-draw crossed target_date x market_id pigeonhole bootstrap with shared row weights and mean +/- q*SE at q=3.1098893; no percentile interval.",
+    "alpha": 0.0025,
+    "sidedness": "two-sided",
+    "power": 0.8,
+    "accept_rule": "Accept for further confirmation only if every integrity control passes, the paired improvement point is positive, and mean improvement minus 3.1098893 times its crossed bootstrap SE is greater than zero. Otherwise NO_GO.",
+    "market_comparison": "forbidden",
+    "C_endpoint": false,
+    "reported_only": [
+      "per-market paired improvement",
+      "per-native-unit paired improvement",
+      "probability displacement"
+    ]
+  },
+  "alpha": {
+    "allocated_now": false,
+    "spent_now": false,
+    "allocated_by_mission": 0,
+    "ledger_state": "7 of 20 spent, 13 available",
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "operator_action_required_before_execution": true
+  },
+  "prohibited_now": [
+    "Do not read any realized band or settlement.",
+    "Do not compute a realized paired delta or Brier score.",
+    "Do not read a market probability or compare either arm with the market.",
+    "Do not add a C endpoint.",
+    "Do not execute, freeze, or allocate alpha from this draft.",
+    "Do not modify model_identity.py or reconstruct a historical environment."
+  ]
+}

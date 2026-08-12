@@ -1,0 +1,2002 @@
+{
+  "arms": {
+    "candidate_defined_rows": 368,
+    "candidate_p": {
+      "change_scope": "Replace only sources.wu_history.data.rows; every other captured input is unchanged.",
+      "definition": "Trust every row in the current WU payload. Recover a previously published missing row only when the current payload contains no row at or after that target-date-local minute.",
+      "name": "point_in_time_wu_observable_tail_recovery_v2",
+      "same_timestamp_rule": "The current vendor row replaces every prior row at the same minute.",
+      "strict_prior_required": true
+    },
+    "incumbent_defined_rows": 368,
+    "incumbent_q": "current pipeline as-is",
+    "paired_defined_rows": 368,
+    "same_model_state_control_failures": 0,
+    "undefined_reasons": {},
+    "zero_recovery_control_rows": 2
+  },
+  "artifacts": {
+    "csv_path": "docs/roadmap/repair-ceiling-single-environment-2026-09-77a.csv",
+    "csv_rows": 368,
+    "csv_sha256": "3d782223e5b882d2bbda233f6abaed42b1a30442126979835720aa7e610611a8"
+  },
+  "displacement": {
+    "argmax_changed_rows": 196,
+    "changed_rows": 366,
+    "max_l1": 1.6012110577008016,
+    "mean_l1": 0.5879151574170479,
+    "no_band_moves_over_0_005": 2,
+    "rows": 368
+  },
+  "environment": {
+    "bundle_manifest": {
+      "capture_rule": "module paths enumerated from sys.modules after import and execution; artifact/config paths recorded from Python open audit events",
+      "dependencies": {
+        "joblib": "1.5.3",
+        "numpy": "2.4.6",
+        "pandas": "3.0.3",
+        "scikit-learn": "1.8.0",
+        "scipy": "1.17.1"
+      },
+      "environment_content_id": "8d4b68345042b2e873632b8cf82c53583b6031561ff137b57b93dcfcac56d286",
+      "files": [
+        {
+          "bytes": 33576,
+          "path": "artifacts/calibration/calibrated_weights.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "433c20508af04f1685946dcfce23308ef9e6830595980a49a220a4177d8e675d"
+        },
+        {
+          "bytes": 33561,
+          "path": "artifacts/calibration/calibrated_weights_atlanta.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "bb0a01b702170cbde1f7c064aebce92657a11c603c2b7adbeaa71c2e935948c4"
+        },
+        {
+          "bytes": 33583,
+          "path": "artifacts/calibration/calibrated_weights_austin.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "98584b0ae3726c36c7f29b52b88204a6387a8d7b15ed9e48dc21c7184f69143a"
+        },
+        {
+          "bytes": 33690,
+          "path": "artifacts/calibration/calibrated_weights_chicago.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "88a210f6fcedcc016c9f08b4fdcc292b56dabde8412598c716051669c731a5be"
+        },
+        {
+          "bytes": 33744,
+          "path": "artifacts/calibration/calibrated_weights_dallas.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "e7826c63da806608f3016054ea855f17a67bf3b33ce6402355a1b3a59ad545fa"
+        },
+        {
+          "bytes": 33753,
+          "path": "artifacts/calibration/calibrated_weights_denver.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "a503c8887491614ea692fa67768476cbeac3cf4ebc6c1647f39b4d915d1eb9a4"
+        },
+        {
+          "bytes": 33390,
+          "path": "artifacts/calibration/calibrated_weights_houston.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "e27acdbfe14029eca9a200f7ead77c05705e1201b1c5e0fb98d751a1dad0c388"
+        },
+        {
+          "bytes": 33454,
+          "path": "artifacts/calibration/calibrated_weights_los-angeles.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "32fb8fac11ac64a08baeb2105467cc7d956e22362f3248aa1aa00f06a605dcb4"
+        },
+        {
+          "bytes": 33614,
+          "path": "artifacts/calibration/calibrated_weights_miami.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "a9f2b44974125a3a870c99b8dbc40c3796b8f8b3cd58d0140279fd71163eeec1"
+        },
+        {
+          "bytes": 33794,
+          "path": "artifacts/calibration/calibrated_weights_nyc.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "8435625628c2a3bf729c98bf0b5b27a94cdba769fa46fd6d296906a97392ffd9"
+        },
+        {
+          "bytes": 33617,
+          "path": "artifacts/calibration/calibrated_weights_san-francisco.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "063d0743aa3441e10c9e200c86ca23aba1f6f3f0691001da3642565218fe79ce"
+        },
+        {
+          "bytes": 33734,
+          "path": "artifacts/calibration/calibrated_weights_seattle.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "0fba075beea00a76074bed0b719e19e39f50af01b1e9011f05922218fbabee10"
+        },
+        {
+          "bytes": 118421,
+          "path": "artifacts/calibration/forecast_error_model.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7e41f53b0e99cd0b5f8513bbf1540ca017d7ce745a56bc8ff4aaac0e20192e69"
+        },
+        {
+          "bytes": 133188,
+          "path": "artifacts/calibration/forecast_error_model_atlanta.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7f6d6cc0c0ed266c048463182e1bb2cfecc32d3b5e3efedf706eaf05445b43fe"
+        },
+        {
+          "bytes": 135087,
+          "path": "artifacts/calibration/forecast_error_model_austin.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "09af3e8ae03dd58a2656c712b7b2a37f86f59b92623da19a04041f215a3826cf"
+        },
+        {
+          "bytes": 135383,
+          "path": "artifacts/calibration/forecast_error_model_chicago.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "1337091833984a1ccf0f25b7a9666fc8f9b323fadf4f5c2a6abe7e329ab59e81"
+        },
+        {
+          "bytes": 135625,
+          "path": "artifacts/calibration/forecast_error_model_dallas.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "f22d54e74b5de12a2e1233e785f1701427d7a5c7003cacbf9785aa8f68a1524d"
+        },
+        {
+          "bytes": 134730,
+          "path": "artifacts/calibration/forecast_error_model_denver.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "80c78f4dde27e0f38b9ff4560383160f7f8aa521a1bf24a467095c02c4e603dc"
+        },
+        {
+          "bytes": 135308,
+          "path": "artifacts/calibration/forecast_error_model_houston.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7684488ada746530a64d8740c3825a722918ea76a83b91cd31f132b76179d5b7"
+        },
+        {
+          "bytes": 134403,
+          "path": "artifacts/calibration/forecast_error_model_los-angeles.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "036e6ec657914ccb8dc242e3417ae4747f8c3c1e0ef26c6bf5173b633a08e50d"
+        },
+        {
+          "bytes": 130281,
+          "path": "artifacts/calibration/forecast_error_model_miami.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "fdf4b1ee68d8ac9b83310c1e5aa6c51ae36a25be6c5bb69daf9bfa3ac790ddfa"
+        },
+        {
+          "bytes": 133788,
+          "path": "artifacts/calibration/forecast_error_model_nyc.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "dce1254891999a99f3f1b2dee0b27a7a047b16ec7e5435550852f1bcba6ce482"
+        },
+        {
+          "bytes": 134213,
+          "path": "artifacts/calibration/forecast_error_model_san-francisco.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "b72f623305f26218dc2a538d5af3b3bc0f9713673eb17c6f2446c086e34f1f40"
+        },
+        {
+          "bytes": 133497,
+          "path": "artifacts/calibration/forecast_error_model_seattle.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "dc978638cff90d2f7aeaa12677f9e29f42af13c5381df1e6cae56b2ad8bc9c13"
+        },
+        {
+          "bytes": 38870,
+          "path": "artifacts/calibration/probability_calibration.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "5d1cdcdb47ec9e6b4bfd4a9253754e05c52edd0d28042ca177a35c194e558207"
+        },
+        {
+          "bytes": 47270,
+          "path": "artifacts/calibration/probability_calibration_atlanta.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "e294e63f9855ac45590caff0e6f7d60ecffd3a8868f02fa42ffbc8235dd4a750"
+        },
+        {
+          "bytes": 47153,
+          "path": "artifacts/calibration/probability_calibration_austin.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "a2c422dd0bba4f1e2cb48ef0a3c451f0cf705b6d5289d9793e66d5e78b39fefd"
+        },
+        {
+          "bytes": 47207,
+          "path": "artifacts/calibration/probability_calibration_chicago.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "5f9941e3c12651f638dd13b2b136f15da339c5d3a4d096a336eeffe3c181755f"
+        },
+        {
+          "bytes": 45505,
+          "path": "artifacts/calibration/probability_calibration_dallas.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "73fbb25a7443402f137d5f95bbb165616f028dc4c4f78193903a97b7c4f13cdd"
+        },
+        {
+          "bytes": 43302,
+          "path": "artifacts/calibration/probability_calibration_denver.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "058459d7e7d208857a409a797eb00e76ba093755f9cd200b24133112ab0b0818"
+        },
+        {
+          "bytes": 47009,
+          "path": "artifacts/calibration/probability_calibration_houston.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "c1f312d33306a69c6774eebce90cfb25aacd89c3b81f0f5ecb52cb3f83652f20"
+        },
+        {
+          "bytes": 46973,
+          "path": "artifacts/calibration/probability_calibration_los-angeles.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "34799da018cab1b4cbdee2d36a78ed124516d2287fb8c779907435024e337463"
+        },
+        {
+          "bytes": 45732,
+          "path": "artifacts/calibration/probability_calibration_miami.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "32b699b4664fefc290f829931a0fcf93bff1c0f96a02f9a169f6e29baf9bae86"
+        },
+        {
+          "bytes": 44394,
+          "path": "artifacts/calibration/probability_calibration_nyc.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "196a7c5127f2b1d654ed814ebfcf36817f16bf0b23f4725dd920480a4faa91fa"
+        },
+        {
+          "bytes": 44584,
+          "path": "artifacts/calibration/probability_calibration_san-francisco.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "1ea24dc14a3676a8b3962560ebdfc7cc64bb0867327ad183f54980eb187ddb93"
+        },
+        {
+          "bytes": 47017,
+          "path": "artifacts/calibration/probability_calibration_seattle.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "8d1a0c6757bd8070561728da3dd12dccd7ab31e0cd742725f95e8bb32abe83c6"
+        },
+        {
+          "bytes": 42088,
+          "path": "artifacts/calibration/settlement_lag_model.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "c4cb2c24ca44fb04f7c43d7170d3ffe76b69f468bd61117089f17cacc177d5f8"
+        },
+        {
+          "bytes": 31842,
+          "path": "artifacts/calibration/settlement_lag_model_atlanta.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "dd156ee825303a14cbffe5b85d96112a40f55ea3131f6eef9ffd35619b72c030"
+        },
+        {
+          "bytes": 34360,
+          "path": "artifacts/calibration/settlement_lag_model_austin.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "8dab7b3529d7244740d3aaca07a1dd704496496dc342f8bfd2a87487b5418981"
+        },
+        {
+          "bytes": 35364,
+          "path": "artifacts/calibration/settlement_lag_model_chicago.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "8b6c6ee58c7fcb30111bad387002dd56f58b4570fbdf6b631e7c4b046b5c9696"
+        },
+        {
+          "bytes": 35111,
+          "path": "artifacts/calibration/settlement_lag_model_dallas.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "ce98f223bc62efcbe01fb8117d189b9a58b95040c18fae9af77734612d86ca0d"
+        },
+        {
+          "bytes": 29217,
+          "path": "artifacts/calibration/settlement_lag_model_denver.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "bc60581d8ddb7399a708646527e20b80487fd1b133be6775358381c6d06fe8af"
+        },
+        {
+          "bytes": 35012,
+          "path": "artifacts/calibration/settlement_lag_model_houston.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "dd47935107940903ad82b0331a933624790eeda6cc8d7874fdcbf593aac532e4"
+        },
+        {
+          "bytes": 26925,
+          "path": "artifacts/calibration/settlement_lag_model_los-angeles.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "035586c2bc69ddcfb735e4ed6614a7df68f3a5f65a1c334eec721b659f320893"
+        },
+        {
+          "bytes": 30529,
+          "path": "artifacts/calibration/settlement_lag_model_miami.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "eb103e240fdc716cfd1bb60d40cfef906d60c2652fe24bfc7ccd267934ff95ba"
+        },
+        {
+          "bytes": 34553,
+          "path": "artifacts/calibration/settlement_lag_model_nyc.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "106c0788168057d8a85e659e24c3a9e975c3e0cc550b15a5df09391f2fd35955"
+        },
+        {
+          "bytes": 37454,
+          "path": "artifacts/calibration/settlement_lag_model_san-francisco.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "87d950c5470000f0c54965fa576f6014c14146bf83edf6d9282b2733c726b712"
+        },
+        {
+          "bytes": 33475,
+          "path": "artifacts/calibration/settlement_lag_model_seattle.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "59c7a429f60d6dddfc633c3d25bcb8da7d2e9d781ee1809800e7a115d2fd6c5e"
+        },
+        {
+          "bytes": 30677,
+          "path": "artifacts/manifests/f_family_secondary_artifacts.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "78a11bd2df26fd7c7fed375fa22ccb377fc71e386d767a96df7b2ab4f71c7e3d"
+        },
+        {
+          "bytes": 57700,
+          "path": "artifacts/misc/afternoon_residual_centering.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "72405571d5d5971b633427782138128f3b0c719c08fc44cc9cd2064ba7e3933e"
+        },
+        {
+          "bytes": 319282,
+          "path": "artifacts/models/coefs/feature_model_coefs.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "5ef646b8cf3fbe873ca6057ffddb4f6a5f73431e4d1d4ae4dfa2e774ede1d7d9"
+        },
+        {
+          "bytes": 323909,
+          "path": "artifacts/models/coefs/feature_model_coefs_atlanta.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "6d0667c4390d43b1630cb7436a754ed97f831a575a8b41ab0da8251035237c3c"
+        },
+        {
+          "bytes": 272870,
+          "path": "artifacts/models/coefs/feature_model_coefs_austin.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "1ed93e1a88821badab0454a7f6f3795c96612089bc09196e97c12d74317e104e"
+        },
+        {
+          "bytes": 386738,
+          "path": "artifacts/models/coefs/feature_model_coefs_chicago.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "e2475b9f1098887c7a46fb89d3280a19d933c1324cb940df35a0d38d82fef43e"
+        },
+        {
+          "bytes": 329442,
+          "path": "artifacts/models/coefs/feature_model_coefs_dallas.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "1c7b68929a2f8b7186072d1683514991792a629e728976b15f23da3dfe9f7cf3"
+        },
+        {
+          "bytes": 484168,
+          "path": "artifacts/models/coefs/feature_model_coefs_denver.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "4fef4aef78f9a8053b32165633e0ff0674dd4ced450b5ed934463b1014bc8432"
+        },
+        {
+          "bytes": 216736,
+          "path": "artifacts/models/coefs/feature_model_coefs_houston.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7b06def3738c43d38b4cd503a0c59a33233410779dccae1ded01f04549b77c2a"
+        },
+        {
+          "bytes": 223742,
+          "path": "artifacts/models/coefs/feature_model_coefs_los-angeles.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "a9e8281abd97b2789f7da743292ded435fab2f351716cce39dc247169211d363"
+        },
+        {
+          "bytes": 234025,
+          "path": "artifacts/models/coefs/feature_model_coefs_miami.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "6ea1367df119f1a0f24d71d6d8a0343e28dbdbe85b877c5afdfec157ed122f6a"
+        },
+        {
+          "bytes": 410838,
+          "path": "artifacts/models/coefs/feature_model_coefs_nyc.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "1c5dd1ab05535fa6a6e61ee64cc86518b2f21684819ac309486b4ee479b21e7a"
+        },
+        {
+          "bytes": 380979,
+          "path": "artifacts/models/coefs/feature_model_coefs_san-francisco.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "2ef9c5628e2a3cd87170683b05cc8f34c6a8d5888bf2cf24a07f340cc8638dac"
+        },
+        {
+          "bytes": 381123,
+          "path": "artifacts/models/coefs/feature_model_coefs_seattle.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "e7719e24e02504ede500632fe4fb5c07818d2ae105bb0f22fff326256425e2e3"
+        },
+        {
+          "bytes": 7989,
+          "path": "artifacts/models/coefs/late_day_model_coefs.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7ed334fa37ef959250ef6d2201607b86e2edb64519b1ab74c25ddd286e5c62e1"
+        },
+        {
+          "bytes": 7971,
+          "path": "artifacts/models/coefs/late_day_model_coefs_atlanta.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "989e3590d242d70a16e720b7e123f7837eeff749851ec54b32aab2ff12dbe7c0"
+        },
+        {
+          "bytes": 7969,
+          "path": "artifacts/models/coefs/late_day_model_coefs_austin.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "c38804d6f64c4da15d239e38d2fdf275e276b7af4d3d77579e371ef49513d45d"
+        },
+        {
+          "bytes": 7964,
+          "path": "artifacts/models/coefs/late_day_model_coefs_chicago.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7b47fae9c74f505af257ddd47ecc5a3f019291aa8dd6c19a9b8f0eecbea36bb8"
+        },
+        {
+          "bytes": 8022,
+          "path": "artifacts/models/coefs/late_day_model_coefs_dallas.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "d4bacd763c3faeb35095d9501bb9b943a6862fbd3ad4363e7fe2767101906f20"
+        },
+        {
+          "bytes": 7953,
+          "path": "artifacts/models/coefs/late_day_model_coefs_denver.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "e3301911cc37cede0cfdf8c16590128ad7cdd5771098f4280a0c2666ed21f0ef"
+        },
+        {
+          "bytes": 7993,
+          "path": "artifacts/models/coefs/late_day_model_coefs_houston.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "ac911bdd66fcc1f1e6611f832dfcf1b2ea1d0fbe5e0b77633f37846be2fa9809"
+        },
+        {
+          "bytes": 7820,
+          "path": "artifacts/models/coefs/late_day_model_coefs_los-angeles.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "59be7fffb0a35e11e53f9e93a59f07e095d1872d51d6e3ff2ac0dbc9c2ac52ad"
+        },
+        {
+          "bytes": 7959,
+          "path": "artifacts/models/coefs/late_day_model_coefs_miami.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "ea03d331785c09642cf6c513b0d9a6afffd9fea13594024bf85c1cd55edb55a1"
+        },
+        {
+          "bytes": 7971,
+          "path": "artifacts/models/coefs/late_day_model_coefs_nyc.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7932e3dcf8ec63985f1ebee876187e2321e6bb43708499242f378987c0379ac4"
+        },
+        {
+          "bytes": 7887,
+          "path": "artifacts/models/coefs/late_day_model_coefs_san-francisco.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "3b136e9c2f61d1e3addc88adc7bc088b7d2c596371258f0f2f61d85bb6b25401"
+        },
+        {
+          "bytes": 7967,
+          "path": "artifacts/models/coefs/late_day_model_coefs_seattle.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "20fe6b622db790f38c4925865d366995127320da432b8067cd87e4138c5e361d"
+        },
+        {
+          "bytes": 29230281,
+          "path": "artifacts/models/hgb/feature_model_hgb.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "bf53fd60db1a8b28cbfc2ae7844370246884e90dab7d63a558fd477a262d732a"
+        },
+        {
+          "bytes": 15149102,
+          "path": "artifacts/models/hgb/feature_model_hgb_atlanta.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "9f045926126ab37bbc71b2c7db97b79cda8061c36c0fae93f2e12495493c9b9f"
+        },
+        {
+          "bytes": 13495031,
+          "path": "artifacts/models/hgb/feature_model_hgb_austin.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "98f5b72b23814f8886acee79d029de475b834322ad7d89631d7423a443586765"
+        },
+        {
+          "bytes": 19713433,
+          "path": "artifacts/models/hgb/feature_model_hgb_chicago.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "be24eab615a9c6375a369537a9ed1dd8e650d49cdca35e941184f524cf1401a2"
+        },
+        {
+          "bytes": 14798766,
+          "path": "artifacts/models/hgb/feature_model_hgb_dallas.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "5ee8722d86105067af92838fe4660e757ee26366d06acfe500532691f2152862"
+        },
+        {
+          "bytes": 22704111,
+          "path": "artifacts/models/hgb/feature_model_hgb_denver.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "2047b667fce7654e4879553c237d8561721f12f56eb746874fc0a241347ea7e8"
+        },
+        {
+          "bytes": 10575344,
+          "path": "artifacts/models/hgb/feature_model_hgb_houston.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "19999a254056ae009fd65089747e158a0b722cbead541d20b3d39cee295c49ba"
+        },
+        {
+          "bytes": 11152210,
+          "path": "artifacts/models/hgb/feature_model_hgb_los-angeles.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "8d9aba849cf95f676be1ec0183431dfe5b04db0e55f8cfca9adadb08ad167b5c"
+        },
+        {
+          "bytes": 20742776,
+          "path": "artifacts/models/hgb/feature_model_hgb_miami.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "7b59bc1175108d08eb3163cac9b31cedd6ac174ec9ffe4cd296c4c4bea15fd9f"
+        },
+        {
+          "bytes": 18735619,
+          "path": "artifacts/models/hgb/feature_model_hgb_nyc.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "a8efd8067b2ff19249fdf125fb56dd4bd25f7b1db9454e81f70cf21dd82201d4"
+        },
+        {
+          "bytes": 18096992,
+          "path": "artifacts/models/hgb/feature_model_hgb_san-francisco.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "c9b77d8326bff055466631e413e810c61f428416c5b9f1aad549c5e0bc17972f"
+        },
+        {
+          "bytes": 19800416,
+          "path": "artifacts/models/hgb/feature_model_hgb_seattle.pkl",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "ad6229d851484f30c4caaf5f77fd16a018ed5af11bccb67351311f6f3872bfa1"
+        },
+        {
+          "bytes": 332,
+          "path": "config/markets.json",
+          "roles": [
+            "runtime_open:artifact_or_config"
+          ],
+          "sha256": "25a3db6dd2e4f90d0b67eca4c92a033204aa6289ef75cb195d6a214bcda4852d"
+        },
+        {
+          "bytes": 55,
+          "path": "src/weather/__init__.py",
+          "roles": [
+            "loaded_module:weather"
+          ],
+          "sha256": "8fc07e9019208b492284fa667e35f1c237bd338da011b9286e4f7f0d7b56e466"
+        },
+        {
+          "bytes": 52097,
+          "path": "src/weather/artifacts.py",
+          "roles": [
+            "loaded_module:weather.artifacts"
+          ],
+          "sha256": "be054bcdd19f6c591c95a2c8ed3765ce2df79bd9e89328d1d320c29140474114"
+        },
+        {
+          "bytes": 15065,
+          "path": "src/weather/forecast_payload_contracts.py",
+          "roles": [
+            "loaded_module:weather.forecast_payload_contracts"
+          ],
+          "sha256": "f8610cfd790cf1811d6b120cf65c89aa53be0b4018a859332e845a5b86d63f6d"
+        },
+        {
+          "bytes": 35715,
+          "path": "src/weather/io.py",
+          "roles": [
+            "loaded_module:weather.io"
+          ],
+          "sha256": "7ff39dcd0479d8f69762a84a7219952a50bcdbfd1b18a97a082e33a5f6c82e18"
+        },
+        {
+          "bytes": 22,
+          "path": "src/weather/market/__init__.py",
+          "roles": [
+            "loaded_module:weather.market"
+          ],
+          "sha256": "fd0a312a4d30c8d3304f8607ad504e9f323a168988aa223cd537b37df1f3e35d"
+        },
+        {
+          "bytes": 3504,
+          "path": "src/weather/market/market_config.py",
+          "roles": [
+            "loaded_module:weather.market.market_config"
+          ],
+          "sha256": "d3adfe3ff1a6137113f65cd7a32b525580580e1144d6591def00dea9f220d6e7"
+        },
+        {
+          "bytes": 14202,
+          "path": "src/weather/market/market_registry.py",
+          "roles": [
+            "loaded_module:weather.market.market_registry"
+          ],
+          "sha256": "98ca679f37ca8fed62f8c0036c1e5f67b336362961796fe98d7fcbfca288cc5d"
+        },
+        {
+          "bytes": 21,
+          "path": "src/weather/model/__init__.py",
+          "roles": [
+            "loaded_module:weather.model"
+          ],
+          "sha256": "0372f5d67b3c00e708cce19fbecdeddb24f500cbe93a230667bead4b82a721ba"
+        },
+        {
+          "bytes": 26507,
+          "path": "src/weather/model/calibration_runtime.py",
+          "roles": [
+            "loaded_module:weather.model.calibration_runtime"
+          ],
+          "sha256": "a7f45d184c789cdaa25456c1864256914e3b73d5062ec0ee5f2eb6dcd11d2a99"
+        },
+        {
+          "bytes": 6188,
+          "path": "src/weather/model/continuous_density.py",
+          "roles": [
+            "loaded_module:weather.model.continuous_density"
+          ],
+          "sha256": "dc309e89e798ca0c6893dc5dab84b6e8757a292f831ab473c50254dc807de937"
+        },
+        {
+          "bytes": 51127,
+          "path": "src/weather/model/feature_store.py",
+          "roles": [
+            "loaded_module:weather.model.feature_store"
+          ],
+          "sha256": "aea68e8256d79233fcf21ea70053d87074e547c490ee5cd632df2335aa6721b2"
+        },
+        {
+          "bytes": 14513,
+          "path": "src/weather/model/model_base.py",
+          "roles": [
+            "loaded_module:weather.model.model_base"
+          ],
+          "sha256": "74638381b0548610b2a14a212e31eac7e30c3de772a8b8e024c4b27dbba2a827"
+        },
+        {
+          "bytes": 15904,
+          "path": "src/weather/model/model_climatology.py",
+          "roles": [
+            "loaded_module:weather.model.model_climatology"
+          ],
+          "sha256": "2d69cb04616fddd29b77c4387fa1cf6bc1d708c96883ebffb711fe15b0c4f43d"
+        },
+        {
+          "bytes": 7473,
+          "path": "src/weather/model/model_constants.py",
+          "roles": [
+            "loaded_module:weather.model.model_constants"
+          ],
+          "sha256": "c7eadd6e30c61a0879a8163ca6178bedb957e3c1a4665ef4cdb6f5b34e21833c"
+        },
+        {
+          "bytes": 5443,
+          "path": "src/weather/model/model_contracts.py",
+          "roles": [
+            "loaded_module:weather.model.model_contracts"
+          ],
+          "sha256": "97d505c76025ca16f11ecd734704fda9ce2d48dbe79d3175a9c8d3ac93f0c85e"
+        },
+        {
+          "bytes": 65565,
+          "path": "src/weather/model/model_distribution.py",
+          "roles": [
+            "loaded_module:weather.model.model_distribution"
+          ],
+          "sha256": "bb977e56276b0928542a94fc3bd805de499febec4a7d5505f00850a2afbcbb2b"
+        },
+        {
+          "bytes": 10823,
+          "path": "src/weather/model/model_distribution_constants.py",
+          "roles": [
+            "loaded_module:weather.model.model_distribution_constants"
+          ],
+          "sha256": "f710e435a28d03ec14a05e221e00ff3fa2c801a8bbeedd24ab6948e21601840f"
+        },
+        {
+          "bytes": 52128,
+          "path": "src/weather/model/model_distribution_signals.py",
+          "roles": [
+            "loaded_module:weather.model.model_distribution_signals"
+          ],
+          "sha256": "4f3952b2ad739c18a995198f4d1b34d87416b50f5639d2296de26df9658251dd"
+        },
+        {
+          "bytes": 88910,
+          "path": "src/weather/model/model_features.py",
+          "roles": [
+            "loaded_module:weather.model.model_features"
+          ],
+          "sha256": "16df3a3dbb9ef9c56bd95b969b1ec96544cb0ec05201df787bb373f8d73c32e5"
+        },
+        {
+          "bytes": 38144,
+          "path": "src/weather/model/model_presentation.py",
+          "roles": [
+            "loaded_module:weather.model.model_presentation"
+          ],
+          "sha256": "9084e2331f255f2cdd59eee098664bb9a4a6c2a9394d4d9029aa84d0be56fbc1"
+        },
+        {
+          "bytes": 105315,
+          "path": "src/weather/model/model_sources.py",
+          "roles": [
+            "loaded_module:weather.model.model_sources"
+          ],
+          "sha256": "b99bf5e84e39d7998c62e1dc64754585ef859c5ca6b67131e43897bdb5c9e0b9"
+        },
+        {
+          "bytes": 6250,
+          "path": "src/weather/model/source_adapters.py",
+          "roles": [
+            "loaded_module:weather.model.source_adapters"
+          ],
+          "sha256": "d76e826e5d997c3c0e50f7b3f821cc20e7b60a4b35e4105d1f8fc56382dd062d"
+        },
+        {
+          "bytes": 15765,
+          "path": "src/weather/model/toronto_model.py",
+          "roles": [
+            "loaded_module:weather.model.toronto_model"
+          ],
+          "sha256": "5eca760ab557e580e3080731bf22b33eb79ee1d48989c805f3271e817f65245c"
+        },
+        {
+          "bytes": 1029,
+          "path": "src/weather/paths.py",
+          "roles": [
+            "loaded_module:weather.paths"
+          ],
+          "sha256": "666fd881baf35b9c3d4c594ef9559bba1e1b38aa5c33ccae0fa62901c534b947"
+        },
+        {
+          "bytes": 81214,
+          "path": "src/weather/point_in_time_contract.py",
+          "roles": [
+            "loaded_module:weather.point_in_time_contract"
+          ],
+          "sha256": "37b087ff28ea6e1e07c47853760be5a6f649548d756378e798c00b6e933516bb"
+        },
+        {
+          "bytes": 57581,
+          "path": "src/weather/release_artifacts.py",
+          "roles": [
+            "loaded_module:weather.release_artifacts"
+          ],
+          "sha256": "8212428d5793bce2f2b1ed6c731986d282719ec909066ea9bc4a0962b75de9d0"
+        },
+        {
+          "bytes": 5208,
+          "path": "src/weather/release_contract.py",
+          "roles": [
+            "loaded_module:weather.release_contract"
+          ],
+          "sha256": "400bbb0de0e494a71b3b8fc064bc851523bddbd1da355efac0656eb1cc3371bb"
+        },
+        {
+          "bytes": 38261,
+          "path": "src/weather/release_serving.py",
+          "roles": [
+            "loaded_module:weather.release_serving"
+          ],
+          "sha256": "e38c1c38d7b2577eefdf6b8de66aa55d3abaee7d240095b7140e0facecfed2bc"
+        },
+        {
+          "bytes": 9374,
+          "path": "src/weather/runtime_identity.py",
+          "roles": [
+            "loaded_module:weather.runtime_identity"
+          ],
+          "sha256": "cba34070774d8a333d4916b34cd63da1dcd2ba5581db53fcad23741f8d3752ef"
+        },
+        {
+          "bytes": 5939,
+          "path": "src/weather/schema_registry.py",
+          "roles": [
+            "loaded_module:weather.schema_registry"
+          ],
+          "sha256": "d5f733bd04819c2b9e716fa15d010e6f0d2ba4e633ebebcd9c89540275803e53"
+        },
+        {
+          "bytes": 95209,
+          "path": "src/weather/schema_registry_data.py",
+          "roles": [
+            "loaded_module:weather.schema_registry_data"
+          ],
+          "sha256": "6e448150a1c52dda21ff8069b875a2ca86a98e040c88fdd406085f9a3bc49d17"
+        },
+        {
+          "bytes": 43155,
+          "path": "src/weather/schema_registry_recent_data.py",
+          "roles": [
+            "loaded_module:weather.schema_registry_recent_data"
+          ],
+          "sha256": "16feb86af197db9dc15d6c32f592159794ab6510a346f635bd9367d12a34122e"
+        },
+        {
+          "bytes": 499,
+          "path": "src/weather/schema_registry_types.py",
+          "roles": [
+            "loaded_module:weather.schema_registry_types"
+          ],
+          "sha256": "c11ec55405796ed119f62f9c417584cb841e092780b5aba8f8143bf4277962bd"
+        },
+        {
+          "bytes": 31,
+          "path": "src/weather/scoring/__init__.py",
+          "roles": [
+            "loaded_module:weather.scoring"
+          ],
+          "sha256": "a1d68120362b42bb493661f0a5a42542248e48e7598dab0d7d17eb0d473e87ed"
+        },
+        {
+          "bytes": 5804,
+          "path": "src/weather/scoring/metrics.py",
+          "roles": [
+            "loaded_module:weather.scoring.metrics"
+          ],
+          "sha256": "2dd4bc3c4ccfb184258273c28a2df0045839fbe688a79df80e9919c7d5fa191b"
+        },
+        {
+          "bytes": 23,
+          "path": "src/weather/sources/__init__.py",
+          "roles": [
+            "loaded_module:weather.sources"
+          ],
+          "sha256": "79909499a4f290d53ef847ff2fd8de832483826f5525a7da14116495a9050e96"
+        },
+        {
+          "bytes": 3954,
+          "path": "src/weather/sources/daily_summary.py",
+          "roles": [
+            "loaded_module:weather.sources.daily_summary"
+          ],
+          "sha256": "7def2ba0eb3bc281fd783a516514750885122af668becec3ac94d401ae36f913"
+        },
+        {
+          "bytes": 19407,
+          "path": "src/weather/sources/eccc_gridded.py",
+          "roles": [
+            "loaded_module:weather.sources.eccc_gridded"
+          ],
+          "sha256": "cbc29c8faf4500bf4cf4a8abd899e6584f0e2fe8fa11a9c53bcdb575f7dfc96a"
+        },
+        {
+          "bytes": 48883,
+          "path": "src/weather/sources/forecast_history.py",
+          "roles": [
+            "loaded_module:weather.sources.forecast_history"
+          ],
+          "sha256": "2fcc7c403c0030ad24305f9f705f544c278f7eb6842c0869a9ecfb22c59f55f8"
+        },
+        {
+          "bytes": 4784,
+          "path": "src/weather/sources/forecast_payload_fanout.py",
+          "roles": [
+            "loaded_module:weather.sources.forecast_payload_fanout"
+          ],
+          "sha256": "c00a43212646ab268f66634242ce51a3a9063b60589cd45474e9746cc6d5b57c"
+        },
+        {
+          "bytes": 14945,
+          "path": "src/weather/sources/grib_probe.py",
+          "roles": [
+            "loaded_module:weather.sources.grib_probe"
+          ],
+          "sha256": "6c1b1e8cf5af37242ad616433bb5f7c6e5742a4f48e679722fd756da34dc729f"
+        },
+        {
+          "bytes": 10331,
+          "path": "src/weather/sources/historical_schema.py",
+          "roles": [
+            "loaded_module:weather.sources.historical_schema"
+          ],
+          "sha256": "f57ff5263979ba1290fb014ad0ac3ff6cbe71f6f6f5de58d38f946ca47d7eded"
+        },
+        {
+          "bytes": 41510,
+          "path": "src/weather/sources/marine_context.py",
+          "roles": [
+            "loaded_module:weather.sources.marine_context"
+          ],
+          "sha256": "b1a6bc2017921abf6f630111cdbfdd79bf9afeb984e255ab818e5cd3ed4fce3c"
+        },
+        {
+          "bytes": 20442,
+          "path": "src/weather/sources/mrms_precip.py",
+          "roles": [
+            "loaded_module:weather.sources.mrms_precip"
+          ],
+          "sha256": "4bb136f6b07edc90a5f2cc92d1e482084a342001eba2afb3b4250e623c56db4b"
+        },
+        {
+          "bytes": 34311,
+          "path": "src/weather/sources/nbm_probabilistic_tmax.py",
+          "roles": [
+            "loaded_module:weather.sources.nbm_probabilistic_tmax"
+          ],
+          "sha256": "ba9d936ee4f0c36bc4658e4ae6be3992aa5ea9d1b3b963b341ce45e49480a066"
+        },
+        {
+          "bytes": 15759,
+          "path": "src/weather/sources/reanalysis_history.py",
+          "roles": [
+            "loaded_module:weather.sources.reanalysis_history"
+          ],
+          "sha256": "ab5d5cd97950bbd66c4f2ceea68758bdb98cec24fd73ea04f6af159a6f6125a4"
+        },
+        {
+          "bytes": 53576,
+          "path": "src/weather/sources/reanalysis_synoptic.py",
+          "roles": [
+            "loaded_module:weather.sources.reanalysis_synoptic"
+          ],
+          "sha256": "22aba8d50df3920bf1730d6e00b285ee47e56e77f11363ac60665f43c6860c9b"
+        },
+        {
+          "bytes": 50842,
+          "path": "src/weather/sources/wu_history.py",
+          "roles": [
+            "loaded_module:weather.sources.wu_history"
+          ],
+          "sha256": "071084c48be2145a95b5366dd5bb099841dec487bfcae67f650540c99a588426"
+        },
+        {
+          "bytes": 1611,
+          "path": "src/weather/units.py",
+          "roles": [
+            "loaded_module:weather.units"
+          ],
+          "sha256": "06b09e91d4146850111a6e06c1c7868b83232ca54766f082b5d5899ae29c82e3"
+        }
+      ],
+      "module_files": {
+        "all_weather_module_files": {
+          "weather": "src/weather/__init__.py",
+          "weather.artifacts": "src/weather/artifacts.py",
+          "weather.forecast_payload_contracts": "src/weather/forecast_payload_contracts.py",
+          "weather.io": "src/weather/io.py",
+          "weather.market": "src/weather/market/__init__.py",
+          "weather.market.market_config": "src/weather/market/market_config.py",
+          "weather.market.market_registry": "src/weather/market/market_registry.py",
+          "weather.model": "src/weather/model/__init__.py",
+          "weather.model.calibration_runtime": "src/weather/model/calibration_runtime.py",
+          "weather.model.continuous_density": "src/weather/model/continuous_density.py",
+          "weather.model.feature_store": "src/weather/model/feature_store.py",
+          "weather.model.model_base": "src/weather/model/model_base.py",
+          "weather.model.model_climatology": "src/weather/model/model_climatology.py",
+          "weather.model.model_constants": "src/weather/model/model_constants.py",
+          "weather.model.model_contracts": "src/weather/model/model_contracts.py",
+          "weather.model.model_distribution": "src/weather/model/model_distribution.py",
+          "weather.model.model_distribution_constants": "src/weather/model/model_distribution_constants.py",
+          "weather.model.model_distribution_signals": "src/weather/model/model_distribution_signals.py",
+          "weather.model.model_features": "src/weather/model/model_features.py",
+          "weather.model.model_presentation": "src/weather/model/model_presentation.py",
+          "weather.model.model_sources": "src/weather/model/model_sources.py",
+          "weather.model.source_adapters": "src/weather/model/source_adapters.py",
+          "weather.model.toronto_model": "src/weather/model/toronto_model.py",
+          "weather.paths": "src/weather/paths.py",
+          "weather.point_in_time_contract": "src/weather/point_in_time_contract.py",
+          "weather.release_artifacts": "src/weather/release_artifacts.py",
+          "weather.release_contract": "src/weather/release_contract.py",
+          "weather.release_serving": "src/weather/release_serving.py",
+          "weather.runtime_identity": "src/weather/runtime_identity.py",
+          "weather.schema_registry": "src/weather/schema_registry.py",
+          "weather.schema_registry_data": "src/weather/schema_registry_data.py",
+          "weather.schema_registry_recent_data": "src/weather/schema_registry_recent_data.py",
+          "weather.schema_registry_types": "src/weather/schema_registry_types.py",
+          "weather.scoring": "src/weather/scoring/__init__.py",
+          "weather.scoring.metrics": "src/weather/scoring/metrics.py",
+          "weather.sources": "src/weather/sources/__init__.py",
+          "weather.sources.daily_summary": "src/weather/sources/daily_summary.py",
+          "weather.sources.eccc_gridded": "src/weather/sources/eccc_gridded.py",
+          "weather.sources.forecast_history": "src/weather/sources/forecast_history.py",
+          "weather.sources.forecast_payload_fanout": "src/weather/sources/forecast_payload_fanout.py",
+          "weather.sources.grib_probe": "src/weather/sources/grib_probe.py",
+          "weather.sources.historical_schema": "src/weather/sources/historical_schema.py",
+          "weather.sources.marine_context": "src/weather/sources/marine_context.py",
+          "weather.sources.mrms_precip": "src/weather/sources/mrms_precip.py",
+          "weather.sources.nbm_probabilistic_tmax": "src/weather/sources/nbm_probabilistic_tmax.py",
+          "weather.sources.reanalysis_history": "src/weather/sources/reanalysis_history.py",
+          "weather.sources.reanalysis_synoptic": "src/weather/sources/reanalysis_synoptic.py",
+          "weather.sources.wu_history": "src/weather/sources/wu_history.py",
+          "weather.units": "src/weather/units.py"
+        },
+        "escaped_weather_modules": {},
+        "module_paths": 49,
+        "relevant_model_calibration_feature_market_module_files": {
+          "weather.market": "src/weather/market/__init__.py",
+          "weather.market.market_config": "src/weather/market/market_config.py",
+          "weather.market.market_registry": "src/weather/market/market_registry.py",
+          "weather.model": "src/weather/model/__init__.py",
+          "weather.model.calibration_runtime": "src/weather/model/calibration_runtime.py",
+          "weather.model.continuous_density": "src/weather/model/continuous_density.py",
+          "weather.model.feature_store": "src/weather/model/feature_store.py",
+          "weather.model.model_base": "src/weather/model/model_base.py",
+          "weather.model.model_climatology": "src/weather/model/model_climatology.py",
+          "weather.model.model_constants": "src/weather/model/model_constants.py",
+          "weather.model.model_contracts": "src/weather/model/model_contracts.py",
+          "weather.model.model_distribution": "src/weather/model/model_distribution.py",
+          "weather.model.model_distribution_constants": "src/weather/model/model_distribution_constants.py",
+          "weather.model.model_distribution_signals": "src/weather/model/model_distribution_signals.py",
+          "weather.model.model_features": "src/weather/model/model_features.py",
+          "weather.model.model_presentation": "src/weather/model/model_presentation.py",
+          "weather.model.model_sources": "src/weather/model/model_sources.py",
+          "weather.model.source_adapters": "src/weather/model/source_adapters.py",
+          "weather.model.toronto_model": "src/weather/model/toronto_model.py"
+        },
+        "relevant_module_paths": 19
+      },
+      "python": {
+        "implementation": "CPython",
+        "version": "3.11.9"
+      },
+      "runtime_open_artifact_or_config_files": 87,
+      "schema_version": "loaded_runtime_content_bundle_v1",
+      "source_module_files": 49,
+      "total_bytes": 222584905,
+      "total_files": 136
+    },
+    "environment_content_id": "8d4b68345042b2e873632b8cf82c53583b6031561ff137b57b93dcfcac56d286",
+    "loaded_module_files": {
+      "all_weather_module_files": {
+        "weather": "src/weather/__init__.py",
+        "weather.artifacts": "src/weather/artifacts.py",
+        "weather.forecast_payload_contracts": "src/weather/forecast_payload_contracts.py",
+        "weather.io": "src/weather/io.py",
+        "weather.market": "src/weather/market/__init__.py",
+        "weather.market.market_config": "src/weather/market/market_config.py",
+        "weather.market.market_registry": "src/weather/market/market_registry.py",
+        "weather.model": "src/weather/model/__init__.py",
+        "weather.model.calibration_runtime": "src/weather/model/calibration_runtime.py",
+        "weather.model.continuous_density": "src/weather/model/continuous_density.py",
+        "weather.model.feature_store": "src/weather/model/feature_store.py",
+        "weather.model.model_base": "src/weather/model/model_base.py",
+        "weather.model.model_climatology": "src/weather/model/model_climatology.py",
+        "weather.model.model_constants": "src/weather/model/model_constants.py",
+        "weather.model.model_contracts": "src/weather/model/model_contracts.py",
+        "weather.model.model_distribution": "src/weather/model/model_distribution.py",
+        "weather.model.model_distribution_constants": "src/weather/model/model_distribution_constants.py",
+        "weather.model.model_distribution_signals": "src/weather/model/model_distribution_signals.py",
+        "weather.model.model_features": "src/weather/model/model_features.py",
+        "weather.model.model_presentation": "src/weather/model/model_presentation.py",
+        "weather.model.model_sources": "src/weather/model/model_sources.py",
+        "weather.model.source_adapters": "src/weather/model/source_adapters.py",
+        "weather.model.toronto_model": "src/weather/model/toronto_model.py",
+        "weather.paths": "src/weather/paths.py",
+        "weather.point_in_time_contract": "src/weather/point_in_time_contract.py",
+        "weather.release_artifacts": "src/weather/release_artifacts.py",
+        "weather.release_contract": "src/weather/release_contract.py",
+        "weather.release_serving": "src/weather/release_serving.py",
+        "weather.runtime_identity": "src/weather/runtime_identity.py",
+        "weather.schema_registry": "src/weather/schema_registry.py",
+        "weather.schema_registry_data": "src/weather/schema_registry_data.py",
+        "weather.schema_registry_recent_data": "src/weather/schema_registry_recent_data.py",
+        "weather.schema_registry_types": "src/weather/schema_registry_types.py",
+        "weather.scoring": "src/weather/scoring/__init__.py",
+        "weather.scoring.metrics": "src/weather/scoring/metrics.py",
+        "weather.sources": "src/weather/sources/__init__.py",
+        "weather.sources.daily_summary": "src/weather/sources/daily_summary.py",
+        "weather.sources.eccc_gridded": "src/weather/sources/eccc_gridded.py",
+        "weather.sources.forecast_history": "src/weather/sources/forecast_history.py",
+        "weather.sources.forecast_payload_fanout": "src/weather/sources/forecast_payload_fanout.py",
+        "weather.sources.grib_probe": "src/weather/sources/grib_probe.py",
+        "weather.sources.historical_schema": "src/weather/sources/historical_schema.py",
+        "weather.sources.marine_context": "src/weather/sources/marine_context.py",
+        "weather.sources.mrms_precip": "src/weather/sources/mrms_precip.py",
+        "weather.sources.nbm_probabilistic_tmax": "src/weather/sources/nbm_probabilistic_tmax.py",
+        "weather.sources.reanalysis_history": "src/weather/sources/reanalysis_history.py",
+        "weather.sources.reanalysis_synoptic": "src/weather/sources/reanalysis_synoptic.py",
+        "weather.sources.wu_history": "src/weather/sources/wu_history.py",
+        "weather.units": "src/weather/units.py"
+      },
+      "escaped_weather_modules": {},
+      "module_paths": 49,
+      "relevant_model_calibration_feature_market_module_files": {
+        "weather.market": "src/weather/market/__init__.py",
+        "weather.market.market_config": "src/weather/market/market_config.py",
+        "weather.market.market_registry": "src/weather/market/market_registry.py",
+        "weather.model": "src/weather/model/__init__.py",
+        "weather.model.calibration_runtime": "src/weather/model/calibration_runtime.py",
+        "weather.model.continuous_density": "src/weather/model/continuous_density.py",
+        "weather.model.feature_store": "src/weather/model/feature_store.py",
+        "weather.model.model_base": "src/weather/model/model_base.py",
+        "weather.model.model_climatology": "src/weather/model/model_climatology.py",
+        "weather.model.model_constants": "src/weather/model/model_constants.py",
+        "weather.model.model_contracts": "src/weather/model/model_contracts.py",
+        "weather.model.model_distribution": "src/weather/model/model_distribution.py",
+        "weather.model.model_distribution_constants": "src/weather/model/model_distribution_constants.py",
+        "weather.model.model_distribution_signals": "src/weather/model/model_distribution_signals.py",
+        "weather.model.model_features": "src/weather/model/model_features.py",
+        "weather.model.model_presentation": "src/weather/model/model_presentation.py",
+        "weather.model.model_sources": "src/weather/model/model_sources.py",
+        "weather.model.source_adapters": "src/weather/model/source_adapters.py",
+        "weather.model.toronto_model": "src/weather/model/toronto_model.py"
+      },
+      "relevant_module_paths": 19
+    },
+    "runtime_bundle_bytes": 54921586,
+    "runtime_bundle_path": "docs/roadmap/repair-ceiling-single-environment-runtime-bundle-53ec30351dd222b3.zip",
+    "runtime_bundle_sha256": "53ec30351dd222b33bda0d7dae24c68cff4f316971f580239fa98c697f082653",
+    "source_base_commit": "ab6159d312a87a0095229e6034f15cfd55892847",
+    "working_tree_head_at_measurement": "ab6159d312a87a0095229e6034f15cfd55892847"
+  },
+  "inference": {
+    "crossed_bootstrap": {
+      "lower_mean_minus_q_se": 0.3016808857706521,
+      "percentile_interval_used": false,
+      "point_mean": 0.47200491655284416,
+      "pointwise_domination_transfers_to_interval_bound": false,
+      "q": 3.1098893,
+      "replicates": 10000,
+      "seed": 20260977,
+      "standard_error": 0.05476851886084563,
+      "upper_mean_plus_q_se": 0.6423289473350362
+    },
+    "estimand": "outcome-free declared ceiling statistic with p=candidate and q=incumbent",
+    "formula": "sum(p_k^2)-sum(q_k^2)+2*max_k(q_k-p_k)",
+    "per_market": {
+      "atlanta": {
+        "max_ceiling_delta_brier": 0.6045130057296637,
+        "mean_ceiling_delta_brier": 0.37769431595780306,
+        "mean_l1_displacement": 0.5493594355863478,
+        "min_ceiling_delta_brier": 0.0769114167262906,
+        "rows": 51
+      },
+      "austin": {
+        "max_ceiling_delta_brier": 1.2863026100829853,
+        "mean_ceiling_delta_brier": 0.4906488317873764,
+        "mean_l1_displacement": 0.6365778515280152,
+        "min_ceiling_delta_brier": 0.012159498114087175,
+        "rows": 40
+      },
+      "chicago": {
+        "max_ceiling_delta_brier": 1.2322385710287527,
+        "mean_ceiling_delta_brier": 0.39629980535077003,
+        "mean_l1_displacement": 0.5266487565634521,
+        "min_ceiling_delta_brier": 0.020693566320553372,
+        "rows": 25
+      },
+      "dallas": {
+        "max_ceiling_delta_brier": 0.5904142627396665,
+        "mean_ceiling_delta_brier": 0.28646990914899695,
+        "mean_l1_displacement": 0.43307582571866393,
+        "min_ceiling_delta_brier": 0.08636125426249898,
+        "rows": 37
+      },
+      "denver": {
+        "max_ceiling_delta_brier": 0.8950258264717418,
+        "mean_ceiling_delta_brier": 0.4840160781646702,
+        "mean_l1_displacement": 0.6842700368307046,
+        "min_ceiling_delta_brier": 0.09370719151592632,
+        "rows": 21
+      },
+      "houston": {
+        "max_ceiling_delta_brier": 0.6445224238894942,
+        "mean_ceiling_delta_brier": 0.3669267942981554,
+        "mean_l1_displacement": 0.49921526256585763,
+        "min_ceiling_delta_brier": 0.22964260563042338,
+        "rows": 22
+      },
+      "los-angeles": {
+        "max_ceiling_delta_brier": 1.1723164920235813,
+        "mean_ceiling_delta_brier": 0.76695042312155,
+        "mean_l1_displacement": 0.6690891251399711,
+        "min_ceiling_delta_brier": 0.10341945310676803,
+        "rows": 27
+      },
+      "miami": {
+        "max_ceiling_delta_brier": 1.6893698194004423,
+        "mean_ceiling_delta_brier": 0.7661796266095735,
+        "mean_l1_displacement": 0.6999526862747806,
+        "min_ceiling_delta_brier": 0.08998215081267558,
+        "rows": 25
+      },
+      "nyc": {
+        "max_ceiling_delta_brier": 1.2721162182557222,
+        "mean_ceiling_delta_brier": 0.5413355961856134,
+        "mean_l1_displacement": 0.6806162770677733,
+        "min_ceiling_delta_brier": 0.07274333346950146,
+        "rows": 31
+      },
+      "san-francisco": {
+        "max_ceiling_delta_brier": 0.6496450119113815,
+        "mean_ceiling_delta_brier": 0.38675901014077196,
+        "mean_l1_displacement": 0.4449603677665324,
+        "min_ceiling_delta_brier": 0.0,
+        "rows": 8
+      },
+      "seattle": {
+        "max_ceiling_delta_brier": 0.9880418638643311,
+        "mean_ceiling_delta_brier": 0.48078227730888723,
+        "mean_l1_displacement": 0.6787806130400208,
+        "min_ceiling_delta_brier": 0.0,
+        "rows": 57
+      },
+      "toronto": {
+        "max_ceiling_delta_brier": 1.4339705254958286,
+        "mean_ceiling_delta_brier": 0.3718174816165027,
+        "mean_l1_displacement": 0.39234981782148376,
+        "min_ceiling_delta_brier": 0.03982466333394313,
+        "rows": 24
+      }
+    },
+    "per_target_date": {
+      "2026-06-09": {
+        "max_ceiling_delta_brier": 0.0,
+        "mean_ceiling_delta_brier": 0.0,
+        "mean_l1_displacement": 0.0,
+        "min_ceiling_delta_brier": 0.0,
+        "rows": 2
+      },
+      "2026-06-12": {
+        "max_ceiling_delta_brier": 1.0001787704159169,
+        "mean_ceiling_delta_brier": 1.0001787704159169,
+        "mean_l1_displacement": 0.9309222721603782,
+        "min_ceiling_delta_brier": 1.0001787704159169,
+        "rows": 1
+      },
+      "2026-06-14": {
+        "max_ceiling_delta_brier": 0.800604375792968,
+        "mean_ceiling_delta_brier": 0.34428096726848156,
+        "mean_l1_displacement": 0.483014487129019,
+        "min_ceiling_delta_brier": 0.0751394776632073,
+        "rows": 5
+      },
+      "2026-06-15": {
+        "max_ceiling_delta_brier": 0.36101632991932664,
+        "mean_ceiling_delta_brier": 0.24691174750740155,
+        "mean_l1_displacement": 0.3299285460109668,
+        "min_ceiling_delta_brier": 0.13280716509547646,
+        "rows": 2
+      },
+      "2026-06-16": {
+        "max_ceiling_delta_brier": 1.4339705254958286,
+        "mean_ceiling_delta_brier": 0.4404147614932312,
+        "mean_l1_displacement": 0.6052604774706853,
+        "min_ceiling_delta_brier": 0.09849915811951622,
+        "rows": 20
+      },
+      "2026-06-17": {
+        "max_ceiling_delta_brier": 1.242165520498259,
+        "mean_ceiling_delta_brier": 0.466216211188835,
+        "mean_l1_displacement": 0.6403868280859925,
+        "min_ceiling_delta_brier": 0.03982466333394313,
+        "rows": 30
+      },
+      "2026-06-19": {
+        "max_ceiling_delta_brier": 1.2746971668848093,
+        "mean_ceiling_delta_brier": 0.4071028391315452,
+        "mean_l1_displacement": 0.5214171065084872,
+        "min_ceiling_delta_brier": 0.012159498114087175,
+        "rows": 84
+      },
+      "2026-06-20": {
+        "max_ceiling_delta_brier": 1.1723164920235813,
+        "mean_ceiling_delta_brier": 0.5192883611592473,
+        "mean_l1_displacement": 0.5999146375098443,
+        "min_ceiling_delta_brier": 0.020693566320553372,
+        "rows": 113
+      },
+      "2026-06-21": {
+        "max_ceiling_delta_brier": 1.6893698194004423,
+        "mean_ceiling_delta_brier": 0.5011304972594178,
+        "mean_l1_displacement": 0.6427342756888867,
+        "min_ceiling_delta_brier": 0.17020053099040738,
+        "rows": 83
+      },
+      "2026-06-22": {
+        "max_ceiling_delta_brier": 1.040206129392867,
+        "mean_ceiling_delta_brier": 0.49085806711080004,
+        "mean_l1_displacement": 0.5392516834563993,
+        "min_ceiling_delta_brier": 0.08998215081267558,
+        "rows": 22
+      },
+      "2026-06-26": {
+        "max_ceiling_delta_brier": 0.5999469110260915,
+        "mean_ceiling_delta_brier": 0.4031147628549718,
+        "mean_l1_displacement": 0.7050398056848387,
+        "min_ceiling_delta_brier": 0.07274333346950146,
+        "rows": 6
+      }
+    },
+    "smallest_effect_detectable": {
+      "arithmetic": "max(0.032 * ((3.1098893 + 0.8416212335729143) / (1.959963984540054 + 0.8416212335729143)), (3.1098893 + 0.8416212335729143) * 0.05476851886084563)",
+      "binding_smallest_detectable_effect": 0.21641837918681833,
+      "candidate_field_mde_from_crossed_se": 0.21641837918681833,
+      "corrected_twelve_market_floor_fraction": 0.04513456747873035,
+      "dates_cannot_remove_market_floor": true,
+      "ledger_q_multiplier": 1.4104552337103233,
+      "power": 0.8,
+      "reference_twelve_market_floor_fraction": 0.032,
+      "z_power": 0.8416212335729143
+    },
+    "support": {
+      "date_clusters": 11,
+      "defined_paired_rows": 368,
+      "market_clusters": 12,
+      "market_days": 66,
+      "population_rows": 368,
+      "undefined_rows": 0
+    },
+    "verdict": "CEILING_ABOVE_DETECTABLE_FLOOR_DRAFT_PREREGISTRATION"
+  },
+  "inputs": {
+    "captured_raw_payloads": true,
+    "input_receipts": [
+      {
+        "bytes": 4650997,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-atlanta-on-june-14-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "1e38fd0842ea1d2a3a06779965a0b6384e46436aa8dfda107753e9fa88fbe899"
+      },
+      {
+        "bytes": 48654885,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-atlanta-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "327af88dde099660badf0fbe0a4a3471d7318cd1f0b845557c9adda2de98a2aa"
+      },
+      {
+        "bytes": 83757764,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-atlanta-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 21,
+        "sha256": "311ce28707b82264c474044e76729b587bb9aaf8ac82b9a15ea3e4a593896a67"
+      },
+      {
+        "bytes": 73503843,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-atlanta-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 9,
+        "sha256": "49ccd59e5498292989970831e698fe9e4e5cdbe97d8e232894ffe3b9b952b369"
+      },
+      {
+        "bytes": 73377337,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-atlanta-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 11,
+        "sha256": "af19ba53842abed40d5d58568b5ebfe6428ae352e9a38f14fb84d4044fe64d34"
+      },
+      {
+        "bytes": 71560721,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-atlanta-on-june-22-2026/replay_inputs.jsonl",
+        "selected_rows": 8,
+        "sha256": "9c3566df66a2631db40ca3e0813cfc883eec3c94b66b0e4969a9b6d625891340"
+      },
+      {
+        "bytes": 59584081,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-austin-on-june-16-2026/replay_inputs.jsonl",
+        "selected_rows": 3,
+        "sha256": "9efcd68225e5b585799252f0e2ca6ae9fb1cfe049a4b0ab5ef63d265d480e4b0"
+      },
+      {
+        "bytes": 55886356,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-austin-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 6,
+        "sha256": "2b07c3c384492dd3deb8ed3e0cc48a85f0a426c208b9c777ef19f96f743a1867"
+      },
+      {
+        "bytes": 66053412,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-austin-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 8,
+        "sha256": "4b6fc35fc51cb2dc5bf373ccf2c5942401aa60c73324ff03ce11f528c0cff510"
+      },
+      {
+        "bytes": 79285452,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-austin-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 5,
+        "sha256": "af731ed4604bd03eea434928e0023687d688adaa31c9982406550b11f134c53e"
+      },
+      {
+        "bytes": 90234322,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-austin-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 14,
+        "sha256": "62713457852b0fb3748a3471422ff50a2cf171dcd069be141bd8988fc0f9407b"
+      },
+      {
+        "bytes": 62395557,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-austin-on-june-22-2026/replay_inputs.jsonl",
+        "selected_rows": 2,
+        "sha256": "505366332425438d561b289593119e9a7c53131ade354d61891474dcb1458b84"
+      },
+      {
+        "bytes": 58697080,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-austin-on-june-26-2026/replay_inputs.jsonl",
+        "selected_rows": 2,
+        "sha256": "b19ac216115a25fa3ae7deb22dbd94d991261415495c72ec6b1944c95a0dd1f8"
+      },
+      {
+        "bytes": 19781235,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-chicago-on-june-15-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "f998d4db92c1bfe60ce1168da63bb5abe21c64d7af92b0329a821b50c24fdeac"
+      },
+      {
+        "bytes": 132504956,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-chicago-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 7,
+        "sha256": "3d7af0c31189cd620e49317b7c98a0a0446db54be4cf2b04123a0ebf4a85a9ce"
+      },
+      {
+        "bytes": 149753972,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-chicago-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 17,
+        "sha256": "2eb9aa5ee2a86eb7e005e434f70cc6daa21728635e5ce7a105b7cf5c1724a765"
+      },
+      {
+        "bytes": 9535919,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-dallas-on-june-15-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "8789a88e5a57dd808d736b587614fdef542e9b6d4c5232e6850c2248a28715c1"
+      },
+      {
+        "bytes": 60981574,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-dallas-on-june-16-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "f17c503a651a32748febcc9b79eb5e0fb05bf52c384a3970f4b8ab458f961e4f"
+      },
+      {
+        "bytes": 55711803,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-dallas-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 6,
+        "sha256": "95c59eaabbf8508612c71d1d16a232dd7ab7eb40858657450dfc44311207ce69"
+      },
+      {
+        "bytes": 84022029,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-dallas-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 17,
+        "sha256": "695007cbce86b7880e23536df156c504ff6dcb75327c14166858f091ef9b2535"
+      },
+      {
+        "bytes": 78350079,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-dallas-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 10,
+        "sha256": "ba79cf976cf5ecf86efb5a46e2c700e62cabcca7c5693ed8ae96a7c3bd4eb5aa"
+      },
+      {
+        "bytes": 66749106,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-dallas-on-june-22-2026/replay_inputs.jsonl",
+        "selected_rows": 2,
+        "sha256": "6a6b4771a8db7bbb9f7142a08b92d0699968f1864f9434e934fe2bf5e218b3c8"
+      },
+      {
+        "bytes": 4966018,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-denver-on-june-14-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "c0a7827a381398315bc1c1ba7dec4fa102fcb09fc7a9f93bbdd9ec8fb080e37d"
+      },
+      {
+        "bytes": 70120123,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-denver-on-june-16-2026/replay_inputs.jsonl",
+        "selected_rows": 4,
+        "sha256": "74322fb1e128a4b9ac36faa662e95a9db7f6d5d39ea27fea012a309658b9cacc"
+      },
+      {
+        "bytes": 64035228,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-denver-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 3,
+        "sha256": "412b769c0ca070bc24c348c499992b308518664afd8f0588aa1a2a77a24cd908"
+      },
+      {
+        "bytes": 79240979,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-denver-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 10,
+        "sha256": "1dd0ae8ae1c3e7ec768b91d5a8d68bf1b1c632e6d00b6acd0c32de3231163ca3"
+      },
+      {
+        "bytes": 98863323,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-denver-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 3,
+        "sha256": "3e17838bcd5b2ea9e00646862ba2fc211eaa6decf8ca26c0867adc4a9a8fc47d"
+      },
+      {
+        "bytes": 76928899,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-houston-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 4,
+        "sha256": "c1292db369b5aa51cb8efdb97f2c598cc1519f71f3ad0beaf19ec0cf5a2bec0d"
+      },
+      {
+        "bytes": 95515542,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-houston-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 10,
+        "sha256": "2b9ea2c382a9530f0c49d3447fccc151f12f5b41f9f991f2daff97ad314c110e"
+      },
+      {
+        "bytes": 88951823,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-houston-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 5,
+        "sha256": "764de35ee901180f3ff8b01160d1d2feeaae79f1f6847e06a35423d3cb7c935a"
+      },
+      {
+        "bytes": 90094052,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-houston-on-june-22-2026/replay_inputs.jsonl",
+        "selected_rows": 2,
+        "sha256": "722ce67cb0412102530e702f2b87ada87ee24d2e46c23cb655b69372498fb8ce"
+      },
+      {
+        "bytes": 81528977,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-houston-on-june-26-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "7650b3940c57b2067a78f4d46720d36dce067883e243eba015e956e9a75765d8"
+      },
+      {
+        "bytes": 61480790,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-los-angeles-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 3,
+        "sha256": "11dcfaa5f731370e81928aaaaf674f531d663f33373760f61f9c3b4a7f1d5bca"
+      },
+      {
+        "bytes": 92407900,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-los-angeles-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 14,
+        "sha256": "cea4b19ac8abe153c4876aaada4ac60250c7ee671f417a4a10acff7815e32de6"
+      },
+      {
+        "bytes": 99691054,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-los-angeles-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 9,
+        "sha256": "cbd3ce792d657eef73d225cbc10046855db27c726aa557dc6b610af3a0286503"
+      },
+      {
+        "bytes": 76788580,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-los-angeles-on-june-22-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "45a9a4eb03cbd5104d8a09322aed5ccba984d3b503c1625ae1a31e73430164f1"
+      },
+      {
+        "bytes": 88663910,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-miami-on-june-16-2026/replay_inputs.jsonl",
+        "selected_rows": 2,
+        "sha256": "09844573c0b5d0868d1bca435712e8cd194fa3efdcf0b1ba155e1bde917ddc8a"
+      },
+      {
+        "bytes": 87025223,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-miami-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 4,
+        "sha256": "acd8073392b930987a17c90dc8e91446dc25d03a747c1308550b53fb5a70f7a1"
+      },
+      {
+        "bytes": 100569972,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-miami-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 6,
+        "sha256": "26da8890c4a5d97c3122eeb65b2e373f4fb5943369031bb45c8d243940fccaf8"
+      },
+      {
+        "bytes": 121314021,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-miami-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "6ffe355bcdc9ff9b24e7e49dde61b056cd98c99f2c6270fcd9df7185b7a52143"
+      },
+      {
+        "bytes": 116922842,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-miami-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 5,
+        "sha256": "b99089cec848bc8b00efb659776bad777abd6a1a27688de7e5543186327fbd9b"
+      },
+      {
+        "bytes": 105642439,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-miami-on-june-22-2026/replay_inputs.jsonl",
+        "selected_rows": 7,
+        "sha256": "e1333e0d7cce6bc54cf055c2f2bf3a49c4332d9bccc480836769b6652034cf56"
+      },
+      {
+        "bytes": 2033000,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-nyc-on-june-12-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "ddfccbea61fc7a5e2990a6c4d93b4555bdb86cc7f51ee91167b2c7a4b083edba"
+      },
+      {
+        "bytes": 4579611,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-nyc-on-june-14-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "572ab75e8f6176d98385d91a5a70103acb60b00f77073706dd6738cb2ea5d49e"
+      },
+      {
+        "bytes": 89261527,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-nyc-on-june-16-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "1f0a71b5a656e4a4808291f43806c1e011477f7a56e80f01d3ebcc50d9554273"
+      },
+      {
+        "bytes": 107939155,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-nyc-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 3,
+        "sha256": "555bba2f02bcf18e2d939f9cf1d3c71738d3d65d1ece81040526e53f00e9304b"
+      },
+      {
+        "bytes": 160305540,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-nyc-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 15,
+        "sha256": "f33a2c192b828f652009e6c2b231726dca54fb122b59ad0629ca5bd08d6d025a"
+      },
+      {
+        "bytes": 141202860,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-nyc-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 7,
+        "sha256": "3580464b1a13fed53f4c51912929a88d843ef925e15d02b0dba31f7f713f4abe"
+      },
+      {
+        "bytes": 98464320,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-nyc-on-june-26-2026/replay_inputs.jsonl",
+        "selected_rows": 3,
+        "sha256": "edbc4d77a727b3e75520b7d544cae8db15739392fb292296f02e019e2ea62974"
+      },
+      {
+        "bytes": 1190982,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-san-francisco-on-june-9-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "5023630d206bf3228e8e2c36c5679e094e226f5f424697d6e516544fc9e377c0"
+      },
+      {
+        "bytes": 4541075,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-san-francisco-on-june-14-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "963e495e830d89bd31864206a2f61e90309b4b7b77636092b82c84f95ee7edba"
+      },
+      {
+        "bytes": 109401783,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-san-francisco-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "685105f0693174fe86ecd318095ce52ea86b63e99efd9b3001a48fc2c823d155"
+      },
+      {
+        "bytes": 170941502,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-san-francisco-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 4,
+        "sha256": "da21fae2e551ef6364604d2e8d673d2d59ceea6eac18d50f1bb634d5551270a5"
+      },
+      {
+        "bytes": 138525055,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-san-francisco-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "fbeb617d3ea76944e03a14cc7d7df2aaef3fd31629853e4b67e6a9757e423ce4"
+      },
+      {
+        "bytes": 1340754,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-seattle-on-june-9-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "8d065b0bb87ef07b9e3f7c233c35a31102fda8ec2f5dc8ba38c0c2d0d3a91d57"
+      },
+      {
+        "bytes": 4607607,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-seattle-on-june-14-2026/replay_inputs.jsonl",
+        "selected_rows": 1,
+        "sha256": "ed61ebb0861f005df7557d14979e0806e41973dea60c79fd75bf931dbcedff4c"
+      },
+      {
+        "bytes": 104338385,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-seattle-on-june-16-2026/replay_inputs.jsonl",
+        "selected_rows": 7,
+        "sha256": "2c7c88d13aa664151fad44c71385f02d729d05e5d80010c1d6efc92507001ff5"
+      },
+      {
+        "bytes": 93793518,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-seattle-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 4,
+        "sha256": "03244dfb6ad3ff0b6bb98b192cb50fc9827c12dd5e6097fd5fb6411f8ef60acb"
+      },
+      {
+        "bytes": 121261758,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-seattle-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 6,
+        "sha256": "d4ddfc8f7e9013a30089ccc5424cdd0b74bcddb585a38c1e7722530f4ba7d96a"
+      },
+      {
+        "bytes": 129916187,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-seattle-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 20,
+        "sha256": "3a05e0215a3b84cc9e24f1fca5d3a11d4a864e9c592e1365b073a031d2814c42"
+      },
+      {
+        "bytes": 119644416,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-seattle-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 18,
+        "sha256": "475f97eee031a904e293109e02dde10216863cd6d13ec08d53a31abd59a8e433"
+      },
+      {
+        "bytes": 17861348,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-toronto-on-june-16-2026/replay_inputs.jsonl",
+        "selected_rows": 2,
+        "sha256": "830887eb7158bf87a3277b29990187306f1ff74727a6af8b560f52cc106afa33"
+      },
+      {
+        "bytes": 22115781,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-toronto-on-june-17-2026/replay_inputs.jsonl",
+        "selected_rows": 2,
+        "sha256": "9c45440ea9c325a91f831b82b5337056edab578034cb7627d8c66656172621e0"
+      },
+      {
+        "bytes": 26535971,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-toronto-on-june-19-2026/replay_inputs.jsonl",
+        "selected_rows": 9,
+        "sha256": "e8d7a8429419c2d789bcad01a68fe83104440f586e390d2060f825ac37f35ac6"
+      },
+      {
+        "bytes": 33529552,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-toronto-on-june-20-2026/replay_inputs.jsonl",
+        "selected_rows": 8,
+        "sha256": "6f238a7d4958ee2ae41266500da8ed327b4300c993f497f4fe0a1cf29d247e95"
+      },
+      {
+        "bytes": 35248795,
+        "kind": "captured_replay_inputs",
+        "path": "data/snapshots/highest-temperature-in-toronto-on-june-21-2026/replay_inputs.jsonl",
+        "selected_rows": 3,
+        "sha256": "92256bcf68a745a1e8ef9c5fba204b4402ab312512eee3d31bf13c27b0e9c2e6"
+      }
+    ],
+    "input_support": {
+      "duplicate_replay_capture_key_rows": 1,
+      "future_snapshots_consumed": 0,
+      "input_files": 66,
+      "input_receipts_sha256": "86591a76c44ac27f45df15fd1c4b0a4287d178dc13352682a57fc75ec01f4eff",
+      "market_days_scanned": 66,
+      "replay_bytes_scanned": 4924364657,
+      "replay_rows_scanned": 13664,
+      "selected_rows": 368,
+      "strict_prior_failures": 0
+    }
+  },
+  "mission": "2026-09-77a",
+  "question_answered": "what the repair can buy under today's single environment",
+  "question_not_answered": "what we would have served historically",
+  "receipts": {
+    "C_endpoint": false,
+    "alpha_allocated_by_mission": 0,
+    "alpha_available": 13,
+    "alpha_budget": 20,
+    "alpha_spent": 7,
+    "commit_binding_attempted": false,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "delta_i_computed": false,
+    "identity_binding_attempted": false,
+    "market_compared": false,
+    "outcome_scored": false,
+    "realized_band_read": false,
+    "settlement_consulted": false,
+    "synthetic_historical_tree_created": false,
+    "whole_B_computed": false
+  },
+  "schema_version": "single_environment_repair_ceiling_manifest_v1"
+}
