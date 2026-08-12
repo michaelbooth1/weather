@@ -1815,7 +1815,29 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("feature_store_legacy_v0_5", "toronto_feature_store_v0.5", "weather.model.feature_store", "legacy"),
     SchemaSpec("replay_inputs_reconstructed", "toronto_replay_inputs_reconstructed_v0.1", "weather.backtesting.replay", "active"),
     SchemaSpec("replay_inputs", "toronto_replay_inputs_v0.1", "weather.collection.snapshot_tracker", "active"),
-    SchemaSpec("weather_model_replay_identity", "weather_model_replay_identity_v0.1", "weather.model.model_identity", "active"),
+    SchemaSpec(
+        "weather_model_replay_identity",
+        "weather_model_replay_identity_v0.2",
+        "weather.model.model_identity",
+        "active",
+        "Process-bound model replay identity: import-time code_hash, in-memory loaded_code_hash, observed disk drift.",
+        supersedes=("weather_model_replay_identity_v0.1",),
+        migration_notes=(
+            "v0.1 fingerprinted code from disk at capture time, so the recorded identity described the "
+            "filesystem rather than the running process; -09-75a/-09-76a measured the consequence (114/358 "
+            "snapshots reproduced their own recorded output; 0/63 identities rebuildable from Git). v0.2 "
+            "snapshots code_hash at import, adds loaded_code_hash over in-memory code objects, and reports "
+            "code_disk_drift without hashing it. v0.1 identity hashes are not comparable to v0.2 and must "
+            "not be pooled with them."
+        ),
+    ),
+    SchemaSpec(
+        "weather_model_replay_identity_legacy",
+        "weather_model_replay_identity_v0.1",
+        "weather.model.model_identity",
+        "legacy",
+        "Disk-at-capture-time model replay identity. Retained to read historical snapshots only.",
+    ),
     SchemaSpec("wu_daily_legacy", "wu_daily_native_v1", "weather.sources.daily_summary", "legacy"),
     SchemaSpec("wu_hourly", "wu_hourly_native_v1", "weather.sources.wu_history", "active"),
     SchemaSpec("wu_max_since_7_validation", "wu_max_since_7_validation_v0.1", "weather.reporting.validation.wu_max_since_7_validation", "active"),
