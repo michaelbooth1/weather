@@ -20,32 +20,29 @@ do not** · 3. the market-making bot is the end goal.
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
 | Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. Task self-disarmed; **continuous capture is an unmade operator decision.** |
 
-## The instrument audit is CLOSED — the gap is real
+## Every lever we have tried is closed — and none of them spent α
 
-**Five missions hunted an instrument defect big enough to explain why we trail the market. None
-found one; none spent α.** `-09-64a` **PRECISE NULL** — the blind-feature repair adds **zero**
-realized-band zeros, repaired ≡ control row-for-row, so post-processing did not manufacture the gap.
-`-09-67a` closes the audit: the gap is **FLAT** across label-coverage buckets and the market's own
-Brier is flat too. **Cite the ~13% CEILING of the attribution interval — never the 1.5069% point**,
-which is a diagnostic, not a result. **"We trail the market" survived its last denominator check.**
+**The instrument audit is CLOSED (five missions, no defect found).** The gap is **FLAT** across
+label-coverage buckets and the market's own Brier is flat too (`-09-67a`); the blind-feature repair
+is a **precise null** (`-09-64a`). **Cite the ~13% CEILING of the attribution interval, never the
+1.5069% point.** **"We trail the market" survived its last denominator check.**
 
-## Gate 3 fired on a floor we never served — and is a size limit anyway
+**The observation-recovery candidate is now closed too, unpowered** — `-09-78a`, §5e below.
 
 `-09-63a` stopped at Gate 3; **decision 10 is CLOSED UNUSED / RETIRED**, not reassigned (§1j).
-**The stop stands on two real rows — but two of its cited facts do not.** Denver `2026-06-08` was
-**served `0.5206313021`, not `0.0`** (`-09-65a`: replay rebuilt the floor from a stale
-`wu_current.max_since_7am_c`), and the "3 surviving zeros" are **two plus a blank-floor fallback
-row** (`-09-68a`). **The realized-band-zero defect is NOT live** — it ended `2026-06-15` with
-`28d1c146`; **never quote the pooled 1.017% without the pre/post-fix split.** `-09-68a` also shows
+**The stop stands on two real rows — but two of its cited facts do not:** denver `2026-06-08` was
+**served `0.5206313021`, not `0.0`** (`-09-65a`), and the "3 surviving zeros" are **two plus a
+blank-floor fallback row** (`-09-68a`). **The realized-band-zero defect is NOT live** — it ended
+`2026-06-15` with `28d1c146`; **never quote the pooled 1.017% without the pre/post-fix split.**
 Gate 3 is a **panel-size limit** that rejects more often as evidence accumulates *regardless of
 candidate quality* — **do not re-register it unchanged.** Traces:
 [GATE_3_FIRED…](GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md) ·
+[REPLAY_DOES_NOT_REPRODUCE…](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md) ·
 [REPLAY_FLOOR_DIVERGES…](REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md) ·
-[SERVED_BAND_FLOOR_DEFECT…](SERVED_BAND_FLOOR_DEFECT_2026-08-10.md) (both versions).
+[SERVED_BAND_FLOOR_DEFECT…](SERVED_BAND_FLOOR_DEFECT_2026-08-10.md).
 
-**Every other lever is closed too** — reshaping (`-09-60a`, conditional loses to global on its own
-training score), inputs (`-09-44a`), quoting (`-09-46a`, 114 cells, zero positive). The served floor
-helps B only cosmetically (`-09-66a`), so **the B screens stand as run**. `74.97%` and three other
+**The others:** reshaping (`-09-60a`), inputs (`-09-44a`), quoting (`-09-46a`, 114 cells, zero
+positive). The served floor helps B only cosmetically (`-09-66a`). `74.97%` and three other
 headlines are retired with **no replacement** — cite the stratum. **The remaining lever is knowing
 MORE.** Numbers: §1, §1b, §1i, §4.
 
