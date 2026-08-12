@@ -15,7 +15,7 @@ do not** · 3. the market-making bot is the end goal.
 
 | Clock | Reads | Actually |
 | --- | --- | --- |
-| Capture streak | **1 / 14** | day 1 is 2026-08-09; lock ~**2026-08-22** if every day stays clean. The 7-day shelf life on the latest source day means a banked run cannot be hoarded. |
+| Capture streak | **2 / 14** | day 1 is 2026-08-09; `08-10` was recovered 08-11 late evening and grades `complete` 12/12. Lock ~**2026-08-22** if every day stays clean. The 7-day shelf life on the latest source day means a banked run cannot be hoarded. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b). A countable day never required a `QUOTE`. |
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
 | Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. Task self-disarmed; **continuous capture is an unmade operator decision.** |
@@ -77,10 +77,19 @@ Merges run off allowlists, **not** auto-discovery. `WeatherMergeQueueDriver` 05:
 ## Operations — what is actually wrong today
 
 - **SETTLEMENT HOLES OUTPACE REPAIR.** `08-06` and `08-08` are unsettled (`source='none'`,
-  `high=None`, 12/12); `08-10` is absent pending today's 09:30 chain. The 08-11 05:30 backfill for
-  08-06 **ran, reported `SETTLED`, and did nothing** — deferred at admission (commit `74.324%` vs a
-  `70.0%` ceiling) 15 ms in, while the guard checks only *"is the date string in the ledger"*, which
-  a `source='none'` row satisfies. **Countable date VOLUME is the critical path.**
+  `high=None`, 12/12) — genuine **source** holes: the WU dailies skip both dates, so they need an
+  explicit per-date backfill **with refetch**. The 08-11 05:30 backfill for 08-06 **ran, reported
+  `SETTLED`, and did nothing** — deferred at admission (commit `74.324%` vs a `70.0%` ceiling) 15 ms
+  in, while the guard checks only *"is the date string in the ledger"*, which a `source='none'` row
+  satisfies. **Countable date VOLUME is the critical path.**
+- **`08-10` was NOT a source hole and is now RECOVERED 12/12 `complete`.** The 08-11 chain restored
+  it (`restored 12/12`) and then lost it: `market_day_labels_finalize` died on a transient
+  `[Errno 13]` on austin's ledger, and `finalize_folders` had no per-folder isolation, so
+  `write_labels_csv` never ran and no market got an 08-10 row. Fixed in `bcb49506` (ROLL-FREE):
+  failures are now isolated, retried, and re-raised *after* surviving labels are persisted. **A
+  subset re-finalize must merge the labels CSV — `write_labels_csv` rewrites it whole and would have
+  truncated 789 rows to 12.** Trace:
+  [FINALIZE_LOST_A_SETTLEMENT_DAY…](FINALIZE_LOST_A_SETTLEMENT_DAY_2026-08-11.md).
 - **Host commit sits AT the admission ceiling** (70.3% vs 70.0%), so heavy chain steps keep
   deferring. The chain reading "deferred" is that, **not** a gate defect.
 - **Disk is the lock's binding constraint.** 155.0 GB free post-tiering, **−12.6 GB/day** at a fixed
