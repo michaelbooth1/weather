@@ -43,3 +43,13 @@ def test_operator_held_evidence_refresh_keeps_one_honest_warning():
     assert '"WeatherEveningEvidenceRefresh"' in text
     assert "$evidenceRefreshHeld = $true" in text
     assert "is operator-held DISABLED" in text
+
+
+def test_quiet_merge_recovery_interval_cannot_overlap_sensitive_driver():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
+    assert "-SettleSeconds\\s+(\\d+)" in text
+    assert "$settleSeconds + 240" in text
+    assert "$sensitiveDriverNextRun -ge $mergeTask.at" in text
+    assert "the driver can publish unverified local master" in text
