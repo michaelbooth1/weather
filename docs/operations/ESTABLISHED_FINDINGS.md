@@ -2073,7 +2073,21 @@ and the last fleet cadence had zero errors and zero stale markets.
 
 > A governed `-m weather.*` exemption is not sufficient by itself. Scheduler ownership must be
 > checked, because termination of the wrapper does not guarantee termination of its delegated
-> child. Do not re-enable `WeatherEveningEvidenceRefresh` until the wrapper owns child-tree teardown.
+> child.
+
+**Follow-up proof, 2026-08-13 18:16–18:21 local.** After the wrapper was changed to create its
+Python child suspended, assign it to a Windows Job Object with `KILL_ON_JOB_CLOSE`, and only then
+resume it, a real `WeatherEveningEvidenceRefresh` scheduled invocation established the tree
+`3288 → 17464 → 20180`. At the five-minute inspection, PID `20180` held **9,030.1 MB working set**
+and **13,810.1 MB private memory**; system commit was **28,703,297,536 / 37,054,656,512 bytes
+(77.46%)**. `Stop-ScheduledTask` moved the task to `Ready`, returned `0x41306`, and all three PIDs
+were gone in under three seconds without a separate process kill. System commit then fell to
+**16.91 / 34.51 GB (49.00%)**.
+
+This retires the orphan-cleanup defect but establishes a separate daytime-resource defect. The
+14:00/17:00 task is disabled again. Do not re-enable it until its evidence workload is chunked and
+guarded by capture-health plus commit admission; child-tree containment alone does not make an
+eight-hour monolith safe beside capture.
 
 ---
 
