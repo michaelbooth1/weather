@@ -56,12 +56,45 @@ Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("python.exe", "pyth
         }
     }
 }
+# S4U-owned process command lines are hidden from an ordinary interactive WMI
+# query on this host.  An empty command-line match is therefore UNKNOWN, not
+# DOWN.  Fall back to the capture workers' portable single-writer contract:
+# fresh heartbeat + live PID + a writer lock owned by that same PID.  This is
+# the same evidence the resource gate uses and still fails closed if any part
+# is absent, stale, unreadable, or mismatched.
+$portableCaps = [ordered]@{
+    "snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 300.0 }
+    "market_microstructure" = @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180.0 }
+    "observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }
+}
+$captureRoot = Join-Path $repo "data\snapshots"
+foreach ($label in $portableCaps.Keys) {
+    if ($capState[$label].Count -gt 0) { continue }
+    $spec = $portableCaps[$label]
+    try {
+        $status = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Status) -Raw | ConvertFrom-Json
+        $lock = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Lock) -Raw | ConvertFrom-Json
+        $pidValue = [int]$status.pid
+        $ageSeconds = ((Get-Date) - [datetime]$status.last_heartbeat).TotalSeconds
+        $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+        if ($pidValue -gt 0 -and [int]$lock.pid -eq $pidValue -and $process -and
+            $ageSeconds -ge 0 -and $ageSeconds -le [double]$spec.MaxAge) {
+            $priority = [string]$process.PriorityClass
+            # PriorityClass can be hidden with the command line under S4U.
+            # The separately scheduled priority guard owns re-assertion; this
+            # fallback proves liveness rather than inventing a priority value.
+            if (-not $priority) { $priority = "PortableHealthy" }
+            $capState[$label] += $priority
+        }
+    }
+    catch { }
+}
 foreach ($c in $caps.Keys) {
     if ($capState[$c].Count -eq 0) {
         $flags.Add("capture loop DOWN: $c")   # a dead capture loop is streak-critical
     }
     else {
-        $low = @($capState[$c] | Where-Object { $_ -notin @("AboveNormal", "High", "RealTime") })
+        $low = @($capState[$c] | Where-Object { $_ -notin @("AboveNormal", "High", "RealTime", "PortableHealthy") })
         if ($low.Count -gt 0) {
             $warns.Add("$c not all AboveNormal ($($capState[$c] -join ',')) - guard re-asserts within 5 min")
         }
