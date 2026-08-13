@@ -3715,7 +3715,7 @@ class TestDailyRefresh(unittest.TestCase):
             args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
             current = _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
             accepted_payload = json.loads(current.read_text(encoding="utf-8"))
-            accepted_payload["market_rules"]["tick_size"] = 0.01
+            accepted_payload["market_rules"]["tick_size"] = 0.005
             accepted = Path(args.exchange_economics_accepted_snapshot)
             accepted.parent.mkdir(parents=True, exist_ok=True)
             accepted.write_text(json.dumps(accepted_payload), encoding="utf-8")
@@ -3774,14 +3774,15 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["snapshot_refresh_status"], "PASS")
-        # The proof is stamped for the wall-clock day (as_of 2026-06-20) so it
-        # covers BOTH the active-day consumers (MM preflight, taker at target
-        # 06-20) and the settled-analysis target (06-19) via >= coverage —
-        # stamping D-1 blocked MM every day (2026-07-11).
+        # Current API economics are stamped and validated for the operating
+        # day. They are not backfilled onto the settled-analysis target.
+        self.assertEqual(result["target_date"], "2026-06-20")
+        self.assertEqual(result["settled_analysis_target_date"], "2026-06-19")
         self.assertEqual(result["snapshot_refresh_target_date"], "2026-06-20")
         self.assertEqual(refreshed_snapshot["verified_for_target_date"], "2026-06-20")
         self.assertEqual(payload["current_gate"]["status"], "PASS")
         self.assertEqual(payload["current_gate"]["verified_for_target_date"], "2026-06-20")
+        self.assertEqual(payload["settled_analysis_target_date"], "2026-06-19")
 
     def test_exchange_economics_refresh_uses_operating_date_not_utc_date(self):
         with tempfile.TemporaryDirectory() as tmp:

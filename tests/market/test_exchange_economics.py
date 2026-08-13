@@ -371,3 +371,41 @@ def test_paper_legs_bind_to_exact_condition_token_economics_and_missing_tokens_b
     assert coverage["missing_leg_count"] == 1
     assert covered_gate["status"] == "BLOCK"
     assert "paper_leg_condition_economics_bound" in covered_gate["missing"]
+
+
+def test_required_invalid_gate_cannot_inject_untrusted_paper_economics():
+    payload = _snapshot(token_ids=["201", "202"])
+    gate = exchange_economics._check_snapshot_payload(
+        payload,
+        target_date=TARGET_DATE,
+        now="2026-06-27T12:00:00+00:00",
+    )
+    legs = [{"clob_token_id": "201"}]
+
+    assert gate["status"] == "BLOCK"
+    coverage = exchange_economics.bind_legs_to_market_economics(
+        legs,
+        payload,
+        gate=gate,
+    )
+
+    assert coverage["source_gate_ok"] is False
+    assert coverage["ok"] is False
+    assert legs[0]["exchange_economics_bound"] is False
+    assert legs[0]["maker_rebate_fee_rate"] == 0.0
+    assert legs[0]["maker_rebate_pool_share"] == 0.0
+    assert legs[0]["flattening_fee_rate"] == 0.0
+
+
+def test_string_false_fees_enabled_is_not_valid_evidence():
+    payload = _snapshot()
+    payload["markets"][0]["fees_enabled"] = "false"
+
+    gate = exchange_economics._check_snapshot_payload(
+        payload,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+
+    assert gate["status"] == "BLOCK"
+    assert "global_market_economics_complete" in gate["missing"]
