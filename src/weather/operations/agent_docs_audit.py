@@ -167,11 +167,52 @@ def _is_immutable_record(path: Path) -> bool:
     return path.name.startswith(("agent-report-", "workstation-handoff-"))
 
 
+def _markdown_outside_fenced_code(text: str) -> str:
+    """Blank fenced code while preserving all prose and line boundaries.
+
+    PowerShell casts such as ``[string](...)`` have Markdown-link syntax but
+    are executable examples, not links. Link auditing fenced code therefore
+    produces false missing-file findings. Supporting both CommonMark fence
+    characters and longer closing fences keeps the scanner deterministic
+    without trying to parse the rest of Markdown.
+    """
+
+    fence: tuple[str, int] | None = None
+    visible: list[str] = []
+    for line in text.splitlines(keepends=True):
+        body = line.rstrip("\r\n")
+        indent = len(body) - len(body.lstrip(" "))
+        candidate = body[indent:] if indent <= 3 else ""
+        marker = candidate[:1]
+        run_length = 0
+        if marker in {"`", "~"}:
+            run_length = len(candidate) - len(candidate.lstrip(marker))
+
+        if fence is None:
+            if run_length >= 3:
+                fence = (marker, run_length)
+                visible.append("\n" if line.endswith(("\n", "\r")) else "")
+            else:
+                visible.append(line)
+            continue
+
+        if (
+            marker == fence[0]
+            and run_length >= fence[1]
+            and not candidate[run_length:].strip()
+        ):
+            fence = None
+        visible.append("\n" if line.endswith(("\n", "\r")) else "")
+    return "".join(visible)
+
+
 def broken_local_links(repo_root: Path, paths: list[Path] | None = None) -> list[str]:
     errors: list[str] = []
     for path in paths or _markdown_files(repo_root):
         immutable = _is_immutable_record(path)
-        text = path.read_text(encoding="utf-8-sig")
+        text = _markdown_outside_fenced_code(
+            path.read_text(encoding="utf-8-sig")
+        )
         for match in MARKDOWN_LINK_RE.finditer(text):
             raw_target = match.group(1)
             relative_path = path.relative_to(repo_root).as_posix()

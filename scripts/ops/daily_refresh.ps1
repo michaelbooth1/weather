@@ -31,6 +31,11 @@ if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
     throw "daily refresh contract script not found at $contractScript"
 }
 . $contractScript
+$jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+if (-not (Test-Path -LiteralPath $jobScript -PathType Leaf)) {
+    throw "kill-on-close Job helper not found at $jobScript"
+}
+. $jobScript
 
 $schedulerCommand = Get-Command $SchedulerTaskExecutable `
     -CommandType Application -ErrorAction Stop
@@ -82,10 +87,24 @@ if ($ProvenanceOnly) {
 $childArgs = @(Get-DailyRefreshChildTokens @childParameters)
 
 $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
-$child = Start-Process -FilePath $python `
-    -ArgumentList $childArgumentString `
-    -WorkingDirectory $RepoRoot `
-    -PassThru `
-    -WindowStyle Hidden
-$child.WaitForExit()
-exit $child.ExitCode
+$child = $null
+$childJob = $null
+$childExitCode = $null
+try {
+    # Create the delegated refresh suspended, assign it to the kill-on-close
+    # Job, and only then resume its first thread. Future descendants inherit
+    # the Job, and no Python instruction can run outside containment.
+    $childJob = New-WeatherKillOnCloseJob
+    $child = Start-WeatherProcessInJob `
+        -Job $childJob `
+        -FilePath $python `
+        -ArgumentString $childArgumentString `
+        -WorkingDirectory $RepoRoot
+    $child.WaitForExit()
+    $childExitCode = $child.ExitCode
+}
+finally {
+    if ($childJob) { $childJob.Dispose() }
+    if ($child) { $child.Dispose() }
+}
+exit $childExitCode

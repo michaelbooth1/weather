@@ -181,6 +181,13 @@ directory, and stage-specific SLA. Countability still requires the running
 wrapper PID/instance, task state, action, child lineage, and run-time
 correlation to match; child-supplied flags alone are not evidence.
 
+The wrapper owns the entire delegated process tree with a Windows Job Object
+configured for `KILL_ON_JOB_CLOSE`. It creates the Python child suspended,
+assigns it to that Job, and resumes it only after assignment succeeds. Thus no
+child instruction or descendant can run outside containment, and terminating
+the scheduled wrapper closes the only Job handle and tears down the tree.
+Failure to create, assign, or resume fails before daily-refresh work can begin.
+
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This
 keeps shared pre-promotion producers available to learning without allowing
