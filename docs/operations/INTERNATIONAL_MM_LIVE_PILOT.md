@@ -255,6 +255,25 @@ credentials themselves. Install the repository's exact `live` dependency extra
 in the eligible host's dedicated virtual environment; the runtime rejects any
 SDK version other than the pinned version.
 
+Run the keyless doctor before Stage 0. It validates the exact SDK version,
+Windows resolver availability, reference URI shapes and completeness, direct-
+secret absence, public-funder/identity equality, target/condition/token formats,
+and the requested budget without opening Credential Manager or authenticating to
+the exchange. Its receipt contains counts and gate names, never reference targets:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli doctor `
+  --identity C:\pilot\identity.json `
+  --target-date $pilotTargetDate `
+  --condition-id $pilotConditionId `
+  --token-id $pilotTokenId `
+  --budget 100 `
+  --receipt-out C:\pilot\doctor-receipt.json `
+  --confirmation INTERNATIONAL_POLYMARKET_STAGE0_KEYLESS_DOCTOR
+```
+
+Do not proceed unless the doctor receipt is `PASS` with an empty `missing` list.
+
 The geoblock evidence expires after five minutes. If credential provisioning or
 other setup is not already complete, treat the first identity as a preliminary
 eligibility check, then rerun `prepare-identity` with new paths immediately before

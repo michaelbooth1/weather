@@ -19,13 +19,17 @@ from pathlib import Path
 
 from weather.io import write_json_atomic
 from weather.market.mm_credentials import (
+    FUNDER_ENV,
+    REFERENCE_ENV,
     STAGE0_AUTHORIZATION,
     STAGE0_IDENTITY_SCHEMA_VERSION,
     build_pinned_clob_client,
     credential_secret_hygiene,
     load_global_credential_bundle,
+    parse_wincred_reference,
     stage0_client_identity_gate,
 )
+from weather.market.mm_exchange import credential_diagnostics
 from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.mm_live_bootstrap import (
     collect_platform_bootstrap_payload,
@@ -42,14 +46,17 @@ from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
     OFFICIAL_CLOB_VERSION,
     OfficialPolymarketGlobalAdapter,
+    CONDITION_ID_RE,
     exact_current_positions_evidence,
     fetch_current_positions,
+    installed_official_clob_version,
 )
 from weather.market.mm_user_stream import OfficialUserStreamReader
 from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     SIGNATURE_TYPE_IDS,
 )
+from weather.market.market_config import ensure_date
 from weather.schema_registry import schema_version
 
 
@@ -57,6 +64,7 @@ RECEIPT_SCHEMA_VERSION = schema_version("mm_live_pilot_command_receipt")
 MAX_PILOT_BUDGET = 100.0
 BUNDLE_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE"
 IDENTITY_CONFIRMATION = "INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY"
+DOCTOR_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE0_KEYLESS_DOCTOR"
 
 
 def _utc_iso() -> str:
@@ -387,6 +395,97 @@ def run_prepare_identity(
     return receipt
 
 
+def run_doctor(
+    args,
+    *,
+    env=None,
+    sdk_version_getter=installed_official_clob_version,
+    platform_name=os.name,
+) -> dict:
+    """Run the complete keyless setup check without resolving any credential."""
+
+    if args.confirmation != DOCTOR_CONFIRMATION:
+        raise RuntimeError("keyless doctor requires the exact confirmation token")
+    budget = _validate_budget(args.budget)
+    paths = _require_new_distinct_paths({"receipt": args.receipt_out})
+    receipt = _receipt("doctor", args, paths)
+    receipt["cleanup"] = {
+        "attempted": False,
+        "ok": True,
+        "reason": "keyless_command_no_credential_resolution_or_exchange_authentication",
+    }
+    process_env = env if env is not None else os.environ
+    operation_error = None
+    try:
+        identity = _read_json_object(args.identity)
+        public_funder = str(process_env.get(FUNDER_ENV) or "").strip()
+        identity_result = stage0_client_identity_gate(
+            identity,
+            expected_funder=public_funder if public_funder else "missing-public-funder",
+        )
+        diagnostics = credential_diagnostics("polymarket_global", env=process_env)
+        reference_shapes_valid = True
+        for variable_name in REFERENCE_ENV.values():
+            try:
+                parse_wincred_reference(process_env.get(variable_name))
+            except (TypeError, ValueError):
+                reference_shapes_valid = False
+        installed_version = sdk_version_getter()
+        try:
+            ensure_date(args.target_date)
+            target_date_valid = True
+        except (TypeError, ValueError):
+            target_date_valid = False
+        token_text = str(args.token_id or "").strip()
+        condition_text = str(args.condition_id or "").strip().lower()
+        try:
+            wallet_cap = float(identity.get("pilot_wallet_max_funding_usdc"))
+        except (TypeError, ValueError):
+            wallet_cap = None
+        checks = {
+            "windows_credential_resolver_available": platform_name == "nt",
+            "stage0_identity_gate_passes": identity_result.get("ok") is True,
+            "credential_reference_variables_complete": diagnostics.get("ok") is True,
+            "credential_reference_shapes_valid": reference_shapes_valid,
+            "direct_secret_environment_absent": not bool(
+                diagnostics.get("forbidden_direct_secret_env_names_present")
+            ),
+            "public_funder_present": bool(public_funder),
+            "public_funder_matches_identity": bool(public_funder)
+            and public_funder.lower()
+            == str(identity.get("funder_address") or "").lower(),
+            "official_sdk_exact_version_installed": installed_version
+            == OFFICIAL_CLOB_VERSION,
+            "target_date_valid": target_date_valid,
+            "condition_id_valid": CONDITION_ID_RE.fullmatch(condition_text) is not None,
+            "token_id_valid": token_text.isdigit() and int(token_text) > 0,
+            "requested_budget_within_identity_cap": wallet_cap is not None
+            and 0 < budget <= wallet_cap <= MAX_PILOT_BUDGET,
+        }
+        missing = [name for name, passed in checks.items() if not passed]
+        receipt["checks"] = checks
+        receipt["missing"] = missing
+        receipt["identity_missing"] = list(identity_result.get("missing") or [])
+        receipt["credential_reference_name_count"] = len(REFERENCE_ENV)
+        receipt["credential_reference_present_count"] = len(
+            diagnostics.get("present_env_names") or []
+        ) - (1 if FUNDER_ENV in (diagnostics.get("present_env_names") or []) else 0)
+        receipt["official_sdk_required_version"] = OFFICIAL_CLOB_VERSION
+        receipt["official_sdk_installed_version"] = installed_version
+        if missing:
+            raise RuntimeError("keyless doctor found blocking setup checks")
+    except Exception as exc:
+        operation_error = exc
+    receipt["status"] = "PASS" if operation_error is None else "FAIL"
+    if operation_error is not None:
+        receipt["exception_type"] = type(operation_error).__name__
+    receipt["finished_at_utc"] = _utc_iso()
+    write_json_atomic(paths["receipt"], receipt, trailing_newline=True)
+    if operation_error is not None:
+        raise operation_error
+    return receipt
+
+
 def run_stage0(
     args,
     *,
@@ -625,6 +724,18 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument("--confirm-isolated-wallet", action="store_true")
     identity.add_argument("--confirmation", required=True)
 
+    doctor = commands.add_parser(
+        "doctor",
+        help="Check keyless eligible-host setup without resolving credential values.",
+    )
+    doctor.add_argument("--identity", required=True)
+    doctor.add_argument("--target-date", required=True)
+    doctor.add_argument("--condition-id", required=True)
+    doctor.add_argument("--token-id", required=True)
+    doctor.add_argument("--budget", required=True, type=float)
+    doctor.add_argument("--receipt-out", required=True)
+    doctor.add_argument("--confirmation", required=True)
+
     stage0 = commands.add_parser("stage0", help="Collect the pre-order International account bootstrap.")
     _add_common_arguments(stage0)
     stage0.add_argument("--bootstrap-out", required=True)
@@ -660,6 +771,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "prepare-identity":
             receipt = run_prepare_identity(args)
+        elif args.command == "doctor":
+            receipt = run_doctor(args)
         elif args.command == "stage0":
             receipt = run_stage0(args)
         elif args.command == "stage1":
