@@ -70,6 +70,8 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `01:30` | `WeatherChainRecovery20260807` |
 | `01:50` | `WeatherQuietWindowMerge2` |
 | `02:00` | `WeatherAgentOvernight0200` |
+| `02:00` | `WeatherSettlementBackfill20260806` |
+| `02:00` | `WeatherSettlementBackfill20260808` |
 | `02:25` | `WeatherQuietWindowMerge3` |
 | `03:00` | `WeatherAgentPostMerge0805` |
 | `04:15` | `WeatherTrainingWindowRestore` |
@@ -77,10 +79,9 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `05:00` | `WeatherClobTiering` |
 | `05:15` | `WeatherMergeQueueDriver` |
 | `05:30` | `WeatherSettlementBackfill20260805` |
-| `05:30` | `WeatherSettlementBackfill20260806` |
-| `05:30` | `WeatherSettlementBackfill20260807` |
-| `05:30` | `WeatherSettlementBackfill20260808` |
 | `06:00` | `WeatherAgentOvernight0600` |
+| `06:00` | `WeatherAgentOvernight0811a` |
+| `06:00` | `WeatherClobRawTapeTiering` |
 | `06:00` | `WeatherLocationConfigRefresh` |
 | `06:30` | `WeatherNightlyRetrainValidatePromote` |
 | `06:50` | `WeatherExchangeEconomicsSnapshotRefresh` |
@@ -100,7 +101,9 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `17:00` | `WeatherEveningEvidenceRefresh` |
 | `18:00` | `WeatherLocationConfigRefresh` |
 | `18:15` | `WeatherChainRecovery20260727` |
+| `18:15` | `WeatherExecTapePilot` |
 | `18:15` | `WeatherOneShotMirror` |
+| `20:30` | `WeatherSuite0969a` |
 | `23:36` | `WeatherClobBookLoopSupervisor` |
 | `23:36` | `WeatherObservationTriggerSupervisor` |
 | `23:36` | `WeatherSnapshotLoopSupervisor` |
