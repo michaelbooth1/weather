@@ -198,6 +198,46 @@ SCRIPT_INVENTORY = {
         "smoke": "compile_main_guard",
         "notes": "-09-68a Gate 3 satisfiability; a fail-on-any-row gate is a panel-size limit.",
     },
+    "measure_high_so_far_population_09_70a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-70a/-09-71a high-so-far population and cutoff-direction evidence.",
+    },
+    "measure_observation_envelope_09_72a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-72a observation-envelope measurement for the recovery candidate.",
+    },
+    "measure_safe_observation_recovery_09_73a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-73a predeclared safe observation-recovery rule measurement.",
+    },
+    "measure_repair_ceiling_09_74a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-74a upper-bound measurement for the observation repair candidate.",
+    },
+    "measure_replay_trust_09_75a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-75a replay-trust audit for the candidate evaluation surface.",
+    },
+    "measure_identity_binding_09_76a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-76a runtime identity-binding reconstruction and audit.",
+    },
+    "measure_single_environment_repair_ceiling_09_77a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-77a single-environment repair-ceiling measurement.",
+    },
+    "measure_estimand_power_and_sign_09_78a.py": {
+        "status": "fixture-only",
+        "smoke": "compile_main_guard",
+        "notes": "-09-78a estimand power and sign analysis; candidate closed unpowered.",
+    },
 }
 
 
