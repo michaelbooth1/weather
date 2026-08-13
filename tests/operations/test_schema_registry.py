@@ -393,7 +393,7 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("taker_profitability_artifact_verification_composite"),
             "taker_profitability_artifact_verification_v0.2",
         )
-        self.assertEqual(schema_version("exchange_economics_snapshot"), "exchange_economics_snapshot_v0.1")
+        self.assertEqual(schema_version("exchange_economics_snapshot"), "exchange_economics_snapshot_v0.2")
         self.assertEqual(schema_version("exchange_economics_drift"), "exchange_economics_drift_v0.1")
         self.assertEqual(schema_version("backtest_artifact_retention"), "backtest_artifact_retention_v0.1")
         self.assertEqual(schema_version("backtest_artifact_cleanup"), "backtest_artifact_cleanup_v0.1")

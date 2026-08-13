@@ -30,6 +30,7 @@ MARKOUT_HORIZONS = [
 DEFAULT_CONFIG = {
     "quote_ttl_seconds": 60.0,
     "maker_fee_rate": 0.05,
+    "maker_rebate_fee_rate": 0.05,
     "maker_rebate_pool_share": 0.25,
     "flattening_fee_rate": 0.05,
     "reward_distance_threshold": 0.045,
