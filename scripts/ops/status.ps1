@@ -356,6 +356,8 @@ $expDisabled = @(
 $taskCount = 0
 $interactiveTasks = 0
 $evidenceRefreshHeld = $false
+$sensitiveDriverNextRun = $null
+$armedQuietMerges = New-Object System.Collections.Generic.List[psobject]
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
 # one-shot scheduled for tonight can be deleted, disabled or silently mis-scheduled and
 # nothing would say so until the morning it fails to have run. Surface the queue instead.
@@ -369,6 +371,9 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
     $name = $_.TaskName
+    if ($name -eq "WeatherMergeSensitiveDriver" -and $ti.NextRunTime) {
+        $sensitiveDriverNextRun = [datetime]$ti.NextRunTime
+    }
     # A task due soon on a one-shot trigger is armed work -- the quiet-window merge, a
     # chain recovery run. That is exactly what I want to see queued.
     #
@@ -384,6 +389,21 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
+    $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
+    if ($oneShot -and $ti.NextRunTime -and $actionArguments -like "*quiet_window_merge.ps1*") {
+        $settleSeconds = 300
+        if ($actionArguments -match '(?i)-SettleSeconds\s+(\d+)') {
+            $settleSeconds = [int]$Matches[1]
+        }
+        $armedQuietMerges.Add([PSCustomObject]@{
+                name = $name
+                at = [datetime]$ti.NextRunTime
+                # Include the push handoff allowance after the recovery settle. The dangerous
+                # case is another driver publishing local master before the guarded script has
+                # completed its own recovery verdict and publication transaction.
+                protected_until = ([datetime]$ti.NextRunTime).AddSeconds($settleSeconds + 240)
+            })
+    }
     # Both push tasks are deliberately Interactive: the Windows credential vault is not
     # available to S4U. Other Interactive tasks are reboot exposure only while they are
     # enabled and still have scheduled work. A disabled task or spent one-shot cannot miss
@@ -473,6 +493,17 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             $ok = $true
         }
         if (-not $ok) { $flags.Add("$name $res unexpected (last run $($ti.LastRunTime))") }
+    }
+}
+
+if ($sensitiveDriverNextRun) {
+    foreach ($mergeTask in $armedQuietMerges) {
+        if ($sensitiveDriverNextRun -ge $mergeTask.at -and
+            $sensitiveDriverNextRun -le $mergeTask.protected_until) {
+            $flags.Add(
+                "$($mergeTask.name) recovery/publish interval overlaps WeatherMergeSensitiveDriver at $sensitiveDriverNextRun - the driver can publish unverified local master"
+            )
+        }
     }
 }
 

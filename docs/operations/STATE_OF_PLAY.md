@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-13 18:55 (corrected execution tape exact-tip merge armed;
+**Last rewritten: 2026-08-13 19:06 (corrected execution tape merge and proof armed;
 today's grade is already partial).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
@@ -19,7 +19,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | Capture streak | **0 / 14** | `08-13` is already partial after the evidence-refresh failure (§8d). Child-tree containment is now proved, but the workload is still memory-unsafe beside capture, so `WeatherEveningEvidenceRefresh` is disabled again. The earliest new run starts `08-14`. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b). A countable day never required a `QUOTE`. |
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
-| Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c). The corrected exact tip passed its bounded full suite; an exact-tip quiet merge is armed for 01:15. **Continuous capture is approved but is not running yet.** |
+| Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c). The corrected exact tip passed its bounded full suite; an exact-tip quiet merge is armed for 01:30, followed by a bounded production proof at 02:15. **Continuous capture is approved but is not running yet.** |
 
 ## Every lever we have tried is closed — and none of them spent α
 
@@ -68,7 +68,7 @@ MORE.** Numbers: §1, §1b, §1i, §4.
 | --- | --- | --- |
 | `-09-73a` … `-09-78a` | observation-recovery candidate | **THREAD CLOSED UNPOWERED, α UNSPENT.** `-09-78a` (§5e) NO-GO under *both* calibration premises including the candidate's own. **The limit is the stratum's 11 date clusters, not the 12-market floor** — ~22 would flip it. Draft stays unfrozen |
 | `-09-63a` | B-only screen — **NO-GO at Gate 3** | **STILL QUEUED.** Conflicted 08-11 05:30 in `ESTABLISHED_FINDINGS`/`STATE_OF_PLAY`; driver aborted cleanly. Report **not in-repo** — cite the branch |
-| `-09-69a` | execution-tape continuous capture | **CORRECTED; EXACT-TIP MERGE ARMED; NOT RUNNING.** The original tip remains rejected because it can discard distinct observations, lacks a documented unique execution ID for count/intensity claims, and counted connection before an inbound routed frame. Corrected `codex/execution-tape-identity-fix` at `d71c2ae` retains every observation for price-path evidence only and passed its bounded full suite. `WeatherQuietWindowExecutionTape0814` is armed for 01:15 with exact-SHA binding and capture-recovery rollback. After it lands, prove real rows before lane work. The old 20:30 wrapper remains unconditionally inert |
+| `-09-69a` | execution-tape continuous capture | **CORRECTED; EXACT-TIP MERGE + BOUNDED PROOF ARMED; NOT RUNNING.** The original tip remains rejected because it can discard distinct observations, lacks a documented unique execution ID for count/intensity claims, and counted connection before an inbound routed frame. Corrected `codex/execution-tape-identity-fix` at `d71c2ae` retains every observation for price-path evidence only and passed its bounded full suite. `WeatherQuietWindowExecutionTape0814` is armed for 01:30 with exact-SHA binding and capture-recovery rollback; 01:15 was rejected because the 01:20 legacy driver could publish local master during the settle. `WeatherExecutionTapeBoundedProbe0814` is armed for 02:15 and requires routed coverage, new rows, no new integrity errors, resource ceilings, and capture survival. The old 20:30 wrapper remains unconditionally inert |
 | International rebate economics | paper accounting and fail-closed venue evidence | **TESTED, NOT MERGED** on `codex/international-rebate-pivot`; exact official terms and realized payout evidence are content-bound, with unpaid incentives excluded from acceptance P&L. The branch is roll-sensitive after current-baseline integration; merge in the quiet window, then collect and explicitly accept a fresh International snapshot |
 | International live probe | bounded exchange-lifecycle test | **PHYSICALLY BLOCKED ON THIS HOST; CODE TESTED, NO LIVE MUTATION** on `codex/international-live-probe`. Official `GET /api/geoblock` returns `blocked=true`, `CA-ON`; Ontario is API close-only. No VPN/proxy circumvention. v0.4 gates bind native pUSD, two distinct cancellation proofs, exact account/fee/rebate evidence, and fresh IP-redacted endpoint checks. A real test needs a genuinely eligible physical host; no credentials, readiness artifact, continuous rows, or order exists |
 | PIT extract | frozen lead-1 daily features, **shipped in-repo** | `docs/roadmap/pit-lead1-daily-features-2026-09-61a.csv`, sha256 `60b450f1…`, **696 rows** |
