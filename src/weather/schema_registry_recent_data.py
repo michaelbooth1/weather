@@ -1056,14 +1056,14 @@ RECENT_REGISTERED_SCHEMAS = (
         "execution_tape_trade_v0.1",
         "weather.market.execution_tape_store",
         "active",
-        "Append-only public market-stream execution row with transaction identity, exchange time, receive time, and raw-payload hash.",
+        "Append-only public market-stream execution observation with nullable documented optional fields, receive time, raw-payload hash plus message index, and explicit non-unique identity strength.",
     ),
     SchemaSpec(
         "execution_tape_dedupe",
         "execution_tape_dedupe_v0.1",
         "weather.market.execution_tape_store",
         "active",
-        "Append-only transaction-hash duplicate, conflict, and rejected-routing evidence.",
+        "Append-only repeated-observation annotations; public stream rows are never suppressed because no documented unique fill ID exists.",
     ),
     SchemaSpec(
         "execution_tape_gap",
@@ -1077,13 +1077,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "execution_tape_seed_v0.1",
         "weather.market.execution_tape_store",
         "active",
-        "Hash-bound market-day condition/token subscription seed retained beside execution evidence.",
+        "Hash-bound market-day subscription seed retaining every token's exact condition mapping beside execution evidence.",
     ),
     SchemaSpec(
         "execution_tape_status",
         "execution_tape_status_v0.1",
         "weather.market.execution_tape_store",
         "active",
-        "Atomic global and per-market-day execution-tape counter naming its physical last-counted sources and connection coverage.",
+        "Atomic global and per-market-day execution-tape counter naming physical sources, every-asset inbound coverage, evidence loss, non-unique identity limits, and received-time price-path interpretation.",
     ),
 )

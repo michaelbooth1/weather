@@ -39,6 +39,7 @@ from weather.schema_registry import schema_version
 DEFAULT_EVENT_METADATA = config_path("location_market_events.json")
 DEFAULT_EVENT_METADATA_MAX_AGE_HOURS = 36.0
 DEFAULT_HEARTBEAT_SECONDS = 10.0
+DEFAULT_INBOUND_SILENCE_TIMEOUT_SECONDS = 30.0
 DEFAULT_SEED_CHECK_SECONDS = 60.0
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 30.0
 DEFAULT_RECONNECT_BASE_SECONDS = 1.0
@@ -219,6 +220,92 @@ def subscription_payload(seeds: Iterable[MarketDaySeed]) -> dict[str, Any]:
     return {"assets_ids": asset_ids, "type": "market"}
 
 
+def confirmed_subscription_assets(
+    raw: bytes | str | dict[str, Any] | list[Any],
+    seeds: Iterable[MarketDaySeed],
+) -> dict[str, tuple[str, ...]]:
+    """Return exact requested assets evidenced by one inbound market frame."""
+
+    if raw == "PONG" or raw == b"PONG":
+        return {}
+    try:
+        if isinstance(raw, bytes):
+            payload = json.loads(raw.decode("utf-8"))
+        elif isinstance(raw, str):
+            payload = json.loads(raw)
+        else:
+            payload = raw
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {}
+
+    seed_rows = tuple(seeds)
+    confirmed: dict[str, set[str]] = {}
+    items = payload if isinstance(payload, list) else [payload]
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        event_type = item.get("event_type")
+        if event_type not in {
+            "book",
+            "price_change",
+            "last_trade_price",
+            "tick_size_change",
+            "best_bid_ask",
+            "new_market",
+            "market_resolved",
+        }:
+            continue
+        condition_id = str(item.get("market") or "").strip().lower()
+        assets = {str(item.get("asset_id") or "").strip()}
+        price_changes = item.get("price_changes")
+        assets.update(
+            str(row.get("asset_id") or "").strip()
+            for row in (price_changes if isinstance(price_changes, list) else [])
+            if isinstance(row, dict)
+        )
+        asset_ids = item.get("assets_ids")
+        assets.update(
+            str(value).strip()
+            for value in (asset_ids if isinstance(asset_ids, list) else [])
+        )
+        for seed in seed_rows:
+            matched = {
+                asset_id
+                for asset_id in set(seed.asset_ids).intersection(assets)
+                if seed.condition_for_asset(asset_id) == condition_id
+            }
+            if matched:
+                confirmed.setdefault(seed.key, set()).update(matched)
+    return {
+        key: tuple(sorted(values))
+        for key, values in sorted(confirmed.items())
+    }
+
+
+def confirmed_subscription_routes(
+    raw: bytes | str | dict[str, Any] | list[Any],
+    seeds: Iterable[MarketDaySeed],
+) -> tuple[str, ...]:
+    """Return routes whose every requested asset is proven by this frame."""
+
+    seed_rows = tuple(seeds)
+    confirmed_assets = confirmed_subscription_assets(raw, seed_rows)
+    return tuple(sorted(
+        seed.key
+        for seed in seed_rows
+        if set(seed.asset_ids).issubset(confirmed_assets.get(seed.key, ()))
+    ))
+
+
+def frame_proves_subscription(
+    raw: bytes | str | dict[str, Any] | list[Any],
+    seeds: Iterable[MarketDaySeed],
+) -> bool:
+    """Return whether a frame proves at least one requested market-day route."""
+
+    return bool(confirmed_subscription_routes(raw, seeds))
+
+
 def _default_websocket_factory(url: str, *, timeout: float):
     try:
         import websocket  # type: ignore
@@ -242,6 +329,7 @@ def run_connection_once(
     stop_event: threading.Event,
     websocket_factory: Callable[..., Any] | None = None,
     heartbeat_seconds: float = DEFAULT_HEARTBEAT_SECONDS,
+    inbound_silence_timeout_seconds: float = DEFAULT_INBOUND_SILENCE_TIMEOUT_SECONDS,
     connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
     now_fn: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     monotonic_fn: Callable[[], float] = time.monotonic,
@@ -249,6 +337,12 @@ def run_connection_once(
 ) -> dict[str, Any]:
     """Run one documented websocket session; reconnect policy is owned above."""
 
+    if float(heartbeat_seconds) <= 0:
+        raise ValueError("heartbeat_seconds must be positive")
+    if float(connect_timeout_seconds) <= 0:
+        raise ValueError("connect_timeout_seconds must be positive")
+    if float(inbound_silence_timeout_seconds) <= float(heartbeat_seconds):
+        raise ValueError("inbound silence timeout must exceed the heartbeat interval")
     websocket_factory = websocket_factory or _default_websocket_factory
     route_keys = tuple(seed.key for seed in seeds)
     session_id = uuid.uuid4().hex
@@ -265,9 +359,27 @@ def run_connection_once(
             pass
         frame = subscription_payload(seeds)
         websocket.send(json.dumps(frame, sort_keys=True))
-        coordinator.mark_connected(route_keys, session_id=session_id, at=now_fn())
+        required_assets_by_route = {
+            seed.key: set(seed.asset_ids)
+            for seed in seeds
+        }
+        confirmed_assets_by_route = {
+            seed.key: set()
+            for seed in seeds
+        }
+        unconfirmed_route_keys = set(route_keys)
+        confirmation_deadline = monotonic_fn() + float(connect_timeout_seconds)
+        last_inbound_monotonic = monotonic_fn()
         next_ping = monotonic_fn() + float(heartbeat_seconds)
         while not stop_event.is_set():
+            if unconfirmed_route_keys and monotonic_fn() >= confirmation_deadline:
+                raise TimeoutError("subscription was not confirmed by a routed market frame")
+            if (
+                not unconfirmed_route_keys
+                and monotonic_fn() - last_inbound_monotonic
+                >= float(inbound_silence_timeout_seconds)
+            ):
+                raise TimeoutError("no inbound server heartbeat or market frame before silence deadline")
             if max_messages is not None and messages >= int(max_messages):
                 reason = "message_limit_reached"
                 break
@@ -281,7 +393,27 @@ def run_connection_once(
                 continue
             if raw in (None, "", b""):
                 raise ConnectionError("websocket returned an empty frame")
+            last_inbound_monotonic = monotonic_fn()
+            if raw in ("PONG", b"PONG"):
+                coordinator.heartbeat(route_keys, at=now_fn())
+                continue
             received_at = now_fn()
+            for route_key, asset_ids in confirmed_subscription_assets(raw, seeds).items():
+                confirmed_assets_by_route[route_key].update(asset_ids)
+            newly_confirmed = {
+                route_key
+                for route_key in unconfirmed_route_keys
+                if required_assets_by_route[route_key].issubset(
+                    confirmed_assets_by_route[route_key]
+                )
+            }
+            if newly_confirmed:
+                coordinator.mark_connected(
+                    tuple(sorted(newly_confirmed)),
+                    session_id=session_id,
+                    at=received_at,
+                )
+                unconfirmed_route_keys.difference_update(newly_confirmed)
             coordinator.heartbeat(route_keys, at=received_at, message_seen=True)
             coordinator.ingest_frame(raw, session_id=session_id, received_at=received_at)
             messages += 1
@@ -320,6 +452,7 @@ def connection_worker(
     stop_event: threading.Event,
     websocket_factory: Callable[..., Any] | None = None,
     heartbeat_seconds: float = DEFAULT_HEARTBEAT_SECONDS,
+    inbound_silence_timeout_seconds: float = DEFAULT_INBOUND_SILENCE_TIMEOUT_SECONDS,
     connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
     reconnect_base_seconds: float = DEFAULT_RECONNECT_BASE_SECONDS,
     reconnect_max_seconds: float = DEFAULT_RECONNECT_MAX_SECONDS,
@@ -334,6 +467,7 @@ def connection_worker(
                 stop_event=stop_event,
                 websocket_factory=websocket_factory,
                 heartbeat_seconds=heartbeat_seconds,
+                inbound_silence_timeout_seconds=inbound_silence_timeout_seconds,
                 connect_timeout_seconds=connect_timeout_seconds,
             )
             delay = max(0.1, float(reconnect_base_seconds))
@@ -357,6 +491,7 @@ class ConnectionFleet:
         *,
         websocket_factory: Callable[..., Any] | None = None,
         heartbeat_seconds: float = DEFAULT_HEARTBEAT_SECONDS,
+        inbound_silence_timeout_seconds: float = DEFAULT_INBOUND_SILENCE_TIMEOUT_SECONDS,
         connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
         reconnect_base_seconds: float = DEFAULT_RECONNECT_BASE_SECONDS,
         reconnect_max_seconds: float = DEFAULT_RECONNECT_MAX_SECONDS,
@@ -371,6 +506,7 @@ class ConnectionFleet:
                     "stop_event": self.stop_event,
                     "websocket_factory": websocket_factory,
                     "heartbeat_seconds": heartbeat_seconds,
+                    "inbound_silence_timeout_seconds": inbound_silence_timeout_seconds,
                     "connect_timeout_seconds": connect_timeout_seconds,
                     "reconnect_base_seconds": reconnect_base_seconds,
                     "reconnect_max_seconds": reconnect_max_seconds,
@@ -401,6 +537,7 @@ def run_live_capture(
     max_tokens_per_connection: int = DEFAULT_MAX_TOKENS_PER_CONNECTION,
     seed_check_seconds: float = DEFAULT_SEED_CHECK_SECONDS,
     heartbeat_seconds: float = DEFAULT_HEARTBEAT_SECONDS,
+    inbound_silence_timeout_seconds: float = DEFAULT_INBOUND_SILENCE_TIMEOUT_SECONDS,
     connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
     max_age_hours: float = DEFAULT_EVENT_METADATA_MAX_AGE_HOURS,
     shutdown_event: threading.Event | None = None,
@@ -447,6 +584,7 @@ def run_live_capture(
                         groups,
                         websocket_factory=websocket_factory,
                         heartbeat_seconds=heartbeat_seconds,
+                        inbound_silence_timeout_seconds=inbound_silence_timeout_seconds,
                         connect_timeout_seconds=connect_timeout_seconds,
                     )
                     fleet.start()
@@ -589,6 +727,11 @@ def build_parser() -> argparse.ArgumentParser:
     capture.add_argument("--max-tokens-per-connection", type=int, default=DEFAULT_MAX_TOKENS_PER_CONNECTION)
     capture.add_argument("--seed-check-seconds", type=float, default=DEFAULT_SEED_CHECK_SECONDS)
     capture.add_argument("--heartbeat-seconds", type=float, default=DEFAULT_HEARTBEAT_SECONDS)
+    capture.add_argument(
+        "--inbound-silence-timeout-seconds",
+        type=float,
+        default=DEFAULT_INBOUND_SILENCE_TIMEOUT_SECONDS,
+    )
     capture.add_argument("--connect-timeout-seconds", type=float, default=DEFAULT_CONNECT_TIMEOUT_SECONDS)
     capture.add_argument("--event-metadata-max-age-hours", type=float, default=DEFAULT_EVENT_METADATA_MAX_AGE_HOURS)
 
@@ -631,6 +774,7 @@ def main(argv: list[str] | None = None) -> int:
             max_tokens_per_connection=args.max_tokens_per_connection,
             seed_check_seconds=args.seed_check_seconds,
             heartbeat_seconds=args.heartbeat_seconds,
+            inbound_silence_timeout_seconds=args.inbound_silence_timeout_seconds,
             connect_timeout_seconds=args.connect_timeout_seconds,
             max_age_hours=args.event_metadata_max_age_hours,
         )

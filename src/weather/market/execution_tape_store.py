@@ -1,8 +1,10 @@
 """Durable, append-only storage for public market execution events.
 
 The live transport is intentionally separate in ``execution_tape_capture``.
-This module owns the evidence boundary: validation, transaction-hash dedupe,
-bounded JSONL parts, gap accounting, and atomic status counters.
+This module owns the evidence boundary: validation, lossless observation
+retention, bounded JSONL parts, gap accounting, and atomic status counters. The
+public stream supplies no documented unique execution identifier, so repeated
+identities are annotated but never suppressed.
 """
 
 from __future__ import annotations
@@ -121,6 +123,17 @@ def _decimal_text(value: Any, field: str, *, positive: bool = False) -> str:
     return text
 
 
+def _optional_decimal_text(
+    value: Any,
+    field: str,
+    *,
+    positive: bool = False,
+) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return _decimal_text(value, field, positive=positive)
+
+
 def _timestamp_text(value: Any) -> str:
     text = _text(value, "timestamp")
     if not text.isdigit():
@@ -131,11 +144,17 @@ def _timestamp_text(value: Any) -> str:
     return str(number)
 
 
+def _optional_timestamp_text(value: Any) -> str | None:
+    if value is None or not str(value).strip():
+        return None
+    return _timestamp_text(value)
+
+
 def timestamp_ms_to_utc(value: str) -> str:
     return datetime.fromtimestamp(int(value) / 1000.0, timezone.utc).isoformat()
 
 
-def normalize_execution_row(item: dict[str, Any]) -> dict[str, str]:
+def normalize_execution_row(item: dict[str, Any]) -> dict[str, Any]:
     event_type = _text(item.get("event_type"), "event_type")
     if event_type != "last_trade_price":
         raise ExecutionPayloadError(f"not an execution event: {event_type}")
@@ -148,8 +167,8 @@ def normalize_execution_row(item: dict[str, Any]) -> dict[str, str]:
     if not _CONDITION_ID_RE.fullmatch(condition_id):
         raise ExecutionPayloadError(f"invalid execution market condition id: {condition_id}")
 
-    transaction_hash = _text(item.get("transaction_hash"), "transaction_hash").lower()
-    if not _TX_HASH_RE.fullmatch(transaction_hash):
+    transaction_hash = str(item.get("transaction_hash") or "").strip().lower() or None
+    if transaction_hash is not None and not _TX_HASH_RE.fullmatch(transaction_hash):
         raise ExecutionPayloadError(f"invalid execution transaction_hash: {transaction_hash}")
 
     side = _text(item.get("side"), "side").upper()
@@ -163,12 +182,15 @@ def normalize_execution_row(item: dict[str, Any]) -> dict[str, str]:
     return {
         "asset_id": asset_id,
         "event_type": event_type,
-        "fee_rate_bps": _decimal_text(item.get("fee_rate_bps"), "fee_rate_bps"),
+        "fee_rate_bps": _optional_decimal_text(
+            item.get("fee_rate_bps"),
+            "fee_rate_bps",
+        ),
         "market": condition_id,
         "price": price,
         "side": side,
-        "size": _decimal_text(item.get("size"), "size", positive=True),
-        "timestamp": _timestamp_text(item.get("timestamp")),
+        "size": _optional_decimal_text(item.get("size"), "size", positive=True),
+        "timestamp": _optional_timestamp_text(item.get("timestamp")),
         "transaction_hash": transaction_hash,
     }
 
@@ -262,6 +284,7 @@ class MarketDaySeed:
     asset_ids: tuple[str, ...]
     condition_ids: tuple[str, ...]
     source: str
+    asset_condition_pairs: tuple[tuple[str, str], ...] = ()
     source_generated_at_utc: str | None = None
 
     def __post_init__(self) -> None:
@@ -273,6 +296,28 @@ class MarketDaySeed:
             raise ValueError("execution-tape seed contains an invalid asset id")
         if any(not _CONDITION_ID_RE.fullmatch(value) for value in self.condition_ids):
             raise ValueError("execution-tape seed contains an invalid condition id")
+        pairs = tuple(sorted(
+            (str(asset).strip(), str(condition).strip().lower())
+            for asset, condition in self.asset_condition_pairs
+        ))
+        if not pairs and len(self.condition_ids) == 1:
+            pairs = tuple(
+                (asset_id, self.condition_ids[0])
+                for asset_id in sorted(self.asset_ids)
+            )
+        pair_assets = [asset for asset, _ in pairs]
+        pair_conditions = [condition for _, condition in pairs]
+        if (
+            len(pair_assets) != len(set(pair_assets))
+            or set(pair_assets) != set(self.asset_ids)
+            or set(pair_conditions) != set(self.condition_ids)
+            or any(not _TOKEN_ID_RE.fullmatch(asset) for asset in pair_assets)
+            or any(not _CONDITION_ID_RE.fullmatch(condition) for condition in pair_conditions)
+        ):
+            raise ValueError(
+                "execution-tape seed must bind every asset to exactly one recorded condition"
+            )
+        object.__setattr__(self, "asset_condition_pairs", pairs)
 
     @property
     def key(self) -> str:
@@ -285,6 +330,10 @@ class MarketDaySeed:
             "event_slug": self.event_slug,
             "asset_ids": list(self.asset_ids),
             "condition_ids": list(self.condition_ids),
+            "asset_condition_pairs": [
+                {"asset_id": asset_id, "condition_id": condition_id}
+                for asset_id, condition_id in self.asset_condition_pairs
+            ],
             "source": self.source,
             "source_generated_at_utc": self.source_generated_at_utc,
         }
@@ -292,6 +341,9 @@ class MarketDaySeed:
     @property
     def sha256(self) -> str:
         return stable_sha256(self.content_payload())
+
+    def condition_for_asset(self, asset_id: str) -> str | None:
+        return dict(self.asset_condition_pairs).get(str(asset_id))
 
     @classmethod
     def from_event(
@@ -306,6 +358,7 @@ class MarketDaySeed:
         event_slug = str(event.get("event_slug") or event.get("slug") or event.get("eventSlug") or "").strip()
         assets: set[str] = set()
         conditions: set[str] = set()
+        asset_condition_pairs: set[tuple[str, str]] = set()
         for market in event.get("markets") or []:
             if not isinstance(market, dict):
                 continue
@@ -318,11 +371,15 @@ class MarketDaySeed:
                     token_id = str(outcome.get("token_id") or outcome.get("clob_token_id") or "").strip()
                     if token_id:
                         assets.add(token_id)
+                        if condition_id:
+                            asset_condition_pairs.add((token_id, condition_id))
             else:
                 for token_id in _json_list(market.get("clobTokenIds") or market.get("clob_token_ids")):
                     token = str(token_id or "").strip()
                     if token:
                         assets.add(token)
+                        if condition_id:
+                            asset_condition_pairs.add((token, condition_id))
         return cls(
             market_id=str(market_id),
             target_date=target_date,
@@ -330,6 +387,7 @@ class MarketDaySeed:
             asset_ids=tuple(sorted(assets)),
             condition_ids=tuple(sorted(conditions)),
             source=str(source),
+            asset_condition_pairs=tuple(sorted(asset_condition_pairs)),
             source_generated_at_utc=source_generated_at_utc,
         )
 
@@ -509,7 +567,8 @@ class MarketDayTapeStore:
         self.dedupe = RotatingJsonlWriter(self.root, "dedupe", max_part_bytes=max_part_bytes)
         self.gaps = RotatingJsonlWriter(self.root, "gaps", max_part_bytes=max_part_bytes)
         self.seeds = RotatingJsonlWriter(self.root, "seeds", max_part_bytes=max_part_bytes)
-        self._trade_by_hash: dict[str, tuple[str, dict[str, Any]]] = {}
+        self._observation_counts_by_fingerprint: dict[str, int] = {}
+        self._fingerprints_by_hash: dict[str, set[str]] = {}
         self._load_trade_index()
         previous = read_json(self.status_path, default={}) or {}
         if previous and previous.get("event_slug") != seed.event_slug:
@@ -523,16 +582,13 @@ class MarketDayTapeStore:
 
     def _load_trade_index(self) -> None:
         for row in self.trades.iter_rows():
-            transaction_hash = str(row.get("transaction_hash") or "").lower()
-            if not transaction_hash:
-                raise ExecutionTapeError("stored execution row is missing transaction_hash")
             fingerprint = trade_fingerprint(row)
-            existing = self._trade_by_hash.get(transaction_hash)
-            if existing and existing[0] != fingerprint:
-                raise ExecutionTapeError(
-                    f"stored execution tape has conflicting transaction hash: {transaction_hash}"
-                )
-            self._trade_by_hash[transaction_hash] = (fingerprint, trade_identity_payload(row))
+            self._observation_counts_by_fingerprint[fingerprint] = (
+                self._observation_counts_by_fingerprint.get(fingerprint, 0) + 1
+            )
+            transaction_hash = str(row.get("transaction_hash") or "").lower()
+            if transaction_hash:
+                self._fingerprints_by_hash.setdefault(transaction_hash, set()).add(fingerprint)
 
     def _initial_state(self, previous: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -547,6 +603,9 @@ class MarketDayTapeStore:
             "last_trade_timestamp_ms_seen": previous.get("last_trade_timestamp_ms_seen"),
             "last_trade_timestamp_utc_seen": previous.get("last_trade_timestamp_utc_seen"),
             "last_written_transaction_hash": previous.get("last_written_transaction_hash"),
+            "last_written_execution_identity_strength": previous.get(
+                "last_written_execution_identity_strength"
+            ),
             "last_error": previous.get("last_error"),
             "open_gap": previous.get("open_gap"),
             "ever_connected": bool(previous.get("ever_connected")),
@@ -586,8 +645,30 @@ class MarketDayTapeStore:
             }
         self.state.update({
             "trades_written": self.trades.stats()["row_count"],
-            "duplicates_suppressed": len(duplicate_rows),
+            "duplicates_suppressed": sum(
+                1 for row in duplicate_rows if str(row.get("action") or "").startswith("suppressed")
+            ),
             "duplicate_conflicts": sum(1 for row in duplicate_rows if row.get("payload_conflict")),
+            "transaction_hash_reuses_admitted": sum(
+                max(0, len(fingerprints) - 1)
+                for fingerprints in self._fingerprints_by_hash.values()
+            ),
+            "repeated_execution_identities_admitted": sum(
+                max(0, count - 1)
+                for count in self._observation_counts_by_fingerprint.values()
+            ),
+            "nonunique_execution_observations_admitted": self.trades.stats()["row_count"],
+            "weak_execution_identities_admitted": sum(
+                1
+                for row in self.trades.iter_rows()
+                if not str(row.get("transaction_hash") or "").strip()
+            ),
+            "partial_execution_observations_admitted": sum(
+                1
+                for row in self.trades.iter_rows()
+                if row.get("execution_economics_completeness")
+                == "partial_missing_optional_fields"
+            ),
             "gap_count": len(opened),
             "completed_gap_count": len(closed),
             "connection_count": sum(
@@ -604,6 +685,9 @@ class MarketDayTapeStore:
         if self.trades.last_row:
             last = self.trades.last_row
             self.state["last_written_transaction_hash"] = last.get("transaction_hash")
+            self.state["last_written_execution_identity_strength"] = last.get(
+                "execution_identity_strength"
+            )
             self._observe_trade(last, last.get("received_at_utc"))
 
     def _append_seed_if_changed(self, *, now: datetime) -> None:
@@ -799,49 +883,47 @@ class MarketDayTapeStore:
         raw_payload_sha256_algorithm: str,
     ) -> dict[str, Any]:
         received_at = ensure_utc(received_at)
+        raw_message_index = trade.get("raw_message_index")
+        if (
+            isinstance(raw_message_index, bool)
+            or not isinstance(raw_message_index, int)
+            or raw_message_index < 0
+        ):
+            raise ExecutionPayloadError("execution observation has no valid raw message index")
         normalized = normalize_execution_row(trade)
         fingerprint = trade_fingerprint(normalized)
         transaction_hash = normalized["transaction_hash"]
+        has_transaction_hash = transaction_hash is not None
         self._observe_trade(normalized, received_at.isoformat())
-        existing = self._trade_by_hash.get(transaction_hash)
-        if existing:
-            existing_fingerprint, existing_identity = existing
-            differing = [
-                field
-                for field in TRADE_IDENTITY_FIELDS
-                if existing_identity.get(field) != normalized.get(field)
-            ]
-            conflict = bool(differing)
-            receipt = self.dedupe.append({
-                "schema_version": EXECUTION_TAPE_DEDUPE_SCHEMA_VERSION,
-                "received_at_utc": received_at.isoformat(),
-                "market_id": self.seed.market_id,
-                "target_date": self.seed.target_date.isoformat(),
-                "event_slug": self.seed.event_slug,
-                "session_id": session_id,
-                "transaction_hash": transaction_hash,
-                "dedupe_key": "transaction_hash",
-                "payload_conflict": conflict,
-                "differing_fields": differing,
-                "first_identity": existing_identity,
-                "redelivered_identity": trade_identity_payload(normalized),
-                "first_fingerprint_sha256": existing_fingerprint,
-                "redelivered_fingerprint_sha256": fingerprint,
-                "raw_payload_sha256": raw_payload_sha256,
-                "raw_payload_sha256_algorithm": raw_payload_sha256_algorithm,
-                "action": "suppressed_keep_first",
-            })
-            self.state["duplicates_suppressed"] = int(self.state.get("duplicates_suppressed") or 0) + 1
-            if conflict:
-                self.state["duplicate_conflicts"] = int(self.state.get("duplicate_conflicts") or 0) + 1
-            self.persist_status(now=received_at)
-            return {"written": False, "duplicate": True, "payload_conflict": conflict, "receipt": receipt}
+        prior_fingerprint_count = self._observation_counts_by_fingerprint.get(fingerprint, 0)
+        repeated_identity = prior_fingerprint_count > 0
+        transaction_hash_reuse = bool(
+            has_transaction_hash
+            and self._fingerprints_by_hash.get(transaction_hash)
+            and fingerprint not in self._fingerprints_by_hash[transaction_hash]
+        )
 
+        missing_optional_fields = [
+            field
+            for field in ("fee_rate_bps", "size", "timestamp", "transaction_hash")
+            if normalized[field] is None
+        ]
+        missing_economics_fields = [
+            field
+            for field in ("fee_rate_bps", "size", "timestamp")
+            if normalized[field] is None
+        ]
         row = {
             "schema_version": EXECUTION_TAPE_TRADE_SCHEMA_VERSION,
             "received_at_utc": received_at.isoformat(),
-            "trade_time_utc": timestamp_ms_to_utc(normalized["timestamp"]),
-            "timestamp_unit": "unix_epoch_milliseconds",
+            "trade_time_utc": (
+                timestamp_ms_to_utc(normalized["timestamp"])
+                if normalized["timestamp"] is not None
+                else None
+            ),
+            "timestamp_unit": (
+                "unix_epoch_milliseconds" if normalized["timestamp"] is not None else None
+            ),
             "market_id": self.seed.market_id,
             "target_date": self.seed.target_date.isoformat(),
             "event_slug": self.seed.event_slug,
@@ -849,14 +931,81 @@ class MarketDayTapeStore:
             "seed_sha256": self.seed.sha256,
             "raw_payload_sha256": raw_payload_sha256,
             "raw_payload_sha256_algorithm": raw_payload_sha256_algorithm,
+            "raw_message_index": raw_message_index,
+            "execution_observation_missing_optional_fields": missing_optional_fields,
+            "execution_economics_completeness": (
+                "partial_missing_optional_fields"
+                if missing_economics_fields
+                else "complete_documented_economics_fields"
+            ),
+            "execution_identity_strength": (
+                "transaction_hash_plus_economics_not_proven_unique"
+                if has_transaction_hash
+                else "economics_timestamp_only_not_unique"
+            ),
             **normalized,
         }
         receipt = self.trades.append(row)
-        self._trade_by_hash[transaction_hash] = (fingerprint, trade_identity_payload(normalized))
+        repeat_receipt = None
+        if repeated_identity:
+            repeat_receipt = self.dedupe.append({
+                "schema_version": EXECUTION_TAPE_DEDUPE_SCHEMA_VERSION,
+                "received_at_utc": received_at.isoformat(),
+                "market_id": self.seed.market_id,
+                "target_date": self.seed.target_date.isoformat(),
+                "event_slug": self.seed.event_slug,
+                "session_id": session_id,
+                "transaction_hash": transaction_hash,
+                "comparison_key": "execution_economics_and_optional_transaction_hash_sha256",
+                "payload_conflict": False,
+                "differing_fields": [],
+                "observed_identity": trade_identity_payload(normalized),
+                "prior_observation_count": prior_fingerprint_count,
+                "first_fingerprint_sha256": fingerprint,
+                "repeated_fingerprint_sha256": fingerprint,
+                "raw_payload_sha256": raw_payload_sha256,
+                "raw_payload_sha256_algorithm": raw_payload_sha256_algorithm,
+                "action": "admitted_repeated_identity_not_proven_duplicate",
+            })
+        self._observation_counts_by_fingerprint[fingerprint] = prior_fingerprint_count + 1
+        if has_transaction_hash:
+            self._fingerprints_by_hash.setdefault(transaction_hash, set()).add(fingerprint)
+        else:
+            self.state["weak_execution_identities_admitted"] = (
+                int(self.state.get("weak_execution_identities_admitted") or 0) + 1
+            )
+        self.state["nonunique_execution_observations_admitted"] = (
+            int(self.state.get("nonunique_execution_observations_admitted") or 0) + 1
+        )
+        if repeated_identity:
+            self.state["repeated_execution_identities_admitted"] = (
+                int(self.state.get("repeated_execution_identities_admitted") or 0) + 1
+            )
+        if missing_economics_fields:
+            self.state["partial_execution_observations_admitted"] = (
+                int(self.state.get("partial_execution_observations_admitted") or 0) + 1
+            )
         self.state["trades_written"] = int(self.state.get("trades_written") or 0) + 1
+        if transaction_hash_reuse:
+            self.state["transaction_hash_reuses_admitted"] = (
+                int(self.state.get("transaction_hash_reuses_admitted") or 0) + 1
+            )
         self.state["last_written_transaction_hash"] = transaction_hash
+        self.state["last_written_execution_identity_strength"] = row[
+            "execution_identity_strength"
+        ]
         self.persist_status(now=received_at)
-        return {"written": True, "duplicate": False, "payload_conflict": False, "receipt": receipt}
+        return {
+            "written": True,
+            "duplicate": False,
+            "payload_conflict": False,
+            "transaction_hash_reuse": transaction_hash_reuse,
+            "repeated_execution_identity": repeated_identity,
+            "weak_execution_identity": not has_transaction_hash,
+            "partial_execution_observation": bool(missing_economics_fields),
+            "receipt": receipt,
+            "repeat_receipt": repeat_receipt,
+        }
 
     def evidence_interpretation(self, *, now: datetime) -> str:
         trades = int(self.state.get("trades_written") or 0)
@@ -903,12 +1052,27 @@ class MarketDayTapeStore:
             ),
             "evidence_interpretation": self.evidence_interpretation(now=now),
             "last_counted": {
-                "dedupe_key": "transaction_hash",
+                "dedupe_key": "none_public_stream_has_no_documented_unique_execution_id",
                 "trade_tape": self.trades.stats(),
                 "dedupe_tape": self.dedupe.stats(),
                 "gap_tape": self.gaps.stats(),
                 "seed_tape": self.seeds.stats(),
                 "last_written_transaction_hash": self.state.get("last_written_transaction_hash"),
+                "last_written_execution_identity_strength": self.state.get(
+                    "last_written_execution_identity_strength"
+                ),
+                "weak_execution_identities_admitted": int(
+                    self.state.get("weak_execution_identities_admitted") or 0
+                ),
+                "repeated_execution_identities_admitted": int(
+                    self.state.get("repeated_execution_identities_admitted") or 0
+                ),
+                "nonunique_execution_observations_admitted": int(
+                    self.state.get("nonunique_execution_observations_admitted") or 0
+                ),
+                "partial_execution_observations_admitted": int(
+                    self.state.get("partial_execution_observations_admitted") or 0
+                ),
                 "last_trade_timestamp_ms_seen": self.state.get("last_trade_timestamp_ms_seen"),
                 "counter_basis": "physical JSONL scan at open plus fsynced append receipts",
             },
@@ -971,11 +1135,24 @@ class ExecutionTapeCoordinator:
             "parse_rejections": int(prior.get("parse_rejections") or 0),
             "unrouted_trades": int(prior.get("unrouted_trades") or 0),
             "ambiguous_routes": int(prior.get("ambiguous_routes") or 0),
+            "weak_execution_identities_admitted": int(
+                prior.get("weak_execution_identities_admitted") or 0
+            ),
+            "repeated_execution_identities_admitted": int(
+                prior.get("repeated_execution_identities_admitted") or 0
+            ),
+            "nonunique_execution_observations_admitted": int(
+                prior.get("nonunique_execution_observations_admitted") or 0
+            ),
+            "partial_execution_observations_admitted": int(
+                prior.get("partial_execution_observations_admitted") or 0
+            ),
         }
         self.stores: dict[str, MarketDayTapeStore] = {}
         self.active_keys: set[str] = set()
         self.asset_routes: dict[str, str] = {}
         self.condition_routes: dict[str, str] = {}
+        self.asset_condition_routes: dict[str, str] = {}
         self.replace_seeds(tuple(seeds), now=ensure_utc(now))
 
     def _validate_routes(self, seeds: Iterable[MarketDaySeed]) -> None:
@@ -1023,6 +1200,11 @@ class ExecutionTapeCoordinator:
                 condition_id: seed.key
                 for seed in seeds
                 for condition_id in seed.condition_ids
+            }
+            self.asset_condition_routes = {
+                asset_id: condition_id
+                for seed in seeds
+                for asset_id, condition_id in seed.asset_condition_pairs
             }
             self.state["last_seed_check_at_utc"] = now.isoformat()
             self.clear_seed_error(now=now)
@@ -1130,7 +1312,13 @@ class ExecutionTapeCoordinator:
             written = 0
             duplicates = 0
             conflicts = 0
+            transaction_hash_reuses = 0
+            repeated_execution_identities = 0
+            weak_execution_identities = 0
+            nonunique_execution_observations = 0
+            partial_execution_observations = 0
             unrouted = 0
+            ambiguous = 0
             for trade in batch.trades:
                 asset_key = self.asset_routes.get(trade["asset_id"])
                 condition_key = self.condition_routes.get(trade["market"])
@@ -1150,12 +1338,28 @@ class ExecutionTapeCoordinator:
                     )
                     continue
                 if asset_key != condition_key:
+                    ambiguous += 1
                     self.state["ambiguous_routes"] += 1
                     self._record_rejection(
                         received_at=received_at,
                         session_id=session_id,
                         classification="asset_condition_route_conflict",
                         detail={"trade": trade, "asset_route": asset_key, "condition_route": condition_key},
+                        raw_payload_sha256=batch.raw_payload_sha256,
+                    )
+                    continue
+                expected_condition = self.asset_condition_routes.get(trade["asset_id"])
+                if expected_condition != trade["market"]:
+                    ambiguous += 1
+                    self.state["ambiguous_routes"] += 1
+                    self._record_rejection(
+                        received_at=received_at,
+                        session_id=session_id,
+                        classification="asset_exact_condition_conflict",
+                        detail={
+                            "trade": trade,
+                            "expected_condition": expected_condition,
+                        },
                         raw_payload_sha256=batch.raw_payload_sha256,
                     )
                     continue
@@ -1174,14 +1378,46 @@ class ExecutionTapeCoordinator:
                 written += int(bool(result["written"]))
                 duplicates += int(bool(result["duplicate"]))
                 conflicts += int(bool(result["payload_conflict"]))
+                transaction_hash_reuses += int(bool(result["transaction_hash_reuse"]))
+                repeated_execution_identities += int(
+                    bool(result["repeated_execution_identity"])
+                )
+                weak_execution_identities += int(bool(result["weak_execution_identity"]))
+                nonunique_execution_observations += int(bool(result["written"]))
+                partial_execution_observations += int(
+                    bool(result["partial_execution_observation"])
+                )
+            self.state["weak_execution_identities_admitted"] = (
+                int(self.state.get("weak_execution_identities_admitted") or 0)
+                + weak_execution_identities
+            )
+            self.state["repeated_execution_identities_admitted"] = (
+                int(self.state.get("repeated_execution_identities_admitted") or 0)
+                + repeated_execution_identities
+            )
+            self.state["nonunique_execution_observations_admitted"] = (
+                int(self.state.get("nonunique_execution_observations_admitted") or 0)
+                + nonunique_execution_observations
+            )
+            self.state["partial_execution_observations_admitted"] = (
+                int(self.state.get("partial_execution_observations_admitted") or 0)
+                + partial_execution_observations
+            )
             self.persist_status(now=received_at)
             return {
                 "trades": len(batch.trades),
                 "written": written,
                 "duplicates": duplicates,
                 "duplicate_conflicts": conflicts,
-                "rejected": len(batch.rejected),
+                "transaction_hash_reuses_admitted": transaction_hash_reuses,
+                "repeated_execution_identities_admitted": repeated_execution_identities,
+                "weak_execution_identities_admitted": weak_execution_identities,
+                "nonunique_execution_observations_admitted": nonunique_execution_observations,
+                "partial_execution_observations_admitted": partial_execution_observations,
+                "rejected": len(batch.rejected) + unrouted + ambiguous,
+                "parse_rejected": len(batch.rejected),
                 "unrouted": unrouted,
+                "ambiguous": ambiguous,
                 "non_trade_messages": batch.non_trade_messages,
             }
 
@@ -1193,6 +1429,11 @@ class ExecutionTapeCoordinator:
         states = [self.stores[key].state.get("connection_state") for key in self.active_keys]
         connected = sum(1 for state in states if state == "CONNECTED")
         if states and connected == len(states):
+            if any(
+                int(self.state.get(name) or 0) > 0
+                for name in ("parse_rejections", "unrouted_trades", "ambiguous_routes")
+            ):
+                return "DEGRADED_EVIDENCE_LOSS"
             return "CONNECTED"
         if connected:
             return "DEGRADED_PARTIALLY_CONNECTED"
@@ -1211,6 +1452,11 @@ class ExecutionTapeCoordinator:
                 0.0,
                 (now - ensure_utc(self.state["seed_error_dark_since_utc"])).total_seconds(),
             )
+        integrity_blockers = [
+            name
+            for name in ("parse_rejections", "unrouted_trades", "ambiguous_routes")
+            if int(self.state.get(name) or 0) > 0
+        ]
         return {
             "schema_version": EXECUTION_TAPE_STATUS_SCHEMA_VERSION,
             "updated_at_utc": now.isoformat(),
@@ -1220,6 +1466,34 @@ class ExecutionTapeCoordinator:
             **self.state,
             "seconds_seed_error_dark": round(seed_dark, 6),
             "active_market_day_count": len(active_status),
+            "evidence_integrity": (
+                "BLOCKED_EVIDENCE_LOSS" if integrity_blockers else "PASS"
+            ),
+            "evidence_integrity_blockers": integrity_blockers,
+            "identity_integrity": (
+                "BLOCKED_UNIQUE_EXECUTION_COUNTS"
+                if active_status
+                else "NOT_EVALUATED_NO_ACTIVE_MARKET_DAYS"
+            ),
+            "identity_integrity_blockers": (
+                ["public_stream_has_no_documented_unique_execution_id"]
+                if active_status
+                else []
+            ),
+            "price_path_evidence_usable": bool(active_status)
+            and not integrity_blockers
+            and all(
+                row.get("connection_state") == "CONNECTED"
+                and float(row.get("seconds_dark") or 0.0) == 0.0
+                for row in active_status
+            ),
+            "price_path_basis": "received_at_state_observations_only_no_row_weighting",
+            "price_path_prohibited_claims": [
+                "unique_execution_count",
+                "execution_intensity",
+                "event_weighted_price_distribution",
+                "fill_probability_from_public_row_frequency",
+            ],
             "active_market_days": [
                 {
                     "market_id": row["market_id"],
@@ -1229,6 +1503,21 @@ class ExecutionTapeCoordinator:
                     "evidence_interpretation": row["evidence_interpretation"],
                     "trades_written": row["trades_written"],
                     "duplicates_suppressed": row["duplicates_suppressed"],
+                    "transaction_hash_reuses_admitted": row[
+                        "transaction_hash_reuses_admitted"
+                    ],
+                    "repeated_execution_identities_admitted": row[
+                        "repeated_execution_identities_admitted"
+                    ],
+                    "weak_execution_identities_admitted": row[
+                        "weak_execution_identities_admitted"
+                    ],
+                    "nonunique_execution_observations_admitted": row[
+                        "nonunique_execution_observations_admitted"
+                    ],
+                    "partial_execution_observations_admitted": row[
+                        "partial_execution_observations_admitted"
+                    ],
                     "last_trade_timestamp_ms_seen": row["last_trade_timestamp_ms_seen"],
                     "seconds_dark": row["seconds_dark"],
                     "status_path": str(self.stores[
@@ -1238,10 +1527,30 @@ class ExecutionTapeCoordinator:
                 for row in active_status
             ],
             "last_counted": {
-                "dedupe_key": "transaction_hash",
+                "dedupe_key": "none_public_stream_has_no_documented_unique_execution_id",
                 "trades_written": sum(int(row["trades_written"]) for row in active_status),
                 "duplicates_suppressed": sum(int(row["duplicates_suppressed"]) for row in active_status),
                 "duplicate_conflicts": sum(int(row["duplicate_conflicts"]) for row in active_status),
+                "transaction_hash_reuses_admitted": sum(
+                    int(row["transaction_hash_reuses_admitted"])
+                    for row in active_status
+                ),
+                "repeated_execution_identities_admitted": sum(
+                    int(row["repeated_execution_identities_admitted"])
+                    for row in active_status
+                ),
+                "weak_execution_identities_admitted": sum(
+                    int(row["weak_execution_identities_admitted"])
+                    for row in active_status
+                ),
+                "nonunique_execution_observations_admitted": sum(
+                    int(row["nonunique_execution_observations_admitted"])
+                    for row in active_status
+                ),
+                "partial_execution_observations_admitted": sum(
+                    int(row["partial_execution_observations_admitted"])
+                    for row in active_status
+                ),
                 "gap_count": sum(int(row["gap_count"]) for row in active_status),
                 "seconds_dark": round(sum(float(row["seconds_dark"]) for row in active_status), 6),
                 "last_trade_timestamp_ms_seen": max(
@@ -1314,6 +1623,10 @@ def fixture_seed(
         asset_ids=tuple(sorted({row["asset_id"] for row in normalized})),
         condition_ids=tuple(sorted({row["market"] for row in normalized})),
         source=source,
+        asset_condition_pairs=tuple(sorted({
+            (row["asset_id"], row["market"])
+            for row in normalized
+        })),
     )
 
 
