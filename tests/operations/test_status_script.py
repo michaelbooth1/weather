@@ -19,3 +19,27 @@ def test_capture_alert_flags_only_the_current_local_capture_day():
     assert "$historicalCaptureDay = $alertTime.Date -lt (Get-Date).Date" in text
     assert "-not $historicalCaptureDay -and $ageH -lt 24" in text
     assert "capture alert raised today" in text
+
+
+def test_disabled_on_demand_success_is_not_an_unexpected_disable():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$noTriggers = ($null -eq $_.Triggers)" in text
+    assert "$onDemandCompleted = ($noTriggers -and $res -eq \"0x0\"" in text
+    assert "completed an on-demand run" in text
+
+
+def test_only_active_scheduled_interactive_tasks_count_as_reboot_exposure():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$scheduledWorkRemains = (-not $noTriggers" in text
+    assert '$st -ne "Disabled"' in text
+    assert "$scheduledWorkRemains)" in text
+
+
+def test_operator_held_evidence_refresh_keeps_one_honest_warning():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '"WeatherEveningEvidenceRefresh"' in text
+    assert "$evidenceRefreshHeld = $true" in text
+    assert "is operator-held DISABLED" in text
