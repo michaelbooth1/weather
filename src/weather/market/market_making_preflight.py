@@ -19,6 +19,8 @@ CLOB_TOKEN_ARTIFACT_KEYS = ("clob_tokens", "clob_tokens_raw")
 CLOB_RAW_BOOK_ARTIFACT_KEYS = (
     "order_books_summary",
     "order_books_raw",
+    # Gzip-tiered canonical tape. Same bytes, smaller; see data_layer_audit_collectors.
+    "order_books_raw_gzip",
     "order_books_long",
     "order_books_long_gzip",
 )

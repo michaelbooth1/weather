@@ -16,14 +16,19 @@ Conventions for naming, ordering and reading the correspondence are in
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, git authority, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
-| **Workstation (32 GB)** | Research, implementation, measurement | Cannot see production `data/`; its mirror lags and is not authoritative |
+| **Workstation (32 GB)** | Research, implementation, measurement | Cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
 
 The production host writes handoffs and verifies handbacks. The workstation implements and measures.
 **The workstation never merges, never registers, and never writes production state.**
 
-**The mirror is not evidence.** It lags (often to ~04:30 the same day) and has repeatedly produced
-confident wrong conclusions about live state. A workstation mission that needs live evidence must be
-handed that evidence as facts in the handoff, and must say which of its conclusions depend on them.
+**The mirror is not evidence.** It lags and has repeatedly produced confident wrong conclusions
+about live state. A workstation mission that needs live evidence must be handed that evidence as
+facts in the handoff, and must say which of its conclusions depend on them.
+
+**Since 2026-08-12 the mirror is PAUSED, so it does not lag — it is FROZEN**
+([record](mirror-paused-2026-08-12.md)). The rule above is unchanged and now binds harder: a date
+after 2026-08-12 simply does not exist on the workstation, and a mission that reads `data/` there
+is reading a fixed snapshot of that morning, not a stale-by-a-day copy.
 
 ---
 

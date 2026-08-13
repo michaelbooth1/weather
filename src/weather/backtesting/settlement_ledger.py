@@ -1002,6 +1002,11 @@ def _acquire_ledger_lock(path, attempts=200, stale_after_seconds=300.0):
                     continue
             except FileNotFoundError:
                 continue
+            except OSError:
+                # Windows refuses to unlink a lock file a live holder still has
+                # open, raising PermissionError rather than FileNotFoundError.
+                # That means the lock is held, not stale: wait rather than die.
+                pass
             time.sleep(0.01)
     raise TimeoutError(f"timed out acquiring settlement ledger lock: {lock_path}")
 
@@ -1329,6 +1334,70 @@ def write_labels_csv(path, labels):
             writer.writerow(row)
 
 
+def merge_labels_csv(path, labels):
+    """Update rows for ``labels`` in place, keeping every other existing row.
+
+    ``write_labels_csv`` rebuilds the whole file from the labels handed to it,
+    which is right for a full run and destructive for a partial one. Callers
+    finalizing a subset must merge by ``event_slug`` instead.
+    """
+
+    path = Path(path)
+    existing = []
+    if path.exists():
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            existing = [row for row in csv.DictReader(handle) if row.get("event_slug")]
+    by_slug = {row.get("event_slug"): row for row in existing}
+    for label in labels:
+        if label.get("event_slug"):
+            by_slug[label["event_slug"]] = label
+    write_labels_csv(path, list(by_slug.values()))
+
+
+DEFAULT_FOLDER_FINALIZE_ATTEMPTS = 3
+DEFAULT_FOLDER_FINALIZE_RETRY_SECONDS = 0.5
+
+
+class FolderFinalizationError(RuntimeError):
+    """One or more folders failed to finalize; surviving labels were kept."""
+
+    def __init__(self, failures, labels=None):
+        self.failures = list(failures)
+        self.labels = list(labels or ())
+        shown = "; ".join(f"{name}: {error}" for name, error in self.failures[:5])
+        if len(self.failures) > 5:
+            shown += f" (+{len(self.failures) - 5} more)"
+        super().__init__(
+            f"{len(self.failures)} folder(s) failed to finalize, "
+            f"{len(self.labels)} succeeded and were written: {shown}"
+        )
+
+
+def _finalize_folder_with_retry(
+    folder,
+    attempts=DEFAULT_FOLDER_FINALIZE_ATTEMPTS,
+    retry_seconds=DEFAULT_FOLDER_FINALIZE_RETRY_SECONDS,
+    **kwargs,
+):
+    """Finalize one folder, retrying transient filesystem errors.
+
+    The ledger is rewritten whole on every upsert, so on Windows a concurrent
+    reader can hold a handle at the moment we reopen it for writing, surfacing
+    as ``PermissionError``/``OSError``. Those are worth retrying; a data or
+    schema error is not, and is raised on the first attempt.
+    """
+
+    attempts = max(1, int(attempts))
+    for attempt in range(attempts):
+        try:
+            return finalize_folder(folder, **kwargs)
+        except OSError:
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(retry_seconds * (attempt + 1))
+    return None
+
+
 def finalize_folder(
     folder,
     daily_summary_path=None,
@@ -1373,23 +1442,49 @@ def finalize_folders(
     gap_tolerance=1.5,
     reconcile_polymarket=False,
     ledger_root=None,
+    folder_attempts=DEFAULT_FOLDER_FINALIZE_ATTEMPTS,
 ):
+    """Finalize every folder, isolating per-folder failures.
+
+    One folder that raises must not cost the whole run. On 2026-08-11 a
+    transient ``[Errno 13] Permission denied`` on a single market ledger
+    aborted the loop before ``write_labels_csv``, so all 12 markets lost their
+    2026-08-10 label rows -- and a missed settlement day never self-heals,
+    because each chain run only targets yesterday.
+
+    Failures are retried, then collected and re-raised as
+    ``FolderFinalizationError`` *after* the surviving labels are persisted, so
+    the step still fails loudly while the work that succeeded is kept.
+    """
+
     finalized_at = datetime.now(timezone.utc)
     labels = []
+    failures = []
     ledger_root = resolve_ledger_root(ledger_root)
     write_resolution_specs(Path(ledger_root) / "resolution_specs.json")
     for folder in folders:
-        label = finalize_folder(
-            folder,
-            daily_summary_path=daily_summary_path,
-            overrides=overrides,
-            finalized_at=finalized_at,
-            interval_minutes=interval_minutes,
-            gap_tolerance=gap_tolerance,
-            reconcile_polymarket=reconcile_polymarket,
-            ledger_root=ledger_root,
-        )
+        try:
+            label = _finalize_folder_with_retry(
+                folder,
+                attempts=folder_attempts,
+                daily_summary_path=daily_summary_path,
+                overrides=overrides,
+                finalized_at=finalized_at,
+                interval_minutes=interval_minutes,
+                gap_tolerance=gap_tolerance,
+                reconcile_polymarket=reconcile_polymarket,
+                ledger_root=ledger_root,
+            )
+        except Exception as exc:  # noqa: BLE001 - recorded and re-raised below
+            failures.append((str(folder), f"{type(exc).__name__}: {exc}"))
+            continue
         if label:
             labels.append(label)
+    if failures:
+        # A partial run must not rewrite the CSV from a partial label set:
+        # write_labels_csv replaces the whole file, which would delete the rows
+        # belonging to the folders that just failed. Merge by event_slug instead.
+        merge_labels_csv(labels_csv, labels)
+        raise FolderFinalizationError(failures, labels=labels)
     write_labels_csv(labels_csv, labels)
     return labels

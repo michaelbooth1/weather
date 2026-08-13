@@ -1,0 +1,192 @@
+# Replay does not reproduce what we served
+
+**Established 2026-08-11 by `-09-75a` (merged `7b2ece24`), from `-09-74a` (merged
+`8f7a408a`), and extended by `-09-76a`.**
+Verified on production: artifact SHA-256 match, `ROLL-FREE` exit 0, every headline recomputed from
+the committed CSV.
+
+## 1. The result
+
+The 368-event decision stratum of the `-09-73a` artifact was replayed against its **recorded**
+probability vectors, using each row's own captured runtime commit, at a bit-exactness tolerance of
+L1 `1e-12`.
+
+| | |
+| --- | ---: |
+| Runtime-commit bound | **358 / 368 (97.28%)** |
+| **Matched** | **114 / 358 (31.84%)** |
+| **Diverged** | **244 / 358 (68.16%)** |
+| Whole-B replay ceiling | **16,143 / 28,254 (57.14%)** |
+
+Failures occur **in every market and in both decision windows**, under 8 of the 10 represented
+runtime commits. Every row recorded and replayed active kind `hgb`, so this is not a model-kind
+switch. These are exact finite-population counts; no interval applies to a deterministic
+reproduction question.
+
+**Divergence magnitude** over the 244 failures — median L1 **0.0154**, mean **0.0299**, p90
+**0.0424**, p99 **0.3849**, max **0.7728**. Mostly small, with a real tail. Note the tolerance is a
+*bit-exactness* bar, so "small" here still means the replayed system is not the served system.
+
+## 2. It is the environment binding, not the inputs
+
+| Evidence | Reading |
+| --- | --- |
+| **158 of 244** failures have **zero** feature differences | inputs identical, only the model environment differs |
+| **19 of 114** matches have **nonzero** feature differences | the differing fields are ones the model does not consume — a control that passes |
+| 10 runtime commits carry **7** code hashes, **15** artifact hashes, **54** identities | a commit does not determine what ran |
+| **all 358** captured identities differ from their own commit tree | checking out historical `HEAD` never reconstructs the served system |
+| all 358 record model version **`v0.5.10`** | **the artifact changed 15 times under one version label** |
+
+`src/weather/model/model_identity.py:100` fingerprints code files by reading `SRC_ROOT` **from disk
+at capture time** — not the loaded module — while the recorded `git_commit` is repository `HEAD`.
+Three states can therefore disagree at once: the code the process loaded at start, the working tree
+on disk, and `HEAD`. Our roll rules make this expected rather than exotic: a commit that touches no
+loaded module is roll-free, so `HEAD` advances while the running process keeps its old code.
+
+**This was the diagnosis to test, not a proven chain.** `-09-76a` found that none of the 63
+decision-stratum identities can be fully rebuilt from reachable Git blobs. The diagnosis therefore
+remains unidentifiable on the historical decision rows: a mismatch after a partial reconstruction
+cannot distinguish an unresolved disk byte from code retained by a running process.
+
+## 3. Two hypotheses this killed
+
+**Toronto source switch — dead.** All four B `M4_source_switch` events are toronto pre-dawn at
+~00:08. The three bound ones fail with **identical sources and zero feature differences**; non-`M4`
+toronto rows match 0/2 and 0/9 on the same runtimes, and non-toronto rows fail too. Neither `M4` nor
+toronto explains anything.
+
+**"The incumbent reproduces recorded output" — retired.** The 2026-07-29 forward shadow matched
+austin to `2.23e-16` on **one market, one market-day, diagnostic grade**, and said in its own words
+that closure required **toronto at strict grade**. That was never done. It is now done, and it
+fails. Do not cite that result as closure again.
+
+## 4. What this licenses, and what it does not
+
+**It licenses:**
+
+- Refusing to allocate α to the frozen `-09-73a` pre-registration. It is unexecutable for a reason
+  that has **nothing to do with the recovery candidate**, and the `-09-74a` ceiling mission must not
+  resume until this clears.
+- Treating **57.14%** as only the old commit-bound availability ceiling, not a trustworthy replay N.
+  Exact identity reconstruction is available for just **111 / 28,254 (0.39%)** whole-B rows and
+  **0 / 368** decision rows.
+
+**It does not license:**
+
+- Concluding the model is wrong. The served output is what it is; **we cannot currently rebuild the
+  environment that produced it.**
+- Discarding paired replay comparisons wholesale. A candidate scored against an incumbent **inside
+  the same replay environment** is internally consistent — it simply answers "what would this change
+  do under *this* environment", not "what would it have done to what we served". **State which
+  question is being answered.** We have shipped the wrong-lane error before.
+- Any change to serving, the floor, collection or scoring. Nothing here is a serving defect.
+
+## 5. Identity binding does not recover the historical decision runtime
+
+`-09-76a` resolved every captured per-file fingerprint against every blob reachable from 178 refs,
+including the 27 unmerged remote branches, then assembled and replayed one synthetic tree per
+decision identity. Captured SHA-256 fingerprints are SHA-256 over decoded Git blob bytes, not Git
+object IDs. Of 413 distinct captured fingerprints, **89 resolve and 324 do not**.
+
+The selected 63 identities each record 17–19 present files, but only 4–11 files per identity are
+recoverable. **Zero of 63 are fully resolved.** On the same 358 commit-bound rows, the partial trees
+match 105 / 358 (**29.33%**), versus 114 / 358 (**31.84%**) under commit binding. They rescue no
+commit-binding failure and lose nine prior matches. This partial-tree rate is diagnostic only; it is
+not a restored replay rate. The eight identity-only rows are also only partially resolved (1 match,
+7 failures), while two rows have no identity.
+
+Across whole B, 12 / 702 identities are fully resolved, covering **111 / 28,254 rows (0.39%)**;
+23,683 identity-bearing rows are partial and 4,460 rows have no identity. In plain words: **what we
+served on the historical decision stratum cannot be rebuilt from what we recorded.** Every replay
+number that claims comparison to the served incumbent remains untrusted unless it is explicitly
+limited to a fully reconstructed identity population.
+
+The forward repair belongs in capture, not in further mining of this history: preserve immutable,
+content-addressed source and artifact bytes for the loaded runtime, capture hashes from the modules
+the process actually loaded, and bind them to process start/restart and dependency versions.
+`model_identity.py` was deliberately left unchanged by this measurement.
+
+### 5a. What the −2.51 pp headline hides (production verification of `-09-76a`)
+
+The mapping is **proven, not asserted**: git blob `60fa602a` is 10,221 bytes and SHA-256s to
+`5df7480d…`, exactly the captured fingerprint for `model_base.py`. So "324 of 413 fingerprints do not
+resolve" is a fact about **our history**, not about the resolver.
+
+**The experiment barely varied the binding.** Comparing `commit_l1` to `identity_l1` row by row,
+**292 of 358 rows produced a bit-identical replayed vector under both bindings**, and **203 of the
+244 failures were never re-tested at all**. The synthetic tree is a donor-commit checkout overlaid
+with the 4–11 resolved files (`assemble_runtime_trees`, `measure_identity_binding_09_76a.py:945`),
+so wherever the resolved files already agreed with the donor, nothing moved. Only **66 rows** changed
+output, on **two target dates**.
+
+| Date | Rows changed | Closer to recorded | Farther | Median L1 commit → identity |
+| --- | ---: | ---: | ---: | --- |
+| 2026-06-21 | 57 | **41** | 16 | 0.024510 → **0.020743** |
+| 2026-06-16 | 9 | 0 | **9** | 0.000000 → 0.009766 |
+
+**2026-06-21 is directionally correct and incomplete** — a 15% residual reduction from correcting
+5–6 of 19 files, with no row reaching `1e-12`. That is what a partial but *right* reconstruction
+looks like.
+
+**2026-06-16 is the first positive instance of the drift.** All nine lost matches are on that one
+date; no other date loses one. Their commit-tree replay is **exact**, so unlike the 253 failures
+there is no incomplete-tree confound to explain them away: **the captured identity describes bytes
+the running process was not executing.** The overlaid set is the same throughout — `model_base`,
+`model_climatology`, `model_constants`, `feature_store`, plus `feature_model_hgb_<market>.pkl`.
+**n=9 across 6 identities on one date: a lead, not a finding.**
+
+**Why the unresolved files are unresolved:** the files that resolve are the ones that change rarely;
+the files that never resolve are the ones that change constantly. `model_base.py` has 10 commits in
+all history and resolves for **63 of 63** identities. `model_features.py` has 36 and is unresolved
+for **62 of 63**; `model_distribution.py` has 38 and is unresolved for 54. All tracked, none
+gitignored. Across 36–38 committed versions, **not one carries the bytes that were on disk when we
+served.**
+
+The alternative — that those bytes were reachable at capture and lost when 46 branches were retired
+— is **dead**. Every branch in `docs/roadmap/branch-retirement-2026-08-11.md` is an ancestor of
+`master` by `git branch --merged` ancestry, so no blob became unreachable.
+
+**Production has been serving from working-tree bytes that were never committed, chronically, for
+exactly the files that get edited most.** That is not a replay defect; it is a
+capture-and-commit-discipline defect, and it is why only 0.39% of whole B is exactly reconstructable.
+
+### 5b. The retired gate's question, answered elsewhere
+
+`-09-74a` stopped before the repair ceiling because a reproduction control failed. That control was
+mine, `-09-75a` and `-09-76a` proved it can never pass, and `-09-77a` (merged `9d844153`) retired it
+and answered the ceiling question in **one** environment instead, where history is not needed.
+The result and **two specification defects I introduced** — a bound that measures the repair's cost
+rather than its benefit, and a screen that reduces to `mean/SE > 0.8416` on a non-negative quantity
+and so could not have failed — are recorded in
+`docs/operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md` **§5d**, together with the
+defensible replacement (`±‖p−q‖²`, mean **0.1385**). The lesson generalises past this thread:
+**a bound stated without its sign is not a result, and a screen that cannot return NO-GO is not a
+screen.**
+
+`-09-78a` (merged `33514915`) then measured the estimand's own standard error by simulating the
+realized band from each arm's vector, and returned **NO-GO under both calibration premises** —
+including Null C, the one most generous to the candidate. **It is the reachable NO-GO**: its harness
+asserts both verdict branches live before it measures. §5e of the GATE_3 canon carries the numbers,
+including the finding that the binding constraint is the stratum's **11 date clusters, not the
+12-market floor** — so the closure is a power limit, not a wall. **No α was spent; 13 remain.**
+
+## 6. Reproduction
+
+```powershell
+$branch = 'origin/codex/workstation-is-replay-trustworthy-2026-09-75a'
+git show "${branch}:docs/roadmap/agent-report-2026-08-30-workstation-replay-trust.md"
+git show "${branch}:docs/roadmap/replay-trust-2026-09-75a.sha256"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  .\scripts\ops\roll_verdict.ps1 -Branch $branch
+```
+
+Artifacts: `docs/roadmap/replay-trust-2026-09-75a.csv` (372 rows: 368 decision + 4 `M4`
+diagnostics), `-manifest.json`, `.sha256`, harness and versioned seed under `tools/research/`.
+Predecessors: `docs/roadmap/agent-report-2026-08-29-workstation-repair-ceiling.md` (`-09-74a`),
+and the candidate this blocks is in
+`docs/operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md` §5c.
+
+Identity-binding evidence is on
+`origin/codex/workstation-rebuild-the-runtime-from-the-identity-2026-09-76a`:
+`docs/roadmap/agent-report-2026-08-31-workstation-identity-binding.md`,
+`identity-binding-2026-09-76a.csv`, `-manifest.json`, `.sha256`, harness, and versioned seed.

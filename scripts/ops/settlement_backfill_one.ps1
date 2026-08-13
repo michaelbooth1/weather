@@ -91,30 +91,93 @@ if ($Refetch) { $chainArgs += '-Refetch' }
 $chainExit = $LASTEXITCODE
 
 # --- Verify the OUTCOME, not the exit code --------------------------------------
+# A date STRING appearing in the ledger is NOT settlement. An unsettled day is still
+# WRITTEN to the ledger, as a row carrying settlement_source='none' and
+# settlement_high=null -- so the old presence check reported SETTLED on precisely the
+# failure it exists to catch. On 2026-08-11 it stamped SETTLED for 2026-08-06 while
+# recording ledger_grew=false in the same artifact, and the identical presence check
+# also returns true for 08-08 and 08-10, neither of which is settled.
+#
+# Verify the CONTENT of the target date's newest row, in EVERY market ledger, so the
+# check can say what it actually counted rather than that it found a substring.
+
+function Get-TargetRow {
+    param([string]$LedgerPath, [string]$Date)
+    if (-not (Test-Path $LedgerPath)) { return $null }
+    $row = $null
+    # Share ReadWrite explicitly. [System.IO.File]::ReadLines() opens with FileShare.Read, which
+    # BLOCKS WRITERS -- on 2026-08-11 a read loop over the 12 ledgers using it collided with the
+    # chain's market_day_labels_finalize and failed that step with
+    # "[Errno 13] Permission denied: data\settlements\austin\ledger.jsonl". A diagnostic read must
+    # never be able to fail a production write.
+    $stream = [System.IO.File]::Open(
+        $LedgerPath,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::ReadWrite
+    )
+    try {
+        $reader = New-Object System.IO.StreamReader($stream, [System.Text.Encoding]::UTF8, $true)
+        try {
+            while ($null -ne ($line = $reader.ReadLine())) {
+                if ($line -notlike "*$Date*") { continue }
+                try { $obj = $line | ConvertFrom-Json } catch { continue }
+                # Revisions append, so the LAST matching row is the live verdict.
+                if ($obj.target_date -eq $Date) { $row = $obj }
+            }
+        }
+        finally { $reader.Dispose() }
+    }
+    finally { $stream.Dispose() }
+    return $row
+}
+
+function Test-RowSettled {
+    param($Row)
+    if ($null -eq $Row) { return $false }
+    $source = "$($Row.settlement_source)".Trim().ToLowerInvariant()
+    if ($source -eq '' -or $source -eq 'none' -or $source -eq 'null') { return $false }
+    return ($null -ne $Row.settlement_high)
+}
+
 $ledgerAfter = if (Test-Path $ledger) { (Get-Content $ledger).Count } else { 0 }
 $ledgerGrew = $ledgerAfter -gt $ledgerBefore
 
-$settled = $false
-if (Test-Path $ledger) {
-    $settled = [bool](Select-String -Path $ledger -Pattern ([regex]::Escape($TargetDate)) -Quiet)
+$settledMarkets = @()
+$unsettledMarkets = @()
+foreach ($marketDir in Get-ChildItem -Path (Join-Path $RepoRoot 'data\settlements') -Directory) {
+    $row = Get-TargetRow -LedgerPath (Join-Path $marketDir.FullName 'ledger.jsonl') -Date $TargetDate
+    if (Test-RowSettled -Row $row) { $settledMarkets += $marketDir.Name }
+    else { $unsettledMarkets += $marketDir.Name }
 }
+$marketTotal = $settledMarkets.Count + $unsettledMarkets.Count
+$datePresent = [bool](Select-String -Path $ledger -Pattern ([regex]::Escape($TargetDate)) -Quiet)
 
 $extra = @{
-    chain_exit_code   = $chainExit
+    chain_exit_code    = $chainExit
     ledger_rows_before = $ledgerBefore
     ledger_rows_after  = $ledgerAfter
     ledger_grew        = $ledgerGrew
-    target_in_ledger   = $settled
+    markets_settled    = $settledMarkets.Count
+    markets_total      = $marketTotal
+    markets_unsettled  = $unsettledMarkets
+    # Kept ONLY to show that the old signal is worthless on its own: it is true for
+    # every unsettled date too. Never branch on it.
+    target_date_present_substring = $datePresent
 }
 
 if ($chainExit -ne 0) {
     Emit 'CHAIN_FAILED' "chain_recovery_run exited $chainExit; do NOT start the next date" $extra
     exit 1
 }
-if (-not $settled) {
-    Emit 'SILENT_NOOP' 'chain exited 0 but the target date is still absent from the ledger. This is the treated_as_source_unavailable trap: re-run with -Refetch.' $extra
+if ($settledMarkets.Count -eq 0) {
+    Emit 'SILENT_NOOP' "chain exited 0 but $TargetDate has a real settlement_source in 0 of $marketTotal market ledgers; the ledger grew by $($ledgerAfter - $ledgerBefore) row(s). Either the heavy step was deferred (check the run's admission blockers for host_commit_above_limit) or this is the treated_as_source_unavailable trap -- re-run with -Refetch when host commit is under 70%." $extra
+    exit 1
+}
+if ($settledMarkets.Count -lt $marketTotal) {
+    Emit 'PARTIAL' "only $($settledMarkets.Count) of $marketTotal markets settled for $TargetDate; still unsettled: $($unsettledMarkets -join ', '). Do NOT start the next date." $extra
     exit 1
 }
 
-Emit 'SETTLED' "target date present in the ledger; ledger grew by $($ledgerAfter - $ledgerBefore) row(s). Re-run streak.ps1 and confirm Toronto did not regrade before starting the next date." $extra
+Emit 'SETTLED' "$($settledMarkets.Count) of $marketTotal markets carry a real settlement_source for $TargetDate; ledger grew by $($ledgerAfter - $ledgerBefore) row(s). Re-run streak.ps1 and confirm Toronto did not regrade before starting the next date." $extra
 exit 0

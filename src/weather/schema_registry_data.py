@@ -1855,6 +1855,13 @@ REGISTERED_SCHEMAS = (
         "Plan/apply report for gzip tiering closed-day CLOB order-book long tapes.",
     ),
     SchemaSpec(
+        "clob_raw_tape_tiering",
+        "clob_raw_tape_tiering_v0.1",
+        "weather.operations.clob_raw_tape_tiering",
+        "active",
+        "Plan/apply report for gzip tiering the canonical closed-day order_books.jsonl tape.",
+    ),
+    SchemaSpec(
         "cross_hub_quoteability",
         "cross_hub_quoteability_v0.1",
         "weather.reporting.source_gates.cross_hub_readiness",
@@ -2087,6 +2094,13 @@ SCHEMAS_BY_NAME = {spec.name: spec for spec in REGISTERED_SCHEMAS}
 SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
+    SchemaLiteralExclusion(
+        "native_station_pressure_train_serve_v1",
+        "weather.calibration.feature_training_policy",
+        "training_feature_policy_id",
+        "Train/serve native-station-pressure policy identifier, not a "
+        "serialized artifact schema.",
+    ),
     SchemaLiteralExclusion(
         "first_retrain_station_day_exclusions_v1",
         "weather.operations.base_retrain",

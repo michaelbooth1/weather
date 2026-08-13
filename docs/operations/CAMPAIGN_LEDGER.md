@@ -69,8 +69,53 @@ that would be a self-inflicted version of the very thing this ledger exists to p
 
 | # | Decision | Mission | State |
 | ---: | --- | --- | --- |
-| 10 | Lead-1 PIT surface-heating and convective-budget exponential tilt using the 12 predeclared Open-Meteo previous-run fields; total excess Brier vs market primary, incumbent-frozen severity-tail SSE secondary | `-09-61a` | **ALLOCATED 2026-08-10, UNSPENT.** Frozen protocol: `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json`. Decision 10 is spent on the first post-freeze computation combining candidate-dependent C state with any C settlement outcome or market probability, including its control, candidate-native MDE, endpoint, bootstrap draw, or a partial/failed attempt. Parser/schema work, C features without outcomes/market, fitting on B, and the B-only screen do not spend alpha. |
+| 10 | Lead-1 PIT surface-heating and convective-budget exponential tilt using the 12 predeclared Open-Meteo previous-run fields; total excess Brier vs market primary, incumbent-frozen severity-tail SSE secondary | `-09-61a` → `-09-63a` | **CLOSED UNUSED 2026-08-11 — NO-GO at Gate 3 on the B-only screen.** Allocated 2026-08-10 under frozen protocol `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json` (+ amendment A1), then closed without ever reaching C. **The B-only screen does not spend alpha** by this row's own trigger, so **α spent = 0**. No C settlement outcome, market probability, candidate probability, or bootstrap draw was ever computed. **Never reassign #10.** |
 | 9 | Conditional own-distribution reshape behind a peak-probability band-state trigger (β=0.52, threshold 0.65) | `-09-60a` | **CLOSED UNUSED 2026-08-10 — P0 NO-GO.** Conditional lost to global on **its own B training score** (0.051512 vs 0.050613) and forward (0.054804 vs 0.053567). No C score, **no α spent. Never reassign #9.** |
+
+### Coverage calibration — `-09-62a`, no spend and no allocation
+
+The predeclared true-zero simulation found decision 10's C primary calibrated at ledger alpha
+(`0.00240`) but its required 5,930-row severity tail short (`0.00340 [0.002927, 0.003950]`). The
+restoring tail quantile is `3.1098893` rather than `3.0233414`. This result is component-conditional:
+in-season B was conservative, so it is not a generic M=12 `t` rule.
+
+**ADOPTED 2026-08-10 as amendment A1 — the conservative UNIFORM quantile.** The operator took the
+uniform option: `q=3.1098893` replaces `z=3.0233414` for **both** required decision-10 endpoints,
+not just the tail. Nominal α does not move — it stays `0.0025`; the quantile is corrected to
+*deliver* the α the ledger already declares.
+
+| | |
+| --- | --- |
+| Amendment | `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a-amendment-A1.json` |
+| A1 SHA-256 | `549e26a3a55494e0da2d406809ad67c43dba60c6fbb3604aec62488ea4e8f2bb` |
+| Base protocol | **byte-identical, edited nowhere** — `336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146` |
+| MDE multiplier | `1.3795628` → **`1.4104552`** (×`1.0223929` on every existing MDE) |
+| Campaign-adjusted market floor | `4.414601%` → **`4.513457%`** — the practical ≥5% step still clears it |
+
+**Uniform was chosen over the statistically exact endpoint-specific rule on purpose.** C measured
+calibrated (`0.00240`) and only the tail short, so a per-endpoint quantile would have cost no power
+on C. It was rejected because it makes *"which quantile applies here"* a live choice at analysis
+time, and this campaign's recorded failure mode is researcher degrees of freedom, not lost power.
+
+**Decision 10 KEEPS ITS NUMBER and its allocation.** The base protocol's `deviation_policy` voids a
+decision whose verdict rule changes, but that clause exists to stop a rule being tuned once results
+are visible. **Nothing has been executed** — no C outcome, market probability, candidate
+probability, or bootstrap draw exists, and A1 was decided from a **true-zero** simulation that never
+touched the candidate. **Every effect of A1 is strictly conservative:** a wider quantile makes the
+primary interval *harder* to exclude zero, and a larger MDE makes the `actual_power_gate` *harder*
+to pass. There is no path by which it raises the false-accept rate or helps a candidate. Renumbering
+would imply a fresh look was taken; none was.
+
+`-09-62a` spent and allocated nothing and A1 spends nothing, so accounting is **unchanged: 7 of 20
+spent, 13 available**. See `ESTABLISHED_FINDINGS.md` section 1i and
+`docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md`.
+
+**A1 was adopted, and then decision 10 closed unused anyway** (`-09-63a`, NO-GO at Gate 3 on the
+B-only screen — see the row above). A1 is retained as the standing quantile rule for **any future**
+decision on this panel, not as a dead letter: the coverage defect it corrects is a property of the
+panel's component mix, not of decision 10. **Recorded 2026-08-11 from the `-09-63a` result while
+that branch is still queued and unmerged** — its report is not yet in-repo, so cite the branch, not
+a repo path, until it lands.
 
 
 | # | Decision | Mission | State |

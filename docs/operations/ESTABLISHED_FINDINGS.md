@@ -889,14 +889,15 @@ because the workstation may not call providers.
 
 ## 1h. THE PIT-FIELD TEST IS PRE-REGISTERED AND FROZEN — `-09-61a`, 2026-08-10
 
-The 12-field corpus of §1e now has a **frozen, hashed protocol written before the data was
-integrated**, so the candidate cannot be fished. A later mission executes it unchanged.
+The 12-field corpus of §1e has a **frozen, hashed protocol written before the data was
+integrated**, so the candidate cannot be fished. `-09-63a` later executed its B-only integrity
+screen unchanged; the result is in §1j.
 
 | | |
 | --- | --- |
 | Artifact | `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json` |
 | SHA-256 | `336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146` |
-| Campaign | **decision 10 ALLOCATED, UNSPENT.** α remains **7 of 20**; 13 available |
+| Campaign | Allocated here; **CLOSED UNUSED by `-09-63a`**. α remains **7 of 20**; 13 available |
 | Candidate | ONE lead-1 target-day surface-heating / convective-budget tilt, 12 named features, no sweep |
 | Design | fit on in-season B (D=23) → score once on out-of-season C (D=27), the §1c pattern |
 
@@ -937,7 +938,7 @@ markets) was run against what is actually staged:
 > because B is June, would fit on **7 B dates instead of 23** — and the manifest would look
 > complete while it happened. Both roots are required. See `CORPUS.md` in the main root.
 
-### THE ASSUMPTION NOBODY HAS MEASURED — and it is not `-09-61a`'s to fix
+### THE ASSUMPTION NOBODY HAD MEASURED AT FREEZE — resolved before execution by `-09-62a`
 
 The protocol builds its interval as `point ± z(1−α/2) × bootstrap SD`, **z = 3.0233 at
 α=0.0025 — a three-sigma normal quantile off a bootstrap whose market dimension has 12 clusters.**
@@ -947,7 +948,9 @@ choice.
 **`-09-57a` measured multiplicity, never coverage.** Its 50,000-campaign simulation null-centres
 the *real* crossed-bootstrap distribution to price best-of-k selection — so if that distribution's
 dispersion is wrong at M=12, the multiplicity result inherits the error rather than detecting it.
-**No mission has ever measured the empirical coverage of these intervals.**
+**At protocol freeze no mission had measured empirical coverage.** `-09-62a` subsequently measured
+it under a true-zero simulation before any candidate execution; §1i records the result and adopted
+amendment A1.
 
 The direction of the risk is known from the cluster-robust literature: few-cluster normal
 intervals **under-cover**, and the error grows in the far tail. For scale, at 11 degrees of freedom
@@ -955,8 +958,8 @@ intervals **under-cover**, and the error grows in the far tail. For scale, at 11
 runs on.**
 
 > **If the interval under-covers, α=0.0025 is nominal rather than real, every MDE in §1d is
-> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gates decision 10 and
-> retroactively qualifies decisions 1–7. **Measure it before spending decision 10.**
+> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gated decision 10 and
+> retroactively qualified decisions 1–7. `-09-62a` measured it before decision 10 could be spent.
 
 This is filed as the next mission rather than left as a note, per `HOW_WE_GET_THINGS_WRONG.md`
 pattern 5.
@@ -966,12 +969,100 @@ pattern 5.
 - **The negative control is an algebraic identity**, not an exchangeability assumption: an exact
   incumbent clone whose improvement is zero row by row. `-09-59a` had to correct its control
   mid-flight; this one **cannot drift**. It verifies the scoring path, not the inference calibration
-   — which is precisely why the coverage question above is still open.
+   — which is precisely why the coverage mission was still required; §1i now closes it.
 - **The spend trigger is conservative**: decision 10 is spent by the first computation that touches
   candidate-dependent C state together with any C outcome or market price — *including a failed
   attempt*. A broken run cannot become a free look.
 - **Both endpoints are mandatory, and a primary win with a negative tail point is REJECTED.**
   That is `-09-60a` (§1g) converted into a rule.
+
+---
+
+## 1i. ALPHA=0.0025 IS SHORT ON THE THIN TAIL, NOT GENERICALLY AT M=12 — `-09-62a`, 2026-08-10
+
+Coverage is now measured under a true-zero simulation using the sealed panel's actual occupancy
+and endpoint-specific date / market / residual components from the real `-09-44a`
+repair-minus-control field. The predeclared M=200 positive control passed at both alpha levels.
+
+| Endpoint | Empirical alpha at nominal 0.05 | Empirical alpha at nominal 0.0025 | Restoring `q` at 0.0025 |
+| --- | ---: | ---: | ---: |
+| Out-of-season C | `0.04244` | **`0.00240`** | `3.006595` |
+| **Severity tail** | **`0.04908`** | **`0.00340 [0.002927, 0.003950]`** | **`3.109889`** |
+| In-season B | `0.00346` | `0` | `2.019972` |
+
+The tail result uses 50,000 coverage replications (170 rejections; MC SE `0.000260`) and resolves
+an absolute `0.00090` excess over the ledger alpha; the predeclared 80%-power resolution was
+`0.0006486`. **The prior that every M=12 endpoint must under-cover is falsified.** Component mix
+matters: C is nominal at ledger alpha and B is conservative, while the 5,930-row tail is short.
+
+**ADOPTED 2026-08-10 as amendment A1 — uniform, both endpoints.** `z=3.0233414` is replaced by
+`q=3.1098893` for **both** required decision-10 endpoints, not only the short tail. Nominal α is
+unchanged at `0.0025`; the quantile is corrected to *deliver* it. The amendment is
+`docs/roadmap/pit-field-evaluation-protocol-2026-09-61a-amendment-A1.json`, SHA-256
+`549e26a3a55494e0da2d406809ad67c43dba60c6fbb3604aec62488ea4e8f2bb`; **the base protocol is
+byte-identical and was edited nowhere** (`336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146`).
+The exact endpoint-specific rule was rejected deliberately: it would have cost no power on C, but it
+makes *"which quantile applies here"* a live choice at analysis time, and this campaign's recorded
+failure mode is researcher degrees of freedom, not lost power. **Decision 10 keeps its number** —
+nothing has been executed, and every effect of A1 is strictly conservative (see `CAMPAIGN_LEDGER.md`).
+
+> **A LIMITATION THE `-09-62a` REPORT DID NOT STATE: `q=3.1098893` IS A LOWER BOUND, NOT A POINT
+> ESTIMATE.** The coverage simulation draws **Gaussian** date, market, and residual effects, but the
+> severity tail is **by construction a selected-extreme subset** — incumbent SE > market SE and
+> disagreement ≥ 0.30 — and is **not Gaussian**. Simulating a heavy-tailed field as thin-tailed
+> **understates** far-tail miscalibration, so the true restoring quantile is **at least**
+> `3.1098893`. Do not read it as the calibrated answer, and do not use it to argue the correction is
+> now "priced". Uniform adoption was chosen partly to buy margin against exactly this.
+
+This changes the section 1d campaign MDE multiplier from `1.3796` to `1.410455`
+(current ledger MDEs x `1.022393`). The four proxy MDEs become `0.004309` B ratio, `0.053218` C
+ratio, `0.021406` tail SSE, and `0.002366` primary-window Brier. The campaign-adjusted market
+floor moves from `4.414601%` to **`4.513457%`**, so the practical >=5% step survives. The
+alpha=0.05 D=73 / **2026-10-16** confirmation date also survives because neither required endpoint
+under-covered at 0.05.
+
+Decision 10's coherent `a=b=c=0.05` P0 MDE moves from `6.790047%` to `6.942096%` of `G`, still
+below its 10% gate. **The frozen `-09-61a` protocol was NOT edited in place, and must not be** —
+A1 is a separate, hashed, side-by-side amendment, which is the only permitted shape for a change
+here. Decision 10 was **allocated and unspent as of this mission**, and was CLOSED UNUSED hours
+later by `-09-63a` — see §1j. This calibration mission spent and allocated no
+alpha and A1 spends none, so the ledger remains **7 of 20 spent, 13 available**. Full method,
+components, seeds, coverage table, and evidence hashes are in
+`docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md`.
+---
+
+## 1j. DECISION 10 CLOSED UNUSED BEFORE FITTING — `-09-63a`, 2026-08-10
+
+**NO-GO at Gate 3, zero ledger cost — and the gate was measuring the wrong thing.** The required
+feature extract reproduced its frozen SHA-256 `60b450f1…ac8`. Before any fit, the B-only screen
+found what it read as a realized winning band with incumbent repaired probability exactly zero, and
+failed closed.
+
+**What survives, and is the point of this section:** no beta was fitted, no expanding-window B
+curve was produced, and **the surface-heating mechanism was not tested in either direction.**
+Treating the absent coefficient vector as evidence about the mechanism would be a second error.
+Only B outcomes and incumbent repaired probabilities were materialized; no C outcome, market
+probability, candidate state, bootstrap draw, or clone control was ever computed.
+**Decision 10 is closed unused and RETIRED, must never be reassigned, and alpha remains 7 of 20
+spent, 13 available.**
+
+**What does NOT survive is the trigger.** `-09-63a` named Denver `2026-06-08`, snapshot
+`20260608T030552-0400`, band 4 as a served zero. **Production served `0.5206313021` on that row.**
+The zero was a research-replay artifact: replay rebuilt `high_so_far = 91` from
+`wu_current.max_since_7am_c` against a current temperature of 68, giving a replay floor of 91 where
+the captured served floor was 68. `-09-65a` reached the same conclusion independently. The full
+trace is `docs/operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md`, and the
+replay-vs-served floor divergence it exposes is an open production question, not a settled finding.
+
+Of the B floor crossings, only **two** are genuine — Chicago `2026-06-14` (70/69) and San Francisco
+`2026-06-09` (68/67); NYC `2026-06-22` is a fallback row with a blank `served_floor_bucket`.
+`-09-68a` then showed the gate is structurally mis-specified rather than unlucky: a fail-on-any-row
+gate has `P(fire) = 1 − (1 − q)^n`, which at 2 crossings in 204 B market-days fires **86.60%** of the
+time on the observed panel and **99.27%** at 500 market-days, **regardless of candidate quality**.
+It must not be re-registered unchanged.
+
+> **This section is therefore evidence about the INSTRUMENT, not about the candidate.** The NO-GO
+> and the zero alpha cost are real; the stated cause is retracted. Do not cite the Denver row.
 
 ---
 
@@ -1958,6 +2049,33 @@ behaviour, uptime, gate exposure, and a paper markout column under a declared $0
 NOT**: identify `A` or `f`, prove real fills, profitability, a unique break-even, reward
 eligibility, live readiness, model edge, or promotion — and one day is not a powered economic
 endpoint. **Forward execution capture (above) remains the only route to `f`.**
+
+## 8d. A terminated scheduled wrapper can leave its governed child alive — measured 2026-08-13
+
+`WeatherEveningEvidenceRefresh` started at **12:03:20 local** and Task Scheduler later reported the
+wrapper terminated (`0x41306`), but its delegated `weather.operations.daily_refresh` process tree
+remained alive. The proof is direct: both surviving Python processes had the task's exact creation
+second, the child named PID `19872` in `daily_refresh_faulthandler_20260813T160323Z.log`, and its
+parent/child relationship was still present after the scheduled task returned to `Ready`.
+
+At the last pre-kill guard sample the child held **44,391 MB private commit**. Snapshot admission
+failed for all 12 markets, and the authoritative streak checker recorded a **13:24→13:57 local
+gap, 32.5 minutes**, so `2026-08-13` is unavoidably partial. Disk free fell from **180.6 GB to
+146.8 GB** while commit expanded; **26.2 GB returned immediately after process teardown**, proving
+most of the apparent disk burn was transient pagefile/commit pressure rather than retained tapes.
+
+The process could not be terminated from the interactive session because it belonged to S4U. The
+already-scheduled S4U memory guard terminated the exact two-process tree after it was taught the
+narrow ownership rule: inside 12:00–18:00, an evidence-refresh `daily_refresh` child older than two
+minutes is an orphan when its owning scheduled task is not `Running`. The task was disabled before
+its 14:00 retry. By **14:00:20**, all 12 current event folders were fresh, snapshot admission passed,
+and the last fleet cadence had zero errors and zero stale markets.
+
+> A governed `-m weather.*` exemption is not sufficient by itself. Scheduler ownership must be
+> checked, because termination of the wrapper does not guarantee termination of its delegated
+> child. Do not re-enable `WeatherEveningEvidenceRefresh` until the wrapper owns child-tree teardown.
+
+---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 

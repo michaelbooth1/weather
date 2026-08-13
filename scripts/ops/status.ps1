@@ -56,12 +56,45 @@ Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("python.exe", "pyth
         }
     }
 }
+# S4U-owned process command lines are hidden from an ordinary interactive WMI
+# query on this host.  An empty command-line match is therefore UNKNOWN, not
+# DOWN.  Fall back to the capture workers' portable single-writer contract:
+# fresh heartbeat + live PID + a writer lock owned by that same PID.  This is
+# the same evidence the resource gate uses and still fails closed if any part
+# is absent, stale, unreadable, or mismatched.
+$portableCaps = [ordered]@{
+    "snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 300.0 }
+    "market_microstructure" = @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180.0 }
+    "observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }
+}
+$captureRoot = Join-Path $repo "data\snapshots"
+foreach ($label in $portableCaps.Keys) {
+    if ($capState[$label].Count -gt 0) { continue }
+    $spec = $portableCaps[$label]
+    try {
+        $status = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Status) -Raw | ConvertFrom-Json
+        $lock = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Lock) -Raw | ConvertFrom-Json
+        $pidValue = [int]$status.pid
+        $ageSeconds = ((Get-Date) - [datetime]$status.last_heartbeat).TotalSeconds
+        $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+        if ($pidValue -gt 0 -and [int]$lock.pid -eq $pidValue -and $process -and
+            $ageSeconds -ge 0 -and $ageSeconds -le [double]$spec.MaxAge) {
+            $priority = [string]$process.PriorityClass
+            # PriorityClass can be hidden with the command line under S4U.
+            # The separately scheduled priority guard owns re-assertion; this
+            # fallback proves liveness rather than inventing a priority value.
+            if (-not $priority) { $priority = "PortableHealthy" }
+            $capState[$label] += $priority
+        }
+    }
+    catch { }
+}
 foreach ($c in $caps.Keys) {
     if ($capState[$c].Count -eq 0) {
         $flags.Add("capture loop DOWN: $c")   # a dead capture loop is streak-critical
     }
     else {
-        $low = @($capState[$c] | Where-Object { $_ -notin @("AboveNormal", "High", "RealTime") })
+        $low = @($capState[$c] | Where-Object { $_ -notin @("AboveNormal", "High", "RealTime", "PortableHealthy") })
         if ($low.Count -gt 0) {
             $warns.Add("$c not all AboveNormal ($($capState[$c] -join ',')) - guard re-asserts within 5 min")
         }
@@ -230,7 +263,11 @@ if (Test-Path $settleRoot) {
     #   2. Max-date can never see an INTERIOR hole (08-06 empty while 08-07 settled), so
     #      scan the whole recent window per date instead of tracking a maximum.
     $windowDays = 14
-    $today = (Get-Date).Date
+    # NOT $today -- that name already holds the streak checker's today_health object from
+    # line 29, and reassigning it here silently blanked the TODAY capture-health field in
+    # the rendered header (it became a [datetime], so .verdict/.captures read empty). The
+    # AT_RISK flag survived only because it is evaluated at line 30, before this point.
+    $todayDate = (Get-Date).Date
     $marketSettled = @{}   # market -> set of genuinely settled yyyy-MM-dd
     $marketCount = 0
     foreach ($dir in @(Get-ChildItem -LiteralPath $settleRoot -Directory -ErrorAction SilentlyContinue)) {
@@ -245,7 +282,7 @@ if (Test-Path $settleRoot) {
             $td = $rec.target_date
             if (-not $td) { continue }
             try { $d = [datetime]::ParseExact([string]$td, "yyyy-MM-dd", $null) } catch { continue }
-            if ($d -lt $today.AddDays(-$windowDays) -or $d -ge $today) { continue }
+            if ($d -lt $todayDate.AddDays(-$windowDays) -or $d -ge $todayDate) { continue }
             $src = [string]$rec.settlement_source
             $isSettled = ($src) -and ($src -ne "none") -and ($null -ne $rec.settlement_high)
             $seen[$td] = $isSettled
@@ -255,7 +292,7 @@ if (Test-Path $settleRoot) {
     if ($marketCount -gt 0) {
         $holes = @()
         for ($i = $windowDays; $i -ge 1; $i--) {
-            $d = $today.AddDays(-$i)
+            $d = $todayDate.AddDays(-$i)
             $key = $d.ToString("yyyy-MM-dd")
             # Yesterday legitimately settles during the 09:30 chain run, so only expect it
             # after that has had time to finish. Older dates are holes at any hour - the
@@ -304,9 +341,14 @@ $expNonZero = @{
 # The taker was PAUSED by operator decision 2026-08-07 to focus 100% on the maker
 # (docs/operations/taker-paused-and-pruned-2026-08-07.md). Both tasks are deliberately
 # Disabled; flagging them daily is noise. Re-enable BOTH to restart the taker.
+# The off-host mirror was PAUSED by operator decision 2026-08-12 to keep this host's
+# resources on capture stability (docs/operations/mirror-paused-2026-08-12.md). These three
+# stay silent HERE because the mirror block below raises exactly one warn that carries the
+# age of the frozen copy -- one voice for the pause, not four.
 $expDisabled = @(
     "WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
-    "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor"
+    "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
+    "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror"
 )
 $taskCount = 0
 $interactiveTasks = 0
@@ -372,7 +414,12 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # for three tasks that had each done exactly what they were built to do. Same lesson as
         # the spent-FAILED case below: a monitor that flags success trains us to ignore it.
         $selfDisarmed = ($oneShot -and -not $ti.NextRunTime -and $res -eq "0x0" -and $ti.LastRunTime)
-        if ($selfDisarmed) {
+        # Expected-disabled is checked FIRST. A spent one-shot that is ALSO deliberately
+        # disabled (WeatherOneShotMirror, 2026-08-12) matched $selfDisarmed and reported
+        # "self-disarmed cleanly", which is a different claim from "an operator turned this
+        # off" and points at the wrong artifact. Deliberate beats incidental.
+        if ($expDisabled -contains $name) { }
+        elseif ($selfDisarmed) {
             # 2026-08-10: this used to end "completed work, no action". It cannot know that.
             # WeatherAgentOvernight1030 exited 0x0 having done NOTHING - claude.exe printed
             # "You've hit your session limit" and returned 0 - and this line called it completed
@@ -380,7 +427,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             # Say only what the exit code supports, and point at the artifact that would show it.
             $warns.Add("$name ran $($ti.LastRunTime) and self-disarmed cleanly (spent one-shot, exit 0x0) - task ran; exit code does NOT prove it produced output, check its artifact")
         }
-        elseif ($expDisabled -notcontains $name) { $flags.Add("$name unexpectedly DISABLED") }
+        else { $flags.Add("$name unexpectedly DISABLED") }
     }
     else {
         $ok = ($res -eq "0x0")
@@ -392,6 +439,14 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # Normal for freshly registered work, and flagging it would train us to ignore flags.
         if (-not $ok -and $res -eq "0x41303") { $ok = $true }
         if (-not $ok -and $expNonZero.ContainsKey($name)) { $ok = ($expNonZero[$name] -contains $res) }
+        # Re-arming a one-shot preserves its previous exit code. Once a future
+        # run is present, that code is historical evidence about the prior
+        # attempt, not proof that the armed attempt already failed.
+        if (-not $ok -and $oneShot -and $ti.NextRunTime -and
+            ([datetime]$ti.NextRunTime) -gt (Get-Date)) {
+            $warns.Add("$name is re-armed for $($ti.NextRunTime); previous attempt ended $res on $($ti.LastRunTime)")
+            $ok = $true
+        }
         # A SPENT one-shot -- it fired, has no NextRunTime, and last ran over a day ago -- is
         # finished work, not current breakage. Its exit code is history and would otherwise burn
         # a FLAG forever: the three WeatherQuietWindowMerge tasks were still flagging 0x1 from
@@ -444,6 +499,14 @@ elseif ($rebootPending) {
 }
 
 # ---- off-host mirror (the only copy of data\ that is not on this disk) ----
+# PAUSED by operator decision 2026-08-12 to keep this 16 GB host's resources on capture
+# stability (docs/operations/mirror-paused-2026-08-12.md). The pause switch is the TASK STATE,
+# not a marker file: re-enabling WeatherDataMirror restores full alerting automatically, so the
+# suppression cannot outlive the pause or be forgotten in a file nobody reads. A paused mirror
+# still WARNS on every run, carrying the AGE of the frozen copy -- the point is to stop crying
+# wolf about a nightly job that is off on purpose, NOT to stop saying data\ is unprotected.
+$mirrorPaused = $false
+try { $mirrorPaused = ([string](Get-ScheduledTask -TaskName "WeatherDataMirror" -EA Stop).State -eq "Disabled") } catch {}
 $mirror = $null
 $mirrorAgeH = $null
 $mf = "C:\Users\micha\ops\mirror_status.json"
@@ -455,6 +518,11 @@ if (Test-Path $mf) {
     catch {}
 }
 if ($null -eq $mirror) { $warns.Add("mirror status unreadable - off-host copy unverified") }
+elseif ($mirrorPaused) {
+    $frozenAt = "an unknown date"
+    try { $frozenAt = ([datetime]$mirror.last_run).ToString("yyyy-MM-dd HH:mm") } catch {}
+    $warns.Add("mirror PAUSED by operator 2026-08-12 - the off-host copy of data\ is FROZEN at $frozenAt (${mirrorAgeH}h old and ageing). Everything written since exists ONLY on this disk. Re-enable WeatherDataMirror to resume")
+}
 elseif (-not $mirror.ok) { $flags.Add("mirror last run FAILED (robocopy exit $($mirror.robocopy_exit))") }
 elseif ($mirrorAgeH -gt 30) { $flags.Add("mirror stale: last good run ${mirrorAgeH}h ago (nightly 04:30)") }
 
@@ -477,6 +545,14 @@ if (Test-Path $rf) {
 # decision as of 2026-07-26 -- durability work waits until the model is profitable -- so it is
 # deliberately NOT reported here. The cheap checks below stay because they already run.
 if ($null -eq $restore) { $warns.Add("mirror has never been restore-verified - run scripts\ops\verify_mirror_restore.ps1") }
+elseif ($mirrorPaused) {
+    # Restorability cannot improve while the mirror is off, so this is a standing fact about the
+    # frozen copy rather than a new event each morning. Said once, as a warn, and only when the
+    # last verify actually failed.
+    if (-not $restore.ok) {
+        $warns.Add("the FROZEN off-host copy is not proven restorable - the last restore-verify (before the pause) found $($restore.problems) problem file(s)")
+    }
+}
 elseif (-not $restore.ok) { $flags.Add("MIRROR RESTORE VERIFY FAILED: $($restore.problems) problem file(s) - the off-host copy may not be restorable") }
 elseif ($restoreAgeH -gt 48) { $warns.Add("mirror restore-verify stale (${restoreAgeH}h) - restorability unproven since then") }
 
@@ -550,12 +626,15 @@ if (Test-Path $af) {
             $j = $l | ConvertFrom-Json
             # Show the AGE. Without it a two-day-old AT_RISK reads as current alarm, which is
             # both frightening and wrong -- the entry is historical the moment the day recovers.
-            $ageH = ((Get-Date) - [datetime]$j.ts).TotalHours
+            $alertTime = [datetime]$j.ts
+            $ageH = ((Get-Date) - $alertTime).TotalHours
+            $historicalCaptureDay = $alertTime.Date -lt (Get-Date).Date
             $alertLast = "{0}  {1}  ({2:N0}h ago{3})" -f $j.ts, $j.level, $ageH,
-                $(if ($ageH -ge 24) { ", historical" } else { "" })
-            # Alerts are written to a file nobody watches; a fresh one must reach the digest.
-            if ($ageH -lt 24) {
-                $flags.Add("capture alert raised in the last 24h: $alertLast")
+                $(if ($historicalCaptureDay -or $ageH -ge 24) { ", historical" } else { "" })
+            # The capture grade closes by local calendar day. Yesterday's final
+            # AT_RISK is evidence in the ledger, not a live alarm today.
+            if (-not $historicalCaptureDay -and $ageH -lt 24) {
+                $flags.Add("capture alert raised today: $alertLast")
             }
         }
         catch {}
@@ -568,7 +647,10 @@ $exitCode = if ($flags.Count -gt 0) { 2 } else { 0 }
 
 # ---- render ----
 $ts = Get-Date -Format "yyyy-MM-dd HH:mm"
-$todayStr = if ($null -eq $today) { "already settled" }
+# "no today_health" is NOT "already settled" -- that reads as a benign claim about a day
+# nobody measured. Say which of the two it is; an unreadable state is not a passing state.
+$todayStr = if ($null -eq $streak) { "UNKNOWN - streak checker did not run" }
+elseif ($null -eq $today) { "no today_health from the streak checker" }
 else { "{0}  ({1} caps, {2}min max gap)" -f ([string]$today.verdict).ToUpper(), $today.captures, $today.max_window_gap_min }
 $capSummary = ($caps.Keys | ForEach-Object {
         $pri = if ($capState[$_].Count) { (($capState[$_] | Select-Object -Unique) -join ",") } else { "DOWN" }
@@ -589,6 +671,7 @@ if ($Json) {
         chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail; payload_blocked = $chainBlocked }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
         mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH
+            paused = $mirrorPaused
             restore_verified = $(if ($restore) { [bool]$restore.ok } else { $null })
             restore_verify_age_hours = $restoreAgeH
             restore_identical = $(if ($restore) { $restore.verified_identical } else { $null })
@@ -626,9 +709,13 @@ if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
 if ($chainGate) { Write-Output ("              gate: {0}" -f $chainGate) }
 if ($chainBlocked) { Write-Output ("              {0}" -f $chainBlocked) }
 $mirrorStr = if ($null -eq $mirror) { "unreadable" }
+elseif ($mirrorPaused) { "PAUSED by operator, frozen {0}h ago" -f $mirrorAgeH }
 elseif ($mirror.ok) { "ok, {0}h ago" -f $mirrorAgeH }
 else { "FAILED (exit $($mirror.robocopy_exit))" }
-if ($restore) {
+# While paused, the restore suffix would report a verify that can no longer change against a
+# copy that can no longer change. The PAUSED string plus its warn already say it.
+if ($mirrorPaused) { }
+elseif ($restore) {
     $mirrorStr += if ($restore.ok) { " [restore-verified {0}/{1} {2}h ago]" -f $restore.verified_identical, $restore.checked, $restoreAgeH }
     else { " [RESTORE VERIFY FAILED]" }
 }

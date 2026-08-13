@@ -1,0 +1,116 @@
+{
+  "schema_version": "gate_3_satisfiability_seed_v1",
+  "mission": "2026-09-68a",
+  "source_base_commit": "6444cc199d2b21bd6ce8b89ea2a7e7b70c70bade",
+  "regime_boundary": "2026-07-31",
+  "inputs": {
+    "rescored_snapshot_rows": {
+      "relative_path": "scratch/runs/served-floor-rescore-2026-09-66a-portable5/rescored-snapshot-rows.csv",
+      "sha256": "859651b4e50393e5d756cc8acb9e78ede70ba5ffd120ce0a34e5e9afa6095789",
+      "bytes": 3337736,
+      "rows": 12289
+    },
+    "served_floor": {
+      "relative_path": "docs/roadmap/served-floor-for-panel-2026-09-66a.csv",
+      "sha256": "4f9da7539a2dcae5b0b2e2a425499f992ef46812a1abd76b82a1242a3e9effbe",
+      "bytes": 744043,
+      "rows": 12289
+    },
+    "settlement_provenance": {
+      "relative_path": "docs/roadmap/settlement-provenance-for-panel-2026-09-67a.csv",
+      "sha256": "73501415ea8dd31db8816c3fb4b5e8db92eb0d5448b8b5f48e7c57b6c44597cd",
+      "bytes": 44946,
+      "rows": 524
+    }
+  },
+  "raw_snapshot_books": {
+    "chicago_2026_06_14": {
+      "relative_path": "data/snapshots/highest-temperature-in-chicago-on-june-14-2026/snapshots_long.csv",
+      "sha256": "8a669321cd2a76f391d04bb6b0871cb5d596c8645366fa7161e91dad16d9e489",
+      "bytes": 1897178,
+      "snapshot_id": "20260614T011002-0400",
+      "bin_kind": "eq",
+      "bin_value": 68,
+      "market_id": "chicago",
+      "target_date": "2026-06-14"
+    },
+    "san_francisco_2026_06_09": {
+      "relative_path": "data/snapshots/highest-temperature-in-san-francisco-on-june-9-2026/snapshots_long.csv",
+      "sha256": "ddb2ae5093954bcce9fb232016901796394c9383d535f52682ee62968b1541c2",
+      "bytes": 464154,
+      "snapshot_id": "20260609T170137-0400",
+      "bin_kind": "eq",
+      "bin_value": 66,
+      "market_id": "san-francisco",
+      "target_date": "2026-06-09"
+    },
+    "denver_2026_06_08": {
+      "relative_path": "data/snapshots/highest-temperature-in-denver-on-june-8-2026/snapshots_long.csv",
+      "sha256": "126d5232fa4bedb694736fbf06844ec195f91a80c82a5e79757fc70281681aae",
+      "bytes": 633728,
+      "snapshot_id": "20260608T030552-0400",
+      "bin_kind": "eq",
+      "bin_value": 82,
+      "market_id": "denver",
+      "target_date": "2026-06-08"
+    }
+  },
+  "expected_support": {
+    "B": {
+      "date_clusters": 23,
+      "market_clusters": 12,
+      "market_days": 204,
+      "snapshot_rows": 4636,
+      "served_floor_snapshot_rows": 3885,
+      "band_rows": 50996
+    },
+    "C": {
+      "date_clusters": 27,
+      "market_clusters": 12,
+      "market_days": 320,
+      "snapshot_rows": 7653,
+      "served_floor_snapshot_rows": 7051
+    },
+    "panel": {
+      "market_days": 524,
+      "snapshot_rows": 12289,
+      "served_floor_snapshot_rows": 10936
+    }
+  },
+  "reference_values": {
+    "B_served_floor_incumbent_brier": 0.05329004105175211,
+    "denver_realized_probability": 0.5206313021403224,
+    "probability_tolerance": 1e-12,
+    "mass_tolerance": 1e-12
+  },
+  "bootstrap": {
+    "method": "crossed target_date x market pigeonhole percentile interval",
+    "replicates": 10000,
+    "seed_B": 20260968,
+    "seed_C": 20260969,
+    "quantiles": [
+      0.025,
+      0.975
+    ]
+  },
+  "projection": {
+    "panel_market_days": [
+      100,
+      500,
+      1000,
+      5000
+    ],
+    "fire_probability_thresholds": [
+      0.5,
+      0.95
+    ],
+    "model": "independent Bernoulli market-days at the observed B market-day crossing rate"
+  },
+  "campaign": {
+    "kind": "diagnostic_satisfiability_measurement",
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "RETIRED_NOT_REASSIGNED"
+  }
+}

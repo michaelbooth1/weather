@@ -100,7 +100,12 @@ def test_full_book_reader_streams_jsonl_then_falls_back_to_gzip(tmp_path):
     assert raw_provenance.representation == "raw_jsonl"
     assert raw_provenance.canonical is True
     assert gzip_provenance.representation == "gzip_csv"
-    assert gzip_provenance.fallback_reason == "preferred representations unavailable: raw_jsonl"
+    # Falling back to a CSV projection means BOTH canonical forms were absent -- the plain
+    # raw tape and its gzip-tiered equivalent -- and the reason names both.
+    assert gzip_provenance.canonical is False
+    assert gzip_provenance.fallback_reason == (
+        "preferred representations unavailable: raw_jsonl,raw_jsonl_gzip"
+    )
     assert len(raw_rows) == len(gzip_rows)
     assert [str(row["price"]) for row in raw_rows] == [row["price"] for row in gzip_rows]
 
