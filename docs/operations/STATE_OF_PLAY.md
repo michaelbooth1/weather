@@ -15,7 +15,7 @@ do not** · 3. the market-making bot is the end goal.
 
 | Clock | Reads | Actually |
 | --- | --- | --- |
-| Capture streak | **3 / 14** | day 1 is 2026-08-09; `08-11` settled at 09:30 on 08-12 (`src=daily_summary`) and grades `complete`. **`08-12` is already DOOMED to partial** — two in-window gaps, max **40 min** against a 15-min fatal, so the streak breaks at 3. Lock slips past ~2026-08-22. |
+| Capture streak | **0 / 14** | **BROKEN at 3, as predicted.** `08-12` carries `coverage_reason: "2 gap(s), max 40 min"` against a 15-min fatal — the agent-run compute in the graded window did this. `08-09`→`08-11` all graded `complete`. Lock ~2026-08-25 if every day from `08-13` is clean. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b). A countable day never required a `QUOTE`. |
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
 | Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. Task self-disarmed; **continuous capture is an unmade operator decision.** |
@@ -29,17 +29,17 @@ is a **precise null** (`-09-64a`). **Cite the ~13% CEILING of the attribution in
 
 **The observation-recovery candidate is now closed too, unpowered** — `-09-78a`, §5e below.
 
-`-09-63a` stopped at Gate 3; **decision 10 is CLOSED UNUSED / RETIRED**, not reassigned (§1j).
-**The stop stands on two real rows — but two of its cited facts do not:** denver `2026-06-08` was
-**served `0.5206313021`, not `0.0`** (`-09-65a`), and the "3 surviving zeros" are **two plus a
-blank-floor fallback row** (`-09-68a`). **The realized-band-zero defect is NOT live** — it ended
-`2026-06-15` with `28d1c146`; **never quote the pooled 1.017% without the pre/post-fix split.**
-Gate 3 is a **panel-size limit** that rejects more often as evidence accumulates *regardless of
-candidate quality* — **do not re-register it unchanged.** Traces:
-[GATE_3_FIRED…](GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md) ·
+`-09-63a` stopped at Gate 3; **decision 10 is CLOSED UNUSED / RETIRED**, never reassigned (§1j). The
+stop stands on two real rows, but two cited facts do not: denver `2026-06-08` was **served
+`0.5206313021`, not `0.0`** (`-09-65a`), and the "3 surviving zeros" are **two plus a blank-floor
+fallback** (`-09-68a`). **The realized-band-zero defect is NOT live** (ended `2026-06-15`,
+`28d1c146`) — **never quote the pooled 1.017% without the pre/post-fix split.** Gate 3 is a
+**panel-size limit** that rejects more often as evidence accumulates *regardless of candidate
+quality* — **do not re-register it unchanged.** Traces:
+[GATE_3…](GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md) ·
 [REPLAY_DOES_NOT_REPRODUCE…](REPLAY_DOES_NOT_REPRODUCE_WHAT_WE_SERVED_2026-08-11.md) ·
-[REPLAY_FLOOR_DIVERGES…](REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md) ·
-[SERVED_BAND_FLOOR_DEFECT…](SERVED_BAND_FLOOR_DEFECT_2026-08-10.md).
+[REPLAY_FLOOR…](REPLAY_FLOOR_DIVERGES_FROM_SERVED_2026-08-10.md) ·
+[SERVED_BAND_FLOOR…](SERVED_BAND_FLOOR_DEFECT_2026-08-10.md).
 
 **The others:** reshaping (`-09-60a`), inputs (`-09-44a`), quoting (`-09-46a`, 114 cells, zero
 positive). The served floor helps B only cosmetically (`-09-66a`). `74.97%` and three other
@@ -80,21 +80,18 @@ Merges run off allowlists, **not** auto-discovery. `WeatherMergeQueueDriver` 05:
   **inside the 12:00–18:00 graded window**, so the day is partial and the streak breaks. The
   agent-run analysis in that window is the likeliest cause. **The 16 GB host has no headroom for
   unbudgeted compute during the graded window — run it after 18:00 or not at all.**
-- **SETTLEMENT: the repair path WORKS; only `08-08` is still a hole.** `08-06` settled 12/12 with a
-  real source (+76 ledger rows) from the 02:00 run on 08-12, and `08-11` self-healed at the 09:30
-  refresh — it was a *timing* miss, not a source hole. **`08-08` has now failed three times**
-  (`src=none`, 12/12) and should be treated as likely unrecoverable, not under-retried. **Both
-  defects behind the old "reported SETTLED and did nothing" note are FIXED**:
-  `settlement_backfill_one.ps1` now verifies row **content** per market and emits `SILENT_NOOP`, and
-  host commit runs at **~35%**, nowhere near the 70% admission ceiling. **Countable date VOLUME
-  remains the critical path.**
-- **THE OFF-HOST MIRROR IS PAUSED (operator, 2026-08-12) — focus this host on stability first.**
-  All three tasks Disabled; nothing deleted, no script or credential changed. **`data\` now has no
-  off-host copy of anything written after `2026-08-12 05:03`**, and that frozen copy was already
-  **not proven restorable** (its last run exited 11; restore-verify found 8 problem files). The
-  workstation's `data\` is **frozen, not lagging** — a date after 08-12 does not exist there.
-  `status.ps1` reads the **task state**, so re-enabling `WeatherDataMirror` restores full alerting
-  by itself; until then it carries one standing WARN with the age of the frozen copy.
+- **SETTLEMENT: every hole through `08-11` is CLOSED — `08-08` recovered on the FOURTH attempt.**
+  Verified 2026-08-13: `08-08` carries **12/12 real `daily_summary` sources with real highs**, from
+  the 03:08 chain (`public_wu_settlement_restore` PASS, fetched 12). **This page's "failed three
+  times, treat as likely unrecoverable" call was WRONG** — the retry path was slower than assumed,
+  not exhausted. **Never declare a date unrecoverable from a failure count alone.** The old "reported
+  SETTLED and did nothing" defects stay fixed (`settlement_backfill_one.ps1` verifies row **content**,
+  emits `SILENT_NOOP`). **Countable date VOLUME remains the critical path.**
+- **THE OFF-HOST MIRROR IS PAUSED (operator, 2026-08-12)** — three tasks Disabled, nothing deleted,
+  restart is two `Enable-ScheduledTask` calls. **No off-host copy of anything written after
+  `2026-08-12 05:03`**, and that frozen copy was already **not proven restorable** (exit 11; 8
+  restore problems). The workstation's `data\` is **frozen, not lagging**. `status.ps1` suppresses
+  off the **task state**, so re-enabling restores alerting by itself.
   [mirror-paused-2026-08-12.md](mirror-paused-2026-08-12.md).
 - **`08-10` recovered 12/12; the finalize defect behind it is FIXED (`bcb49506`, ROLL-FREE).** A
   subset re-finalize must still merge the labels CSV. Trace:
@@ -103,13 +100,17 @@ Merges run off allowlists, **not** auto-discovery. `WeatherMergeQueueDriver` 05:
   70.0%. The old "70.3% idle" note is retired. Heavy steps still defer, but on
   `live_capture_loop_active` with `active_window_source: fail_closed_live_default` and both window
   hours `null` — **worth a trace**, since capture is always healthy by design.
-- **Disk: the burn rate has DROPPED and the exhaustion date needs re-deriving before anyone plans
-  against it.** `status.ps1` read **147.5 GB free at −2.6 GB/day (~57 days)** on 08-12, against the
-  **−12.6 GB/day → exhaustion ~2026-08-23** this page carried from a fixed point in the cycle. Two
-  different measurement methods; **do not quote either as the lock constraint until one is
-  re-derived.** Not a leak either way: ~800 MB per market-day × 12. `order_books.jsonl` stays RAW as
-  canonical evidence and gzips **10.97x** — **~121 GB recoverable by compression alone**
-  (`PRE_OVERNIGHT_AUDIT_2026-08-10.md` §2).
+- **Disk: RE-DERIVED 2026-08-13 — the burn is decelerating and disk is NO LONGER the lock's binding
+  constraint.** Midnight-to-midnight from `data\alerts\disk_free_trail.jsonl` (400 samples,
+  08-09→08-13): **−10.5, −5.3, −0.7 GB/day** on 08-10/08-11/08-12, then **+44 GB on 08-13** to
+  **181.6 GB free** — the most headroom since 08-09. Cause: `clob_order_book_tiering` now runs and
+  passes every chain (08-13: candidates 4, compressed 4, deleted 4), reclaiming ~25 GB between 05:50
+  and 06:35 alone. **The −12.6 GB/day → exhaustion ~2026-08-23 this page carried is RETIRED**, and so
+  is the "~57 days" reading. **Do not quote `status.ps1`'s headline GB/day**: it references a sample
+  up to 24h back, so one discrete reclaim flips it to a bogus *positive* (it read **+21.1 GB/day**
+  today — the disk is not gaining). Not a leak either way: ~800 MB per market-day × 12.
+  `order_books.jsonl` stays RAW as canonical evidence and gzips **10.97x** — **~121 GB still
+  recoverable by compression alone** (`PRE_OVERNIGHT_AUDIT_2026-08-10.md` §2).
 - **Log rotation is the known capture killer**: the crash mode is **reopening** a big `.jsonl`, and
   **the breaker reads the file being rotated**. Regrowth is unprevented.
 

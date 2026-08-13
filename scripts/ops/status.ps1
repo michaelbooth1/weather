@@ -230,7 +230,11 @@ if (Test-Path $settleRoot) {
     #   2. Max-date can never see an INTERIOR hole (08-06 empty while 08-07 settled), so
     #      scan the whole recent window per date instead of tracking a maximum.
     $windowDays = 14
-    $today = (Get-Date).Date
+    # NOT $today -- that name already holds the streak checker's today_health object from
+    # line 29, and reassigning it here silently blanked the TODAY capture-health field in
+    # the rendered header (it became a [datetime], so .verdict/.captures read empty). The
+    # AT_RISK flag survived only because it is evaluated at line 30, before this point.
+    $todayDate = (Get-Date).Date
     $marketSettled = @{}   # market -> set of genuinely settled yyyy-MM-dd
     $marketCount = 0
     foreach ($dir in @(Get-ChildItem -LiteralPath $settleRoot -Directory -ErrorAction SilentlyContinue)) {
@@ -245,7 +249,7 @@ if (Test-Path $settleRoot) {
             $td = $rec.target_date
             if (-not $td) { continue }
             try { $d = [datetime]::ParseExact([string]$td, "yyyy-MM-dd", $null) } catch { continue }
-            if ($d -lt $today.AddDays(-$windowDays) -or $d -ge $today) { continue }
+            if ($d -lt $todayDate.AddDays(-$windowDays) -or $d -ge $todayDate) { continue }
             $src = [string]$rec.settlement_source
             $isSettled = ($src) -and ($src -ne "none") -and ($null -ne $rec.settlement_high)
             $seen[$td] = $isSettled
@@ -255,7 +259,7 @@ if (Test-Path $settleRoot) {
     if ($marketCount -gt 0) {
         $holes = @()
         for ($i = $windowDays; $i -ge 1; $i--) {
-            $d = $today.AddDays(-$i)
+            $d = $todayDate.AddDays(-$i)
             $key = $d.ToString("yyyy-MM-dd")
             # Yesterday legitimately settles during the 09:30 chain run, so only expect it
             # after that has had time to finish. Older dates are holes at any hour - the
@@ -599,7 +603,10 @@ $exitCode = if ($flags.Count -gt 0) { 2 } else { 0 }
 
 # ---- render ----
 $ts = Get-Date -Format "yyyy-MM-dd HH:mm"
-$todayStr = if ($null -eq $today) { "already settled" }
+# "no today_health" is NOT "already settled" -- that reads as a benign claim about a day
+# nobody measured. Say which of the two it is; an unreadable state is not a passing state.
+$todayStr = if ($null -eq $streak) { "UNKNOWN - streak checker did not run" }
+elseif ($null -eq $today) { "no today_health from the streak checker" }
 else { "{0}  ({1} caps, {2}min max gap)" -f ([string]$today.verdict).ToUpper(), $today.captures, $today.max_window_gap_min }
 $capSummary = ($caps.Keys | ForEach-Object {
         $pri = if ($capState[$_].Count) { (($capState[$_] | Select-Object -Unique) -join ",") } else { "DOWN" }
