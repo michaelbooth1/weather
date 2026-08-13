@@ -1,8 +1,8 @@
 """Dedicated first-order lifecycle probe for International Polymarket.
 
-This module is intentionally not wired to a command-line credential loader.
-It accepts an already-authenticated, fail-closed adapter plus a passing
-``mm_platform_bootstrap_v0.1`` gate. The ordinary maker runner never calls it.
+This module accepts an already-authenticated, fail-closed adapter plus a passing
+``mm_platform_bootstrap_v0.1`` gate. The bounded operator CLI wires that narrow
+surface to credential references; the ordinary maker runner never calls it.
 """
 
 from __future__ import annotations

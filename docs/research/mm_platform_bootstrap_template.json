@@ -72,10 +72,16 @@
   "user_stream": {
     "account_wide_subscription_sent": false,
     "server_pong_observed": false,
+    "transport_active_at_collection": false,
+    "transport_state_at_collection": null,
+    "journal_sha256_at_collection": null,
     "transport_active": false,
     "transport_state": null,
+    "transport_stopped_cleanly_after_collection": false,
     "subscription_shape_sha256": null,
+    "journal_path": null,
     "journal_sha256": null,
+    "journal_finalized_at_utc": null,
     "heartbeat_seconds": 10,
     "inbound_silence_seconds": 30
   },

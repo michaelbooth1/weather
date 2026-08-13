@@ -258,11 +258,22 @@ class OfficialUserStreamReader:
         if self._thread is not None:
             raise RuntimeError("user stream has already been started")
         self._thread = threading.Thread(
-            target=self.run,
+            target=self._run_background,
             name="polymarket-global-user-stream",
             daemon=True,
         )
         self._thread.start()
+
+    def _run_background(self) -> None:
+        """Run without letting raw transport exception text reach stderr."""
+
+        try:
+            self.run()
+        except Exception as exc:
+            with self._mutex:
+                if self._state != "FAILED":
+                    self._state = "FAILED"
+                    self._failure_type = type(exc).__name__
 
     def stop(self, *, timeout_seconds: float = 5.0) -> None:
         self._stop.set()

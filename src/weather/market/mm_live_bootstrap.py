@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import time
+from copy import deepcopy
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -47,6 +48,7 @@ API_BASE_URL = "https://polymarket.com"
 CLOB_HOST = "https://clob.polymarket.com"
 HEARTBEAT_ENDPOINT = "/v1/heartbeats"
 MAX_BOOTSTRAP_AGE_HOURS = 1.0
+MAX_STAGE0_USER_STREAM_JOURNAL_BYTES = 10_000_000
 REQUIRED_SOURCE_URLS = {
     "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
     "https://docs.polymarket.com/api-reference/authentication",
@@ -382,6 +384,82 @@ def collect_platform_bootstrap_payload(
     }
 
 
+def finalize_platform_bootstrap_payload(payload, user_stream, *, now=None):
+    """Bind a finite Stage 0 artifact to the journal after a clean stream stop.
+
+    The collector proves the stream was active. Stopping that stream appends a
+    terminal journal row, so the hash captured while active is necessarily a
+    prefix hash. This finalizer preserves the active-at-collection fact while
+    replacing the prefix hash with the final durable journal hash.
+    """
+
+    finalized = deepcopy(dict(payload or {}))
+    collected = dict(finalized.get("user_stream") or {})
+    if not all(
+        (
+            collected.get("account_wide_subscription_sent") is True,
+            collected.get("server_pong_observed") is True,
+            collected.get("transport_active") is True,
+            collected.get("transport_state")
+            in {"TRANSPORT_CONNECTED_UNPROVEN", "SUBSCRIPTION_PROVEN"},
+            len(str(collected.get("journal_sha256") or "")) == 64,
+        )
+    ):
+        raise RuntimeError("Stage 0 payload lacks active user-stream proof to finalize")
+    health = user_stream.health()
+    durable = user_stream.bootstrap_evidence()
+    if not all(
+        (
+            health.get("state") == "STOPPED",
+            health.get("failure_type") in {None, ""},
+            durable.get("transport_active") is False,
+            durable.get("transport_state") == "STOPPED",
+            len(str(durable.get("journal_sha256") or "")) == 64,
+        )
+    ):
+        raise RuntimeError("Stage 0 user stream did not finalize cleanly")
+    journal_path_text = str(getattr(user_stream, "journal_path", "") or "").strip()
+    journal_path = Path(journal_path_text).resolve() if journal_path_text else None
+    try:
+        if (
+            journal_path is None
+            or not journal_path.is_file()
+            or journal_path.stat().st_size > MAX_STAGE0_USER_STREAM_JOURNAL_BYTES
+        ):
+            raise RuntimeError("Stage 0 user-stream journal is missing or oversized")
+        journal_bytes = journal_path.read_bytes()
+    except OSError as exc:
+        raise RuntimeError("Stage 0 user-stream journal is not readable") from exc
+    journal_lines = journal_bytes.splitlines(keepends=True)
+    try:
+        terminal_row = json.loads(journal_lines[-1].decode("utf-8"))
+    except (IndexError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("Stage 0 user-stream journal has no valid terminal row") from exc
+    prefix_sha256 = hashlib.sha256(b"".join(journal_lines[:-1])).hexdigest()
+    durable_sha256 = hashlib.sha256(journal_bytes).hexdigest()
+    if not all(
+        (
+            terminal_row.get("event_type") == "stream_stopped",
+            prefix_sha256 == str(collected.get("journal_sha256") or ""),
+            durable_sha256 == str(durable.get("journal_sha256") or ""),
+        )
+    ):
+        raise RuntimeError("Stage 0 user-stream journal does not bind collection to stop")
+    finalized["user_stream"] = {
+        **collected,
+        "transport_active_at_collection": True,
+        "transport_state_at_collection": collected.get("transport_state"),
+        "journal_sha256_at_collection": collected.get("journal_sha256"),
+        "transport_active": False,
+        "transport_state": "STOPPED",
+        "transport_stopped_cleanly_after_collection": True,
+        "journal_path": str(journal_path),
+        "journal_sha256": durable_sha256,
+        "journal_finalized_at_utc": utc_now(now).isoformat(),
+    }
+    return finalized
+
+
 def _fail(path, reason):
     return {
         "required": True,
@@ -426,6 +504,32 @@ def load_platform_bootstrap_gate(
     account = dict_value(payload, "account_snapshot")
     market = dict_value(payload, "market_snapshot")
     user_stream = dict_value(payload, "user_stream")
+    final_journal_path_text = str(user_stream.get("journal_path") or "").strip()
+    final_journal_sha256 = None
+    final_journal_prefix_sha256 = None
+    final_journal_terminal_event = None
+    if final_journal_path_text:
+        try:
+            final_journal_path = Path(final_journal_path_text)
+            if (
+                not final_journal_path.is_file()
+                or final_journal_path.stat().st_size
+                > MAX_STAGE0_USER_STREAM_JOURNAL_BYTES
+            ):
+                raise OSError("journal missing or oversized")
+            final_journal_bytes = final_journal_path.read_bytes()
+            final_journal_lines = final_journal_bytes.splitlines(keepends=True)
+            final_journal_sha256 = hashlib.sha256(final_journal_bytes).hexdigest()
+            final_journal_prefix_sha256 = hashlib.sha256(
+                b"".join(final_journal_lines[:-1])
+            ).hexdigest()
+            final_journal_terminal_event = json.loads(
+                final_journal_lines[-1].decode("utf-8")
+            ).get("event_type")
+        except (OSError, IndexError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+            final_journal_sha256 = None
+            final_journal_prefix_sha256 = None
+            final_journal_terminal_event = None
     heartbeat = dict_value(payload, "dead_man_heartbeat")
     cancel_all = dict_value(payload, "cancel_all")
     secret_hygiene = dict_value(payload, "secret_hygiene")
@@ -599,12 +703,27 @@ def load_platform_bootstrap_gate(
             user_stream.get("server_pong_observed"),
             False,
         ),
-        "user_stream_transport_active": (
-            bool_value(user_stream.get("transport_active"), False)
-            and user_stream.get("transport_state") in {
+        "user_stream_cleanly_finalized": (
+            bool_value(user_stream.get("transport_active_at_collection"), False)
+            and user_stream.get("transport_state_at_collection") in {
                 "TRANSPORT_CONNECTED_UNPROVEN",
                 "SUBSCRIPTION_PROVEN",
             }
+            and user_stream.get("transport_active") is False
+            and user_stream.get("transport_state") == "STOPPED"
+            and bool_value(
+                user_stream.get("transport_stopped_cleanly_after_collection"),
+                False,
+            )
+            and len(str(user_stream.get("journal_sha256_at_collection") or "")) == 64
+            and len(str(user_stream.get("journal_sha256") or "")) == 64
+        ),
+        "user_stream_final_journal_content_bound": (
+            final_journal_sha256 is not None
+            and final_journal_sha256 == str(user_stream.get("journal_sha256") or "")
+            and final_journal_prefix_sha256
+            == str(user_stream.get("journal_sha256_at_collection") or "")
+            and final_journal_terminal_event == "stream_stopped"
         ),
         "user_stream_subscription_shape_hash_recorded": len(
             str(user_stream.get("subscription_shape_sha256") or "")

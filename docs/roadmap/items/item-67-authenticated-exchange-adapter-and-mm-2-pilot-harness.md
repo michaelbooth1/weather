@@ -224,7 +224,9 @@ sell. Price, size, and notional are rechecked inside the adapter. A post-only
 response must be an execution-free `live` order; any ambiguous, matched, or
 trade-bearing response triggers cancel-all and a hard stop. Credential
 resolution and the lifecycle core are now prepared below; heartbeat
-supervision, authoritative live-reader wiring, and CLI exposure remain blocked.
+supervision for an ordinary maker run remains blocked. The bounded Stage 0 and
+one-submit Stage 1 paths now have authoritative live-reader wiring and a
+credential-reference-only operator CLI, described below.
 
 The same audit removed direct International API key, API secret, and passphrase
 values from the credential gate. All authentication material now requires
@@ -268,8 +270,9 @@ network posts through its internal order-version refresh loop. The prepared
 adapter therefore signs with `create_order` and invokes `post_order` exactly
 once. A version mismatch fails closed and consumes the one-submit capability.
 
-`weather.market.mm_live_lifecycle_probe` prepares the mutation core without
-exposing it to the CLI. It accepts only a passing bootstrap gate for the exact
+`weather.market.mm_live_lifecycle_probe` prepares the mutation core, and
+`weather.market.mm_live_pilot_cli` exposes only its two bounded one-submit modes.
+It accepts only a passing bootstrap gate for the exact
 adapter token plus the literal Stage 1 confirmation, requires zero starting
 orders, derives a minimum-size BUY at the minimum tick, verifies that the order
 appears in both open-order truth and the authoritative user stream, then proves
@@ -331,3 +334,19 @@ the one-submit capability, and fetches once more after consuming that
 capability immediately before submit. Work may continue here in read-only,
 paper, research, and preparation modes; a real test must run on a genuinely
 eligible physical host without VPN or proxy circumvention.
+
+Operator-surface hardening update (2026-08-13 UTC): Stage 0 and the two distinct
+Stage 1 lifecycle modes now have a canonical `python -m
+weather.market.mm_live_pilot_cli` surface. Its read-only identity-preparation
+command fetches the official geoblock response, discards the detected IP,
+derives the selected signature ID, and refuses a blocked/proxied or structurally
+invalid public manifest. The Stage 0/1 commands accept only public identifiers,
+budget, confirmation literals, and new artifact paths; all authentication is
+resolved in memory from Windows Credential Manager references. Stage 0 preserves
+the active-stream proof while binding the final journal hash after a clean stop.
+Each Stage 1 invocation has one submit capability, always attempts account-wide
+cancel-all and exact-scope zero-position reconciliation, and emits its PASS
+result only after cleanup succeeds. A separate offline command rereads both
+results and journals to build the lifecycle bundle. This makes the bounded test
+operator-executable on an eligible host; it does not enable the ordinary maker
+runner and does not make the Ontario host eligible.

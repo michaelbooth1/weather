@@ -1330,6 +1330,13 @@ REGISTERED_SCHEMAS = (
         "Content-bound pair of distinct cancel-all and heartbeat-lapse live-order lifecycle proofs with append-only journal verification and a verified no-fill result.",
     ),
     SchemaSpec(
+        "mm_live_pilot_command_receipt",
+        "mm_live_pilot_command_receipt_v0.1",
+        "weather.market.mm_live_pilot_cli",
+        "active",
+        "Secret-free PASS/FAIL receipt for International identity preparation, Stage 0, either one-submit Stage 1 probe, or offline lifecycle-bundle construction, including final zero-account-state cleanup where exchange authentication is used.",
+    ),
+    SchemaSpec(
         "mm_platform_verification",
         "mm_platform_verification_v0.4",
         "weather.market.market_making_run",
