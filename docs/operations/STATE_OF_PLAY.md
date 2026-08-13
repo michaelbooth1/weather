@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-13 18:15 (post-window verification complete; today's
+**Last rewritten: 2026-08-13 18:23 (scheduled containment proved; today's
 grade is already partial).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
@@ -16,7 +16,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 
 | Clock | Reads | Actually |
 | --- | --- | --- |
-| Capture streak | **0 / 14** | `08-13` is already partial: an orphaned evidence-refresh child caused a 32.5-minute in-window gap before it was reaped (§8d). Capture recovered 12/12 by 14:00; the earliest new 14-day run starts `08-14`. |
+| Capture streak | **0 / 14** | `08-13` is already partial after the evidence-refresh failure (§8d). Child-tree containment is now proved, but the workload is still memory-unsafe beside capture, so `WeatherEveningEvidenceRefresh` is disabled again. The earliest new run starts `08-14`. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b). A countable day never required a `QUOTE`. |
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
 | Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. **Continuous capture is approved** and staged behind the `-09-69a` suite; it is not running yet. |
