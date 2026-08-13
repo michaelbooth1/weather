@@ -7,6 +7,7 @@ import pytest
 from weather.market.mm_paper_scoring import (
     attach_reward_estimates,
     compute_fill_financials,
+    fee_equivalent,
     load_mark_rows,
     load_trade_rows,
     rows_between,
@@ -29,6 +30,7 @@ def test_fill_financials_use_bound_condition_rebate_rate_and_zero_liquidity_rewa
         "reward_estimate_usdc": 999.0,
         "maker_rebate_fee_rate": 0.05,
         "maker_rebate_pool_share": 0.25,
+        "maker_rebate_minimum_accrued_payout_pusd": 1.0,
         "flattening_fee_rate": 0.0,
     }
     attach_reward_estimates([leg], {"reward_campaign_pool_usdc": 999.0})
@@ -48,8 +50,24 @@ def test_fill_financials_use_bound_condition_rebate_rate_and_zero_liquidity_rewa
     assert leg["reward_formula"] == "primary_pnl_liquidity_rewards_zero"
     assert result["maker_fee_equiv"] == pytest.approx(0.125)
     assert result["maker_rebate"] == pytest.approx(0.03125)
+    assert result["maker_rebate_accepted"] == 0.0
+    assert result["maker_rebate_minimum_payout"] == 1.0
+    assert result["estimated_net"] == pytest.approx(0.03125)
+    assert result["net"] == 0.0
     assert result["reward"] == 0.0
+    assert result["reward_accepted"] == 0.0
     assert result["flatten_fee"] == 0.0
+
+
+def test_fee_equivalent_uses_documented_five_decimal_precision():
+    assert fee_equivalent(10, 0.5, 0.05) == 0.125
+    assert fee_equivalent(0.001, 0.01, 0.05) == 0.0
+    assert fee_equivalent("1.234567890123456789", "0.5", "0.05") == 0.01543
+
+
+def test_fee_equivalent_rejects_nonfinite_inputs():
+    with pytest.raises(ValueError, match="finite"):
+        fee_equivalent("NaN", "0.5", "0.05")
 
 
 def _write_csv(path, rows):

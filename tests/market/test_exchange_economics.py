@@ -45,11 +45,19 @@ def test_snapshot_payload_defaults_match_international_rules_and_zero_reward_pri
     assert "https://docs.polymarket.com/trading/fees" in payload["source_urls"]
     assert payload["fee_model"]["taker_fee_rate"] == 0.05
     assert payload["fee_model"]["maker_fee_rate"] == 0.0
+    assert payload["fee_model"]["fee_precision_decimals"] == 5
+    assert payload["fee_model"]["minimum_nonzero_fee_usdc"] == 0.00001
+    assert payload["fee_model"]["subminimum_fee_rounds_to_zero"] is True
     assert payload["maker_rebate"]["pool_share"] == 0.25
     assert payload["maker_rebate"]["requires_resting_fill"] is True
     assert payload["maker_rebate"]["requires_actual_reconciliation"] is True
     assert payload["maker_rebate"]["documented_payout_asset"] == "pUSD"
+    assert payload["maker_rebate"]["minimum_accrued_payout_pusd"] == 1.0
+    assert payload["maker_rebate"]["payout_cadence"] == "daily"
+    assert payload["maker_rebate"]["calculation_scope"] == "per_market"
+    assert payload["maker_rebate"]["requires_minimum_payout_reconciliation"] is True
     assert payload["maker_rebate"]["requires_payout_asset_reconciliation"] is True
+    assert payload["maker_rebate"]["actual_reconciliation_endpoint_requires_auth"] is False
     assert payload["liquidity_rewards"]["formula"] == "polymarket_global_Q_score_market_specific"
     assert payload["liquidity_rewards"]["primary_pnl_assumption_usdc"] == 0.0
     assert payload["market_rules"]["tick_size"] == 0.01
@@ -75,6 +83,37 @@ def test_stale_snapshot_fails_closed(tmp_path):
     assert gate["status"] == "BLOCK"
     assert gate["evidence_basis"] == exchange_economics.STALE_EVIDENCE_BASIS
     assert "verified_at_recent" in gate["missing"]
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "missing_check"),
+    [
+        ("fee_model", "fee_precision_decimals", 4, "global_fee_precision_recorded"),
+        (
+            "maker_rebate",
+            "minimum_accrued_payout_pusd",
+            0.0,
+            "global_rebate_minimum_payout_recorded",
+        ),
+    ],
+)
+def test_snapshot_blocks_precision_or_minimum_payout_semantics_drift(
+    tmp_path,
+    section,
+    field,
+    value,
+    missing_check,
+):
+    payload = _snapshot()
+    payload[section][field] = value
+    payload["snapshot_id"] = exchange_economics.snapshot_id(payload)
+    payload["exchange_economics_hash"] = exchange_economics.snapshot_hash(payload)
+    path = _write(tmp_path / "exchange.json", payload)
+
+    gate = exchange_economics.load_exchange_economics_gate(path, TARGET_DATE, now=NOW)
+
+    assert gate["status"] == "BLOCK"
+    assert missing_check in gate["missing"]
 
 
 def test_material_drift_requires_rescore_for_fee_reward_tick_and_min_order_changes(tmp_path):
@@ -256,6 +295,46 @@ def test_snapshot_fails_closed_on_unsupported_weather_fee_curve():
     assert "global_market_economics_complete" in gate["missing"]
 
 
+def test_snapshot_fails_closed_when_rebate_is_zero_or_endpoint_drifts():
+    zero_rebate = _snapshot(maker_rebate_pool_share=0.0)
+    zero_gate = exchange_economics._check_snapshot_payload(
+        zero_rebate,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    assert zero_gate["status"] == "BLOCK"
+    assert "maker_rebate_rate_recorded" in zero_gate["missing"]
+    assert "global_market_economics_complete" in zero_gate["missing"]
+
+    wrong_endpoint = _snapshot()
+    wrong_endpoint["maker_rebate"]["actual_reconciliation_endpoint"] = (
+        "https://example.invalid/rebates"
+    )
+    wrong_gate = exchange_economics._check_snapshot_payload(
+        wrong_endpoint,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    assert wrong_gate["status"] == "BLOCK"
+    assert "global_rebate_payout_asset_reconciliation_required" in wrong_gate["missing"]
+
+
+def test_snapshot_fails_closed_when_rule_document_semantics_are_not_verified():
+    payload = _snapshot()
+    payload["source_verification"]["rule_documents"][0]["semantic_checks"] = {
+        "fee_formula": False,
+    }
+
+    gate = exchange_economics._check_snapshot_payload(
+        payload,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+
+    assert gate["status"] == "BLOCK"
+    assert "global_rule_document_semantics_verified" in gate["missing"]
+
+
 def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_rewards(
     tmp_path,
     monkeypatch,
@@ -322,11 +401,45 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
             "next_cursor": "LTE=",
         }
 
+    def fake_fetch_text(url, *, timeout_seconds):
+        del timeout_seconds
+        documents = {
+            "https://docs.polymarket.com/trading/fees.md": """
+                fee = C × feeRate × p × (1 - p)
+                | Weather | 0.05 | 0 | 25% |
+                Fees are rounded to 5 decimal places. The smallest fee charged
+                is 0.00001 USDC. Anything smaller rounds to zero.
+            """,
+            "https://docs.polymarket.com/programs/maker-rebates.md": """
+                Paid daily in pUSD. A minimum accrued rebate of 1 pUSD applies.
+                | Weather | 25% | Fee-curve weighted |
+                fee_equivalent = C × feeRate × p × (1 - p)
+                Totals are calculated per market.
+            """,
+            "https://docs.polymarket.com/programs/liquidity-rewards.md": """
+                By posting resting limit orders, makers qualify. Rewards are
+                distributed daily at midnight UTC. Each market has a minimum
+                qualifying order size, max spread, and min size cutoff.
+                Q<sub>n</sub> scoring includes a single-sided adjustment.
+            """,
+            "https://docs.polymarket.com/api-reference/rewards/get-current-active-rewards-configurations.md": """
+                GET /rewards/markets/current condition_id rewards_max_spread
+                rewards_min_size total_daily_rate
+            """,
+            "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker.md": """
+                GET /rebates/current. This endpoint does not require authentication.
+                maker_address Date in YYYY-MM-DD format condition_id
+                maker_address rebated_fees_usdc
+            """,
+        }
+        return documents[url]
+
     payload = exchange_economics.collect_global_snapshot_payload(
         target_date=TARGET_DATE,
         event_metadata_path=event_metadata_path,
         now=NOW,
         fetch_json=fake_fetch,
+        fetch_text=fake_fetch_text,
     )
     gate = exchange_economics._check_snapshot_payload(
         payload,
@@ -342,6 +455,13 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
     assert payload["markets"][0]["liquidity_rewards"]["current_daily_rate_usdc"] == 46
     assert payload["liquidity_rewards"]["primary_pnl_assumption_usdc"] == 0.0
     assert payload["source_verification"]["responses"]
+    assert len(payload["source_verification"]["rule_documents"]) == len(
+        exchange_economics.GLOBAL_SOURCE_URLS
+    )
+    assert all(
+        all(row["semantic_checks"].values())
+        for row in payload["source_verification"]["rule_documents"]
+    )
 
 
 def test_paper_legs_bind_to_exact_condition_token_economics_and_missing_tokens_block():
@@ -366,6 +486,7 @@ def test_paper_legs_bind_to_exact_condition_token_economics_and_missing_tokens_b
     assert legs[0]["exchange_economics_bound"] is True
     assert legs[0]["maker_rebate_fee_rate"] == 0.05
     assert legs[0]["maker_rebate_pool_share"] == 0.25
+    assert legs[0]["maker_rebate_minimum_accrued_payout_pusd"] == 1.0
     assert legs[1]["exchange_economics_bound"] is False
     assert legs[1]["maker_rebate_fee_rate"] == 0.0
     assert coverage["missing_leg_count"] == 1

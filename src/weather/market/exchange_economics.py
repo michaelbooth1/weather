@@ -50,6 +50,11 @@ GLOBAL_SOURCE_URLS = (
     "https://docs.polymarket.com/api-reference/rewards/get-current-active-rewards-configurations",
     "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker",
 )
+GLOBAL_SOURCE_MARKDOWN_URLS = {
+    url: f"{url}.md"
+    for url in GLOBAL_SOURCE_URLS
+}
+MAX_SOURCE_RESPONSE_BYTES = 2 * 1024 * 1024
 
 MATERIAL_FIELD_PATHS = (
     ("fee_model",),
@@ -158,6 +163,141 @@ def _call_fetch_json(fetch_json, url, *, timeout_seconds):
     return payload, evidence
 
 
+def _default_fetch_text(url, *, timeout_seconds=20.0):
+    request = Request(
+        url,
+        headers={
+            "Accept": "text/markdown, text/plain;q=0.9",
+            "User-Agent": "weather-exchange-economics/0.3",
+        },
+    )
+    with urlopen(request, timeout=float(timeout_seconds)) as response:
+        body = response.read(MAX_SOURCE_RESPONSE_BYTES + 1)
+        status = getattr(response, "status", None) or response.getcode()
+        content_type = response.headers.get("Content-Type", "")
+    if int(status) != 200:
+        raise ValueError(f"exchange economics rule source returned HTTP {status}: {url}")
+    if len(body) > MAX_SOURCE_RESPONSE_BYTES:
+        raise ValueError(f"exchange economics rule source exceeded size limit: {url}")
+    try:
+        text = body.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"exchange economics rule source was not UTF-8: {url}") from exc
+    return text, {
+        "url": url,
+        "http_status": int(status),
+        "content_type": content_type,
+        "response_bytes": len(body),
+        "response_sha256": _sha256_bytes(body),
+    }
+
+
+def _call_fetch_text(fetch_text, url, *, timeout_seconds):
+    result = fetch_text(url, timeout_seconds=timeout_seconds)
+    if isinstance(result, tuple) and len(result) == 2:
+        source_text, evidence = result
+    else:
+        source_text = result
+        evidence = {}
+    if not isinstance(source_text, str) or not source_text.strip():
+        raise ValueError(f"exchange economics rule source returned empty text: {url}")
+    body = source_text.encode("utf-8")
+    if len(body) > MAX_SOURCE_RESPONSE_BYTES:
+        raise ValueError(f"exchange economics rule source exceeded size limit: {url}")
+    evidence = dict(evidence or {})
+    evidence.setdefault("url", url)
+    evidence.setdefault("http_status", 200)
+    evidence.setdefault("content_type", "text/markdown")
+    evidence.setdefault("response_bytes", len(body))
+    evidence.setdefault("response_sha256", _sha256_bytes(body))
+    return source_text, evidence
+
+
+def _normalized_rule_text(value):
+    return " ".join(str(value or "").lower().split())
+
+
+def _rule_document_semantic_checks(canonical_url, source_text):
+    text = _normalized_rule_text(source_text)
+    no_spaces = text.replace(" ", "")
+    if canonical_url.endswith("/trading/fees"):
+        return {
+            "fee_formula": "fee=c×feerate×p×(1-p)" in no_spaces,
+            "weather_fee_schedule": (
+                "| weather" in text and "| 0.05" in text and "| 25%" in text
+            ),
+            "precision_and_floor": all((
+                "rounded to 5 decimal places" in text,
+                "0.00001 usdc" in text,
+                "anything smaller rounds to zero" in text,
+            )),
+        }
+    if canonical_url.endswith("/programs/maker-rebates"):
+        return {
+            "daily_pusd": "paid daily in pusd" in text,
+            "minimum_payout": (
+                "minimum accrued rebate" in text and "1 pusd" in text
+            ),
+            "weather_rebate_share": (
+                "| weather" in text and "| 25%" in text
+            ),
+            "fee_equivalent_formula": (
+                "fee_equivalent=c×feerate×p×(1-p)" in no_spaces
+            ),
+            "per_market_scope": "totals are calculated per market" in text,
+        }
+    if canonical_url.endswith("/programs/liquidity-rewards"):
+        return {
+            "resting_limit_orders": "posting resting limit orders" in text,
+            "daily_distribution": "daily at midnight utc" in text,
+            "market_specific_qualification": all((
+                "minimum qualifying order size" in text,
+                "max spread" in text,
+                "min size cutoff" in text,
+            )),
+            "q_scoring": "q<sub>" in text,
+            "single_sided_adjustment": "single-sided" in text,
+        }
+    if canonical_url.endswith("get-current-active-rewards-configurations"):
+        return {
+            "endpoint_path": "/rewards/markets/current" in text,
+            "condition_identity": "condition_id" in text,
+            "market_parameters": all((
+                "rewards_max_spread" in text,
+                "rewards_min_size" in text,
+                "total_daily_rate" in text,
+            )),
+        }
+    if canonical_url.endswith("get-current-rebated-fees-for-a-maker"):
+        return {
+            "endpoint_path": "/rebates/current" in text,
+            "unauthenticated": "does not require authentication" in text,
+            "request_scope": all(("maker_address" in text, "yyyy-mm-dd" in text)),
+            "response_scope": all((
+                "condition_id" in text,
+                "maker_address" in text,
+                "rebated_fees_usdc" in text,
+            )),
+        }
+    return {"recognized_rule_document": False}
+
+
+def _fetch_global_rule_documents(fetch_text, *, timeout_seconds):
+    documents = []
+    for canonical_url, source_url in GLOBAL_SOURCE_MARKDOWN_URLS.items():
+        source_text, proof = _call_fetch_text(
+            fetch_text,
+            source_url,
+            timeout_seconds=timeout_seconds,
+        )
+        documents.append({
+            "canonical_url": canonical_url,
+            **proof,
+            "semantic_checks": _rule_document_semantic_checks(canonical_url, source_text),
+        })
+    return documents
+
+
 def _event_rows_for_global_snapshot(event_metadata, target_date):
     from weather.market.market_registry import all_specs
 
@@ -252,6 +392,7 @@ def collect_global_snapshot_payload(
     event_metadata_path=DEFAULT_EVENT_METADATA,
     now=None,
     fetch_json=None,
+    fetch_text=None,
     timeout_seconds=20.0,
 ):
     """Fetch and content-bind current International Polymarket economics.
@@ -277,6 +418,11 @@ def collect_global_snapshot_payload(
         )
 
     fetch_json = fetch_json or _default_fetch_json
+    fetch_text = fetch_text or _default_fetch_text
+    rule_documents = _fetch_global_rule_documents(
+        fetch_text,
+        timeout_seconds=timeout_seconds,
+    )
     response_evidence = []
     gamma_events = []
     for selected in event_rows:
@@ -406,6 +552,7 @@ def collect_global_snapshot_payload(
                 1 for row in markets if row["condition_id"] in rewards_by_condition
             ),
             "responses": response_evidence,
+            "rule_documents": rule_documents,
         },
         "fee_model": {
             "name": "polymarket_global_per_condition_fee_schedule_v1",
@@ -413,6 +560,9 @@ def collect_global_snapshot_payload(
             "taker_fee_rate": fee_rate,
             "maker_fee_rate": 0.0,
             "flattening_fee_rate": fee_rate,
+            "fee_precision_decimals": 5,
+            "minimum_nonzero_fee_usdc": 0.00001,
+            "subminimum_fee_rounds_to_zero": True,
             "per_condition_source_of_truth": "markets[].fee_schedule",
             "fees_charged_when": "trade_executes",
         },
@@ -422,11 +572,16 @@ def collect_global_snapshot_payload(
             "maker_rebate_rate": rebate_rate,
             "credited_when": "daily_after_eligible_resting_liquidity_executes",
             "documented_payout_asset": "pUSD",
+            "minimum_accrued_payout_pusd": 1.0,
+            "payout_cadence": "daily",
+            "calculation_scope": "per_market",
             "paper_accounting_unit": "usd_equivalent",
             "requires_resting_fill": True,
             "requires_actual_reconciliation": True,
+            "requires_minimum_payout_reconciliation": True,
             "requires_payout_asset_reconciliation": True,
             "actual_reconciliation_endpoint": "https://clob.polymarket.com/rebates/current",
+            "actual_reconciliation_endpoint_requires_auth": False,
         },
         "liquidity_rewards": {
             "formula": "polymarket_global_Q_score_market_specific",
@@ -478,6 +633,7 @@ def collect_and_publish_global_snapshot(
     event_metadata_path=DEFAULT_EVENT_METADATA,
     now=None,
     fetch_json=None,
+    fetch_text=None,
     timeout_seconds=20.0,
     max_age_hours=None,
 ):
@@ -486,6 +642,7 @@ def collect_and_publish_global_snapshot(
         event_metadata_path=event_metadata_path,
         now=now,
         fetch_json=fetch_json,
+        fetch_text=fetch_text,
         timeout_seconds=timeout_seconds,
     )
     gate = _check_snapshot_payload(
@@ -683,6 +840,7 @@ def _global_market_economics_checks(payload):
     markets = payload.get("markets") or []
     verification = payload.get("source_verification") or {}
     responses = verification.get("responses") or []
+    rule_documents = verification.get("rule_documents") or []
     condition_ids = [str(row.get("condition_id") or "").lower() for row in markets]
     token_ids = [
         str(token_id)
@@ -701,7 +859,7 @@ def _global_market_economics_checks(payload):
             _positive_field(fee.get("rate")),
             maybe_float(fee.get("exponent")) == 1.0,
             fee.get("taker_only") is True,
-            _valid_nonnegative_field(fee.get("rebate_rate")),
+            _positive_field(fee.get("rebate_rate")),
             _positive_field(row.get("order_min_size")),
             _positive_field(row.get("order_price_min_tick_size")),
             _valid_nonnegative_field(rewards.get("current_daily_rate_usdc")),
@@ -715,12 +873,40 @@ def _global_market_economics_checks(payload):
         and len(str(row.get("response_sha256") or "")) == 64
         for row in responses
     )
+    expected_rule_urls = set(GLOBAL_SOURCE_URLS)
+    observed_rule_urls = {
+        str(row.get("canonical_url") or "")
+        for row in rule_documents
+    }
+    rule_document_proof_ok = (
+        observed_rule_urls == expected_rule_urls
+        and len(rule_documents) == len(expected_rule_urls)
+        and all(
+            int(row.get("http_status") or 0) == 200
+            and row.get("url") == GLOBAL_SOURCE_MARKDOWN_URLS.get(row.get("canonical_url"))
+            and len(str(row.get("response_sha256") or "")) == 64
+            and int(row.get("response_bytes") or 0) > 0
+            for row in rule_documents
+        )
+    )
+    rule_document_semantics_ok = (
+        rule_document_proof_ok
+        and all(
+            bool(row.get("semantic_checks"))
+            and all(value is True for value in row["semantic_checks"].values())
+            for row in rule_documents
+        )
+    )
+    maker_rebate = payload.get("maker_rebate") or {}
     expected_count = int(verification.get("condition_count") or 0)
     registry_count = int(verification.get("registry_condition_count") or 0)
     gamma_count = int(verification.get("gamma_condition_count") or 0)
     return {
         "global_live_api_content_bound": verification.get("mode") == "live_api_content_bound",
         "global_source_response_hashes_recorded": response_proof_ok,
+        "global_official_rule_urls_recorded": expected_rule_urls.issubset(set(_source_urls(payload))),
+        "global_rule_document_hashes_recorded": rule_document_proof_ok,
+        "global_rule_document_semantics_verified": rule_document_semantics_ok,
         "global_event_metadata_hash_recorded": len(str(verification.get("event_metadata_sha256") or "")) == 64,
         "global_markets_recorded": bool(markets),
         "global_market_economics_complete": bool(markets) and all(valid_market(row) for row in markets),
@@ -736,11 +922,25 @@ def _global_market_economics_checks(payload):
             ((payload.get("liquidity_rewards") or {}).get("primary_pnl_assumption_usdc"))
         ) == 0.0,
         "global_actual_rebate_reconciliation_required": (
-            (payload.get("maker_rebate") or {}).get("requires_actual_reconciliation") is True
+            maker_rebate.get("requires_actual_reconciliation") is True
+        ),
+        "global_fee_precision_recorded": (
+            maybe_float((payload.get("fee_model") or {}).get("fee_precision_decimals")) == 5.0
+            and maybe_float((payload.get("fee_model") or {}).get("minimum_nonzero_fee_usdc")) == 0.00001
+            and (payload.get("fee_model") or {}).get("subminimum_fee_rounds_to_zero") is True
+        ),
+        "global_rebate_minimum_payout_recorded": (
+            maybe_float(maker_rebate.get("minimum_accrued_payout_pusd")) == 1.0
+            and maker_rebate.get("payout_cadence") == "daily"
+            and maker_rebate.get("calculation_scope") == "per_market"
+            and maker_rebate.get("requires_minimum_payout_reconciliation") is True
         ),
         "global_rebate_payout_asset_reconciliation_required": (
-            (payload.get("maker_rebate") or {}).get("documented_payout_asset") == "pUSD"
-            and (payload.get("maker_rebate") or {}).get("requires_payout_asset_reconciliation") is True
+            maker_rebate.get("documented_payout_asset") == "pUSD"
+            and maker_rebate.get("requires_payout_asset_reconciliation") is True
+            and maker_rebate.get("actual_reconciliation_endpoint")
+            == "https://clob.polymarket.com/rebates/current"
+            and maker_rebate.get("actual_reconciliation_endpoint_requires_auth") is False
         ),
         "global_post_only_semantics_recorded": (
             (payload.get("api_order_semantics") or {}).get("maker_only_field") == "postOnly"
@@ -811,7 +1011,7 @@ def _check_snapshot_payload(payload, *, path=None, target_date=None, platform=DE
         "maker_rebate_formula_recorded": non_empty_text(
             str(rebate.get("formula") or (payload or {}).get("maker_rebate_formula") or "")
         ),
-        "maker_rebate_rate_recorded": _valid_nonnegative_field(maker_rebate_rate),
+        "maker_rebate_rate_recorded": _positive_field(maker_rebate_rate),
         "reward_formula_recorded": non_empty_text(
             str(rewards.get("formula") or (payload or {}).get("reward_formula") or "")
         ),
@@ -956,6 +1156,7 @@ def bind_legs_to_market_economics(legs, snapshot_payload, gate=None):
                 "liquidity_reward_daily_rate_usdc": 0.0,
                 "liquidity_reward_primary_assumption_usdc": 0.0,
                 "maker_rebate_payout_asset": "",
+                "maker_rebate_minimum_accrued_payout_pusd": None,
             }
             if required:
                 missing_fields.update({
@@ -979,6 +1180,11 @@ def bind_legs_to_market_economics(legs, snapshot_payload, gate=None):
                     "documented_payout_asset"
                 )
                 or ""
+            ),
+            "maker_rebate_minimum_accrued_payout_pusd": maybe_float(
+                ((snapshot_payload or {}).get("maker_rebate") or {}).get(
+                    "minimum_accrued_payout_pusd"
+                )
             ),
             "liquidity_reward_daily_rate_usdc": maybe_float(
                 rewards.get("current_daily_rate_usdc")
@@ -1289,6 +1495,18 @@ def build_snapshot_payload(
         "response_bytes": 123,
         "response_sha256": "a" * 64,
     }
+    rule_documents = [
+        {
+            "canonical_url": canonical_url,
+            "url": source_url,
+            "http_status": 200,
+            "content_type": "text/markdown",
+            "response_bytes": 123,
+            "response_sha256": hashlib.sha256(source_url.encode("utf-8")).hexdigest(),
+            "semantic_checks": {"test_fixture_verified": True},
+        }
+        for canonical_url, source_url in GLOBAL_SOURCE_MARKDOWN_URLS.items()
+    ]
     market = {
         "location_id": "toronto",
         "event_date": _target_text(target_date),
@@ -1336,6 +1554,7 @@ def build_snapshot_payload(
             "gamma_condition_count": 1,
             "reward_condition_match_count": 1,
             "responses": [source_response],
+            "rule_documents": rule_documents,
         },
         "fee_model": {
             "name": "polymarket_global_per_condition_fee_schedule_v1",
@@ -1343,6 +1562,9 @@ def build_snapshot_payload(
             "taker_fee_rate": taker_fee_rate,
             "maker_fee_rate": maker_fee_rate,
             "flattening_fee_rate": flattening_fee_rate,
+            "fee_precision_decimals": 5,
+            "minimum_nonzero_fee_usdc": 0.00001,
+            "subminimum_fee_rounds_to_zero": True,
             "per_condition_source_of_truth": "markets[].fee_schedule",
         },
         "maker_rebate": {
@@ -1350,11 +1572,16 @@ def build_snapshot_payload(
             "pool_share": maker_rebate_pool_share,
             "maker_rebate_rate": maker_rebate_pool_share,
             "documented_payout_asset": "pUSD",
+            "minimum_accrued_payout_pusd": 1.0,
+            "payout_cadence": "daily",
+            "calculation_scope": "per_market",
             "paper_accounting_unit": "usd_equivalent",
             "requires_resting_fill": True,
             "requires_actual_reconciliation": True,
+            "requires_minimum_payout_reconciliation": True,
             "requires_payout_asset_reconciliation": True,
             "actual_reconciliation_endpoint": "https://clob.polymarket.com/rebates/current",
+            "actual_reconciliation_endpoint_requires_auth": False,
         },
         "liquidity_rewards": {
             "formula": reward_formula,

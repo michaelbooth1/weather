@@ -62,9 +62,15 @@ validating the snapshot against the current Toronto operating date.
 Maker rebates are execution-dependent. Paper fills use the exact bound
 condition's fee rate and rebate rate. The scorer supports the current weather
 fee curve (`exponent = 1`) and fails closed if that field changes; it does not
-silently extrapolate a new curve. A later live pilot must reconcile paid rebates
-and payout asset through the authenticated `/rebates/current` endpoint before
-scaling.
+silently extrapolate a new curve. The snapshot also binds the documented
+five-decimal fee precision, `0.00001 pUSD` minimum non-zero fee, daily payout
+cadence, per-market calculation scope, and `$1 pUSD` minimum accrued rebate.
+The theoretical fee-curve rebate stays diagnostic and is excluded from
+acceptance P&L until a later live pilot reconciles the public, exact-maker,
+exact-date, exact-condition daily `/rebates/current` result and payout asset.
+The endpoint does not require authentication, but its response still needs
+strict scope and completed-cycle validation. This matters most for min-size
+tests: a positive per-fill estimate does not prove that any rebate was paid.
 
 Liquidity rewards are excluded from primary P&L: the enforced assumption is
 zero. Per-condition campaign metadata is retained for diagnostics, but no
