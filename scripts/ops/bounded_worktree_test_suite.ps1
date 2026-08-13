@@ -120,9 +120,10 @@ function Assert-HostAdmission {
 Write-SuiteLog "=== bounded worktree suite starting ==="
 Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
 
-$localHour = (Get-Date).Hour
-if ($localHour -ge 12 -and $localHour -lt 18) {
-    throw "bounded suite is prohibited during the 12:00-18:00 graded window"
+$localNow = Get-Date
+$localMinute = ($localNow.Hour * 60) + $localNow.Minute
+if ($localMinute -ge (12 * 60) -or $localMinute -lt 30) {
+    throw "bounded suite is prohibited during the 12:00-00:30 protected host window"
 }
 
 $registeredWorktrees = @(
