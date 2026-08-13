@@ -213,14 +213,19 @@ the new code (a `STALE_CODE` restart). If the code is bad, capture dies — and 
 guarded operation:
 
 ```powershell
-.\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... [-DryRun] [-Force]
+.\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
+  -ExpectedTip <full-tested-commit-sha> [-DryRun] [-Force]
 ```
 
 It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, proves the loop
 count did not fall and the snapshot heartbeat advanced, and **only then** pushes. If capture
 does not recover it resets to the pre-merge commit — nothing published, no history to
 rewrite, and the supervisors readopt the previous code. It refuses to run outside 01:00–04:00
-without `-Force` and never inside 12:00–18:00. The outcome lands in
+without `-Force`, never inside 12:00–18:00, and never during the protected 18:00–00:30
+near-close window. `-ExpectedTip` is optional for interactive use but required operationally
+for a scheduled or already-reviewed merge: the script aborts before any automatic commit if
+the named branch no longer resolves to that exact full SHA, and merges the immutable commit
+object rather than the movable branch ref. The outcome lands in
 `data/alerts/quiet_window_merge_last.json` and is surfaced by `status.ps1`.
 
 Two behaviours that are easy to get wrong, both found by testing it before its first real run:

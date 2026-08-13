@@ -1,7 +1,8 @@
 # Merge a validated topic branch into master during the quiet window, verifying that the
 # capture fleet survives the code roll BEFORE anything is published.
 #
-#   .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... [-Force] [-DryRun]
+#   .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
+#       [-ExpectedTip <full-commit-sha>] [-Force] [-DryRun]
 #
 # Why this exists: merging a branch that touches modules the capture loops have imported
 # makes the supervisors readopt the new code (STALE_CODE restart). If that code is bad,
@@ -14,6 +15,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
+    [string]$ExpectedTip = "",
     [switch]$Force,
     [switch]$DryRun,
     [int]$SettleSeconds = 300
@@ -25,6 +27,8 @@ $py = Join-Path $repo "venv\Scripts\python.exe"
 $reportPath = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 $historyPath = Join-Path $repo "data\alerts\quiet_window_merge_history.jsonl"
 $log = New-Object System.Collections.Generic.List[string]
+$resolvedBranchTip = $null
+$mergeTarget = $Branch
 function Note($m) {
     $line = "{0}  {1}" -f (Get-Date -Format "HH:mm:ss"), $m
     $log.Add($line); Write-Output $line
@@ -37,6 +41,7 @@ function Fail($m) {
 function Save-Report($ok, $stage, $detail) {
     $record = [ordered]@{
         ts = (Get-Date).ToString("o"); branch = $Branch; ok = $ok
+        expected_tip = $ExpectedTip; resolved_branch_tip = $resolvedBranchTip
         stage = $stage; detail = $detail; log = @($log)
     }
     try {
@@ -54,6 +59,11 @@ function Save-Report($ok, $stage, $detail) {
     catch {}
 }
 
+$ExpectedTip = $ExpectedTip.Trim().ToLowerInvariant()
+if ($ExpectedTip -and $ExpectedTip -notmatch '^[0-9a-f]{40}$') {
+    Fail "ExpectedTip must be a full 40-character hexadecimal commit SHA"
+}
+
 # ---- window guard, proportional to the branch's actual roll verdict ----
 # This used to demand 01:00-04:00 for EVERY branch, including branches that cannot roll
 # anything. That is a guard against a risk the branch does not carry, and it was the real
@@ -68,8 +78,9 @@ function Save-Report($ok, $stage, $detail) {
 $h = (Get-Date).Hour + ((Get-Date).Minute / 60.0)
 $verdictScript = Join-Path $repo "scripts\ops\roll_verdict.ps1"
 $rollFree = $false
+$verdictRef = $(if ($ExpectedTip) { $ExpectedTip } else { $Branch })
 if (Test-Path -LiteralPath $verdictScript) {
-    & $verdictScript -Branch $Branch | ForEach-Object { Note "roll_verdict: $_" }
+    & $verdictScript -Branch $verdictRef | ForEach-Object { Note "roll_verdict: $_" }
     $rollFree = ($LASTEXITCODE -eq 0)
     Note ("roll verdict exit {0} -> {1}" -f $LASTEXITCODE, $(if ($rollFree) { "ROLL-FREE" } else { "treated as ROLL-SENSITIVE" }))
 }
@@ -116,6 +127,19 @@ if ($unexpected.Count -gt 0) {
 # letting a stale merge look like a fresh one.
 & git fetch origin --prune | Out-Null
 if ($LASTEXITCODE -ne 0) { Note "WARNING: git fetch failed (no credential vault under S4U?); merging the last-fetched copy of $Branch" }
+$branchCommitRef = "{0}^{{commit}}" -f $Branch
+& git rev-parse --verify $branchCommitRef | Out-Null
+if ($LASTEXITCODE -ne 0) { Fail "branch not found: $Branch" }
+$resolvedBranchTip = (& git rev-parse $branchCommitRef).Trim().ToLowerInvariant()
+if ($ExpectedTip) {
+    if ($resolvedBranchTip -ne $ExpectedTip) {
+        Fail "branch tip moved: $Branch resolves to $resolvedBranchTip, expected reviewed tip $ExpectedTip"
+    }
+    # Merge the immutable object, not the movable ref, so the reviewed identity remains
+    # bound even if another process updates the branch after this check.
+    $mergeTarget = $resolvedBranchTip
+    Note "exact-tip binding passed: $Branch -> $resolvedBranchTip"
+}
 $head = (& git rev-parse HEAD).Trim()
 $originMaster = (& git rev-parse origin/master).Trim()
 if ($head -ne $originMaster) { Fail "local master ($head) != origin/master ($originMaster); reconcile first" }
@@ -134,9 +158,7 @@ $preMerge = (& git rev-parse HEAD).Trim()
 # NativeCommandError and terminates -- and git writes routine notices to stderr, so a
 # harmless "CRLF will be replaced by LF" warning killed a dry run mid-merge and left the
 # tree in a half-merged state (2026-07-25). Send stdout to Out-Null and let stderr print.
-& git rev-parse --verify "$Branch" | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "branch not found: $Branch" }
-Note "pre-merge HEAD $preMerge; merging $Branch ($(& git rev-parse --short $Branch))"
+Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(0, 12)))"
 
 # ---- capture baseline (what we will require to still be true afterwards) ----
 function Get-CaptureState {
@@ -160,7 +182,7 @@ Note "capture before: $($before.loops) loops, heartbeat $($before.heartbeat)"
 if ($before.loops -lt 1) { Fail "no capture loops running before the merge; fix that first" }
 
 if ($DryRun) {
-    & git merge --no-commit --no-ff $Branch | Out-Null
+    & git merge --no-commit --no-ff $mergeTarget | Out-Null
     $conflicts = @(& git diff --name-only --diff-filter=U | Where-Object { $_ })
     # Always unwind: leaving a half-merged tree changes loop-loaded modules on disk and
     # provokes a STALE_CODE readoption roll. `merge --abort` restores the pre-merge state
@@ -172,7 +194,7 @@ if ($DryRun) {
 }
 
 # ---- merge locally (this is what triggers the readoption roll) ----
-& git merge --no-ff $Branch -m "Merge $Branch into master"
+& git merge --no-ff $mergeTarget -m "Merge $Branch into master"
 if ($LASTEXITCODE -ne 0) {
     & git merge --abort | Out-Null
     Fail "merge failed or conflicted; working tree restored"
