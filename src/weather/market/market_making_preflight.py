@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import re
 from collections import Counter
 from datetime import timedelta
 from pathlib import Path
@@ -13,6 +15,12 @@ from weather.market.market_making_run_constants import (
     PLATFORM_VERIFICATION_SCHEMA_VERSION,
     SCHEMA_VERSION,
 )
+from weather.market.mm_official_adapter import (
+    CONDITION_ID_RE,
+    OFFICIAL_CLOB_DISTRIBUTION,
+    OFFICIAL_CLOB_VERSION,
+)
+from weather.market.mm_geoblock import geoblock_evidence_gate
 from weather.market.mm_policy import bool_value, maybe_float, parse_time, utc_now
 
 CLOB_TOKEN_ARTIFACT_KEYS = ("clob_tokens", "clob_tokens_raw")
@@ -88,6 +96,7 @@ def load_data_layer_live_gate(path, target_date, mode):
         "ok": not missing,
         "path": str(path),
         "schema_version": payload.get("schema_version"),
+        "status": payload.get("status"),
         "generated_at_utc": payload.get("generated_at_utc"),
         "gate_summary_status": (payload.get("gate_summary") or {}).get("status"),
         "target_date": target_text,
@@ -119,9 +128,17 @@ SECRET_FIELD_NAMES = {
     "seed_phrase",
     "token",
 }
-SUPPORTED_PLATFORM_IDS = {"polymarket_global", "polymarket_us"}
-SUPPORTED_SIGNATURE_TYPES = {"EOA", "POLY_PROXY", "GNOSIS_SAFE", "POLY_1271"}
+SUPPORTED_PLATFORM_IDS = {"polymarket_global"}
+SUPPORTED_SIGNATURE_TYPES = {"EOA", "POLY_PROXY", "POLY_GNOSIS_SAFE", "POLY_1271"}
 SUPPORTED_SIGNATURE_TYPE_IDS = {0, 1, 2, 3}
+SIGNATURE_TYPE_IDS = {
+    "EOA": 0,
+    "POLY_PROXY": 1,
+    "POLY_GNOSIS_SAFE": 2,
+    "POLY_1271": 3,
+}
+MAX_OPERATOR_PILOT_BUDGET_USDC = 100.0
+INTERNATIONAL_SETTLEMENT_UNIT = "pUSD"
 
 
 def contains_secret_material(value):
@@ -162,6 +179,76 @@ def supported_signature_type(payload):
         return False
 
 
+def signature_type_consistent(payload):
+    raw_type = payload.get("signature_type")
+    raw_id = payload.get("signature_type_id")
+    if not isinstance(raw_type, str):
+        return False
+    expected_id = SIGNATURE_TYPE_IDS.get(raw_type.strip().upper())
+    try:
+        return expected_id is not None and int(raw_id) == expected_id
+    except (TypeError, ValueError):
+        return False
+
+
+def valid_evm_address(value):
+    return isinstance(value, str) and re.fullmatch(r"0x[0-9a-fA-F]{40}", value.strip()) is not None
+
+
+def valid_clob_token_id(value):
+    text = str(value or "").strip()
+    return text.isdigit() and int(text) > 0
+
+
+def platform_account_snapshot_sha256(account_snapshot):
+    """Hash the full account snapshot while excluding only its self-hash."""
+
+    payload = {
+        key: value
+        for key, value in dict(account_snapshot or {}).items()
+        if key != "snapshot_sha256"
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def stage1_lifecycle_bundle_sha256(bundle):
+    """Hash a Stage 1 bundle while excluding only its own content hash."""
+
+    payload = {
+        key: value
+        for key, value in dict(bundle or {}).items()
+        if key != "bundle_sha256"
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def international_jurisdiction(payload, *, now=None):
+    """Require current physical eligibility, not merely a non-US account label."""
+
+    geoblock = geoblock_evidence_gate(
+        dict_value(payload, "geographic_eligibility"),
+        now=now,
+    )
+    return all((
+        bool_value(payload.get("international_platform_confirmed"), False),
+        bool_value(payload.get("physical_location_matches_geoblock_confirmed"), False),
+        bool_value(payload.get("geoblock_circumvention_absent_confirmed"), False),
+        geoblock.get("ok") is True,
+    ))
+
+
 def dict_value(payload, key):
     value = payload.get(key)
     return value if isinstance(value, dict) else {}
@@ -177,7 +264,7 @@ def maker_only_order_field_supported(payload):
     return str(payload.get("maker_only_order_field") or "").strip() == expected
 
 
-def load_platform_verification_gate(path, target_date, mode, now=None):
+def load_platform_verification_gate(path, target_date, mode, now=None, requested_budget_usdc=None):
     required = mode == "live-pilot"
     if not required:
         return {"required": False, "ok": True, "reason": "not required outside live-pilot"}
@@ -202,6 +289,11 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
     if isinstance(source_urls, str):
         source_urls = [source_urls]
     pilot_wallet_cap = maybe_float(payload.get("pilot_wallet_max_funding_usdc"))
+    requested_budget = maybe_float(requested_budget_usdc)
+    collateral_balance = maybe_float(payload.get("collateral_balance_usdc"))
+    collateral_allowance = maybe_float(payload.get("collateral_allowance_usdc"))
+    open_order_count = maybe_float(payload.get("open_order_count"))
+    account_snapshot = dict_value(payload, "account_snapshot")
     fee_rate = maybe_float(
         fee_model.get("taker_fee_rate")
         or fee_model.get("theta")
@@ -215,22 +307,258 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
     cancel_all = dict_value(payload, "cancel_all")
     latency_stopgap = dict_value(payload, "latency_stopgap")
     secret_redaction = dict_value(payload, "secret_redaction")
+    wallet_identity = dict_value(payload, "wallet_identity")
+    sdk = dict_value(payload, "sdk_contract")
+    heartbeat = dict_value(payload, "dead_man_heartbeat")
+    lifecycle_bundle = dict_value(payload, "stage1_lifecycle_bundle")
+    lifecycle_results = dict_value(lifecycle_bundle, "lifecycle_results")
+    cancel_probe = dict_value(lifecycle_results, "cancel_all")
+    dead_man_probe = dict_value(lifecycle_results, "dead_man")
+    lifecycle_derived = dict_value(lifecycle_bundle, "derived_platform_evidence")
+    lifecycle_bundle_hash = str(lifecycle_bundle.get("bundle_sha256") or "")
+    lifecycle_bundle_budget = maybe_float(lifecycle_bundle.get("requested_budget_usdc"))
+    cancel_probe_notional = maybe_float(cancel_probe.get("order_notional_usdc"))
+    dead_man_probe_notional = maybe_float(dead_man_probe.get("order_notional_usdc"))
+    dead_man_elapsed = maybe_float(dead_man_probe.get("cancellation_elapsed_seconds"))
     is_us_platform = payload.get("platform") == "polymarket_us"
+    heartbeat_cadence = maybe_float(heartbeat.get("cadence_seconds"))
+    geoblock = geoblock_evidence_gate(
+        dict_value(payload, "geographic_eligibility"),
+        now=now,
+    )
     checks = {
         "schema_version_supported": payload.get("schema_version") == PLATFORM_VERIFICATION_SCHEMA_VERSION,
+        "status_pass": payload.get("status") == "PASS",
         "target_date_matches": evidence_target == target_text,
         "verified_at_recent": recent_utc_timestamp(payload.get("verified_at_utc"), now, max_age_hours),
         "docs_checked_recent": recent_utc_timestamp(payload.get("docs_checked_at_utc"), now, max_age_hours),
         "platform_supported": payload.get("platform") in SUPPORTED_PLATFORM_IDS,
-        "account_jurisdiction_recorded": non_empty_text(payload.get("account_jurisdiction")),
+        "international_jurisdiction_verified": international_jurisdiction(payload, now=now),
+        "official_geoblock_evidence_verified": geoblock.get("ok") is True,
+        "physical_location_matches_geoblock_confirmed": bool_value(
+            payload.get("physical_location_matches_geoblock_confirmed"),
+            False,
+        ),
+        "geoblock_circumvention_absent_confirmed": bool_value(
+            payload.get("geoblock_circumvention_absent_confirmed"),
+            False,
+        ),
         "eligibility_verified": bool_value(payload.get("eligibility_verified"), False),
-        "api_base_url_recorded": non_empty_text(payload.get("api_base_url")),
-        "clob_host_recorded": non_empty_text(payload.get("clob_host")),
+        "api_base_url_is_international": str(payload.get("api_base_url") or "").rstrip("/").lower()
+        == "https://polymarket.com",
+        "clob_host_is_international": str(payload.get("clob_host") or "").rstrip("/").lower()
+        == "https://clob.polymarket.com",
+        "settlement_unit_is_native_pusd": payload.get("settlement_unit")
+        == INTERNATIONAL_SETTLEMENT_UNIT,
         "wallet_type_recorded": non_empty_text(payload.get("wallet_type")),
         "signature_type_supported": supported_signature_type(payload),
-        "funder_address_recorded": non_empty_text(payload.get("funder_address")),
+        "signature_type_consistent": signature_type_consistent(payload),
+        "private_key_signer_address_valid": valid_evm_address(
+            wallet_identity.get("private_key_signer_address")
+        ),
+        "order_signer_address_valid": valid_evm_address(
+            wallet_identity.get("order_signer_address")
+        ),
+        "api_key_owner_address_valid": valid_evm_address(
+            wallet_identity.get("api_key_owner_address")
+        ),
+        "funder_address_valid": valid_evm_address(payload.get("funder_address")),
+        "wallet_identity_consistency_verified": bool_value(
+            wallet_identity.get("consistency_verified"),
+            False,
+        ),
+        "sdk_distribution_exact": sdk.get("distribution") == OFFICIAL_CLOB_DISTRIBUTION,
+        "sdk_version_exact": sdk.get("version") == OFFICIAL_CLOB_VERSION,
+        "sdk_exact_version_verified": bool_value(sdk.get("exact_version_verified"), False),
+        "sdk_wallet_model_probe_verified": bool_value(
+            sdk.get("wallet_model_probe_verified"),
+            False,
+        ),
         "allowances_verified": bool_value(payload.get("allowances_verified"), False),
         "balance_verified": bool_value(payload.get("balance_verified"), False),
+        "collateral_balance_backs_budget": (
+            collateral_balance is not None
+            and collateral_balance > 0
+            and (requested_budget is None or collateral_balance >= requested_budget)
+        ),
+        "collateral_balance_within_wallet_cap": (
+            collateral_balance is not None
+            and pilot_wallet_cap is not None
+            and collateral_balance <= pilot_wallet_cap
+        ),
+        "collateral_allowance_backs_budget": (
+            collateral_allowance is not None
+            and collateral_allowance > 0
+            and (requested_budget is None or collateral_allowance >= requested_budget)
+        ),
+        "account_snapshot_hash_recorded": len(
+            str(payload.get("account_snapshot_sha256") or "")
+        ) == 64,
+        "account_snapshot_hash_matches_content": (
+            bool(account_snapshot)
+            and str(account_snapshot.get("snapshot_sha256") or "")
+            == str(payload.get("account_snapshot_sha256") or "")
+            == platform_account_snapshot_sha256(account_snapshot)
+        ),
+        "account_snapshot_fields_match": all((
+            maybe_float(account_snapshot.get("collateral_balance_usdc"))
+            == collateral_balance,
+            maybe_float(account_snapshot.get("collateral_allowance_usdc"))
+            == collateral_allowance,
+            maybe_float(account_snapshot.get("open_order_count"))
+            == open_order_count,
+        )),
+        "stage1_lifecycle_bundle_schema_supported": (
+            lifecycle_bundle.get("schema_version") == "mm_stage1_lifecycle_bundle_v0.1"
+        ),
+        "stage1_lifecycle_bundle_status_pass": lifecycle_bundle.get("status") == "PASS",
+        "stage1_lifecycle_bundle_created_recent": recent_utc_timestamp(
+            lifecycle_bundle.get("created_at_utc"),
+            now,
+            max_age_hours,
+        ),
+        "stage1_lifecycle_bundle_platform_matches": (
+            lifecycle_bundle.get("platform") == payload.get("platform") == "polymarket_global"
+        ),
+        "stage1_lifecycle_bundle_settlement_unit_matches": (
+            lifecycle_bundle.get("settlement_unit")
+            == payload.get("settlement_unit")
+            == INTERNATIONAL_SETTLEMENT_UNIT
+            and cancel_probe.get("settlement_unit") == INTERNATIONAL_SETTLEMENT_UNIT
+            and dead_man_probe.get("settlement_unit") == INTERNATIONAL_SETTLEMENT_UNIT
+        ),
+        "stage1_lifecycle_bundle_hash_matches_content": all((
+            len(lifecycle_bundle_hash) == 64,
+            lifecycle_bundle_hash == str(payload.get("stage1_lifecycle_bundle_sha256") or ""),
+            lifecycle_bundle_hash == stage1_lifecycle_bundle_sha256(lifecycle_bundle),
+        )),
+        "stage1_lifecycle_bundle_identity_matches": all((
+            str(lifecycle_bundle.get("funder_address") or "").lower()
+            == str(payload.get("funder_address") or "").lower(),
+            bool(str(lifecycle_bundle.get("condition_id") or "")),
+            CONDITION_ID_RE.fullmatch(
+                str(lifecycle_bundle.get("condition_id") or "").lower()
+            ) is not None,
+            valid_clob_token_id(lifecycle_bundle.get("token_id")),
+            len(str(lifecycle_bundle.get("bootstrap_sha256") or "")) == 64,
+            str(lifecycle_bundle.get("geoblock_country") or "").upper()
+            == str(geoblock.get("country") or "").upper(),
+            str(lifecycle_bundle.get("geoblock_region") or "").upper()
+            == str(geoblock.get("region") or "").upper(),
+        )),
+        "stage1_lifecycle_bundle_budget_matches": (
+            lifecycle_bundle_budget is not None
+            and lifecycle_bundle_budget > 0
+            and lifecycle_bundle_budget <= MAX_OPERATOR_PILOT_BUDGET_USDC
+            and (requested_budget is None or requested_budget <= lifecycle_bundle_budget)
+            and (pilot_wallet_cap is None or lifecycle_bundle_budget <= pilot_wallet_cap)
+        ),
+        "stage1_cancel_all_probe_verified": all((
+            cancel_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.1",
+            cancel_probe.get("status") == "PASS",
+            recent_utc_timestamp(cancel_probe.get("completed_at_utc"), now, max_age_hours),
+            cancel_probe.get("platform") == "polymarket_global",
+            cancel_probe.get("cancellation_mode") == "cancel_all",
+            cancel_probe.get("bootstrap_sha256") == lifecycle_bundle.get("bootstrap_sha256"),
+            cancel_probe.get("placement_status") == "live",
+            bool(str(cancel_probe.get("order_id") or "")),
+            cancel_probe.get("heartbeat_id_acknowledged") is True,
+            len(str(cancel_probe.get("capability_geoblock_evidence_sha256") or "")) == 64,
+            len(str(cancel_probe.get("submission_geoblock_evidence_sha256") or "")) == 64,
+            cancel_probe.get("starting_zero_open_orders_verified") is True,
+            cancel_probe.get("starting_zero_positions_verified") is True,
+            cancel_probe.get("open_order_observed") is True,
+            cancel_probe.get("authoritative_user_event_observed") is True,
+            cancel_probe.get("cancellation_observed") is True,
+            cancel_probe.get("terminal_user_event_observed") is True,
+            cancel_probe.get("no_trade_lifecycle_event_observed") is True,
+            cancel_probe.get("cancel_response_present") is True,
+            cancel_probe.get("zero_open_orders_verified") is True,
+            cancel_probe.get("zero_positions_verified") is True,
+            len(str(cancel_probe.get("journal_sha256") or "")) == 64,
+        )),
+        "stage1_dead_man_probe_verified": all((
+            dead_man_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.1",
+            dead_man_probe.get("status") == "PASS",
+            recent_utc_timestamp(dead_man_probe.get("completed_at_utc"), now, max_age_hours),
+            dead_man_probe.get("platform") == "polymarket_global",
+            dead_man_probe.get("cancellation_mode") == "dead_man",
+            dead_man_probe.get("bootstrap_sha256") == lifecycle_bundle.get("bootstrap_sha256"),
+            dead_man_probe.get("placement_status") == "live",
+            bool(str(dead_man_probe.get("order_id") or "")),
+            dead_man_probe.get("heartbeat_id_acknowledged") is True,
+            len(str(dead_man_probe.get("capability_geoblock_evidence_sha256") or "")) == 64,
+            len(str(dead_man_probe.get("submission_geoblock_evidence_sha256") or "")) == 64,
+            dead_man_probe.get("starting_zero_open_orders_verified") is True,
+            dead_man_probe.get("starting_zero_positions_verified") is True,
+            dead_man_probe.get("open_order_observed") is True,
+            dead_man_probe.get("authoritative_user_event_observed") is True,
+            dead_man_probe.get("cancellation_observed") is True,
+            dead_man_probe.get("terminal_user_event_observed") is True,
+            dead_man_probe.get("no_trade_lifecycle_event_observed") is True,
+            dead_man_probe.get("cancel_response_present") is False,
+            dead_man_probe.get("zero_open_orders_verified") is True,
+            dead_man_probe.get("zero_positions_verified") is True,
+            dead_man_elapsed is not None and 10 <= dead_man_elapsed <= 15,
+            len(str(dead_man_probe.get("journal_sha256") or "")) == 64,
+        )),
+        "stage1_probe_orders_are_distinct": (
+            bool(str(cancel_probe.get("order_id") or ""))
+            and bool(str(dead_man_probe.get("order_id") or ""))
+            and str(cancel_probe.get("order_id")) != str(dead_man_probe.get("order_id"))
+        ),
+        "stage1_probe_identity_and_budget_match": all((
+            lifecycle_bundle.get("bootstrap_schema_version")
+            == "mm_platform_bootstrap_v0.1",
+            cancel_probe.get("bootstrap_schema_version")
+            == lifecycle_bundle.get("bootstrap_schema_version"),
+            dead_man_probe.get("bootstrap_schema_version")
+            == lifecycle_bundle.get("bootstrap_schema_version"),
+            str(cancel_probe.get("condition_id") or "").lower()
+            == str(dead_man_probe.get("condition_id") or "").lower()
+            == str(lifecycle_bundle.get("condition_id") or "").lower(),
+            str(cancel_probe.get("token_id") or "")
+            == str(dead_man_probe.get("token_id") or "")
+            == str(lifecycle_bundle.get("token_id") or ""),
+            str(cancel_probe.get("geoblock_country") or "").upper()
+            == str(dead_man_probe.get("geoblock_country") or "").upper()
+            == str(lifecycle_bundle.get("geoblock_country") or "").upper(),
+            str(cancel_probe.get("geoblock_region") or "").upper()
+            == str(dead_man_probe.get("geoblock_region") or "").upper()
+            == str(lifecycle_bundle.get("geoblock_region") or "").upper(),
+            cancel_probe_notional is not None
+            and lifecycle_bundle_budget is not None
+            and 0 < cancel_probe_notional <= lifecycle_bundle_budget,
+            dead_man_probe_notional is not None
+            and lifecycle_bundle_budget is not None
+            and 0 < dead_man_probe_notional <= lifecycle_bundle_budget,
+            cancel_probe.get("secret_values_redacted") is True,
+            dead_man_probe.get("secret_values_redacted") is True,
+            lifecycle_bundle.get("secret_values_redacted") is True,
+            str(cancel_probe.get("journal_sha256") or "")
+            != str(dead_man_probe.get("journal_sha256") or ""),
+        )),
+        "stage1_derived_evidence_matches_platform_fields": all((
+            lifecycle_derived.get("starting_open_orders_rest_verified") is True
+            and private_stream.get("starting_open_orders_rest_verified") is True,
+            lifecycle_derived.get("order_update_verified") is True
+            and private_stream.get("order_update_verified") is True,
+            lifecycle_derived.get("fill_event_verified") is False
+            and private_stream.get("fill_event_verified") is False,
+            lifecycle_derived.get("no_fill_lifecycle_verified") is True
+            and private_stream.get("no_fill_lifecycle_verified") is True,
+            lifecycle_derived.get("final_state_reconciliation_verified") is True
+            and private_stream.get("final_state_reconciliation_verified") is True,
+            lifecycle_derived.get("cancel_all_request_verified") is True
+            and cancel_all.get("request_verified") is True,
+            lifecycle_derived.get("cancel_all_zero_open_orders_verified") is True
+            and cancel_all.get("zero_open_orders_verified") is True,
+            lifecycle_derived.get("dead_man_automatic_cancel_verified") is True
+            and heartbeat.get("automatic_cancel_verified") is True,
+            lifecycle_derived.get("heartbeat_acknowledgment_verified") is True
+            and heartbeat.get("acknowledgment_verified") is True,
+        )),
+        "open_order_count_zero": open_order_count == 0.0,
         "fees_verified": bool_value(payload.get("fees_verified"), False),
         "fee_parameters_recorded": fee_rate is not None and maker_rebate_rate is not None,
         "reward_rules_verified": bool_value(payload.get("reward_rules_verified"), False),
@@ -245,9 +573,15 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "min_order_size_verified": bool_value(payload.get("min_order_size_verified"), False),
         "user_websocket_verified": bool_value(payload.get("user_websocket_verified"), False),
         "private_user_stream_connection_verified": bool_value(private_stream.get("connection_verified"), False),
-        "private_user_stream_order_snapshot_verified": bool_value(private_stream.get("order_snapshot_verified"), False),
+        "private_user_stream_starting_state_verified": bool_value(
+            private_stream.get("starting_open_orders_rest_verified"),
+            False,
+        ),
         "private_user_stream_order_update_verified": bool_value(private_stream.get("order_update_verified"), False),
-        "private_user_stream_fill_event_verified": bool_value(private_stream.get("fill_event_verified"), False),
+        "private_user_stream_fill_or_no_fill_lifecycle_verified": (
+            bool_value(private_stream.get("fill_event_verified"), False)
+            or bool_value(private_stream.get("no_fill_lifecycle_verified"), False)
+        ),
         "private_user_stream_final_state_reconciliation_verified": bool_value(
             private_stream.get("final_state_reconciliation_verified"),
             False,
@@ -255,6 +589,33 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "cancel_all_verified": bool_value(payload.get("cancel_all_verified"), False),
         "cancel_all_request_verified": bool_value(cancel_all.get("request_verified"), False),
         "cancel_all_zero_open_orders_verified": bool_value(cancel_all.get("zero_open_orders_verified"), False),
+        "dead_man_heartbeat_endpoint_verified": (
+            str(heartbeat.get("endpoint") or "").strip() == "/v1/heartbeats"
+            and bool_value(heartbeat.get("endpoint_verified"), False)
+        ),
+        "dead_man_heartbeat_initial_empty_id_verified": bool_value(
+            heartbeat.get("initial_empty_id_verified"),
+            False,
+        ),
+        "dead_man_heartbeat_rotating_id_chain_verified": bool_value(
+            heartbeat.get("rotating_id_chain_verified"),
+            False,
+        ),
+        "dead_man_heartbeat_acknowledgment_verified": bool_value(
+            heartbeat.get("acknowledgment_verified"),
+            False,
+        ),
+        "dead_man_heartbeat_cadence_verified": (
+            heartbeat_cadence is not None and 0 < heartbeat_cadence <= 5
+        ),
+        "dead_man_heartbeat_stale_placement_disarm_verified": bool_value(
+            heartbeat.get("stale_placement_disarm_verified"),
+            False,
+        ),
+        "dead_man_heartbeat_automatic_cancel_verified": bool_value(
+            heartbeat.get("automatic_cancel_verified"),
+            False,
+        ),
         "latency_stopgap_order_reject_handling_verified": (
             not is_us_platform or bool_value(latency_stopgap.get("order_reject_handling_verified"), False)
         ),
@@ -266,6 +627,17 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         ),
         "isolated_pilot_wallet": bool_value(payload.get("isolated_pilot_wallet"), False),
         "pilot_wallet_cap_recorded": pilot_wallet_cap is not None and pilot_wallet_cap > 0,
+        "pilot_wallet_cap_within_operator_limit": (
+            pilot_wallet_cap is not None
+            and 0 < pilot_wallet_cap <= MAX_OPERATOR_PILOT_BUDGET_USDC
+        ),
+        "requested_budget_within_pilot_wallet_cap": (
+            requested_budget is None
+            or (
+                pilot_wallet_cap is not None
+                and 0 < requested_budget <= pilot_wallet_cap
+            )
+        ),
         "backend_only_signing": bool_value(payload.get("backend_only_signing"), False),
         "private_key_storage_recorded": non_empty_text(payload.get("private_key_storage")),
         "secrets_not_committed": bool_value(payload.get("secrets_not_committed"), False),
@@ -288,6 +660,10 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "secret_redaction_scan_scope_recorded": bool(secret_redaction.get("scan_scope")),
         "no_secret_material": not contains_secret_material(payload),
         "source_urls_recorded": any(non_empty_text(url) for url in source_urls),
+        "native_pusd_source_recorded": (
+            "https://docs.polymarket.com/concepts/pusd"
+            in {str(url).rstrip("/") for url in source_urls}
+        ),
     }
     missing = [name for name, ok in checks.items() if not ok]
     return {
@@ -301,14 +677,48 @@ def load_platform_verification_gate(path, target_date, mode, now=None):
         "docs_checked_at_utc": payload.get("docs_checked_at_utc"),
         "max_age_hours": max_age_hours,
         "platform": payload.get("platform"),
-        "account_jurisdiction": payload.get("account_jurisdiction"),
+        "geoblock_country": geoblock.get("country"),
+        "geoblock_region": geoblock.get("region"),
+        "geoblock_checked_at_utc": geoblock.get("checked_at_utc"),
+        "geoblock_evidence_sha256": geoblock.get("evidence_sha256"),
         "wallet_type": payload.get("wallet_type"),
         "signature_type": payload.get("signature_type"),
         "signature_type_id": payload.get("signature_type_id"),
+        "international_platform_confirmed": payload.get("international_platform_confirmed"),
         "api_base_url": payload.get("api_base_url"),
         "clob_host": payload.get("clob_host"),
+        "settlement_unit": payload.get("settlement_unit"),
         "maker_only_order_field": payload.get("maker_only_order_field"),
         "pilot_wallet_max_funding_usdc": pilot_wallet_cap,
+        "requested_budget_usdc": requested_budget,
+        "collateral_balance_usdc": collateral_balance,
+        "collateral_allowance_usdc": collateral_allowance,
+        "account_snapshot_sha256": payload.get("account_snapshot_sha256"),
+        "stage1_lifecycle_bundle_sha256": payload.get("stage1_lifecycle_bundle_sha256"),
+        "open_order_count": open_order_count,
+        "operator_pilot_budget_limit_usdc": MAX_OPERATOR_PILOT_BUDGET_USDC,
+        "sdk_contract": {
+            "distribution": sdk.get("distribution"),
+            "version": sdk.get("version"),
+            "exact_version_verified": sdk.get("exact_version_verified"),
+            "wallet_model_probe_verified": sdk.get("wallet_model_probe_verified"),
+        },
+        "wallet_identity": {
+            "private_key_signer_address": wallet_identity.get("private_key_signer_address"),
+            "order_signer_address": wallet_identity.get("order_signer_address"),
+            "api_key_owner_address": wallet_identity.get("api_key_owner_address"),
+            "consistency_verified": wallet_identity.get("consistency_verified"),
+        },
+        "dead_man_heartbeat": {
+            "endpoint": heartbeat.get("endpoint"),
+            "endpoint_verified": heartbeat.get("endpoint_verified"),
+            "initial_empty_id_verified": heartbeat.get("initial_empty_id_verified"),
+            "rotating_id_chain_verified": heartbeat.get("rotating_id_chain_verified"),
+            "acknowledgment_verified": heartbeat.get("acknowledgment_verified"),
+            "cadence_seconds": heartbeat_cadence,
+            "stale_placement_disarm_verified": heartbeat.get("stale_placement_disarm_verified"),
+            "automatic_cancel_verified": heartbeat.get("automatic_cancel_verified"),
+        },
         "secret_redaction": {
             "status_output_verified": secret_redaction.get("status_output_verified"),
             "source_doc_scan_verified": secret_redaction.get("source_doc_scan_verified"),

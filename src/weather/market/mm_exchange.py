@@ -31,6 +31,7 @@ from weather.market.mm_exchange_reports import (
     build_pilot_report_payload,
     build_reconciliation_report,
     first_numeric,
+    maker_rebate_reconciliation,
     mm2_probe_status,
     numeric_sum,
     render_pilot_report,
@@ -42,9 +43,9 @@ EXECUTION_MODES = {"dry-run", "read-only", "live"}
 
 REQUIRED_ENV_BY_PLATFORM = {
     "polymarket_global": (
-        "POLYMARKET_API_KEY",
-        "POLYMARKET_API_SECRET",
-        "POLYMARKET_API_PASSPHRASE",
+        "POLYMARKET_API_KEY_STORAGE_REF",
+        "POLYMARKET_API_SECRET_STORAGE_REF",
+        "POLYMARKET_API_PASSPHRASE_STORAGE_REF",
         "POLYMARKET_FUNDER_ADDRESS",
         "POLYMARKET_PRIVATE_KEY_STORAGE_REF",
     ),
@@ -361,7 +362,14 @@ def credential_diagnostics(platform, env=None):
     required = REQUIRED_ENV_BY_PLATFORM.get(platform or "", ())
     present = {name: bool(env.get(name)) for name in required}
     forbidden_direct = [
-        name for name in ("POLYMARKET_PRIVATE_KEY", "POLYMARKET_US_SECRET_KEY")
+        name
+        for name in (
+            "POLYMARKET_API_KEY",
+            "POLYMARKET_API_SECRET",
+            "POLYMARKET_API_PASSPHRASE",
+            "POLYMARKET_PRIVATE_KEY",
+            "POLYMARKET_US_SECRET_KEY",
+        )
         if env.get(name)
     ]
     return {
@@ -573,7 +581,7 @@ def build_global_clob_request_plan(
         path = "/cancel-all"
     elif action == "heartbeat":
         method = "POST"
-        path = "/heartbeats"
+        path = "/v1/heartbeats"
         body = {"heartbeat_id": metadata.get("heartbeat_id") or ""}
     elif action == "get_order":
         order_id = metadata.get("order_id") or leg.get("exchange_order_id") or leg.get("order_id") or "{orderID}"
@@ -767,6 +775,15 @@ class NullExchangeAdapter:
     def positions(self):
         return []
 
+    def position_evidence(self, positions=None):
+        return {
+            "status": "NOT_CONFIGURED",
+            "query_scope": None,
+            "maker_address": None,
+            "condition_id": None,
+            "rows": list(positions or []),
+        }
+
     def rewards(self):
         return {}
 
@@ -816,6 +833,9 @@ class FixtureExchangeAdapter(NullExchangeAdapter):
 
     def positions(self):
         return list(self.payload.get("positions") or [])
+
+    def position_evidence(self, positions=None):
+        return dict(self.payload.get("position_evidence") or {})
 
     def rewards(self):
         return dict(self.payload.get("rewards") or {})
@@ -1106,13 +1126,19 @@ def match_exchange_orders(local_orders, exchange_orders):
     return matched, missing_exchange, extra_exchange
 
 
-def lifecycle_events_from_user_events(user_events, now):
+def lifecycle_events_from_user_events(
+    user_events,
+    now,
+    exchange_order_to_lifecycle=None,
+):
     events = []
     fill_rows = []
+    exchange_order_to_lifecycle = exchange_order_to_lifecycle or {}
     for source_raw in user_events:
         for raw in normalize_user_event(source_raw):
             event_type = str(raw.get("event_type") or raw.get("type") or "").lower()
-            key = _lifecycle_key(raw)
+            raw_key = _lifecycle_key(raw)
+            key = exchange_order_to_lifecycle.get(raw_key, raw_key)
             if not key:
                 continue
             if event_type in {"fill", "filled", "trade"}:
@@ -1122,16 +1148,22 @@ def lifecycle_events_from_user_events(user_events, now):
                     "transition": "filled",
                     "lifecycle_key": key,
                     "order_key": raw.get("order_key"),
-                    "exchange_order_id": raw.get("order_id") or raw.get("id"),
+                    "exchange_order_id": raw.get("order_id"),
                     "exchange_execution_id": raw.get("exchange_execution_id"),
                     "exchange_execution_type": raw.get("exchange_execution_type"),
                     "trade_id": raw.get("trade_id"),
+                    "maker_address": raw.get("maker_address"),
+                    "condition_id": raw.get("condition_id"),
                     "market_id": raw.get("market_id"),
                     "event_slug": raw.get("event_slug"),
                     "clob_token_id": raw.get("clob_token_id"),
                     "side": raw.get("side"),
                     "fill_price": maybe_float(raw.get("fill_price") or raw.get("price")),
                     "fill_size": maybe_float(raw.get("fill_size") or raw.get("size")),
+                    "liquidity_role": str(raw.get("liquidity_role") or "").upper() or None,
+                    "fee_rate_bps": maybe_float(raw.get("fee_rate_bps")),
+                    "transaction_hash": raw.get("transaction_hash"),
+                    "official_trade_status": raw.get("official_trade_status"),
                     "source": raw.get("source") or "exchange_user_stream",
                 }
                 events.append(event)
@@ -1139,6 +1171,7 @@ def lifecycle_events_from_user_events(user_events, now):
                     "run_id": raw.get("run_id"),
                     "generated_at_utc": event["generated_at_utc"],
                     "mode": "live-pilot",
+                    "lifecycle_key": key,
                     "market_id": raw.get("market_id"),
                     "event_slug": raw.get("event_slug"),
                     "snapshot_id": raw.get("snapshot_id"),
@@ -1150,9 +1183,36 @@ def lifecycle_events_from_user_events(user_events, now):
                     "fill_status": "filled",
                     "fill_price": event["fill_price"],
                     "fill_size": event["fill_size"],
+                    "exchange_order_id": event["exchange_order_id"],
+                    "trade_id": event["trade_id"],
+                    "transaction_hash": event["transaction_hash"],
+                    "maker_address": event["maker_address"],
+                    "condition_id": event["condition_id"],
+                    "liquidity_role": event["liquidity_role"],
+                    "fee_rate_bps": event["fee_rate_bps"],
+                    "official_trade_status": event["official_trade_status"],
+                    "maker_rebate_estimate_usdc": raw.get("maker_rebate_estimate_usdc"),
                     "markout_30m": raw.get("markout_30m") or raw.get("markout_30m_usdc"),
                     "simulator": raw.get("source") or "exchange_user_stream",
                     "notes": raw.get("notes") or raw.get("exchange_execution_type") or "",
+                })
+            elif event_type == "trade_pending":
+                events.append({
+                    "schema_version": RUN_SCHEMA_VERSION,
+                    "generated_at_utc": raw.get("generated_at_utc") or now.isoformat(),
+                    "transition": "fill_pending",
+                    "lifecycle_key": key,
+                    "exchange_order_id": raw.get("order_id"),
+                    "trade_id": raw.get("trade_id"),
+                    "market_id": raw.get("market_id"),
+                    "event_slug": raw.get("event_slug"),
+                    "clob_token_id": raw.get("clob_token_id"),
+                    "side": raw.get("side"),
+                    "fill_price": maybe_float(raw.get("fill_price") or raw.get("price")),
+                    "fill_size": maybe_float(raw.get("fill_size") or raw.get("size")),
+                    "liquidity_role": str(raw.get("liquidity_role") or "").upper() or None,
+                    "official_trade_status": raw.get("official_trade_status"),
+                    "source": raw.get("source") or "exchange_user_stream",
                 })
             elif event_type in {"cancel", "canceled", "cancelled", "rejected", "replace", "replaced", "expired", "done_for_day"}:
                 transition = {
@@ -1226,10 +1286,20 @@ def build_exchange_reconciliation(
     )
     matched, missing_exchange, extra_exchange = match_exchange_orders(local_orders, exchange_orders)
     user_events = adapter.user_events()
-    lifecycle_events, fill_rows = lifecycle_events_from_user_events(user_events, now)
+    exchange_order_to_lifecycle = {
+        str(row.get("exchange_order_id")): _lifecycle_key(row)
+        for row in local_orders
+        if row.get("exchange_order_id") and _lifecycle_key(row)
+    }
+    lifecycle_events, fill_rows = lifecycle_events_from_user_events(
+        user_events,
+        now,
+        exchange_order_to_lifecycle=exchange_order_to_lifecycle,
+    )
     balances = adapter.balances()
     allowances = adapter.allowances()
     positions = adapter.positions()
+    position_evidence = adapter.position_evidence(positions)
     rewards = adapter.rewards()
     fees = adapter.fees()
     redemption_status = adapter.redemption_status()
@@ -1264,6 +1334,7 @@ def build_exchange_reconciliation(
         "balances": balances,
         "allowances": allowances,
         "positions": positions,
+        "position_evidence": position_evidence,
         "rewards": rewards,
         "fees": fees,
         "redemption_status": redemption_status,

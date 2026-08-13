@@ -7,6 +7,33 @@ from weather.market.market_making_readiness import (
     find_latest_paper_score,
     render_readiness_report,
 )
+from weather.market.market_making_preflight import (
+    platform_account_snapshot_sha256,
+    stage1_lifecycle_bundle_sha256,
+)
+from weather.market.mm_geoblock import collect_official_geoblock_evidence
+
+
+def eligible_geoblock(now):
+    class Response:
+        status = 200
+
+        def read(self, _limit):
+            return json.dumps({
+                "blocked": False,
+                "country": "CH",
+                "region": "ZH",
+                "ip": "203.0.113.8",
+            }).encode("utf-8")
+
+        def close(self):
+            pass
+
+    return collect_official_geoblock_evidence(
+        opener=lambda _request, timeout: Response(),
+        proxy_detector=lambda: {},
+        now=now,
+    )
 
 
 def write_json(path, payload):
@@ -16,29 +43,144 @@ def write_json(path, payload):
     return path
 
 
+def stage1_lifecycle_bundle():
+    bootstrap_hash = "a" * 64
+
+    def probe(mode, order_id):
+        return {
+            "schema_version": "mm_live_lifecycle_probe_v0.1",
+            "status": "PASS",
+            "completed_at_utc": "2026-06-26T16:00:00+00:00",
+            "platform": "polymarket_global",
+            "settlement_unit": "pUSD",
+            "cancellation_mode": mode,
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+            "bootstrap_sha256": bootstrap_hash,
+            "condition_id": "0x" + "b" * 64,
+            "token_id": "12345",
+            "heartbeat_id_acknowledged": True,
+            "starting_zero_open_orders_verified": True,
+            "starting_zero_positions_verified": True,
+            "order_notional_usdc": 0.05,
+            "order_id": order_id,
+            "placement_status": "live",
+            "geoblock_country": "CH",
+            "geoblock_region": "ZH",
+            "capability_geoblock_evidence_sha256": "c" * 64,
+            "submission_geoblock_evidence_sha256": "d" * 64,
+            "open_order_observed": True,
+            "authoritative_user_event_observed": True,
+            "cancellation_observed": True,
+            "cancellation_elapsed_seconds": 0 if mode == "cancel_all" else 15,
+            "terminal_user_event_observed": True,
+            "no_trade_lifecycle_event_observed": True,
+            "cancel_response_present": mode == "cancel_all",
+            "zero_open_orders_verified": True,
+            "zero_positions_verified": True,
+            "secret_values_redacted": True,
+            "journal_sha256": ("e" if mode == "cancel_all" else "f") * 64,
+        }
+
+    bundle = {
+        "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+        "status": "PASS",
+        "created_at_utc": "2026-06-26T16:00:00+00:00",
+        "platform": "polymarket_global",
+        "settlement_unit": "pUSD",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+        "bootstrap_sha256": bootstrap_hash,
+        "condition_id": "0x" + "b" * 64,
+        "token_id": "12345",
+        "funder_address": "0x0000000000000000000000000000000000000001",
+        "requested_budget_usdc": 100,
+        "geoblock_country": "CH",
+        "geoblock_region": "ZH",
+        "lifecycle_results": {
+            "cancel_all": probe("cancel_all", "cancel-order"),
+            "dead_man": probe("dead_man", "dead-man-order"),
+        },
+        "derived_platform_evidence": {
+            "starting_open_orders_rest_verified": True,
+            "order_update_verified": True,
+            "fill_event_verified": False,
+            "no_fill_lifecycle_verified": True,
+            "final_state_reconciliation_verified": True,
+            "cancel_all_request_verified": True,
+            "cancel_all_zero_open_orders_verified": True,
+            "dead_man_automatic_cancel_verified": True,
+            "heartbeat_acknowledgment_verified": True,
+        },
+        "secret_values_redacted": True,
+    }
+    bundle["bundle_sha256"] = stage1_lifecycle_bundle_sha256(bundle)
+    return bundle
+
+
 def platform_verification(target_date="2026-06-26"):
+    account_snapshot = {
+        "balance_allowance_verified": True,
+        "collateral_balance_usdc": 100,
+        "collateral_allowance_usdc": 100,
+        "closed_only_mode_verified": True,
+        "closed_only": False,
+        "zero_open_orders_verified": True,
+        "open_order_count": 0,
+        "position_query_exact_scope_verified": True,
+        "zero_positions_verified": True,
+        "position_count": 0,
+        "source_response_sha256": "b" * 64,
+    }
+    account_snapshot["snapshot_sha256"] = platform_account_snapshot_sha256(
+        account_snapshot
+    )
+    lifecycle_bundle = stage1_lifecycle_bundle()
     return {
-        "schema_version": "mm_platform_verification_v0.2",
+        "schema_version": "mm_platform_verification_v0.4",
+        "status": "PASS",
         "verified_for_target_date": target_date,
         "verified_at_utc": "2026-06-26T16:00:00+00:00",
         "docs_checked_at_utc": "2026-06-26T16:00:00+00:00",
         "max_age_hours": 24,
-        "platform": "polymarket_us",
-        "account_jurisdiction": "US",
+        "platform": "polymarket_global",
+        "international_platform_confirmed": True,
+        "physical_location_matches_geoblock_confirmed": True,
+        "geoblock_circumvention_absent_confirmed": True,
+        "geographic_eligibility": eligible_geoblock("2026-06-26T17:00:00+00:00"),
         "eligibility_verified": True,
-        "api_base_url": "https://api.polymarket.us",
-        "clob_host": "https://api.polymarket.us",
+        "api_base_url": "https://polymarket.com",
+        "clob_host": "https://clob.polymarket.com",
+        "settlement_unit": "pUSD",
         "wallet_type": "pilot",
         "signature_type": "EOA",
+        "signature_type_id": 0,
         "funder_address": "0x0000000000000000000000000000000000000001",
+        "wallet_identity": {
+            "private_key_signer_address": "0x0000000000000000000000000000000000000001",
+            "order_signer_address": "0x0000000000000000000000000000000000000001",
+            "api_key_owner_address": "0x0000000000000000000000000000000000000001",
+            "consistency_verified": True,
+        },
+        "sdk_contract": {
+            "distribution": "py-clob-client-v2",
+            "version": "1.1.0",
+            "exact_version_verified": True,
+            "wallet_model_probe_verified": True,
+        },
         "allowances_verified": True,
         "balance_verified": True,
+        "collateral_balance_usdc": 100,
+        "collateral_allowance_usdc": 100,
+        "account_snapshot_sha256": account_snapshot["snapshot_sha256"],
+        "open_order_count": 0,
+        "account_snapshot": account_snapshot,
+        "stage1_lifecycle_bundle_sha256": lifecycle_bundle["bundle_sha256"],
+        "stage1_lifecycle_bundle": lifecycle_bundle,
         "fees_verified": True,
-        "fee_model": {"taker_fee_rate": 0.05, "maker_rebate_rate": 0.0125},
+        "fee_model": {"taker_fee_rate": 0.05, "maker_rebate_rate": 0.25},
         "reward_rules_verified": True,
         "rebate_rules_verified": True,
         "order_semantics_verified": True,
-        "maker_only_order_field": "participateDontInitiate",
+        "maker_only_order_field": "postOnly",
         "maker_only_order_field_verified": True,
         "limit_order_semantics_verified": True,
         "market_order_semantics_verified": True,
@@ -48,9 +190,10 @@ def platform_verification(target_date="2026-06-26"):
         "user_websocket_verified": True,
         "private_user_stream": {
             "connection_verified": True,
-            "order_snapshot_verified": True,
+            "starting_open_orders_rest_verified": True,
             "order_update_verified": True,
-            "fill_event_verified": True,
+            "fill_event_verified": False,
+            "no_fill_lifecycle_verified": True,
             "final_state_reconciliation_verified": True,
         },
         "cancel_all_verified": True,
@@ -58,13 +201,23 @@ def platform_verification(target_date="2026-06-26"):
             "request_verified": True,
             "zero_open_orders_verified": True,
         },
+        "dead_man_heartbeat": {
+            "endpoint": "/v1/heartbeats",
+            "endpoint_verified": True,
+            "initial_empty_id_verified": True,
+            "rotating_id_chain_verified": True,
+            "acknowledgment_verified": True,
+            "cadence_seconds": 5,
+            "stale_placement_disarm_verified": True,
+            "automatic_cancel_verified": True,
+        },
         "latency_stopgap": {
             "order_reject_handling_verified": True,
             "book_refresh_before_retry_verified": True,
             "cancel_exemption_verified": True,
         },
         "isolated_pilot_wallet": True,
-        "pilot_wallet_max_funding_usdc": 500,
+        "pilot_wallet_max_funding_usdc": 100,
         "backend_only_signing": True,
         "private_key_storage": "external_secret_store",
         "secrets_not_committed": True,
@@ -81,7 +234,10 @@ def platform_verification(target_date="2026-06-26"):
                 "data/backtest",
             ],
         },
-        "source_urls": ["https://docs.polymarket.us/fees"],
+        "source_urls": [
+            "https://docs.polymarket.com/trading/fees",
+            "https://docs.polymarket.com/concepts/pusd",
+        ],
     }
 
 
@@ -318,8 +474,8 @@ def test_live_readiness_snapshot_blocks_current_no_go_evidence(tmp_path):
     assert "does not have nonzero quote permissions" in gate_by_id["quote_permission_present_in_countable_paper"]["detail"]
     assert "fill_evidence_complete" in blockers
     assert "incomplete" in gate_by_id["fill_evidence_complete"]["detail"]
-    assert "platform_verification_v0_2_passes" in blockers
-    assert "missing, stale, or failing" in gate_by_id["platform_verification_v0_2_passes"]["detail"]
+    assert "platform_verification_v0_4_passes" in blockers
+    assert "missing, stale, or failing" in gate_by_id["platform_verification_v0_4_passes"]["detail"]
     assert payload["summary"]["paper_score_quote_permission_rows"] == 17
     assert payload["summary"]["paper_quote_blocked_rows"] == 33
     assert payload["summary"]["paper_quote_blocked_fraction"] == 1.0

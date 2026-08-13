@@ -19,6 +19,7 @@ record that is valuable evidence but not current instruction.
 | Git branches, worktrees, commits, and pull requests | [Git workflow SOP](git-workflow.md) | Canonical runbook |
 | Documentation ownership and drift prevention | [Documentation maintenance](documentation-maintenance.md) | Canonical guide |
 | End-to-end project operation | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
+| Bounded International market-making live test | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) | Canonical runbook |
 | **Capture streak, quiet-window merges, host safety** | [Code-soak streak runbook](ops/streak-soak.md) | Canonical runbook |
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
