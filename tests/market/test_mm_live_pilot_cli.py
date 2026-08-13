@@ -149,6 +149,29 @@ def prepare_args(tmp_path):
     )
 
 
+def doctor_args(tmp_path, identity_path):
+    return SimpleNamespace(
+        command="doctor",
+        identity=str(identity_path),
+        target_date="2026-08-14",
+        condition_id=CONDITION_ID,
+        token_id=TOKEN_ID,
+        budget=100.0,
+        receipt_out=str(tmp_path / "doctor-receipt.json"),
+        confirmation=cli.DOCTOR_CONFIRMATION,
+    )
+
+
+def credential_reference_env():
+    return {
+        "POLYMARKET_API_KEY_STORAGE_REF": "wincred://Weather/Pilot/ApiKey",
+        "POLYMARKET_API_SECRET_STORAGE_REF": "wincred://Weather/Pilot/ApiSecret",
+        "POLYMARKET_API_PASSPHRASE_STORAGE_REF": "wincred://Weather/Pilot/Passphrase",
+        "POLYMARKET_PRIVATE_KEY_STORAGE_REF": "wincred://Weather/Pilot/PrivateKey",
+        "POLYMARKET_FUNDER_ADDRESS": ADDRESS,
+    }
+
+
 def geoblock_evidence(*, blocked=False):
     class Response:
         status = 200
@@ -225,6 +248,52 @@ def test_prepare_identity_wrong_confirmation_does_not_fetch_geoblock(tmp_path):
     assert called is False
     assert not Path(command_args.identity_out).exists()
     assert not Path(command_args.receipt_out).exists()
+
+
+def test_keyless_doctor_passes_without_resolving_credential_targets(tmp_path):
+    prepare = prepare_args(tmp_path)
+    cli.run_prepare_identity(prepare, geoblock_collector=geoblock_evidence)
+    command_args = doctor_args(tmp_path, prepare.identity_out)
+    env = credential_reference_env()
+
+    receipt = cli.run_doctor(
+        command_args,
+        env=env,
+        sdk_version_getter=lambda: "1.1.0",
+        platform_name="nt",
+    )
+
+    assert receipt["status"] == "PASS"
+    assert receipt["missing"] == []
+    assert receipt["credential_reference_present_count"] == 4
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    assert "Weather/Pilot" not in raw
+    assert "wincred://" not in raw
+
+
+def test_keyless_doctor_names_missing_sdk_and_reference_without_reading_secrets(tmp_path):
+    prepare = prepare_args(tmp_path)
+    cli.run_prepare_identity(prepare, geoblock_collector=geoblock_evidence)
+    command_args = doctor_args(tmp_path, prepare.identity_out)
+    env = credential_reference_env()
+    del env["POLYMARKET_API_SECRET_STORAGE_REF"]
+
+    with pytest.raises(RuntimeError, match="blocking setup checks"):
+        cli.run_doctor(
+            command_args,
+            env=env,
+            sdk_version_getter=lambda: None,
+            platform_name="nt",
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["status"] == "FAIL"
+    assert "credential_reference_variables_complete" in receipt["missing"]
+    assert "credential_reference_shapes_valid" in receipt["missing"]
+    assert "official_sdk_exact_version_installed" in receipt["missing"]
+    assert receipt["credential_reference_present_count"] == 3
+    assert "Weather/Pilot" not in raw
 
 
 def test_stage0_cli_writes_bootstrap_only_after_zero_state_cleanup(tmp_path):

@@ -1334,7 +1334,7 @@ REGISTERED_SCHEMAS = (
         "mm_live_pilot_command_receipt_v0.1",
         "weather.market.mm_live_pilot_cli",
         "active",
-        "Secret-free PASS/FAIL receipt for International identity preparation, Stage 0, either one-submit Stage 1 probe, or offline lifecycle-bundle construction, including final zero-account-state cleanup where exchange authentication is used.",
+        "Secret-free PASS/FAIL receipt for International identity preparation, keyless setup diagnosis, Stage 0, either one-submit Stage 1 probe, or offline lifecycle-bundle construction, including final zero-account-state cleanup where exchange authentication is used.",
     ),
     SchemaSpec(
         "mm_platform_verification",

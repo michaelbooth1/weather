@@ -318,8 +318,11 @@ weather.market.mm_live_pilot_cli` surface. Its read-only identity-preparation
 command fetches the official geoblock response, discards the detected IP,
 derives the selected signature ID, and refuses a blocked/proxied or structurally
 invalid public manifest. The Stage 0/1 commands accept only public identifiers,
-budget, confirmation literals, and new artifact paths; all authentication is
-resolved in memory from Windows Credential Manager references. Stage 0 preserves
+budget, confirmation literals, and new artifact paths. A keyless doctor checks
+the exact SDK, Windows resolver, credential-reference shapes/count, direct-secret
+absence, funder identity, market identifiers, and budget without resolving any
+credential value. All authentication is resolved in memory from Windows
+Credential Manager references. Stage 0 preserves
 the active-stream proof while binding the final journal hash after a clean stop.
 Each Stage 1 invocation has one submit capability, always attempts account-wide
 cancel-all and exact-scope zero-position reconciliation, and emits its PASS
