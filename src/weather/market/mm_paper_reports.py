@@ -145,7 +145,7 @@ def render_paper_report(payload):
         "",
         "## P&L Decomposition",
         "",
-        "Reward and rebate estimates are shown after toxic markout and flattening costs; they do not make a losing markout acceptable.",
+        "Reward and rebate estimates are diagnostic only. Net acceptance P&L excludes them until an authenticated payout is reconciled.",
         "",
     ])
     lines.extend(markdown_table(
@@ -156,8 +156,14 @@ def render_paper_report(payload):
             ["Settlement P&L", fmt_num(pnl.get("settlement_pnl_usdc"), 4)],
             ["Maker fee-equivalent", fmt_num(pnl.get("maker_fee_equivalent_usdc"), 4)],
             ["Maker rebate estimate", fmt_num(pnl.get("maker_rebate_estimate_usdc"), 4)],
+            ["Maker rebate accepted", fmt_num(pnl.get("maker_rebate_accepted_usdc"), 4)],
             ["Liquidity reward estimate", fmt_num(pnl.get("liquidity_reward_estimate_usdc"), 4)],
+            ["Liquidity reward accepted", fmt_num(pnl.get("liquidity_reward_accepted_usdc"), 4)],
             ["Flattening fee estimate", fmt_num(pnl.get("flattening_fee_estimate_usdc"), 4)],
+            [
+                "Net including unreconciled incentives (diagnostic)",
+                fmt_num(pnl.get("net_pnl_including_unreconciled_incentives_usdc"), 4),
+            ],
             ["Net after fees/incentives", fmt_num(pnl.get("net_pnl_after_fees_incentives_usdc"), 4)],
         ],
     ))
