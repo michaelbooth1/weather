@@ -844,7 +844,7 @@ class TestMMPaper(unittest.TestCase):
                 backtest_root=root / "backtest",
                 run_folders=[run_folder],
                 exchange_economics_snapshot_path=snapshot_path,
-                exchange_economics_platform="polymarket_us",
+                exchange_economics_platform="polymarket_global",
                 exchange_economics_required=True,
                 include_fill_simulation=False,
                 now="2026-06-14T17:00:00+00:00",
@@ -857,7 +857,7 @@ class TestMMPaper(unittest.TestCase):
         self.assertFalse(gate["checks"]["target_date_matches"])
         self.assertIn("target_date_matches", gate["missing"])
 
-    def test_reward_score_diagnostics_use_polymarket_us_snapshot(self):
+    def test_reward_score_diagnostics_exclude_international_liquidity_rewards_from_primary_pnl(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             runs_root, run_folder = write_run_fixture(root)
@@ -869,12 +869,8 @@ class TestMMPaper(unittest.TestCase):
                 verified_at_utc="2026-06-14T17:00:00+00:00",
                 tick_size=0.01,
                 min_order_size=1.0,
-                reward_formula="score = discount_factor ** ticks_from_best_price * order_size",
+                token_ids=["token-80", "token-no-80"],
             )
-            snapshot["liquidity_rewards"]["discount_factor_default"] = 0.3
-            snapshot["liquidity_rewards"]["target_size_default_contracts"] = 100.0
-            snapshot["liquidity_rewards"]["default_category_daily_reward_usd"] = 1000.0
-            snapshot["liquidity_rewards"]["min_payout_usd"] = 1.0
             snapshot_path = write_json(root / "backtest" / "exchange_economics_snapshot.json", snapshot)
 
             payload = build_paper_payload(
@@ -884,7 +880,7 @@ class TestMMPaper(unittest.TestCase):
                 run_folders=[run_folder],
                 exchange_economics_snapshot_path=snapshot_path,
                 exchange_economics_target_date=TARGET_DATE,
-                exchange_economics_platform="polymarket_us",
+                exchange_economics_platform="polymarket_global",
                 exchange_economics_required=True,
                 now="2026-06-14T17:00:00+00:00",
             )
@@ -917,27 +913,24 @@ class TestMMPaper(unittest.TestCase):
         )
         self.assertEqual(summary["live_capital_gate_status"], "NOT_EVALUATED_BY_MM_PAPER")
         self.assertIn("market_making_readiness", summary["live_capital_gate_reason"])
-        self.assertEqual(diagnostics["status"], "PASS")
-        self.assertEqual(diagnostics["score_basis"], "polymarket_us_discount_factor_ticks_from_best")
-        self.assertEqual(diagnostics["positive_score_legs"], 2)
-        self.assertEqual(diagnostics["total_reward_score"], 10.0)
+        self.assertEqual(diagnostics["status"], "PASS_ZERO_ASSUMPTION")
+        self.assertEqual(diagnostics["score_basis"], "liquidity_rewards_excluded_from_primary_pnl")
+        self.assertEqual(diagnostics["positive_score_legs"], 0)
+        self.assertEqual(diagnostics["total_reward_score"], 0.0)
         self.assertEqual(summary["total_reward_score"], diagnostics["total_reward_score"])
-        self.assertEqual(diagnostics["score_to_target_size_fraction"], 0.1)
+        self.assertIsNone(diagnostics["score_to_target_size_fraction"])
         self.assertFalse(diagnostics["score_at_or_above_target_size"])
         self.assertFalse(summary["score_at_or_above_target_size"])
-        self.assertEqual(diagnostics["assumed_competitor_score"], 100.0)
-        self.assertEqual(diagnostics["assumed_competitor_score_source"], "paper_config_reward_competitor_q")
-        self.assertFalse(diagnostics["assumed_competitor_score_has_clob_recon_evidence"])
-        self.assertAlmostEqual(diagnostics["counterfactual_score_share"], 0.09090909)
-        self.assertAlmostEqual(summary["counterfactual_score_share"], 0.09090909)
-        self.assertAlmostEqual(diagnostics["counterfactual_reward_usdc"], 90.909091)
-        self.assertAlmostEqual(summary["counterfactual_reward_usdc"], 90.909091)
-        self.assertEqual(diagnostics["counterfactual_reward_status"], "COUNTERFACTUAL_ONLY")
-        self.assertEqual(summary["counterfactual_reward_status"], "COUNTERFACTUAL_ONLY")
+        self.assertEqual(diagnostics["counterfactual_score_share"], 0.0)
+        self.assertEqual(summary["counterfactual_score_share"], 0.0)
+        self.assertEqual(diagnostics["counterfactual_reward_usdc"], 0.0)
+        self.assertEqual(summary["counterfactual_reward_usdc"], 0.0)
+        self.assertEqual(diagnostics["counterfactual_reward_status"], "PRIMARY_ASSUMPTION_ZERO")
+        self.assertEqual(summary["counterfactual_reward_status"], "PRIMARY_ASSUMPTION_ZERO")
         self.assertFalse(diagnostics["actual_payout_evidence"])
         self.assertFalse(summary["actual_payout_evidence"])
         self.assertTrue(diagnostics["does_not_change_pnl"])
-        self.assertTrue(diagnostics["score_attribution_top_groups"])
+        self.assertFalse(diagnostics["score_attribution_top_groups"])
         self.assertIn("## Reward Score Diagnostics", report)
         self.assertIn("Quote-intent rows / quoted legs", report)
         self.assertIn("| Quote-intent rows / quoted legs | 1 / 2 |", report)
@@ -954,11 +947,11 @@ class TestMMPaper(unittest.TestCase):
         self.assertIn("| atlanta | 80-81 F |", report)
         self.assertIn("Counterfactual reward USDC", report)
         self.assertIn("Competitor score source", report)
-        self.assertIn("polymarket_us_discount_factor_ticks_from_best", report)
+        self.assertIn("liquidity_rewards_excluded_from_primary_pnl", report)
         self.assertNotIn("Quote rows / legs", report)
         self.assertNotIn("| Market | Quote rows |", report)
 
-    def test_reward_score_diagnostics_use_clob_recon_competitor_score_when_available(self):
+    def test_international_zero_reward_primary_ignores_competitor_score_inputs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             runs_root, run_folder = write_run_fixture(root)
@@ -970,12 +963,8 @@ class TestMMPaper(unittest.TestCase):
                 verified_at_utc="2026-06-14T17:00:00+00:00",
                 tick_size=0.01,
                 min_order_size=1.0,
-                reward_formula="score = discount_factor ** ticks_from_best_price * order_size",
+                token_ids=["token-80", "token-no-80"],
             )
-            snapshot["liquidity_rewards"]["discount_factor_default"] = 0.3
-            snapshot["liquidity_rewards"]["target_size_default_contracts"] = 100.0
-            snapshot["liquidity_rewards"]["default_category_daily_reward_usd"] = 1000.0
-            snapshot["liquidity_rewards"]["min_payout_usd"] = 1.0
             snapshot_path = write_json(root / "backtest" / "exchange_economics_snapshot.json", snapshot)
             recon = root / "backtest" / "clob_book_recon.json"
             write_json(recon, {
@@ -997,7 +986,7 @@ class TestMMPaper(unittest.TestCase):
                 clob_recon_path=recon,
                 exchange_economics_snapshot_path=snapshot_path,
                 exchange_economics_target_date=TARGET_DATE,
-                exchange_economics_platform="polymarket_us",
+                exchange_economics_platform="polymarket_global",
                 exchange_economics_required=True,
                 now="2026-06-14T17:00:00+00:00",
             )
@@ -1012,19 +1001,10 @@ class TestMMPaper(unittest.TestCase):
             report = (root / "backtest" / "mm_paper_report.md").read_text(encoding="utf-8")
 
         diagnostics = payload["reward_score_diagnostics"]
-        self.assertEqual(diagnostics["total_reward_score"], 10.0)
-        self.assertEqual(diagnostics["assumed_competitor_score"], 10.0)
-        self.assertEqual(
-            diagnostics["assumed_competitor_score_source"],
-            "clob_recon_policy_parameter_suggestions.reward_competitor_q",
-        )
-        self.assertTrue(diagnostics["assumed_competitor_score_has_clob_recon_evidence"])
-        self.assertEqual(diagnostics["assumed_competitor_score_clob_recon_book_rows"], 12)
-        self.assertEqual(diagnostics["assumed_competitor_score_clob_recon_slice_rows"], 3)
-        self.assertAlmostEqual(diagnostics["counterfactual_score_share"], 0.5)
-        self.assertAlmostEqual(diagnostics["counterfactual_reward_usdc"], 500.0)
-        self.assertIn("clob_recon_policy_parameter_suggestions.reward_competitor_q", report)
-        self.assertIn("12 books / 3 slices", report)
+        self.assertEqual(diagnostics["total_reward_score"], 0.0)
+        self.assertEqual(diagnostics["counterfactual_score_share"], 0.0)
+        self.assertEqual(diagnostics["counterfactual_reward_usdc"], 0.0)
+        self.assertNotIn("clob_recon_policy_parameter_suggestions.reward_competitor_q", report)
 
     def test_skip_model_variants_records_non_promotion_diagnostic(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1374,7 +1354,7 @@ class TestMMPaper(unittest.TestCase):
             self.assertEqual(float(fill["settlement_outcome"]), 1.0)
             self.assertEqual(fill["casebook_taxonomy"], "market_lead")
             self.assertGreater(float(fill["maker_rebate_estimate_usdc"]), 0.0)
-            self.assertGreater(float(fill["liquidity_reward_estimate_usdc"]), 0.0)
+            self.assertEqual(float(fill["liquidity_reward_estimate_usdc"]), 0.0)
             self.assertGreater(float(fill["flattening_fee_estimate_usdc"]), 0.0)
             self.assertGreater(float(fill["net_pnl_after_fees_incentives_usdc"]), 0.0)
 

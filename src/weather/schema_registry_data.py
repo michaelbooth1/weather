@@ -217,10 +217,10 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "exchange_economics_snapshot",
-        "exchange_economics_snapshot_v0.1",
+        "exchange_economics_snapshot_v0.2",
         "weather.market.exchange_economics",
         "active",
-        "Versioned exchange fee, rebate, reward, tick/min-order, and order-semantics snapshot.",
+        "Content-bound International Polymarket per-condition fee, rebate, reward, tick/min-order, and order-semantics snapshot.",
     ),
     SchemaSpec(
         "exchange_economics_drift",
@@ -2130,6 +2130,12 @@ EXCLUDED_SCHEMA_LITERALS = (
         "weather.market.taker_bot_sizing",
         "fee_model_id",
         "Taker fee/pricing model identifier, not a durable artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "polymarket_global_per_condition_fee_schedule_v1",
+        "weather.market.exchange_economics",
+        "fee_model_id",
+        "International per-condition fee-model identifier, not a durable artifact schema.",
     ),
     SchemaLiteralExclusion(
         "top_of_book_only_v1",

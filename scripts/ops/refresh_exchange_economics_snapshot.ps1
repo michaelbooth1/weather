@@ -1,4 +1,4 @@
-# Publishes a current exchange-economics snapshot from the tracked template.
+# Fetches a content-bound International Polymarket exchange-economics snapshot.
 #
 # This script intentionally does not accept the baseline. Baseline acceptance is
 # an audited operator action after reviewing material drift and any required
@@ -9,11 +9,15 @@
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
-    [string]$TargetDate = (Get-Date).AddDays(-1).ToString("yyyy-MM-dd"),
-    [string]$Template = "",
+    [string]$TargetDate = (Get-Date).ToString("yyyy-MM-dd"),
+    [string]$EventMetadata = "",
     [string]$Snapshot = "",
-    [string]$Platform = "polymarket_us"
+    [string]$Platform = "polymarket_global"
 )
+
+if ($Platform -ne "polymarket_global") {
+    throw "This host is International Polymarket only; refusing platform '$Platform'."
+}
 
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
@@ -23,14 +27,12 @@ if (-not (Test-Path $python)) {
 $arguments = @(
     "-m",
     "weather.market.exchange_economics",
-    "publish",
+    "collect-global",
     "--target-date",
-    $TargetDate,
-    "--platform",
-    $Platform
+    $TargetDate
 )
-if ($Template) {
-    $arguments += @("--template", $Template)
+if ($EventMetadata) {
+    $arguments += @("--event-metadata", $EventMetadata)
 }
 if ($Snapshot) {
     $arguments += @("--snapshot", $Snapshot)

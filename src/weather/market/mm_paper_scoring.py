@@ -833,41 +833,16 @@ def reward_leg_score(price, size, mid, min_order_size, threshold):
 
 
 def attach_reward_estimates(legs, config):
-    by_quote = defaultdict(list)
+    # Liquidity rewards are excluded from the primary profitability claim.
+    # The former estimator mixed International Q-style scoring with US inputs
+    # and a fleet-wide competitor pool, so non-zero output was not venue-valid.
     for leg in legs:
-        by_quote[leg["quote_id"]].append(leg)
-    for quote_legs_ in by_quote.values():
-        row = quote_legs_[0]["quote_row"]
-        mid = quote_legs_[0].get("market_mid")
-        min_order = finite_float(row.get("min_order_size"), 0.0) or 0.0
-        threshold = float(config["reward_distance_threshold"])
-        campaign_pool = float(config["reward_campaign_pool_usdc"])
-        competitor_q = max(0.0, float(config["reward_competitor_q"]))
-        scores = {}
-        for leg in quote_legs_:
-            scores[leg["side"]] = reward_leg_score(
-                leg["quote_price"],
-                leg["quote_size"],
-                mid,
-                min_order,
-                threshold,
-            )
-        q_one = scores.get("YES_BID", 0.0)
-        q_two = scores.get("YES_ASK", 0.0)
-        c = max(1.0, float(config["reward_c"]))
-        q_min = max(min(q_one, q_two), max(q_one / c, q_two / c))
-        qualifying_size = max(0.0, q_min)
-        normalized_share = q_min / (q_min + competitor_q) if q_min > 0 else 0.0
-        estimate = campaign_pool * normalized_share
-        if estimate < float(config["reward_min_payout_usdc"]):
-            estimate = 0.0
-        total_size = sum(leg["quote_size"] for leg in quote_legs_) or 1.0
-        for leg in quote_legs_:
-            leg["reward_estimate_usdc"] = estimate * (leg["quote_size"] / total_size)
-            leg["reward_q_min"] = q_min
-            leg["reward_qualifying_size"] = qualifying_size
-            leg["reward_normalized_share"] = normalized_share
-            leg["reward_formula"] = "q_min=max(min(q_one,q_two),max(q_one/c,q_two/c)); normalized=q_min/(q_min+competition_q)"
+        leg["reward_estimate_usdc"] = 0.0
+        leg["reward_q_min"] = 0.0
+        leg["reward_qualifying_size"] = 0.0
+        leg["reward_normalized_share"] = 0.0
+        leg["reward_formula"] = "primary_pnl_liquidity_rewards_zero"
+        leg["reward_estimate_status"] = "EXCLUDED_UNTIL_PER_CONDITION_PAYOUT_RECONCILIATION"
 
 
 GENUINE_WS_EXECUTION_TYPE = "last_trade_price"
@@ -1963,9 +1938,21 @@ def compute_fill_financials(leg, fill, mark_by_token, settlement, config):
         spread_capture = (mid - price) * size
     else:
         spread_capture = (price - mid) * size
-    maker_fee_equiv = fee_equivalent(size, price, config["maker_fee_rate"])
-    maker_rebate = maker_fee_equiv * float(config["maker_rebate_pool_share"])
-    flatten_fee = fee_equivalent(size, price, config["flattening_fee_rate"])
+    maker_rebate_fee_rate = finite_float(leg.get("maker_rebate_fee_rate"))
+    if maker_rebate_fee_rate is None:
+        maker_rebate_fee_rate = finite_float(
+            config.get("maker_rebate_fee_rate"),
+            finite_float(config.get("maker_fee_rate"), 0.0),
+        ) or 0.0
+    maker_rebate_pool_share = finite_float(leg.get("maker_rebate_pool_share"))
+    if maker_rebate_pool_share is None:
+        maker_rebate_pool_share = finite_float(config.get("maker_rebate_pool_share"), 0.0) or 0.0
+    flattening_fee_rate = finite_float(leg.get("flattening_fee_rate"))
+    if flattening_fee_rate is None:
+        flattening_fee_rate = finite_float(config.get("flattening_fee_rate"), 0.0) or 0.0
+    maker_fee_equiv = fee_equivalent(size, price, maker_rebate_fee_rate)
+    maker_rebate = maker_fee_equiv * maker_rebate_pool_share
+    flatten_fee = fee_equivalent(size, price, flattening_fee_rate)
     reward = float(leg.get("reward_estimate_usdc") or 0.0) * (size / max(leg["quote_size"], 1e-9))
     if settlement_pnl is not None:
         net = settlement_pnl + maker_rebate + reward - flatten_fee

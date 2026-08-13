@@ -1,6 +1,6 @@
-# Registers the exchange-economics snapshot refresh as a Windows Scheduled Task.
+# Registers the International exchange-economics snapshot refresh as a Windows Scheduled Task.
 #
-# The task publishes a current snapshot from the tracked source template before
+# The task fetches a content-bound snapshot from official Gamma/CLOB APIs before
 # the daily settlement/report refresh. It does not accept the baseline.
 #
 # Run from the repo root:  .\scripts\ops\register_exchange_economics_refresh.ps1
@@ -40,7 +40,7 @@ Register-ScheduledTask `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description "Publishes the daily exchange-economics snapshot from docs/research/exchange_economics_snapshot_template.json." `
+    -Description "Fetches current International Polymarket per-condition exchange economics from official APIs." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': daily at $At."

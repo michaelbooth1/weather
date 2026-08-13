@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import csv
 
@@ -89,6 +90,7 @@ from weather.reporting.market import trading_evidence
 
 DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS = 14
 DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES = 512 * 1024 * 1024
+OPERATING_TIMEZONE = ZoneInfo("America/Toronto")
 
 
 def run_exchange_economics_rule_drift_step(args):
@@ -105,19 +107,32 @@ def run_exchange_economics_rule_drift_step(args):
     )
     refresh = {}
     try:
-        refresh = exchange_economics.publish_snapshot_from_template(
-            template_path=(
-                getattr(args, "exchange_economics_template", "")
-                or exchange_economics.DEFAULT_TEMPLATE
-            ),
+        platform = getattr(
+            args,
+            "exchange_economics_platform",
+            exchange_economics.DEFAULT_PLATFORM,
+        )
+        if platform != exchange_economics.GLOBAL_PLATFORM:
+            raise ValueError(
+                "daily exchange economics collection supports International Polymarket only"
+            )
+        refresh = exchange_economics.collect_and_publish_global_snapshot(
             snapshot_path=snapshot_path,
             # Verify for the wall-clock date, not the settled-analysis target:
             # the proof must cover TODAY's active-day consumers (MM preflight,
             # taker), and a today-stamped proof also covers the settled D-1
             # target via the >= coverage rule. Passed explicitly because a
-            # template that carries its own date would otherwise win over now.
-            target_date=exchange_economics.utc_now(getattr(args, "as_of", None)).date().isoformat(),
-            platform=getattr(args, "exchange_economics_platform", exchange_economics.DEFAULT_PLATFORM),
+            # stale snapshot would otherwise block active-day consumers.
+            target_date=(
+                exchange_economics.utc_now(getattr(args, "as_of", None))
+                .astimezone(OPERATING_TIMEZONE)
+                .date()
+                .isoformat()
+            ),
+            event_metadata_path=(
+                getattr(args, "event_metadata_config", "")
+                or exchange_economics.DEFAULT_EVENT_METADATA
+            ),
             now=getattr(args, "as_of", None),
         )
     except Exception as exc:  # noqa: BLE001 - fail-closed gate evidence
