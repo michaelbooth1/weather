@@ -348,10 +348,14 @@ $expNonZero = @{
 $expDisabled = @(
     "WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
     "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
-    "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror"
+    "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror",
+    # This operator hold remains visible through a dedicated warning below. Keeping it in
+    # the generic anomaly path as well called the same deliberate state "unexpected".
+    "WeatherEveningEvidenceRefresh"
 )
 $taskCount = 0
 $interactiveTasks = 0
+$evidenceRefreshHeld = $false
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
 # one-shot scheduled for tonight can be deleted, disabled or silently mis-scheduled and
 # nothing would say so until the morning it fails to have run. Surface the queue instead.
@@ -361,15 +365,6 @@ $interactiveTasks = 0
 $upcoming = New-Object System.Collections.Generic.List[psobject]
 Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Object {
     $taskCount++
-    # Both one-shots are deliberately left Interactive: they push (to origin, and to the
-    # off-host mirror) and pushing needs the credential vault, which an S4U task in session 0
-    # cannot reach -- proved 2026-08-01, "direct push failed (no credential vault under S4U);
-    # handing off to WeatherOneShotPush". Neither is unattended-critical (commits simply queue),
-    # so neither must keep the reboot-exposure flag lit forever. Do NOT "fix" them to S4U.
-    $deliberatelyInteractive = @("WeatherOneShotPush", "WeatherOneShotMirror")
-    if ([string]$_.Principal.LogonType -eq "Interactive" -and $deliberatelyInteractive -notcontains $_.TaskName) {
-        $interactiveTasks++
-    }
     $ti = $_ | Get-ScheduledTaskInfo
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
@@ -388,6 +383,21 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     $oneShot = @($_.Triggers | Where-Object {
             $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
         }).Count -gt 0
+    $noTriggers = ($null -eq $_.Triggers)
+    # Both push tasks are deliberately Interactive: the Windows credential vault is not
+    # available to S4U. Other Interactive tasks are reboot exposure only while they are
+    # enabled and still have scheduled work. A disabled task or spent one-shot cannot miss
+    # a run after reboot, and an on-demand task has no unattended schedule to miss.
+    $deliberatelyInteractive = @("WeatherOneShotPush", "WeatherOneShotMirror")
+    $scheduledWorkRemains = (-not $noTriggers -and (-not $oneShot -or $ti.NextRunTime))
+    if ([string]$_.Principal.LogonType -eq "Interactive" -and
+        $deliberatelyInteractive -notcontains $name -and $st -ne "Disabled" -and
+        $scheduledWorkRemains) {
+        $interactiveTasks++
+    }
+    if ($name -eq "WeatherEveningEvidenceRefresh" -and $st -eq "Disabled") {
+        $evidenceRefreshHeld = $true
+    }
     if ($ti.NextRunTime -and ($res -eq "0x41303" -or $oneShot)) {
         $hrs = ([datetime]$ti.NextRunTime - (Get-Date)).TotalHours
         if ($hrs -gt 0 -and $hrs -lt 16) {
@@ -418,7 +428,11 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # disabled (WeatherOneShotMirror, 2026-08-12) matched $selfDisarmed and reported
         # "self-disarmed cleanly", which is a different claim from "an operator turned this
         # off" and points at the wrong artifact. Deliberate beats incidental.
+        $onDemandCompleted = ($noTriggers -and $res -eq "0x0" -and $ti.LastRunTime)
         if ($expDisabled -contains $name) { }
+        elseif ($onDemandCompleted) {
+            $warns.Add("$name completed an on-demand run at $($ti.LastRunTime) and is now disabled (exit 0x0) - verify its artifact before relying on the result")
+        }
         elseif ($selfDisarmed) {
             # 2026-08-10: this used to end "completed work, no action". It cannot know that.
             # WeatherAgentOvernight1030 exited 0x0 having done NOTHING - claude.exe printed
@@ -462,6 +476,10 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
 }
 
+if ($evidenceRefreshHeld) {
+    $warns.Add("WeatherEveningEvidenceRefresh is operator-held DISABLED; evidence refresh remains unavailable until it is explicitly re-enabled")
+}
+
 # ---- unattended resilience ----
 # HISTORY, because the comment here outlived the fact and produced a false alarm for ten
 # days. Before 2026-07-24 almost every Weather* task was LogonType=Interactive, so the fleet
@@ -469,9 +487,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
 # logged in. That was fixed: measured 2026-08-03, every capture-critical task
 # (WeatherSnapshotLoopSupervisor, WeatherClobBookLoopSupervisor,
 # WeatherObservationTriggerSupervisor, WeatherCapturePriorityGuard) is S4U with a time
-# trigger, and WeatherBootRecovery is S4U on a boot trigger. The ONLY Interactive tasks left
-# are the two credential-vault one-shots excluded above, neither of which captures anything.
-# So $interactiveTasks is now normally 0 and the honest branch is the S4U one at the bottom.
+# trigger, and WeatherBootRecovery is S4U on a boot trigger. Credential-vault push tasks are
+# excluded above; any other enabled Interactive task with scheduled work remains visible.
 # The exposure is still surfaced continuously, because the monitoring cannot warn about the
 # one failure that would disable the monitoring.
 #
