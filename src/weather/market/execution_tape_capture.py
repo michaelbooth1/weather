@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import uuid
+import websocket
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -307,18 +308,10 @@ def frame_proves_subscription(
 
 
 def _default_websocket_factory(url: str, *, timeout: float):
-    try:
-        import websocket  # type: ignore
-    except ImportError as exc:
-        raise RuntimeError("websocket-client is required for execution-tape capture") from exc
     return websocket.create_connection(url, timeout=timeout)
 
 
 def _timeout_exceptions() -> tuple[type[BaseException], ...]:
-    try:
-        import websocket  # type: ignore
-    except ImportError:
-        return (TimeoutError,)
     return (TimeoutError, websocket.WebSocketTimeoutException)
 
 
