@@ -1,15 +1,16 @@
 # State of play
 
-**Last rewritten: 2026-08-12 (recovery thread closed unpowered, α untouched; off-host mirror
-PAUSED).** Read this first, then `ESTABLISHED_FINDINGS.md`.
+**Last rewritten: 2026-08-13 (International-only maker-rebate pivot approved; continuous execution
+capture approved and gated on its suite).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
 > **not what we know.** `ESTABLISHED_FINDINGS` owns findings and every interval ·
 > `RETRACTED_AND_FALSE_LEADS` what is false · `OPEN_BACKLOG` what is unowned · `AGENT_CONTEXT`
 > invariants · `DELEGATION_CONTRACT` how to work. **Cite numbers from §-references, not this page.**
 
-**Objectives:** 1. protect the Toronto capture streak · 2. **find a model that beats the market — we
-do not** · 3. the market-making bot is the end goal.
+**Objectives:** 1. protect capture continuity · 2. make the **International Polymarket** market maker
+profitable after costs, using spread plus documented maker rebates · 3. get our weather model close
+enough to the market to control adverse selection and inventory. **We do not beat the market.**
 
 ## Four clocks, none of them running — a stopped counter looks satisfied
 
@@ -18,7 +19,7 @@ do not** · 3. the market-making bot is the end goal.
 | Capture streak | **0 / 14** | **BROKEN at 3, as predicted.** `08-12` carries `coverage_reason: "2 gap(s), max 40 min"` against a 15-min fatal — the agent-run compute in the graded window did this. `08-09`→`08-11` all graded `complete`. Lock ~2026-08-25 if every day from `08-13` is clean. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b). A countable day never required a `QUOTE`. |
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
-| Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. Task self-disarmed; **continuous capture is an unmade operator decision.** |
+| Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. **Continuous capture is approved** and staged behind the `-09-69a` suite; it is not running yet. |
 
 ## Every lever we have tried is closed — and none of them spent α
 
@@ -48,9 +49,11 @@ MORE.** Numbers: §1, §1b, §1i, §4.
 
 ## Decided — do not relitigate without new evidence
 
-- **THE GOAL IS A BETTER MODEL, NOT A QUALIFIED ONE** (operator, 2026-08-09, §0b). Release and
-  qualification machinery is **off the critical path**, but **dropping qualification is NOT dropping
-  honesty** — leakage-free evaluation, crossed clustering, power before interpretation.
+- **INTERNATIONAL-ONLY MAKER-REBATE PIVOT APPROVED 2026-08-13.** Never use Polymarket US. The
+  primary route is profitable maker execution from spread plus documented International rebates;
+  the model is a quote-centre and risk-control input, not assumed alpha. Release and qualification
+  machinery remains **off the critical path**, but evidence honesty is unchanged: leakage-free
+  evaluation, crossed clustering, and power before interpretation.
 - **Release #1 DEFERRED**; the retrain still blocks on a release-shaped parent (§4a-bis) and the
   un-run archive re-fetch. **Free-tier Open-Meteo only. Nothing is reserved today.**
 - **Amendment A1 ADOPTED 2026-08-10** (§1i): uniform `q=3.1098893`, both required endpoints, base
@@ -65,7 +68,8 @@ MORE.** Numbers: §1, §1b, §1i, §4.
 | --- | --- | --- |
 | `-09-73a` … `-09-78a` | observation-recovery candidate | **THREAD CLOSED UNPOWERED, α UNSPENT.** `-09-78a` (§5e) NO-GO under *both* calibration premises including the candidate's own. **The limit is the stratum's 11 date clusters, not the 12-market floor** — ~22 would flip it. Draft stays unfrozen |
 | `-09-63a` | B-only screen — **NO-GO at Gate 3** | **STILL QUEUED.** Conflicted 08-11 05:30 in `ESTABLISHED_FINDINGS`/`STATE_OF_PLAY`; driver aborted cleanly. Report **not in-repo** — cite the branch |
-| `-09-69a` | execution-tape continuous capture | **DISPATCHED**, blocked on the operator's capture decision. Suite gate re-armed **08-13 20:30** after a 03:00 run aborted on its own commit ceiling — it collided with the training window |
+| `-09-69a` | execution-tape continuous capture | **APPROVED; NOT YET RUNNING.** Exact-tip suite re-armed **08-13 20:30** after the prior run aborted on its own commit ceiling. Merge only on the full suite verdict, then prove real execution rows before starting harvest-lane code |
+| International rebate economics | paper accounting and fail-closed venue evidence | **BUILT, NOT MERGED** on `codex/international-rebate-pivot` at `c4dd0390`. Production remains on the obsolete US snapshot until post-window tests, quiet-window merge, a fresh International snapshot, and explicit baseline acceptance |
 | PIT extract | frozen lead-1 daily features, **shipped in-repo** | `docs/roadmap/pit-lead1-daily-features-2026-09-61a.csv`, sha256 `60b450f1…`, **696 rows** |
 | PIT fields | staged 12/12, `06-03 → 08-09`, 100% coverage | **NOT adopted** — a serving change; replay first (§1e) |
 
