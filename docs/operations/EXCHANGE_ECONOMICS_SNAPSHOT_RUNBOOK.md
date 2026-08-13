@@ -50,6 +50,13 @@ The daily helper uses today's local date and the same collector:
 It accepts only `polymarket_global`. A missing, stale, partially matched, or
 content-tampered snapshot blocks paper/trading evidence.
 
+This is a **current-day** proof. Do not apply today's per-condition rates to a
+historical leg merely because its token still appears in a file. Historical
+paper rows need economics captured contemporaneously on the row or in a
+date-bound snapshot; otherwise their economics stay unbound and zero. The
+daily drift step therefore records the settled-analysis date separately while
+validating the snapshot against the current Toronto operating date.
+
 ## Economic claim boundary
 
 Maker rebates are execution-dependent. Paper fills use the exact bound

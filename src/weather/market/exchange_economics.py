@@ -339,7 +339,10 @@ def collect_global_snapshot_payload(
                 "condition_id": condition_id,
                 "question": market.get("question") or registered.get("question") or "",
                 "token_ids": gamma_tokens,
-                "fees_enabled": bool(market.get("feesEnabled")),
+                # Preserve the API type so validation can require a real JSON
+                # boolean.  ``bool("false")`` is truthy and would turn a
+                # malformed/string-valued response into fee-enabled evidence.
+                "fees_enabled": market.get("feesEnabled"),
                 "fee_schedule": {
                     "rate": maybe_float(fee_schedule.get("rate")),
                     "exponent": maybe_float(fee_schedule.get("exponent")),
@@ -927,6 +930,9 @@ def exchange_economics_artifact_fields(gate):
 def bind_legs_to_market_economics(legs, snapshot_payload, gate=None):
     """Bind paper legs to exact International condition economics by token id."""
 
+    gate = gate or {}
+    required = bool(gate.get("required"))
+    source_gate_ok = not required or bool(gate.get("ok"))
     markets = (snapshot_payload or {}).get("markets") or []
     by_token = {}
     for market in markets:
@@ -938,7 +944,11 @@ def bind_legs_to_market_economics(legs, snapshot_payload, gate=None):
     def bind_one(leg):
         nonlocal bound
         token_id = str(leg.get("clob_token_id") or leg.get("asset_id") or "")
-        market = by_token.get(token_id)
+        # A token match cannot rehabilitate stale, tampered, wrong-platform, or
+        # otherwise invalid required evidence.  Keep legacy fixture/config
+        # fallback only for explicitly non-required gates; production paper
+        # economics must become zero/unbound when its source gate is not PASS.
+        market = by_token.get(token_id) if source_gate_ok else None
         if market is None:
             missing_fields = {
                 "exchange_economics_bound": False,
@@ -947,7 +957,7 @@ def bind_legs_to_market_economics(legs, snapshot_payload, gate=None):
                 "liquidity_reward_primary_assumption_usdc": 0.0,
                 "maker_rebate_payout_asset": "",
             }
-            if (gate or {}).get("required"):
+            if required:
                 missing_fields.update({
                     "maker_rebate_fee_rate": 0.0,
                     "maker_rebate_pool_share": 0.0,
@@ -992,13 +1002,14 @@ def bind_legs_to_market_economics(legs, snapshot_payload, gate=None):
             bind_one(leg)
     total = len(legs or [])
     coverage = {
-        "required": bool((gate or {}).get("required")),
+        "required": required,
+        "source_gate_ok": source_gate_ok,
         "platform": (snapshot_payload or {}).get("platform"),
         "leg_count": total,
         "bound_leg_count": bound,
         "missing_leg_count": len(missing),
         "missing_token_ids": sorted(set(missing))[:50],
-        "ok": not missing,
+        "ok": source_gate_ok and not missing,
     }
     return coverage
 

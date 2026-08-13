@@ -2562,6 +2562,10 @@ def _build_paper_payload(
     )
     economics_leg_coverage = {
         "required": bool(exchange_gate.get("required")),
+        "source_gate_ok": (
+            bool(base_economics_coverage.get("source_gate_ok"))
+            and bool(variant_economics_coverage.get("source_gate_ok"))
+        ),
         "platform": economics_snapshot.get("platform"),
         "leg_count": (
             int(base_economics_coverage.get("leg_count") or 0)
@@ -2580,7 +2584,10 @@ def _build_paper_payload(
             + list(variant_economics_coverage.get("missing_token_ids") or [])
         ))[:50],
     }
-    economics_leg_coverage["ok"] = economics_leg_coverage["missing_leg_count"] == 0
+    economics_leg_coverage["ok"] = (
+        economics_leg_coverage["source_gate_ok"]
+        and economics_leg_coverage["missing_leg_count"] == 0
+    )
     exchange_gate = exchange_economics.gate_with_leg_coverage(
         exchange_gate,
         economics_leg_coverage,

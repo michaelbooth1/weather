@@ -96,7 +96,13 @@ OPERATING_TIMEZONE = ZoneInfo("America/Toronto")
 def run_exchange_economics_rule_drift_step(args):
     if getattr(args, "skip_exchange_economics_rule_drift", False):
         return {"status": "SKIPPED", "reason": "skip_exchange_economics_rule_drift"}
-    target = settled_analysis_target_date(args).isoformat()
+    settled_target = settled_analysis_target_date(args).isoformat()
+    target = (
+        exchange_economics.utc_now(getattr(args, "as_of", None))
+        .astimezone(OPERATING_TIMEZONE)
+        .date()
+        .isoformat()
+    )
     snapshot_path = (
         getattr(args, "exchange_economics_snapshot", "")
         or backtest_path(args, "exchange_economics_snapshot.json")
@@ -118,17 +124,10 @@ def run_exchange_economics_rule_drift_step(args):
             )
         refresh = exchange_economics.collect_and_publish_global_snapshot(
             snapshot_path=snapshot_path,
-            # Verify for the wall-clock date, not the settled-analysis target:
-            # the proof must cover TODAY's active-day consumers (MM preflight,
-            # taker), and a today-stamped proof also covers the settled D-1
-            # target via the >= coverage rule. Passed explicitly because a
-            # stale snapshot would otherwise block active-day consumers.
-            target_date=(
-                exchange_economics.utc_now(getattr(args, "as_of", None))
-                .astimezone(OPERATING_TIMEZONE)
-                .date()
-                .isoformat()
-            ),
+            # Verify for the current operating date, not the settled-analysis
+            # target. Current per-condition economics cover today's consumers;
+            # they are not historical proof for D-1 paper rows.
+            target_date=target,
             event_metadata_path=(
                 getattr(args, "event_metadata_config", "")
                 or exchange_economics.DEFAULT_EVENT_METADATA
@@ -150,6 +149,7 @@ def run_exchange_economics_rule_drift_step(args):
         now=getattr(args, "as_of", None),
     )
     payload["snapshot_refresh"] = refresh
+    payload["settled_analysis_target_date"] = settled_target
     if refresh.get("status") == "BLOCK":
         payload["status"] = "BLOCK"
         payload.setdefault("blockers", []).insert(0, {
@@ -164,6 +164,7 @@ def run_exchange_economics_rule_drift_step(args):
     return {
         "status": payload.get("status"),
         "target_date": target,
+        "settled_analysis_target_date": settled_target,
         "json_out": as_path(json_out),
         "snapshot_path": str(snapshot_path),
         "accepted_snapshot_path": str(accepted_snapshot_path),
