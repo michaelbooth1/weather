@@ -246,6 +246,19 @@ Expect `stage: merged_unpushed`: the task is S4U, so its `git push` (and `git fe
 reach the credential vault. The merge and the capture verification still happen; the commit
 simply waits for `WeatherOneShotPush`, and `status.ps1` says so.
 
+### Bounded execution-tape proof
+
+After a reviewed execution-tape producer lands, use
+`scripts/ops/bounded_execution_tape_probe.ps1` for the first production proof instead of
+starting an unbounded process and killing it later. The probe is restricted to 01:00–04:00,
+requires the reviewed full SHA to be an ancestor of synchronized production master, and runs
+the read-only producer in a kill-on-close Windows Job for a bounded interval. It fails unless
+the new session proves full routed coverage, writes at least one new execution observation,
+adds no parse or routing errors, stops cleanly, stays inside working-set and host-commit
+ceilings, and leaves all three capture workers healthy with an advancing snapshot heartbeat.
+It writes the latest result and append-only history under `data/alerts/`. The probe neither
+registers nor authorizes continuous capture.
+
 ## Why every task is S4U
 
 Scheduled tasks with `LogonType=Interactive` run **only while a user session exists**. On
