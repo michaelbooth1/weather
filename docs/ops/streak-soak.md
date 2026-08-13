@@ -92,7 +92,7 @@ It also answers the questions that previously required a manual dig:
   surfaced continuously rather than alerted on;
 - **off-host mirror** freshness/success (nothing else watches it, and it is the only
   copy of `data\` that is not on this disk);
-- a **capture alert raised in the last 24h** is promoted to a FLAG — alerts are appended
+- a **capture alert raised on the current local capture day** is promoted to a FLAG — alerts are appended
   to `data/alerts/streak_capture_alerts.jsonl`, which nothing otherwise reads.
 
 Four more were added on 2026-07-25, each because a status review needed something the

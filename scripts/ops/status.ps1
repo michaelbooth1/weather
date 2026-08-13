@@ -439,6 +439,14 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # Normal for freshly registered work, and flagging it would train us to ignore flags.
         if (-not $ok -and $res -eq "0x41303") { $ok = $true }
         if (-not $ok -and $expNonZero.ContainsKey($name)) { $ok = ($expNonZero[$name] -contains $res) }
+        # Re-arming a one-shot preserves its previous exit code. Once a future
+        # run is present, that code is historical evidence about the prior
+        # attempt, not proof that the armed attempt already failed.
+        if (-not $ok -and $oneShot -and $ti.NextRunTime -and
+            ([datetime]$ti.NextRunTime) -gt (Get-Date)) {
+            $warns.Add("$name is re-armed for $($ti.NextRunTime); previous attempt ended $res on $($ti.LastRunTime)")
+            $ok = $true
+        }
         # A SPENT one-shot -- it fired, has no NextRunTime, and last ran over a day ago -- is
         # finished work, not current breakage. Its exit code is history and would otherwise burn
         # a FLAG forever: the three WeatherQuietWindowMerge tasks were still flagging 0x1 from
@@ -618,12 +626,15 @@ if (Test-Path $af) {
             $j = $l | ConvertFrom-Json
             # Show the AGE. Without it a two-day-old AT_RISK reads as current alarm, which is
             # both frightening and wrong -- the entry is historical the moment the day recovers.
-            $ageH = ((Get-Date) - [datetime]$j.ts).TotalHours
+            $alertTime = [datetime]$j.ts
+            $ageH = ((Get-Date) - $alertTime).TotalHours
+            $historicalCaptureDay = $alertTime.Date -lt (Get-Date).Date
             $alertLast = "{0}  {1}  ({2:N0}h ago{3})" -f $j.ts, $j.level, $ageH,
-                $(if ($ageH -ge 24) { ", historical" } else { "" })
-            # Alerts are written to a file nobody watches; a fresh one must reach the digest.
-            if ($ageH -lt 24) {
-                $flags.Add("capture alert raised in the last 24h: $alertLast")
+                $(if ($historicalCaptureDay -or $ageH -ge 24) { ", historical" } else { "" })
+            # The capture grade closes by local calendar day. Yesterday's final
+            # AT_RISK is evidence in the ledger, not a live alarm today.
+            if (-not $historicalCaptureDay -and $ageH -lt 24) {
+                $flags.Add("capture alert raised today: $alertLast")
             }
         }
         catch {}

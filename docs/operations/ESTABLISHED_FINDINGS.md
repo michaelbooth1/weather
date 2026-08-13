@@ -2050,6 +2050,33 @@ NOT**: identify `A` or `f`, prove real fills, profitability, a unique break-even
 eligibility, live readiness, model edge, or promotion — and one day is not a powered economic
 endpoint. **Forward execution capture (above) remains the only route to `f`.**
 
+## 8d. A terminated scheduled wrapper can leave its governed child alive — measured 2026-08-13
+
+`WeatherEveningEvidenceRefresh` started at **12:03:20 local** and Task Scheduler later reported the
+wrapper terminated (`0x41306`), but its delegated `weather.operations.daily_refresh` process tree
+remained alive. The proof is direct: both surviving Python processes had the task's exact creation
+second, the child named PID `19872` in `daily_refresh_faulthandler_20260813T160323Z.log`, and its
+parent/child relationship was still present after the scheduled task returned to `Ready`.
+
+At the last pre-kill guard sample the child held **44,391 MB private commit**. Snapshot admission
+failed for all 12 markets, and the authoritative streak checker recorded a **13:24→13:57 local
+gap, 32.5 minutes**, so `2026-08-13` is unavoidably partial. Disk free fell from **180.6 GB to
+146.8 GB** while commit expanded; **26.2 GB returned immediately after process teardown**, proving
+most of the apparent disk burn was transient pagefile/commit pressure rather than retained tapes.
+
+The process could not be terminated from the interactive session because it belonged to S4U. The
+already-scheduled S4U memory guard terminated the exact two-process tree after it was taught the
+narrow ownership rule: inside 12:00–18:00, an evidence-refresh `daily_refresh` child older than two
+minutes is an orphan when its owning scheduled task is not `Running`. The task was disabled before
+its 14:00 retry. By **14:00:20**, all 12 current event folders were fresh, snapshot admission passed,
+and the last fleet cadence had zero errors and zero stale markets.
+
+> A governed `-m weather.*` exemption is not sufficient by itself. Scheduler ownership must be
+> checked, because termination of the wrapper does not guarantee termination of its delegated
+> child. Do not re-enable `WeatherEveningEvidenceRefresh` until the wrapper owns child-tree teardown.
+
+---
+
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
 Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
