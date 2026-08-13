@@ -188,6 +188,15 @@ child instruction or descendant can run outside containment, and terminating
 the scheduled wrapper closes the only Job handle and tears down the tree.
 Failure to create, assign, or resume fails before daily-refresh work can begin.
 
+The same containment primitive backs `scripts/ops/bounded_worktree_test_suite.ps1`.
+That runner admits tests only outside 12:00–18:00, against a registered clean
+worktree whose branch and `HEAD` equal an explicit commit, while all three
+capture workers are healthy and Windows commit is below the configured start
+ceiling. It rechecks capture and commit between size-bounded pytest chunks,
+writes a JUnit artifact per chunk, and owns each child in a kill-on-close Job.
+It never merges, pushes, checks out, registers a task, or writes production
+data; a full PASS is evidence for a separate reviewed merge, not the merge.
+
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This
 keeps shared pre-promotion producers available to learning without allowing
