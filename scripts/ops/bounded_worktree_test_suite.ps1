@@ -152,8 +152,10 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 }
 $python = (Resolve-Path -LiteralPath $python).Path
 $previousPythonPath = $env:PYTHONPATH
+$previousLocation = (Get-Location).Path
 $env:PYTHONPATH = Join-Path $WorktreeRoot "src"
 try {
+    Set-Location -LiteralPath $WorktreeRoot
     $resolvedImport = (& $python -c "import weather; print(weather.__file__)").Trim()
     if ($LASTEXITCODE -ne 0 -or -not $resolvedImport.StartsWith(
         $WorktreeRoot,
@@ -233,5 +235,6 @@ try {
     exit 0
 }
 finally {
+    Set-Location -LiteralPath $previousLocation
     $env:PYTHONPATH = $previousPythonPath
 }
