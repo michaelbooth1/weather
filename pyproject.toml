@@ -19,6 +19,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+live = [
+    "py-clob-client-v2==1.1.0",
+]
 test = [
     "pytest==9.0.3",
 ]

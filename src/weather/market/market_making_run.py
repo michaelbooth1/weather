@@ -149,6 +149,7 @@ from weather.market.worker_release_binding import (
     worker_release_summary_fields,
 )
 from weather.market.market_making_preflight import (  # noqa: E402
+    MAX_OPERATOR_PILOT_BUDGET_USDC,
     REMEDIATION_RULES,
     SECRET_FIELD_NAMES,
     SUPPORTED_PLATFORM_IDS,
@@ -1290,6 +1291,15 @@ def build_run_once(
     release_check_runtime=True,
 ):
     mode = normalize_mode(mode)
+    live_pilot_budget = float(budget_usdc)
+    if mode == "live-pilot" and (
+        not math.isfinite(live_pilot_budget)
+        or not 0 < live_pilot_budget <= MAX_OPERATOR_PILOT_BUDGET_USDC
+    ):
+        raise ValueError(
+            "live-pilot budget must be finite, greater than zero, and no more than "
+            f"{MAX_OPERATOR_PILOT_BUDGET_USDC:.2f} USDC"
+        )
     now = utc_now(now)
     target = ensure_date(target_date)
     release_binding = load_worker_release_binding(
@@ -1306,6 +1316,44 @@ def build_run_once(
     release_summary_fields = worker_release_summary_fields(release_binding)
     quote_columns = worker_tape_columns(RUN_QUOTE_COLUMNS, release_binding)
     specs = selected_specs(markets)
+    if mode == "live-pilot" and len(specs) != 1:
+        raise ValueError("live-pilot is restricted to exactly one market")
+    policy_config = {**DEFAULT_POLICY_CONFIG, **(policy_config or {})}
+    if mode == "live-pilot":
+        live_limits = {
+            "max_daily_loss": (
+                policy_config.get("max_daily_loss", live_pilot_budget),
+                min(live_pilot_budget, float(DEFAULT_POLICY_CONFIG["max_daily_loss"])),
+                True,
+            ),
+            "max_event_notional": (
+                policy_config["max_event_notional"],
+                float(DEFAULT_POLICY_CONFIG["max_event_notional"]),
+                True,
+            ),
+            "max_band_notional": (
+                policy_config["max_band_notional"],
+                float(DEFAULT_POLICY_CONFIG["max_band_notional"]),
+                True,
+            ),
+            "quote_ttl_seconds": (
+                policy_config.get("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS),
+                float(DEFAULT_QUOTE_TTL_SECONDS),
+                False,
+            ),
+        }
+        for key, (requested_value, ceiling, allow_zero) in live_limits.items():
+            requested = float(requested_value)
+            if not math.isfinite(requested) or requested < 0 or (not allow_zero and requested == 0):
+                qualifier = "non-negative" if allow_zero else "greater than zero"
+                raise ValueError(f"live-pilot {key} must be finite and {qualifier}")
+            policy_config[key] = min(requested, ceiling)
+    else:
+        policy_config["max_daily_loss"] = min(
+            float(policy_config.get("max_daily_loss", budget_usdc)),
+            float(budget_usdc),
+        )
+        policy_config.setdefault("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS)
     evidence_timezone = getattr(getattr(specs[0], "tz", None), "key", None) if specs else None
     evidence_classification = classify_market_making_evidence(
         target,
@@ -1337,9 +1385,6 @@ def build_run_once(
             release_binding,
             label="maker model-variant quote-intent tape",
         )
-    policy_config = {**DEFAULT_POLICY_CONFIG, **(policy_config or {})}
-    policy_config["max_daily_loss"] = min(float(policy_config.get("max_daily_loss", budget_usdc)), float(budget_usdc))
-    policy_config.setdefault("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS)
     policy_config, clob_recon_diag = config_with_clob_recon(policy_config)
 
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
@@ -1349,7 +1394,13 @@ def build_run_once(
     live_readiness = load_live_readiness(live_readiness_path)
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
-    platform_verification_gate = load_platform_verification_gate(platform_verification_path, target, mode, now=now)
+    platform_verification_gate = load_platform_verification_gate(
+        platform_verification_path,
+        target,
+        mode,
+        now=now,
+        requested_budget_usdc=budget_usdc,
+    )
     exchange_economics_required = _uses_default_snapshot_root(snapshots_root) or exchange_economics_snapshot_path is not None
     exchange_economics_snapshot_path = exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT
     exchange_economics_gate = exchange_economics.load_exchange_economics_gate(

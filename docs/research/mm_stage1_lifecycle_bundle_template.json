@@ -1,0 +1,36 @@
+{
+  "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+  "status": "TEMPLATE_FAIL_SAFE",
+  "created_at_utc": null,
+  "platform": "polymarket_global",
+  "settlement_unit": "pUSD",
+  "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+  "bootstrap_sha256": null,
+  "condition_id": null,
+  "token_id": null,
+  "funder_address": null,
+  "requested_budget_usdc": null,
+  "geoblock_country": null,
+  "geoblock_region": null,
+  "lifecycle_results": {
+    "cancel_all": {},
+    "dead_man": {}
+  },
+  "journal_evidence": {
+    "cancel_all": {},
+    "dead_man": {}
+  },
+  "derived_platform_evidence": {
+    "starting_open_orders_rest_verified": false,
+    "order_update_verified": false,
+    "fill_event_verified": false,
+    "no_fill_lifecycle_verified": false,
+    "final_state_reconciliation_verified": false,
+    "cancel_all_request_verified": false,
+    "cancel_all_zero_open_orders_verified": false,
+    "dead_man_automatic_cancel_verified": false,
+    "heartbeat_acknowledgment_verified": false
+  },
+  "secret_values_redacted": false,
+  "bundle_sha256": null
+}

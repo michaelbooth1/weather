@@ -1,0 +1,32 @@
+{
+  "schema_version": "mm_stage0_client_identity_v0.1",
+  "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+  "platform": "polymarket_global",
+  "international_platform_confirmed": false,
+  "physical_location_matches_geoblock_confirmed": false,
+  "geoblock_circumvention_absent_confirmed": false,
+  "geographic_eligibility": {
+    "schema_version": "polymarket_geoblock_v0.1",
+    "endpoint": "https://polymarket.com/api/geoblock",
+    "checked_at_utc": null,
+    "http_status": null,
+    "blocked": null,
+    "country": null,
+    "region": null,
+    "official_response_fields_sha256": null,
+    "requesting_ip_observed": false,
+    "requesting_ip_retained": false,
+    "proxy_configuration_absent": false,
+    "evidence_sha256": null
+  },
+  "clob_host": "https://clob.polymarket.com",
+  "settlement_unit": "pUSD",
+  "chain_id": 137,
+  "sdk_distribution": "py-clob-client-v2",
+  "sdk_version": "1.1.0",
+  "signature_type": null,
+  "signature_type_id": null,
+  "funder_address": null,
+  "isolated_pilot_wallet": false,
+  "pilot_wallet_max_funding_usdc": null
+}
