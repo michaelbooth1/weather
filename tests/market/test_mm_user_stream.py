@@ -219,3 +219,40 @@ def test_existing_journal_blocks_before_connect(tmp_path):
         stream.run()
 
     assert websocket.sent == []
+
+
+def test_background_reader_suppresses_raw_transport_exception_text(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    escaped = []
+    monkeypatch.setattr(
+        "threading.excepthook",
+        lambda args: escaped.append(args.exc_value),
+    )
+
+    def fail_to_connect(*_args, **_kwargs):
+        raise RuntimeError("RAW-SECRET-TRANSPORT-MESSAGE")
+
+    stream = OfficialUserStreamReader(
+        api_key="api-key",
+        secret="api-secret",
+        passphrase="passphrase",
+        maker_address=MAKER,
+        condition_id=CONDITION,
+        token_id=TOKEN,
+        journal_path=tmp_path / "user-stream.jsonl",
+        websocket_factory=fail_to_connect,
+    )
+
+    stream.start()
+    stream._thread.join(2.0)
+
+    assert stream.health()["state"] == "FAILED"
+    assert stream.health()["failure_type"] == "RuntimeError"
+    assert escaped == []
+    assert "RAW-SECRET-TRANSPORT-MESSAGE" not in capsys.readouterr().err
+    assert "RAW-SECRET-TRANSPORT-MESSAGE" not in (
+        tmp_path / "user-stream.jsonl"
+    ).read_text(encoding="utf-8")

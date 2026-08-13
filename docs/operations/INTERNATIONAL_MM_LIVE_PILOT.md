@@ -170,10 +170,10 @@ path continues to require that stronger artifact and must never accept the
 bootstrap artifact. Version v0.4 embeds the bundle and its SHA-256, rechecks
 the two probe identities and budgets, and requires its flattened private-stream,
 cancel-all, and heartbeat claims to match the bundle's derived facts. The
-prepared `weather.market.mm_live_lifecycle_probe`
-orchestrator is deliberately not exposed as a CLI until credential-by-reference
-loading and an exact SDK/wallet topology pass their keyless contract tests. It
-requires the literal confirmation
+fail-closed `weather.market.mm_live_pilot_cli` operator surface wires the
+prepared bootstrap collector and lifecycle orchestrator to credential-by-reference
+loading, the pinned official client, the account-wide user stream, and the exact
+position reader. It requires the literal confirmation
 `INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE`, a passing bootstrap bound to
 the exact adapter funder, condition, token, and SDK, zero starting orders, and
 one cancellation mode per run. Every starting, ending, and failure-cleanup
@@ -207,6 +207,137 @@ impossible dependency cycle. The returned raw SDK client is still not order
 authorization: only `weather.market.mm_live_lifecycle_probe`, with a passing
 observed bootstrap and its separate literal confirmation, may perform Stage 1.
 No credential entries were read or created by this change.
+
+### Eligible-host operator commands
+
+These commands are preparation for a genuinely eligible physical Windows host;
+they must not be run from the blocked Ontario production host. Never put a secret
+value in the command line, environment, identity manifest, output path, or shell
+history.
+
+First create the public identity with a current official geoblock response. The
+command derives the numeric signature ID, strips the detected IP, rejects proxy
+configuration and blocked locations, and writes no identity if any public gate
+fails. Choose the wallet and signature types from the exact topology established
+during wallet setup; do not guess or switch them after a failed probe:
+
+```powershell
+$pilotFunderAddress = "replace-with-public-funder-address"
+$pilotConditionId = "replace-with-condition-id"
+$pilotTokenId = "replace-with-token-id"
+$pilotTargetDate = "replace-with-target-date"
+$pilotWalletType = "replace-with-verified-wallet-type"
+$pilotSignatureType = "replace-with-verified-signature-type"
+
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli prepare-identity `
+  --funder-address $pilotFunderAddress `
+  --wallet-type $pilotWalletType `
+  --signature-type $pilotSignatureType `
+  --budget 100 `
+  --identity-out C:\pilot\identity.json `
+  --receipt-out C:\pilot\identity-receipt.json `
+  --confirm-international-platform `
+  --confirm-physical-location-match `
+  --confirm-no-circumvention `
+  --confirm-isolated-wallet `
+  --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
+```
+
+Only after identity preparation passes, provision the four secret values as
+Windows Credential Manager generic credentials through the interactive UI. Set
+only their `wincred://` references and the public funder address in the process
+environment. The required variables are `POLYMARKET_API_KEY_STORAGE_REF`,
+`POLYMARKET_API_SECRET_STORAGE_REF`,
+`POLYMARKET_API_PASSPHRASE_STORAGE_REF`,
+`POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
+`POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
+credentials themselves. Install the repository's exact `live` dependency extra
+in the eligible host's dedicated virtual environment; the runtime rejects any
+SDK version other than the pinned version.
+
+The geoblock evidence expires after five minutes. If credential provisioning or
+other setup is not already complete, treat the first identity as a preliminary
+eligibility check, then rerun `prepare-identity` with new paths immediately before
+Stage 0. The final Stage 0, both Stage 1 modes, and bundle construction should be
+prepared in advance and run consecutively; an expired bootstrap is a stop, not a
+reason to edit timestamps or reuse an earlier gate.
+
+Run Stage 0 once with new output paths. It never submits an order, but it does
+send authenticated heartbeat and cancel-all requests and must end with zero-order
+and exact-scope zero-position proof. The finite command records the stream as
+active at collection, then stops it cleanly and binds the final durable journal
+hash. A persisted `transport_active=true` assertion cannot pass the gate; Stage 1
+rereads the finalized journal and verifies both its prefix and terminal hashes:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli stage0 `
+  --identity C:\pilot\identity.json `
+  --target-date $pilotTargetDate `
+  --condition-id $pilotConditionId `
+  --token-id $pilotTokenId `
+  --budget 100 `
+  --user-stream-journal C:\pilot\stage0-user-stream.jsonl `
+  --bootstrap-out C:\pilot\stage0-bootstrap.json `
+  --receipt-out C:\pilot\stage0-receipt.json `
+  --confirmation INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY
+```
+
+Run each Stage 1 cancellation mode in its own fresh process with distinct,
+non-existing journal and result paths. Each command can perform exactly one
+network submit, writes its PASS result only after final cancel-all/zero-state
+cleanup, and serializes exception types rather than raw SDK messages:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli stage1 `
+  --identity C:\pilot\identity.json `
+  --bootstrap C:\pilot\stage0-bootstrap.json `
+  --target-date $pilotTargetDate `
+  --condition-id $pilotConditionId `
+  --token-id $pilotTokenId `
+  --budget 100 `
+  --cancellation-mode cancel_all `
+  --user-stream-journal C:\pilot\cancel-all-user-stream.jsonl `
+  --lifecycle-journal C:\pilot\cancel-all-lifecycle.jsonl `
+  --result-out C:\pilot\cancel-all-result.json `
+  --receipt-out C:\pilot\cancel-all-receipt.json `
+  --confirmation INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE
+
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli stage1 `
+  --identity C:\pilot\identity.json `
+  --bootstrap C:\pilot\stage0-bootstrap.json `
+  --target-date $pilotTargetDate `
+  --condition-id $pilotConditionId `
+  --token-id $pilotTokenId `
+  --budget 100 `
+  --cancellation-mode dead_man `
+  --user-stream-journal C:\pilot\dead-man-user-stream.jsonl `
+  --lifecycle-journal C:\pilot\dead-man-lifecycle.jsonl `
+  --result-out C:\pilot\dead-man-result.json `
+  --receipt-out C:\pilot\dead-man-receipt.json `
+  --confirmation INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE
+```
+
+Only after both commands pass, build the content-bound bundle offline. The
+builder rereads and hashes both lifecycle journals rather than trusting copied
+booleans:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli bundle `
+  --bootstrap C:\pilot\stage0-bootstrap.json `
+  --target-date $pilotTargetDate `
+  --condition-id $pilotConditionId `
+  --token-id $pilotTokenId `
+  --budget 100 `
+  --cancel-all-result C:\pilot\cancel-all-result.json `
+  --dead-man-result C:\pilot\dead-man-result.json `
+  --bundle-out C:\pilot\stage1-bundle.json `
+  --receipt-out C:\pilot\stage1-bundle-receipt.json `
+  --confirmation INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE
+```
+
+All paths shown above are illustrative and must be replaced with a protected
+operator-owned directory. Every output and journal path must be new. A FAIL
+receipt is evidence to stop and investigate, never permission to retry a submit.
 
 `weather.market.mm_live_bootstrap.collect_platform_bootstrap_payload` is the
 prepared Stage 0 evidence collector. It converts the CLOB's integer atomic

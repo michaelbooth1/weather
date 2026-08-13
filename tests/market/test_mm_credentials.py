@@ -114,6 +114,7 @@ def test_pinned_client_factory_uses_bootstrap_identity_and_server_time():
             "chain_id": 137,
             "sdk_distribution": "py-clob-client-v2",
             "sdk_version": "1.1.0",
+            "wallet_type": "deposit_wallet",
             "funder_address": REFERENCES["POLYMARKET_FUNDER_ADDRESS"],
             "signature_type": "POLY_1271",
             "signature_type_id": 3,
@@ -131,6 +132,44 @@ def test_pinned_client_factory_uses_bootstrap_identity_and_server_time():
     assert captured["client"]["use_server_time"] is True
     assert captured["client"]["retry_on_error"] is False
     assert captured["api_creds"]["api_key"] == "api-key-value"
+
+
+def test_stage0_identity_rejects_missing_topology_and_secret_fields():
+    values = {
+        "Weather/Polymarket/ApiKey": "api-key-value",
+        "Weather/Polymarket/ApiSecret": "api-secret-value",
+        "Weather/Polymarket/Passphrase": "passphrase-value",
+        "Weather/Polymarket/PrivateKey": "private-key-value",
+    }
+    bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
+    identity = {
+        "schema_version": "mm_stage0_client_identity_v0.1",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "platform": "polymarket_global",
+        "international_platform_confirmed": True,
+        "physical_location_matches_geoblock_confirmed": True,
+        "geoblock_circumvention_absent_confirmed": True,
+        "geographic_eligibility": eligible_geoblock(),
+        "clob_host": "https://clob.polymarket.com",
+        "settlement_unit": "pUSD",
+        "chain_id": 137,
+        "sdk_distribution": "py-clob-client-v2",
+        "sdk_version": "1.1.0",
+        "signature_type": "POLY_1271",
+        "signature_type_id": 3,
+        "funder_address": REFERENCES["POLYMARKET_FUNDER_ADDRESS"],
+        "isolated_pilot_wallet": True,
+        "pilot_wallet_max_funding_usdc": 100,
+        "private_key": "must-never-be-here",
+    }
+
+    with pytest.raises(RuntimeError, match="exact_public_schema.*secret_material_absent.*wallet_type"):
+        build_pinned_clob_client(
+            bundle,
+            identity,
+            client_factory=lambda **_kwargs: object(),
+            api_creds_factory=lambda **_kwargs: object(),
+        )
 
 
 def test_pinned_client_factory_rejects_bootstrap_gate_in_place_of_stage0_identity():

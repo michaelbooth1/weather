@@ -22,7 +22,9 @@ from weather.market.mm_official_adapter import (
 from weather.market.market_making_preflight import (
     MAX_OPERATOR_PILOT_BUDGET_USDC,
     INTERNATIONAL_SETTLEMENT_UNIT,
+    contains_secret_material,
     international_jurisdiction,
+    non_empty_text,
     signature_type_consistent,
     valid_evm_address,
 )
@@ -38,6 +40,26 @@ FUNDER_ENV = "POLYMARKET_FUNDER_ADDRESS"
 WINCRED_SCHEME = "wincred"
 STAGE0_IDENTITY_SCHEMA_VERSION = "mm_stage0_client_identity_v0.1"
 STAGE0_AUTHORIZATION = "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY"
+STAGE0_IDENTITY_KEYS = {
+    "schema_version",
+    "operator_authorization",
+    "platform",
+    "international_platform_confirmed",
+    "physical_location_matches_geoblock_confirmed",
+    "geoblock_circumvention_absent_confirmed",
+    "geographic_eligibility",
+    "clob_host",
+    "settlement_unit",
+    "chain_id",
+    "sdk_distribution",
+    "sdk_version",
+    "wallet_type",
+    "signature_type",
+    "signature_type_id",
+    "funder_address",
+    "isolated_pilot_wallet",
+    "pilot_wallet_max_funding_usdc",
+}
 
 
 class GlobalCredentialBundle:
@@ -168,6 +190,8 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
     except (TypeError, ValueError):
         wallet_cap = None
     checks = {
+        "exact_public_schema": set(identity) == STAGE0_IDENTITY_KEYS,
+        "secret_material_absent": not contains_secret_material(identity),
         "schema": identity.get("schema_version") == STAGE0_IDENTITY_SCHEMA_VERSION,
         "authorization": identity.get("operator_authorization") == STAGE0_AUTHORIZATION,
         "platform": identity.get("platform") == "polymarket_global",
@@ -181,6 +205,7 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
         "sdk_distribution": identity.get("sdk_distribution") == OFFICIAL_CLOB_DISTRIBUTION,
         "sdk_version": identity.get("sdk_version") == OFFICIAL_CLOB_VERSION,
         "signature": signature_type_consistent(identity),
+        "wallet_type": non_empty_text(identity.get("wallet_type")),
         "funder": valid_evm_address(identity.get("funder_address")),
         "expected_funder": (
             expected_funder is None
