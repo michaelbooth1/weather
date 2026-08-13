@@ -56,12 +56,45 @@ Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("python.exe", "pyth
         }
     }
 }
+# S4U-owned process command lines are hidden from an ordinary interactive WMI
+# query on this host.  An empty command-line match is therefore UNKNOWN, not
+# DOWN.  Fall back to the capture workers' portable single-writer contract:
+# fresh heartbeat + live PID + a writer lock owned by that same PID.  This is
+# the same evidence the resource gate uses and still fails closed if any part
+# is absent, stale, unreadable, or mismatched.
+$portableCaps = [ordered]@{
+    "snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 300.0 }
+    "market_microstructure" = @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180.0 }
+    "observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }
+}
+$captureRoot = Join-Path $repo "data\snapshots"
+foreach ($label in $portableCaps.Keys) {
+    if ($capState[$label].Count -gt 0) { continue }
+    $spec = $portableCaps[$label]
+    try {
+        $status = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Status) -Raw | ConvertFrom-Json
+        $lock = Get-Content -LiteralPath (Join-Path $captureRoot $spec.Lock) -Raw | ConvertFrom-Json
+        $pidValue = [int]$status.pid
+        $ageSeconds = ((Get-Date) - [datetime]$status.last_heartbeat).TotalSeconds
+        $process = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+        if ($pidValue -gt 0 -and [int]$lock.pid -eq $pidValue -and $process -and
+            $ageSeconds -ge 0 -and $ageSeconds -le [double]$spec.MaxAge) {
+            $priority = [string]$process.PriorityClass
+            # PriorityClass can be hidden with the command line under S4U.
+            # The separately scheduled priority guard owns re-assertion; this
+            # fallback proves liveness rather than inventing a priority value.
+            if (-not $priority) { $priority = "PortableHealthy" }
+            $capState[$label] += $priority
+        }
+    }
+    catch { }
+}
 foreach ($c in $caps.Keys) {
     if ($capState[$c].Count -eq 0) {
         $flags.Add("capture loop DOWN: $c")   # a dead capture loop is streak-critical
     }
     else {
-        $low = @($capState[$c] | Where-Object { $_ -notin @("AboveNormal", "High", "RealTime") })
+        $low = @($capState[$c] | Where-Object { $_ -notin @("AboveNormal", "High", "RealTime", "PortableHealthy") })
         if ($low.Count -gt 0) {
             $warns.Add("$c not all AboveNormal ($($capState[$c] -join ',')) - guard re-asserts within 5 min")
         }
@@ -406,6 +439,14 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # Normal for freshly registered work, and flagging it would train us to ignore flags.
         if (-not $ok -and $res -eq "0x41303") { $ok = $true }
         if (-not $ok -and $expNonZero.ContainsKey($name)) { $ok = ($expNonZero[$name] -contains $res) }
+        # Re-arming a one-shot preserves its previous exit code. Once a future
+        # run is present, that code is historical evidence about the prior
+        # attempt, not proof that the armed attempt already failed.
+        if (-not $ok -and $oneShot -and $ti.NextRunTime -and
+            ([datetime]$ti.NextRunTime) -gt (Get-Date)) {
+            $warns.Add("$name is re-armed for $($ti.NextRunTime); previous attempt ended $res on $($ti.LastRunTime)")
+            $ok = $true
+        }
         # A SPENT one-shot -- it fired, has no NextRunTime, and last ran over a day ago -- is
         # finished work, not current breakage. Its exit code is history and would otherwise burn
         # a FLAG forever: the three WeatherQuietWindowMerge tasks were still flagging 0x1 from
@@ -585,12 +626,15 @@ if (Test-Path $af) {
             $j = $l | ConvertFrom-Json
             # Show the AGE. Without it a two-day-old AT_RISK reads as current alarm, which is
             # both frightening and wrong -- the entry is historical the moment the day recovers.
-            $ageH = ((Get-Date) - [datetime]$j.ts).TotalHours
+            $alertTime = [datetime]$j.ts
+            $ageH = ((Get-Date) - $alertTime).TotalHours
+            $historicalCaptureDay = $alertTime.Date -lt (Get-Date).Date
             $alertLast = "{0}  {1}  ({2:N0}h ago{3})" -f $j.ts, $j.level, $ageH,
-                $(if ($ageH -ge 24) { ", historical" } else { "" })
-            # Alerts are written to a file nobody watches; a fresh one must reach the digest.
-            if ($ageH -lt 24) {
-                $flags.Add("capture alert raised in the last 24h: $alertLast")
+                $(if ($historicalCaptureDay -or $ageH -ge 24) { ", historical" } else { "" })
+            # The capture grade closes by local calendar day. Yesterday's final
+            # AT_RISK is evidence in the ledger, not a live alarm today.
+            if (-not $historicalCaptureDay -and $ageH -lt 24) {
+                $flags.Add("capture alert raised today: $alertLast")
             }
         }
         catch {}

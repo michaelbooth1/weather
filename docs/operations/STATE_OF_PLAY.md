@@ -1,24 +1,25 @@
 # State of play
 
-**Last rewritten: 2026-08-12 (recovery thread closed unpowered, α untouched; off-host mirror
-PAUSED).** Read this first, then `ESTABLISHED_FINDINGS.md`.
+**Last rewritten: 2026-08-13 14:05 (capture recovered after an orphaned evidence child; today's
+grade is already partial).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
 > **not what we know.** `ESTABLISHED_FINDINGS` owns findings and every interval ·
 > `RETRACTED_AND_FALSE_LEADS` what is false · `OPEN_BACKLOG` what is unowned · `AGENT_CONTEXT`
 > invariants · `DELEGATION_CONTRACT` how to work. **Cite numbers from §-references, not this page.**
 
-**Objectives:** 1. protect the Toronto capture streak · 2. **find a model that beats the market — we
-do not** · 3. the market-making bot is the end goal.
+**Objectives:** 1. protect capture continuity · 2. make the **International Polymarket** market maker
+profitable after costs, using spread plus documented maker rebates · 3. get our weather model close
+enough to the market to control adverse selection and inventory. **We do not beat the market.**
 
 ## Four clocks, none of them running — a stopped counter looks satisfied
 
 | Clock | Reads | Actually |
 | --- | --- | --- |
-| Capture streak | **0 / 14** | **BROKEN at 3, as predicted.** `08-12` carries `coverage_reason: "2 gap(s), max 40 min"` against a 15-min fatal — the agent-run compute in the graded window did this. `08-09`→`08-11` all graded `complete`. Lock ~2026-08-25 if every day from `08-13` is clean. |
+| Capture streak | **0 / 14** | `08-13` is already partial: an orphaned evidence-refresh child caused a 32.5-minute in-window gap before it was reaped (§8d). Capture recovered 12/12 by 14:00; the earliest new 14-day run starts `08-14`. |
 | MM countable days | counter ticks | **7 of 55**, last counted **2026-07-12** (§8b). A countable day never required a `QUOTE`. |
 | Archive coverage | `fleet-coverage` **OK 12/12** | **05-10 → 06-30 only** — zero rows for any August target. The re-fetch is permitted and **still un-run**. |
-| Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. Task self-disarmed; **continuous capture is an unmade operator decision.** |
+| Execution-tape days | *no counter exists* | **PILOT PROVED THE TAPE EXISTS 2026-08-10** (§8c): 40 trades, 79.98/h, 11 markets, `transaction_hash` on every row. **Continuous capture is approved** and staged behind the `-09-69a` suite; it is not running yet. |
 
 ## Every lever we have tried is closed — and none of them spent α
 
@@ -48,9 +49,11 @@ MORE.** Numbers: §1, §1b, §1i, §4.
 
 ## Decided — do not relitigate without new evidence
 
-- **THE GOAL IS A BETTER MODEL, NOT A QUALIFIED ONE** (operator, 2026-08-09, §0b). Release and
-  qualification machinery is **off the critical path**, but **dropping qualification is NOT dropping
-  honesty** — leakage-free evaluation, crossed clustering, power before interpretation.
+- **INTERNATIONAL-ONLY MAKER-REBATE PIVOT APPROVED 2026-08-13.** Never use Polymarket US. The
+  primary route is profitable maker execution from spread plus documented International rebates;
+  the model is a quote-centre and risk-control input, not assumed alpha. Release and qualification
+  machinery remains **off the critical path**, but evidence honesty is unchanged: leakage-free
+  evaluation, crossed clustering, and power before interpretation.
 - **Release #1 DEFERRED**; the retrain still blocks on a release-shaped parent (§4a-bis) and the
   un-run archive re-fetch. **Free-tier Open-Meteo only. Nothing is reserved today.**
 - **Amendment A1 ADOPTED 2026-08-10** (§1i): uniform `q=3.1098893`, both required endpoints, base
@@ -65,7 +68,9 @@ MORE.** Numbers: §1, §1b, §1i, §4.
 | --- | --- | --- |
 | `-09-73a` … `-09-78a` | observation-recovery candidate | **THREAD CLOSED UNPOWERED, α UNSPENT.** `-09-78a` (§5e) NO-GO under *both* calibration premises including the candidate's own. **The limit is the stratum's 11 date clusters, not the 12-market floor** — ~22 would flip it. Draft stays unfrozen |
 | `-09-63a` | B-only screen — **NO-GO at Gate 3** | **STILL QUEUED.** Conflicted 08-11 05:30 in `ESTABLISHED_FINDINGS`/`STATE_OF_PLAY`; driver aborted cleanly. Report **not in-repo** — cite the branch |
-| `-09-69a` | execution-tape continuous capture | **DISPATCHED**, blocked on the operator's capture decision. Suite gate re-armed **08-13 20:30** after a 03:00 run aborted on its own commit ceiling — it collided with the training window |
+| `-09-69a` | execution-tape continuous capture | **APPROVED; NOT YET RUNNING.** Exact-tip suite re-armed **08-13 20:30** after the prior run aborted on its own commit ceiling. Merge only on the full suite verdict, then prove real execution rows before starting harvest-lane code |
+| International rebate economics | paper accounting and fail-closed venue evidence | **BUILT, NOT MERGED** on `codex/international-rebate-pivot` at `a8b172a8`. Production remains on the obsolete US snapshot until post-window tests, quiet-window merge, a fresh International snapshot, and explicit baseline acceptance |
+| International live probe | bounded exchange-lifecycle test | **PREP ONLY** on `codex/international-live-probe`: International-only, one market, ≤100 USDC-equivalent, official CLOB v2 adapter boundary. No credentials, readiness artifact, continuous execution rows, or live order exists |
 | PIT extract | frozen lead-1 daily features, **shipped in-repo** | `docs/roadmap/pit-lead1-daily-features-2026-09-61a.csv`, sha256 `60b450f1…`, **696 rows** |
 | PIT fields | staged 12/12, `06-03 → 08-09`, 100% coverage | **NOT adopted** — a serving change; replay first (§1e) |
 
@@ -74,12 +79,11 @@ Merges run off allowlists, **not** auto-discovery. `WeatherMergeQueueDriver` 05:
 
 ## Operations — what is actually wrong today
 
-- **HEAVY WORK ON THIS HOST COSTS CAPTURE DAYS — including mine.** `08-12` failed
-  `capture_host_memory_admission: insufficient_physical_memory` across all 12 markets, with
-  available physical down to **116 MB**, producing gaps `13:00→13:34` and `15:08→15:48`. Both are
-  **inside the 12:00–18:00 graded window**, so the day is partial and the streak breaks. The
-  agent-run analysis in that window is the likeliest cause. **The 16 GB host has no headroom for
-  unbudgeted compute during the graded window — run it after 18:00 or not at all.**
+- **`08-13` IS LOST, CAPTURE IS RECOVERED (§8d).** The 12:03 evidence task's wrapper terminated but
+  its S4U `daily_refresh` child survived, exhausted commit, and starved every snapshot market.
+  The exact orphan tree was reaped at 13:56; all 12 markets were fresh with zero cadence errors by
+  14:00. `WeatherEveningEvidenceRefresh` is **Disabled** and must stay disabled until its wrapper
+  owns child-tree teardown. The memory guard now catches this exact scheduler-ownership failure.
 - **SETTLEMENT: every hole through `08-11` is CLOSED — `08-08` recovered on the FOURTH attempt.**
   Verified 2026-08-13: `08-08` carries **12/12 real `daily_summary` sources with real highs**, from
   the 03:08 chain (`public_wu_settlement_restore` PASS, fetched 12). **This page's "failed three

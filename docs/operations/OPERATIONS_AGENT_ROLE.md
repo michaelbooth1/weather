@@ -34,16 +34,18 @@ trace doc did not happen.
 
 ## 2. The objectives, in order
 
-1. **Protect the Toronto capture streak.** It gates release #1.
-2. **Find a model that beats the market — we do not.** The central goal is a better forecast from
-   **our own information**. Edge follows in time. **Never by consuming the benchmark.**
-3. **The market-making bot is the end goal.** MM outranks the taker; the taker is PAUSED and its
-   counterfactual tape is pruned.
+1. **Protect capture continuity.** Execution and market tapes cannot be reconstructed after the fact.
+2. **Make the International Polymarket market maker profitable after costs.** The approved route is
+   resting-liquidity spread plus documented maker rebates. **Never use Polymarket US.**
+3. **Get our weather model close enough to the market to control adverse selection and inventory.**
+   We do not currently beat the market, so do not budget model alpha or disguise the benchmark as
+   our information.
 
-**The goal is a BETTER model, not a QUALIFIED one** (operator, 2026-08-09). Release and
-qualification machinery is **off the critical path** — but dropping qualification is **not** dropping
-honesty. Leakage-free evaluation, crossed date×market clustering, and power-before-interpretation are
-not negotiable.
+**The International-only maker-rebate pivot is approved** (operator, 2026-08-13). The model is now
+a quote-centre and risk-control input, not the only possible profit source. Release and qualification
+machinery remains **off the critical path**, but dropping qualification is **not** dropping honesty.
+Leakage-free evaluation, crossed date×market clustering, after-cost execution evidence, and
+power-before-interpretation are not negotiable.
 
 ---
 
@@ -208,8 +210,9 @@ the 31 until you have traced a single instance end to end.
 
 | Item | State |
 | --- | --- |
-| `WeatherSuite0969a` | Fires **2026-08-13 20:30**. Merge `-09-69a` (execution-tape capture) **only** on `VERDICT: ALL CHUNKS PASSED (22/22)` **and** the operator's call. **ROLL-SENSITIVE** — `schema_registry_recent_data.py`. Branch `origin/codex/workstation-execution-tape-capture-2026-09-69a` @ `98edaaa2`, worktree `C:/tmp/wt-09-69a`. Its `0x1` flags daily until it runs clean |
-| Execution-tape continuous capture | Pilot **proved the tape exists** (40 trades, full identity, `transaction_hash`, ~3 MB/day). **Continuous capture is an unmade OPERATOR decision.** This is the only data that cannot be backfilled |
+| `WeatherSuite0969a` | Fires **2026-08-13 20:30**. The operator approved continuous execution capture on 2026-08-13; merge `-09-69a` **only** on `VERDICT: ALL CHUNKS PASSED (22/22)`. **ROLL-SENSITIVE** — `schema_registry_recent_data.py`, so merge in the quiet window. Branch `origin/codex/workstation-execution-tape-capture-2026-09-69a` @ `98edaaa2`, worktree `C:/tmp/wt-09-69a`. Its `0x1` is historical until the armed suite runs |
+| Execution-tape continuous capture | **APPROVED, NOT YET RUNNING.** Pilot proved the tape exists. The suite, quiet-window merge, runtime start, and proof of real rows are still required. Do not start harvest-lane code before those rows exist |
+| International rebate economics | **BUILT, NOT MERGED** on local branch `codex/international-rebate-pivot` @ `c4dd0390`. It binds paper economics to current International condition/token evidence, forces primary liquidity rewards to zero without paid evidence, and leaves live-trade permission false. Run the latest focused tests after 18:00, merge in the quiet window, collect a fresh snapshot, then explicitly accept the baseline |
 | Season-window re-fetch | Archive covers **05-10→06-30, ZERO Jul/Aug**. Permitted and **still un-run**. Flagged CRITICAL by the staleness sweep |
 | Forward capture fix | Hash `sys.modules` after import; immutable content-addressed bundle. Written into canon, **not dispatched** — rolls the fleet, needs the operator's call |
 | Identity v0.2 fix | BUILT, **not merged** (`4050f1ee`). ROLL-SENSITIVE |
