@@ -2350,6 +2350,16 @@ capture coexistence only. It does not prove a unique execution count, our fill, 
 fee, rebate, inventory, P&L, or profit; historical public gaps still make the current retained
 price path unusable for economics.
 
+**Final-tip pre-quiet reproof measured 2026-08-14 08:25-08:33 local.** The exact pushed final
+tip `5ed4ff6979905eaa826d9ce97f457a142aadf454` passed one immutable **18/18-chunk,
+4,544/4,544-test** receipt with zero failures, errors, or skips. All **19/19** admissions observed
+the three core capture workers healthy; peak recorded commit was **36.49%** against the
+**64%/66%** start/abort limits. The receipt had one start, one passing terminal verdict, eighteen
+distinct JUnit files, and Task Scheduler result **0**; the heavyweight OS lease was released and
+capture recovered at all three priorities. This closes final-tip regression risk before the
+quiet window, but it does not replace the separately queued same-local-day reproof or any guarded
+merge/adoption condition.
+
 A final isolated S4U/Limited scheduler proof on tip `5ed4ff69` established that task priority
 **7** propagated through both venv launcher layers: the long-running child reported
 `BelowNormal`, matched status and lock at PID **4492**, retained evidence integrity `PASS`, and
