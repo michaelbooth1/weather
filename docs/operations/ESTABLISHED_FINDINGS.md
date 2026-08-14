@@ -2256,6 +2256,26 @@ post-push verdict is still roll-sensitive through the live CLOB loop and schema 
 cumulative exact tip supersedes the standalone economics branch as the preferred integration
 target, but does not authorize an out-of-window merge or an Ontario-host order.
 
+## 8l. The snapshot fatal-gap repair is suite-proved, not yet live-timing-proved
+
+**Immutable exact-tip suite measured 2026-08-14 06:45–06:53 local.** Branch
+`codex/supervisor-gap-bound-20260814` was clean at
+`a206a7cf8036e7a371b3ec2a0922e2a952333dc5`. Its one receipt contains one start segment, one
+terminal `ALL CHUNKS PASSED` verdict, **17/17 passing chunks and 4,402/4,402 passing tests**.
+All **18/18** preflight/chunk admissions observed all three capture workers healthy, resource use
+stayed below the wrapper ceiling, the scheduled task returned zero, and the workload lease was
+released. The exact log is
+`C:/Users/micha/ops/supervisor-gap-bound-full-suite-20260814.log`; its 17 JUnit sidecars carry run
+tag `20260814T064503`.
+
+This establishes software consistency for the immutable branch, not the operational fatal-gap
+bound. The suite did not inject a hung snapshot worker or measure scheduler jitter, stop latency,
+restart latency, or the next successful snapshot. The branch also predates the production S4U
+registrar repair. Before integration, merge current production into it while preserving both the
+cadence argument and S4U principal, run a fresh exact-tip suite, use the guarded quiet-window merge,
+and measure the live stop-to-recovery interval. Keep the backlog item open until that evidence
+exists.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

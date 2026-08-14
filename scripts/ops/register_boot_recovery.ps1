@@ -6,11 +6,14 @@
 # case it exists for. A 2-minute delay lets the supervisors' own repeating triggers get
 # a chance to start the loops first, so the check measures recovery rather than racing it.
 [CmdletBinding()]
-param([switch]$Unregister)
+param(
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [switch]$Unregister
+)
 
 $ErrorActionPreference = "Stop"
 $taskName = "WeatherBootRecovery"
-$repo = "C:\Users\micha\Desktop\github\weather"
+$repo = $RepoRoot
 $script = Join-Path $repo "scripts\ops\boot_recovery.ps1"
 
 if ($Unregister) {
@@ -28,10 +31,11 @@ $trigger.Delay = "PT2M"
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15) `
     -MultipleInstances IgnoreNew
-# Match the rest of the fleet exactly: bare "micha", not "$env:USERDOMAIN\$env:USERNAME" --
+# Match the rest of the fleet exactly: bare current username, not
+# "$env:USERDOMAIN\$env:USERNAME" --
 # USERDOMAIN is WORKGROUP on this host and does not resolve to a SID. RunLevel Limited like
 # the other supervisors; nothing here needs elevation.
-$principal = New-ScheduledTaskPrincipal -UserId "micha" -LogonType S4U -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal -Force | Out-Null

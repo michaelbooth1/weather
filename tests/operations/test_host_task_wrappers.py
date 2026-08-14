@@ -5,30 +5,25 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
-    for name in (
-        "register_daily_refresh.ps1",
-        "register_exchange_economics_refresh.ps1",
-        "register_location_config_refresh.ps1",
-        "register_market_making_daily_roll.ps1",
-        "register_market_making_daily_roll_supervisor.ps1",
-        "register_memory_commit_guard.ps1",
-        "register_model_market_disagreement_analysis.ps1",
-        "register_nightly_retrain.ps1",
-        "register_snapshot_supervisor.ps1",
-        "register_clob_supervisor.ps1",
-        "register_observation_trigger_supervisor.ps1",
-        "register_taker_bot_daily_roll.ps1",
-        "register_taker_bot_daily_roll_supervisor.ps1",
-        "register_training_window.ps1",
-    ):
-        text = (ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")
+    registrars = {
+        path: path.read_text(encoding="utf-8-sig")
+        for path in (ROOT / "scripts" / "ops").glob("register_*.ps1")
+    }
+    scheduled_registrars = {
+        path: text
+        for path, text in registrars.items()
+        if "Register-ScheduledTask" in text
+    }
 
+    assert scheduled_registrars
+    for path, text in scheduled_registrars.items():
         assert "$principal = New-ScheduledTaskPrincipal" in text
         assert "-UserId $env:USERNAME" in text
         assert "-LogonType S4U" in text
         assert "-RunLevel Limited" in text
-        assert "-Principal $principal" in text
-        assert "only while logged on" not in text
+        assert "-Principal $principal" in text, path.name
+        assert "only while logged on" not in text, path.name
+        assert r"C:\Users\micha" not in text, path.name
 
 
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
