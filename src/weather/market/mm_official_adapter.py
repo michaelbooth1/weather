@@ -31,6 +31,7 @@ OFFICIAL_CLOB_VERSION = "1.1.0"
 CURRENT_REBATES_URL = "https://clob.polymarket.com/rebates/current"
 CURRENT_POSITIONS_URL = "https://data-api.polymarket.com/positions"
 EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+EVM_SIGNATURE_RE = re.compile(r"^0x[0-9a-fA-F]{130}$")
 CONDITION_ID_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 NORMALIZED_USER_EVENT_FIELDS = frozenset({
@@ -1135,7 +1136,7 @@ class OfficialPolymarketGlobalAdapter:
             "signature_type_matches": (
                 signed_signature_type == int(expected_signature_type_id)
             ),
-            "signature_present": bool(signature),
+            "signature_valid": EVM_SIGNATURE_RE.fullmatch(signature) is not None,
         }
         missing = [name for name, valid in checks.items() if not valid]
         if missing:
@@ -1229,8 +1230,9 @@ class OfficialPolymarketGlobalAdapter:
         if self._heartbeat_id and heartbeat_id is not None and requested_id != self._heartbeat_id:
             raise RuntimeError("heartbeat id does not continue the acknowledged heartbeat chain")
         response = self.client.post_heartbeat(requested_id)
-        next_id = str(_value(response, "heartbeat_id") or "").strip()
-        acknowledged = bool(next_id)
+        raw_next_id = _value(response, "heartbeat_id")
+        next_id = raw_next_id.strip() if isinstance(raw_next_id, str) else ""
+        acknowledged = bool(next_id) and next_id != requested_id
         self._probe["heartbeat_acknowledged"] = acknowledged
         self._probe["heartbeat_stale"] = False
         self._probe["heartbeat_id_rotated"] = acknowledged and next_id != requested_id
@@ -1239,6 +1241,9 @@ class OfficialPolymarketGlobalAdapter:
             self._last_heartbeat_monotonic = self.monotonic_clock()
         else:
             self._last_heartbeat_monotonic = None
+            raise RuntimeError(
+                "heartbeat response did not advance a nonempty string heartbeat id"
+            )
         return response
 
     def place_order(self, intent, *, stage1_capability=None):
@@ -1355,7 +1360,7 @@ class OfficialPolymarketGlobalAdapter:
         self._probe["post_only_order_attempted"] = True
         order_id = _value(response, "orderID", "order_id")
         status = str(_value(response, "status") or "").lower()
-        successful = bool(_value(response, "success"))
+        successful = _value(response, "success") is True
         trade_ids = _value(response, "tradeIDs", "trade_ids") or []
         transaction_hashes = _value(
             response,
