@@ -2188,6 +2188,21 @@ configured evidence cutoff. A healthy worker is left alone after the boundary; o
 mutation. The taker remains intentionally unbounded at the end of day. Inverted windows are
 rejected rather than silently interpreted as overnight ranges.
 
+## 8i. The temporary Windows Update block outlived its build window
+
+**Policy audited and restored 2026-08-14 03:40 local.** The host still carried
+`AUOptions=2` (notify-only) and `NoAutoRebootWithLoggedOnUsers=1`, installed for the 2026-08-03
+release build window. Notify-only prevented unattended security-update download and installation;
+the temporary safeguard had become a security-maintenance outage.
+
+Both override values were removed after exporting the exact AU registry key to
+`C:/Users/micha/ops/windowsupdate-au-policy-before-revert-20260814.reg` (SHA-256
+`D3B8580B079287627A429F04A7FE6A0F37F84C02125C4F230F62D9F695874EA9`). Windows Update active
+hours remain **08:00–01:00**, outside the automatic-restart window described by the streak runbook,
+and neither Windows Update nor Component Based Servicing reported a pending reboot at the change.
+No scan, download, installation, or reboot was initiated. `status.ps1` now fails visibly if
+`AUOptions=2` returns.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

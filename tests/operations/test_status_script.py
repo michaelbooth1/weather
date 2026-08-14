@@ -55,6 +55,14 @@ def test_only_active_scheduled_interactive_tasks_count_as_reboot_exposure():
     assert "$scheduledWorkRemains)" in text
 
 
+def test_status_flags_notify_only_windows_update_policy():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$windowsUpdateAuOptions -eq 2" in text
+    assert "policy-forced to notify-only" in text
+    assert "unattended_updates_blocked = ($windowsUpdateAuOptions -eq 2)" in text
+
+
 def test_operator_held_evidence_refresh_keeps_one_honest_warning():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

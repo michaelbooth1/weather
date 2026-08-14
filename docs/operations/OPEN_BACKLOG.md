@@ -22,12 +22,6 @@ day. **Detection latency must be below the fatal gap or the guard cannot save a 
 See `derived-rules-are-the-invisible-ones` — the relationship between these two numbers is written
 nowhere and neither number looks wrong alone.
 
-## 2. Revert the Windows auto-reboot block after the build window
-
-AU policy was changed on 2026-08-03 to stop an unattended reboot breaking the streak during the
-release build window. **It is still in place.** Leaving it indefinitely means security updates stop
-landing. Revert once the build window closes.
-
 ---
 
 ## Update this file when
