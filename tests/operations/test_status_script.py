@@ -50,9 +50,20 @@ def test_quiet_merge_recovery_interval_cannot_overlap_sensitive_driver():
 
     assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
     assert "-SettleSeconds\\s+(\\d+)" in text
+    assert "-RollbackRecoverySeconds\\s+(\\d+)" in text
     assert "$settleSeconds + 240" in text
+    assert "$settleSeconds + $rollbackRecoverySeconds + 60" in text
+    assert "[math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)" in text
     assert "$sensitiveDriverNextRun -ge $mergeTask.at" in text
     assert "the driver can publish unverified local master" in text
+
+
+def test_status_flags_unproven_rollback_recovery_separately() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$qw.stage -eq "rollback_recovery_failed"' in text
+    assert "rollback recovery is UNPROVEN" in text
+    assert '$qw.stage -eq "rolled_back"' in text
 
 
 def test_settlement_scan_seeks_from_end_instead_of_rescanning_each_ledger():

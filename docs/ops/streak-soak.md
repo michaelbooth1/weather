@@ -224,7 +224,10 @@ workers have matching status/lock PIDs, live processes, fresh advancing heartbea
 fingerprints matching the tree. **Only then** does it start `WeatherOneShotPush` and require
 `origin/master` to acknowledge the exact merge commit. If capture
 does not recover it resets to the pre-merge commit — nothing published, no history to
-rewrite, and the supervisors readopt the previous code. It refuses to run outside 01:00–04:00
+rewrite — and holds the workload lease for up to `-RollbackRecoverySeconds` (default 1200)
+until all three supervisors prove they have re-adopted the previous code. Failure to prove
+rollback adoption is recorded separately as `rollback_recovery_failed`; it is never reported
+as a completed rollback. It refuses to run outside 01:00–04:00
 without `-Force`, never inside 12:00–18:00, and never during the protected 18:00–00:30
 near-close window. `-ExpectedTip` is optional for interactive use but required operationally
 for a scheduled or already-reviewed merge: the script aborts before any automatic commit if

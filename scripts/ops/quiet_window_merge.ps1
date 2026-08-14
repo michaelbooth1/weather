@@ -18,7 +18,8 @@ param(
     [string]$ExpectedTip = "",
     [switch]$Force,
     [switch]$DryRun,
-    [int]$SettleSeconds = 300
+    [int]$SettleSeconds = 300,
+    [ValidateRange(60, 3600)][int]$RollbackRecoverySeconds = 1200
 )
 
 $ErrorActionPreference = "Stop"
@@ -241,7 +242,30 @@ foreach ($beforeWorker in @($before.workers)) {
 if (-not $ok) {
     Note "capture did NOT recover: $($why -join '; ')"
     & git reset --hard $preMerge | Out-Null
-    Note "rolled back to $preMerge; supervisors will readopt the previous code. Nothing was pushed."
+    Note "rolled back to $preMerge; nothing was pushed. Waiting up to ${RollbackRecoverySeconds}s for all workers to re-adopt the rollback..."
+    $rollbackDeadline = (Get-Date).AddSeconds($RollbackRecoverySeconds)
+    $rollbackState = Get-CaptureState
+    while (
+        (-not $rollbackState.ok -or @($rollbackState.workers).Count -ne 3) -and
+        (Get-Date) -lt $rollbackDeadline
+    ) {
+        Start-Sleep -Seconds 15
+        $rollbackState = Get-CaptureState
+    }
+    if (-not $rollbackState.ok -or @($rollbackState.workers).Count -ne 3) {
+        $rollbackWhy = @(
+            $rollbackState.workers |
+                Where-Object { -not $_.ok } |
+                ForEach-Object { "$($_.name)=$($_.reasons -join ',')" }
+        )
+        if ($rollbackState.error) { $rollbackWhy += [string]$rollbackState.error }
+        if ($rollbackWhy.Count -eq 0) { $rollbackWhy += "capture recovery contract unreadable" }
+        $detail = "merge recovery failed: $($why -join '; '); rollback recovery unproven: $($rollbackWhy -join '; ')"
+        Note $detail
+        Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+        exit 4
+    }
+    Note "all three workers re-adopted the rollback and satisfy the capture recovery contract"
     Save-Report -ok $false -stage "rolled_back" -detail ($why -join "; ")
     exit 2
 }
