@@ -7,7 +7,7 @@
 # Why this exists: merging a branch that touches modules the capture loops have imported
 # makes the supervisors readopt the new code (STALE_CODE restart). If that code is bad,
 # capture dies. Doing the merge locally first, proving capture recovers, and only then
-# pushing means a bad merge is undone by `git reset --hard origin/master` with nothing
+# publishing means a bad merge is undone by resetting to the exact pre-merge commit with nothing
 # published and no history to rewrite.
 #
 # Refuses to run outside 01:00-04:00 without -Force: a roll inside the 12:00-18:00 graded
@@ -161,25 +161,29 @@ $preMerge = (& git rev-parse HEAD).Trim()
 Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(0, 12)))"
 
 # ---- capture baseline (what we will require to still be true afterwards) ----
+# Command lines are hidden for S4U-owned processes, and one fresh snapshot heartbeat says
+# nothing about the CLOB or observation workers. The checker validates all three workers'
+# status + writer-lock PID, process liveness, heartbeat freshness, and loaded-source
+# fingerprint against the current tree. That is the same recovery contract supervisors own.
 function Get-CaptureState {
-    $s = @{ loops = 0; heartbeat = $null }
-    Get-CimInstance Win32_Process | Where-Object {
-        ($_.CommandLine -like '*weather.collection.snapshot_tracker*' -or
-        $_.CommandLine -like '*weather.market.market_microstructure*' -or
-        $_.CommandLine -like '*weather.operations.observation_trigger*') -and
-        $_.CommandLine -notlike '*hot_capture*' -and
-        $_.CommandLine -notlike '*--expected-runtime-fingerprint*'
-    } | ForEach-Object { $s.loops++ }
     try {
-        $j = Get-Content (Join-Path $repo "data\snapshots\loop_status.json") -Raw | ConvertFrom-Json
-        $s.heartbeat = [datetime]$j.last_heartbeat
+        $raw = @(& $py -m weather.operations.capture_recovery_check --repo-root $repo --json)
+        $exitCode = $LASTEXITCODE
+        $state = (($raw -join "`n") | ConvertFrom-Json)
+        if ($exitCode -ne 0) { $state.ok = $false }
+        return $state
     }
-    catch {}
-    return $s
+    catch {
+        return [PSCustomObject]@{ ok = $false; workers = @(); error = $_.Exception.Message }
+    }
 }
 $before = Get-CaptureState
-Note "capture before: $($before.loops) loops, heartbeat $($before.heartbeat)"
-if ($before.loops -lt 1) { Fail "no capture loops running before the merge; fix that first" }
+Note "capture before: ok=$($before.ok), workers=$(@($before.workers).Count)"
+if (-not $before.ok -or @($before.workers).Count -ne 3) {
+    $detail = @($before.workers | Where-Object { -not $_.ok } | ForEach-Object { "$($_.name)=$($_.reasons -join ',')" }) -join "; "
+    if (-not $detail) { $detail = [string]$before.error }
+    Fail "capture recovery contract is not healthy before merge: $detail"
+}
 
 if ($DryRun) {
     & git merge --no-commit --no-ff $mergeTarget | Out-Null
@@ -206,18 +210,27 @@ Note "merged locally as $mergeCommit (NOT pushed yet)"
 Note "waiting ${SettleSeconds}s for supervisors to readopt the new code..."
 Start-Sleep -Seconds $SettleSeconds
 $after = Get-CaptureState
-Note "capture after: $($after.loops) loops, heartbeat $($after.heartbeat)"
+Note "capture after: ok=$($after.ok), workers=$(@($after.workers).Count)"
 
 $ok = $true
 $why = @()
-if ($after.loops -lt $before.loops) { $ok = $false; $why += "loop count fell $($before.loops) -> $($after.loops)" }
-if ($null -eq $after.heartbeat) { $ok = $false; $why += "no readable snapshot heartbeat" }
-elseif ($before.heartbeat -and $after.heartbeat -le $before.heartbeat) {
-    $ok = $false; $why += "snapshot heartbeat did not advance ($($before.heartbeat) -> $($after.heartbeat))"
+if (-not $after.ok -or @($after.workers).Count -ne 3) {
+    $ok = $false
+    $why += @($after.workers | Where-Object { -not $_.ok } | ForEach-Object { "$($_.name)=$($_.reasons -join ',')" })
+    if ($after.error) { $why += [string]$after.error }
 }
-else {
-    $age = ((Get-Date) - $after.heartbeat).TotalMinutes
-    if ($age -gt 20) { $ok = $false; $why += ("heartbeat stale by {0:N1} min" -f $age) }
+foreach ($beforeWorker in @($before.workers)) {
+    $afterWorker = @($after.workers | Where-Object { $_.name -eq $beforeWorker.name }) | Select-Object -First 1
+    if (-not $afterWorker) {
+        $ok = $false; $why += "$($beforeWorker.name) missing after merge"; continue
+    }
+    try {
+        if ([datetime]$afterWorker.last_heartbeat -le [datetime]$beforeWorker.last_heartbeat) {
+            $ok = $false
+            $why += "$($beforeWorker.name) heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
+        }
+    }
+    catch { $ok = $false; $why += "$($beforeWorker.name) heartbeat comparison failed" }
 }
 
 if (-not $ok) {
@@ -228,34 +241,26 @@ if (-not $ok) {
     exit 2
 }
 
-# ---- only now publish ----
-Note "capture healthy after the roll; pushing"
-& git push origin master
-if ($LASTEXITCODE -ne 0) {
-    # Expected under S4U: session 0 cannot reach the credential vault. Do NOT stop here --
-    # a merge that lands locally but never reaches origin blocks the workstation agent until
-    # somebody logs in, which overnight means hours of idle. WeatherOneShotPush is
-    # deliberately Interactive and runs in the operator's logon session (which survives an
-    # RDP disconnect), so hand the push to it rather than deferring to morning.
-    Note "direct push failed (no credential vault under S4U); handing off to WeatherOneShotPush"
-    try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
-    catch { Note "could not start WeatherOneShotPush: $($_.Exception.Message)" }
-    # A successful push updates refs/remotes/origin/master locally, so this verifies the
-    # push landed without needing a fetch -- which would need the same credentials.
-    $pushed = $false
-    for ($i = 0; $i -lt 18; $i++) {
-        Start-Sleep -Seconds 10
-        if ((& git rev-parse origin/master).Trim() -eq $mergeCommit) { $pushed = $true; break }
-    }
-    if (-not $pushed) {
-        Note "handoff did not publish within 3 min. Merge is committed locally and capture is healthy; run WeatherOneShotPush once a session is available."
-        Save-Report -ok $true -stage "merged_unpushed" -detail "push failed; commit $mergeCommit is local"
-        exit 3
-    }
-    Note "pushed $mergeCommit via WeatherOneShotPush"
-    Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush handoff)"
-    exit 0
+# ---- only now publish, through the credential-bearing scheduled task ----
+# Interactive git push is forbidden on this host. The scheduled task owns the credential
+# context, and origin/master is the acknowledgement that the immutable merge commit landed.
+Note "capture healthy after the roll; handing $mergeCommit to WeatherOneShotPush"
+try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
+catch {
+    Note "could not start WeatherOneShotPush: $($_.Exception.Message)"
+    Save-Report -ok $true -stage "merged_unpushed" -detail "push task start failed; commit $mergeCommit is local"
+    exit 3
 }
-Note "pushed $mergeCommit"
-Save-Report -ok $true -stage "pushed" -detail $mergeCommit
+$pushed = $false
+for ($i = 0; $i -lt 18; $i++) {
+    Start-Sleep -Seconds 10
+    if ((& git rev-parse origin/master).Trim() -eq $mergeCommit) { $pushed = $true; break }
+}
+if (-not $pushed) {
+    Note "WeatherOneShotPush did not publish within 3 min. Merge is committed locally and capture is healthy."
+    Save-Report -ok $true -stage "merged_unpushed" -detail "push task did not acknowledge commit $mergeCommit"
+    exit 3
+}
+Note "pushed $mergeCommit via WeatherOneShotPush"
+Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush)"
 exit 0
