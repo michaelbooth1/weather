@@ -458,13 +458,20 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         if ($actionArguments -match '(?i)-SettleSeconds\s+(\d+)') {
             $settleSeconds = [int]$Matches[1]
         }
+        $rollbackRecoverySeconds = 1200
+        if ($actionArguments -match '(?i)-RollbackRecoverySeconds\s+(\d+)') {
+            $rollbackRecoverySeconds = [int]$Matches[1]
+        }
+        $successProtectionSeconds = $settleSeconds + 240
+        $rollbackProtectionSeconds = $settleSeconds + $rollbackRecoverySeconds + 60
+        $protectedSeconds = [math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)
         $armedQuietMerges.Add([PSCustomObject]@{
                 name = $name
                 at = [datetime]$ti.NextRunTime
-                # Include the push handoff allowance after the recovery settle. The dangerous
-                # case is another driver publishing local master before the guarded script has
-                # completed its own recovery verdict and publication transaction.
-                protected_until = ([datetime]$ti.NextRunTime).AddSeconds($settleSeconds + 240)
+                # Cover both success (settle + push acknowledgement) and failure (settle +
+                # bounded rollback readoption proof). The dangerous case is another driver
+                # publishing local master before the guarded script has completed either path.
+                protected_until = ([datetime]$ti.NextRunTime).AddSeconds($protectedSeconds)
             })
     }
     # Both push tasks are deliberately Interactive: the Windows credential vault is not
@@ -717,7 +724,10 @@ if (Test-Path $qwf) {
         $qwAgeH = ((Get-Date) - [datetime]$qw.ts).TotalHours
         # A rollback means capture did not survive the code roll -- streak-critical, and the
         # branch still needs a human decision. Never let that scroll past in a log file.
-        if ($qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
+        if ($qw.stage -eq "rollback_recovery_failed" -and $qwAgeH -lt 36) {
+            $flags.Add("quiet-window merge rollback recovery is UNPROVEN ($($qw.detail)) - protect capture and reconcile before another merge")
+        }
+        elseif ($qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
             $flags.Add("quiet-window merge ROLLED BACK ($($qw.detail)) - capture did not recover; branch unmerged")
         }
         elseif ($qw.stage -eq "merged_unpushed" -and $qwAgeH -lt 36) {
