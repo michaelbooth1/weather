@@ -37,6 +37,10 @@ names, cadences, and parameters live in:
 - `scripts/ops/register_clob_supervisor.ps1`
 - `scripts/ops/register_observation_trigger_supervisor.ps1`
 
+All three registration scripts bind a current-user `S4U` / `Limited` principal.
+This is part of the capture contract: re-registering a supervisor must not turn
+an unattended task back into an interactive-logon dependency.
+
 Read each script before registering it. Re-running a registration script
 replaces its task with the supplied parameters.
 
