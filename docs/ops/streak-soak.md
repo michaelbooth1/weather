@@ -80,6 +80,12 @@ down, low RAM/disk, an unexpected task result, TODAY at risk) flips the verdict 
 transient per-cycle "hot capture" subprocesses (which run at Normal by design). Like the
 streak checker it is host tooling and rolls nothing.
 
+A temporarily disabled `WeatherTrainingWindow` is classified as intentional only when an
+enabled root task named `WeatherTrainingWindowReenable*` has exactly one non-repeating time
+trigger and its sole PowerShell action exactly enables the recurring window, then disables
+itself. Its next run must be in the next 30 hours. A missing, malformed, disabled, expired, or
+far-future re-enable therefore restores the ordinary `unexpectedly DISABLED` flag.
+
 It also answers the questions that previously required a manual dig:
 
 - **which** chain step failed and why (`failing step -> maker_paper_score ->

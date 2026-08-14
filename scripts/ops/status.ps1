@@ -408,13 +408,37 @@ $expDisabled = @(
     # the generic anomaly path as well called the same deliberate state "unexpected".
     "WeatherEveningEvidenceRefresh"
 )
-# A temporary training hold is expected only while an enabled one-shot re-enable task is
-# visibly armed. If that task disappears or expires, the disabled recurring window returns
-# to the generic FLAG path instead of becoming a permanent silent exception.
+# A temporary training hold is expected only while one exact, enabled, self-disabling
+# re-enable action is visibly armed for the next integration night. The old 12-hour
+# horizon contradicted a task legitimately armed the prior morning for 04:20 the next day.
+# Thirty hours covers that operating cadence without letting an abandoned far-future task
+# silence the recurring-window alarm. Action, trigger, identity, and time are all checked:
+# a similarly named task or an action with extra commands cannot suppress the FLAG.
+$trainingReenableNow = Get-Date
+$trainingReenableDeadline = $trainingReenableNow.AddHours(30)
 $trainingReenable = @(Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*" -ErrorAction SilentlyContinue |
     Where-Object {
-        $_.State -ne "Disabled" -and ($info = $_ | Get-ScheduledTaskInfo) -and
-        $info.NextRunTime -gt (Get-Date) -and $info.NextRunTime -lt (Get-Date).AddHours(12)
+        $candidate = $_
+        if ([string]$candidate.State -eq "Disabled" -or [string]$candidate.TaskPath -ne "\") {
+            return $false
+        }
+        $candidateActions = @($candidate.Actions)
+        $candidateTriggers = @($candidate.Triggers | Where-Object {
+                $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
+            })
+        if ($candidateActions.Count -ne 1 -or $candidateTriggers.Count -ne 1) {
+            return $false
+        }
+        $candidateAction = $candidateActions[0]
+        $expectedExecutable = Join-Path $PSHOME "powershell.exe"
+        $expectedArguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"Enable-ScheduledTask -TaskName 'WeatherTrainingWindow'; Disable-ScheduledTask -TaskName '$([string]$candidate.TaskName)'`""
+        if ([string]$candidateAction.Execute -ine $expectedExecutable -or
+            [string]$candidateAction.Arguments -cne $expectedArguments) {
+            return $false
+        }
+        $info = $candidate | Get-ScheduledTaskInfo
+        $info -and $info.NextRunTime -gt $trainingReenableNow -and
+            $info.NextRunTime -le $trainingReenableDeadline
     })
 if ($trainingReenable.Count -gt 0) {
     $expDisabled += "WeatherTrainingWindow"

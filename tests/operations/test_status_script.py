@@ -107,10 +107,18 @@ def test_legacy_unbound_merge_drivers_are_intentionally_held() -> None:
     assert '$st -ne "Disabled"' in text
 
 
-def test_temporary_training_hold_requires_an_armed_reenable() -> None:
+def test_temporary_training_hold_requires_an_exact_bounded_reenable() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
     assert 'Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*"' in text
+    assert "$trainingReenableDeadline = $trainingReenableNow.AddHours(30)" in text
+    assert '[string]$candidate.TaskPath -ne "\\"' in text
+    assert "$candidateActions.Count -ne 1" in text
+    assert "$candidateTriggers.Count -ne 1" in text
+    assert 'Join-Path $PSHOME "powershell.exe"' in text
+    assert "Enable-ScheduledTask -TaskName 'WeatherTrainingWindow'" in text
+    assert "Disable-ScheduledTask -TaskName '$([string]$candidate.TaskName)'" in text
+    assert '[string]$candidateAction.Arguments -cne $expectedArguments' in text
     assert '$expDisabled += "WeatherTrainingWindow"' in text
     assert "automatic re-enable is armed" in text
 
