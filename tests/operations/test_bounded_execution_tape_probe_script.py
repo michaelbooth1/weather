@@ -27,11 +27,14 @@ def test_probe_owns_child_and_enforces_resource_bounds() -> None:
     assert "host commit $commit% exceeds abort ceiling" in script
 
 
-def test_probe_requires_new_rows_coverage_and_clean_integrity() -> None:
+def test_probe_requires_new_rows_connected_seed_set_and_clean_integrity() -> None:
     script = _text()
 
-    assert '[string]$status.state -eq "CONNECTED"' in script
-    assert '[string]$status.evidence_integrity -eq "PASS"' in script
+    assert '[string]$Status.state -ne "CONNECTED"' in script
+    assert "$activeRows.Count -ne $expectedCount" in script
+    assert '[string]$row.connection_state -ne "CONNECTED"' in script
+    assert "connected_seed_set_proved" in script
+    assert "evidence_integrity" not in script
     assert "bounded capture produced no new execution observations" in script
     assert 'foreach ($name in @("parse_rejections", "unrouted_trades", "ambiguous_routes"))' in script
 

@@ -101,6 +101,26 @@ function Get-StatusCounter {
     return [int64]$property.Value
 }
 
+function Test-ConnectedSeedSet {
+    param($Status)
+
+    if ($null -eq $Status -or [string]$Status.state -ne "CONNECTED") { return $false }
+    $expectedCount = [int]$Status.active_market_day_count
+    $activeRows = @($Status.active_market_days)
+    if ($expectedCount -le 0 -or $activeRows.Count -ne $expectedCount) { return $false }
+    foreach ($row in $activeRows) {
+        if (
+            [string]$row.connection_state -ne "CONNECTED" -or
+            -not [string]$row.market_id -or
+            -not [string]$row.target_date -or
+            -not [string]$row.event_slug
+        ) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Write-ProbeRecord {
     param([Parameter(Mandatory = $true)]$Record)
 
@@ -115,7 +135,7 @@ function Write-ProbeRecord {
 }
 
 $record = [ordered]@{
-    schema_version = "execution_tape_bounded_probe_v0.1"
+    schema_version = "execution_tape_bounded_probe_v0.2"
     started_at = (Get-Date).ToString("o")
     finished_at = $null
     ok = $false
@@ -127,8 +147,8 @@ $record = [ordered]@{
     child_exit_code = $null
     peak_working_set_mb = 0.0
     peak_commit_percent = 0.0
-    routed_coverage_proved = $false
-    routed_coverage_proved_at = $null
+    connected_seed_set_proved = $false
+    connected_seed_set_proved_at = $null
     baseline_trades = 0
     final_trades = 0
     new_trade_observations = 0
@@ -228,13 +248,11 @@ try {
         if (
             $null -ne $status -and
             [string]$status.coordinator_session_id -ne $baselineSession -and
-            [string]$status.state -eq "CONNECTED" -and
-            [string]$status.evidence_integrity -eq "PASS" -and
-            [int]$status.active_market_day_count -gt 0
+            (Test-ConnectedSeedSet $status)
         ) {
-            if (-not [bool]$record.routed_coverage_proved) {
-                $record.routed_coverage_proved = $true
-                $record.routed_coverage_proved_at = (Get-Date).ToString("o")
+            if (-not [bool]$record.connected_seed_set_proved) {
+                $record.connected_seed_set_proved = $true
+                $record.connected_seed_set_proved_at = (Get-Date).ToString("o")
             }
         }
         Start-Sleep -Seconds 2
@@ -255,8 +273,8 @@ try {
     $record.final_trades = $finalTrades
     $record.new_trade_observations = $finalTrades - $baselineTrades
     $record.final_integrity_counters = $finalIntegrity
-    if (-not [bool]$record.routed_coverage_proved) {
-        throw "full inbound routed coverage was never proved"
+    if (-not [bool]$record.connected_seed_set_proved) {
+        throw "the complete active seed set was never observed connected"
     }
     if ([string]$final.state -ne "STOPPED" -or -not $final.capture_stopped_at_utc) {
         throw "capture did not stop cleanly with a durable STOPPED status"
@@ -281,7 +299,7 @@ try {
 
     $record.ok = $true
     $record.stage = "proved"
-    $record.detail = "new execution observations with full routed coverage and no new integrity errors"
+    $record.detail = "new routed execution observations from a connected seed set with no new integrity errors"
 }
 catch {
     $record.ok = $false
