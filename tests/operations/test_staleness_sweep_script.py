@@ -16,7 +16,8 @@ def test_state_of_play_ranges_cover_individual_commission_references():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
     assert "function Test-StateOfPlayMissionReference" in text
-    assert "(?:…|\\.\\.\\.|–|—)" in text
+    assert "[^0-9\\r\\n]{1,8}" in text
+    assert "Windows PowerShell 5.1" in text
     assert "Test-StateOfPlayMissionReference $sopText $short" in text
 
 

@@ -382,7 +382,9 @@ function Test-StateOfPlayMissionReference([string]$Text, [string]$Short) {
     $group = $Matches[1]
     $number = [int]$Matches[2]
     $suffix = $Matches[3]
-    $rangePattern = "(?i)-$group-(\d+)([a-z])\s*(?:…|\.\.\.|–|—)\s*-$group-(\d+)([a-z])"
+    # Windows PowerShell 5.1 reads UTF-8-without-BOM scripts as the active ANSI code page. Keep the
+    # pattern itself ASCII-only while accepting any short, same-line non-numeric range separator.
+    $rangePattern = "(?i)-$group-(\d+)([a-z])\s*[^0-9\r\n]{1,8}\s*-$group-(\d+)([a-z])"
     foreach ($range in [regex]::Matches($Text, $rangePattern)) {
         if ($range.Groups[2].Value -ne $suffix -or $range.Groups[4].Value -ne $suffix) { continue }
         $start = [int]$range.Groups[1].Value
