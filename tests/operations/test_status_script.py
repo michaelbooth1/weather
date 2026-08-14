@@ -29,6 +29,17 @@ def test_disabled_on_demand_success_is_not_an_unexpected_disable():
     assert "completed an on-demand run" in text
 
 
+def test_disabled_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$integratedDisabledMerge = $false" in text
+    assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
+    assert "-ExpectedTip\\s+([0-9a-f]{40})" in text
+    assert "merge-base --is-ancestor $integratedDisabledTip HEAD" in text
+    assert "$integratedDisabledMerge = ($LASTEXITCODE -eq 0)" in text
+    assert "retained as spent exact-tip merge evidence" in text
+
+
 def test_only_active_scheduled_interactive_tasks_count_as_reboot_exposure():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
