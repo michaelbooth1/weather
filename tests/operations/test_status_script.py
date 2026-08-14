@@ -138,6 +138,15 @@ def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:
     assert "heavy workload lease active" in text
 
 
+def test_paused_mirror_warning_cannot_authorize_restart() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "Do NOT re-enable from this warning" in text
+    assert "resume requires demonstrated economic value" in text
+    assert "a new explicit operator decision" in text
+    assert "Re-enable WeatherDataMirror to resume" not in text
+
+
 def test_status_snapshot_fallback_matches_the_twelve_minute_capture_contract() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

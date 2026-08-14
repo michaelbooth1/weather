@@ -743,12 +743,14 @@ elseif ($rebootPending) {
 }
 
 # ---- off-host mirror (the only copy of data\ that is not on this disk) ----
-# PAUSED by operator decision 2026-08-12 to keep this 16 GB host's resources on capture
-# stability (docs/operations/mirror-paused-2026-08-12.md). The pause switch is the TASK STATE,
-# not a marker file: re-enabling WeatherDataMirror restores full alerting automatically, so the
-# suppression cannot outlive the pause or be forgotten in a file nobody reads. A paused mirror
-# still WARNS on every run, carrying the AGE of the frozen copy -- the point is to stop crying
-# wolf about a nightly job that is off on purpose, NOT to stop saying data\ is unprotected.
+# PAUSED by operator decision 2026-08-12 and reconfirmed 2026-08-14 with an economic-value gate
+# (docs/operations/mirror-paused-2026-08-12.md). The pause switch is the TASK STATE, not a marker
+# file: re-enabling WeatherDataMirror restores full alerting automatically, so the suppression
+# cannot outlive the pause or be forgotten in a file nobody reads. Task state does not authorize
+# the restart: it additionally requires demonstrated project value and a new explicit operator
+# decision. A paused mirror still WARNS on every run, carrying the AGE of the frozen copy -- the
+# point is to stop crying wolf about a nightly job that is off on purpose, NOT to stop saying
+# data\ is unprotected.
 $mirrorPaused = $false
 try { $mirrorPaused = ([string](Get-ScheduledTask -TaskName "WeatherDataMirror" -EA Stop).State -eq "Disabled") } catch {}
 $mirror = $null
@@ -765,7 +767,7 @@ if ($null -eq $mirror) { $warns.Add("mirror status unreadable - off-host copy un
 elseif ($mirrorPaused) {
     $frozenAt = "an unknown date"
     try { $frozenAt = ([datetime]$mirror.last_run).ToString("yyyy-MM-dd HH:mm") } catch {}
-    $warns.Add("mirror PAUSED by operator 2026-08-12 - the off-host copy of data\ is FROZEN at $frozenAt (${mirrorAgeH}h old and ageing). Everything written since exists ONLY on this disk. Re-enable WeatherDataMirror to resume")
+    $warns.Add("mirror PAUSED by operator - the off-host copy of data\ is FROZEN at $frozenAt (${mirrorAgeH}h old and ageing). Everything written since exists ONLY on this disk. Do NOT re-enable from this warning; resume requires demonstrated economic value and a new explicit operator decision")
 }
 elseif (-not $mirror.ok) { $flags.Add("mirror last run FAILED (robocopy exit $($mirror.robocopy_exit))") }
 elseif ($mirrorAgeH -gt 30) { $flags.Add("mirror stale: last good run ${mirrorAgeH}h ago (nightly 04:30)") }
