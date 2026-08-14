@@ -24,6 +24,8 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "Set-Location -LiteralPath $WorktreeRoot" in text
     assert "Set-Location -LiteralPath $previousLocation" in text
     assert "Get-HealthyCaptureWorkerCount" in text
+    assert 'Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720' in text
+    assert text.count("MaxAge = 180") == 2
     assert "Get-CommitPercent" in text
     assert "Start-WeatherProcessInJob" in text
     assert "New-WeatherKillOnCloseJob" in text
