@@ -2238,8 +2238,12 @@ master. None is a capture or resource-admission failure.
 The correction is to atomically freeze the validated snapshot in each run, then score in a bounded
 two-pass stream that verifies file hash, source hash, snapshot/quote identity, target date, and
 run-time freshness. Missing, mixed, replaced, or tampered captures stay unbound with zero incentive
-economics. A focused repair is green on an isolated current-master branch, but the failed exact tip
-remains ineligible until its refreshed cumulative successor passes a new immutable full suite.
+economics. The isolated current-master repair at
+`9f3b926ecf6332ea23db990ee38401cce6f87495` then passed its own immutable **17/17 chunks and
+4,417/4,417 tests** with all capture admissions healthy. It is pushed and proven roll-sensitive,
+so production integration must wait for the next quiet window. The failed old live-probe tip is
+still ineligible; its refreshed cumulative successor must inherit this repair and pass a separate
+exact-tip suite.
 
 ---
 
