@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-14 19:20 (bounded Stage 2 is pre-stacked on the unified-client line;
+**Last rewritten: 2026-08-14 18:55 (bounded Stage 2 is pre-stacked on the unified-client line;
 the combined Stage 0/1 tip still awaits tonight's exact suite).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
