@@ -2350,6 +2350,13 @@ capture coexistence only. It does not prove a unique execution count, our fill, 
 fee, rebate, inventory, P&L, or profit; historical public gaps still make the current retained
 price path unusable for economics.
 
+A final isolated S4U/Limited scheduler proof on tip `5ed4ff69` established that task priority
+**7** propagated through both venv launcher layers: the long-running child reported
+`BelowNormal`, matched status and lock at PID **4492**, retained evidence integrity `PASS`, and
+used **57.11 MiB** working set. The official stop again proved process exit and lock removal. This
+closes priority inheritance as an assumption; it still does not arm production ahead of the
+guarded overnight chain.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
