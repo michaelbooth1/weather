@@ -1035,8 +1035,13 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError("market-rules refresh requires the adapter's single allowed token")
         book = self.client.get_order_book(self.token_id)
         observed_token = str(_value(book, "asset_id", "asset", "token_id") or "").strip()
-        if observed_token and observed_token != self.token_id:
+        observed_condition = str(
+            _value(book, "market", "condition_id", "conditionId") or ""
+        ).strip().lower()
+        if observed_token != self.token_id:
             raise RuntimeError("order-book token differs from the adapter's single allowed token")
+        if observed_condition != self.condition_id:
+            raise RuntimeError("order-book condition differs from the adapter's exact condition")
         min_order_size = _required_decimal(
             _value(book, "min_order_size", "minimum_order_size"),
             "current min order size",
@@ -1058,6 +1063,7 @@ class OfficialPolymarketGlobalAdapter:
         ask_prices = _level_prices(_value(book, "asks") or [])
         self._market_rules = {
             "token_id": self.token_id,
+            "condition_id": self.condition_id,
             "min_order_size": min_order_size,
             "tick_size": book_tick_size,
             "neg_risk": neg_risk,
@@ -1068,6 +1074,7 @@ class OfficialPolymarketGlobalAdapter:
         self._probe.update({
             "market_rules_verified": True,
             "market_rules_stale": False,
+            "market_condition_id": self.condition_id,
             "market_min_order_size": str(min_order_size),
             "market_tick_size": str(book_tick_size),
             "market_neg_risk": neg_risk,
