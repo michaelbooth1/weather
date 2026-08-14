@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 05:15 (per-run International economics passed its exact-tip suite;
-cumulative live-probe refresh is next).** Read this first, then `ESTABLISHED_FINDINGS.md`
+**Last rewritten: 2026-08-14 05:42 (refreshed cumulative International Stage 0/1 stack passed its
+exact-tip suite and is queued for guarded quiet-window integration).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -45,9 +45,9 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | Work | State / next action |
 | --- | --- |
 | Public execution tape (`-09-69a`) | Integrated and production-proved. The bounded pilot established documented subscription/routing and capture coexistence, not fills, intensity, rebates, or P&L. The durable producer remains stopped; use the measured pilot to design continuous capture without persisting book bursts. |
-| International rebate economics | Exact-tip full suite passed and the branch is pushed. Historical legs bind only to atomically frozen per-run snapshots in a bounded stream. The branch is roll-sensitive through schema registries; queue it for a future 01:00–04:00 guarded merge, never an immediate adoption. |
-| International live probe | The frozen Stage 0/1 suite failed: per-run economics binding, unowned runner growth, and a stale-stack inventory mismatch. Do not merge or transfer it. The 08:40 bundle task must refuse; build a refreshed cumulative successor only after the economics repair proves green. |
-| Bounded maker Stage 2 | Library-only implementation is focused-green at stacked commit `57d67588`. It is not integration- or live-ready: land its parents, merge current master into the branch, resolve additive schema overlap, run an exact-tip full suite in a later heavy window, and separately review the eligible-host wrapper. |
+| International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
+| International live probe | Refreshed current-master + economics + Stage 0/1 successor is pushed and exact-suite green. It independently clamps all operator/lifecycle caps and stays roll-sensitive; queue only its exact reviewed tip for a future 01:00–04:00 guarded merge. The failed old tip remains ineligible and its 08:40 bundle task must refuse. |
+| Bounded maker Stage 2 | Library-only implementation is focused-green at stacked commit `57d67588`. It is not integration- or live-ready: land the refreshed Stage 0/1 parent, replay/merge current master into Stage 2, resolve additive schema overlap, run a separate exact-tip full suite, and review the eligible-host wrapper. |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
 
 Legacy `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are **Disabled**. Their old
@@ -70,9 +70,9 @@ until valid queues exist. Never delete held branches.
 - Heavy wrappers share one OS-held workload lease. Ordinary heavy work is admitted only during the
   overnight window; the named Stage-A chain is the sole late-morning exception and owns a hard
   teardown. Nothing heavy runs during grading or near-close capture.
-- Tonight's training window was re-enabled at 03:30. The frozen International suite is complete
-  and failed; its 08:40 bundle remains queued only to prove fail-closed refusal. Do not reinterpret
-  bundle absence as a packaging incident.
+- Tonight's training window was re-enabled at 03:30. The frozen International suite failed; its
+  refreshed successor passed separately. The old tip's 08:40 bundle remains queued only to prove
+  fail-closed refusal. Do not reinterpret bundle absence as a packaging incident.
 - Windows Update installed current security updates after the temporary notify-only override was
   removed and now reports a pending reboot. Do not reboot in the graded window; coordinate a
   controlled off-window restart with session/push continuity and prove unattended S4U recovery.
