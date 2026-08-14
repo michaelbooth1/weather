@@ -53,6 +53,29 @@ def test_execution_tape_registrar_is_public_only_and_low_priority() -> None:
         assert f"--{forbidden}" not in text.lower()
 
 
+def test_execution_tape_post_merge_adoption_is_exact_and_fail_closed() -> None:
+    text = (ROOT / "scripts" / "ops" / "adopt_execution_tape_after_merge.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "suite_gated_quiet_merge.ps1" in text
+    assert "merge-base --is-ancestor $ExpectedTip master" in text
+    assert "$masterTip -ne $originTip" in text
+    assert "capture_recovery_check --json" in text
+    assert 'LogonType -ne "S4U"' in text
+    assert 'RunLevel -ne "Limited"' in text
+    assert "Settings.Priority -ne 7" in text
+    assert 'State -ne "Disabled"' in text
+    assert "Enable-ScheduledTask -TaskName $SupervisorTaskName" in text
+    assert "Start-ScheduledTask -TaskName $SupervisorTaskName" in text
+    assert "execution_tape_supervisor stop" in text
+    assert "Disable-ScheduledTask -TaskName $script:SupervisorTaskName" in text
+    assert "runtime_identity_matches_current" in text
+    assert "status.managed_process.pid" in text
+    assert "writerLock.managed_process.pid" in text
+    assert "price_path_evidence_usable" in text
+
+
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     wrapper = (ROOT / "scripts" / "ops" / "market_making_daily_roll_task.ps1").read_text(
         encoding="utf-8-sig"

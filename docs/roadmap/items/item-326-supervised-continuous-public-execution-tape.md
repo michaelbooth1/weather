@@ -46,6 +46,10 @@ Scope:
   registration correctly failed its handshake because the status/lock owner
   was the launcher's direct base-interpreter child, then left the task disabled
   pending a fail-closed fix rather than accepting mismatched PIDs.
+- [x] Add an exact post-merge adoption guard that keeps the producer disabled
+  unless the reviewed merge, remote/local master, three core workers, task
+  identity, and managed worker/status/lock evidence all agree, with official
+  stop-and-disable cleanup after any post-enable disagreement.
 - [ ] Explicitly register and start the task off-window; prove exact action,
   S4U/Limited principal, low priority, one worker/lock owner, current runtime
   identity, and healthy coexistence with all three core capture workers.
