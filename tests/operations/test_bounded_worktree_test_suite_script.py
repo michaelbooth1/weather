@@ -11,8 +11,11 @@ SCRIPT = REPO_ROOT / "scripts" / "ops" / "bounded_worktree_test_suite.ps1"
 def test_bounded_suite_is_fail_closed_and_non_mutating():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
-    assert "12:00-00:30 protected host window" in text
+    assert "00:30-09:00 heavy-work window" in text
     assert "$localMinute -lt 30" in text
+    assert "$localMinute -ge (9 * 60)" in text
+    assert "$hardStop = $localNow.Date.AddHours(9)" in text
+    assert "killing its complete child tree" in text
     assert "ExpectedTip" in text
     assert "worktree list --porcelain" in text
     assert "status --porcelain" in text

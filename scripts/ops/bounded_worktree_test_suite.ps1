@@ -124,9 +124,10 @@ Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedT
 
 $localNow = Get-Date
 $localMinute = ($localNow.Hour * 60) + $localNow.Minute
-if ($localMinute -ge (12 * 60) -or $localMinute -lt 30) {
-    throw "bounded suite is prohibited during the 12:00-00:30 protected host window"
+if ($localMinute -ge (9 * 60) -or $localMinute -lt 30) {
+    throw "bounded suite must start inside the 00:30-09:00 heavy-work window"
 }
+$hardStop = $localNow.Date.AddHours(9)
 
 $registeredWorktrees = @(
     & git -C $RepoRoot worktree list --porcelain |
@@ -198,6 +199,9 @@ try {
     $failedChunks = 0
     for ($index = 0; $index -lt $chunks.Count; $index++) {
         $ordinal = $index + 1
+        if ((Get-Date) -ge $hardStop) {
+            throw "bounded suite reached the 09:00 hard teardown boundary"
+        }
         Assert-HostAdmission -CommitCeiling $AbortCommitPercent -Phase "chunk-$ordinal"
         $junitPath = "{0}.{1}.chunk-{2:D3}.xml" -f $LogPath, $runTag, $ordinal
         $tokens = @(
@@ -217,6 +221,14 @@ try {
                 -FilePath $python `
                 -ArgumentString $argumentString `
                 -WorkingDirectory $WorktreeRoot
+            while (-not $child.HasExited) {
+                if ((Get-Date) -ge $hardStop) {
+                    Write-SuiteLog "chunk $ordinal reached 09:00; killing its complete child tree"
+                    throw "bounded suite reached the 09:00 hard teardown boundary"
+                }
+                Start-Sleep -Seconds 2
+                $child.Refresh()
+            }
             $child.WaitForExit()
             $exitCode = $child.ExitCode
         }
