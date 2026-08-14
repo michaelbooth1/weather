@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-14 08:15 (the continuous public-tape supervisor is integrated but
+**Last rewritten: 2026-08-14 09:40 (the continuous public-tape supervisor is integrated but
 held after a fail-closed Windows launcher mismatch; its exact repair is queued).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
@@ -46,8 +46,8 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | --- | --- |
 | Public execution tape (`-09-69a`) | Continuous public-only supervision is integrated. The first real adoption refused a Windows venv launcher/worker PID mismatch and the task remains Disabled. Exact child-adoption repair `5ed4ff69` is pushed and passed its pre-quiet immutable full suite; a fresh same-local-day reproof, guarded merge, and fail-closed adoption remain queued for tonight after the Stage 0/1 merge. This is public path evidence only, never fills, intensity, rebates, or P&L (§8o). |
 | International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
-| International live probe | Refreshed current-master + economics + Stage 0/1 successor is pushed and exact-suite green. It independently clamps all operator/lifecycle caps and stays roll-sensitive. A same-tip reproof is armed for 08-15 00:30 and its suite-gated merge for 01:00; either must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible; its immutable bundle task refused and produced no artifact (§8k). |
-| Bounded maker Stage 2 | Refreshed successor `0994fa13` is exact-suite green on the refreshed Stage 0/1 parent; the obsolete lineage is retained and only its bounded-probe delta was replayed. It is not integration- or live-ready: land parent `59e7bbfe` first, merge current production, reprove that combined exact tip, and review the eligible-host wrapper (§8n). |
+| International live probe | Refreshed current-master + economics + Stage 0/1 successor is pushed and exact-suite green. It independently clamps all operator/lifecycle caps and stays roll-sensitive. A same-tip reproof is armed for 08-15 00:30 and its suite-gated merge for 01:00; either must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible; its immutable bundle task refused and produced no artifact. After integration, a separately reviewed wrapper must still be created on the eligible host before authenticated Stage 0 or either Stage 1 mutation (§8k). |
+| Bounded maker Stage 2 | Refreshed successor `0994fa13` is exact-suite green on the refreshed Stage 0/1 parent; the obsolete lineage is retained and only its bounded-probe delta was replayed. It is not integration- or live-ready: land parent `59e7bbfe` first, merge current production, reprove that combined exact tip, and review the eligible-host wrapper. The current paper run emits no quote or live-trade permission, so integration alone cannot authorize a submit (§§8m, 8n). |
 | Snapshot fatal-gap bound | The prepared roll-sensitive branch passed its immutable full suite with every capture admission healthy. It predates the S4U registrar repair now on production, so it still needs current master merged into it, a fresh exact-tip suite, guarded quiet-window adoption, and live stop-to-recovery timing before the backlog item can close (§8l). |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
 
@@ -72,7 +72,7 @@ until valid queues exist. Never delete held branches.
   overnight window; the named Stage-A chain is the sole late-morning exception and owns a hard
   teardown. Nothing heavy runs during grading or near-close capture.
 - The frozen International suite failed; its refreshed successor passed separately. The old tip's
-  08:40 bundle remains queued only to prove fail-closed refusal. `WeatherTrainingWindow` is
+  08:40 bundle ran, refused the failed receipt, and created no artifact. `WeatherTrainingWindow` is
   intentionally Disabled for one 08-15 integration night so it cannot stop capture during the
   01:00 guarded merge; the independent 04:15 restore stays armed and a 04:20 one-shot re-enables
   the daily window. Do not reinterpret bundle absence or a fail-closed merge as an incident.
