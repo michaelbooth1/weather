@@ -126,11 +126,11 @@ nowhere** — it is derived. `OPERATING_REFERENCE.md` is **generated**; fix the 
   evaluate `master` against `master`.** `.ps1` and `docs/` and `config/` are roll-free; the closure
   is 78 entries, all `src/weather/*.py`. The whole `schema_registry*` family is in **all four**
   closures. Roll-sensitive merges go in **01:00–04:00**; never merge inside 12:00–18:00.
-- **`data\snapshots\loop_status_supervisor_status.json` is a TOMBSTONE** frozen at 2026-07-13,
-  permanently `DEAD / circuit_open / 6>=6`. The live files are `loop_supervisor_status.json`,
-  `clob_loop_supervisor_status.json`, `observation_trigger_supervisor_status.json`, and
-  `clob_enrichment_status.json` (note: not `*_supervisor_*`). **Check `updated_at_utc` before
-  believing any status file.**
+- The former `data\snapshots\loop_status_supervisor_status.json` tombstone was retired from the
+  live namespace on 2026-08-14 and preserved under `_retired_supervisor_status`. The live files are
+  `loop_supervisor_status.json`, `clob_loop_supervisor_status.json`,
+  `observation_trigger_supervisor_status.json`, and `clob_enrichment_status.json` (note: not
+  `*_supervisor_*`). **Check state and `updated_at_utc` before believing any status file.**
 - **Push via `Start-ScheduledTask -TaskName WeatherOneShotPush`.** Interactive `git push` has **no
   credentials** under SSH/S4U. Always verify `git rev-parse --short origin/master` afterwards, and
   note that a push needs micha to have a logged-on (even disconnected) session — after a reboot

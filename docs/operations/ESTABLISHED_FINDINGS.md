@@ -2159,6 +2159,20 @@ be acquired, and carry a concurrent start/ensure regression proving that only on
 and the waiter adopts its status. `staleness_sweep.ps1` keeps duplicate-process enumeration as an
 invariant-breach detector; it is no longer the primary mitigation.
 
+## 8g. A DEAD status with a source closure is a tombstone, not live roll evidence
+
+**Failure measured 2026-08-06; stale artifact retired 2026-08-14.** The frozen
+`loop_status_supervisor_status.json` described the snapshot loop as `DEAD`, `BLOCKED`, and
+`restart_budget_exceeded=6>=6`, but also retained a complete `source_scope_files` list. Hand
+analysis counted it as a fifth live closure while missing the differently named CLOB-enrichment
+closure. The explicit `roll_verdict.ps1` inventory already rejected that mistake.
+
+The stale file is preserved outside the live status namespace as
+`data/snapshots/_retired_supervisor_status/loop_status_supervisor_status.20260713T182612Z.json`
+with SHA-256 `FB263B9FD9A6FFC461F4FC76EC27D0E0560468C6EE1FB742995D2D9A0C3560D8`.
+`staleness_sweep.ps1` now rejects `DEAD` or `BLOCKED` states generically in every configured
+closure rather than carrying a permanent warning for one historical filename.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
