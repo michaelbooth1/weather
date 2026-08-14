@@ -30,7 +30,10 @@ class WorkerSpec:
 
 
 WORKERS = (
-    WorkerSpec("snapshot_tracker", "loop_status.json", ".loop_status.json.writer.lock", 300.0),
+    # The normal snapshot loop can sleep for almost its full 10-minute cadence.
+    # Keep recovery stricter than the 15-minute capture-gap objective while not
+    # declaring a healthy, identity-current sleeping worker stale mid-cycle.
+    WorkerSpec("snapshot_tracker", "loop_status.json", ".loop_status.json.writer.lock", 720.0),
     WorkerSpec(
         "market_microstructure",
         "clob_loop_status.json",

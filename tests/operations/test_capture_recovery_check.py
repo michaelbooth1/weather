@@ -43,6 +43,34 @@ def test_requires_all_three_fresh_live_locked_identity_current_workers(tmp_path:
     assert all(row["runtime_identity_matches_current"] for row in result["workers"])
 
 
+def test_snapshot_sleep_window_is_valid_but_stays_below_capture_gap_limit(tmp_path: Path) -> None:
+    for spec in WORKERS:
+        age_seconds = 660 if spec.name == "snapshot_tracker" else 10
+        _write_worker(tmp_path, spec, age_seconds=age_seconds)
+
+    healthy = check_capture_recovery(
+        tmp_path,
+        now=NOW,
+        process_alive=lambda pid: pid == 42,
+        current_identity=_matching_identity,
+    )
+    assert healthy["ok"] is True
+
+    snapshot = WORKERS[0]
+    assert snapshot.name == "snapshot_tracker"
+    assert snapshot.max_age_seconds == 720.0
+    _write_worker(tmp_path, snapshot, age_seconds=721)
+    stale = check_capture_recovery(
+        tmp_path,
+        now=NOW,
+        process_alive=lambda pid: pid == 42,
+        current_identity=_matching_identity,
+    )
+    snapshot_row = next(row for row in stale["workers"] if row["name"] == snapshot.name)
+    assert stale["ok"] is False
+    assert "heartbeat_stale" in snapshot_row["reasons"]
+
+
 def test_fails_closed_on_stale_heartbeat_dead_pid_lock_mismatch_and_identity(tmp_path: Path) -> None:
     for spec in WORKERS:
         _write_worker(tmp_path, spec)
