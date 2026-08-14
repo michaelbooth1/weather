@@ -2315,6 +2315,40 @@ into Stage 2, run a fresh exact-tip suite for the combined tree, review the elig
 and use the guarded quiet-window path. Ontario production still cannot receive credentials or
 place or cancel an order.
 
+## 8o. Windows venv launchers require child-PID adoption for supervised public capture
+
+**Initial supervisor proof and adoption measured 2026-08-14 07:38-07:50 local.** The clean
+supervisor branch at `7a1da5328973e9fd564dc3a5ccbb723ba57ed259` passed one immutable
+**17/17-chunk, 4,414/4,414-test** receipt with zero failures, errors, or skips. All **18/18**
+preflight/chunk admissions observed the three core capture workers healthy; peak recorded commit
+was **38.91%** against the **64%/66%** start/abort limits. The branch was mechanically roll-free
+while the optional producer was unarmed, then merged and pushed to production.
+
+The first real S4U/Limited, priority-7 ensure did not satisfy the process handshake and correctly
+returned nonzero. Windows launched venv PID **13068**, whose direct base-interpreter child PID
+**20736** owned both status and writer lock. The original handshake expected the launcher's PID,
+terminated that exact launcher, refused adoption, and left the recurring task Disabled rather
+than accepting mismatched provenance. The child subsequently exited; no order or credential path
+was present. This was a lifecycle-provenance defect, not public evidence loss being waived.
+
+**Repair proof measured 2026-08-14 07:57-08:07 local.** At exact repair tip
+`a5359030318d2a8af64aab638e0f6f3a5afef313`, an isolated public-only run launched venv PID
+**19380** and adopted direct child PID **5804** only after OS parent, complete command, distinct
+creation tokens, worker/status/lock PIDs, and current loaded-source identity agreed. The child was
+`CONNECTED`, evidence integrity was `PASS`, and its measured working set was **56.89 MiB**. The
+official stop proved child exit and writer-lock removal; the launcher also exited. The same exact
+tip then passed one immutable **18/18-chunk, 4,543/4,543-test** receipt with zero failures, errors,
+or skips. All **19/19** admissions observed all three core workers healthy; peak recorded commit
+was **38.96%** against the same ceilings.
+
+The later tip `02a2c1ffae0cb882059cd00c8ced41d912c7dc67` adds only the repository-owned
+post-merge adoption guard and its focused ratchet. It is pushed and bound to a same-local-day full
+reproof, suite-gated quiet merge, and guarded adoption on 2026-08-15. Until those tasks pass, the
+production supervisor remains Disabled. This evidence proves public producer lifecycle and
+capture coexistence only. It does not prove a unique execution count, our fill, queue position,
+fee, rebate, inventory, P&L, or profit; historical public gaps still make the current retained
+price path unusable for economics.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
