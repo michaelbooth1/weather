@@ -6,10 +6,13 @@
 # Every 15 minutes, S4U so it survives a reboot with nobody logged on (the whole point --
 # see docs/ops/streak-soak.md). Cheap: one status.ps1 pass, no capture imports.
 [CmdletBinding()]
-param([switch]$Unregister)
+param(
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [switch]$Unregister
+)
 
 $taskName = "WeatherHostHealthWatchdog"
-$repo = "C:\Users\micha\Desktop\github\weather"
+$repo = $RepoRoot
 $script = Join-Path $repo "scripts\ops\health_watchdog.ps1"
 
 if ($Unregister) {
@@ -25,7 +28,7 @@ $action = New-ScheduledTaskAction -Execute "C:\Windows\System32\WindowsPowerShel
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).Date.AddMinutes(5) `
     -RepetitionInterval (New-TimeSpan -Minutes 15)
 # S4U: runs whether or not anyone is logged on, without storing a password.
-$principal = New-ScheduledTaskPrincipal -UserId "micha" -LogonType S4U -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
     -MultipleInstances IgnoreNew

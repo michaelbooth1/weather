@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 05:47 (refreshed cumulative International Stage 0/1 stack passed its
-exact-tip suite; same-day reproof and guarded integration are armed for the next quiet window).** Read this first, then `ESTABLISHED_FINDINGS.md`
+**Last rewritten: 2026-08-14 07:00 (the snapshot fatal-gap branch passed its immutable suite;
+current-master reproof and live timing remain required before guarded integration).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -48,6 +48,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
 | International live probe | Refreshed current-master + economics + Stage 0/1 successor is pushed and exact-suite green. It independently clamps all operator/lifecycle caps and stays roll-sensitive. A same-tip reproof is armed for 08-15 00:30 and its suite-gated merge for 01:00; either must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible and its 08:40 bundle task must refuse. |
 | Bounded maker Stage 2 | Library-only implementation is focused-green at stacked commit `57d67588`. It is not integration- or live-ready: land the refreshed Stage 0/1 parent, replay/merge current master into Stage 2, resolve additive schema overlap, run a separate exact-tip full suite, and review the eligible-host wrapper. |
+| Snapshot fatal-gap bound | The prepared roll-sensitive branch passed its immutable full suite with every capture admission healthy. It predates the S4U registrar repair now on production, so it still needs current master merged into it, a fresh exact-tip suite, guarded quiet-window adoption, and live stop-to-recovery timing before the backlog item can close (§8l). |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
 
 Legacy `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are **Disabled**. Their old

@@ -34,6 +34,9 @@ These instructions apply to `scripts/ops/`.
   credential-vault push and mirror tasks are the intentional interactive
   exceptions; do not convert them to S4U because that session cannot access the
   vault.
+- Default repository roots from the registrar's own `PSScriptRoot`, and bind
+  S4U to `$env:USERNAME`. Do not hard-code the production checkout or account;
+  registrars must remain safe when reviewed from an isolated worktree.
 - Editing a script does not authorize registering, disabling, starting, or
   deleting a task. Make those changes only when the user explicitly places the
   host scheduler in scope.
