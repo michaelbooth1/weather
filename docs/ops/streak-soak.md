@@ -220,8 +220,11 @@ guarded operation:
 ```
 
 It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, and proves all three
-workers have matching status/lock PIDs, live processes, fresh advancing heartbeats, and loaded-source
-fingerprints matching the tree. **Only then** does it start `WeatherOneShotPush` and require
+workers have matching status/lock PIDs, live processes, fresh heartbeats, and loaded-source
+fingerprints matching the tree. A worker whose PID or loaded-source identity changed must also
+advance its heartbeat during the settle. An unchanged worker need not advance merely because an
+unrelated closure rolled; this matters for the snapshot worker's normal ten-minute cycle, which is
+longer than the five-minute settle. **Only then** does it start `WeatherOneShotPush` and require
 `origin/master` to acknowledge the exact merge commit. If capture
 does not recover it resets to the pre-merge commit — nothing published, no history to
 rewrite — and holds the workload lease for up to `-RollbackRecoverySeconds` (default 1200)

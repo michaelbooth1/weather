@@ -44,7 +44,11 @@ def test_recovery_proof_covers_exact_capture_fleet_and_loaded_source_identity() 
     assert "@($before.workers).Count -ne 3" in script
     assert "@($after.workers).Count -ne 3" in script
     assert "$beforeWorker in @($before.workers)" in script
-    assert "heartbeat did not advance" in script
+    assert "$workerReadopted" in script
+    assert "[int]$afterWorker.pid -ne [int]$beforeWorker.pid" in script
+    assert "recorded_source_fingerprint" in script
+    assert "readopted but heartbeat did not advance" in script
+    assert "if (-not $workerReadopted) { continue }" in script
     assert "Get-CimInstance Win32_Process" not in script
 
 

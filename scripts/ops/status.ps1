@@ -63,7 +63,11 @@ Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("python.exe", "pyth
 # the same evidence the resource gate uses and still fails closed if any part
 # is absent, stale, unreadable, or mismatched.
 $portableCaps = [ordered]@{
-    "snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 300.0 }
+    # Snapshot intentionally sleeps for nearly ten minutes between cycles. Keep this
+    # aligned with capture_recovery_check and the bounded-suite admission contract: 12
+    # minutes tolerates a complete normal cycle while remaining below the 15-minute streak
+    # gap limit. CLOB and observation retain their three-minute contracts.
+    "snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720.0 }
     "market_microstructure" = @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180.0 }
     "observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }
 }

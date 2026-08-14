@@ -230,13 +230,24 @@ foreach ($beforeWorker in @($before.workers)) {
     if (-not $afterWorker) {
         $ok = $false; $why += "$($beforeWorker.name) missing after merge"; continue
     }
+    # The snapshot worker normally heartbeats once per roughly ten-minute cycle, longer
+    # than the default five-minute settle. Requiring every healthy worker to advance here
+    # made a CLOB-only roll depend on where the unrelated snapshot sleep happened to fall.
+    # The recovery checker above still requires every worker to be fresh, live, locked by
+    # the matching PID, and loaded from the current tree. Require heartbeat advancement in
+    # addition when this worker actually readopted (PID or recorded source identity changed).
+    $workerReadopted = (
+        [int]$afterWorker.pid -ne [int]$beforeWorker.pid -or
+        [string]$afterWorker.recorded_source_fingerprint -ne [string]$beforeWorker.recorded_source_fingerprint
+    )
+    if (-not $workerReadopted) { continue }
     try {
         if ([datetime]$afterWorker.last_heartbeat -le [datetime]$beforeWorker.last_heartbeat) {
             $ok = $false
-            $why += "$($beforeWorker.name) heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
+            $why += "$($beforeWorker.name) readopted but heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
         }
     }
-    catch { $ok = $false; $why += "$($beforeWorker.name) heartbeat comparison failed" }
+    catch { $ok = $false; $why += "$($beforeWorker.name) readoption heartbeat comparison failed" }
 }
 
 if (-not $ok) {
