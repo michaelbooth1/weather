@@ -59,8 +59,8 @@ power-before-interpretation are not negotiable.
 - **Read or expose `C:\Users\micha\.weathersync.cred`.** Never print, log, or commit the scraped WU
   token.
 - **Write to the workstation mirror or `D:\weather-mirror`.**
-- **Delete any branch.** Agent reports exist only on unmerged branches. 27 unmerged branches still
-  hold unique code.
+- **Delete any branch.** Agent reports can exist only on unmerged branches; determine disposition
+  from the recovery manifest and current refs, never a copied branch count.
 - **Re-add `lfs: true`** to `.gitattributes`, or **delete `.git/lfs`.**
 - **Delete the "redundant" CSV** half of a split long projection. It is not redundant.
 - **Weaken or bypass the serving floor** (`1.6639 → 1.4980`, the one shipped win). If a result argues
@@ -69,12 +69,19 @@ power-before-interpretation are not negotiable.
 - **Allocate α.** Only the operator does. The ledger stands at **7 of 20 spent, 13 available**.
   **Decision 10 is CLOSED UNUSED / RETIRED and must never be reassigned.**
 - **Live trading or promotion.** Requires an explicit operator request.
-- **Run analysis compute on this host between 12:00 and 18:00** — the graded capture window. See §5.
+- **Run agent-started or ad-hoc heavy compute outside 00:30–09:00 local.** The sole scheduled
+  exception is the repository-owned Stage-A daily chain, which may run 09:30–11:55 under an
+  absolute child-tree teardown deadline. The 12:00–18:00 graded window and 18:00–00:30 near-close
+  window are protected. See §5.
 
-**Deprioritised, do not re-raise:** backups, UPS, durability. The operator said stop raising it. The
-tape-backup 2h timeout is diagnosed; don't re-derive it.
+Durability findings are acted on when evidence changes; do not repeatedly re-derive or nag about a
+standing condition. A frozen or unverified copy, an unencrypted system disk, or changed power risk
+is still operational state and must not be hidden from the operator.
 
-**The workstation may not call exchange or weather-provider endpoints.**
+The research workstation may not call exchange or weather-provider endpoints unless a mission
+explicitly designates it as the eligible International execution host. The Ontario production host
+must never place or cancel orders; live mutation belongs only on a genuinely eligible host after
+the operator's explicit request and all existing gates.
 
 ---
 
@@ -99,14 +106,18 @@ nowhere** — it is derived. `OPERATING_REFERENCE.md` is **generated**; fix the 
 > **HEAVY WORK ON THIS HOST COSTS CAPTURE DAYS — INCLUDING YOURS.** On 2026-08-12 the outgoing
 > session ran verification compute in the graded window, drove available physical memory to **116 MB**,
 > and produced gaps of 33.5 and 40.2 minutes across all 12 markets. That cost the day and broke the
-> streak at 3. **Check the wall clock before starting anything heavy. Run it after 18:00 or not at
-> all.** This is the single most expensive mistake available to you.
+> streak at 3. **Check the wall clock before starting anything heavy. Use 00:30–09:00 and hold the
+> repository-wide heavy-workload lease.** This is the single most expensive mistake available to you.
 
 - **Never run recursive `Get-ChildItem` over `data\`** — 3.6M files, 463 GB. It starves capture.
   Target subtrees. A full `pytest` run breaches the memory ceiling too — **chunk at 25 files**.
 - **Abandoning a tool call does NOT kill the process.** An abandoned scan ran 13 h × 2.94 GB and
   silently deferred a backfill and a whole chain day at the 70% admission gate. If you start
   something heavy, you own killing it.
+- **Every heavy wrapper holds `data/logs/heavy_workload.lock` through
+  `scripts/ops/workload_admission.ps1`.** Resource admission answers whether one job fits; the
+  OS-held lease prevents two individually admissible jobs from overlapping. File existence alone
+  is not ownership.
 - **`ReadLines()` blocks writers.** Read-only is not the same as safe. Diagnostics have broken
   production twice; open ledgers `FileShare.ReadWrite`.
 - **Roll sensitivity is the loaded-module closure, not a glob.** Run
@@ -143,9 +154,10 @@ nowhere** — it is derived. `OPERATING_REFERENCE.md` is **generated**; fix the 
   agent ("what happened while you were away"). Do not confuse them.
 - Other daily reads: `STALENESS_SWEEP.md` (08:10), `MM_COUNTABILITY.md` (08:15),
   `data/backtest/daily_refresh_report.md`.
-- **Scheduled spine:** `WeatherDailySettlementPromotionRefresh` 09:30 (settles yesterday — a run
-  takes ~3 h and its settlement step ~10 min), chain at 03:00, `WeatherMergeQueueDriver` 05:15
-  (roll-free), `WeatherMergeSensitiveDriver` 01:20, `WeatherStreakCaptureMonitor` 12:00.
+- **Scheduled spine:** use `status.ps1` and Task Scheduler as dynamic truth. The legacy
+  `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are held Disabled because their
+  branch-only queues lacked immutable expected-tip binding; `merge_queue_driver.ps1` is the
+  repository-owned replacement and must not be enabled until a reviewed v1 queue exists.
 - **`WeatherTrainingWindow` exit `2` and the chain's exit `1`/`0x2` are EXPECTED** (gates BLOCK
   pre-release). **Master is not fully green. If something is red, it is yours.**
 - Merges run off **allowlists, not auto-discovery**. Merge timing comes from `roll_verdict.ps1`,
@@ -156,7 +168,11 @@ authority, and remember a spent one-shot flags forever until unregistered.
 
 ---
 
-## 7. Where things stand — 2026-08-13 09:40
+## 7. Historical snapshot — never use this section for current state
+
+This section records what the outgoing session believed at 2026-08-13 09:40. It is intentionally
+not maintained. [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), code, task actions, and generated receipts
+win whenever they differ. The snapshot remains only so old decisions can be traced.
 
 **Capture.** Healthy today: `ON_TRACK`, 75 captures, 0.0 min max gap, all three loops `AboveNormal`.
 

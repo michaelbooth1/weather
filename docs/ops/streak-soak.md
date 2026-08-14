@@ -131,7 +131,9 @@ depending on the clock:
 | --- | --- |
 | 12:00–18:00 | graded capture window — the streak day is being decided; capture/memory faults are `CRITICAL` |
 | 09:30–11:00 | daily chain — settlement and grading of yesterday |
-| 01:00–04:00 | quiet window — the only safe slot for code merges and heavy steps |
+| 00:30–09:00 | agent/ad-hoc heavy-work window — every heavy wrapper also needs the shared OS-held lease |
+| 09:30–11:55 | repository-owned Stage-A chain only — absolute Job-owned child-tree teardown at 11:55 |
+| 01:00–04:00 | quiet window — required for roll-sensitive merges; roll-free merges do not wait |
 | 23:30–00:45 | day rollover — stale location config here blacks out capture |
 
 Outputs, all under `data/alerts/`:
@@ -217,8 +219,10 @@ guarded operation:
   -ExpectedTip <full-tested-commit-sha> [-DryRun] [-Force]
 ```
 
-It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, proves the loop
-count did not fall and the snapshot heartbeat advanced, and **only then** pushes. If capture
+It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, and proves all three
+workers have matching status/lock PIDs, live processes, fresh advancing heartbeats, and loaded-source
+fingerprints matching the tree. **Only then** does it start `WeatherOneShotPush` and require
+`origin/master` to acknowledge the exact merge commit. If capture
 does not recover it resets to the pre-merge commit — nothing published, no history to
 rewrite, and the supervisors readopt the previous code. It refuses to run outside 01:00–04:00
 without `-Force`, never inside 12:00–18:00, and never during the protected 18:00–00:30
@@ -242,9 +246,9 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
   to kill the script *between* `git merge` and `git merge --abort`, leaving a half-merged
   tree that rolls the fleet with no rollback in flight.
 
-Expect `stage: merged_unpushed`: the task is S4U, so its `git push` (and `git fetch`) cannot
-reach the credential vault. The merge and the capture verification still happen; the commit
-simply waits for `WeatherOneShotPush`, and `status.ps1` says so.
+`stage: merged_unpushed` means the credential-bearing `WeatherOneShotPush` task did not acknowledge
+the merge within its bounded wait. The merge and recovery proof succeeded, but publication did
+not; the quiet wrapper never attempts an interactive or S4U `git push` itself.
 
 ### Bounded execution-tape proof
 

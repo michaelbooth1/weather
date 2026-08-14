@@ -289,6 +289,9 @@ host that otherwise captures continuously:
   with wrapper/child creation times correlated to the task run. Only the exact
   expected Windows venv redirector may appear between producer and wrapper;
   the observed chain is bounded to two ancestors and fails closed if over-deep.
+  It also holds the shared OS-backed heavy-workload lease before it disables
+  capture, so a bounded suite, guarded merge, tiering job, or daily chain can
+  never overlap the window.
 - `WeatherTrainingWindowRestore` is a later dead-man task that unconditionally
   re-enables supervisors and issues all three `ensure` commands.
 
@@ -300,6 +303,12 @@ Do not enable both the direct nightly task and the single-host training window
 for the same workload. The registration scripts do not remove the alternative
 task automatically; inspect and reconcile Task Scheduler explicitly when
 changing topology.
+
+The delegated daily-refresh wrapper uses the same lease and owns its Python
+tree through a kill-on-close Job. It refuses to start outside 00:30–11:55 and
+closes the Job at 11:55, so a delayed or long settlement run cannot enter the
+12:00–18:00 graded capture window. This deadline is independent of per-step
+memory admission and Task Scheduler's broader execution limit.
 
 `scripts/ops/training_window_contract.ps1` is the single action-token owner for
 both training-window registration and delegated-child attestation. Changing
