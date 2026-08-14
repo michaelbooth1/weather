@@ -457,22 +457,26 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
-    # A replaced exact-tip quiet merge is safe to retain disabled as immutable
-    # evidence once that reviewed object is already in production history. Do
-    # not hard-code dated task names: bind the classification to the action's
-    # full SHA and Git ancestry. An unmerged or unreadable tip remains anomalous.
-    $integratedDisabledMerge = $false
-    $integratedDisabledTip = $null
+    $isQuietMergeAction = (
+        $actionArguments -like "*quiet_window_merge.ps1*" -or
+        $actionArguments -like "*suite_gated_quiet_merge.ps1*"
+    )
+    # A replaced exact-tip quiet merge is spent evidence once that reviewed
+    # object is already in production history, whether Task Scheduler retains
+    # it as Disabled or as Ready with no next run. Do not hard-code dated task
+    # names: bind the classification to the action's full SHA and Git ancestry.
+    # An unmerged or unreadable tip remains anomalous.
+    $integratedExactTipMerge = $false
+    $integratedExactTip = $null
     if (
-        $st -eq "Disabled" -and
-        $actionArguments -like "*quiet_window_merge.ps1*" -and
+        $isQuietMergeAction -and
         $actionArguments -match '(?i)(?:^|\s)-ExpectedTip\s+([0-9a-f]{40})(?:\s|$)'
     ) {
-        $integratedDisabledTip = $Matches[1].ToLowerInvariant()
-        & git -C $repo merge-base --is-ancestor $integratedDisabledTip HEAD 2>$null
-        $integratedDisabledMerge = ($LASTEXITCODE -eq 0)
+        $integratedExactTip = $Matches[1].ToLowerInvariant()
+        & git -C $repo merge-base --is-ancestor $integratedExactTip HEAD 2>$null
+        $integratedExactTipMerge = ($LASTEXITCODE -eq 0)
     }
-    if ($oneShot -and $ti.NextRunTime -and $actionArguments -like "*quiet_window_merge.ps1*") {
+    if ($oneShot -and $ti.NextRunTime -and $isQuietMergeAction) {
         $settleSeconds = 300
         if ($actionArguments -match '(?i)-SettleSeconds\s+(\d+)') {
             $settleSeconds = [int]$Matches[1]
@@ -539,8 +543,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # off" and points at the wrong artifact. Deliberate beats incidental.
         $onDemandCompleted = ($noTriggers -and $res -eq "0x0" -and $ti.LastRunTime)
         if ($expDisabled -contains $name) { }
-        elseif ($integratedDisabledMerge) {
-            $warns.Add("$name is disabled and retained as spent exact-tip merge evidence; $integratedDisabledTip is already in production history")
+        elseif ($integratedExactTipMerge) {
+            $warns.Add("$name is disabled and retained as spent exact-tip merge evidence; $integratedExactTip is already in production history")
         }
         elseif ($onDemandCompleted) {
             $warns.Add("$name completed an on-demand run at $($ti.LastRunTime) and is now disabled (exit 0x0) - verify its artifact before relying on the result")
@@ -565,6 +569,14 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # Normal for freshly registered work, and flagging it would train us to ignore flags.
         if (-not $ok -and $res -eq "0x41303") { $ok = $true }
         if (-not $ok -and $expNonZero.ContainsKey($name)) { $ok = ($expNonZero[$name] -contains $res) }
+        # A completed exact-tip merge can leave the one-shot Ready with no next
+        # run and retain the failed result of an earlier attempt. Once Git proves
+        # that exact reviewed object is in production, the task is spent evidence,
+        # not a current failure. This does not forgive an unintegrated tip.
+        if (-not $ok -and $integratedExactTipMerge -and $oneShot -and -not $ti.NextRunTime) {
+            $warns.Add("$name prior attempt ended $res on $($ti.LastRunTime), but exact tip $integratedExactTip is already in production history (spent one-shot)")
+            $ok = $true
+        }
         # Re-arming a one-shot preserves its previous exit code. Once a future
         # run is present, that code is historical evidence about the prior
         # attempt, not proof that the armed attempt already failed.
