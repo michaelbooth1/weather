@@ -13,6 +13,7 @@ def test_probe_is_exact_commit_and_quiet_window_bound() -> None:
     script = _text()
 
     assert '[ValidatePattern("^[0-9a-fA-F]{40}$")]' in script
+    assert "[int]$DurationSeconds = 780" in script
     assert "production HEAD must equal origin/master before the probe" in script
     assert "merge-base --is-ancestor $RequiredAncestor $head" in script
     assert "probe must start inside the 01:00-04:00 quiet window" in script

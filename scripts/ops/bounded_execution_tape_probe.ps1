@@ -11,7 +11,7 @@ param(
     [ValidatePattern("^[0-9a-fA-F]{40}$")]
     [string]$RequiredAncestor,
     [ValidateRange(60, 3600)]
-    [int]$DurationSeconds = 600,
+    [int]$DurationSeconds = 780,
     [ValidateRange(1.0, 99.0)]
     [double]$StartCommitPercent = 64.0,
     [ValidateRange(1.0, 99.0)]
@@ -63,7 +63,8 @@ function Get-HealthyCaptureWorkerCount {
         # Snapshot intentionally sleeps for nearly ten minutes between cycles.
         # Admit a complete normal cycle while remaining below the 15-minute
         # streak gap limit; the probe separately requires this heartbeat to
-        # advance across its ten-minute end-to-end run.
+        # advance across its 13-minute end-to-end run. A ten-minute run was
+        # shorter than observed healthy cycles and could fail by construction.
         @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720 },
         @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180 },
         @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180 }
