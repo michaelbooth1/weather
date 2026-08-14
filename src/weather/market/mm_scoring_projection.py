@@ -65,6 +65,8 @@ SCORING_COLUMNS = (
     "bin_value",
     "bin_value_hi",
     "clob_token_id",
+    "exchange_economics_snapshot_id",
+    "exchange_economics_hash",
     "fair_probability",
     "market_mid",
     "market_yes",

@@ -2550,15 +2550,15 @@ def _build_paper_payload(
         exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
         {},
     ) or {}
-    base_economics_coverage = exchange_economics.bind_legs_to_market_economics(
+    base_economics_coverage = exchange_economics.bind_legs_to_run_snapshots(
         legs,
-        economics_snapshot,
-        gate=exchange_gate,
+        required=bool(exchange_gate.get("required")),
+        platform=exchange_economics_platform,
     )
-    variant_economics_coverage = exchange_economics.bind_legs_to_market_economics(
+    variant_economics_coverage = exchange_economics.bind_legs_to_run_snapshots(
         model_variant_legs,
-        economics_snapshot,
-        gate=exchange_gate,
+        required=bool(exchange_gate.get("required")),
+        platform=exchange_economics_platform,
     )
     economics_leg_coverage = {
         "required": bool(exchange_gate.get("required")),
@@ -2583,6 +2583,10 @@ def _build_paper_payload(
             list(base_economics_coverage.get("missing_token_ids") or [])
             + list(variant_economics_coverage.get("missing_token_ids") or [])
         ))[:50],
+        "run_receipts": (
+            list(base_economics_coverage.get("run_receipts") or [])
+            + list(variant_economics_coverage.get("run_receipts") or [])
+        ),
     }
     economics_leg_coverage["ok"] = (
         economics_leg_coverage["source_gate_ok"]

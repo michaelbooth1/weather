@@ -1360,6 +1360,9 @@ def build_run_once(
         required=exchange_economics_required,
     )
     exchange_economics_fields = exchange_economics.exchange_economics_artifact_fields(exchange_economics_gate)
+    exchange_economics_capture = exchange_economics.capture_run_snapshot(
+        exchange_economics_snapshot_path, run_folder, exchange_economics_gate
+    )
     event_metadata_state = _event_metadata_preflight_payload(
         event_metadata_validation_path,
         target,
@@ -1389,6 +1392,7 @@ def build_run_once(
     run_config["data_layer_live_gate"] = data_layer_live_gate
     run_config["platform_verification_gate"] = platform_verification_gate
     run_config["exchange_economics_gate"] = exchange_economics_gate
+    run_config["exchange_economics_capture"] = exchange_economics_capture
     run_config.update(exchange_economics_fields)
     run_config["event_metadata_validation"] = {
         key: value
@@ -1547,6 +1551,7 @@ def build_run_once(
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
         "exchange_economics_gate": exchange_economics_gate,
+        "exchange_economics_capture": exchange_economics_capture,
         **exchange_economics_fields,
         "event_metadata_validation": {
             key: value

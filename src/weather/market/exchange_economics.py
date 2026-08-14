@@ -35,6 +35,7 @@ DEFAULT_EVENT_METADATA = config_path("location_market_events.json")
 DEFAULT_SNAPSHOT = data_path() / "backtest" / "exchange_economics_snapshot.json"
 DEFAULT_ACCEPTED_SNAPSHOT = data_path() / "backtest" / "exchange_economics_accepted_snapshot.json"
 DEFAULT_DRIFT_REPORT = data_path() / "backtest" / "exchange_economics_drift.json"
+RUN_CAPTURE_FILENAME = "exchange_economics_snapshot.json"
 
 SNAPSHOT_ID_PREFIX = "xecon"
 CURRENT_EVIDENCE_BASIS = "current_exchange_economics"
@@ -1220,6 +1221,16 @@ def bind_legs_to_market_economics(legs, snapshot_payload, gate=None):
     return coverage
 
 
+def bind_legs_to_run_snapshots(legs, *, required, platform=DEFAULT_PLATFORM):
+    """Bind every paper leg to the snapshot frozen by its own run folder."""
+
+    from weather.market.exchange_economics_run_capture import (
+        bind_legs_to_run_snapshots as bind_run_snapshots,
+    )
+
+    return bind_run_snapshots(legs, required=required, platform=platform)
+
+
 def gate_with_leg_coverage(gate, coverage):
     gate = deepcopy(gate or {})
     if not gate.get("required"):
@@ -1330,6 +1341,21 @@ def write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
     return path
+
+
+def capture_run_snapshot(snapshot_path, run_folder, gate):
+    """Freeze one exact validated economics snapshot inside a maker run.
+
+    Append ticks may reuse the capture but may not replace it. This prevents a
+    multi-tick run from silently mixing condition identities or economics
+    evidence after the shared current snapshot refreshes.
+    """
+
+    from weather.market.exchange_economics_run_capture import (
+        capture_run_snapshot as capture_snapshot,
+    )
+
+    return capture_snapshot(snapshot_path, run_folder, gate)
 
 
 def write_drift_report(payload, path=DEFAULT_DRIFT_REPORT):

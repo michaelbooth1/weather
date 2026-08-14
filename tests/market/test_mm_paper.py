@@ -866,12 +866,39 @@ class TestMMPaper(unittest.TestCase):
             write_csv(run_folder / "quote_intents_long.csv", list(quote_rows[0].keys()), quote_rows)
             snapshot = exchange_economics.build_snapshot_payload(
                 target_date=TARGET_DATE,
-                verified_at_utc="2026-06-14T17:00:00+00:00",
+                verified_at_utc="2026-06-14T15:55:00+00:00",
                 tick_size=0.01,
                 min_order_size=1.0,
                 token_ids=["token-80", "token-no-80"],
             )
             snapshot_path = write_json(root / "backtest" / "exchange_economics_snapshot.json", snapshot)
+            snapshot_gate = exchange_economics.load_exchange_economics_gate(
+                snapshot_path,
+                TARGET_DATE,
+                now="2026-06-14T17:00:00+00:00",
+            )
+            capture = exchange_economics.capture_run_snapshot(
+                snapshot_path,
+                run_folder,
+                snapshot_gate,
+            )
+            run_config_path = run_folder / "run_config.json"
+            run_config = json.loads(run_config_path.read_text(encoding="utf-8"))
+            run_config.update({
+                "created_at_utc": "2026-06-14T16:00:00+00:00",
+                "exchange_economics_capture": capture,
+            })
+            run_config_path.write_text(json.dumps(run_config), encoding="utf-8")
+            quote_rows = read_csv(run_folder / "quote_intents_long.csv")
+            quote_rows[0].update({
+                "exchange_economics_snapshot_id": snapshot_gate["snapshot_id"],
+                "exchange_economics_hash": snapshot_gate["snapshot_hash"],
+            })
+            write_csv(
+                run_folder / "quote_intents_long.csv",
+                list(quote_rows[0].keys()),
+                quote_rows,
+            )
 
             payload = build_paper_payload(
                 runs_root=runs_root,

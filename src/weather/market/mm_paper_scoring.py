@@ -711,6 +711,8 @@ def quote_legs(quote_rows, config):
             "bin_value": row.get("bin_value") or row.get("bin_value_c") or "",
             "bin_value_hi": row.get("bin_value_hi") or "",
             "clob_token_id": row.get("clob_token_id") or row.get("asset_id") or "",
+            "exchange_economics_snapshot_id": row.get("exchange_economics_snapshot_id") or "",
+            "exchange_economics_hash": row.get("exchange_economics_hash") or "",
             "quote_time": quote_time,
             "market_mid": market_mid,
             "book_spread": finite_float(row.get("book_spread")),

@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import os
 import sys
@@ -369,12 +370,37 @@ def _write_order_tape(path, rows):
 def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
     run = Path(root) / "mm_runs" / target_date / run_id
     run.mkdir(parents=True)
+    token_id = f"token-{run_id}"
+    captured_payload = exchange_economics.build_snapshot_payload(
+        target_date=target_date,
+        verified_at_utc=f"{target_date}T15:55:00+00:00",
+        token_ids=[token_id, f"other-{run_id}"],
+    )
+    captured_path = run / exchange_economics.RUN_CAPTURE_FILENAME
+    exchange_economics.write_json(captured_path, captured_payload)
+    captured_gate = exchange_economics.load_exchange_economics_gate(
+        captured_path,
+        target_date,
+        now=f"{target_date}T20:00:00+00:00",
+    )
+    captured_economics = {
+        "status": "CAPTURED",
+        "captured": True,
+        "path": str(captured_path),
+        "filename": exchange_economics.RUN_CAPTURE_FILENAME,
+        "snapshot_id": captured_gate["snapshot_id"],
+        "snapshot_hash": captured_gate["snapshot_hash"],
+        "source_hash": captured_gate["source_hash"],
+        "file_sha256": hashlib.sha256(captured_path.read_bytes()).hexdigest(),
+    }
     run_config = {
         "schema_version": "mm_run_v0.2",
         "run_id": run_id,
+        "created_at_utc": f"{target_date}T20:00:00+00:00",
         "mode": "paper-live-forward",
         "target_date": target_date,
         "policy_hash": f"policy-{run_id}",
+        "exchange_economics_capture": captured_economics,
     }
     (run / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
     summary = {
@@ -399,7 +425,9 @@ def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
         "bin_kind": "eq",
         "bin_value": "80",
         "bin_value_hi": "81",
-        "clob_token_id": f"token-{run_id}",
+        "clob_token_id": token_id,
+        "exchange_economics_snapshot_id": captured_gate["snapshot_id"],
+        "exchange_economics_hash": captured_gate["snapshot_hash"],
         "fair_probability": "0.50",
         "market_mid": "0.50",
         "bid_price": "0.49",

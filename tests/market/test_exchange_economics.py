@@ -494,6 +494,121 @@ def test_paper_legs_bind_to_exact_condition_token_economics_and_missing_tokens_b
     assert "paper_leg_condition_economics_bound" in covered_gate["missing"]
 
 
+def test_run_capture_is_immutable_and_leg_binding_uses_its_exact_file(tmp_path):
+    source = _write(tmp_path / "current.json", _snapshot(token_ids=["201", "202"]))
+    gate = exchange_economics.load_exchange_economics_gate(
+        source,
+        TARGET_DATE,
+        now=NOW,
+    )
+    run_folder = tmp_path / "runs" / TARGET_DATE / "run-1"
+    receipt = exchange_economics.capture_run_snapshot(source, run_folder, gate)
+    exchange_economics.write_json(
+        run_folder / "run_config.json",
+        {
+            "created_at_utc": NOW,
+            "exchange_economics_capture": receipt,
+        },
+    )
+    leg = {
+        "run_folder": str(run_folder),
+        "target_date": TARGET_DATE,
+        "generated_at_utc": NOW,
+        "clob_token_id": "201",
+        "exchange_economics_snapshot_id": gate["snapshot_id"],
+        "exchange_economics_hash": gate["snapshot_hash"],
+    }
+
+    coverage = exchange_economics.bind_legs_to_run_snapshots(
+        [leg],
+        required=True,
+    )
+
+    assert receipt["status"] == "CAPTURED"
+    assert coverage["ok"] is True
+    assert leg["exchange_economics_bound"] is True
+    with (run_folder / exchange_economics.RUN_CAPTURE_FILENAME).open(
+        "a", encoding="utf-8"
+    ) as handle:
+        handle.write("\n")
+    tampered_leg = {
+        **leg,
+        "exchange_economics_bound": False,
+    }
+    tampered = exchange_economics.bind_legs_to_run_snapshots(
+        [tampered_leg],
+        required=True,
+    )
+    assert tampered["ok"] is False
+    assert tampered_leg["exchange_economics_bound"] is False
+
+    replacement = _snapshot(token_ids=["301", "302"])
+    replacement_source = _write(tmp_path / "replacement.json", replacement)
+    replacement_gate = exchange_economics.load_exchange_economics_gate(
+        replacement_source,
+        TARGET_DATE,
+        now=NOW,
+    )
+    with pytest.raises(RuntimeError, match="already binds a different"):
+        exchange_economics.capture_run_snapshot(
+            replacement_source,
+            run_folder,
+            replacement_gate,
+        )
+
+
+def test_run_binding_is_bounded_for_interleaved_runs_and_blocks_mixed_identity(tmp_path):
+    source = _write(tmp_path / "current.json", _snapshot(token_ids=["201", "202"]))
+    gate = exchange_economics.load_exchange_economics_gate(
+        source,
+        TARGET_DATE,
+        now=NOW,
+    )
+    folders = [tmp_path / "runs" / TARGET_DATE / name for name in ("run-a", "run-b")]
+    for folder in folders:
+        receipt = exchange_economics.capture_run_snapshot(source, folder, gate)
+        exchange_economics.write_json(
+            folder / "run_config.json",
+            {
+                "created_at_utc": NOW,
+                "exchange_economics_capture": receipt,
+            },
+        )
+
+    def leg(folder, *, snapshot_id=None):
+        return {
+            "run_folder": str(folder),
+            "target_date": TARGET_DATE,
+            "generated_at_utc": NOW,
+            "clob_token_id": "201",
+            "exchange_economics_snapshot_id": snapshot_id or gate["snapshot_id"],
+            "exchange_economics_hash": gate["snapshot_hash"],
+        }
+
+    interleaved = [leg(folders[0]), leg(folders[1]), leg(folders[0])]
+    coverage = exchange_economics.bind_legs_to_run_snapshots(
+        interleaved,
+        required=True,
+    )
+    receipts = {row["run_folder"]: row for row in coverage["run_receipts"]}
+
+    assert coverage["ok"] is True
+    assert coverage["bound_leg_count"] == 3
+    assert receipts[str(folders[0])]["bound_leg_count"] == 2
+    assert receipts[str(folders[1])]["bound_leg_count"] == 1
+
+    mixed = [leg(folders[0]), leg(folders[0], snapshot_id="wrong")]
+    blocked = exchange_economics.bind_legs_to_run_snapshots(
+        mixed,
+        required=True,
+    )
+
+    assert blocked["ok"] is False
+    assert blocked["bound_leg_count"] == 0
+    assert blocked["missing_leg_count"] == 2
+    assert all(row["exchange_economics_bound"] is False for row in mixed)
+
+
 def test_required_invalid_gate_cannot_inject_untrusted_paper_economics():
     payload = _snapshot(token_ids=["201", "202"])
     gate = exchange_economics._check_snapshot_payload(

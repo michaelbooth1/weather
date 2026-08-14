@@ -54,6 +54,14 @@ This is a **current-day** proof. Do not apply today's per-condition rates to a
 historical leg merely because its token still appears in a file. Historical
 paper rows need economics captured contemporaneously on the row or in a
 date-bound snapshot; otherwise their economics stay unbound and zero. The
+maker runner therefore freezes the validated snapshot as
+`exchange_economics_snapshot.json` inside each run folder. Later ticks may
+reuse only the exact same content, and scoring verifies the file hash, source
+hash, snapshot identity, quote-row identity, target date, and run-time
+freshness before binding a leg. A legacy run without that capture remains
+unbound; the scorer must not substitute today's daily condition for it. The
+binding pass keeps only per-run identity summaries, then mutates disk-backed
+legs in place; it must not group or materialize all legs in memory. The
 daily drift step therefore records the settled-analysis date separately while
 validating the snapshot against the current Toronto operating date.
 
