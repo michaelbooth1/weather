@@ -38,8 +38,8 @@
     "consistency_verified": false
   },
   "sdk_contract": {
-    "distribution": "py-clob-client-v2",
-    "version": "1.1.0",
+    "distribution": "polymarket-client",
+    "version": "0.6.0",
     "exact_version_verified": false,
     "wallet_model_probe_verified": false
   },
@@ -108,10 +108,11 @@
     "zero_open_orders_verified": false
   },
   "dead_man_heartbeat": {
-    "endpoint": "/v1/heartbeats",
+    "endpoint": "/heartbeats",
     "endpoint_verified": false,
-    "initial_empty_id_verified": false,
-    "rotating_id_chain_verified": false,
+    "request_body_absent_verified": false,
+    "two_acknowledgments_verified": false,
+    "acknowledgment_count": null,
     "acknowledgment_verified": false,
     "cadence_seconds": null,
     "stale_placement_disarm_verified": false,

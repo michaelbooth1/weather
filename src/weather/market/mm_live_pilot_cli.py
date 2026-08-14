@@ -25,7 +25,7 @@ from weather.market.mm_credentials import (
     REFERENCE_ENV,
     STAGE0_AUTHORIZATION,
     STAGE0_IDENTITY_SCHEMA_VERSION,
-    build_pinned_clob_client,
+    build_unified_clob_client,
     credential_secret_hygiene,
     load_global_credential_bundle,
     parse_wincred_reference,
@@ -52,6 +52,10 @@ from weather.market.mm_official_adapter import (
     exact_current_positions_evidence,
     fetch_current_positions,
     installed_official_clob_version,
+)
+from weather.market.mm_official_transport import (
+    OfficialHeartbeatSender,
+    fetch_market_rule_endpoints,
 )
 from weather.market.mm_user_stream import OfficialUserStreamReader
 from weather.market.market_making_preflight import (
@@ -134,50 +138,73 @@ def build_live_pilot_context(
     user_stream_journal: str | Path,
     env=None,
     credential_loader=load_global_credential_bundle,
-    client_builder=build_pinned_clob_client,
+    client_builder=build_unified_clob_client,
     user_stream_factory=OfficialUserStreamReader,
     adapter_factory=OfficialPolymarketGlobalAdapter,
     position_fetcher=fetch_current_positions,
+    heartbeat_sender_factory=OfficialHeartbeatSender,
+    market_rule_fetcher=fetch_market_rule_endpoints,
 ) -> LivePilotContext:
     """Resolve credentials in memory and wire all authoritative live readers."""
 
     credentials = credential_loader(env)
     client = client_builder(credentials, identity)
-    maker_address = str(credentials.funder).strip()
-    condition = str(condition_id).strip().lower()
-    token = str(token_id).strip()
-    user_stream = user_stream_factory(
-        api_key=credentials.api_key,
-        secret=credentials.api_secret,
-        passphrase=credentials.api_passphrase,
-        maker_address=maker_address,
-        condition_id=condition,
-        token_id=token,
-        journal_path=user_stream_journal,
-    )
+    try:
+        maker_address = str(credentials.funder).strip()
+        condition = str(condition_id).strip().lower()
+        token = str(token_id).strip()
+        user_stream = user_stream_factory(
+            api_key=credentials.api_key,
+            secret=credentials.api_secret,
+            passphrase=credentials.api_passphrase,
+            maker_address=maker_address,
+            condition_id=condition,
+            token_id=token,
+            journal_path=user_stream_journal,
+        )
 
-    def position_reader():
-        return position_fetcher(maker_address, condition)
+        def position_reader():
+            return position_fetcher(maker_address, condition)
 
-    adapter = adapter_factory(
-        client,
-        token_id=token,
-        user_event_reader=user_stream.events,
-        user_event_health_reader=user_stream.health,
-        position_reader=position_reader,
-        maker_address=maker_address,
-        condition_id=condition,
-        authoritative_readers_verified=True,
-        max_order_notional=10.0,
-    )
-    if not adapter.diagnostics().get("supports_trading"):
-        raise RuntimeError("official adapter did not verify the authoritative reader boundary")
-    return LivePilotContext(
-        credentials=credentials,
-        client=client,
-        user_stream=user_stream,
-        adapter=adapter,
-    )
+        heartbeat_sender = heartbeat_sender_factory(
+            signer_address=client.signer,
+            api_key=credentials.api_key,
+            api_secret=credentials.api_secret,
+            api_passphrase=credentials.api_passphrase,
+        )
+
+        def market_rule_reader():
+            return market_rule_fetcher(token)
+
+        adapter = adapter_factory(
+            client,
+            token_id=token,
+            user_event_reader=user_stream.events,
+            user_event_health_reader=user_stream.health,
+            position_reader=position_reader,
+            heartbeat_sender=heartbeat_sender,
+            market_rule_reader=market_rule_reader,
+            maker_address=maker_address,
+            condition_id=condition,
+            authoritative_readers_verified=True,
+            max_order_notional=10.0,
+        )
+        if not adapter.diagnostics().get("supports_trading"):
+            raise RuntimeError("official adapter did not verify the authoritative reader boundary")
+        return LivePilotContext(
+            credentials=credentials,
+            client=client,
+            user_stream=user_stream,
+            adapter=adapter,
+        )
+    except BaseException:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        raise
 
 
 def wait_for_user_stream(
@@ -218,6 +245,7 @@ def _cleanup_context(context: LivePilotContext | None) -> dict:
         "zero_open_orders_verified": False,
         "zero_positions_verified": False,
         "user_stream_stopped": False,
+        "client_closed": False,
         "user_stream_journal_sha256": None,
         "ok": context is None,
         "exception_type": None,
@@ -256,12 +284,21 @@ def _cleanup_context(context: LivePilotContext | None) -> dict:
                 outcome["user_stream_journal_sha256"] = journal_sha256
         except Exception as exc:
             outcome["exception_type"] = outcome["exception_type"] or type(exc).__name__
+        try:
+            close = getattr(context.client, "close", None)
+            if not callable(close):
+                raise RuntimeError("official client does not expose close")
+            close()
+            outcome["client_closed"] = True
+        except Exception as exc:
+            outcome["exception_type"] = outcome["exception_type"] or type(exc).__name__
     outcome["ok"] = all(
         (
             outcome["cancel_all_sent"],
             outcome["zero_open_orders_verified"],
             outcome["zero_positions_verified"],
             outcome["user_stream_stopped"],
+            outcome["client_closed"],
             outcome["exception_type"] is None,
         )
     )

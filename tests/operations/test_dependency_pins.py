@@ -23,3 +23,11 @@ def test_requirements_and_pyproject_dependency_pins_match():
     requirements_deps = sorted(_requirements_dependencies(REPO_ROOT / "requirements.txt"))
 
     assert requirements_deps == pyproject_deps
+
+
+def test_live_trading_sdk_is_exactly_pinned_to_unified_official_client():
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["optional-dependencies"]["live"] == [
+        "polymarket-client==0.6.0"
+    ]

@@ -67,8 +67,8 @@ All must be current for the target date and selected market:
 1. Continuous execution capture is running and has produced rows. This remains
    ahead of the paper harvest lane in the approved sequence.
 2. The International economics snapshot passes and matches the live platform.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.1` passes for
-   the exact token and condition. This read-only, at-most-one-hour-old artifact
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.2` passes for
+   the exact token and condition. This non-order, at-most-one-hour-old artifact
    proves a fresh official physical geoblock response, explicit real-location
    match and no-circumvention confirmations, the isolated wallet identity,
    recorded cap, numeric collateral
@@ -78,7 +78,7 @@ All must be current for the target date and selected market:
    eligibility, a non-posting signed-order preview bound to the exact EOA/API
    owner, order signer, funder/maker, signature type, and token (raw signature
    discarded), account-wide
-   user stream, rotating heartbeat chain,
+   user stream, two current bodyless heartbeat acknowledgments,
    cancel-all-to-zero, SDK contract, and secret hygiene. It cannot authorize a
    general maker run.
 4. Credential references are present outside the repository. The API key,
@@ -91,15 +91,19 @@ All must be current for the target date and selected market:
    outside-repository importer documented below; never put a secret in
    `cmdkey /pass`, PowerShell history, a scheduled-task argument, or a reference
    URI. The loader does not print target names or resolved values.
-5. The official International CLOB client `py-clob-client-v2==1.1.0` is
+5. The official International CLOB client `polymarket-client==0.6.0` is
    installed from the `live` dependency extra and wrapped by a tested adapter.
    Its pinned client owns post-only placement, CLOB account reads,
    cancellation, and dead-man heartbeats. The existing hand-built request-plan
    adapter remains diagnostic and cannot authorize capital.
-   Placement stays disabled until authoritative user-event and position readers
-   are present and explicitly verified, the rotating heartbeat ID has been
-   acknowledged within 7.5 seconds, and a matching book/min-size/tick/neg-risk
-   snapshot has been read within 10 seconds.
+   `SecureClient.create` may deploy a missing default deposit wallet, so the
+   wrapper must first prove the exact supplied Safe/deposit wallet already
+   exists through the public relayer `/deployed` endpoint. Placement stays
+   disabled until authoritative user-event and position readers are present
+   and explicitly verified, a bodyless `/heartbeats` request has returned the
+   exact `{status: "ok"}` acknowledgment within 7.5 seconds, and matching
+   book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
+   seconds.
 6. Current live-readiness, data-layer, fleet, risk, release, and explicit
    confirmation gates all pass without overrides or exceptions.
 7. A simultaneous one-market paper counterfactual has quote permission and is
@@ -145,9 +149,9 @@ All must be current for the target date and selected market:
 ### Stage 1: dead-man and cancel proof
 
 - Start the exchange heartbeat and require acknowledged 5-second cadence.
-- Start the first heartbeat with an empty ID, then pass the returned
-  `heartbeat_id` into every subsequent request. A missing ID, broken chain, or
-  response older than 7.5 seconds disarms placement.
+- Send the current bodyless `POST /heartbeats`; every response must equal
+  `{status: "ok"}`. A malformed acknowledgment or response older than 7.5
+  seconds disarms placement.
 - Submit one far-from-mid, smallest-valid, post-only buy with notional no more
   than the band cap.
 - Require both the placement response and authenticated stream/open-order
@@ -156,7 +160,7 @@ All must be current for the target date and selected market:
   `RETRYING`, as an unexpected Stage 1 outcome. Send cancel-all, reconcile, and
   stop; zero positions from a potentially lagging account API is not sufficient
   no-fill evidence.
-- Continue the rotating heartbeat at no more than five-second intervals during
+- Continue the bodyless heartbeat at no more than five-second intervals during
   placement and observation. Before either cancellation proof, acknowledge one
   fresh heartbeat and prove the order is still open. Otherwise a slow
   observation could let the dead-man timer cancel the order and falsely credit
@@ -363,6 +367,10 @@ keyless doctor, and secured transfer verification, delete the source credential
 file using the eligible host's approved secure-deletion procedure. The importer
 never deletes it automatically.
 
+```powershell
+.\venv\Scripts\python.exe -m pip install -e ".[live]"
+```
+
 Run the keyless doctor before Stage 0. It validates the exact SDK version,
 Windows resolver availability, reference URI shapes and completeness, direct-
 secret absence, public-funder/identity equality, target/condition/token formats,
@@ -430,8 +438,8 @@ balance above the isolated-wallet cap, validates a public Data API position
 query scoped to the exact proxy wallet and condition, content-binds that query
 and the full account snapshot, locally constructs and hashes a signed minimum
 BUY without posting it, discards the raw signature, requires a live user-stream
-PONG, exercises two
-rotating five-second heartbeat acknowledgements, and sends cancel-all followed
+PONG, exercises two bodyless five-second heartbeat acknowledgements, and sends
+cancel-all followed
 by a zero-order query. The WebSocket does not document an initial account
 snapshot, so the gate does not invent one: REST establishes the starting state,
 PONG establishes transport liveness, and the first Stage 1 order event proves
@@ -542,37 +550,33 @@ or P&L from an intermediate exchange status alone.
 
 ## SDK decision record
 
-The 2026-08-13 adapter audit checked the official CLOB v2 client at tag
-`v1.1.0` against the official order and heartbeat documentation. That client
-uses `/v1/heartbeats`, accepts `OrderType.GTC` with `post_only=True`, returns a
-rotating `heartbeat_id`, and can return trade IDs before settlement hashes.
-Its convenience `create_and_post_order` helper owns an internal two-attempt
-order-version retry, so the pilot deliberately does not call it. The adapter
-calls local `create_order` followed by exactly one network `post_order`; an
-order-version rejection is a stop-and-reconcile event, not a retry.
-The generic API reference still prints `/heartbeats`; the pinned client's tag
-is the contract for this adapter, and the discrepancy must be rechecked before
-the first live session.
+The 2026-08-14 migration pins the official unified
+`polymarket-client==0.6.0`. The published wheel and its source were checked
+against the exact client construction, typed account readers, local limit-order
+signing, single-order post, cancellation, and L2 HMAC contracts. Current
+heartbeat documentation defines a bodyless `POST /heartbeats` with the exact
+`{status: "ok"}` acknowledgment. Because the unified SDK does not expose that
+REST method, `weather.market.mm_official_transport` provides only that one
+authenticated request; it is intentionally not a generic secret-bearing HTTP
+client.
 
-Polymarket now recommends its unified `polymarket-client` SDK for new projects.
-The current unified client has a stronger typed order/user-stream surface, but
-the audited public secure-client surface did not expose the maker dead-man
-heartbeat required by this pilot. Do not migrate merely because it is newer.
-Re-evaluate the unified client immediately before credentialed integration; use
-it only if the exact version proves post-only placement, rotating REST
-heartbeats, account-wide user events, cancel-all-to-zero, and asynchronous fill
-settlement in a keyless contract test.
+Two unified-client conveniences are unsafe for this bounded pilot. First,
+`SecureClient.create` can deploy a missing default deposit wallet. Client
+construction is therefore forbidden until a repository-owned public
+`/deployed` check proves the exact supplied Safe or deposit wallet already
+exists. Second, `place_limit_order` can recover missing allowance and retry.
+The adapter instead calls local `create_limit_order(..., post_only=True)` and
+then exactly one `post_order`. It verifies the signed token, signer, maker,
+signature type, signature shape, GTC type, and post-only flag before that sole
+submit. A rejection or ambiguous response is a stop-and-reconcile event, never
+permission for an automatic approval or retry.
 
-The 2026-08-14 recheck makes that comparison a current blocker rather than a
-future precaution. The official Python migration guide now explicitly tells
-previous `py-clob-client-v2` integrations to remove it and install
-`polymarket-client`. The public heartbeat reference still documents
-`POST /heartbeats` with a status acknowledgment, while the pinned v1.1.0 client
-uses `/v1/heartbeats` and a rotating ID. The v1.1.0 tag still exists, so this is
-not permission for an automatic migration. Before any credentialed Stage 0/1
-session, the selected exact client must pass the keyless capability contract
-above and then the eligible-host Stage 0 proof; an endpoint assumption from
-either documentation surface alone is insufficient.
+The direct account-wide WebSocket reader remains the authoritative user-event
+boundary, while the unified SDK owns authenticated REST reads and order
+signing/submission. Before any credentialed Stage 0/1 session, the exact wheel
+must be installed through the `live` extra on the eligible host, the fixed-scope
+host wrapper must pass the keyless doctor, and the eligible-host Stage 0 proof
+must pass. The successful source/wheel audit is not wallet or exchange evidence.
 
 The supplied Safe wallet's local cryptographic topology is proven, but its live
 exchange behavior is still unproven. Stage 0 must show that the exact signer,
@@ -582,15 +586,17 @@ must pass authenticated user-stream subscription, heartbeat, a signed-order
 preview or non-posting contract probe, and cancel-all. Do not rely on a manual
 UI-trade workaround or silently switch wallet/signature models after a failure.
 
-Official references reviewed on 2026-08-13:
+Official references reviewed through 2026-08-14:
 
 - <https://docs.polymarket.com/trading/overview>
 - <https://docs.polymarket.com/api-reference/authentication>
-- <https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0>
+- <https://github.com/Polymarket/py-sdk/tree/c8fb84bb51e60f790239056be7be0f5cc337d2e0>
 - <https://github.com/Polymarket/agent-skills/blob/main/order-patterns.md>
 - <https://github.com/Polymarket/py-sdk>
 - <https://docs.polymarket.com/getting-started/migrate-from-previous-sdks>
 - <https://docs.polymarket.com/api-reference/trade/send-heartbeat>
+- <https://docs.polymarket.com/trading/fees>
+- <https://docs.polymarket.com/api-reference/market-data/get-fee-rate>
 - <https://docs.polymarket.com/programs/maker-rebates>
 - <https://docs.polymarket.com/programs/liquidity-rewards>
 - <https://docs.polymarket.com/trading/orders/create>

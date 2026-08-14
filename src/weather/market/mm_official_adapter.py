@@ -27,8 +27,8 @@ from weather.market.mm_geoblock import (
 )
 
 
-OFFICIAL_CLOB_DISTRIBUTION = "py-clob-client-v2"
-OFFICIAL_CLOB_VERSION = "1.1.0"
+OFFICIAL_CLOB_DISTRIBUTION = "polymarket-client"
+OFFICIAL_CLOB_VERSION = "0.6.0"
 MAX_STAGE1_ORDER_NOTIONAL = Decimal("10")
 CURRENT_REBATES_URL = "https://clob.polymarket.com/rebates/current"
 CURRENT_POSITIONS_URL = "https://data-api.polymarket.com/positions"
@@ -519,23 +519,6 @@ def require_official_clob_version(version=None):
     return installed
 
 
-def _official_factories():
-    from py_clob_client_v2.clob_types import (
-        OrderArgsV2,
-        OrderPayload,
-        OrderType,
-        PartialCreateOrderOptions,
-    )
-
-    return OrderArgsV2, OrderPayload, OrderType, PartialCreateOrderOptions
-
-
-def _official_collateral_balance_params():
-    from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
-
-    return BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
-
-
 def _required_number(value, label):
     number = float(value)
     if not math.isfinite(number) or number <= 0:
@@ -564,6 +547,28 @@ def _value(payload, *names):
     return None
 
 
+def _plain_sdk_value(value):
+    """Normalize typed SDK models without retaining private client state."""
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return model_dump(mode="json", by_alias=False)
+    if isinstance(value, dict):
+        return {key: _plain_sdk_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_sdk_value(item) for item in value]
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def _paginator_items(paginator):
+    iterator = getattr(paginator, "iter_items", None)
+    if not callable(iterator):
+        raise RuntimeError("official SDK did not return the required paginator")
+    return [_plain_sdk_value(item) for item in iterator()]
+
+
 def _level_prices(levels):
     prices = []
     for level in levels or []:
@@ -578,7 +583,7 @@ def _level_prices(levels):
 
 
 class OfficialPolymarketGlobalAdapter:
-    """Protocol adapter around the pinned official CLOB v2 client.
+    """Protocol adapter around the pinned unified official CLOB client.
 
     Trading remains disabled unless callers also supply authoritative user
     events and position readers. This prevents an authenticated REST client
@@ -601,11 +606,8 @@ class OfficialPolymarketGlobalAdapter:
         maker_address=None,
         condition_id=None,
         rebate_payout_cycle_complete=False,
-        order_args_factory=None,
-        order_payload_factory=None,
-        order_type_factory=None,
-        order_options_factory=None,
-        collateral_balance_params=None,
+        heartbeat_sender=None,
+        market_rule_reader=None,
         sdk_version=None,
         authoritative_readers_verified=False,
         monotonic_clock=None,
@@ -629,11 +631,8 @@ class OfficialPolymarketGlobalAdapter:
         self.maker_address = str(maker_address or "").strip() or None
         self.condition_id = str(condition_id or "").strip().lower() or None
         self.rebate_payout_cycle_complete = bool(rebate_payout_cycle_complete)
-        self.order_args_factory = order_args_factory
-        self.order_payload_factory = order_payload_factory
-        self.order_type_factory = order_type_factory
-        self.order_options_factory = order_options_factory
-        self.collateral_balance_params = collateral_balance_params
+        self.heartbeat_sender = heartbeat_sender
+        self.market_rule_reader = market_rule_reader
         self.authoritative_readers_verified = bool(authoritative_readers_verified)
         self.monotonic_clock = monotonic_clock or time.monotonic
         self.sleeper = sleeper or time.sleep
@@ -664,13 +663,15 @@ class OfficialPolymarketGlobalAdapter:
             and user_event_reader
             and user_event_health_reader
             and position_reader
+            and heartbeat_sender
+            and market_rule_reader
             and EVM_ADDRESS_RE.fullmatch(self.maker_address or "")
             and CONDITION_ID_RE.fullmatch(self.condition_id or "")
             and self.authoritative_readers_verified
         )
         self._balance_allowance = None
         self._last_position_evidence = None
-        self._heartbeat_id = ""
+        self._heartbeat_acknowledgment_count = 0
         self._last_heartbeat_monotonic = None
         self._market_rules = None
         self._stage1_capability = None
@@ -703,7 +704,7 @@ class OfficialPolymarketGlobalAdapter:
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
             "ok": gate.get("ok") is True,
-            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.1",
+            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.2",
             "status": gate.get("status") == "PASS",
             "platform": gate.get("platform") == "polymarket_global",
             "settlement_unit": gate.get("settlement_unit") == "pUSD",
@@ -805,6 +806,10 @@ class OfficialPolymarketGlobalAdapter:
             blockers.append("authoritative user-event health reader is absent")
         if self.position_reader is None:
             blockers.append("authoritative position reader is absent")
+        if self.heartbeat_sender is None:
+            blockers.append("audited heartbeat sender is absent")
+        if self.market_rule_reader is None:
+            blockers.append("public market-rule cross-check reader is absent")
         if self.token_id is None:
             blockers.append("single allowed token is absent")
         if not EVM_ADDRESS_RE.fullmatch(self.maker_address or ""):
@@ -849,6 +854,8 @@ class OfficialPolymarketGlobalAdapter:
             "user_event_reader_present": self.user_event_reader is not None,
             "user_event_health_reader_present": self.user_event_health_reader is not None,
             "position_reader_present": self.position_reader is not None,
+            "heartbeat_sender_present": self.heartbeat_sender is not None,
+            "market_rule_reader_present": self.market_rule_reader is not None,
             "authoritative_readers_verified": self.authoritative_readers_verified,
             "redemption_reader_present": self.redemption_reader is not None,
             "rebate_reader_present": self.rebate_reader is not None,
@@ -859,33 +866,6 @@ class OfficialPolymarketGlobalAdapter:
             "secret_values_redacted": True,
             "blockers": blockers,
         }
-
-    def _factories(self):
-        if any(
-            factory is None
-            for factory in (
-                self.order_args_factory,
-                self.order_payload_factory,
-                self.order_type_factory,
-                self.order_options_factory,
-            )
-        ):
-            (
-                order_args_factory,
-                order_payload_factory,
-                order_type_factory,
-                order_options_factory,
-            ) = _official_factories()
-            self.order_args_factory = self.order_args_factory or order_args_factory
-            self.order_payload_factory = self.order_payload_factory or order_payload_factory
-            self.order_type_factory = self.order_type_factory or order_type_factory
-            self.order_options_factory = self.order_options_factory or order_options_factory
-        return (
-            self.order_args_factory,
-            self.order_payload_factory,
-            self.order_type_factory,
-            self.order_options_factory,
-        )
 
     def _require_order_placement(self):
         if not self.supports_trading:
@@ -922,7 +902,7 @@ class OfficialPolymarketGlobalAdapter:
         return rules
 
     def open_orders(self):
-        return list(self.client.get_open_orders() or [])
+        return _paginator_items(self.client.list_open_orders())
 
     def user_events(self):
         if self.user_event_reader is None:
@@ -952,11 +932,8 @@ class OfficialPolymarketGlobalAdapter:
 
     def _balance_allowance_snapshot(self):
         if self._balance_allowance is None:
-            params = self.collateral_balance_params
-            if params is None:
-                params = _official_collateral_balance_params()
-                self.collateral_balance_params = params
-            self._balance_allowance = self.client.get_balance_allowance(params=params) or {}
+            observed = self.client.get_balance_allowance(asset_type="COLLATERAL")
+            self._balance_allowance = _plain_sdk_value(observed or {})
         return self._balance_allowance
 
     def balances(self):
@@ -1036,16 +1013,16 @@ class OfficialPolymarketGlobalAdapter:
                 maker_rebate_evidence["rows"] = list(observed or [])
                 maker_rebate_evidence["status"] = "UNBOUND_RESPONSE"
         return {
-            "current_markets": list(self.client.get_current_rewards() or []),
+            "current_markets": _paginator_items(self.client.list_current_rewards()),
             "maker_rebate_evidence": maker_rebate_evidence,
         }
 
     def fees(self):
-        if not self.token_id:
+        if not self.token_id or not self._market_rules:
             return {}
         return {
             "token_id": self.token_id,
-            "fee_rate_bps": self.client.get_fee_rate_bps(self.token_id),
+            "fee_rate_bps": str(self._market_rules["fee_rate_bps"]),
         }
 
     def closed_only_mode(self):
@@ -1060,7 +1037,9 @@ class OfficialPolymarketGlobalAdapter:
     def refresh_market_rules(self):
         if not self.token_id:
             raise RuntimeError("market-rules refresh requires the adapter's single allowed token")
-        book = self.client.get_order_book(self.token_id)
+        if self.market_rule_reader is None:
+            raise RuntimeError("market-rules refresh requires public endpoint cross-checks")
+        book = self.client.get_order_book(token_id=self.token_id)
         observed_token = str(_value(book, "asset_id", "asset", "token_id") or "").strip()
         observed_condition = str(
             _value(book, "market", "condition_id", "conditionId") or ""
@@ -1077,8 +1056,11 @@ class OfficialPolymarketGlobalAdapter:
             _value(book, "tick_size", "minimum_tick_size"),
             "current book tick size",
         )
+        endpoints = self.market_rule_reader()
+        if not isinstance(endpoints, dict) or str(endpoints.get("token_id") or "") != self.token_id:
+            raise RuntimeError("market-rule endpoint evidence differs from the adapter token")
         endpoint_tick_size = _required_decimal(
-            self.client.get_tick_size(self.token_id),
+            endpoints.get("tick_size"),
             "current tick-size endpoint value",
         )
         if book_tick_size != endpoint_tick_size:
@@ -1086,6 +1068,14 @@ class OfficialPolymarketGlobalAdapter:
         neg_risk = _value(book, "neg_risk", "negRisk")
         if not isinstance(neg_risk, bool):
             raise RuntimeError("current order book does not declare neg-risk state")
+        if endpoints.get("neg_risk") is not neg_risk:
+            raise RuntimeError("order-book and neg-risk endpoint values disagree")
+        try:
+            fee_rate_bps = Decimal(str(endpoints.get("fee_rate_bps")))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise RuntimeError("current fee-rate endpoint value is invalid") from exc
+        if not fee_rate_bps.is_finite() or fee_rate_bps < 0:
+            raise RuntimeError("current fee-rate endpoint value is invalid")
         bid_prices = _level_prices(_value(book, "bids") or [])
         ask_prices = _level_prices(_value(book, "asks") or [])
         self._market_rules = {
@@ -1094,6 +1084,7 @@ class OfficialPolymarketGlobalAdapter:
             "min_order_size": min_order_size,
             "tick_size": book_tick_size,
             "neg_risk": neg_risk,
+            "fee_rate_bps": fee_rate_bps,
             "best_bid": max(bid_prices) if bid_prices else None,
             "best_ask": min(ask_prices) if ask_prices else None,
             "observed_monotonic": self.monotonic_clock(),
@@ -1105,6 +1096,7 @@ class OfficialPolymarketGlobalAdapter:
             "market_min_order_size": str(min_order_size),
             "market_tick_size": str(book_tick_size),
             "market_neg_risk": neg_risk,
+            "market_fee_rate_bps": str(fee_rate_bps),
             "market_best_bid": str(self._market_rules["best_bid"])
             if self._market_rules["best_bid"] is not None
             else None,
@@ -1138,7 +1130,9 @@ class OfficialPolymarketGlobalAdapter:
             "signature_type",
         )
         signature = str(_value(signed_order, "signature") or "").strip()
-        client_signer = str(self.client.get_address() or "").strip().lower()
+        client_signer = str(getattr(self.client, "signer", "") or "").strip().lower()
+        post_only = _value(signed_order, "post_only", "postOnly")
+        order_type = str(_value(signed_order, "order_type", "orderType") or "").upper()
         try:
             signed_signature_type = int(signed_signature_type)
         except (TypeError, ValueError) as exc:
@@ -1163,6 +1157,8 @@ class OfficialPolymarketGlobalAdapter:
                 signed_signature_type == int(expected_signature_type_id)
             ),
             "signature_valid": EVM_SIGNATURE_RE.fullmatch(signature) is not None,
+            "post_only_forced": post_only is True,
+            "order_type_is_gtc": order_type == "GTC",
         }
         missing = [name for name, valid in checks.items() if not valid]
         if missing:
@@ -1172,6 +1168,8 @@ class OfficialPolymarketGlobalAdapter:
             "maker_address": maker,
             "token_id": signed_token,
             "signature_type_id": signed_signature_type,
+            "post_only": post_only,
+            "order_type": order_type,
             "signature": signature,
         }
         return {
@@ -1219,19 +1217,15 @@ class OfficialPolymarketGlobalAdapter:
         if signature_type_id not in {0, 1, 2, 3}:
             raise RuntimeError("signed-order preview signature type is unsupported")
 
-        order_args_factory, _, _, order_options_factory = self._factories()
-        order_args = order_args_factory(
+        expiration = int(intent.get("expiration") or 0)
+        signed_order = self.client.create_limit_order(
             token_id=token_id,
-            price=float(price),
-            size=float(size),
+            price=price,
+            size=size,
             side=side,
-            expiration=int(intent.get("expiration") or 0),
+            post_only=True,
+            expiration=expiration or None,
         )
-        options = order_options_factory(
-            tick_size=str(rules["tick_size"]),
-            neg_risk=rules["neg_risk"],
-        )
-        signed_order = self.client.create_order(order_args, options=options)
         proof = self._signed_order_identity_proof(
             signed_order,
             token_id=token_id,
@@ -1247,29 +1241,24 @@ class OfficialPolymarketGlobalAdapter:
             **proof,
         }
 
-    def heartbeat(self, heartbeat_id=None):
+    def heartbeat(self):
         if not self.supports_trading:
             raise RuntimeError(
                 "official CLOB heartbeat requires verified authoritative user-event and position readers"
             )
-        requested_id = self._heartbeat_id if heartbeat_id is None else str(heartbeat_id or "")
-        if self._heartbeat_id and heartbeat_id is not None and requested_id != self._heartbeat_id:
-            raise RuntimeError("heartbeat id does not continue the acknowledged heartbeat chain")
-        response = self.client.post_heartbeat(requested_id)
-        raw_next_id = _value(response, "heartbeat_id")
-        next_id = raw_next_id.strip() if isinstance(raw_next_id, str) else ""
-        acknowledged = bool(next_id) and next_id != requested_id
+        response = self.heartbeat_sender.send()
+        acknowledged = response == {"status": "ok"}
         self._probe["heartbeat_acknowledged"] = acknowledged
         self._probe["heartbeat_stale"] = False
-        self._probe["heartbeat_id_rotated"] = acknowledged and next_id != requested_id
         if acknowledged:
-            self._heartbeat_id = next_id
+            self._heartbeat_acknowledgment_count += 1
+            self._probe["heartbeat_acknowledgment_count"] = (
+                self._heartbeat_acknowledgment_count
+            )
             self._last_heartbeat_monotonic = self.monotonic_clock()
         else:
             self._last_heartbeat_monotonic = None
-            raise RuntimeError(
-                "heartbeat response did not advance a nonempty string heartbeat id"
-            )
+            raise RuntimeError("heartbeat response did not acknowledge status ok")
         return response
 
     def place_order(self, intent, *, stage1_capability=None):
@@ -1299,9 +1288,12 @@ class OfficialPolymarketGlobalAdapter:
         if side == "SELL" and rules["best_bid"] is not None and price <= rules["best_bid"]:
             raise RuntimeError("post-only SELL would cross the fresh best bid")
         closed_only = self.closed_only_mode()
-        if isinstance(closed_only, dict) and bool_value(
-            closed_only.get("closed_only") or closed_only.get("closedOnly"),
-            False,
+        if closed_only is True or (
+            isinstance(closed_only, dict)
+            and bool_value(
+                closed_only.get("closed_only") or closed_only.get("closedOnly"),
+                False,
+            )
         ):
             raise RuntimeError("account is in closed-only mode")
         if side == "SELL":
@@ -1340,28 +1332,18 @@ class OfficialPolymarketGlobalAdapter:
             expected_country=self._stage1_geoblock_country,
             expected_region=self._stage1_geoblock_region,
         )
-        (
-            order_args_factory,
-            _,
-            order_type_factory,
-            order_options_factory,
-        ) = self._factories()
-        order_args = order_args_factory(
+        expiration = int(intent.get("expiration") or 0)
+        # Do not use place_limit_order. The unified client convenience method
+        # may mutate token allowances before retrying. Signing is local; the
+        # post_order call below is this capability's only network submit.
+        signed_order = self.client.create_limit_order(
             token_id=token_id,
-            price=float(price),
-            size=float(size),
+            price=price,
+            size=size,
             side=side,
-            expiration=int(intent.get("expiration") or 0),
+            post_only=True,
+            expiration=expiration or None,
         )
-        options = order_options_factory(
-            tick_size=str(rules["tick_size"]),
-            neg_risk=rules["neg_risk"],
-        )
-        # Do not use create_and_post_order here.  In v1.1.0 that helper owns
-        # an internal two-attempt order-version retry, which would violate this
-        # adapter's one-network-submit capability.  Signing is local/read-only;
-        # post_order below is the single mutation.
-        signed_order = self.client.create_order(order_args, options=options)
         signed_proof = self._signed_order_identity_proof(
             signed_order,
             token_id=token_id,
@@ -1371,11 +1353,7 @@ class OfficialPolymarketGlobalAdapter:
             "signed_order_sha256"
         ]
         try:
-            response = self.client.post_order(
-                signed_order,
-                order_type=order_type_factory.GTC,
-                post_only=True,
-            )
+            response = self.client.post_order(signed_order)
         except Exception:
             self._probe["ambiguous_order_submit"] = True
             try:
@@ -1386,11 +1364,12 @@ class OfficialPolymarketGlobalAdapter:
         self._probe["post_only_order_attempted"] = True
         order_id = _value(response, "orderID", "order_id")
         status = str(_value(response, "status") or "").lower()
-        successful = _value(response, "success") is True
+        successful = _value(response, "ok", "success") is True
         trade_ids = _value(response, "tradeIDs", "trade_ids") or []
         transaction_hashes = _value(
             response,
             "transactionsHashes",
+            "transactions_hashes",
             "transaction_hashes",
         ) or []
         self._probe["last_order_id"] = str(order_id) if order_id else None
@@ -1401,14 +1380,13 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError(
                 "post-only placement did not return an execution-free live order; cancel-all sent"
             )
-        return response
+        return _plain_sdk_value(response)
 
     def get_order(self, order_id):
-        return self.client.get_order(str(order_id))
+        return _plain_sdk_value(self.client.get_order(order_id=str(order_id)))
 
     def cancel_order(self, order_id):
-        _, order_payload_factory, _, _ = self._factories()
-        return self.client.cancel_order(order_payload_factory(orderID=str(order_id)))
+        return _plain_sdk_value(self.client.cancel_order(order_id=str(order_id)))
 
     def cancel_all(self):
         response = self.client.cancel_all()
@@ -1426,4 +1404,4 @@ class OfficialPolymarketGlobalAdapter:
         self._last_heartbeat_monotonic = None
         if remaining:
             raise RuntimeError("cancel-all did not converge to zero open orders")
-        return response
+        return _plain_sdk_value(response)

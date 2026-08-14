@@ -36,11 +36,12 @@ behavior before any size increase.
   min-size/tick/post-only rejection checks, one tiny two-sided quote, cancel-all
   verification, balance-reserve reconciliation, and user WebSocket lifecycle
   verification.
-- [ ] Re-prove the exact selected SDK against the current official post-only,
+- [x] Re-prove the exact selected SDK against the current official post-only,
   heartbeat, account-reader, user-stream, cancellation, and asynchronous
-  settlement contract before credentialed integration. The current migration
-  guide prefers the unified SDK while the pinned v1.1.0 heartbeat surface
-  differs from the generic API reference; neither source alone closes this.
+  settlement contract before credentialed integration. The selected
+  `polymarket-client==0.6.0` source and published wheel passed the keyless
+  contract audit on 2026-08-14; eligible-host wallet and exchange evidence
+  remain separate open gates.
 - [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
   genuinely eligible execution host. Do not add a generic repository live
   mutation CLI to close this item.
@@ -59,6 +60,34 @@ paper gates, SLO gates, risk caps, and operator confirmations pass; every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-08-14 unified-client migration
+
+The live extra now pins the official `polymarket-client==0.6.0`; the obsolete
+CLOB-v2 package is no longer an executable dependency. The adapter uses the
+unified typed account, book, reward, signed-order, post, and cancellation
+surfaces. It preserves the one-submit capability by calling local
+`create_limit_order(..., post_only=True)` followed by exactly one `post_order`,
+never the allowance-recovering convenience placement method. Signed-order
+proof now includes GTC and post-only fields.
+
+Two explicit shims close gaps without creating a second trading client. A
+public relayer `/deployed` preflight proves the exact Safe/deposit wallet exists
+before `SecureClient.create`, preventing that constructor from deploying a
+wallet during Stage 0. A one-purpose authenticated sender implements the
+current bodyless `POST /heartbeats` contract and requires the exact
+`{status: "ok"}` response. Public tick, neg-risk, and fee endpoints are also
+cross-checked against the typed book. Bootstrap schema v0.2 removes obsolete
+rotating-ID fields. Mutation remains unavailable without authoritative
+account-wide user-event health and exact-scope position readers.
+
+Keyless evidence passed against both the checked source and the isolated
+published wheel. Repository verification covers the adapter, protocol shim,
+credential factory, Stage 0/1 lifecycle, bounded pilot CLI, readiness gates,
+and exact dependency pin. Still open: deploy the fixed-purpose wrapper on the
+physically eligible host, install the live extra there, run doctor and Stage 0,
+then collect the two small Stage 1 cancellation proofs before a rebate-producing
+quote is considered.
 
 Exchange harness update (2026-06-16 UTC): `weather.market.mm_exchange`
 introduces the keyless item-67 adapter boundary. The CLI wrapper

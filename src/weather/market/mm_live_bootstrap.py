@@ -43,21 +43,24 @@ from weather.market.mm_geoblock import (
 )
 
 
-SCHEMA_VERSION = "mm_platform_bootstrap_v0.1"
+SCHEMA_VERSION = "mm_platform_bootstrap_v0.2"
 PLATFORM_ID = "polymarket_global"
 API_BASE_URL = "https://polymarket.com"
 CLOB_HOST = "https://clob.polymarket.com"
-HEARTBEAT_ENDPOINT = "/v1/heartbeats"
+HEARTBEAT_ENDPOINT = "/heartbeats"
 MAX_BOOTSTRAP_AGE_HOURS = 1.0
 MAX_STAGE0_USER_STREAM_JOURNAL_BYTES = 10_000_000
 REQUIRED_SOURCE_URLS = {
-    "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
+    "https://github.com/Polymarket/py-sdk/tree/c8fb84bb51e60f790239056be7be0f5cc337d2e0",
+    "https://docs.polymarket.com/getting-started/migrate-from-previous-sdks",
+    "https://docs.polymarket.com/api-reference/trade/send-heartbeat",
     "https://docs.polymarket.com/api-reference/authentication",
     "https://docs.polymarket.com/trading/overview",
     "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
     "https://docs.polymarket.com/api-reference/wss/user",
     "https://docs.polymarket.com/trading/orders/overview",
     "https://docs.polymarket.com/trading/fees",
+    "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
     "https://docs.polymarket.com/programs/maker-rebates",
     "https://docs.polymarket.com/concepts/pusd",
     GEOBLOCK_DOCUMENTATION_URL,
@@ -99,8 +102,10 @@ def _atomic_collateral_to_usdc(value, field_name):
 
 
 def _closed_only_value(payload):
+    if isinstance(payload, bool):
+        return payload
     if not isinstance(payload, dict):
-        raise RuntimeError("closed-only response must be an object")
+        raise RuntimeError("closed-only response must be boolean or an object")
     if "closed_only" in payload:
         value = payload["closed_only"]
     elif "closedOnly" in payload:
@@ -173,7 +178,7 @@ def collect_platform_bootstrap_payload(
         raise RuntimeError("Stage 0 user stream has no proven server heartbeat")
 
     client = getattr(adapter, "client", None)
-    signer_address = str(client.get_address() if client is not None else "").strip()
+    signer_address = str(getattr(client, "signer", "") if client is not None else "").strip()
     if not valid_evm_address(signer_address):
         raise RuntimeError("pinned SDK did not expose a valid signer address")
 
@@ -255,22 +260,21 @@ def collect_platform_bootstrap_payload(
     sleep = sleeper or time.sleep
     try:
         first_started = clock()
-        first = adapter.heartbeat("")
+        first = adapter.heartbeat()
         first_elapsed = clock() - first_started
-        first_id = str((first or {}).get("heartbeat_id") or "").strip()
         sleep(cadence)
         second_started = clock()
-        second = adapter.heartbeat(first_id)
+        second = adapter.heartbeat()
         second_elapsed = clock() - second_started
-        second_id = str((second or {}).get("heartbeat_id") or "").strip()
         if (
-            not first_id
-            or not second_id
-            or first_id == second_id
+            first != {"status": "ok"}
+            or second != {"status": "ok"}
+            or first_elapsed < 0
+            or second_elapsed < 0
             or first_elapsed > 7.5
             or second_elapsed > 7.5
         ):
-            raise RuntimeError("Stage 0 did not prove the rotating heartbeat chain")
+            raise RuntimeError("Stage 0 did not prove two current heartbeat acknowledgments")
     except Exception:
         try:
             adapter.cancel_all()
@@ -374,13 +378,14 @@ def collect_platform_bootstrap_payload(
         "dead_man_heartbeat": {
             "endpoint": HEARTBEAT_ENDPOINT,
             "endpoint_verified": True,
-            "initial_empty_id_verified": True,
-            "rotating_id_chain_verified": True,
+            "request_body_absent_verified": True,
+            "two_acknowledgments_verified": True,
+            "acknowledgment_count": 2,
             "acknowledgment_verified": True,
             "cadence_seconds": cadence,
             "first_ack_seconds": first_elapsed,
             "second_ack_seconds": second_elapsed,
-            "heartbeat_chain_sha256": _canonical_sha256([first_id, second_id]),
+            "heartbeat_acknowledgments_sha256": _canonical_sha256([first, second]),
         },
         "cancel_all": {
             "request_verified": True,
@@ -739,13 +744,14 @@ def load_platform_bootstrap_gate(
             heartbeat.get("endpoint") == HEARTBEAT_ENDPOINT
             and bool_value(heartbeat.get("endpoint_verified"), False)
         ),
-        "heartbeat_initial_empty_id_verified": bool_value(
-            heartbeat.get("initial_empty_id_verified"),
+        "heartbeat_request_body_absent_verified": bool_value(
+            heartbeat.get("request_body_absent_verified"),
             False,
         ),
-        "heartbeat_rotating_id_chain_verified": bool_value(
-            heartbeat.get("rotating_id_chain_verified"),
-            False,
+        "heartbeat_two_acknowledgments_verified": (
+            bool_value(heartbeat.get("two_acknowledgments_verified"), False)
+            and heartbeat.get("acknowledgment_count") == 2
+            and len(str(heartbeat.get("heartbeat_acknowledgments_sha256") or "")) == 64
         ),
         "heartbeat_acknowledgment_verified": bool_value(
             heartbeat.get("acknowledgment_verified"),

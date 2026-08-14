@@ -79,7 +79,7 @@ def official_stage1_gate(adapter, snapshot_character="b"):
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.1",
+        "schema_version": "mm_platform_bootstrap_v0.2",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
@@ -275,7 +275,7 @@ class TestMMExchange(unittest.TestCase):
             maker_address=maker_address,
             condition_id=condition_id,
             authoritative_readers_verified=True,
-            sdk_version="1.1.0",
+            sdk_version="0.6.0",
         )
         self.assertEqual(normalized_adapter.user_events(), confirmed)
 
@@ -396,41 +396,42 @@ class TestMMExchange(unittest.TestCase):
             def __init__(self):
                 self.calls = []
                 self.open_orders = []
-                self.heartbeat_counter = 0
+                self.signer = "0x" + "d" * 40
                 self.signed_maker = "0x" + "a" * 40
                 self.signed_signer = None
                 self.signature_type = 3
                 self.book_asset_id = "token-80"
                 self.book_condition_id = "0x" + "b" * 64
                 self.next_order_response = {
-                    "success": True,
-                    "orderID": "order-1",
+                    "ok": True,
+                    "order_id": "order-1",
                     "status": "live",
-                    "tradeIDs": [],
-                    "transactionsHashes": [],
+                    "trade_ids": [],
+                    "transactions_hashes": [],
                 }
 
-            def get_open_orders(self):
-                self.calls.append(("get_open_orders",))
-                return list(self.open_orders)
+            class Paginator:
+                def __init__(self, rows):
+                    self.rows = rows
 
-            def get_address(self):
-                return "0x" + "d" * 40
+                def iter_items(self):
+                    return iter(self.rows)
 
-            def get_balance_allowance(self, *, params):
-                self.calls.append(("get_balance_allowance", params))
+            def list_open_orders(self):
+                self.calls.append(("list_open_orders",))
+                return self.Paginator(list(self.open_orders))
+
+            def get_balance_allowance(self, *, asset_type):
+                self.calls.append(("get_balance_allowance", asset_type))
                 return {"balance": "100", "allowances": {"exchange": "100"}}
 
-            def get_current_rewards(self):
-                return [{"condition_id": "condition-1"}]
-
-            def get_fee_rate_bps(self, token_id):
-                return 50 if token_id == "token-80" else 0
+            def list_current_rewards(self):
+                return self.Paginator([{"condition_id": "condition-1"}])
 
             def get_closed_only_mode(self):
-                return {"closed_only": False}
+                return False
 
-            def get_order_book(self, token_id):
+            def get_order_book(self, *, token_id):
                 self.calls.append(("get_order_book", token_id))
                 return {
                     "asset_id": self.book_asset_id,
@@ -442,62 +443,64 @@ class TestMMExchange(unittest.TestCase):
                     "asks": [{"price": "0.51", "size": "10"}],
                 }
 
-            def get_tick_size(self, token_id):
-                self.calls.append(("get_tick_size", token_id))
-                return "0.01"
-
-            def post_heartbeat(self, heartbeat_id):
-                self.calls.append(("post_heartbeat", heartbeat_id))
-                self.heartbeat_counter += 1
-                return {"heartbeat_id": f"hb-{self.heartbeat_counter}"}
-
-            def create_order(self, order, *, options):
-                self.calls.append(("create_order", order, options))
+            def create_limit_order(self, **order):
+                self.calls.append(("create_limit_order", order))
                 return {
                     "signer": self.signed_signer or (
                         self.signed_maker
                         if self.signature_type == 3
-                        else self.get_address()
+                        else self.signer
                     ),
                     "maker": self.signed_maker,
-                    "tokenId": order["token_id"],
-                    "signatureType": self.signature_type,
+                    "token_id": order["token_id"],
+                    "signature_type": self.signature_type,
                     "signature": "0x" + "f" * 130,
+                    "post_only": order["post_only"],
+                    "order_type": "GTC",
                 }
 
-            def post_order(self, signed_order, *, order_type, post_only):
-                self.calls.append(("post_order", signed_order, order_type, post_only))
+            def post_order(self, signed_order):
+                self.calls.append(("post_order", signed_order))
                 return dict(self.next_order_response)
 
-            def get_order(self, order_id):
+            def get_order(self, *, order_id):
                 return {"id": order_id}
 
-            def cancel_order(self, payload):
-                self.calls.append(("cancel_order", payload))
-                return {"canceled": payload["orderID"]}
+            def cancel_order(self, *, order_id):
+                self.calls.append(("cancel_order", order_id))
+                return {"canceled": [order_id]}
 
             def cancel_all(self):
                 self.calls.append(("cancel_all",))
                 self.open_orders = []
-                return {"canceled": True}
+                return {"canceled": ["order-1"], "not_canceled": {}}
 
-        with self.assertRaisesRegex(RuntimeError, "observed 1.0.0"):
-            require_official_clob_version("1.0.0")
+        class FakeHeartbeatSender:
+            def __init__(self, response=None):
+                self.response = response or {"status": "ok"}
+                self.calls = 0
+
+            def send(self):
+                self.calls += 1
+                return dict(self.response)
+
+        with self.assertRaisesRegex(RuntimeError, "observed 0.5.0"):
+            require_official_clob_version("0.5.0")
 
         client = FakeClient()
-        read_only = OfficialPolymarketGlobalAdapter(client, sdk_version="1.1.0")
+        read_only = OfficialPolymarketGlobalAdapter(client, sdk_version="0.6.0")
         self.assertFalse(read_only.supports_trading)
         with self.assertRaisesRegex(RuntimeError, "verified authoritative user-event"):
             read_only.place_order({"token_id": "token-80", "price": 0.49, "size": 5, "side": "BUY"})
 
         raised_ceiling = OfficialPolymarketGlobalAdapter(
             client,
-            sdk_version="1.1.0",
+            sdk_version="0.6.0",
             max_order_notional=100,
         )
         lowered_ceiling = OfficialPolymarketGlobalAdapter(
             client,
-            sdk_version="1.1.0",
+            sdk_version="0.6.0",
             max_order_notional=2,
         )
         self.assertEqual(raised_ceiling.max_order_notional, Decimal("10"))
@@ -511,16 +514,13 @@ class TestMMExchange(unittest.TestCase):
             client,
             user_event_reader=lambda: [],
             position_reader=lambda: [],
-            sdk_version="1.1.0",
+            sdk_version="0.6.0",
         )
         self.assertFalse(unverified.supports_trading)
 
         clock = [100.0]
 
-        class FakeOrderType:
-            GTC = "GTC"
-
-        def make_adapter(bound_client):
+        def make_adapter(bound_client, *, heartbeat_sender=None, market_rule_reader=None):
             return OfficialPolymarketGlobalAdapter(
                 bound_client,
                 token_id="token-80",
@@ -538,12 +538,14 @@ class TestMMExchange(unittest.TestCase):
                 maker_address="0x" + "a" * 40,
                 condition_id="0x" + "b" * 64,
                 rebate_payout_cycle_complete=True,
-                order_args_factory=lambda **kwargs: kwargs,
-                order_payload_factory=lambda **kwargs: kwargs,
-                order_type_factory=FakeOrderType,
-                order_options_factory=lambda **kwargs: kwargs,
-                collateral_balance_params={"asset_type": "COLLATERAL"},
-                sdk_version="1.1.0",
+                heartbeat_sender=heartbeat_sender or FakeHeartbeatSender(),
+                market_rule_reader=market_rule_reader or (lambda: {
+                    "token_id": "token-80",
+                    "tick_size": "0.01",
+                    "neg_risk": False,
+                    "fee_rate_bps": 50,
+                }),
+                sdk_version="0.6.0",
                 authoritative_readers_verified=True,
                 monotonic_clock=lambda: clock[0],
                 geoblock_checker=eligible_geoblock,
@@ -558,7 +560,7 @@ class TestMMExchange(unittest.TestCase):
                 "size": 5,
                 "side": "BUY",
             })
-        self.assertEqual(adapter.heartbeat(), {"heartbeat_id": "hb-1"})
+        self.assertEqual(adapter.heartbeat(), {"status": "ok"})
         with self.assertRaisesRegex(RuntimeError, "fresh market-rules snapshot"):
             adapter.place_order({
                 "token_id": "token-80",
@@ -596,6 +598,28 @@ class TestMMExchange(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "order-book condition differs"):
             make_adapter(wrong_book_condition_client).refresh_market_rules()
 
+        with self.assertRaisesRegex(RuntimeError, "tick-size endpoint values disagree"):
+            make_adapter(
+                FakeClient(),
+                market_rule_reader=lambda: {
+                    "token_id": "token-80",
+                    "tick_size": "0.001",
+                    "neg_risk": False,
+                    "fee_rate_bps": 50,
+                },
+            ).refresh_market_rules()
+
+        with self.assertRaisesRegex(RuntimeError, "neg-risk endpoint values disagree"):
+            make_adapter(
+                FakeClient(),
+                market_rule_reader=lambda: {
+                    "token_id": "token-80",
+                    "tick_size": "0.01",
+                    "neg_risk": True,
+                    "fee_rate_bps": 50,
+                },
+            ).refresh_market_rules()
+
         safe_client = FakeClient()
         safe_client.signature_type = 2
         safe_adapter = make_adapter(safe_client)
@@ -613,8 +637,52 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(safe_preview["order_signer_address"], "0x" + "d" * 40)
         self.assertEqual(safe_preview["maker_address"], "0x" + "a" * 40)
 
+        not_post_only_client = FakeClient()
+        original_create_limit = not_post_only_client.create_limit_order
+
+        def create_non_post_only(**order):
+            signed = original_create_limit(**order)
+            signed["post_only"] = False
+            return signed
+
+        not_post_only_client.create_limit_order = create_non_post_only
+        not_post_only_adapter = make_adapter(not_post_only_client)
+        not_post_only_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(RuntimeError, "post_only_forced"):
+            not_post_only_adapter.preview_signed_order(
+                {
+                    "token_id": "token-80",
+                    "price": 0.01,
+                    "size": 5,
+                    "side": "BUY",
+                },
+                expected_signature_type_id=3,
+            )
+
+        non_gtc_client = FakeClient()
+        original_create_limit = non_gtc_client.create_limit_order
+
+        def create_non_gtc(**order):
+            signed = original_create_limit(**order)
+            signed["order_type"] = "FAK"
+            return signed
+
+        non_gtc_client.create_limit_order = create_non_gtc
+        non_gtc_adapter = make_adapter(non_gtc_client)
+        non_gtc_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(RuntimeError, "order_type_is_gtc"):
+            non_gtc_adapter.preview_signed_order(
+                {
+                    "token_id": "token-80",
+                    "price": 0.01,
+                    "size": 5,
+                    "side": "BUY",
+                },
+                expected_signature_type_id=3,
+            )
+
         eoa_order_signer_client = FakeClient()
-        eoa_order_signer_client.signed_signer = eoa_order_signer_client.get_address()
+        eoa_order_signer_client.signed_signer = eoa_order_signer_client.signer
         eoa_order_signer_adapter = make_adapter(eoa_order_signer_client)
         eoa_order_signer_adapter.refresh_market_rules()
         with self.assertRaisesRegex(
@@ -697,14 +765,14 @@ class TestMMExchange(unittest.TestCase):
 
         malformed_signature_client = FakeClient()
         malformed_signature_client.signature_type = 2
-        original_create_order = malformed_signature_client.create_order
+        original_create_order = malformed_signature_client.create_limit_order
 
-        def create_malformed_order(order, *, options):
-            signed = original_create_order(order, options=options)
+        def create_malformed_order(**order):
+            signed = original_create_order(**order)
             signed["signature"] = "present-but-not-an-eip-signature"
             return signed
 
-        malformed_signature_client.create_order = create_malformed_order
+        malformed_signature_client.create_limit_order = create_malformed_order
         malformed_signature_adapter = make_adapter(malformed_signature_client)
         malformed_signature_adapter.refresh_market_rules()
         with self.assertRaisesRegex(RuntimeError, "signature_valid"):
@@ -719,20 +787,11 @@ class TestMMExchange(unittest.TestCase):
             )
 
         malformed_heartbeat_client = FakeClient()
-        malformed_heartbeat_client.post_heartbeat = lambda _heartbeat_id: {
-            "heartbeat_id": 123,
-        }
-        with self.assertRaisesRegex(RuntimeError, "nonempty string heartbeat id"):
-            make_adapter(malformed_heartbeat_client).heartbeat()
-
-        repeated_heartbeat_client = FakeClient()
-        repeated_heartbeat_client.post_heartbeat = lambda _heartbeat_id: {
-            "heartbeat_id": "hb-static",
-        }
-        repeated_heartbeat_adapter = make_adapter(repeated_heartbeat_client)
-        repeated_heartbeat_adapter.heartbeat()
-        with self.assertRaisesRegex(RuntimeError, "nonempty string heartbeat id"):
-            repeated_heartbeat_adapter.heartbeat()
+        with self.assertRaisesRegex(RuntimeError, "acknowledge status ok"):
+            make_adapter(
+                malformed_heartbeat_client,
+                heartbeat_sender=FakeHeartbeatSender({"status": "unexpected"}),
+            ).heartbeat()
 
         stopped_stream_client = FakeClient()
         stopped_stream_adapter = make_adapter(stopped_stream_client)
@@ -752,15 +811,35 @@ class TestMMExchange(unittest.TestCase):
             for call in stopped_stream_client.calls
         ))
 
+        closed_only_client = FakeClient()
+        closed_only_client.get_closed_only_mode = lambda: True
+        closed_only_adapter = make_adapter(closed_only_client)
+        closed_only_adapter.heartbeat()
+        closed_only_adapter.refresh_market_rules()
+        closed_only_capability = closed_only_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(closed_only_adapter, snapshot_character="3")
+        )
+        with self.assertRaisesRegex(RuntimeError, "closed-only mode"):
+            closed_only_adapter.place_order(
+                valid_intent,
+                stage1_capability=closed_only_capability,
+            )
+        self.assertFalse(any(
+            call[0] == "post_order"
+            for call in closed_only_client.calls
+        ))
+
         with self.assertRaisesRegex(RuntimeError, "Stage 1 lifecycle capability"):
             adapter.place_order(valid_intent)
         capability = adapter.authorize_stage1_lifecycle(official_stage1_gate(adapter))
         response = adapter.place_order(valid_intent, stage1_capability=capability)
-        self.assertTrue(response["success"])
+        self.assertTrue(response["ok"])
         post_call = next(call for call in client.calls if call[0] == "post_order")
-        self.assertEqual(post_call[2:], ("GTC", True))
-        create_calls = [call for call in client.calls if call[0] == "create_order"]
+        self.assertTrue(post_call[1]["post_only"])
+        self.assertEqual(post_call[1]["order_type"], "GTC")
+        create_calls = [call for call in client.calls if call[0] == "create_limit_order"]
         self.assertEqual(create_calls[-1][1]["token_id"], "token-80")
+        self.assertTrue(create_calls[-1][1]["post_only"])
 
         with self.assertRaisesRegex(RuntimeError, "below the current market minimum"):
             adapter.place_order({
@@ -816,10 +895,11 @@ class TestMMExchange(unittest.TestCase):
 
         unsafe_client = FakeClient()
         unsafe_client.next_order_response = {
-            "success": True,
-            "orderID": "order-unsafe",
+            "ok": True,
+            "order_id": "order-unsafe",
             "status": "matched",
-            "tradeIDs": ["trade-1"],
+            "trade_ids": ["trade-1"],
+            "transactions_hashes": [],
         }
         unsafe_adapter = make_adapter(unsafe_client)
         unsafe_adapter.heartbeat()
@@ -836,8 +916,33 @@ class TestMMExchange(unittest.TestCase):
             unsafe_adapter.probe_evidence()["cancel_all_zero_open_orders_verified"]
         )
 
+        settlement_hash_client = FakeClient()
+        settlement_hash_client.next_order_response = {
+            "ok": True,
+            "order_id": "order-unsafe-hash",
+            "status": "live",
+            "trade_ids": [],
+            "transactions_hashes": ["0x" + "1" * 64],
+        }
+        settlement_hash_adapter = make_adapter(settlement_hash_client)
+        settlement_hash_adapter.heartbeat()
+        settlement_hash_adapter.refresh_market_rules()
+        settlement_hash_capability = settlement_hash_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(settlement_hash_adapter, snapshot_character="f")
+        )
+        with self.assertRaisesRegex(RuntimeError, "execution-free live order"):
+            settlement_hash_adapter.place_order(
+                valid_intent,
+                stage1_capability=settlement_hash_capability,
+            )
+        self.assertTrue(
+            settlement_hash_adapter.probe_evidence()[
+                "cancel_all_zero_open_orders_verified"
+            ]
+        )
+
         malformed_success_client = FakeClient()
-        malformed_success_client.next_order_response["success"] = "false"
+        malformed_success_client.next_order_response["ok"] = "false"
         malformed_success_adapter = make_adapter(malformed_success_client)
         malformed_success_adapter.heartbeat()
         malformed_success_adapter.refresh_market_rules()
@@ -860,9 +965,7 @@ class TestMMExchange(unittest.TestCase):
             ]
         )
 
-        with self.assertRaisesRegex(RuntimeError, "heartbeat id does not continue"):
-            adapter.heartbeat("stale-id")
-        self.assertEqual(adapter.heartbeat(), {"heartbeat_id": "hb-2"})
+        self.assertEqual(adapter.heartbeat(), {"status": "ok"})
         clock[0] += 8
         with self.assertRaisesRegex(RuntimeError, "fresh heartbeat"):
             adapter.place_order({
@@ -878,7 +981,7 @@ class TestMMExchange(unittest.TestCase):
             sum(1 for call in client.calls if call[0] == "get_balance_allowance"),
             1,
         )
-        self.assertEqual(adapter.fees()["fee_rate_bps"], 50)
+        self.assertEqual(adapter.fees()["fee_rate_bps"], "50")
         self.assertEqual(
             adapter.rewards()["maker_rebate_evidence"]["rows"][0]["rebated_fees_usdc"],
             "1.25",
@@ -1090,18 +1193,17 @@ class TestMMExchange(unittest.TestCase):
         self.assertIn("private_user_stream_required", report_text)
         self.assertIn("latency_stopgap_reject_handling_required", report_text)
 
-    def test_global_heartbeat_uses_v1_endpoint(self):
+    def test_global_heartbeat_uses_current_bodyless_endpoint(self):
         plan = build_adapter_request_plan(
             "polymarket_global",
             "heartbeat",
-            metadata={"heartbeat_id": "hb-1"},
             signer=lambda message: b"signed",
             timestamp_ms="1234",
         )
 
         self.assertEqual(plan["method"], "POST")
-        self.assertEqual(plan["path"], "/v1/heartbeats")
-        self.assertEqual(plan["body"], {"heartbeat_id": "hb-1"})
+        self.assertEqual(plan["path"], "/heartbeats")
+        self.assertIsNone(plan["body"])
         self.assertTrue(plan["ready"])
 
     def test_polymarket_us_private_ws_events_map_to_lifecycle_rows(self):
@@ -1512,7 +1614,7 @@ class TestMMExchange(unittest.TestCase):
 
         self.assertEqual(heartbeat["status"], "ok")
         self.assertTrue(posted["success"])
-        self.assertEqual(heartbeat_request["url"], "https://clob.polymarket.com/v1/heartbeats")
+        self.assertEqual(heartbeat_request["url"], "https://clob.polymarket.com/heartbeats")
         self.assertEqual(post_request["method"], "POST")
         self.assertEqual(post_request["url"], "https://clob.polymarket.com/order")
         self.assertEqual(post_request["headers"]["POLY_SIGNATURE"], "ZmFrZS1nbG9iYWwtc2lnbmF0dXJl")
