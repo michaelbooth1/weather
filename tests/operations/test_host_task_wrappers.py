@@ -26,6 +26,20 @@ def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
         assert r"C:\Users\micha" not in text, path.name
 
 
+def test_location_refresh_revalidates_target_date_before_success() -> None:
+    text = (ROOT / "scripts" / "ops" / "refresh_location_config.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+
+    refresh = '"weather.operations.location_config_refresh"'
+    validation = '"weather.operations.event_metadata_validation"'
+    assert text.index(refresh) < text.index(validation)
+    assert '$targetDate = (Get-Date).ToString("yyyy-MM-dd")' in text
+    assert 'if ([string]$validation.target_date -ne $targetDate' in text
+    assert '[string]$validation.status -ne "PASS"' in text
+    assert "--no-live-fetch" not in text
+
+
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     wrapper = (ROOT / "scripts" / "ops" / "market_making_daily_roll_task.ps1").read_text(
         encoding="utf-8-sig"

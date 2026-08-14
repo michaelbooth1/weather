@@ -26,6 +26,12 @@ Refresh generated market-event metadata:
 python -m weather.operations.location_config_refresh --locations config\locations.json --event-metadata config\location_market_events.json
 ```
 
+On the production host, `scripts/ops/refresh_location_config.ps1` follows that
+refresh with an independent live target-date validation and reports task
+success only when its receipt is readable, dated today, and `PASS`. Keep the
+validation after the refresh: the 07:05 paper-maker launch precedes the 09:30
+daily chain that otherwise produces this gate.
+
 Event and location counts are volatile. Read the generated JSON or run the
 inventory command for current values rather than copying them into prose.
 

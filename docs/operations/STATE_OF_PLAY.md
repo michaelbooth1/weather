@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 07:00 (the snapshot fatal-gap branch passed its immutable suite;
-current-master reproof and live timing remain required before guarded integration).** Read this first, then `ESTABLISHED_FINDINGS.md`
+**Last rewritten: 2026-08-14 07:10 (the current paper day recovered after target-date validation;
+the snapshot fatal-gap branch still needs current-master/live-timing proof).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -18,7 +18,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | Clock | Current state |
 | --- | --- |
 | Capture streak | Reset. `08-14` is currently `ON_TRACK`; it is the earliest possible new full day after the `08-13` incident. |
-| MM countable days | Stopped. A countable day never required a `QUOTE` (§8b). |
+| MM countable days | Today's paper run is countable after the target-date validation producer was repaired. It has zero quote permissions; a countable day never required a `QUOTE` (§§8b, 8m). |
 | Archive coverage | Does not include the current target period; the permitted re-fetch remains un-run. |
 | Execution evidence | The bounded public-tape pilot passed. The producer is stopped after the proof; no own-account economic counter exists (§8c). |
 
