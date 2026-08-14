@@ -36,6 +36,14 @@ behavior before any size increase.
   min-size/tick/post-only rejection checks, one tiny two-sided quote, cancel-all
   verification, balance-reserve reconciliation, and user WebSocket lifecycle
   verification.
+- [ ] Re-prove the exact selected SDK against the current official post-only,
+  heartbeat, account-reader, user-stream, cancellation, and asynchronous
+  settlement contract before credentialed integration. The current migration
+  guide prefers the unified SDK while the pinned v1.1.0 heartbeat surface
+  differs from the generic API reference; neither source alone closes this.
+- [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
+  genuinely eligible execution host. Do not add a generic repository live
+  mutation CLI to close this item.
 - [x] Add report-side paid-vs-predicted reconciliation for maker rebates,
   liquidity rewards, redemptions, fees, pUSD/USDC balances, and settlement P&L
   before any size increase.

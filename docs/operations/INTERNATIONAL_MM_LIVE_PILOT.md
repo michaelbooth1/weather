@@ -103,7 +103,20 @@ All must be current for the target date and selected market:
 6. Current live-readiness, data-layer, fleet, risk, release, and explicit
    confirmation gates all pass without overrides or exceptions.
 7. A simultaneous one-market paper counterfactual has quote permission and is
-   writing auditable artifacts. Zero quote-permission rows means no live test.
+   writing auditable artifacts. The separately authorized route is:
+
+   ```powershell
+   .\venv\Scripts\python.exe -m weather.market.market_making_run --date <YYYY-MM-DD> --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets <market-id> --once
+   ```
+
+   `market_harvest` assembles rows from current event metadata, CLOB tokens,
+   books, and features. It retains active-event, source/watcher, information
+   event, CLOB continuity/freshness, economics, minimum-size, tick, cadence,
+   current-high, budget, and notional gates while omitting only model-row and
+   model-freshness permission dependencies. Model promotion remains unchanged,
+   model probability fields remain empty, assumed reward remains zero, and
+   `live_trade_permission` is always false. Zero quote-permission rows means no
+   live test.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
 9. The submitting host is physically eligible. The production Ontario host is
    currently blocked and cannot satisfy this prerequisite.
@@ -550,6 +563,17 @@ it only if the exact version proves post-only placement, rotating REST
 heartbeats, account-wide user events, cancel-all-to-zero, and asynchronous fill
 settlement in a keyless contract test.
 
+The 2026-08-14 recheck makes that comparison a current blocker rather than a
+future precaution. The official Python migration guide now explicitly tells
+previous `py-clob-client-v2` integrations to remove it and install
+`polymarket-client`. The public heartbeat reference still documents
+`POST /heartbeats` with a status acknowledgment, while the pinned v1.1.0 client
+uses `/v1/heartbeats` and a rotating ID. The v1.1.0 tag still exists, so this is
+not permission for an automatic migration. Before any credentialed Stage 0/1
+session, the selected exact client must pass the keyless capability contract
+above and then the eligible-host Stage 0 proof; an endpoint assumption from
+either documentation surface alone is insufficient.
+
 The supplied Safe wallet's local cryptographic topology is proven, but its live
 exchange behavior is still unproven. Stage 0 must show that the exact signer,
 Safe/deposit-wallet funder, signature type, and API-key owner satisfy the
@@ -565,6 +589,8 @@ Official references reviewed on 2026-08-13:
 - <https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0>
 - <https://github.com/Polymarket/agent-skills/blob/main/order-patterns.md>
 - <https://github.com/Polymarket/py-sdk>
+- <https://docs.polymarket.com/getting-started/migrate-from-previous-sdks>
+- <https://docs.polymarket.com/api-reference/trade/send-heartbeat>
 - <https://docs.polymarket.com/programs/maker-rebates>
 - <https://docs.polymarket.com/programs/liquidity-rewards>
 - <https://docs.polymarket.com/trading/orders/create>

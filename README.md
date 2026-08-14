@@ -395,6 +395,8 @@ F-family artifacts. For the local multi-market helper, use
 # Keyless market-making operator run.
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode shadow --markets all
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode paper-live-forward --markets all --once
+# Separately authorized paper-only midpoint-harvest profile; never emits live permission.
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets atlanta --once
 .\venv\Scripts\python.exe -m weather.market.mm_paper
 .\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
 
@@ -415,6 +417,11 @@ byte counts, paths, and the apply result are recorded under `data/taker_runs`.
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.
+The default permission profile remains `model`. The `market_harvest` profile
+is a separate paper-only route built from current event/token/book/features;
+it never reads model probabilities for permission, never changes model
+promotion, assumes zero reward, clamps existing risk ceilings, and hard-fails
+if paired with `live-pilot`.
 
 ## Scheduled Operations
 

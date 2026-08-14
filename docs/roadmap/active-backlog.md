@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-14T13:46:30.813206+00:00
+Generated: 2026-08-14T17:15:17.186288+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 320 |
-| Active items | 34 |
+| Items | 321 |
+| Active items | 35 |
 | OPEN | 4 |
-| PARTIAL | 30 |
+| PARTIAL | 31 |
 | COMPLETE | 286 |
-| ROADMAP rows | 320 |
-| ROADMAP primary rows | 320 |
-| Metadata manifest rows | 320 |
+| ROADMAP rows | 321 |
+| ROADMAP primary rows | 321 |
+| Metadata manifest rows | 321 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -59,6 +59,7 @@ Status: `OK`
 | 324 | PARTIAL | 2026-07-15 | FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-14 | SUPERVISOR PREPARED; INTEGRATION, ADOPTION, AND SOAK OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 327 | PARTIAL | 2026-08-14 | ISOLATED IMPLEMENTATION AND FOCUSED TESTS PASS; INTEGRATION AND ACTIVE-DAY PROOF OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-327-paper-only-market-harvest-permission-lane.md) |
 
 ## Lint Issues
 

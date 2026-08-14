@@ -160,6 +160,64 @@ class TestMmPolicy(unittest.TestCase):
         self.assertLess(quote["bid_price"], quote["ask_price"])
         self.assertIn(quote["event_gate_status"], {"CLEAR", "WIDEN"})
 
+    def test_market_harvest_profile_ignores_model_and_promotion_but_stays_paper_only(self):
+        quote = decide_quote(
+            fresh_row(
+                permission_profile="market_harvest",
+                run_mode="paper-live-forward",
+                promotion_state="BLOCK",
+                fair_probability=None,
+                model_version="",
+                tick_size="0.01",
+                min_order_size="5",
+            ),
+            config={"information_event_calendar_enabled": False},
+            now=NOW,
+        )
+
+        self.assertTrue(quote["quote_permission"])
+        self.assertFalse(quote["live_trade_permission"])
+        self.assertTrue(quote["shadow_mode"])
+        self.assertEqual(quote["regime"], "market_harvest")
+        self.assertEqual(quote["reason_code"], "QUOTE_MARKET_HARVEST_MID")
+        self.assertEqual(quote["bid_price"], 0.49)
+        self.assertEqual(quote["ask_price"], 0.51)
+        self.assertIsNone(quote["fair_probability"])
+        self.assertIsNone(quote["model_age_seconds"])
+        self.assertEqual(quote["expected_reward_score"], 0.0)
+        self.assertEqual(quote["expected_rebate_value"], 0.0)
+
+        blocked = decide_quote(
+            fresh_row(
+                permission_profile="market_harvest",
+                run_mode="live-pilot",
+                promotion_state="PASS",
+                tick_size="0.01",
+                min_order_size="5",
+            ),
+            config={"information_event_calendar_enabled": False},
+            now=NOW,
+        )
+        self.assertFalse(blocked["quote_permission"])
+        self.assertFalse(blocked["live_trade_permission"])
+        self.assertEqual(blocked["reason_code"], "NO_QUOTE_MARKET_HARVEST_PAPER_ONLY")
+
+        below_minimum = decide_quote(
+            fresh_row(
+                permission_profile="market_harvest",
+                run_mode="paper-live-forward",
+                captured_at_utc="2026-06-14T10:00:00+00:00",
+                clob_book_age_seconds=20.0,
+                watcher_age_seconds=10.0,
+                tick_size="0.01",
+                min_order_size="5",
+            ),
+            config={"information_event_calendar_enabled": False},
+            now="2026-06-14T10:00:20+00:00",
+        )
+        self.assertFalse(below_minimum["quote_permission"])
+        self.assertEqual(below_minimum["reason_code"], "NO_QUOTE_MIN_ORDER_SIZE")
+
     def test_high_spread_wide_book_requires_depth_and_spread_bounds(self):
         wide_but_allowed = decide_quote(
             fresh_row(
