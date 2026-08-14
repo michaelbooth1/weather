@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from weather.io import (
     acquire_writer_lock,
@@ -1098,6 +1098,7 @@ class ExecutionTapeCoordinator:
         snapshots_root: str | Path = DEFAULT_SNAPSHOTS_ROOT,
         max_part_bytes: int = DEFAULT_MAX_PART_BYTES,
         now: datetime | None = None,
+        process_status: Mapping[str, Any] | None = None,
     ) -> None:
         self.snapshots_root = Path(snapshots_root)
         self.max_part_bytes = int(max_part_bytes)
@@ -1105,12 +1106,18 @@ class ExecutionTapeCoordinator:
         self.reject_root = self.snapshots_root / "execution_tape_unrouted"
         self._mutex = threading.RLock()
         self.coordinator_session_id = uuid.uuid4().hex
+        self.process_status = dict(process_status or {})
         self._lock = acquire_writer_lock(
             self.status_path,
             owner={
                 "resource": "execution_tape",
                 "session_id": self.coordinator_session_id,
                 "module": "weather.market.execution_tape_capture",
+                **(
+                    {"managed_process": self.process_status["managed_process"]}
+                    if self.process_status.get("managed_process")
+                    else {}
+                ),
             },
             attempts=1,
             stale_after_seconds=300.0,
@@ -1124,7 +1131,11 @@ class ExecutionTapeCoordinator:
         )
         prior = read_json(self.status_path, default={}) or {}
         self.state = {
-            "capture_started_at_utc": prior.get("capture_started_at_utc") or ensure_utc(now).isoformat(),
+            "capture_started_at_utc": (
+                self.process_status.get("started_at")
+                or prior.get("capture_started_at_utc")
+                or ensure_utc(now).isoformat()
+            ),
             "capture_stopped_at_utc": None,
             "last_seed_check_at_utc": prior.get("last_seed_check_at_utc"),
             "last_seed_error": None,
@@ -1464,6 +1475,12 @@ class ExecutionTapeCoordinator:
             "state": self._global_state(),
             "coordinator_session_id": self.coordinator_session_id,
             **self.state,
+            **self.process_status,
+            **(
+                {"last_heartbeat": now.isoformat()}
+                if self.process_status
+                else {}
+            ),
             "seconds_seed_error_dark": round(seed_dark, 6),
             "active_market_day_count": len(active_status),
             "evidence_integrity": (

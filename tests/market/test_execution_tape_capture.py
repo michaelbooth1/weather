@@ -22,6 +22,7 @@ from weather.market.execution_tape_store import (
     MarketDaySeed,
     parse_execution_payload,
 )
+from weather.io import writer_lock_path
 from weather.market.market_config import config_for_date
 from weather.schema_registry import schema_version
 
@@ -71,6 +72,46 @@ class FakeWebsocket:
 
 
 class ExecutionTapeCaptureTests(unittest.TestCase):
+    def test_managed_process_status_and_lock_provenance_are_persisted(self):
+        started = datetime(2026, 8, 10, 22, 15, tzinfo=timezone.utc)
+        managed_process = {
+            "pid": 4321,
+            "expected_command": ["python", "-m", "weather.operations.execution_tape_supervisor", "run"],
+            "creation_time_token": "test-token",
+        }
+        process_status = {
+            "pid": 4321,
+            "started_at": started.isoformat(),
+            "last_heartbeat": started.isoformat(),
+            "runtime_identity": {"source_fingerprint": "test-source"},
+            "managed_process": managed_process,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            coordinator = ExecutionTapeCoordinator(
+                (),
+                snapshots_root=tmp,
+                now=started,
+                process_status=process_status,
+            )
+            try:
+                status = coordinator.status_payload(now=started + timedelta(seconds=1))
+                lock = json.loads(
+                    writer_lock_path(Path(tmp) / "execution_tape_status.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+            finally:
+                coordinator.close()
+
+        self.assertEqual(status["pid"], 4321)
+        self.assertEqual(status["started_at"], started.isoformat())
+        self.assertEqual(
+            status["last_heartbeat"],
+            (started + timedelta(seconds=1)).isoformat(),
+        )
+        self.assertEqual(status["runtime_identity"]["source_fingerprint"], "test-source")
+        self.assertEqual(lock["managed_process"], managed_process)
+
     def test_committed_fixture_hash_shape_and_parser(self):
         raw = FIXTURE.read_bytes()
         rows = fixture_rows()

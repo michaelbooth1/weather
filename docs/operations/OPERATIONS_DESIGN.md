@@ -5,7 +5,8 @@
 The operating setup has three layers:
 
 1. Windows Task Scheduler runs short-lived supervisors that keep three
-   independent capture loops healthy.
+   streak-critical capture loops healthy and, when explicitly armed, one
+   auxiliary public execution-tape producer healthy.
 2. A lightweight desktop launcher starts the Streamlit dashboard and opens the
    Operations view.
 3. The Operations view and status CLIs provide health, code-version, log, and
@@ -15,13 +16,20 @@ The dashboard launcher does not own capture. Closing Streamlit must not stop
 evidence collection, and opening Streamlit must not create a second copy of a
 loop.
 
-## Three-Loop Capture Topology
+## Capture Topology
 
 | Loop | Supervisor task | Ensure command | Primary responsibility |
 | :--- | :--- | :--- | :--- |
 | Weather/model snapshots | `WeatherSnapshotLoopSupervisor` | `python -m weather.collection.snapshot_tracker --ensure` | Multi-market weather, model, source-state, and market snapshot tapes at the slower scheduled cadence. |
 | CLOB books | `WeatherClobBookLoopSupervisor` | `python -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15` | Independent fast Polymarket order-book and market-event capture. |
 | Observation triggers | `WeatherObservationTriggerSupervisor` | `python -m weather.operations.observation_trigger ensure --market all --interval-seconds 60 --stale-after-seconds 180` | Low-cost observation polling and durable enqueueing when settlement-relevant source state changes. The snapshot loop performs recomputes under its existing resource bounds. |
+
+Those three loops own streak grading and the capture-recovery contract. The
+read-only International public execution tape is an auxiliary fourth producer:
+
+| Producer | Supervisor task | Ensure command | Primary responsibility |
+| :--- | :--- | :--- | :--- |
+| Public executions | `WeatherExecutionTapeSupervisor` | `python -m weather.operations.execution_tape_supervisor ensure --market all --stale-after-seconds 180` | Retain received-time `last_trade_price` observations, connection gaps, and exact subscription seeds for counterfactual price paths. It is not an own-account fill or P&L source. |
 
 Each supervisor invokes an idempotent `ensure` command at logon and on its
 repeating schedule. The command repairs or starts one detached worker; it is
@@ -36,13 +44,19 @@ names, cadences, and parameters live in:
 - `scripts/ops/register_snapshot_supervisor.ps1`
 - `scripts/ops/register_clob_supervisor.ps1`
 - `scripts/ops/register_observation_trigger_supervisor.ps1`
+- `scripts/ops/register_execution_tape_supervisor.ps1` (explicit auxiliary adoption)
+
+All four registration scripts bind a current-user `S4U` / `Limited` principal.
+This is part of the capture contract: re-registering a supervisor must not turn
+an unattended task back into an interactive-logon dependency.
 
 Read each script before registering it. Re-running a registration script
 replaces its task with the supplied parameters.
 
 ## Startup After Reboot
 
-1. Logon triggers all three capture-supervisor tasks.
+1. Logon triggers all three core capture-supervisor tasks and the execution-tape
+   supervisor when that auxiliary task has been registered and enabled.
 2. Each supervisor issues its `ensure` command and restores at most one healthy
    worker.
 3. Check the loop status commands from the repository root:
@@ -51,6 +65,7 @@ replaces its task with the supplied parameters.
    .\venv\Scripts\python.exe -m weather.collection.snapshot_tracker --status
    .\venv\Scripts\python.exe -m weather.market.market_microstructure status
    .\venv\Scripts\python.exe -m weather.operations.observation_trigger status
+   .\venv\Scripts\python.exe -m weather.operations.execution_tape_supervisor status
    ```
 
 4. Open the dashboard with `scripts/launch/start_weather_dashboard.cmd` or
@@ -91,14 +106,27 @@ Windows holds the detached child's console handle for the process lifetime,
 console rotation occurs at the next managed loop startup before opening the
 new handle.
 
-### Execution-Tape Producer (Available, Not Armed)
+### Execution-Tape Producer (Supervised Path Prepared; Host Adoption Separate)
 
-`weather.market.execution_tape_capture` is an explicit, read-only operator
-command for the public market websocket. It is not registered with Task
-Scheduler, is not supervised, and is not part of the three-loop production
-topology above. The producer builds subscriptions only from the retained
+`weather.market.execution_tape_capture` remains the explicit, read-only
+operator command for the public market websocket. The managed lifecycle lives
+separately in `weather.operations.execution_tape_supervisor`; its registrar is
+an explicit host-adoption action and repository integration alone does not arm
+the task. The producer is auxiliary to the three-loop streak-critical topology.
+It builds subscriptions only from the retained
 `config/location_market_events.json` seed; it does not discover markets from a
 live REST endpoint and has no order, credential, wallet, or signing path.
+
+The managed worker records its PID, exact process provenance, loaded-source
+identity, and heartbeat into `execution_tape_status.json` while its writer lock
+binds the same process instance. The short-lived ensure command publishes
+`execution_tape_supervisor_status.json`, applies restart backoff/circuit
+breaking, refuses an unproven stop, and readopts changed code. While the
+producer is armed or still active, `roll_verdict.ps1` and
+`staleness_sweep.ps1` require its live import closure; an unarmed or cleanly
+stopped optional producer cannot make unrelated merge verdicts undecidable.
+`status.ps1` treats process/lock/identity loss and evidence-integrity loss as
+actionable, but does not relabel it as one of the three streak workers.
 
 Each active location market-day writes bounded 64 MiB append-only parts under
 `data/snapshots/<event>/execution_tape/`: `trades`, repeated-identity annotations,
@@ -140,6 +168,13 @@ override evidence loss.
 The offline
 `python -m weather.market.execution_tape_capture status` command prints that
 last-counted global status without opening a connection.
+
+Managed files:
+
+- `data/snapshots/execution_tape_status.json`
+- `data/snapshots/execution_tape_supervisor_status.json`
+- `data/snapshots/execution_tape_supervisor_diagnostics.jsonl`
+- `data/snapshots/execution_tape_console.log`
 
 ### Observation-Trigger Loop
 

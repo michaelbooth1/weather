@@ -24,6 +24,7 @@
 # restarts it if it has died.
 [CmdletBinding()]
 param(
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$StartAt = "01:00",
     [int]$IntervalSeconds = 900,
     # Defaults sample the WebSocket for 1s capped at 5 messages, which in a thin book is
@@ -37,7 +38,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $taskName = "WeatherClobEnrichmentLoop"
-$repo = "C:\Users\micha\Desktop\github\weather"
+$repo = $RepoRoot
 $python = Join-Path $repo "venv\Scripts\pythonw.exe"
 
 if ($Unregister) {
@@ -56,7 +57,7 @@ $action = New-ScheduledTaskAction -Execute $python -Argument $arguments -Working
 $trigger = New-ScheduledTaskTrigger -Once -At $StartAt -RepetitionInterval (New-TimeSpan -Minutes 15)
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-$principal = New-ScheduledTaskPrincipal -UserId "micha" -LogonType S4U -RunLevel Limited
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal -Force | Out-Null

@@ -34,11 +34,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
+    -Principal $principal `
     -Description "Warns below 1.5 GiB available physical RAM and at 85% commit; kills runaway ad-hoc python jobs (>8GB private) at 92% commit. Never touches -m weather.* processes." `
     -Force | Out-Null
 

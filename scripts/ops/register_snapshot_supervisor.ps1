@@ -13,8 +13,9 @@
 # process alive; disabling only the task leaves the loop running).
 #
 # Run from the repo root:  .\scripts\ops\register_snapshot_supervisor.ps1
-# The task runs as the current user, only while logged on (no credentials
-# stored). Re-running replaces the existing task.
+# The S4U principal runs as the current user without storing a password and
+# survives an unattended reboot with no interactive logon. Re-running replaces
+# the existing task and must preserve that principal.
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -48,11 +49,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
+    -Principal $principal `
     -Description "Keeps the weather snapshot capture loop alive (python -m weather.collection.snapshot_tracker --ensure). Registered by scripts/ops/register_snapshot_supervisor.ps1." `
     -Force | Out-Null
 

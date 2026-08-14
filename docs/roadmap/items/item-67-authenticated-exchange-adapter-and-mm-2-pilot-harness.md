@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - REFRESHED INTERNATIONAL STAGE 0/1 FOCUSED-GREEN; EXACT SUITE AND ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - COMBINED-TIP SUITE AND ELIGIBLE-HOST EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -407,3 +407,17 @@ finite positive requested budget, isolated-wallet cap, 100 pUSD operator cap,
 and 10 pUSD per-order cap instead of trusting upstream PASS booleans. The
 focused live/economics/architecture matrix passes; an immutable exact-tip full
 suite and reviewed source transfer remain mandatory before eligible-host use.
+
+Current integration disposition (2026-08-14 UTC):
+
+The predecessor refreshed Stage 0/1 tip and its stacked bounded Stage 2
+successor each passed separate immutable exact-tip full suites. This Stage 0/1
+branch has since merged current production and is therefore a new, unproved
+exact tip; its scheduled full suite must pass before integration. The earlier
+proofs establish software consistency only, not live evidence or integration
+authority. Stage 0/1 must land first; Stage 2 must then merge current production
+and pass a fresh suite on that combined tree before eligible-host transfer. The
+two unchecked live-evidence bullets above remain open until a tiny real
+lifecycle and paid-vs-predicted settlement/rebate record are reconciled without
+weakening any gate or increasing any ceiling. Exact suite measurements live
+only in `docs/operations/ESTABLISHED_FINDINGS.md` §§8k and 8n.

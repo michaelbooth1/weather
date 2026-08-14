@@ -2241,9 +2241,156 @@ run-time freshness. Missing, mixed, replaced, or tampered captures stay unbound 
 economics. The isolated current-master repair at
 `9f3b926ecf6332ea23db990ee38401cce6f87495` then passed its own immutable **17/17 chunks and
 4,417/4,417 tests** with all capture admissions healthy. It is pushed and proven roll-sensitive,
-so production integration must wait for the next quiet window. The failed old live-probe tip is
-still ineligible; its refreshed cumulative successor must inherit this repair and pass a separate
-exact-tip suite.
+so production integration must wait for the next quiet window.
+
+**Refreshed cumulative successor measured 2026-08-14 05:31–05:39 local.** Branch
+`codex/international-live-probe-refresh-20260814` was clean and pushed at
+`59e7bbfe9d9e47e88807a832238544c291e7c42a`. It contains current master, the per-run economics
+repair, and the International Stage 0/1 stack. Its one immutable receipt passed **18/18 chunks and
+4,523/4,523 tests**, with **19/19** preflight/chunk admissions observing all three capture workers
+healthy. The task result was zero and the log contains one start segment and one terminal
+`ALL CHUNKS PASSED` verdict. The runner is back below the 2,000-line ownership threshold through a
+dedicated live-pilot policy module. Capability, lifecycle, and bundle boundaries each revalidate
+the 100 pUSD wallet/request ceiling, and reported lifecycle orders cannot exceed 10 pUSD. The
+post-push verdict is still roll-sensitive through the live CLOB loop and schema registries. This
+cumulative exact tip supersedes the standalone economics branch as the preferred integration
+target, but does not authorize an out-of-window merge or an Ontario-host order.
+
+**Failed-tip packaging refusal measured 2026-08-14 08:40 local.** The S4U/Limited immutable
+bundle task for obsolete failed tip `904ce2d824fe48071062eb9a769d6a5e921b4dba` ran once and
+returned **1** after correlating to the suite task's nonzero result and terminal three-chunk
+failure. It created **zero** bundle, manifest, or partial artifacts. Task Scheduler's operational
+log records one time-triggered process and return code `2147942401`; no later path overrode the
+failed suite. This proves the source-bundle boundary refused known-ineligible code as designed.
+
+## 8l. The snapshot fatal-gap repair is suite-proved, not yet live-timing-proved
+
+**Immutable exact-tip suite measured 2026-08-14 06:45–06:53 local.** Branch
+`codex/supervisor-gap-bound-20260814` was clean at
+`a206a7cf8036e7a371b3ec2a0922e2a952333dc5`. Its one receipt contains one start segment, one
+terminal `ALL CHUNKS PASSED` verdict, **17/17 passing chunks and 4,402/4,402 passing tests**.
+All **18/18** preflight/chunk admissions observed all three capture workers healthy, resource use
+stayed below the wrapper ceiling, the scheduled task returned zero, and the workload lease was
+released. The exact log is
+`C:/Users/micha/ops/supervisor-gap-bound-full-suite-20260814.log`; its 17 JUnit sidecars carry run
+tag `20260814T064503`.
+
+This establishes software consistency for the immutable branch, not the operational fatal-gap
+bound. The suite did not inject a hung snapshot worker or measure scheduler jitter, stop latency,
+restart latency, or the next successful snapshot. The branch also predates the production S4U
+registrar repair. Before integration, merge current production into it while preserving both the
+cadence argument and S4U principal, run a fresh exact-tip suite, use the guarded quiet-window merge,
+and measure the live stop-to-recovery interval. Keep the backlog item open until that evidence
+exists.
+
+## 8m. Target-date validation must precede the active-day maker launch
+
+**Live paper-path reproduction and recovery measured 2026-08-14 07:05–07:09 local.** The scheduled
+paper-maker started on the current date with all three useful-write checks passing, but all **12/12
+markets** failed preflight because the validation artifact still targeted `2026-08-13`. The live
+location configuration had already refreshed successfully at 06:00; the next existing validation
+producer was the 09:30 daily chain. This ordering made the 07:05 launch non-countable despite fresh
+capture and current market configuration.
+
+An independent live validation for `2026-08-14` passed **12/12 markets with zero issues**. On the
+next maker tick, preflight changed to `PASS` and the run counted toward live-forward evidence. It
+still had **zero quote-permission rows, zero open orders, and zero fills** because policy found no
+executable edge; no risk or evidence gate was weakened. The durable location-refresh wrapper now
+runs that independent live validation after regenerating configuration and refuses task success
+unless the receipt is readable, dated to the same local target date, and `PASS`.
+
+## 8n. The bounded International Stage 2 successor is suite-proved, not integration-ready
+
+**Immutable exact-tip suite measured 2026-08-14 07:12–07:21 local.** The refreshed Stage 2 branch
+`codex/international-live-stage2-refresh-20260814` was clean at
+`0994fa137b8d10c02f559fcbea5afe3d2dfd0a6a`. It records the obsolete Stage 2 lineage as a merge
+parent, then replays only that branch's bounded-probe delta onto the exact-green refreshed Stage
+0/1 parent `59e7bbfe9d9e47e88807a832238544c291e7c42a`. The immutable receipt has one start segment, one
+terminal `ALL CHUNKS PASSED` verdict, **18/18 passing chunks and 4,539/4,539 passing tests**, with
+zero failures, errors, or skips across 18 JUnit sidecars. All **19/19** preflight/chunk admissions
+observed all three streak-critical capture workers healthy; peak recorded commit was **36.59%**
+against the wrapper's 64% start and 66% abort ceilings. The task returned zero, the workload lease
+was released, capture recovery passed for all three workers, and the spent task was disabled. The
+receipt is `C:/Users/micha/ops/international-stage2-refresh-full-suite-20260814.log`; its JUnit run
+tag is `20260814T071302`.
+
+This proves software consistency and the bounded fail-closed implementation only. It does not
+prove eligible-host dependencies, authenticated lifecycle authority, order acceptance, a fill,
+fee or rebate receipt, realized P&L, or profitability. Stage 2 remains stacked on the unmerged
+Stage 0/1 parent and remains roll-sensitive. Land that parent first; then merge current production
+into Stage 2, run a fresh exact-tip suite for the combined tree, review the eligible-host wrapper,
+and use the guarded quiet-window path. Ontario production still cannot receive credentials or
+place or cancel an order.
+
+## 8o. Windows venv launchers require child-PID adoption for supervised public capture
+
+**Initial supervisor proof and adoption measured 2026-08-14 07:38-07:50 local.** The clean
+supervisor branch at `7a1da5328973e9fd564dc3a5ccbb723ba57ed259` passed one immutable
+**17/17-chunk, 4,414/4,414-test** receipt with zero failures, errors, or skips. All **18/18**
+preflight/chunk admissions observed the three core capture workers healthy; peak recorded commit
+was **38.91%** against the **64%/66%** start/abort limits. The branch was mechanically roll-free
+while the optional producer was unarmed, then merged and pushed to production.
+
+The first real S4U/Limited, priority-7 ensure did not satisfy the process handshake and correctly
+returned nonzero. Windows launched venv PID **13068**, whose direct base-interpreter child PID
+**20736** owned both status and writer lock. The original handshake expected the launcher's PID,
+terminated that exact launcher, refused adoption, and left the recurring task Disabled rather
+than accepting mismatched provenance. The child subsequently exited; no order or credential path
+was present. This was a lifecycle-provenance defect, not public evidence loss being waived.
+
+**Repair proof measured 2026-08-14 07:57-08:07 local.** At exact repair tip
+`a5359030318d2a8af64aab638e0f6f3a5afef313`, an isolated public-only run launched venv PID
+**19380** and adopted direct child PID **5804** only after OS parent, complete command, distinct
+creation tokens, worker/status/lock PIDs, and current loaded-source identity agreed. The child was
+`CONNECTED`, evidence integrity was `PASS`, and its measured working set was **56.89 MiB**. The
+official stop proved child exit and writer-lock removal; the launcher also exited. The same exact
+tip then passed one immutable **18/18-chunk, 4,543/4,543-test** receipt with zero failures, errors,
+or skips. All **19/19** admissions observed all three core workers healthy; peak recorded commit
+was **38.96%** against the same ceilings.
+
+The later repair line adds only the repository-owned post-merge adoption guard, its focused
+ratchet, current production evidence, and two fail-closed cleanup hardenings. Final tip
+`5ed4ff6979905eaa826d9ce97f457a142aadf454` is pushed and bound to a same-local-day full reproof,
+suite-gated quiet merge, and guarded adoption on 2026-08-15. Until those tasks pass, the
+production supervisor remains Disabled. This evidence proves public producer lifecycle and
+capture coexistence only. It does not prove a unique execution count, our fill, queue position,
+fee, rebate, inventory, P&L, or profit; historical public gaps still make the current retained
+price path unusable for economics.
+
+**Final-tip pre-quiet reproof measured 2026-08-14 08:25-08:33 local.** The exact pushed final
+tip `5ed4ff6979905eaa826d9ce97f457a142aadf454` passed one immutable **18/18-chunk,
+4,544/4,544-test** receipt with zero failures, errors, or skips. All **19/19** admissions observed
+the three core capture workers healthy; peak recorded commit was **36.49%** against the
+**64%/66%** start/abort limits. The receipt had one start, one passing terminal verdict, eighteen
+distinct JUnit files, and Task Scheduler result **0**; the heavyweight OS lease was released and
+capture recovered at all three priorities. This closes final-tip regression risk before the
+quiet window, but it does not replace the separately queued same-local-day reproof or any guarded
+merge/adoption condition.
+
+A final isolated S4U/Limited scheduler proof on tip `5ed4ff69` established that task priority
+**7** propagated through both venv launcher layers: the long-running child reported
+`BelowNormal`, matched status and lock at PID **4492**, retained evidence integrity `PASS`, and
+used **57.11 MiB** working set. The official stop again proved process exit and lock removal. This
+closes priority inheritance as an assumption; it still does not arm production ahead of the
+guarded overnight chain.
+
+---
+
+## 8p. The current disk-days alarm measures a one-day burst, not an established steady rate
+
+**Free-space trail audited 2026-08-14 08:50 local.** The status monitor correctly measured a
+**24.4 GB** free-space reduction over its trailing **24-hour** reference, leaving **157.7 GB** and
+therefore printing an approximately **6-day** linear extrapolation. Longer and shorter windows do
+not support treating that slope as steady: the trailing **48 hours** lost **3.0 GB** net
+(**1.5 GB/day**), while the trailing **8 hours** lost **1.0 GB** net (**3.0 GB/day**). The last two
+hours did contain a separate **6.0 GB** burst while many immutable proofs and new worktrees were
+active, but the trail alone does not assign causality.
+
+The correct operational reading is a conservative burst warning, not a forecast that the disk
+will actually fill in six days. Do not silence it: absolute headroom is currently ample, but the
+off-host mirror is operator-paused and new capture remains single-disk evidence. Re-evaluate after
+the proof burst ages out of both the short and 24-hour windows; investigate if the multi-window
+slope converges upward or absolute free space approaches the monitor's fixed thresholds.
 
 ---
 

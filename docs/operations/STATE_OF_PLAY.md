@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 05:15 (per-run International economics passed its exact-tip suite;
-cumulative live-probe refresh is next).** Read this first, then `ESTABLISHED_FINDINGS.md`
+**Last rewritten: 2026-08-14 09:40 (the continuous public-tape supervisor is integrated but
+held after a fail-closed Windows launcher mismatch; its exact repair is queued).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -18,9 +18,9 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | Clock | Current state |
 | --- | --- |
 | Capture streak | Reset. `08-14` is currently `ON_TRACK`; it is the earliest possible new full day after the `08-13` incident. |
-| MM countable days | Stopped. A countable day never required a `QUOTE` (§8b). |
+| MM countable days | Today's paper run is countable after the target-date validation producer was repaired. It has zero quote permissions; a countable day never required a `QUOTE` (§§8b, 8m). |
 | Archive coverage | Does not include the current target period; the permitted re-fetch remains un-run. |
-| Execution evidence | The bounded public-tape pilot passed. The producer is stopped after the proof; no own-account economic counter exists (§8c). |
+| Execution evidence | The bounded public-tape pilot passed. Continuous supervision is integrated, but the recurring producer is held Disabled pending the exact queued launcher repair; no own-account economic counter exists (§§8c, 8o). |
 
 ## Closed decisions — do not relitigate without new evidence
 
@@ -44,10 +44,11 @@ enough to the market to control adverse selection and inventory. **We do not bea
 
 | Work | State / next action |
 | --- | --- |
-| Public execution tape (`-09-69a`) | Integrated and production-proved. The bounded pilot established documented subscription/routing and capture coexistence, not fills, intensity, rebates, or P&L. The durable producer remains stopped; use the measured pilot to design continuous capture without persisting book bursts. |
-| International rebate economics | Exact-tip full suite passed and the branch is pushed. Historical legs bind only to atomically frozen per-run snapshots in a bounded stream. The branch is roll-sensitive through schema registries; queue it for a future 01:00–04:00 guarded merge, never an immediate adoption. |
-| International live probe | The frozen Stage 0/1 suite failed: per-run economics binding, unowned runner growth, and a stale-stack inventory mismatch. Do not merge or transfer it. The 08:40 bundle task must refuse; build a refreshed cumulative successor only after the economics repair proves green. |
-| Bounded maker Stage 2 | Library-only implementation is focused-green at stacked commit `57d67588`. It is not integration- or live-ready: land its parents, merge current master into the branch, resolve additive schema overlap, run an exact-tip full suite in a later heavy window, and separately review the eligible-host wrapper. |
+| Public execution tape (`-09-69a`) | Continuous public-only supervision is integrated. The first real adoption refused a Windows venv launcher/worker PID mismatch and the task remains Disabled. Exact child-adoption repair `5ed4ff69` is pushed and passed its pre-quiet immutable full suite; a fresh same-local-day reproof, guarded merge, and fail-closed adoption remain queued for tonight after the Stage 0/1 merge. This is public path evidence only, never fills, intensity, rebates, or P&L (§8o). |
+| International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
+| International live probe | Refreshed current-master + economics + Stage 0/1 successor is pushed and exact-suite green. It independently clamps all operator/lifecycle caps and stays roll-sensitive. A same-tip reproof is armed for 08-15 00:30 and its suite-gated merge for 01:00; either must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible; its immutable bundle task refused and produced no artifact. After integration, a separately reviewed wrapper must still be created on the eligible host before authenticated Stage 0 or either Stage 1 mutation (§8k). |
+| Bounded maker Stage 2 | Refreshed successor `0994fa13` is exact-suite green on the refreshed Stage 0/1 parent; the obsolete lineage is retained and only its bounded-probe delta was replayed. It is not integration- or live-ready: land parent `59e7bbfe` first, merge current production, reprove that combined exact tip, and review the eligible-host wrapper. The current paper run emits no quote or live-trade permission, so integration alone cannot authorize a submit (§§8m, 8n). |
+| Snapshot fatal-gap bound | The prepared roll-sensitive branch passed its immutable full suite with every capture admission healthy. It predates the S4U registrar repair now on production, so it still needs current master merged into it, a fresh exact-tip suite, guarded quiet-window adoption, and live stop-to-recovery timing before the backlog item can close (§8l). |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
 
 Legacy `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are **Disabled**. Their old
@@ -70,9 +71,15 @@ until valid queues exist. Never delete held branches.
 - Heavy wrappers share one OS-held workload lease. Ordinary heavy work is admitted only during the
   overnight window; the named Stage-A chain is the sole late-morning exception and owns a hard
   teardown. Nothing heavy runs during grading or near-close capture.
-- Tonight's training window was re-enabled at 03:30. The frozen International suite is complete
-  and failed; its 08:40 bundle remains queued only to prove fail-closed refusal. Do not reinterpret
-  bundle absence as a packaging incident.
+- The frozen International suite failed; its refreshed successor passed separately. The old tip's
+  08:40 bundle ran, refused the failed receipt, and created no artifact. `WeatherTrainingWindow` is
+  intentionally Disabled for one 08-15 integration night so it cannot stop capture during the
+  01:00 guarded merge; the independent 04:15 restore stays armed and a 04:20 one-shot re-enables
+  the daily window. Do not reinterpret bundle absence or a fail-closed merge as an incident.
+- `WeatherExecutionTapeSupervisor` is intentionally Disabled after its first adoption exposed the
+  Windows venv launcher as a parent of the true status/lock owner. The repair branch adopts only
+  an exact verified direct child and adds a post-merge guard that tears back down on disagreement.
+  Do not manually enable the task ahead of the queued exact-suite and guarded-merge chain.
 - Windows Update installed current security updates after the temporary notify-only override was
   removed and now reports a pending reboot. Do not reboot in the graded window; coordinate a
   controlled off-window restart with session/push continuity and prove unattended S4U recovery.

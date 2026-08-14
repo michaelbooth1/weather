@@ -13,6 +13,14 @@ def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
     assert "$ok = $true" in text
 
 
+def test_running_task_does_not_report_its_stale_last_result_as_current_failure():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$st -eq "Running"' in text
+    assert "LastTaskResult is a completed-run field" in text
+    assert 'if (-not $ok -and $st -eq "Running") { $ok = $true }' in text
+
+
 def test_capture_alert_flags_only_the_current_local_capture_day():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
@@ -107,10 +115,18 @@ def test_legacy_unbound_merge_drivers_are_intentionally_held() -> None:
     assert '$st -ne "Disabled"' in text
 
 
-def test_temporary_training_hold_requires_an_armed_reenable() -> None:
+def test_temporary_training_hold_requires_an_exact_bounded_reenable() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
     assert 'Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*"' in text
+    assert "$trainingReenableDeadline = $trainingReenableNow.AddHours(30)" in text
+    assert '[string]$candidate.TaskPath -ne "\\"' in text
+    assert "$candidateActions.Count -ne 1" in text
+    assert "$candidateTriggers.Count -ne 1" in text
+    assert 'Join-Path $PSHOME "powershell.exe"' in text
+    assert "Enable-ScheduledTask -TaskName 'WeatherTrainingWindow'" in text
+    assert "Disable-ScheduledTask -TaskName '$([string]$candidate.TaskName)'" in text
+    assert '[string]$candidateAction.Arguments -cne $expectedArguments' in text
     assert '$expDisabled += "WeatherTrainingWindow"' in text
     assert "automatic re-enable is armed" in text
 
@@ -142,3 +158,16 @@ def test_status_fails_closed_on_unsynchronized_windows_clock() -> None:
     assert 'Source:\\s*Local CMOS Clock' in text
     assert "system clock is not synchronized" in text
     assert 'Write-Output ("  CLOCK     : {0}"' in text
+
+
+def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert 'Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor"' in text
+    assert '$executionTapeState.armed = [string]$executionTapeTask.State -ne "Disabled"' in text
+    assert '"execution_tape_status.json"' in text
+    assert '".execution_tape_status.json.writer.lock"' in text
+    assert '"execution_tape_supervisor_status.json"' in text
+    assert '$executionAge -le 180' in text
+    assert 'public execution-tape evidence integrity is BLOCKED_EVIDENCE_LOSS' in text
+    assert 'execution_tape = $executionTapeState' in text
