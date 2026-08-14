@@ -61,3 +61,25 @@ def test_settlement_scan_seeks_from_end_instead_of_rescanning_each_ledger():
     assert "weather.operations.settlement_hole_check" in text
     assert "--window-days $windowDays --tail-lines 400 --json" in text
     assert "Get-Content -LiteralPath $ledger -Tail 400" not in text
+
+
+def test_legacy_unbound_merge_drivers_are_intentionally_held() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '"WeatherMergeQueueDriver", "WeatherMergeSensitiveDriver", "WeatherSuite0969a"' in text
+    assert '$st -ne "Disabled"' in text
+
+
+def test_temporary_training_hold_requires_an_armed_reenable() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert 'Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*"' in text
+    assert '$expDisabled += "WeatherTrainingWindow"' in text
+    assert "automatic re-enable is armed" in text
+
+
+def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "Get-WeatherHeavyWorkloadLeaseState" in text
+    assert "heavy workload lease active" in text

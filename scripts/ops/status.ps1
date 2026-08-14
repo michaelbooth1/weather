@@ -111,6 +111,20 @@ elseif ($freeRamGB -lt 2.5) { $warns.Add("RAM tightening: $freeRamGB GB free") }
 if ($freeDiskGB -lt 25) { $flags.Add("LOW DISK: $freeDiskGB GB free") }
 elseif ($freeDiskGB -lt 60) { $warns.Add("disk headroom low: $freeDiskGB GB free") }
 
+# Resource headroom alone does not reveal an overlapping heavyweight job. The shared
+# file-handle lease is authoritative; stale owner JSON without a live handle is not active.
+$heavyWorkload = $null
+try {
+    . (Join-Path $repo "scripts\ops\workload_admission.ps1")
+    $heavyWorkload = Get-WeatherHeavyWorkloadLeaseState -RepoRoot $repo
+    if ($heavyWorkload.Active) {
+        $ownerName = [string]$heavyWorkload.Owner.workload
+        $ownerPid = [int]$heavyWorkload.Owner.pid
+        $warns.Add("heavy workload lease active: $ownerName (pid $ownerPid)")
+    }
+}
+catch { $flags.Add("heavy-workload lease state could not be read") }
+
 # Free space is a point-in-time number and tells me nothing about how long I have. The
 # tape/CLOB history means "195 GB free" can be comfortable or two weeks from an outage
 # depending on the slope, so keep a cheap sample trail and report the 24h burn. Sampling
@@ -329,10 +343,26 @@ $expDisabled = @(
     "WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
     "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
     "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror",
+    # Legacy host-local queue drivers lack immutable expected-tip bindings. They stay off
+    # until the repository-owned exact-tip queue replaces them. The -09-69a suite is also
+    # review-blocked and must not be re-armed from its obsolete wrapper.
+    "WeatherMergeQueueDriver", "WeatherMergeSensitiveDriver", "WeatherSuite0969a",
     # This operator hold remains visible through a dedicated warning below. Keeping it in
     # the generic anomaly path as well called the same deliberate state "unexpected".
     "WeatherEveningEvidenceRefresh"
 )
+# A temporary training hold is expected only while an enabled one-shot re-enable task is
+# visibly armed. If that task disappears or expires, the disabled recurring window returns
+# to the generic FLAG path instead of becoming a permanent silent exception.
+$trainingReenable = @(Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.State -ne "Disabled" -and ($info = $_ | Get-ScheduledTaskInfo) -and
+        $info.NextRunTime -gt (Get-Date) -and $info.NextRunTime -lt (Get-Date).AddHours(12)
+    })
+if ($trainingReenable.Count -gt 0) {
+    $expDisabled += "WeatherTrainingWindow"
+    $warns.Add("WeatherTrainingWindow is intentionally held for tonight; an automatic re-enable is armed")
+}
 $taskCount = 0
 $interactiveTasks = 0
 $evidenceRefreshHeld = $false
@@ -351,7 +381,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
     $name = $_.TaskName
-    if ($name -eq "WeatherMergeSensitiveDriver" -and $ti.NextRunTime) {
+    if ($name -eq "WeatherMergeSensitiveDriver" -and $st -ne "Disabled" -and $ti.NextRunTime) {
         $sensitiveDriverNextRun = [datetime]$ti.NextRunTime
     }
     # A task due soon on a one-shot trigger is armed work -- the quiet-window merge, a

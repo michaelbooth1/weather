@@ -1,0 +1,11 @@
+{
+  "schema_version": "weather_exact_tip_merge_queue_v1",
+  "entries": [
+    {
+      "branch": "origin/codex/example-reviewed-branch",
+      "expected_tip": "0000000000000000000000000000000000000000",
+      "approved": false,
+      "note": "Copy to a host-local queue and replace every placeholder after review."
+    }
+  ]
+}
