@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 04:50 (the frozen International live-probe suite failed honestly;
-per-run economics repair is the next proof).** Read this first, then `ESTABLISHED_FINDINGS.md`
+**Last rewritten: 2026-08-14 05:15 (per-run International economics passed its exact-tip suite;
+cumulative live-probe refresh is next).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -45,7 +45,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | Work | State / next action |
 | --- | --- |
 | Public execution tape (`-09-69a`) | Integrated and production-proved. The bounded pilot established documented subscription/routing and capture coexistence, not fills, intensity, rebates, or P&L. The durable producer remains stopped; use the measured pilot to design continuous capture without persisting book bursts. |
-| International rebate economics | Refreshed onto current master and under repair. Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream; focused owner tests pass. Commit and give the clean exact tip a new full suite before integration. |
+| International rebate economics | Exact-tip full suite passed and the branch is pushed. Historical legs bind only to atomically frozen per-run snapshots in a bounded stream. The branch is roll-sensitive through schema registries; queue it for a future 01:00–04:00 guarded merge, never an immediate adoption. |
 | International live probe | The frozen Stage 0/1 suite failed: per-run economics binding, unowned runner growth, and a stale-stack inventory mismatch. Do not merge or transfer it. The 08:40 bundle task must refuse; build a refreshed cumulative successor only after the economics repair proves green. |
 | Bounded maker Stage 2 | Library-only implementation is focused-green at stacked commit `57d67588`. It is not integration- or live-ready: land its parents, merge current master into the branch, resolve additive schema overlap, run an exact-tip full suite in a later heavy window, and separately review the eligible-host wrapper. |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
