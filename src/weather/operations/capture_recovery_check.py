@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping
 
 from weather.paths import REPO_ROOT
 from weather.runtime_identity import current_identity_for, identities_match
+from weather.schema_registry import schema_version
 
 
 @dataclass(frozen=True)
@@ -169,7 +170,7 @@ def check_capture_recovery(
         )
 
     return {
-        "schema_version": "capture_recovery_check_v1",
+        "schema_version": schema_version("capture_recovery_check"),
         "checked_at": checked_at.isoformat(),
         "repo_root": str(root),
         "ok": len(rows) == len(WORKERS) and all(row["ok"] for row in rows),

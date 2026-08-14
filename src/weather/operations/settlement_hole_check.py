@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from weather.paths import REPO_ROOT
+from weather.schema_registry import schema_version
 
 
 def tail_lines(path: Path, count: int, *, chunk_bytes: int = 1024 * 1024) -> list[str]:
@@ -87,7 +88,7 @@ def check_settlement_holes(
             holes.append({"date": key, "markets": len(missing), "missing_markets": missing})
 
     return {
-        "schema_version": "settlement_hole_check_v1",
+        "schema_version": schema_version("settlement_hole_check"),
         "checked_at": local_now.isoformat(),
         "window_days": window_days,
         "tail_lines": tail_line_count,
