@@ -1,4 +1,4 @@
-# 326. Supervised Continuous Public Execution Tape [PARTIAL 2026-08-14 - SUPERVISOR PREPARED; INTEGRATION, ADOPTION, AND SOAK OPEN]
+# 326. Supervised Continuous Public Execution Tape [PARTIAL 2026-08-14 - INTEGRATED; WINDOWS LAUNCHER REPAIR AND ADOPTION PROOF OPEN]
 
 Goal: continuously retain the International public execution stream needed for
 counterfactual price paths without creating an unmanaged fourth process on the
@@ -39,9 +39,13 @@ Scope:
 - [x] Preserve execution-only persistence: discard book and price-change bursts,
   retain explicit gaps and exact seed bindings, and keep public identities
   blocked from unique-execution/intensity claims.
-- [ ] Pass an immutable exact-tip full suite for the prepared branch.
-- [ ] Integrate through the quiet-window path because the producer and central
-  runtime/schema closure are roll-sensitive.
+- [x] Pass an immutable exact-tip full suite for the prepared branch.
+- [x] Integrate the initially roll-free supervisor while the optional producer
+  was unarmed and cleanly stopped.
+- [ ] Land the exact Windows venv-launcher child adoption repair. The first real
+  registration correctly failed its handshake because the status/lock owner
+  was the launcher's direct base-interpreter child, then left the task disabled
+  pending a fail-closed fix rather than accepting mismatched PIDs.
 - [ ] Explicitly register and start the task off-window; prove exact action,
   S4U/Limited principal, low priority, one worker/lock owner, current runtime
   identity, and healthy coexistence with all three core capture workers.

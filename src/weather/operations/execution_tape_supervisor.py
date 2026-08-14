@@ -47,12 +47,14 @@ from weather.operations.supervisor import (
     authorize_managed_process_termination,
     authorize_writer_lock_removal,
     capture_managed_process_identity,
+    commands_match_exact,
     configure_json_console_logging,
     launch_detached,
     loop_file_offsets,
     loop_writer_lock_health,
     managed_stop_allows_start,
     managed_stop_expected_command,
+    observe_process,
     persist_supervisor_status,
     pid_is_python,
     read_json_file,
@@ -224,11 +226,71 @@ def _managed_identity_agrees(
 ) -> bool:
     return bool(
         isinstance(value, dict)
+        and value.get("verified_at_capture") is True
+        and expected.get("verified_at_capture") is True
         and _normalized_pid(value.get("pid")) == _normalized_pid(expected.get("pid"))
         and value.get("creation_time_token")
         and value.get("creation_time_token") == expected.get("creation_time_token")
         and value.get("expected_command") == expected.get("expected_command")
     )
+
+
+def _handshake_worker_identity(
+    status: Mapping[str, Any],
+    writer_lock: Mapping[str, Any],
+    *,
+    launched_pid: int,
+    launched_process: Mapping[str, Any],
+    observe_fn=observe_process,
+) -> dict[str, Any] | None:
+    """Return the exact worker identity, including a Windows venv child.
+
+    Windows virtual-environment executables are launchers.  The PID returned by
+    ``Popen`` can therefore own one direct child running the same exact argv;
+    the child, not the launcher, owns the status file and writer lock.  Admit
+    that one topology only after status, lock, parent PID, creation token, and
+    the complete command all agree.
+    """
+
+    status_pid = _normalized_pid(status.get("pid"))
+    lock_pid = _normalized_pid(writer_lock.get("pid"))
+    status_identity = status.get("managed_process")
+    lock_identity = writer_lock.get("managed_process")
+    if (
+        not writer_lock.get("exists")
+        or status_pid is None
+        or status_pid != lock_pid
+        or not isinstance(status_identity, dict)
+        or not _managed_identity_agrees(lock_identity, status_identity)
+    ):
+        return None
+
+    expected_command = launched_process.get("expected_command")
+    if not isinstance(expected_command, list) or not expected_command:
+        return None
+    if status_identity.get("expected_command") != expected_command:
+        return None
+    if status_pid == int(launched_pid):
+        return dict(status_identity) if _managed_identity_agrees(
+            status_identity, launched_process
+        ) else None
+
+    if (
+        launched_process.get("verified_at_capture") is not True
+        or not launched_process.get("creation_time_token")
+    ):
+        return None
+    observation = observe_fn(status_pid)
+    if not (
+        observation.get("state") == "running"
+        and observation.get("inspectable")
+        and _normalized_pid(observation.get("parent_pid")) == int(launched_pid)
+        and observation.get("creation_time_token")
+        == status_identity.get("creation_time_token")
+        and commands_match_exact(observation.get("argv"), expected_command)
+    ):
+        return None
+    return dict(status_identity)
 
 
 def wait_for_worker_handshake(
@@ -239,6 +301,7 @@ def wait_for_worker_handshake(
     status_reader=read_status,
     lock_reader=read_writer_lock,
     pid_check=pid_is_python,
+    observe_fn=observe_process,
     monotonic_fn=time.monotonic,
     sleep_fn=time.sleep,
 ) -> dict[str, Any]:
@@ -247,23 +310,30 @@ def wait_for_worker_handshake(
     deadline = monotonic_fn() + max(0.0, float(timeout_seconds))
     last_status: Mapping[str, Any] | None = None
     last_lock: Mapping[str, Any] | None = None
+    last_candidate: dict[str, Any] | None = None
     while monotonic_fn() <= deadline:
         last_status = status_reader() or {}
         last_lock = lock_reader(STATUS_PATH) or {}
+        last_candidate = _handshake_worker_identity(
+            last_status,
+            last_lock,
+            launched_pid=pid,
+            launched_process=managed_process,
+            observe_fn=observe_fn,
+        )
         ready = bool(
-            _normalized_pid(last_status.get("pid")) == int(pid)
-            and _normalized_pid(last_lock.get("pid")) == int(pid)
-            and last_lock.get("exists")
+            last_candidate
             and last_status.get("last_heartbeat")
             and isinstance(last_status.get("runtime_identity"), dict)
             and last_status["runtime_identity"].get("source_fingerprint")
-            and _managed_identity_agrees(last_status.get("managed_process"), managed_process)
-            and _managed_identity_agrees(last_lock.get("managed_process"), managed_process)
         )
         if ready:
+            worker_pid = int(last_candidate["pid"])
             return {
                 "ready": True,
-                "pid": pid,
+                "pid": worker_pid,
+                "launched_pid": pid,
+                "managed_process": last_candidate,
                 "status_state": last_status.get("state"),
                 "runtime_source_fingerprint": last_status["runtime_identity"].get(
                     "source_fingerprint"
@@ -277,6 +347,7 @@ def wait_for_worker_handshake(
                 "reason": "managed worker exited before status/lock handshake",
                 "status": last_status,
                 "writer_lock": last_lock,
+                "candidate_managed_process": last_candidate,
             }
         sleep_fn(0.1)
     return {
@@ -285,6 +356,7 @@ def wait_for_worker_handshake(
         "reason": "managed worker did not establish status/lock handshake before timeout",
         "status": last_status,
         "writer_lock": last_lock,
+        "candidate_managed_process": last_candidate,
     }
 
 
@@ -521,32 +593,42 @@ def start_managed_capture(now: datetime | None = None, **worker_options: Any) ->
         console_log_path=CONSOLE_LOG_PATH,
         popen_fn=subprocess.Popen,
     )
-    managed_process = capture_managed_process_identity(child.pid, command)
+    launched_process = capture_managed_process_identity(child.pid, command)
     handshake = wait_for_worker_handshake(
         pid=child.pid,
-        managed_process=managed_process,
+        managed_process=launched_process,
     )
     if not handshake.get("ready"):
-        termination = terminate_managed_process(managed_process, command)
+        candidate = handshake.get("candidate_managed_process")
+        termination_target = candidate if isinstance(candidate, dict) else launched_process
+        termination = terminate_managed_process(termination_target, command)
+        launcher_termination = None
+        if _normalized_pid(termination_target.get("pid")) != _normalized_pid(
+            launched_process.get("pid")
+        ):
+            launcher_termination = terminate_managed_process(launched_process, command)
         confirmed_exit = {
             "exited": termination.get("exited") is True,
             "reason": termination.get("reason"),
-            "pid": child.pid,
+            "pid": termination_target.get("pid"),
             "termination_scope": termination.get("termination_scope"),
         }
         failed_lock_cleanup = _cleanup_writer_lock(
-            expected_pid=child.pid,
+            expected_pid=termination_target.get("pid"),
             confirmed_exit=confirmed_exit,
-            exited_identity=managed_process,
+            exited_identity=termination_target,
             attempts=20,
         )
         result = {
             "started": False,
-            "pid": child.pid,
+            "pid": termination_target.get("pid"),
+            "launched_pid": child.pid,
             "reason": handshake.get("reason"),
-            "managed_process": managed_process,
+            "managed_process": termination_target,
+            "launched_process": launched_process,
             "handshake": handshake,
             "termination": termination,
+            "launcher_termination": launcher_termination,
             "writer_lock": failed_lock_cleanup,
             "sidecar_rotations": rotations,
         }
@@ -554,12 +636,16 @@ def start_managed_capture(now: datetime | None = None, **worker_options: Any) ->
             {"time": current.isoformat(), "supervisor": "start_failed", **result}
         )
         return result
+    managed_process = handshake["managed_process"]
+    worker_pid = int(handshake["pid"])
     append_diagnostic(
         {
             "time": current.isoformat(),
             "supervisor": "start",
-            "pid": child.pid,
+            "pid": worker_pid,
+            "launched_pid": child.pid,
             "managed_process": managed_process,
+            "launched_process": launched_process,
             "handshake": handshake,
             "writer_lock": lock_cleanup,
             "sidecar_rotations": rotations,
@@ -567,8 +653,10 @@ def start_managed_capture(now: datetime | None = None, **worker_options: Any) ->
     )
     return {
         "started": True,
-        "pid": child.pid,
+        "pid": worker_pid,
+        "launched_pid": child.pid,
         "managed_process": managed_process,
+        "launched_process": launched_process,
         "handshake": handshake,
         "writer_lock": lock_cleanup,
         "sidecar_rotations": rotations,

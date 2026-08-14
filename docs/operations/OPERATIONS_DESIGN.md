@@ -122,6 +122,10 @@ identity, and heartbeat into `execution_tape_status.json` while its writer lock
 binds the same process instance. The short-lived ensure command publishes
 `execution_tape_supervisor_status.json`, applies restart backoff/circuit
 breaking, refuses an unproven stop, and readopts changed code. While the
+Windows venv executable launches a distinct base-interpreter child, startup
+admits that child only when its direct parent, complete command, creation token,
+status owner, and writer-lock owner all agree; lifecycle ownership then follows
+the child rather than the transient launcher. While the
 producer is armed or still active, `roll_verdict.ps1` and
 `staleness_sweep.ps1` require its live import closure; an unarmed or cleanly
 stopped optional producer cannot make unrelated merge verdicts undecidable.
