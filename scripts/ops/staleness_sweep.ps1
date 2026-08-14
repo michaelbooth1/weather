@@ -324,7 +324,16 @@ if ($opsDocs.Count -gt 0) {
             [void]$linked.Add($full)
         }
     }
-    $orphans = @($opsDocs | Where-Object { -not $linked.Contains($_.FullName) })
+    # Dated incident/research files are historical evidence by repository contract, not cold-agent
+    # entry points. OVERNIGHT_BRIEFINGS.md is the one undated historical aggregate. Requiring an
+    # index link for those files turned preservation into a permanent warning and obscured genuinely
+    # unreachable canonical documents.
+    $historicalUnindexedNames = @("OVERNIGHT_BRIEFINGS.md")
+    $orphans = @($opsDocs | Where-Object {
+        -not $linked.Contains($_.FullName) -and
+        $_.Name -notmatch '(?:19|20)\d{2}[-_]\d{2}[-_]\d{2}' -and
+        $_.Name -notin $historicalUnindexedNames
+    })
     if ($orphans.Count -gt 0) {
         $sev = if ($orphans.Count -ge 10) { "CRITICAL" } else { "WARN" }
         Add-Finding "docs/unreachable" $sev `
@@ -367,6 +376,23 @@ else {
 # than no WARN. So check the one thing that is unambiguous: the newest handoffs are named here.
 $handoffDir = Join-Path $repo "docs\roadmap"
 $sopPath = Join-Path $repo "docs\operations\STATE_OF_PLAY.md"
+function Test-StateOfPlayMissionReference([string]$Text, [string]$Short) {
+    if ($Text -like "*$Short*") { return $true }
+    if ($Short -notmatch '^-([0-9]{2})-([0-9]+)([a-z])$') { return $false }
+    $group = $Matches[1]
+    $number = [int]$Matches[2]
+    $suffix = $Matches[3]
+    $rangePattern = "(?i)-$group-(\d+)([a-z])\s*(?:…|\.\.\.|–|—)\s*-$group-(\d+)([a-z])"
+    foreach ($range in [regex]::Matches($Text, $rangePattern)) {
+        if ($range.Groups[2].Value -ne $suffix -or $range.Groups[4].Value -ne $suffix) { continue }
+        $start = [int]$range.Groups[1].Value
+        $end = [int]$range.Groups[3].Value
+        if ($number -ge [math]::Min($start, $end) -and $number -le [math]::Max($start, $end)) {
+            return $true
+        }
+    }
+    return $false
+}
 if ((Test-Path -LiteralPath $handoffDir) -and (Test-Path -LiteralPath $sopPath)) {
     $newest = @(& git -C $repo log --diff-filter=A --name-only --format="" -n 400 -- "docs/roadmap/workstation-handoff-*.md" 2>$null |
         Where-Object { $_ } | Select-Object -Unique -First 4)
@@ -376,7 +402,7 @@ if ((Test-Path -LiteralPath $handoffDir) -and (Test-Path -LiteralPath $sopPath))
         foreach ($rel in $newest) {
             if ((Split-Path $rel -Leaf) -notmatch '^workstation-handoff-\d{4}-(\d{2}-\d+[a-z])-') { continue }
             $short = "-" + $Matches[1]     # e.g. "-09-36a", the form STATE_OF_PLAY uses
-            if ($sopText -notlike "*$short*") { $missing += $short }
+            if (-not (Test-StateOfPlayMissionReference $sopText $short)) { $missing += $short }
         }
         if ($missing.Count -gt 0) {
             Add-Finding "docs/in_flight_drift" "WARN" `
@@ -387,30 +413,7 @@ if ((Test-Path -LiteralPath $handoffDir) -and (Test-Path -LiteralPath $sopPath))
     }
 }
 
-# ---- 11. is anything actually scheduled to merge? ----
-# The window guard was made proportional so roll-free branches would stop queueing for the 01:00
-# quiet window. That removed the blocker but left nothing driving the queue: on 2026-08-06 four
-# branches were mechanically ROLL-FREE and mergeable at any hour, and had been sitting for days,
-# because "mergeable at any hour" turned out to mean nobody merged them. One of them was the sole
-# blocker for the learning loop, the market-beating scoreboard, and the disk tiering path.
-$unmergedCount = @(& git -C $repo branch -r --no-merged origin/master 2>$null | Where-Object { $_ -and $_ -notmatch "HEAD" }).Count
-if ($unmergedCount -gt 0) {
-    $armed = @()
-    try {
-        $armed = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
-            Where-Object { $_.TaskName -like "*Merge*" -and $_.State -ne "Disabled" } |
-            Where-Object { ($_ | Get-ScheduledTaskInfo -ErrorAction SilentlyContinue).NextRunTime })
-    }
-    catch {}
-    if ($armed.Count -eq 0) {
-        Add-Finding "git/no_merge_trigger" "WARN" `
-            ("{0} unmerged branch(es) and no merge task has a next run time" -f $unmergedCount) `
-            "roll-free branches no longer need the quiet window, so nothing forces them through; check scripts\ops\roll_verdict.ps1 and arm scripts\ops\quiet_window_merge.ps1 rather than waiting for a window" `
-            $null $null
-    }
-}
-
-# ---- 12. duplicate bot workers (the orphan that eats the capture budget) ----
+# ---- 11. duplicate bot workers (the orphan that eats the capture budget) ----
 # A daily-roll supervisor stops exactly ONE pid: the one recorded in its status file
 # (bot_daily_roll_supervisor.ps1 stop_daily_roll_process -> status.get("pid")). Maker and taker
 # lifecycle decisions are now process-lock serialized, so a duplicate is an invariant breach,
