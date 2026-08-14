@@ -5,12 +5,44 @@
 # authority. Metadata is diagnostic only, so an unclean process exit releases ownership
 # automatically even if old JSON remains on disk.
 
+function Get-WeatherHeavyWorkloadPolicyWindow {
+    [CmdletBinding()]
+    param(
+        [datetime]$Now = (Get-Date),
+        [switch]$AllowStageAWindow
+    )
+
+    $localMinute = ($Now.Hour * 60) + $Now.Minute
+    if ($localMinute -ge 30 -and $localMinute -lt (9 * 60)) {
+        return "agent_heavy"
+    }
+    if (
+        $AllowStageAWindow -and
+        $localMinute -ge (9 * 60 + 30) -and
+        $localMinute -lt (11 * 60 + 55)
+    ) {
+        return "stage_a"
+    }
+    return $null
+}
+
+
 function Enter-WeatherHeavyWorkloadLease {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
-        [Parameter(Mandatory = $true)][string]$Workload
+        [Parameter(Mandatory = $true)][string]$Workload,
+        [switch]$AllowStageAWindow
     )
+
+    $policyWindow = Get-WeatherHeavyWorkloadPolicyWindow `
+        -AllowStageAWindow:$AllowStageAWindow
+    if ($null -eq $policyWindow) {
+        throw (
+            "heavy workload '{0}' is outside the 00:30-09:00 window; " +
+            "only the explicit Stage-A lane may acquire the lease at 09:30-11:55"
+        ) -f $Workload
+    }
 
     $logRoot = Join-Path $RepoRoot "data\logs"
     if (-not (Test-Path -LiteralPath $logRoot)) {
@@ -36,6 +68,7 @@ function Enter-WeatherHeavyWorkloadLease {
             workload = $Workload
             pid = $PID
             acquired_at = (Get-Date).ToUniversalTime().ToString("o")
+            policy_window = $policyWindow
             host = $env:COMPUTERNAME
         }
         $encoding = New-Object System.Text.UTF8Encoding($false)

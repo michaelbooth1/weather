@@ -176,7 +176,10 @@ predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
 2. **Heavy ad-hoc work runs 00:30–09:00**, holds the shared lease from
    `scripts/ops/workload_admission.ps1`, and checks first:
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
-   ≥ 50 GB disk free.
+   ≥ 50 GB disk free. The lease itself rejects acquisition outside that
+   window. Only the settlement Stage-A wrapper can request the explicit
+   09:30–11:55 exception. Bounded test suites additionally kill their complete
+   Job-owned child tree at 09:00 rather than merely checking the start time.
 3. **Memory budget for any single ad-hoc job: 8 GB private bytes.** The
    `WeatherMemoryCommitGuard` task (every 5 min) warns when available physical
    RAM is below 1.5 GiB and records the top working-set processes. It also

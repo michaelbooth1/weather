@@ -99,7 +99,9 @@ if ($localMinute -ge 715 -or $localMinute -lt 30) {
     Write-Output "REFUSED: daily refresh cannot run inside 11:55-00:30 protected host time"
     exit 75
 }
-$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "daily_refresh_$Stage"
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
+    -Workload "daily_refresh_$Stage" `
+    -AllowStageAWindow:($Stage -eq "settlement")
 if ($null -eq $workloadLease) {
     Write-Output "REFUSED: another heavyweight host workload owns data/logs/heavy_workload.lock"
     exit 76

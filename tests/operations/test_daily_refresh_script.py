@@ -169,7 +169,9 @@ def test_daily_refresh_is_serialized_and_cannot_cross_the_graded_window():
     wrapper = WRAPPER.read_text(encoding="utf-8-sig")
 
     assert "workload_admission.ps1" in wrapper
-    assert 'Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "daily_refresh_$Stage"' in wrapper
+    assert "Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot" in wrapper
+    assert '-Workload "daily_refresh_$Stage"' in wrapper
+    assert '-AllowStageAWindow:($Stage -eq "settlement")' in wrapper
     assert "$localMinute -ge 715 -or $localMinute -lt 30" in wrapper
     assert "$minute -ge 715 -or $minute -lt 30" in wrapper
     assert "Closing the kill-on-close Job" in wrapper
