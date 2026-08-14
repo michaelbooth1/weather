@@ -405,8 +405,9 @@ if ($unmergedCount -gt 0) {
 
 # ---- 12. duplicate bot workers (the orphan that eats the capture budget) ----
 # A daily-roll supervisor stops exactly ONE pid: the one recorded in its status file
-# (bot_daily_roll_supervisor.ps1 stop_daily_roll_process -> status.get("pid")). So a worker
-# orphaned by a start race is invisible to every later stop and runs until the host reboots.
+# (bot_daily_roll_supervisor.ps1 stop_daily_roll_process -> status.get("pid")). Maker and taker
+# lifecycle decisions are now process-lock serialized, so a duplicate is an invariant breach,
+# not an expected race outcome. Keep this independent process-table check as defence in depth.
 # Measured 2026-08-07: two market_making_run workers started 47s apart, the status file kept the
 # second, the 19:29 restart stopped that one, and the 18:29:09 worker survived holding 431 MB.
 # That is not just waste -- capture admission needs 3.49 GB free per worker, so the orphan helped
@@ -429,13 +430,13 @@ try {
         if ($roots.Count -le 1) {
             Add-Finding "bots/duplicate_worker" "OK" `
                 ("{0}: {1} live run(s)" -f $modName, $roots.Count) `
-                "more than one live run of the same bot means an unreapable orphan is holding memory capture needs" $null $null
+                "more than one live run of the same bot is an invariant breach and can strand memory capture needs" $null $null
         }
         if ($roots.Count -gt 1) {
             $starts = (($roots | Sort-Object CreationDate | ForEach-Object { $_.CreationDate.ToString('HH:mm:ss') }) -join ', ')
             Add-Finding "bots/duplicate_worker" "CRITICAL" `
                 ("{0} has {1} live runs (started {2})" -f $modName, $roots.Count, $starts) `
-                "a daily-roll supervisor only ever stops the one pid in its status file, so an orphan from a start race is unreapable; each holds ~430 MB and capture admission needs 3.49 GB free per worker -- on 2026-08-07 this caused 430 memory-admission refusals and two in-window capture gaps. Identify the orphan by StartTime against the pid in data\mm_runs\daily_roll_status.json, then stop it." `
+                "daily-roll launch locking should prevent duplicate managed starts, so this is an invariant breach; the supervisor can stop only its recorded pid. Compare StartTime and command line with the applicable maker or taker daily-roll status, then use the owning fail-closed retirement path for the exact orphan." `
                 $null $null
         }
     }

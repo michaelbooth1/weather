@@ -2142,6 +2142,23 @@ new exact source and passed PID, writer-lock, heartbeat, and runtime-fingerprint
 closes log regrowth as an unowned streak risk. Archive lifecycle is a separate retention decision;
 do not delete these retained files as part of rotation.
 
+## 8f. Daily-roll launch decisions must be serialized, not only duplicate-checked
+
+**Incident measured 2026-08-07; maker mitigation landed 2026-08-08; taker parity added
+2026-08-14.** Two maker workers started **47 seconds** apart. Both launchers read the old status
+before either launch result was durable, the second PID replaced the first in the status file, and
+the supervisor later stopped only the recorded PID. The unrecorded worker survived with **431 MB**
+resident while the host recorded **430** memory-admission refusals and two protected-window capture
+gaps of **24** and **41 minutes**. The same defect class had produced taker orphans on 2026-06-30
+and 2026-07-04.
+
+The durable invariant is stronger than “check whether a worker already exists.” Direct `start` and
+supervisor `ensure` must acquire the same process-safe lock around the complete read/retire/launch/
+persist lifecycle decision. Maker and taker daily rolls now do so, fail closed if the lock cannot
+be acquired, and carry a concurrent start/ensure regression proving that only one worker launches
+and the waiter adopts its status. `staleness_sweep.ps1` keeps duplicate-process enumeration as an
+invariant-breach detector; it is no longer the primary mitigation.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
