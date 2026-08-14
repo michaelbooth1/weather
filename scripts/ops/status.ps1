@@ -630,6 +630,18 @@ if ($evidenceRefreshHeld) {
 # NOT YET PROVEN: the S4U fix has never survived a real reboot (uptime was 322 h on
 # 2026-08-03; the fix landed 07-24, last boot 07-21). Configuration says capture self-recovers.
 # That is not the same as measured. Worth a deliberate 01:00-04:00 reboot test after the lock.
+$windowsUpdatePolicyPath = "HKLM:\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU"
+$windowsUpdateAuOptions = $null
+try {
+    $updatePolicy = Get-ItemProperty -Path $windowsUpdatePolicyPath -ErrorAction SilentlyContinue
+    if ($updatePolicy -and $updatePolicy.PSObject.Properties.Name -contains "AUOptions") {
+        $windowsUpdateAuOptions = [int]$updatePolicy.AUOptions
+    }
+}
+catch {}
+if ($windowsUpdateAuOptions -eq 2) {
+    $flags.Add("Windows Update is policy-forced to notify-only (AUOptions=2); unattended security updates cannot download/install")
+}
 $rebootPending = Test-Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired"
 $autoLogon = ""
 try {
@@ -842,6 +854,8 @@ if ($Json) {
             })
         resilience = @{ reboot_pending = $rebootPending; auto_logon = ($autoLogon -eq "1");
             interactive_tasks = $interactiveTasks; uptime_hours = $uptimeH
+            windows_update_au_options = $windowsUpdateAuOptions
+            unattended_updates_blocked = ($windowsUpdateAuOptions -eq 2)
             unexpected_shutdowns_90d = $crashes90
             last_unexpected_shutdown = $(if ($lastCrash) { $lastCrash.ToString("o") } else { $null })
         }
