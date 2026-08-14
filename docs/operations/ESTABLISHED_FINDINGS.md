@@ -2256,6 +2256,13 @@ post-push verdict is still roll-sensitive through the live CLOB loop and schema 
 cumulative exact tip supersedes the standalone economics branch as the preferred integration
 target, but does not authorize an out-of-window merge or an Ontario-host order.
 
+**Failed-tip packaging refusal measured 2026-08-14 08:40 local.** The S4U/Limited immutable
+bundle task for obsolete failed tip `904ce2d824fe48071062eb9a769d6a5e921b4dba` ran once and
+returned **1** after correlating to the suite task's nonzero result and terminal three-chunk
+failure. It created **zero** bundle, manifest, or partial artifacts. Task Scheduler's operational
+log records one time-triggered process and return code `2147942401`; no later path overrode the
+failed suite. This proves the source-bundle boundary refused known-ineligible code as designed.
+
 ## 8l. The snapshot fatal-gap repair is suite-proved, not yet live-timing-proved
 
 **Immutable exact-tip suite measured 2026-08-14 06:45–06:53 local.** Branch
