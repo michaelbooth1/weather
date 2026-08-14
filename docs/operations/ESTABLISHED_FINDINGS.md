@@ -2292,6 +2292,29 @@ executable edge; no risk or evidence gate was weakened. The durable location-ref
 runs that independent live validation after regenerating configuration and refuses task success
 unless the receipt is readable, dated to the same local target date, and `PASS`.
 
+## 8n. The bounded International Stage 2 successor is suite-proved, not integration-ready
+
+**Immutable exact-tip suite measured 2026-08-14 07:12–07:21 local.** The refreshed Stage 2 branch
+`codex/international-live-stage2-refresh-20260814` was clean at
+`0994fa137b8d10c02f559fcbea5afe3d2dfd0a6a`. It records the obsolete Stage 2 lineage as a merge
+parent, then replays only that branch's bounded-probe delta onto the exact-green refreshed Stage
+0/1 parent `59e7bbfe9d9e47e88807a832238544c291e7c42a`. The immutable receipt has one start segment, one
+terminal `ALL CHUNKS PASSED` verdict, **18/18 passing chunks and 4,539/4,539 passing tests**, with
+zero failures, errors, or skips across 18 JUnit sidecars. All **19/19** preflight/chunk admissions
+observed all three streak-critical capture workers healthy; peak recorded commit was **36.59%**
+against the wrapper's 64% start and 66% abort ceilings. The task returned zero, the workload lease
+was released, capture recovery passed for all three workers, and the spent task was disabled. The
+receipt is `C:/Users/micha/ops/international-stage2-refresh-full-suite-20260814.log`; its JUnit run
+tag is `20260814T071302`.
+
+This proves software consistency and the bounded fail-closed implementation only. It does not
+prove eligible-host dependencies, authenticated lifecycle authority, order acceptance, a fill,
+fee or rebate receipt, realized P&L, or profitability. Stage 2 remains stacked on the unmerged
+Stage 0/1 parent and remains roll-sensitive. Land that parent first; then merge current production
+into Stage 2, run a fresh exact-tip suite for the combined tree, review the eligible-host wrapper,
+and use the guarded quiet-window path. Ontario production still cannot receive credentials or
+place or cancel an order.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-14 07:10 (the current paper day recovered after target-date validation;
+**Last rewritten: 2026-08-14 07:28 (the refreshed bounded Stage 2 stack is exact-suite green;
 the snapshot fatal-gap branch still needs current-master/live-timing proof).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
@@ -47,7 +47,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | Public execution tape (`-09-69a`) | Integrated and production-proved. The bounded pilot established documented subscription/routing and capture coexistence, not fills, intensity, rebates, or P&L. The durable producer remains stopped; use the measured pilot to design continuous capture without persisting book bursts. |
 | International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
 | International live probe | Refreshed current-master + economics + Stage 0/1 successor is pushed and exact-suite green. It independently clamps all operator/lifecycle caps and stays roll-sensitive. A same-tip reproof is armed for 08-15 00:30 and its suite-gated merge for 01:00; either must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible and its 08:40 bundle task must refuse. |
-| Bounded maker Stage 2 | Library-only implementation is focused-green at stacked commit `57d67588`. It is not integration- or live-ready: land the refreshed Stage 0/1 parent, replay/merge current master into Stage 2, resolve additive schema overlap, run a separate exact-tip full suite, and review the eligible-host wrapper. |
+| Bounded maker Stage 2 | Refreshed successor `0994fa13` is exact-suite green on the refreshed Stage 0/1 parent; the obsolete lineage is retained and only its bounded-probe delta was replayed. It is not integration- or live-ready: land parent `59e7bbfe` first, merge current production, reprove that combined exact tip, and review the eligible-host wrapper (§8n). |
 | Snapshot fatal-gap bound | The prepared roll-sensitive branch passed its immutable full suite with every capture admission healthy. It predates the S4U registrar repair now on production, so it still needs current master merged into it, a fresh exact-tip suite, guarded quiet-window adoption, and live stop-to-recovery timing before the backlog item can close (§8l). |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
 
