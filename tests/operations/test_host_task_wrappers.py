@@ -70,6 +70,8 @@ def test_execution_tape_post_merge_adoption_is_exact_and_fail_closed() -> None:
     assert "Start-ScheduledTask -TaskName $SupervisorTaskName" in text
     assert "execution_tape_supervisor stop" in text
     assert "Disable-ScheduledTask -TaskName $script:SupervisorTaskName" in text
+    assert "trap {" in text
+    assert "unexpected adoption failure" in text
     assert "runtime_identity_matches_current" in text
     assert "status.managed_process.pid" in text
     assert "writerLock.managed_process.pid" in text

@@ -44,6 +44,13 @@ function Refuse-Adoption {
     exit 1
 }
 
+# Convert unexpected parser, scheduler, filesystem, or process-inspection errors
+# into the same fail-closed teardown. Report only the exception type; raw error
+# text can contain host paths or command lines and is not needed for authority.
+trap {
+    Refuse-Adoption ("unexpected adoption failure: {0}" -f $_.Exception.GetType().Name)
+}
+
 if ($ExpectedTip -notmatch "^[0-9a-f]{40}$") {
     Refuse-Adoption "ExpectedTip must be a full 40-character hexadecimal commit SHA"
 }
