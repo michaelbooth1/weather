@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-13 22:45 (scheduler collisions removed, host work serialized,
-and the Stage-2 evidence path corrected).** Read this first, then
+**Last rewritten: 2026-08-13 23:55 (bounded Stage 2 implemented, execution proof corrected,
+and heavy-work admission enforced).** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -44,9 +44,9 @@ enough to the market to control adverse selection and inventory. **We do not bea
 
 | Work | State / next action |
 | --- | --- |
-| Public execution tape (`-09-69a`) | Corrected exact tip passed its bounded suite. Guarded merge is armed for 01:30 and bounded proof for 02:15. The original identity/counting claims remain rejected. |
+| Public execution tape (`-09-69a`) | Corrected exact tip passed its bounded suite. Guarded merge is armed for 01:30 and proof for 02:15. The v0.2 proof requires every active seed connected plus a clean routed observation; it does not pretend public trades prove our fills. |
 | International rebate economics | Tested, not merged. Content-bound official terms and realized payout evidence exclude unpaid incentives from acceptance P&L. Rebase/review before quiet-window integration. |
-| International live probe | Stage 0/1 tested at exact tip `904ce2d8`; exact full suite is armed for 04:30 and source bundle for 08:40. Stage 2 bounded maker-session code is the missing implementation. Build it library-only on the separate stage2 branch; run it only on the eligible host after readiness passes. |
+| International live probe | Stage 0/1 exact-tip full suite remains armed for 04:30 and source bundle for 08:40. Library-only Stage 2 is implemented and focused-green at stacked commit `57d67588`, with fail-closed order, evidence, collateral, cleanup, and rebate accounting. It is not integration- or live-ready: land its parents, merge current master into the branch, run an exact-tip full suite in a later heavy window, and review the separate eligible-host wrapper first. |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
 | B-only screen (`-09-63a`) | Stopped at Gate 3. The report remains branch-only; do not re-register the panel-size gate unchanged (§1j). |
 | PIT extract / fields | Extract is shipped; staged fields are not adopted because adoption changes serving. Replay first (§1e). |
@@ -61,13 +61,15 @@ driver until valid queues exist. Never delete held branches.
 - **Capture recovered; `08-13` did not.** A terminated evidence wrapper left its child alive and
   starved capture. Job ownership now proves child-tree teardown, but the workload remains unsafe
   beside capture. `WeatherEveningEvidenceRefresh` stays **Disabled** (§8d).
-- Heavy wrappers now share one OS-held workload lease. Tonight's training is deliberately skipped
-  and automatically re-enabled at 03:30 so it cannot overlap the 01:30/02:15 proof sequence.
-  Task Scheduler Operational history is enabled. `status.ps1` now performs bounded EOF-seeking
-  settlement checks instead of repeatedly rescanning large ledgers.
-- The Stage-A daily wrapper owns its child tree and stops it at 11:55. Agent/ad-hoc heavy work is
-  limited to 00:30–09:00; the scheduled Stage-A chain is the only 09:30–11:55 exception. Nothing
-  heavy runs during 12:00–18:00 grading or 18:00–00:30 near-close capture.
+- Heavy wrappers now share one OS-held workload lease that refuses ordinary acquisition outside
+  00:30–09:00 and permits only the named Stage-A exception. Tonight's training is deliberately
+  skipped and automatically re-enabled at 03:30 so it cannot overlap the 01:30/02:15 proof
+  sequence. Task Scheduler Operational history is enabled. `status.ps1` now performs bounded
+  EOF-seeking settlement checks instead of repeatedly rescanning large ledgers.
+- The Stage-A daily wrapper owns its child tree and stops it at 11:55. The bounded worktree suite
+  owns its child tree and stops it at 09:00. The scheduled Stage-A chain is the only
+  09:30–11:55 exception. Nothing heavy runs during 12:00–18:00 grading or 18:00–00:30 near-close
+  capture.
 - Settlement holes through `08-11` are closed. A failure count does not prove a date is
   unrecoverable; verify row content and source identity (§8d and settlement findings).
 - The off-host mirror is operator-paused. Its frozen copy is neither current nor proven
