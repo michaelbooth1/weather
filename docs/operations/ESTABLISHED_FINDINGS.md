@@ -2256,6 +2256,13 @@ post-push verdict is still roll-sensitive through the live CLOB loop and schema 
 cumulative exact tip supersedes the standalone economics branch as the preferred integration
 target, but does not authorize an out-of-window merge or an Ontario-host order.
 
+**Failed-tip packaging refusal measured 2026-08-14 08:40 local.** The S4U/Limited immutable
+bundle task for obsolete failed tip `904ce2d824fe48071062eb9a769d6a5e921b4dba` ran once and
+returned **1** after correlating to the suite task's nonzero result and terminal three-chunk
+failure. It created **zero** bundle, manifest, or partial artifacts. Task Scheduler's operational
+log records one time-triggered process and return code `2147942401`; no later path overrode the
+failed suite. This proves the source-bundle boundary refused known-ineligible code as designed.
+
 ## 8l. The snapshot fatal-gap repair is suite-proved, not yet live-timing-proved
 
 **Immutable exact-tip suite measured 2026-08-14 06:45–06:53 local.** Branch
@@ -2341,13 +2348,49 @@ tip then passed one immutable **18/18-chunk, 4,543/4,543-test** receipt with zer
 or skips. All **19/19** admissions observed all three core workers healthy; peak recorded commit
 was **38.96%** against the same ceilings.
 
-The later tip `02a2c1ffae0cb882059cd00c8ced41d912c7dc67` adds only the repository-owned
-post-merge adoption guard and its focused ratchet. It is pushed and bound to a same-local-day full
-reproof, suite-gated quiet merge, and guarded adoption on 2026-08-15. Until those tasks pass, the
+The later repair line adds only the repository-owned post-merge adoption guard, its focused
+ratchet, current production evidence, and two fail-closed cleanup hardenings. Final tip
+`5ed4ff6979905eaa826d9ce97f457a142aadf454` is pushed and bound to a same-local-day full reproof,
+suite-gated quiet merge, and guarded adoption on 2026-08-15. Until those tasks pass, the
 production supervisor remains Disabled. This evidence proves public producer lifecycle and
 capture coexistence only. It does not prove a unique execution count, our fill, queue position,
 fee, rebate, inventory, P&L, or profit; historical public gaps still make the current retained
 price path unusable for economics.
+
+**Final-tip pre-quiet reproof measured 2026-08-14 08:25-08:33 local.** The exact pushed final
+tip `5ed4ff6979905eaa826d9ce97f457a142aadf454` passed one immutable **18/18-chunk,
+4,544/4,544-test** receipt with zero failures, errors, or skips. All **19/19** admissions observed
+the three core capture workers healthy; peak recorded commit was **36.49%** against the
+**64%/66%** start/abort limits. The receipt had one start, one passing terminal verdict, eighteen
+distinct JUnit files, and Task Scheduler result **0**; the heavyweight OS lease was released and
+capture recovered at all three priorities. This closes final-tip regression risk before the
+quiet window, but it does not replace the separately queued same-local-day reproof or any guarded
+merge/adoption condition.
+
+A final isolated S4U/Limited scheduler proof on tip `5ed4ff69` established that task priority
+**7** propagated through both venv launcher layers: the long-running child reported
+`BelowNormal`, matched status and lock at PID **4492**, retained evidence integrity `PASS`, and
+used **57.11 MiB** working set. The official stop again proved process exit and lock removal. This
+closes priority inheritance as an assumption; it still does not arm production ahead of the
+guarded overnight chain.
+
+---
+
+## 8p. The current disk-days alarm measures a one-day burst, not an established steady rate
+
+**Free-space trail audited 2026-08-14 08:50 local.** The status monitor correctly measured a
+**24.4 GB** free-space reduction over its trailing **24-hour** reference, leaving **157.7 GB** and
+therefore printing an approximately **6-day** linear extrapolation. Longer and shorter windows do
+not support treating that slope as steady: the trailing **48 hours** lost **3.0 GB** net
+(**1.5 GB/day**), while the trailing **8 hours** lost **1.0 GB** net (**3.0 GB/day**). The last two
+hours did contain a separate **6.0 GB** burst while many immutable proofs and new worktrees were
+active, but the trail alone does not assign causality.
+
+The correct operational reading is a conservative burst warning, not a forecast that the disk
+will actually fill in six days. Do not silence it: absolute headroom is currently ample, but the
+off-host mirror is operator-paused and new capture remains single-disk evidence. Re-evaluate after
+the proof burst ages out of both the short and 24-hour windows; investigate if the multi-window
+slope converges upward or absolute free space approaches the monitor's fixed thresholds.
 
 ---
 
