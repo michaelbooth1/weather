@@ -38,11 +38,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
+    -Principal $principal `
     -Description "Periodically analyzes saved weather model-market disagreement audit snapshots." `
     -Force | Out-Null
 

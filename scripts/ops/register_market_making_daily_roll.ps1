@@ -46,11 +46,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
+    -Principal $principal `
     -Description "Starts the active-day paper-live-forward market-making run before the evidence cutoff (python -m weather.operations.market_making_daily_roll start)." `
     -Force | Out-Null
 

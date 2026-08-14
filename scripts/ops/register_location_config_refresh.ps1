@@ -1,4 +1,5 @@
-# Registers the location event-metadata config refresh as a Windows Scheduled Task.
+# Registers the location event-metadata config refresh and target-date
+# validation as a Windows Scheduled Task.
 #
 # Regenerates config/location_market_events.json from live Polymarket every ~6h so
 # the collection loops always hold the current + upcoming daily-market events and
@@ -45,12 +46,18 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
-    -Description "Regenerates config/location_market_events.json from live Polymarket every 6h so collection loops hold current+upcoming market events and CLOB tokens (prevents the stale-config capture gap seen 2026-06-29)." `
+    -Principal $principal `
+    -Description "Regenerates config/location_market_events.json from live Polymarket every 6h, then independently validates today's built-in markets against live Gamma before task success." `
     -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName': every 6h (00:00/06:00/12:00/18:00 local)."

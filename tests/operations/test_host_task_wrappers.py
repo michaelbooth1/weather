@@ -4,6 +4,55 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
+    registrars = {
+        path: path.read_text(encoding="utf-8-sig")
+        for path in (ROOT / "scripts" / "ops").glob("register_*.ps1")
+    }
+    scheduled_registrars = {
+        path: text
+        for path, text in registrars.items()
+        if "Register-ScheduledTask" in text
+    }
+
+    assert scheduled_registrars
+    for path, text in scheduled_registrars.items():
+        assert "$principal = New-ScheduledTaskPrincipal" in text
+        assert "-UserId $env:USERNAME" in text
+        assert "-LogonType S4U" in text
+        assert "-RunLevel Limited" in text
+        assert "-Principal $principal" in text, path.name
+        assert "only while logged on" not in text, path.name
+        assert r"C:\Users\micha" not in text, path.name
+
+
+def test_location_refresh_revalidates_target_date_before_success() -> None:
+    text = (ROOT / "scripts" / "ops" / "refresh_location_config.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+
+    refresh = '"weather.operations.location_config_refresh"'
+    validation = '"weather.operations.event_metadata_validation"'
+    assert text.index(refresh) < text.index(validation)
+    assert '$targetDate = (Get-Date).ToString("yyyy-MM-dd")' in text
+    assert 'if ([string]$validation.target_date -ne $targetDate' in text
+    assert '[string]$validation.status -ne "PASS"' in text
+    assert "--no-live-fetch" not in text
+
+
+def test_execution_tape_registrar_is_public_only_and_low_priority() -> None:
+    text = (ROOT / "scripts" / "ops" / "register_execution_tape_supervisor.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "weather.operations.execution_tape_supervisor ensure" in text
+    assert "--market all" in text
+    assert "-Priority 7" in text
+    assert "public execution-tape" in text
+    for forbidden in ("credential", "private-key", "api-key", "wallet", "live-order"):
+        assert f"--{forbidden}" not in text.lower()
+
+
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     wrapper = (ROOT / "scripts" / "ops" / "market_making_daily_roll_task.ps1").read_text(
         encoding="utf-8-sig"

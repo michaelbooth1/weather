@@ -1,21 +1,14 @@
-# Registers the fast observation-triggered recompute supervisor as a Windows
-# Scheduled Task.
+# Registers the read-only International public execution-tape supervisor.
 #
-# Task Scheduler runs the short-lived `observation_trigger ensure` check every
-# minute and at logon. `ensure` keeps exactly one detached watcher alive. The
-# watcher polls low-cost observation sources and forces tagged recomputes when
-# settlement-relevant source state changes.
-#
-# Run from the repo root:  .\scripts\ops\register_observation_trigger_supervisor.ps1
-# The S4U principal runs without an interactive logon. Re-running replaces the
-# existing task and must preserve unattended reboot recovery.
+# Task Scheduler runs a short-lived `ensure` check every minute and at logon.
+# `ensure` keeps exactly one detached public websocket producer alive. The
+# producer has no credential, wallet, signing, order, or exchange-mutation path.
+# Registration is an explicit host change; editing this file does not arm it.
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
-    [string]$TaskName = "WeatherObservationTriggerSupervisor",
+    [string]$TaskName = "WeatherExecutionTapeSupervisor",
     [int]$EnsureEveryMinutes = 1,
-    [string]$Market = "all",
-    [int]$IntervalSeconds = 60,
     [int]$StaleAfterSeconds = 180
 )
 
@@ -24,8 +17,7 @@ if (-not (Test-Path $python)) {
     throw "venv pythonw not found at $python -- run from the repo with its venv created."
 }
 
-$arguments = "-m weather.operations.observation_trigger ensure --market $Market --interval-seconds $IntervalSeconds --stale-after-seconds $StaleAfterSeconds"
-
+$arguments = "-m weather.operations.execution_tape_supervisor ensure --market all --stale-after-seconds $StaleAfterSeconds"
 $action = New-ScheduledTaskAction `
     -Execute $python `
     -Argument $arguments `
@@ -43,7 +35,8 @@ $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
     -WakeToRun `
     -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries
+    -DontStopIfGoingOnBatteries `
+    -Priority 7
 
 $principal = New-ScheduledTaskPrincipal `
     -UserId $env:USERNAME `
@@ -56,8 +49,8 @@ Register-ScheduledTask `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
     -Principal $principal `
-    -Description "Keeps the observation-triggered recompute watcher alive (python -m weather.operations.observation_trigger ensure)." `
+    -Description "Keeps the read-only International Polymarket public execution-tape producer alive; no credential or order path." `
     -Force | Out-Null
 
-Write-Host "Registered scheduled task '$TaskName': observation trigger --ensure every $EnsureEveryMinutes min + at logon."
+Write-Host "Registered scheduled task '$TaskName': public execution-tape ensure every $EnsureEveryMinutes min + at logon."
 Write-Host "Verify with: Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo"

@@ -105,6 +105,56 @@ foreach ($c in $caps.Keys) {
     }
 }
 
+# ---- auxiliary public execution tape (economics evidence, not streak grading) ----
+# This producer is optional until its task is explicitly registered. Once
+# armed, status/lock/PID/supervisor identity must agree just like the core
+# loops. Its failure loses irreplaceable forward market-path evidence, but it
+# does not relabel the three-worker weather-capture streak.
+$executionTapeState = [ordered]@{
+    armed = $false; task_state = $null; process_healthy = $null
+    capture_state = $null; evidence_integrity = $null; price_path_usable = $null
+    heartbeat_age_seconds = $null; pid = $null
+}
+$executionTapeTask = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
+if ($executionTapeTask) {
+    $executionTapeState.armed = [string]$executionTapeTask.State -ne "Disabled"
+    $executionTapeState.task_state = [string]$executionTapeTask.State
+}
+if ($executionTapeState.armed) {
+    try {
+        $executionStatus = Get-Content -LiteralPath (Join-Path $captureRoot "execution_tape_status.json") -Raw | ConvertFrom-Json
+        $executionLock = Get-Content -LiteralPath (Join-Path $captureRoot ".execution_tape_status.json.writer.lock") -Raw | ConvertFrom-Json
+        $executionSupervisor = Get-Content -LiteralPath (Join-Path $captureRoot "execution_tape_supervisor_status.json") -Raw | ConvertFrom-Json
+        $executionPid = [int]$executionStatus.pid
+        $executionProcess = Get-Process -Id $executionPid -ErrorAction SilentlyContinue
+        $executionAge = ((Get-Date) - [datetime]$executionStatus.last_heartbeat).TotalSeconds
+        $executionTapeState.pid = $executionPid
+        $executionTapeState.heartbeat_age_seconds = [math]::Round($executionAge, 1)
+        $executionTapeState.capture_state = [string]$executionStatus.state
+        $executionTapeState.evidence_integrity = [string]$executionStatus.evidence_integrity
+        $executionTapeState.price_path_usable = [bool]$executionStatus.price_path_evidence_usable
+        $executionTapeState.process_healthy = [bool](
+            $executionPid -gt 0 -and [int]$executionLock.pid -eq $executionPid -and
+            $executionProcess -and $executionAge -ge 0 -and $executionAge -le 180 -and
+            [string]$executionSupervisor.ensure_status -eq "OK" -and
+            [bool]$executionSupervisor.runtime_identity_matches_current
+        )
+        if (-not $executionTapeState.process_healthy) {
+            $flags.Add("public execution-tape producer is armed but its process/lock/identity contract is unhealthy")
+        }
+        elseif ($executionTapeState.evidence_integrity -eq "BLOCKED_EVIDENCE_LOSS") {
+            $flags.Add("public execution-tape evidence integrity is BLOCKED_EVIDENCE_LOSS")
+        }
+        elseif (-not $executionTapeState.price_path_usable) {
+            $warns.Add("public execution-tape producer is alive but complete price-path evidence is not currently usable ($($executionTapeState.capture_state))")
+        }
+    }
+    catch {
+        $executionTapeState.process_healthy = $false
+        $flags.Add("public execution-tape producer is armed but its status contract is unreadable")
+    }
+}
+
 # ---- resources ----
 $os = Get-CimInstance Win32_OperatingSystem
 $freeRamGB = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
@@ -408,13 +458,37 @@ $expDisabled = @(
     # the generic anomaly path as well called the same deliberate state "unexpected".
     "WeatherEveningEvidenceRefresh"
 )
-# A temporary training hold is expected only while an enabled one-shot re-enable task is
-# visibly armed. If that task disappears or expires, the disabled recurring window returns
-# to the generic FLAG path instead of becoming a permanent silent exception.
+# A temporary training hold is expected only while one exact, enabled, self-disabling
+# re-enable action is visibly armed for the next integration night. The old 12-hour
+# horizon contradicted a task legitimately armed the prior morning for 04:20 the next day.
+# Thirty hours covers that operating cadence without letting an abandoned far-future task
+# silence the recurring-window alarm. Action, trigger, identity, and time are all checked:
+# a similarly named task or an action with extra commands cannot suppress the FLAG.
+$trainingReenableNow = Get-Date
+$trainingReenableDeadline = $trainingReenableNow.AddHours(30)
 $trainingReenable = @(Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*" -ErrorAction SilentlyContinue |
     Where-Object {
-        $_.State -ne "Disabled" -and ($info = $_ | Get-ScheduledTaskInfo) -and
-        $info.NextRunTime -gt (Get-Date) -and $info.NextRunTime -lt (Get-Date).AddHours(12)
+        $candidate = $_
+        if ([string]$candidate.State -eq "Disabled" -or [string]$candidate.TaskPath -ne "\") {
+            return $false
+        }
+        $candidateActions = @($candidate.Actions)
+        $candidateTriggers = @($candidate.Triggers | Where-Object {
+                $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
+            })
+        if ($candidateActions.Count -ne 1 -or $candidateTriggers.Count -ne 1) {
+            return $false
+        }
+        $candidateAction = $candidateActions[0]
+        $expectedExecutable = Join-Path $PSHOME "powershell.exe"
+        $expectedArguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command `"Enable-ScheduledTask -TaskName 'WeatherTrainingWindow'; Disable-ScheduledTask -TaskName '$([string]$candidate.TaskName)'`""
+        if ([string]$candidateAction.Execute -ine $expectedExecutable -or
+            [string]$candidateAction.Arguments -cne $expectedArguments) {
+            return $false
+        }
+        $info = $candidate | Get-ScheduledTaskInfo
+        $info -and $info.NextRunTime -gt $trainingReenableNow -and
+            $info.NextRunTime -le $trainingReenableDeadline
     })
 if ($trainingReenable.Count -gt 0) {
     $expDisabled += "WeatherTrainingWindow"
@@ -561,6 +635,12 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     else {
         $ok = ($res -eq "0x0")
+        # LastTaskResult is a completed-run field, not a live-run verdict. Task
+        # Scheduler can retain the prior result (observed as 0x800710E0 for an
+        # on-demand suite) while State already says Running. Health and hang
+        # checks belong to each workload's own monitor; do not turn that stale
+        # result into a generic failure before the current run has completed.
+        if (-not $ok -and $st -eq "Running") { $ok = $true }
         # 0x41301 = SCHED_S_TASK_RUNNING: we sampled the task mid-execution (the
         # every-minute supervisors make this a routine race). The task is healthy
         # by definition while running; its next completed result is what matters.
@@ -833,7 +913,8 @@ if ($Json) {
             today = $todayStr; lock = $streak.projected_lock_date_if_all_clean;
             settled = $streak.most_recent_settled
         }
-        capture  = $capState; ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
+        capture  = $capState; execution_tape = $executionTapeState
+        ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
         clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })
             synchronized = $clockSynchronized; source = $clockSource; sync_age_hours = $clockSyncAgeH
@@ -871,6 +952,10 @@ Write-Output $bar
 Write-Output ("  STREAK    : {0}/{1}  day1 {2}    TODAY: {3}" -f $streak.streak_days, $streak.target, $streak.streak_start, $todayStr)
 Write-Output ("              lock ~{0} if all clean   |  settled -> {1}" -f $streak.projected_lock_date_if_all_clean, $streak.most_recent_settled)
 Write-Output ("  CAPTURE   : {0}" -f $capSummary)
+$executionTapeSummary = if (-not $executionTapeState.armed) { "not armed" }
+elseif (-not $executionTapeState.process_healthy) { "ARMED / UNHEALTHY" }
+else { "{0}, price-path usable={1}" -f $executionTapeState.capture_state, $executionTapeState.price_path_usable }
+Write-Output ("  EXEC TAPE : {0}" -f $executionTapeSummary)
 $diskTrend = if ($null -eq $diskDelta) { "" }
 elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
 else { "  (+{0} GB/day)" -f $diskDelta }

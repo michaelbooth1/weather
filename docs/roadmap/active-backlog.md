@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-14T09:28:07.522799+00:00
+Generated: 2026-08-14T11:36:40.143897+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 319 |
-| Active items | 33 |
+| Items | 320 |
+| Active items | 34 |
 | OPEN | 4 |
-| PARTIAL | 29 |
+| PARTIAL | 30 |
 | COMPLETE | 286 |
-| ROADMAP rows | 319 |
-| ROADMAP primary rows | 319 |
-| Metadata manifest rows | 319 |
+| ROADMAP rows | 320 |
+| ROADMAP primary rows | 320 |
+| Metadata manifest rows | 320 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -27,7 +27,7 @@ Status: `OK`
 | :--- | :--- | :--- | :--- | :--- |
 | 32 | PARTIAL | 2026-06-22 | SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED | [Reanalysis And Synoptic Feature Layer](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 35 | PARTIAL | 2026-06-22 | V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED | [Unified Continuous-Density Model](items/item-35-unified-continuous-density-model.md) |
-| 67 | PARTIAL | 2026-08-14 | REFRESHED INTERNATIONAL STAGE 0/1 FOCUSED-GREEN; EXACT SUITE AND ELIGIBLE-HOST EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | PARTIAL | 2026-08-14 | REFRESHED BOUNDED PROBE SUITE-PROVED; ELIGIBLE-HOST EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 134 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE | [Early-Day Forecast Profile Calibration](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS | [Cutoff-Regime Forecast/Observation Weighting](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
 | 136 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED | [Forecast Source-State Reliability Calibrator](items/item-136-forecast-source-state-reliability-calibrator.md) |
@@ -58,6 +58,7 @@ Status: `OK`
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | PARTIAL | 2026-07-15 | FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 326 | PARTIAL | 2026-08-14 | SUPERVISOR PREPARED; INTEGRATION, ADOPTION, AND SOAK OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 
 ## Lint Issues
 

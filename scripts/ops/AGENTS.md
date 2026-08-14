@@ -28,12 +28,23 @@ These instructions apply to `scripts/ops/`.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.
+- Registration sources for unattended recurring work must explicitly bind a
+  current-user `S4U` / `Limited` principal. Re-running a registrar must not
+  replace an unattended task with an interactive-logon dependency. The
+  credential-vault push and mirror tasks are the intentional interactive
+  exceptions; do not convert them to S4U because that session cannot access the
+  vault.
+- Default repository roots from the registrar's own `PSScriptRoot`, and bind
+  S4U to `$env:USERNAME`. Do not hard-code the production checkout or account;
+  registrars must remain safe when reviewed from an isolated worktree.
 - Editing a script does not authorize registering, disabling, starting, or
   deleting a task. Make those changes only when the user explicitly places the
   host scheduler in scope.
 
-The three capture supervisors are snapshot, CLOB, and observation-trigger.
-Keep their task names and `ensure` arguments aligned with
+The three streak-critical capture supervisors are snapshot, CLOB, and
+observation-trigger. The auxiliary public execution-tape producer has its own
+supervisor only after it is explicitly armed; it does not change three-worker
+streak grading. Keep all armed task names and `ensure` arguments aligned with
 `docs/operations/OPERATIONS_DESIGN.md`. An intentional stop must account for
 both the detached worker and the supervisor that can revive it.
 
