@@ -2203,6 +2203,22 @@ and neither Windows Update nor Component Based Servicing reported a pending rebo
 No scan, download, installation, or reboot was initiated. `status.ps1` now fails visibly if
 `AUOptions=2` returns.
 
+## 8j. A monitor must distinguish durable risk from preserved history and unapproved work
+
+**False warnings reproduced and corrected 2026-08-14.** `staleness_sweep.ps1` reported six
+unreachable operations documents even though five were date-stamped historical evidence and the
+sixth was the historical `OVERNIGHT_BRIEFINGS.md` aggregate. It also claimed the current
+`STATE_OF_PLAY.md` omitted missions listed compactly inside the documented `-09-73a…-09-78a`
+range, and treated every remote branch not merged to `origin/master` as approved work requiring a
+scheduled merge.
+
+The reachability check now applies to canonical/non-dated operations documents, while preserving
+historical evidence without demanding an index entry. Mission drift understands explicit compact
+ranges. The remote-branch merge warning was removed: a held or unapproved branch is not a merge
+queue, and only an immutable explicitly approved exact-tip queue authorizes integration. These
+changes remove three standing warnings without weakening capture, closure, task, or exact-tip
+checks.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
