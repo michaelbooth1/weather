@@ -29,15 +29,22 @@ def test_disabled_on_demand_success_is_not_an_unexpected_disable():
     assert "completed an on-demand run" in text
 
 
-def test_disabled_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
+def test_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
-    assert "$integratedDisabledMerge = $false" in text
+    assert "$integratedExactTipMerge = $false" in text
     assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
+    assert '$actionArguments -like "*suite_gated_quiet_merge.ps1*"' in text
+    assert "$isQuietMergeAction -and" in text
     assert "-ExpectedTip\\s+([0-9a-f]{40})" in text
-    assert "merge-base --is-ancestor $integratedDisabledTip HEAD" in text
-    assert "$integratedDisabledMerge = ($LASTEXITCODE -eq 0)" in text
+    assert "merge-base --is-ancestor $integratedExactTip HEAD" in text
+    assert "$integratedExactTipMerge = ($LASTEXITCODE -eq 0)" in text
     assert "retained as spent exact-tip merge evidence" in text
+    assert (
+        "-not $ok -and $integratedExactTipMerge -and $oneShot -and "
+        "-not $ti.NextRunTime"
+    ) in text
+    assert "but exact tip $integratedExactTip is already in production history" in text
 
 
 def test_only_active_scheduled_interactive_tasks_count_as_reboot_exposure():
@@ -59,7 +66,7 @@ def test_operator_held_evidence_refresh_keeps_one_honest_warning():
 def test_quiet_merge_recovery_interval_cannot_overlap_sensitive_driver():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
-    assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
+    assert "$oneShot -and $ti.NextRunTime -and $isQuietMergeAction" in text
     assert "-SettleSeconds\\s+(\\d+)" in text
     assert "-RollbackRecoverySeconds\\s+(\\d+)" in text
     assert "$settleSeconds + 240" in text

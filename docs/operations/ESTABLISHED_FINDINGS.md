@@ -1986,13 +1986,33 @@ authoritative account event proves a fill, and only reconciled positions/fees/re
   `8e7b5732` rejected a loop that produced *hundreds of MB/day of book rows and no evidence*. An
   execution-only tape is the opposite: it is exactly the evidence, at a tiny fraction of the volume.
   **Anyone citing the disarm against this has misread which loop it was about.**
-- **Volume is small but has NOT been measured.** 411 executions over 265 market-days at 2.222%
-  coverage extrapolates to order-10² per market-day — **an order-of-magnitude expectation resting on
-  an unverified linearity assumption**, since message limits and connect-time book bursts bias the
-  observed rate. Measure it in a bounded pilot; do not size storage from this number.
-- **The current collector sends the legacy frame** `{"operation":"subscribe", ...}`. It was accepted
-  historically, but a new producer should use and *test* the documented `{"type":"market"}` form
-  rather than silently inheriting that compatibility assumption.
+- **The pre-pilot volume estimate was not a measurement.** 411 executions over 265 market-days at
+  2.222% coverage extrapolated to order-10² per market-day, but message limits and connect-time book
+  bursts made linear scaling invalid. The bounded production result below supersedes that estimate
+  for its exact scope; it is still too short to establish a daily rate.
+- **The legacy collector used** `{"operation":"subscribe", ...}`. The corrected producer uses the
+  documented `{"type":"market"}` form, and the production pilot proved that form against every
+  configured seed. Do not restore the compatibility assumption.
+
+### Production bounded pilot — capture mechanics proved, economics still absent
+
+**Measured 2026-08-14 from the production-only receipt
+`data/alerts/execution_tape_probe_last.json`.** The probe ran from **02:25:00 to 02:38:05 local**
+with a declared **780-second** duration. It connected all **12/12** configured seeds and retained
+**146** routed public execution observations spanning **11/12** configured market-day scopes.
+Parse rejections, unrouted observations, and ambiguous observations were **0 before and after**;
+the retained rows had **0 repeated, weak, or partial public identities** in this run.
+
+The child peaked at **4.14 MB working set**, host commit peaked at **34.44%**, all **3/3** capture
+workers were healthy before and after, and the slow snapshot heartbeat advanced from
+**02:23:26 to 02:35:52 local**. The durable execution-tape status was `STOPPED` at teardown, so this
+was a bounded proof, not continuous collection.
+
+**Evidence boundary:** these are received-time public market observations. Even a row carrying a
+transaction hash plus complete documented economics fields retains the identity class
+`transaction_hash_plus_economics_not_proven_unique`. The pilot proves subscription, routing,
+identity preservation, resource coexistence, and price-path collection. It does **not** prove
+unique fills, execution intensity, our fills, queue position, fees, rebates, inventory, or P&L.
 
 > ## AUTHORIZED BY THE OPERATOR, 2026-08-09
 >
@@ -2013,13 +2033,13 @@ authoritative account event proves a fill, and only reconciled positions/fees/re
 > "no paid API" rule is about **weather** providers; the exchange's public market stream and
 > `/trades` endpoint are a separate question and are now in scope for capture.
 
-**Implementation is staged deliberately, because the volume claim is an extrapolation.** §8c's
-"order 10² per market-day" rests on scaling 411 observed trades by a 2.222% duty cycle, and message
-limits truncate sessions so the true rate is **≥** that, not **≈** that. Nothing is sized from it.
+**Implementation remains staged deliberately.** The production pilot replaces the old linear
+extrapolation for one bounded interval, but it does not establish a stable daily rate or solve the
+own-account evidence gap.
 
 | Stage | Who | When | Purpose |
 | --- | --- | --- | --- |
-| **Bounded public-tape pilot** | production | **00:30–09:00**, inside the heavy-work window | measure the real rate, prove the documented subscription frame, prove identity survives end-to-end |
+| **Bounded public-tape pilot** | production | **PASSED 2026-08-14** | proved the documented subscription frame, routing, identity preservation, bounded resources, and capture survival |
 | **Continuous producer** | workstation mission | after the pilot returns numbers | build to the §8c contract using measured values |
 | **Bounded own-account maker session** | eligible International host | after Stage-0/1 readiness and authoritative readers pass | prove post-only lifecycle, reconciled fills/positions/fees/rebates, and bounded realized economics |
 
@@ -2029,10 +2049,11 @@ and capture already died once on 2026-08-09.
 ### One design fact that makes the permanent producer cheap
 
 The subscription delivers `book`, `price_change` **and** `last_trade_price` on one stream, but we
-choose what to persist. At ~70 executions per market-day across 12 markets, an **execution-only**
-tape is well under 1 MB/day. **The expensive thing was never the trades — it was persisting the book
-that arrives alongside them.** So the July disarm's "hundreds of MB/day" objection does not apply to
-a producer that discards book and `price_change` at write time.
+choose what to persist. The bounded producer discarded `book` and `price_change` at write time and
+retained only the execution evidence. **The expensive thing was never the trades — it was
+persisting the book that arrives alongside them.** So the July disarm's "hundreds of MB/day"
+objection does not apply to this execution-only design. Size continuous retention from a longer
+measured run, not from the retired linear extrapolation.
 
 ### The SECOND operator decision, from `-09-48a`: authorize a market-harvest lane?
 
@@ -2099,6 +2120,27 @@ This retires the orphan-cleanup defect but establishes a separate daytime-resour
 14:00/17:00 task is disabled again. Do not re-enable it until its evidence workload is chunked and
 guarded by capture-health plus commit admission; child-tree containment alone does not make an
 eight-hour monolith safe beside capture.
+
+## 8e. Large live logs caused capture failure; bounded non-deleting rotation is now live
+
+**Incident measured 2026-08-09; mitigation production-proved 2026-08-14.** Reopening a
+**625 MB** `diagnostics.jsonl` raised `PermissionError`, killed the snapshot loop, exhausted its
+**6/6** restart budget, and produced a **5 h 54 m** capture outage. A held-open console was mostly a
+disk concern; repeatedly reopened JSONL sidecars and restart-breaker reads were the crash path.
+Hand rotation removed the immediate trigger but did not prevent regrowth.
+
+The landed implementation rotates managed files at a **64 MiB** bound using timestamped renames,
+never deletion. First-adoption archive scans are bounded to the breaker window, transient Windows
+rename/unlink denials receive bounded retry, persistent denial still fails closed, and breaker
+history survives rotation. The dormant enrichment writer is bounded without re-arming that loop.
+
+The guarded adoption retained, among other archives, a **1,080.747 MB** observation console,
+**66.910 MB** observation event sidecar, **94.297 MB** snapshot diagnostics file,
+**372.132 MB** snapshot console, and **98.501 MB** CLOB console. The replacement observation
+console and event sidecar reopened below **0.100 MB**, while all **3/3** capture workers adopted the
+new exact source and passed PID, writer-lock, heartbeat, and runtime-fingerprint recovery. This
+closes log regrowth as an unowned streak risk. Archive lifecycle is a separate retention decision;
+do not delete these retained files as part of rotation.
 
 ---
 

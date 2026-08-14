@@ -1,8 +1,8 @@
 # State of play
 
-**Last rewritten: 2026-08-13 23:55 (bounded Stage 2 implemented, execution proof corrected,
-and heavy-work admission enforced).** Read this first, then
-`ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
+**Last rewritten: 2026-08-14 03:05 (public-tape pilot and log rotation proved in production;
+International live-probe proof remains queued).** Read this first, then `ESTABLISHED_FINDINGS.md`
+and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
 > Findings and numbers belong in `ESTABLISHED_FINDINGS`; false claims in
@@ -17,10 +17,10 @@ enough to the market to control adverse selection and inventory. **We do not bea
 
 | Clock | Current state |
 | --- | --- |
-| Capture streak | Reset. `08-13` is partial after the evidence-refresh incident (§8d); earliest new full day is `08-14`. |
+| Capture streak | Reset. `08-14` is currently `ON_TRACK`; it is the earliest possible new full day after the `08-13` incident. |
 | MM countable days | Stopped. A countable day never required a `QUOTE` (§8b). |
 | Archive coverage | Does not include the current target period; the permitted re-fetch remains un-run. |
-| Execution evidence | No economic counter exists. Public-tape merge/proof are armed, but public trades cannot prove our fills or P&L (§8c). |
+| Execution evidence | The bounded public-tape pilot passed. The producer is stopped after the proof; no own-account economic counter exists (§8c). |
 
 ## Closed decisions — do not relitigate without new evidence
 
@@ -44,32 +44,35 @@ enough to the market to control adverse selection and inventory. **We do not bea
 
 | Work | State / next action |
 | --- | --- |
-| Public execution tape (`-09-69a`) | Corrected exact tip passed its bounded suite. Guarded merge is armed for 01:30 and proof for 02:15. The v0.2 proof requires every active seed connected plus a clean routed observation; it does not pretend public trades prove our fills. |
+| Public execution tape (`-09-69a`) | Integrated and production-proved. The bounded pilot established documented subscription/routing and capture coexistence, not fills, intensity, rebates, or P&L. The durable producer remains stopped; use the measured pilot to design continuous capture without persisting book bursts. |
 | International rebate economics | Tested, not merged. Content-bound official terms and realized payout evidence exclude unpaid incentives from acceptance P&L. Rebase/review before quiet-window integration. |
-| International live probe | Stage 0/1 exact-tip full suite remains armed for 04:30 and source bundle for 08:40. Library-only Stage 2 is implemented and focused-green at stacked commit `57d67588`, with fail-closed order, evidence, collateral, cleanup, and rebate accounting. It is not integration- or live-ready: land its parents, merge current master into the branch, run an exact-tip full suite in a later heavy window, and review the separate eligible-host wrapper first. |
+| International live probe | Stage 0/1 exact-tip full suite remains queued for 04:30 and source bundle for 08:40. Audit the complete suite log and bundle manifest; task exit alone proves neither. |
+| Bounded maker Stage 2 | Library-only implementation is focused-green at stacked commit `57d67588`. It is not integration- or live-ready: land its parents, merge current master into the branch, resolve additive schema overlap, run an exact-tip full suite in a later heavy window, and separately review the eligible-host wrapper. |
 | Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
-| B-only screen (`-09-63a`) | Stopped at Gate 3. The report remains branch-only; do not re-register the panel-size gate unchanged (§1j). |
-| PIT extract / fields | Extract is shipped; staged fields are not adopted because adoption changes serving. Replay first (§1e). |
 
 Legacy `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are **Disabled**. Their old
 branch-only queues lacked immutable expected-tip binding and could collide with guarded work.
-The repository-owned v1 driver requires reviewed full SHAs; do not re-enable either recurring
-driver until valid queues exist. Never delete held branches.
+The repository-owned v1 driver requires reviewed full SHAs; do not re-enable either recurring driver
+until valid queues exist. Never delete held branches.
 
 ## Operations — what is actually wrong today
 
-- **Capture recovered; `08-13` did not.** A terminated evidence wrapper left its child alive and
-  starved capture. Job ownership now proves child-tree teardown, but the workload remains unsafe
-  beside capture. `WeatherEveningEvidenceRefresh` stays **Disabled** (§8d).
-- Heavy wrappers now share one OS-held workload lease that refuses ordinary acquisition outside
-  00:30–09:00 and permits only the named Stage-A exception. Tonight's training is deliberately
-  skipped and automatically re-enabled at 03:30 so it cannot overlap the 01:30/02:15 proof
-  sequence. Task Scheduler Operational history is enabled. `status.ps1` now performs bounded
-  EOF-seeking settlement checks instead of repeatedly rescanning large ledgers.
-- The Stage-A daily wrapper owns its child tree and stops it at 11:55. The bounded worktree suite
-  owns its child tree and stops it at 09:00. The scheduled Stage-A chain is the only
-  09:30–11:55 exception. Nothing heavy runs during 12:00–18:00 grading or 18:00–00:30 near-close
-  capture.
+- **Capture is healthy; `08-13` is not recoverable.** A terminated evidence wrapper left its child
+  alive and starved capture. Job ownership now proves child-tree teardown, but the workload remains
+  unsafe beside capture. `WeatherEveningEvidenceRefresh` stays **Disabled** (§8d).
+- Built-in non-deleting log rotation is now live. Adoption preserved timestamped archives, opened
+  small live sidecars, retained breaker history, and passed exact-source recovery for all capture
+  workers. Log regrowth is no longer the open backlog item; archive retention remains deliberate.
+- Snapshot, CLOB, and observation workers now use cadence-aware freshness and readoption proof.
+  Guarded merges require every worker healthy and require heartbeat advance only from workers whose
+  loaded source actually changed. Status treats an exact-tip merge failure as spent only when Git
+  proves that full tip is already in production; unreadable or unintegrated tips still flag.
+- Heavy wrappers share one OS-held workload lease. Ordinary heavy work is admitted only during the
+  overnight window; the named Stage-A chain is the sole late-morning exception and owns a hard
+  teardown. Nothing heavy runs during grading or near-close capture.
+- Tonight's training window is deliberately held and has an automatic 03:30 re-enable. The
+  International live-probe suite and source bundle remain queued independently; do not modify their
+  exact-tip worktree before those proofs finish.
 - Settlement holes through `08-11` are closed. A failure count does not prove a date is
   unrecoverable; verify row content and source identity (§8d and settlement findings).
 - The off-host mirror is operator-paused. Its frozen copy is neither current nor proven
@@ -78,8 +81,6 @@ driver until valid queues exist. Never delete held branches.
   always-live capture rather than memory pressure and deserves a separate trace; do not weaken it.
 - Disk is not the current binding constraint because CLOB tiering is reclaiming space. Keep raw
   order books as canonical evidence; do not quote the lagging status headline as a burn rate.
-- Log rotation remains a capture risk: reopening a large JSONL and breaker reads can stall loops.
-  The regrowth mechanism is not yet prevented.
 
 ## Daily reads and update rule
 
