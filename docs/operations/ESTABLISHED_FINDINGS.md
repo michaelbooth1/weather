@@ -2341,9 +2341,10 @@ tip then passed one immutable **18/18-chunk, 4,543/4,543-test** receipt with zer
 or skips. All **19/19** admissions observed all three core workers healthy; peak recorded commit
 was **38.96%** against the same ceilings.
 
-The later tip `02a2c1ffae0cb882059cd00c8ced41d912c7dc67` adds only the repository-owned
-post-merge adoption guard and its focused ratchet. It is pushed and bound to a same-local-day full
-reproof, suite-gated quiet merge, and guarded adoption on 2026-08-15. Until those tasks pass, the
+The later repair line adds only the repository-owned post-merge adoption guard, its focused
+ratchet, current production evidence, and two fail-closed cleanup hardenings. Final tip
+`5ed4ff6979905eaa826d9ce97f457a142aadf454` is pushed and bound to a same-local-day full reproof,
+suite-gated quiet merge, and guarded adoption on 2026-08-15. Until those tasks pass, the
 production supervisor remains Disabled. This evidence proves public producer lifecycle and
 capture coexistence only. It does not prove a unique execution count, our fill, queue position,
 fee, rebate, inventory, P&L, or profit; historical public gaps still make the current retained
