@@ -2376,6 +2376,24 @@ guarded overnight chain.
 
 ---
 
+## 8p. The current disk-days alarm measures a one-day burst, not an established steady rate
+
+**Free-space trail audited 2026-08-14 08:50 local.** The status monitor correctly measured a
+**24.4 GB** free-space reduction over its trailing **24-hour** reference, leaving **157.7 GB** and
+therefore printing an approximately **6-day** linear extrapolation. Longer and shorter windows do
+not support treating that slope as steady: the trailing **48 hours** lost **3.0 GB** net
+(**1.5 GB/day**), while the trailing **8 hours** lost **1.0 GB** net (**3.0 GB/day**). The last two
+hours did contain a separate **6.0 GB** burst while many immutable proofs and new worktrees were
+active, but the trail alone does not assign causality.
+
+The correct operational reading is a conservative burst warning, not a forecast that the disk
+will actually fill in six days. Do not silence it: absolute headroom is currently ample, but the
+off-host mirror is operator-paused and new capture remains single-disk evidence. Re-evaluate after
+the proof burst ages out of both the short and 24-hour windows; investigate if the multi-window
+slope converges upward or absolute free space approaches the monitor's fixed thresholds.
+
+---
+
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
 Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
