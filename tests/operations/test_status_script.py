@@ -13,6 +13,14 @@ def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
     assert "$ok = $true" in text
 
 
+def test_running_task_does_not_report_its_stale_last_result_as_current_failure():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$st -eq "Running"' in text
+    assert "LastTaskResult is a completed-run field" in text
+    assert 'if (-not $ok -and $st -eq "Running") { $ok = $true }' in text
+
+
 def test_capture_alert_flags_only_the_current_local_capture_day():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

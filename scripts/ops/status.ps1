@@ -635,6 +635,12 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     else {
         $ok = ($res -eq "0x0")
+        # LastTaskResult is a completed-run field, not a live-run verdict. Task
+        # Scheduler can retain the prior result (observed as 0x800710E0 for an
+        # on-demand suite) while State already says Running. Health and hang
+        # checks belong to each workload's own monitor; do not turn that stale
+        # result into a generic failure before the current run has completed.
+        if (-not $ok -and $st -eq "Running") { $ok = $true }
         # 0x41301 = SCHED_S_TASK_RUNNING: we sampled the task mid-execution (the
         # every-minute supervisors make this a routine race). The task is healthy
         # by definition while running; its next completed result is what matters.
