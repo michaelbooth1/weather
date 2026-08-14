@@ -119,10 +119,10 @@ blocked its own handback for nothing.
   | observation-trigger | `data\snapshots\observation_trigger_supervisor_status.json` |
   | CLOB-enrichment | `data\snapshots\clob_enrichment_status.json` — **note: not `*_supervisor_status.json`** |
 
-  **`loop_status_supervisor_status.json` is a tombstone, not a fifth closure.** It is
-  `loop=snapshot_capture` — the same loop as the first row — left `state=DEAD`,
-  `action=circuit_open`, `restart_budget_exceeded=6>=6`, frozen at 2026-07-13. Reading it as
-  live evidence is the failure mode; `roll_verdict.ps1` rejects it explicitly.
+  The former `loop_status_supervisor_status.json` tombstone was retired from the live namespace on
+  2026-08-14 and preserved under `data/snapshots/_retired_supervisor_status/`. It was not a fifth
+  closure. `roll_verdict.ps1` uses the explicit table above and rejects any configured closure
+  whose current state is `DEAD` or `BLOCKED`.
 - **The `SOURCE_PATTERNS` glob is not the test.** It over-reports and wastes quiet windows.
 - Markdown, `docs/`, and `config/` are roll-free. `.ps1` scripts are roll-free (status closures
   contain Python only).

@@ -75,34 +75,56 @@ $closureFiles = [ordered]@{
     "observation-trigger" = "data\snapshots\observation_trigger_supervisor_status.json"
     "clob-enrichment"     = "data\snapshots\clob_enrichment_status.json"
 }
-function Get-ClosureScope($path) {
+function Get-ClosureStatus($path) {
     try { $j = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return $null }
+    $scope = $null
     foreach ($k in "current_runtime_identity", "runtime_identity_before", "runtime_identity") {
         $node = $j.$k
-        if ($node -and $node.source_scope_files) { return @($node.source_scope_files) }
+        if ($node -and $node.source_scope_files) { $scope = @($node.source_scope_files); break }
     }
-    return $null
+    return [PSCustomObject]@{
+        Scope        = $scope
+        State        = [string]$j.state
+        EnsureStatus = [string]$j.ensure_status
+        Reason       = [string]$j.reason
+        Tombstone    = ([string]$j.state -eq "DEAD") -or ([string]$j.ensure_status -eq "BLOCKED")
+    }
 }
 $closureState = @{}
 foreach ($name in $closureFiles.Keys) {
     $p = Join-Path $repo $closureFiles[$name]
     if (-not (Test-Path -LiteralPath $p)) { $closureState[$name] = $null; continue }
+    $parsed = Get-ClosureStatus $p
+    if (-not $parsed) { $closureState[$name] = $null; continue }
     $closureState[$name] = [PSCustomObject]@{
-        Age   = ($now - (Get-Item -LiteralPath $p).LastWriteTime).TotalDays
-        Scope = Get-ClosureScope $p
+        Age          = ($now - (Get-Item -LiteralPath $p).LastWriteTime).TotalDays
+        Scope        = $parsed.Scope
+        State        = $parsed.State
+        EnsureStatus = $parsed.EnsureStatus
+        Reason       = $parsed.Reason
+        Tombstone    = $parsed.Tombstone
     }
 }
 # Union of everything a still-reporting closure covers. Anything in here cannot go dark.
 $liveScope = New-Object System.Collections.Generic.HashSet[string]([StringComparer]::OrdinalIgnoreCase)
 foreach ($name in $closureFiles.Keys) {
     $c = $closureState[$name]
-    if ($c -and $c.Age -le 1 -and $c.Scope) { foreach ($f in $c.Scope) { [void]$liveScope.Add($f) } }
+    if ($c -and -not $c.Tombstone -and $c.Age -le 1 -and $c.Scope) {
+        foreach ($f in $c.Scope) { [void]$liveScope.Add($f) }
+    }
 }
 $closureWhy = "a closure that stops reporting is silently dropped from every later roll verdict; merges then look safer than they are"
 foreach ($name in $closureFiles.Keys) {
     $rel = $closureFiles[$name]
     $c = $closureState[$name]
     if (-not $c) { Add-Finding "closure/$name" "CRITICAL" "missing: $rel" $closureWhy $null 1; continue }
+    if ($c.Tombstone) {
+        Add-Finding "closure/$name" "CRITICAL" `
+            ("{0} is a tombstone (state={1}, ensure_status={2}, reason={3})" -f $rel, $c.State, $c.EnsureStatus, $c.Reason) `
+            "a DEAD or BLOCKED status is not live closure evidence; restore the owning loop and require a fresh healthy identity before evaluating a roll" `
+            $c.Age 1
+        continue
+    }
     if ($c.Age -le 1) {
         Add-Finding "closure/$name" "OK" ("{0} is {1:N1}d old" -f $rel, $c.Age) $closureWhy $c.Age 1
         continue
@@ -126,21 +148,6 @@ foreach ($name in $closureFiles.Keys) {
             $closureWhy $c.Age 1
     }
 }
-# Tombstones masquerade as live evidence. This one was read as a fifth closure on 2026-08-06.
-$tomb = Join-Path $repo "data\snapshots\loop_status_supervisor_status.json"
-if (Test-Path -LiteralPath $tomb) {
-    try {
-        $t = Get-Content -LiteralPath $tomb -Raw | ConvertFrom-Json
-        if ([string]$t.state -eq "DEAD" -or [string]$t.ensure_status -eq "BLOCKED") {
-            Add-Finding "closure/tombstone" "WARN" `
-                ("loop_status_supervisor_status.json is a DEAD tombstone (state={0}, {1})" -f $t.state, $t.reason) `
-                "it carries a full source_scope_files list and reads as live closure evidence; roll_verdict.ps1 rejects it, hand analysis did not" `
-                $null $null
-        }
-    }
-    catch {}
-}
-
 # ---- 2. the learning loop's own outputs ----
 Test-FileAge "learning/daily_learning" "data\backtest\daily_learning.json" 2 5 `
     "the learning rollup; it sat 27 days stale while the chain reported all steps ok, because it is 21 steps past the settled-day barrier"

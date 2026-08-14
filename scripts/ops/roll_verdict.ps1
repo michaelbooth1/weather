@@ -53,13 +53,11 @@ Set-Location $repo
 
 # The four closures, by the file that actually carries each one.
 #
-# `loop_status_supervisor_status.json` is deliberately NOT here. It looks like a fifth closure
-# and is a tombstone: loop=snapshot_capture (the same loop as loop_supervisor_status.json),
-# state=DEAD, action=circuit_open, restart_budget_exceeded=6>=6, frozen at 2026-07-13. A
-# hand-derived verdict on 2026-08-06 read it as live evidence and simultaneously missed
-# clob_enrichment_status.json, which does not match a *_supervisor_status.json glob. That is
-# the exact error this script exists to stop: the union looked complete and was wrong in both
-# directions at once.
+# The former `loop_status_supervisor_status.json` was a frozen DEAD snapshot tombstone and was
+# retired from the live namespace on 2026-08-14. A hand-derived verdict on 2026-08-06 read it as a
+# fifth closure and simultaneously missed clob_enrichment_status.json, which does not match a
+# `*_supervisor_status.json` glob. That is the exact error this explicit list prevents: the union
+# looked complete and was wrong in both directions at once.
 $statusFiles = @(
     "data\snapshots\loop_supervisor_status.json"              # snapshot
     "data\snapshots\clob_loop_supervisor_status.json"         # CLOB
