@@ -197,6 +197,18 @@ def test_managed_loop_sidecars_are_enumerated_by_rotation_policy():
         "CLOB_DIAGNOSTICS_PATH": "ROTATE_BEFORE_APPEND",
         "CLOB_LOOP_CONSOLE_LOG_PATH": "ROTATE_BEFORE_LAUNCH",
     }
+    enrichment_writer = next(
+        node
+        for node in clob_tree.body
+        if isinstance(node, ast.FunctionDef)
+        and node.name == "append_clob_enrichment_diagnostic"
+    )
+    assert any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "append_rotating_jsonl"
+        for node in ast.walk(enrichment_writer)
+    )
 POOLED_FEATURE_SPLIT_MODULES = [
     Path("src/weather/calibration/pooled_feature_assembly.py"),
     Path("src/weather/calibration/pooled_density_training.py"),

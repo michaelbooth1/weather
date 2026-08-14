@@ -213,7 +213,12 @@ def rotate_clob_sidecar(path, *, max_bytes=None, now=None):
 
 
 def append_clob_enrichment_diagnostic(record, path=None):
-    return append_jsonl(path or CLOB_ENRICHMENT_DIAGNOSTICS_PATH, record)
+    return append_rotating_jsonl(
+        path or CLOB_ENRICHMENT_DIAGNOSTICS_PATH,
+        record,
+        max_bytes=CLOB_SIDECAR_ROTATE_BYTES,
+        now=utc_now(),
+    )
 
 
 def append_clob_diagnostic(record, path=None):
