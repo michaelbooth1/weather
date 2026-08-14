@@ -21,6 +21,14 @@ def test_running_task_does_not_report_its_stale_last_result_as_current_failure()
     assert 'if (-not $ok -and $st -eq "Running") { $ok = $true }' in text
 
 
+def test_stage_a_protected_window_teardown_is_an_expected_task_result():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '"WeatherDailySettlementPromotionRefresh" = @("0x2", "0x4B")' in text
+    assert "kill-on-close Job tore down the delegated child tree" in text
+    assert "workload lease is the ownership signal" in text
+
+
 def test_capture_alert_flags_only_the_current_local_capture_day():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
