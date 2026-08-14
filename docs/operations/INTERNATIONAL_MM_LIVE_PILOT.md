@@ -441,6 +441,87 @@ the authenticated event path.
 - Cancel at TTL, stale evidence, user-stream silence, heartbeat failure,
   reconciliation mismatch, unexpected fill state, risk limit, or operator stop.
 
+`weather.market.mm_live_stage2` is the fail-closed implementation boundary for
+this stage. It is library-only: `mm_live_pilot_cli` has no Stage 2 command and
+no live-mutation or secret argument. A separately reviewed eligible-host
+wrapper must load the current `mm_platform_verification_v0.4` through
+`load_platform_verification_gate`, construct the authenticated context in
+memory, freeze one current quote row plus its complete passing market preflight,
+the matching paper-live-forward artifact, and current public execution-capture
+evidence, and call `execute_stage2_maker_session` with the literal confirmation
+`INTERNATIONAL_POLYMARKET_STAGE2_ONE_BAND_MAKER`.
+
+The paper input must be retained JSON bytes using
+`mm_live_stage2_paper_counterfactual_v0.1`; Stage 2 parses and hashes those
+bytes rather than trusting a caller-supplied digest. It must be recorded before
+submission, remain inside the same maximum 120-second TTL, and content-bind a
+quote row with the exact target, market, event, condition, token, band,
+snapshot, served model, policy, fair
+probability, bid, ask, and sizes. It must have quote permission while keeping
+live mutation disabled. The public-capture input must include a passing recent
+`execution_tape_bounded_probe_v0.2` receipt and a no-more-than-10-second-old
+`execution_tape_status_v0.1` snapshot whose connected active seed row matches
+the exact target, market, and event, plus that market-day's fresh status and
+seed hash. All three inputs are retained JSON bytes and are hashed by Stage 2;
+parsed dictionaries and caller-asserted hashes are rejected. The bounded probe
+proves a connected seed
+set, at least one cleanly routed observation, and no new integrity errors; it
+does not claim that every asset traded or identify our private fills. Either
+evidence clock expiring before placement consumes the session without a submit.
+
+The loader now content-hashes the v0.4 artifact and returns its exact funder,
+condition, token, Stage 1 bundle, SDK, heartbeat, budget, and geoblock binding.
+The adapter exchanges that evidence and a content-hashed
+`mm_live_stage2_session_envelope_v0.1` for one opaque capability. The capability
+allows exactly one network submit, is consumed before the final geoblock check,
+and cannot coexist with a Stage 1 capability on the same adapter. Cancel-all
+disarms an unconsumed capability.
+
+The first Stage 2 implementation intentionally submits only the backed BUY leg
+at the fresh exchange minimum size. It never submits the row's sell/ask leg,
+never converts a rejection into a marketable retry, and never restarts the
+quote TTL after setup. It rechecks the original decision expiry immediately
+before submission, then maintains the rotating heartbeat until the remaining
+TTL ends or authoritative lifecycle evidence stops the order. The existing
+ceilings remain upper bounds; an adapter or session may lower them but cannot
+raise them. The daily-loss check includes loss already recorded for the UTC day
+plus the new order's entire at-risk notional; comparing the new order alone to
+the daily cap is forbidden.
+
+Every exit after the zero starting-state proof attempts order cancellation and
+then cancel-all, requires an authenticated query showing zero open orders, and
+uses the exact maker/condition position response plus a newly fetched,
+content-bound authenticated collateral balance/allowance response for final
+reconciliation. The initial balance and minimum allowance must back the frozen
+budget without exceeding the 100 pUSD wallet cap. After cancel-all, the exact
+collateral decrease must equal confirmed maker-fill price times size; makers
+are not assigned a taker fee. A
+failed pre-cancel open-order read cannot skip cancel-all: cancel, cancel-all,
+the final open-order read, terminal user events, and final positions are
+attempted independently, and any reader or cleanup failure makes the session
+fail after the remaining safety actions run. A
+legitimate confirmed maker fill may leave backed outcome inventory; that is
+not rewritten as a zero-position claim. Confirmed fill size must equal the
+exact current position from an initially empty wallet, while an unfilled
+remainder requires the authoritative cancellation event. Taker liquidity,
+failed or unresolved trade states, out-of-scope inventory, or any mismatch is
+a failed session even if cleanup succeeds.
+
+The result is explicitly `bounded_one_order_lifecycle_not_profitability`.
+Configured fee rates are not paid-fee receipts. Confirmed maker attribution,
+the official zero-maker-fee rule, and exact collateral-spend reconciliation
+together admit an actual maker fee of zero; without that combination the
+session fails. Absent, incomplete, or unbound rebate evidence contributes
+exactly zero accepted rebate. The result
+keeps realized P&L null until position exit/settlement, actual fees, and the
+completed payout cycle reconcile. A PASS proves bounded lifecycle mechanics;
+it does not satisfy Stage 3 or the preregistered economics verdict.
+
+The official SDK's current closed-only reader returns a Boolean, while older
+test doubles and response wrappers may expose a `closed_only` mapping. The
+adapter accepts only those two explicit shapes, blocks on true, and fails closed
+on any unknown shape before calling the official post-order method.
+
 ### Stage 3: evidence and settlement
 
 For every accepted order, retain intent, signed-request hash (never the secret

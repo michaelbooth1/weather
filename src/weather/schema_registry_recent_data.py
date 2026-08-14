@@ -1111,4 +1111,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Atomic global and per-market-day execution-tape counter naming physical sources, every-asset inbound coverage, evidence loss, non-unique identity limits, and received-time price-path interpretation.",
     ),
+    SchemaSpec(
+        "execution_tape_bounded_probe",
+        "execution_tape_bounded_probe_v0.2",
+        "scripts.ops.bounded_execution_tape_probe",
+        "active",
+        "Bounded production proof of a connected execution-tape seed set, at least one clean route, clean teardown, and capture survival.",
+    ),
 )

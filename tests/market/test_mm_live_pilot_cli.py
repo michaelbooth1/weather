@@ -596,7 +596,7 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
     assert captured["position_scope"] == (ADDRESS, CONDITION_ID)
 
 
-@pytest.mark.parametrize("command", ["stage0", "stage1"])
+@pytest.mark.parametrize("command", ["stage0", "stage1", "stage2"])
 def test_parser_does_not_expose_exchange_mutation_commands(command):
     with pytest.raises(SystemExit) as exc:
         cli.build_parser().parse_args([command])
