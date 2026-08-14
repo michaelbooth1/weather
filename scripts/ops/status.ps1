@@ -163,6 +163,59 @@ elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
     $warns.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days left")
 }
 
+# ---- system clock ----
+# CLOB heartbeats, order TTLs, evidence ordering, and scheduled one-shots all trust the
+# Windows clock. W32Time is trigger-start on this workgroup host, so a stopped service is
+# not itself a failure. Use the bounded Time-Service event stream as durable last-sync
+# evidence, and only inspect the live source when the service is already running.
+$clockService = $null
+$clockLastSync = $null
+$clockSyncAgeH = $null
+$clockSource = $null
+$clockSynchronized = $null
+try {
+    $clockService = Get-Service -Name W32Time -ErrorAction Stop
+    $syncEvent = Get-WinEvent -FilterHashtable @{
+        LogName = "System"
+        ProviderName = "Microsoft-Windows-Time-Service"
+        Id = 35, 37
+        StartTime = (Get-Date).AddDays(-7)
+    } -MaxEvents 1 -ErrorAction Stop
+    if ($syncEvent) {
+        $clockLastSync = [datetime]$syncEvent.TimeCreated
+        $clockSyncAgeH = [math]::Round(((Get-Date) - $clockLastSync).TotalHours, 1)
+    }
+    if ($clockService.Status -eq "Running") {
+        $clockStatusText = ((& w32tm.exe /query /status 2>&1) -join "`n")
+        $clockQueryExit = $LASTEXITCODE
+        $sourceMatch = [regex]::Match($clockStatusText, "(?m)^Source:\s*(.+?)\s*$")
+        if ($sourceMatch.Success) { $clockSource = $sourceMatch.Groups[1].Value.Trim() }
+        if ($clockQueryExit -ne 0 -or -not $sourceMatch.Success) {
+            $clockSynchronized = $false
+            $clockSource = "unavailable"
+        }
+        else {
+            $clockSynchronized = -not (
+                $clockStatusText -match "Leap Indicator:\s*3" -or
+                $clockStatusText -match "Source:\s*Local CMOS Clock"
+            )
+        }
+    }
+}
+catch { }
+if ($clockSynchronized -eq $false) {
+    $flags.Add("system clock is not synchronized (source $clockSource)")
+}
+elseif ($null -eq $clockLastSync) {
+    $flags.Add("system clock has no successful Windows Time event in 7 days")
+}
+elseif ($clockSyncAgeH -gt 24) {
+    $flags.Add("system clock last received valid time $clockSyncAgeH hours ago")
+}
+elseif ($clockSyncAgeH -gt 12) {
+    $warns.Add("system clock last received valid time $clockSyncAgeH hours ago")
+}
+
 # ---- daily chain ----
 $chain = $null
 $cf = Join-Path $repo "data\backtest\daily_refresh_status.json"
@@ -726,6 +779,10 @@ if ($Json) {
         }
         capture  = $capState; ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
+        clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })
+            synchronized = $clockSynchronized; source = $clockSource; sync_age_hours = $clockSyncAgeH
+            last_sync = $(if ($clockLastSync) { $clockLastSync.ToString("o") } else { $null })
+        }
         chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail; payload_blocked = $chainBlocked }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
         mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH
@@ -760,6 +817,11 @@ $diskTrend = if ($null -eq $diskDelta) { "" }
 elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
 else { "  (+{0} GB/day)" -f $diskDelta }
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free{3}" -f $freeRamGB, $totRamGB, $freeDiskGB, $diskTrend)
+$clockState = if ($clockSynchronized -eq $false) { "UNSYNCHRONIZED" }
+elseif ($null -eq $clockLastSync) { "UNKNOWN" }
+elseif ($clockService.Status -eq "Running" -and $clockSource) { "synced via $clockSource, $clockSyncAgeH h ago" }
+else { "last valid sample $clockSyncAgeH h ago (trigger-start service $($clockService.Status))" }
+Write-Output ("  CLOCK     : {0}" -f $clockState)
 $chainNote = if ($chainStatus -eq "critical" -and -not $chainFail) { "all steps OK - 'critical' is the readiness gate, expected pre-release" }
 else { "0x2 = gates BLOCK, expected pre-release" }
 Write-Output ("  CHAIN     : {0} / {1}   ({2})" -f $chainStatus, $chainTerm, $chainNote)

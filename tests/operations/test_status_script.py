@@ -83,3 +83,17 @@ def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:
 
     assert "Get-WeatherHeavyWorkloadLeaseState" in text
     assert "heavy workload lease active" in text
+
+
+def test_status_fails_closed_on_unsynchronized_windows_clock() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert 'ProviderName = "Microsoft-Windows-Time-Service"' in text
+    assert "Id = 35, 37" in text
+    assert 'Get-Service -Name W32Time' in text
+    assert "$clockQueryExit = $LASTEXITCODE" in text
+    assert 'if ($clockQueryExit -ne 0 -or -not $sourceMatch.Success)' in text
+    assert 'Leap Indicator:\\s*3' in text
+    assert 'Source:\\s*Local CMOS Clock' in text
+    assert "system clock is not synchronized" in text
+    assert 'Write-Output ("  CLOCK     : {0}"' in text
