@@ -180,6 +180,37 @@ def test_rotating_jsonl_uses_timestamped_collision_safe_siblings(tmp_path):
     assert json.loads(path.read_text(encoding="utf-8"))["event"] == "second"
 
 
+def test_rotate_sidecar_retries_transient_windows_permission_error(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "diagnostics.jsonl"
+    path.write_text("legacy\n", encoding="utf-8")
+    original_rename = Path.rename
+    attempts = []
+    sleeps = []
+
+    def flaky_rename(source, target):
+        attempts.append((source, target))
+        if len(attempts) < 3:
+            raise PermissionError("transient scanner lock")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(Path, "rename", flaky_rename)
+    rotated = weather_io.rotate_sidecar(
+        path,
+        max_bytes=1,
+        now=datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc),
+        retry_delay_seconds=0.1,
+        sleep_fn=sleeps.append,
+    )
+
+    assert rotated is not None and rotated.exists()
+    assert not path.exists()
+    assert len(attempts) == 3
+    assert sleeps == [0.1, 0.2]
+
+
 def test_jsonl_integrity_counts_malformed_lines(tmp_path):
     path = tmp_path / "loop_console.log"
     path.write_text('{"ok": true}\nnot-json\n{"ok": false}\n', encoding="utf-8")

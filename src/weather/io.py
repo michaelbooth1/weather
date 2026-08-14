@@ -26,6 +26,8 @@ CSV_DIAGNOSTIC_COLUMNS = {
 LEGACY_CSV_ENCODINGS = ("cp1252", "latin-1")
 MAX_RETRY_DELAY_SECONDS = 10.0
 DEFAULT_SIDECAR_ROTATE_BYTES = 64 * 1024 * 1024
+DEFAULT_SIDECAR_ROTATE_ATTEMPTS = 6
+DEFAULT_SIDECAR_ROTATE_RETRY_SECONDS = 0.1
 ROTATE_BEFORE_APPEND = "before_append"
 ROTATE_BEFORE_LAUNCH = "before_launch"
 
@@ -493,6 +495,9 @@ def rotate_sidecar(
     *,
     max_bytes: int | None = None,
     now: datetime | None = None,
+    max_attempts: int = DEFAULT_SIDECAR_ROTATE_ATTEMPTS,
+    retry_delay_seconds: float = DEFAULT_SIDECAR_ROTATE_RETRY_SECONDS,
+    sleep_fn: SleepFn = time.sleep,
 ) -> Path | None:
     """Move an oversized sidecar to a timestamped sibling without deletion."""
 
@@ -500,6 +505,12 @@ def rotate_sidecar(
     max_bytes = DEFAULT_SIDECAR_ROTATE_BYTES if max_bytes is None else int(max_bytes)
     if max_bytes <= 0:
         raise ValueError("max_bytes must be positive")
+    max_attempts = int(max_attempts)
+    retry_delay_seconds = float(retry_delay_seconds)
+    if max_attempts <= 0:
+        raise ValueError("max_attempts must be positive")
+    if retry_delay_seconds < 0:
+        raise ValueError("retry_delay_seconds must be non-negative")
     try:
         if path.stat().st_size < max_bytes:
             return None
@@ -515,15 +526,30 @@ def rotate_sidecar(
         rotated = path.with_name(f"{path.stem}.{stamp}{collision}{path.suffix}")
         if rotated.exists():
             continue
-        try:
-            path.rename(rotated)
-        except FileNotFoundError:
-            # Another writer won the rotation race.
-            return None
-        except FileExistsError:
-            # Windows rename is non-overwriting; preserve the sibling and retry.
-            continue
-        return rotated
+        for attempt in range(max_attempts):
+            try:
+                path.rename(rotated)
+            except FileNotFoundError:
+                # Another writer won the rotation race.
+                return None
+            except FileExistsError:
+                # Windows rename is non-overwriting; preserve the sibling and
+                # reserve a new collision suffix.
+                break
+            except PermissionError:
+                # Antivirus/indexing can hold a large sidecar briefly. The
+                # incident this policy closes was exactly such a transient
+                # Windows reopen denial, so a one-shot rename merely moves the
+                # same failure to a different syscall.
+                if attempt + 1 >= max_attempts:
+                    raise
+                delay = min(
+                    MAX_RETRY_DELAY_SECONDS,
+                    retry_delay_seconds * (2 ** attempt),
+                )
+                sleep_fn(delay)
+                continue
+            return rotated
     raise RuntimeError(f"could not reserve a rotated sibling for {path}")
 
 

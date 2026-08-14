@@ -223,7 +223,9 @@ Contributing factors worth fixing structurally:
   sidecars now share one 64 MiB policy: append-opened JSONL rotates before the
   next append, and console logs rotate at managed-loop startup before Windows
   opens the new child handle. Rotation renames to timestamped siblings and never
-  deletes prior archives. Supervisor restart-budget reads span retained
+  deletes prior archives; transient Windows access denials receive a short,
+  bounded exponential retry and persistent denial still fails closed. Supervisor
+  restart-budget reads span retained
   diagnostics siblings, so diagnostics rotation cannot clear breaker state. On
   first adoption, archives whose physical last write predates the breaker
   window are excluded before content is read; retained cold history must not
