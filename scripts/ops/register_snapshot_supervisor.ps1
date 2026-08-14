@@ -19,7 +19,7 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$TaskName = "WeatherSnapshotLoopSupervisor",
-    [int]$EnsureEveryMinutes = 2
+    [ValidateRange(1, 2)][int]$EnsureEveryMinutes = 2
 )
 
 # pythonw.exe: the windowless interpreter. With python.exe an interactive
@@ -31,7 +31,7 @@ if (-not (Test-Path $python)) {
 
 $action = New-ScheduledTaskAction `
     -Execute $python `
-    -Argument "-m weather.collection.snapshot_tracker --ensure" `
+    -Argument "-m weather.collection.snapshot_tracker --ensure --supervisor-interval-minutes $EnsureEveryMinutes" `
     -WorkingDirectory $RepoRoot
 
 $logonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME

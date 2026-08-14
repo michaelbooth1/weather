@@ -19,7 +19,7 @@ loop.
 
 | Loop | Supervisor task | Ensure command | Primary responsibility |
 | :--- | :--- | :--- | :--- |
-| Weather/model snapshots | `WeatherSnapshotLoopSupervisor` | `python -m weather.collection.snapshot_tracker --ensure` | Multi-market weather, model, source-state, and market snapshot tapes at the slower scheduled cadence. |
+| Weather/model snapshots | `WeatherSnapshotLoopSupervisor` | `python -m weather.collection.snapshot_tracker --ensure --supervisor-interval-minutes 2` | Multi-market weather, model, source-state, and market snapshot tapes at the slower scheduled cadence. |
 | CLOB books | `WeatherClobBookLoopSupervisor` | `python -m weather.market.market_microstructure ensure --market all --interval-seconds 60 --fast-interval-seconds 15` | Independent fast Polymarket order-book and market-event capture. |
 | Observation triggers | `WeatherObservationTriggerSupervisor` | `python -m weather.operations.observation_trigger ensure --market all --interval-seconds 60 --stale-after-seconds 180` | Low-cost observation polling and durable enqueueing when settlement-relevant source state changes. The snapshot loop performs recomputes under its existing resource bounds. |
 
@@ -30,8 +30,17 @@ launch exits `0`. Lock contention, restart backoff, an open restart circuit, or
 a failed launch exits nonzero so Task Scheduler does not report success while
 capture is down. Each ensure writes its latest decision and recovery-guard
 state to a separate atomic `*_supervisor_status.json` sidecar; the long-running
-worker remains the only writer of its loop status. Registration source, task
-names, cadences, and parameters live in:
+worker remains the only writer of its loop status.
+
+The snapshot registration passes its real ensure cadence into worker-health
+evaluation. A worker heartbeat becomes dead after one capture cadence plus one
+ensure interval; the following ensure tick therefore has time to restart it
+before the 1.5-cadence settlement gap becomes fatal. Per-market liveness stays
+looser because sequential market sweeps have legitimate end-of-cycle jitter.
+An interval combination that cannot meet this bound is refused rather than
+silently weakening recovery.
+
+Registration source, task names, cadences, and parameters live in:
 
 - `scripts/ops/register_snapshot_supervisor.ps1`
 - `scripts/ops/register_clob_supervisor.ps1`

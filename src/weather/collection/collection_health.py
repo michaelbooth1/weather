@@ -1498,13 +1498,16 @@ def fleet_capture_liveness(markets, interval_minutes=10.0):
          per-market AT_RISK SLA (1.5x interval) would fire every sleep cycle.
 
     So a market is only "dark" when its latest capture is older than
-    ``2 * interval + slack`` (it has actually missed multiple cycles), mirroring
-    the loop's own dead-detection threshold. Source-auth and other degradations
-    are reported separately and deliberately do not fire this alarm: this is
-    about capture liveness only.
+    ``2 * interval + slack`` (it has actually missed multiple cycles). This is
+    intentionally looser than worker heartbeat detection: markets are captured
+    sequentially and can show end-of-sweep jitter, while the worker heartbeat is
+    refreshed throughout the sweep. Source-auth and other degradations are
+    reported separately and deliberately do not fire this alarm: this is about
+    per-market capture liveness only.
     """
-    # Mirror loop_health's dead_after = 2*interval + 2: a market is dark only
-    # once it has missed ~two full capture cycles, not on normal sleep jitter.
+    # A market is dark only once it has missed ~two full capture cycles, not on
+    # normal sequential-sweep and sleep jitter. Worker heartbeat recovery has a
+    # separate, stricter one-cadence-plus-supervisor-tick bound.
     stale_after = 2.0 * float(interval_minutes) + 2.0
     pending, healthy, stale = [], [], []
     # Window-open states from live_coverage_summary: COLLECTING (in-window, on

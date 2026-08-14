@@ -108,13 +108,14 @@ DERIVED_RULES = (
     ),
     (
         "Loop recovery must beat that threshold",
-        "supervisor `--ensure` every **2 min**",
+        "**12 min** dead threshold + next **2 min** ensure tick < **15 min** fatal gap",
         "The supervisor exists to survive silent deaths AND hangs (a stale heartbeat with a "
-        "live PID). Its ensure cadence is fast, but hang detection is not the same as ensure "
-        "cadence: on 2026-08-08 a hung snapshot loop took ~19 minutes to be declared DEAD and "
-        "restarted, which exceeded the 15-minute threshold and cost the day. "
-        "**A supervisor that recovers slower than interval x 1.5 cannot save a day from a hang.**",
-        "scripts/ops/register_snapshot_supervisor.ps1",
+        "live PID). Snapshot heartbeat detection is one capture cadence plus the registered "
+        "ensure interval, and the registration passes that interval explicitly. With the "
+        "canonical 10-minute capture and 2-minute ensure cadences, a hang becomes DEAD at 12 "
+        "minutes and the following tick is bounded before 15 minutes. Per-market liveness is "
+        "separately looser for sequential-sweep jitter; unsafe interval combinations are refused.",
+        "weather.collection.snapshot_tracker.snapshot_heartbeat_dead_after_minutes",
     ),
 )
 

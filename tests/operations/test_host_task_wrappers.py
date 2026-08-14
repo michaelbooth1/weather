@@ -4,6 +4,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_snapshot_supervisor_passes_its_real_cadence_to_hang_detection() -> None:
+    text = (ROOT / "scripts" / "ops" / "register_snapshot_supervisor.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "[ValidateRange(1, 2)][int]$EnsureEveryMinutes = 2" in text
+    assert "--supervisor-interval-minutes $EnsureEveryMinutes" in text
+
+
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     wrapper = (ROOT / "scripts" / "ops" / "market_making_daily_roll_task.ps1").read_text(
         encoding="utf-8-sig"

@@ -34,7 +34,7 @@ and no single constant expresses it, so it cannot be found by grepping.
 | Rule | Value | Why | Owner |
 | --- | --- | --- | --- |
 | **A capture gap becomes fatal at `interval x 1.5`** | 10 min cadence -> **15 min** doom threshold | `detect_gaps(times, interval_minutes, tolerance=1.5)` — the 15 minutes is derived, not a literal, so grepping for '15' finds nothing. Two consecutive missed capture cycles exceed it and the Toronto day becomes PARTIAL. | `weather.collection.collection_health.detect_gaps` |
-| **Loop recovery must beat that threshold** | supervisor `--ensure` every **2 min** | The supervisor exists to survive silent deaths AND hangs (a stale heartbeat with a live PID). Its ensure cadence is fast, but hang detection is not the same as ensure cadence: on 2026-08-08 a hung snapshot loop took ~19 minutes to be declared DEAD and restarted, which exceeded the 15-minute threshold and cost the day. **A supervisor that recovers slower than interval x 1.5 cannot save a day from a hang.** | `scripts/ops/register_snapshot_supervisor.ps1` |
+| **Loop recovery must beat that threshold** | **12 min** dead threshold + next **2 min** ensure tick < **15 min** fatal gap | The supervisor exists to survive silent deaths AND hangs (a stale heartbeat with a live PID). Snapshot heartbeat detection is one capture cadence plus the registered ensure interval, and the registration passes that interval explicitly. With the canonical 10-minute capture and 2-minute ensure cadences, a hang becomes DEAD at 12 minutes and the following tick is bounded before 15 minutes. Per-market liveness is separately looser for sequential-sweep jitter; unsafe interval combinations are refused. | `weather.collection.snapshot_tracker.snapshot_heartbeat_dead_after_minutes` |
 
 ## Governing constants
 
@@ -62,20 +62,26 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `00:00` | `WeatherMemoryCommitGuard` |
 | `00:05` | `WeatherHostHealthWatchdog` |
 | `00:05` | `WeatherTakerBotDailyRoll` |
+| `00:30` | `WeatherLogRotationSuite0814` |
+| `01:00` | `WeatherQuietWindowLogRotation0814` |
 | `01:00` | `WeatherTrainingWindow` |
 | `01:15` | `WeatherAgentQuiet0805` |
 | `01:15` | `WeatherAgentQuietWindow` |
 | `01:15` | `WeatherQuietWindowMerge` |
 | `01:20` | `WeatherMergeSensitiveDriver` |
 | `01:30` | `WeatherChainRecovery20260807` |
+| `01:30` | `WeatherQuietWindowExecutionTape0814` |
 | `01:50` | `WeatherQuietWindowMerge2` |
 | `02:00` | `WeatherAgentOvernight0200` |
 | `02:00` | `WeatherSettlementBackfill20260806` |
 | `02:00` | `WeatherSettlementBackfill20260808` |
+| `02:25` | `WeatherExecutionTapeBoundedProbe0814` |
 | `02:25` | `WeatherQuietWindowMerge3` |
 | `03:00` | `WeatherAgentPostMerge0805` |
+| `03:30` | `WeatherTrainingWindowReenable0814` |
 | `04:15` | `WeatherTrainingWindowRestore` |
 | `04:30` | `WeatherDataMirror` |
+| `04:30` | `WeatherInternationalLiveProbeSuite0814` |
 | `05:00` | `WeatherClobTiering` |
 | `05:15` | `WeatherMergeQueueDriver` |
 | `05:30` | `WeatherSettlementBackfill20260805` |
@@ -90,6 +96,7 @@ Every `Weather*` scheduled task with a time trigger, read from the live host.
 | `08:00` | `WeatherAgentMorning0805` |
 | `08:10` | `WeatherStalenessSweep` |
 | `08:15` | `WeatherMmCountabilityReport` |
+| `08:40` | `WeatherInternationalLiveProbeBundle0814` |
 | `09:30` | `WeatherDailySettlementPromotionRefresh` |
 | `09:43` | `WeatherMarketMakingDailyRollSupervisor` |
 | `09:43` | `WeatherTakerBotDailyRollSupervisor` |

@@ -8,7 +8,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 import weather.collection.snapshot_tracker as snapshot_tracker
-from weather.collection.snapshot_tracker import TORONTO_TZ, ensure_decision, loop_health
+from weather.collection.snapshot_tracker import (
+    TORONTO_TZ,
+    ensure_decision,
+    loop_health,
+    snapshot_heartbeat_dead_after_minutes,
+)
 
 NOW = datetime(2026, 6, 10, 12, 0, tzinfo=TORONTO_TZ)
 
@@ -93,11 +98,29 @@ class TestEnsureDecision(unittest.TestCase):
         self.assertEqual(ensure_decision(state, pid_alive=False), "start")
 
     def test_heartbeat_tolerates_one_full_cycle(self):
-        # dead_after = 2 * interval + 2: an 18-minute-old heartbeat on a
-        # 10-minute loop (capture takes minutes) is still RUNNING.
-        state = self._state(status(heartbeat_age_min=18))
+        # A heartbeat refreshed before the cadence sleep remains healthy until
+        # the next canonical supervisor tick has had a chance to observe it.
+        state = self._state(status(heartbeat_age_min=11.9))
         self.assertEqual(state, "RUNNING")
         self.assertEqual(ensure_decision(state, pid_alive=True), "noop")
+
+    def test_hung_heartbeat_is_restartable_before_capture_gap_becomes_fatal(self):
+        dead_after = snapshot_heartbeat_dead_after_minutes(10.0, 2.0)
+        state = loop_health(
+            status(heartbeat_age_min=dead_after + 0.1),
+            NOW,
+            pid_alive=True,
+            supervisor_interval_minutes=2.0,
+        )["state"]
+
+        self.assertEqual(dead_after, 12.0)
+        self.assertLess(dead_after + 2.0, 10.0 * 1.5)
+        self.assertEqual(state, "DEAD")
+        self.assertEqual(ensure_decision(state, pid_alive=True), "restart")
+
+    def test_supervisor_interval_cannot_raise_recovery_past_fatal_gap(self):
+        with self.assertRaisesRegex(ValueError, "cannot recover.*before the fatal capture gap"):
+            snapshot_heartbeat_dead_after_minutes(10.0, 2.5)
 
     def test_thrashing_sweep_is_flagged_degraded_but_not_restarted(self):
         # 2026-07-03 stall: the heartbeat updates per market inside a sweep,

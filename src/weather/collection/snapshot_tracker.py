@@ -233,6 +233,7 @@ LOOP_CONSOLE_LOG_PATH = SNAPSHOT_DATA_ROOT / "loop_console.log"
 SUPERVISOR_LOCK_PATH = SNAPSHOT_DATA_ROOT / "loop_supervisor.lock"
 RECENT_LOOP_CYCLE_COUNT = 12
 DEFAULT_TRIGGER_QUEUE_SLEEP_CHECK_SECONDS = 5.0
+DEFAULT_SUPERVISOR_INTERVAL_MINUTES = 2.0
 SNAPSHOT_SUPERVISOR = SupervisorSpec(
     name="snapshot_capture",
     module="weather.collection.snapshot_tracker",
@@ -574,7 +575,40 @@ def runtime_identity_status(process_identity, current_identity=None):
     }
 
 
-def loop_health(status, now, interval_minutes=10.0, current_identity=None, pid_alive=None):
+def snapshot_heartbeat_dead_after_minutes(
+    interval_minutes,
+    supervisor_interval_minutes=DEFAULT_SUPERVISOR_INTERVAL_MINUTES,
+):
+    """Bound hung-worker detection below the fatal capture-gap threshold.
+
+    The worker updates its heartbeat throughout a sweep and immediately before
+    its single cadence sleep. One cadence plus the next canonical supervisor
+    tick therefore tolerates a complete healthy sleep while detecting a hang
+    before the 1.5-cadence settlement threshold is exhausted.
+    """
+    interval = float(interval_minutes)
+    supervisor_interval = float(supervisor_interval_minutes)
+    if interval <= 0.0 or supervisor_interval <= 0.0:
+        raise ValueError("capture and supervisor intervals must both be positive")
+    worst_case_recovery = interval + 2.0 * supervisor_interval
+    fatal_gap = interval * 1.5
+    if worst_case_recovery >= fatal_gap:
+        raise ValueError(
+            "supervisor cadence cannot recover a hung snapshot worker before "
+            f"the fatal capture gap: worst_case={worst_case_recovery:g}m, "
+            f"fatal_gap={fatal_gap:g}m"
+        )
+    return interval + supervisor_interval
+
+
+def loop_health(
+    status,
+    now,
+    interval_minutes=10.0,
+    current_identity=None,
+    pid_alive=None,
+    supervisor_interval_minutes=DEFAULT_SUPERVISOR_INTERVAL_MINUTES,
+):
     """Judge collection liveness from the heartbeat. Liveness is decided by
     heartbeat freshness, not PID (a stale heartbeat means dead regardless, and
     PIDs get reused across reboots)."""
@@ -584,7 +618,10 @@ def loop_health(status, now, interval_minutes=10.0, current_identity=None, pid_a
     hb_age = _age_minutes(now, status.get("last_heartbeat"))
     snap_age = _age_minutes(now, status.get("last_snapshot_written_at"))
     errors = status.get("consecutive_errors", 0)
-    dead_after = 2 * interval + 2  # tolerate one full sleep cycle plus slack
+    dead_after = snapshot_heartbeat_dead_after_minutes(
+        interval,
+        supervisor_interval_minutes,
+    )
     runtime = runtime_identity_status(status.get("runtime_identity"), current_identity)
     if pid_alive is None:
         pid_alive = pid_is_python(status.get("pid"))
@@ -622,6 +659,7 @@ def loop_health(status, now, interval_minutes=10.0, current_identity=None, pid_a
         "pid": status.get("pid"),
         "pid_alive": bool(pid_alive),
         "heartbeat_age_min": round(hb_age, 1) if hb_age is not None else None,
+        "heartbeat_dead_after_min": round(dead_after, 1),
         "last_snapshot_age_min": round(snap_age, 1) if snap_age is not None else None,
         "consecutive_errors": errors,
         "last_error": status.get("last_error"),
@@ -915,7 +953,11 @@ def ensure_decision(health_state, pid_alive, *, writer_lock_healthy=True):
     )
 
 
-def ensure_loop(interval_minutes=10.0, now=None):
+def ensure_loop(
+    interval_minutes=10.0,
+    now=None,
+    supervisor_interval_minutes=DEFAULT_SUPERVISOR_INTERVAL_MINUTES,
+):
     """The supervisor verb Task Scheduler runs every few minutes: keep exactly
     one healthy loop alive across silent deaths, hangs, and reboots."""
     now = now or datetime.now(TORONTO_TZ)
@@ -939,6 +981,7 @@ def ensure_loop(interval_minutes=10.0, now=None):
             now,
             interval_minutes,
             pid_alive=alive,
+            supervisor_interval_minutes=supervisor_interval_minutes,
         )
         writer_lock = loop_writer_lock_health(
             spec.status_path,
@@ -2229,6 +2272,15 @@ def main():
              "Run this from Task Scheduler every few minutes.",
     )
     parser.add_argument(
+        "--supervisor-interval-minutes",
+        type=float,
+        default=DEFAULT_SUPERVISOR_INTERVAL_MINUTES,
+        help=(
+            "Cadence of the external --ensure scheduler, used to keep hung-loop "
+            "detection below the fatal capture-gap threshold."
+        ),
+    )
+    parser.add_argument(
         "--backfill-source-status",
         action="store_true",
         help=(
@@ -2313,7 +2365,10 @@ def main():
         print(json.dumps(start_loop_detached(args.interval_minutes), indent=2, sort_keys=True))
         return
     if args.ensure:
-        result = ensure_loop(args.interval_minutes)
+        result = ensure_loop(
+            args.interval_minutes,
+            supervisor_interval_minutes=args.supervisor_interval_minutes,
+        )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return int(result.get("exit_code", 1))
     if args.backfill_source_status:
