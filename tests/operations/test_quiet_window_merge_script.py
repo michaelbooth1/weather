@@ -35,3 +35,22 @@ def test_quiet_merge_records_expected_and_resolved_tip() -> None:
 
     assert "expected_tip = $ExpectedTip" in script
     assert "resolved_branch_tip = $resolvedBranchTip" in script
+
+
+def test_recovery_proof_covers_exact_capture_fleet_and_loaded_source_identity() -> None:
+    script = _script_text()
+
+    assert "weather.operations.capture_recovery_check" in script
+    assert "@($before.workers).Count -ne 3" in script
+    assert "@($after.workers).Count -ne 3" in script
+    assert "$beforeWorker in @($before.workers)" in script
+    assert "heartbeat did not advance" in script
+    assert "Get-CimInstance Win32_Process" not in script
+
+
+def test_publish_uses_only_the_credential_bearing_scheduled_task() -> None:
+    script = _script_text()
+
+    assert "Start-ScheduledTask -TaskName WeatherOneShotPush" in script
+    assert "& git push" not in script.lower()
+    assert "git rev-parse origin/master" in script

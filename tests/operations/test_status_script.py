@@ -53,3 +53,11 @@ def test_quiet_merge_recovery_interval_cannot_overlap_sensitive_driver():
     assert "$settleSeconds + 240" in text
     assert "$sensitiveDriverNextRun -ge $mergeTask.at" in text
     assert "the driver can publish unverified local master" in text
+
+
+def test_settlement_scan_seeks_from_end_instead_of_rescanning_each_ledger():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "weather.operations.settlement_hole_check" in text
+    assert "--window-days $windowDays --tail-lines 400 --json" in text
+    assert "Get-Content -LiteralPath $ledger -Tail 400" not in text

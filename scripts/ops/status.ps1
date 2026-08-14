@@ -262,52 +262,32 @@ if (Test-Path $settleRoot) {
     #   1. A record only counts as SETTLED if it actually settled - source and high present.
     #   2. Max-date can never see an INTERIOR hole (08-06 empty while 08-07 settled), so
     #      scan the whole recent window per date instead of tracking a maximum.
+    # PowerShell 5.1 Get-Content -Tail rescans each ledger from byte zero and ConvertFrom-
+    # Json is disproportionately slow on these large records. One Python process seeks
+    # backward and parses only the requested suffix for every market.
     $windowDays = 14
-    # NOT $today -- that name already holds the streak checker's today_health object from
-    # line 29, and reassigning it here silently blanked the TODAY capture-health field in
-    # the rendered header (it became a [datetime], so .verdict/.captures read empty). The
-    # AT_RISK flag survived only because it is evaluated at line 30, before this point.
-    $todayDate = (Get-Date).Date
-    $marketSettled = @{}   # market -> set of genuinely settled yyyy-MM-dd
-    $marketCount = 0
-    foreach ($dir in @(Get-ChildItem -LiteralPath $settleRoot -Directory -ErrorAction SilentlyContinue)) {
-        $ledger = Join-Path $dir.FullName "ledger.jsonl"
-        if (-not (Test-Path $ledger)) { continue }
-        $marketCount++
-        $seen = @{}
-        # Revisions append, so a later record supersedes an earlier one for the same date.
-        foreach ($line in @(Get-Content -LiteralPath $ledger -Tail 400 -ErrorAction SilentlyContinue)) {
-            if (-not $line) { continue }
-            try { $rec = ConvertFrom-Json $line } catch { continue }
-            $td = $rec.target_date
-            if (-not $td) { continue }
-            try { $d = [datetime]::ParseExact([string]$td, "yyyy-MM-dd", $null) } catch { continue }
-            if ($d -lt $todayDate.AddDays(-$windowDays) -or $d -ge $todayDate) { continue }
-            $src = [string]$rec.settlement_source
-            $isSettled = ($src) -and ($src -ne "none") -and ($null -ne $rec.settlement_high)
-            $seen[$td] = $isSettled
+    $settlementCheck = $null
+    try {
+        $settlementRaw = @(& $py -m weather.operations.settlement_hole_check `
+            --repo-root $repo --window-days $windowDays --tail-lines 400 --json)
+        if ($LASTEXITCODE -eq 0) {
+            $settlementCheck = (($settlementRaw -join "`n") | ConvertFrom-Json)
         }
-        $marketSettled[$dir.Name] = $seen
     }
-    if ($marketCount -gt 0) {
-        $holes = @()
-        for ($i = $windowDays; $i -ge 1; $i--) {
-            $d = $todayDate.AddDays(-$i)
-            $key = $d.ToString("yyyy-MM-dd")
-            # Yesterday legitimately settles during the 09:30 chain run, so only expect it
-            # after that has had time to finish. Older dates are holes at any hour - the
-            # previous Hour -ge 12 gate meant the 06:00 wake could never see one.
-            if ($i -eq 1 -and (Get-Date).Hour -lt 12) { continue }
-            $missing = @($marketSettled.Keys | Where-Object { -not $marketSettled[$_][$key] })
-            if ($missing.Count -gt 0) { $holes += [PSCustomObject]@{ date = $key; markets = $missing.Count } }
-        }
-        if ($holes.Count -gt 0) {
-            $worst = $holes[0].date
-            $dates = ($holes | ForEach-Object { $_.date }) -join ", "
-            $settleHole = "SETTLEMENT HOLE: {0} date(s) unsettled in the last {1} days [{2}] - worst {3}, up to {4} of {5} market(s) - each needs an EXPLICIT per-date backfill; the next chain run will not retry it" -f `
-                $holes.Count, $windowDays, $dates, $worst, ($holes | Measure-Object -Property markets -Maximum).Maximum, $marketCount
-            $flags.Add($settleHole)
-        }
+    catch {}
+    if ($null -eq $settlementCheck) {
+        $flags.Add("settlement-hole checker failed to run")
+    }
+    elseif (-not $settlementCheck.ok) {
+        $flags.Add("settlement-hole checker could not read every ledger: $(@($settlementCheck.errors) -join ', ')")
+    }
+    elseif (@($settlementCheck.holes).Count -gt 0) {
+        $holes = @($settlementCheck.holes)
+        $worst = $holes[0].date
+        $dates = ($holes | ForEach-Object { $_.date }) -join ", "
+        $settleHole = "SETTLEMENT HOLE: {0} date(s) unsettled in the last {1} days [{2}] - worst {3}, up to {4} of {5} market(s) - each needs an EXPLICIT per-date backfill; the next chain run will not retry it" -f `
+            $holes.Count, $windowDays, $dates, $worst, ($holes | Measure-Object -Property markets -Maximum).Maximum, $settlementCheck.market_count
+        $flags.Add($settleHole)
     }
 }
 
