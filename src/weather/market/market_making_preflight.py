@@ -326,9 +326,11 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
     if not path.exists():
         return {"required": True, "ok": False, "path": str(path), "reason": "platform-verification artifact missing"}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
+        raw = path.read_bytes()
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return {"required": True, "ok": False, "path": str(path), "reason": f"invalid platform-verification JSON: {exc}"}
+    artifact_sha256 = hashlib.sha256(raw).hexdigest()
 
     now = utc_now(now)
     target_text = ensure_date(target_date).isoformat()
@@ -734,6 +736,10 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         "docs_checked_at_utc": payload.get("docs_checked_at_utc"),
         "max_age_hours": max_age_hours,
         "platform": payload.get("platform"),
+        "artifact_sha256": artifact_sha256,
+        "condition_id": lifecycle_bundle.get("condition_id"),
+        "token_id": lifecycle_bundle.get("token_id"),
+        "funder_address": payload.get("funder_address"),
         "geoblock_country": geoblock.get("country"),
         "geoblock_region": geoblock.get("region"),
         "geoblock_checked_at_utc": geoblock.get("checked_at_utc"),

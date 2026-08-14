@@ -1,7 +1,6 @@
 import csv
+import hashlib
 import json
-import os
-import sys
 import tempfile
 import unittest
 from contextlib import nullcontext
@@ -1318,6 +1317,8 @@ class TestMarketMakingRun(unittest.TestCase):
             no_fill_payload["private_user_stream"]["fill_event_verified"] = False
             no_fill_payload["private_user_stream"]["no_fill_lifecycle_verified"] = True
             no_fill.write_text(json.dumps(no_fill_payload), encoding="utf-8")
+            good_payload = json.loads(good.read_text(encoding="utf-8"))
+            good_sha256 = hashlib.sha256(good.read_bytes()).hexdigest()
 
             good_gate = load_platform_verification_gate(good, TARGET_DATE, "live-pilot", now=NOW)
             bad_gate = load_platform_verification_gate(bad, TARGET_DATE, "live-pilot", now=NOW)
@@ -1326,6 +1327,16 @@ class TestMarketMakingRun(unittest.TestCase):
             no_fill_gate = load_platform_verification_gate(no_fill, TARGET_DATE, "live-pilot", now=NOW)
 
         self.assertTrue(good_gate["ok"])
+        self.assertEqual(good_gate["artifact_sha256"], good_sha256)
+        self.assertEqual(
+            good_gate["condition_id"],
+            good_payload["stage1_lifecycle_bundle"]["condition_id"],
+        )
+        self.assertEqual(
+            good_gate["token_id"],
+            good_payload["stage1_lifecycle_bundle"]["token_id"],
+        )
+        self.assertEqual(good_gate["funder_address"], good_payload["funder_address"])
         self.assertFalse(bad_gate["ok"])
         self.assertIn("eligibility_verified", bad_gate["missing"])
         self.assertIn("fees_verified", bad_gate["missing"])
