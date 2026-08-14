@@ -354,3 +354,18 @@ targets, roll back partial writes, ignore unused relayer/RPC/self-assertion
 fields, and emit only a public reference manifest plus a secret-free receipt.
 Live account authentication and every order mutation remain blocked until the
 genuinely eligible execution host passes the fresh Stage 0 gates.
+
+Public candidate-selection hardening update (2026-08-13 UTC): a bounded live
+test can no longer depend on a hand-copied condition or stale token. The new
+read-only `weather.market.mm_live_candidate_cli` binds a current validated
+International economics snapshot to current CLOB books, limits selection to
+built-in weather markets, requires positive fee and maker-rebate parameters,
+central probability, a non-crossed tight book, and exact agreement between the
+book and economics min-size/tick rules. It emits a content-hashed five-minute
+plan with an explicitly non-authorizing, minimum-tick Stage 1 intent and ranked
+alternates. Book rule drift, extreme or crossed books, stale economics, and no
+eligible candidate all block. The related location refresh now has a
+`--metadata-only` mode so public preparation can write an external event
+snapshot without rewriting tracked configuration. This selects the lifecycle
+probe only; it does not implement the Stage 2 maker quote or prove reward
+scoring, fills, rebates, or profit.
