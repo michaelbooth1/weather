@@ -54,11 +54,17 @@ $windowSettings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $WindowTaskName `
     -Action $windowAction `
     -Trigger $windowTrigger `
     -Settings $windowSettings `
+    -Principal $principal `
     -Description "Single-host training window: stops capture loops, runs nightly retrain (3h cap), restores capture. Skips on unhealthy commit/disk." `
     -Force | Out-Null
 
@@ -91,6 +97,7 @@ Register-ScheduledTask `
     -Action $restoreAction `
     -Trigger $restoreTrigger `
     -Settings $restoreSettings `
+    -Principal $principal `
     -Description "Dead-man backstop: unconditionally re-enables capture supervisors and ensures all loops after the training window." `
     -Force | Out-Null
 

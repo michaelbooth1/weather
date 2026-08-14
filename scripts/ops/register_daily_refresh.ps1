@@ -147,11 +147,17 @@ $stageASettings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $stageAAction `
     -Trigger $stageATrigger `
     -Settings $stageASettings `
+    -Principal $principal `
     -Description "Runs daily weather-market settlement truth through fleet observability (daily_refresh --stage settlement)." `
     -Force | Out-Null
 
@@ -179,6 +185,7 @@ Register-ScheduledTask `
     -Action $stageBAction `
     -Trigger $stageBTriggers `
     -Settings $stageBSettings `
+    -Principal $principal `
     -Description "Runs daily weather-market evidence recomputation and learning when the Stage-A manifest is fresh (daily_refresh --stage evidence)." `
     -Force | Out-Null
 

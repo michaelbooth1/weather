@@ -51,11 +51,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
+    -Principal $principal `
     -Description "Keeps the active-day paper taker-bot daily-roll loop current and alive (python -m weather.operations.taker_bot_daily_roll ensure)." `
     -Force | Out-Null
 

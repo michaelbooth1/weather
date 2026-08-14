@@ -4,11 +4,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_capture_supervisor_registrations_preserve_unattended_s4u() -> None:
+def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
     for name in (
+        "register_daily_refresh.ps1",
+        "register_exchange_economics_refresh.ps1",
+        "register_location_config_refresh.ps1",
+        "register_market_making_daily_roll.ps1",
+        "register_market_making_daily_roll_supervisor.ps1",
+        "register_memory_commit_guard.ps1",
+        "register_model_market_disagreement_analysis.ps1",
+        "register_nightly_retrain.ps1",
         "register_snapshot_supervisor.ps1",
         "register_clob_supervisor.ps1",
         "register_observation_trigger_supervisor.ps1",
+        "register_taker_bot_daily_roll.ps1",
+        "register_taker_bot_daily_roll_supervisor.ps1",
+        "register_training_window.ps1",
     ):
         text = (ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")
 

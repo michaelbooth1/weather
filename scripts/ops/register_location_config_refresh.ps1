@@ -45,11 +45,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger $trigger `
     -Settings $settings `
+    -Principal $principal `
     -Description "Regenerates config/location_market_events.json from live Polymarket every 6h so collection loops hold current+upcoming market events and CLOB tokens (prevents the stale-config capture gap seen 2026-06-29)." `
     -Force | Out-Null
 
