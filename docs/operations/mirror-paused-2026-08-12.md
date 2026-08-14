@@ -1,8 +1,10 @@
 # Off-host mirror paused — 2026-08-12
 
-**Operator decision: focus on the production host and get it stable first.** The nightly
-`data\` mirror to the workstation is stopped. This records what stopped, what it costs, what it
-frees, and exactly how to restart it.
+**Operator decision: keep the mirror stopped until the project has demonstrated enough economic
+value to make maintaining it worthwhile.** The nightly `data\` mirror to the workstation is
+intentionally stopped. Mirror age, a failed historical run, or restored host capacity does not
+authorize a restart. This records what stopped, what it costs, what it frees, and the checks that
+would be required after a new operator decision to restart it.
 
 ## What changed
 
@@ -88,7 +90,21 @@ OFF-HOST  : mirror PAUSED by operator, frozen 14.3h ago
 The three task names are in `$expDisabled` so they do not each also report "unexpectedly
 DISABLED" — one voice for the pause, not four.
 
-## Restarting the mirror
+## Resume gate
+
+The operator reconfirmed this pause on 2026-08-14. Do not re-enable or manually run any mirror
+task until both conditions are true:
+
+1. The project has demonstrated enough economic value to justify the mirror's operational and
+   storage cost.
+2. The operator makes a new explicit decision to resume it.
+
+The standing age warning is exposure disclosure, not a remediation trigger. Before a future
+restart, audit the scheduled-task principal and credential-vault access, inspect both trees for
+`/MIR` purge divergence, and require a fresh restore-verification result. The frozen copy remains
+neither current nor proven restorable while this gate is closed.
+
+## Restarting the mirror after the gate opens
 
 Re-enable **`WeatherDataMirror`** and **`WeatherMirrorRestoreVerify`**. Nothing else is needed:
 the script, the `weathersync` credential, and all three exclusions (`*.claim`,
@@ -106,4 +122,5 @@ Two things to expect on the first run back:
 
 ## Update this file when
 
-The mirror is restarted, or the pause outlives the stability work it was taken for.
+The economic-value gate is met, the operator changes the pause decision, or the mirror is
+restarted.
