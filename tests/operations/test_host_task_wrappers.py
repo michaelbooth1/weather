@@ -4,6 +4,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def test_capture_supervisor_registrations_preserve_unattended_s4u() -> None:
+    for name in (
+        "register_snapshot_supervisor.ps1",
+        "register_clob_supervisor.ps1",
+        "register_observation_trigger_supervisor.ps1",
+    ):
+        text = (ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")
+
+        assert "$principal = New-ScheduledTaskPrincipal" in text
+        assert "-UserId $env:USERNAME" in text
+        assert "-LogonType S4U" in text
+        assert "-RunLevel Limited" in text
+        assert "-Principal $principal" in text
+        assert "only while logged on" not in text
+
+
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     wrapper = (ROOT / "scripts" / "ops" / "market_making_daily_roll_task.ps1").read_text(
         encoding="utf-8-sig"

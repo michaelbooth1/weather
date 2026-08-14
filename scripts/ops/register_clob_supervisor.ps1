@@ -8,7 +8,8 @@
 # cadence near close or after large top-of-book midpoint moves.
 #
 # Run from the repo root:  .\scripts\ops\register_clob_supervisor.ps1
-# Re-running replaces the existing task.
+# The S4U principal runs without an interactive logon. Re-running replaces the
+# existing task and must preserve unattended reboot recovery.
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -45,11 +46,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
+    -Principal $principal `
     -Description "Keeps the Polymarket CLOB book capture loop alive (python -m weather.market.market_microstructure ensure). Registered by scripts/ops/register_clob_supervisor.ps1." `
     -Force | Out-Null
 

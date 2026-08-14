@@ -7,7 +7,8 @@
 # settlement-relevant source state changes.
 #
 # Run from the repo root:  .\scripts\ops\register_observation_trigger_supervisor.ps1
-# Re-running replaces the existing task.
+# The S4U principal runs without an interactive logon. Re-running replaces the
+# existing task and must preserve unattended reboot recovery.
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -44,11 +45,17 @@ $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+$principal = New-ScheduledTaskPrincipal `
+    -UserId $env:USERNAME `
+    -LogonType S4U `
+    -RunLevel Limited
+
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `
     -Trigger @($logonTrigger, $repeatTrigger) `
     -Settings $settings `
+    -Principal $principal `
     -Description "Keeps the observation-triggered recompute watcher alive (python -m weather.operations.observation_trigger ensure)." `
     -Force | Out-Null
 
