@@ -762,6 +762,12 @@ def _corpus_manifest(
         if research_corpus_lineage is not None
         else bundle.get("corpus_lineage") or {}
     )
+    lineage_source = None
+    if research_corpus_lineage is not None:
+        lineage_source = _verified_research_lineage_source(
+            lineage,
+            research_corpus_lineage_provenance or {},
+        )
     if production_evaluation is not None:
         trainer_evaluation = lineage.get("evaluation")
         lineage["evaluation"] = _json_safe(production_evaluation)
@@ -795,16 +801,89 @@ def _corpus_manifest(
             "bundle_sha256": bundle_sha256,
             "corpus_lineage": lineage,
             "lineage_source": (
-                {
-                    "kind": "verified_immutable_release",
-                    **_json_safe(research_corpus_lineage_provenance or {}),
-                }
+                lineage_source
                 if research_corpus_lineage is not None
                 else {"kind": "production_point_in_time_qualification"}
                 if production_evaluation is not None
                 else {"kind": "candidate_bundle"}
             ),
         }
+    )
+
+
+def _verified_research_lineage_source(
+    lineage: Mapping[str, Any],
+    provenance: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate one explicit fail-closed source for a research lineage override."""
+
+    source = _json_safe(provenance)
+    kind = str(source.get("kind") or "")
+    if source.get("verification_status") != "PASS":
+        raise CandidateContractError(
+            "research corpus-lineage provenance verification did not pass"
+        )
+    if kind == "verified_immutable_release":
+        source_release_id = str(source.get("source_release_id") or "").strip()
+        hashes = [
+            str(source.get(field) or "")
+            for field in (
+                "source_release_manifest_sha256",
+                "source_role_sha256",
+                "source_payload_sha256",
+            )
+        ]
+        if not source_release_id or any(
+            not _SHA256_RE.fullmatch(value) for value in hashes
+        ):
+            raise CandidateContractError(
+                "research corpus-lineage provenance is not a verified immutable release proof"
+            )
+        return source
+    if kind == "first_party_corpus_assembly":
+        final_refit = lineage.get("final_refit")
+        model_input_fields = lineage.get("model_input_fields")
+        assembly_contract = source.get("assembly_contract")
+        if not isinstance(final_refit, Mapping) or not isinstance(
+            model_input_fields, list
+        ) or not isinstance(assembly_contract, Mapping):
+            raise CandidateContractError(
+                "first-party corpus lineage is missing its assembly, final-refit, or model-input contract"
+            )
+        expected_model_inputs_sha256 = _payload_sha256(
+            {"model_input_fields": model_input_fields}
+        )
+        hashes = [
+            str(source.get(field) or "")
+            for field in (
+                "assembly_contract_sha256",
+                "assembled_corpus_sha256",
+                "model_input_fields_sha256",
+            )
+        ]
+        if (
+            any(not _SHA256_RE.fullmatch(value) for value in hashes)
+            or source.get("assembly_contract_sha256")
+            != _payload_sha256(assembly_contract)
+            or source.get("assembled_corpus_sha256")
+            != final_refit.get("sha256")
+            or source.get("assembled_row_count")
+            != final_refit.get("row_count")
+            or source.get("model_input_fields_sha256")
+            != expected_model_inputs_sha256
+            or not isinstance(source.get("market_count"), int)
+            or source["market_count"] < 1
+            or source.get("market_count")
+            != len(assembly_contract.get("market_ids") or ())
+            or source.get("assembled_row_count")
+            != assembly_contract.get("record_count")
+        ):
+            raise CandidateContractError(
+                "first-party corpus-lineage provenance does not match the assembled corpus"
+            )
+        return source
+    raise CandidateContractError(
+        f"unsupported research corpus-lineage provenance kind: {kind!r}"
     )
 
 
@@ -1384,26 +1463,10 @@ def freeze_candidate_semantic_contract(
             "research corpus lineage and provenance must be supplied together"
         )
     if research_corpus_lineage_provenance is not None:
-        source_release_id = str(
-            research_corpus_lineage_provenance.get("source_release_id") or ""
-        ).strip()
-        hashes = [
-            str(research_corpus_lineage_provenance.get(field) or "")
-            for field in (
-                "source_release_manifest_sha256",
-                "source_role_sha256",
-                "source_payload_sha256",
-            )
-        ]
-        if (
-            research_corpus_lineage_provenance.get("verification_status")
-            != "PASS"
-            or not source_release_id
-            or any(not _SHA256_RE.fullmatch(value) for value in hashes)
-        ):
-            raise CandidateContractError(
-                "research corpus-lineage provenance is not a verified immutable release proof"
-            )
+        _verified_research_lineage_source(
+            research_corpus_lineage or {},
+            research_corpus_lineage_provenance,
+        )
     config_root = Path(repo_root).resolve() / "config"
     model_path = Path(model_bundle_path).resolve()
     bundle, bundle_sha = _load_verified_bundle(model_path)

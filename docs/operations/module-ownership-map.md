@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 20 modules.
+- Current warning count: 21 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -21,8 +21,8 @@ Current module-size audit status:
   `weather.calibration.pooled_training`, `weather.operations.experiment_executor`,
   `weather.reporting.hourly.ten_minute_model_performance`,
   `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`,
-  `weather.collection.snapshot_tracker`, and
-  `weather.market.taker_bot_bakeoff`.
+  `weather.collection.snapshot_tracker`, `weather.market.taker_bot_bakeoff`, and
+  `weather.model.model_features`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 

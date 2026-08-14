@@ -183,6 +183,11 @@ OWNERSHIP_NOTES = {
         "boundary": "Serving-time source fetch orchestration, retry/backoff policy, source-group integration, and live/local source parsing for model assembly.",
         "next_split": "WARN in the 2026-07-03 audit; move provider-specific fetch/parsing helpers toward weather.sources or source_adapters, keeping model_sources focused on serving-time source assembly.",
     },
+    "src/weather/model/model_features.py": {
+        "owner": "model",
+        "boundary": "The FeatureModelMixin feature-assembly surface: building the trained feature vector from captured rows against the feature_store column contract, plus the US guidance replay diagnostics rendered from those rows.",
+        "next_split": "Newly WARN in the 2026-08-09 audit at 2,014 lines, crossed when -09-43a routed eight previously dead base features. FeatureModelMixin is ~1,850 of those lines; extract the guidance-replay diagnostics builder and renderer first, since they are already standalone module-level functions with no mixin state, then split per-source feature routing from the assembled-vector contract.",
+    },
     "src/weather/collection/snapshot_store_backfill.py": {
         "owner": "collection",
         "boundary": "Snapshot sidecar/cadence backfill helpers and snapshot-store utility CLI wiring.",

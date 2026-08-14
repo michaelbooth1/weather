@@ -1,0 +1,33 @@
+{
+  "generated_at_utc": "2026-08-10T22:45:02.351533+00:00",
+  "requested_seconds": 1800.0,
+  "results": {
+    "documented": {
+      "accepted": true,
+      "elapsed_seconds": 1800.5,
+      "event_counts": {
+        "<unparseable>": 175,
+        "book": 146,
+        "last_trade_price": 40,
+        "price_change": 14006
+      },
+      "execution_only_bytes": 16007,
+      "identity_fields_missing": {
+        "asset_id": 0,
+        "market": 0,
+        "price": 0,
+        "side": 0,
+        "size": 0,
+        "timestamp": 0,
+        "transaction_hash": 0
+      },
+      "identity_survives": true,
+      "raw_bytes": 8830640,
+      "trade_sample_path": "C:\\tmp\\execution_tape_pilot\\pilot_trades_documented.jsonl",
+      "trades_per_hour": 79.98,
+      "trades_seen": 40
+    }
+  },
+  "token_id_count": 66,
+  "ws_url": "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+}

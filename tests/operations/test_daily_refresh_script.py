@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WRAPPER = REPO_ROOT / "scripts" / "ops" / "daily_refresh.ps1"
 REGISTER = REPO_ROOT / "scripts" / "ops" / "register_daily_refresh.ps1"
 CONTRACT = REPO_ROOT / "scripts" / "ops" / "daily_refresh_contract.ps1"
+JOB_HELPER = REPO_ROOT / "scripts" / "ops" / "windows_kill_on_close_job.ps1"
 SHARED_CONTRACT = REPO_ROOT / "scripts" / "ops" / "training_window_contract.ps1"
 
 
@@ -124,6 +125,8 @@ def test_daily_refresh_scripts_share_exact_delegated_child_contract():
     assert "Get-DailyRefreshChildTokens" in wrapper
     assert "Get-DailyRefreshTaskActionTokens" in registration
     assert "Get-DailyRefreshTaskActionTokens" in wrapper
+    assert "New-WeatherKillOnCloseJob" in wrapper
+    assert "Start-WeatherProcessInJob" in wrapper
     assert "-Execute $PowerShellExecutable" in registration
     assert "-Argument $stageAArguments" in registration
     assert "-Argument $stageBArguments" in registration
@@ -136,10 +139,44 @@ def test_daily_refresh_scripts_share_exact_delegated_child_contract():
     assert '"--repo-root", $RepoRoot' in contract
     assert "ConvertFrom-DailyRefreshProductionEvidenceArguments" in contract
     assert 'childParameters["ProductionEvidenceArguments"]' in wrapper
-    assert "exit $child.ExitCode" in wrapper
+    assert "exit $childExitCode" in wrapper
     assert 'DefaultParameterSetName = "Full"' in registration
     assert 'ParameterSetName = "Full"' in registration
     assert 'ParameterSetName = "ProvenanceOnly"' in registration
+
+
+def test_daily_refresh_child_tree_is_owned_by_a_kill_on_close_job():
+    helper = JOB_HELPER.read_text(encoding="utf-8-sig")
+    wrapper = WRAPPER.read_text(encoding="utf-8-sig")
+
+    assert "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE" in helper
+    assert "AssignProcessToJobObject" in helper
+    assert "CREATE_SUSPENDED" in helper
+    assert "ResumeThread" in helper
+    assert "StartAssigned" in helper
+    assert "Start-Process" not in helper
+    assert "Add-WeatherProcessToJob" not in helper
+    assert "public void Assign(Process process)" not in helper
+    assert "IntPtr managedHandle = managedProcess.Handle" in helper
+    assert "CreateJobObject" in helper
+    assert "CloseHandle" in helper
+    assert "windows_kill_on_close_job.ps1" in wrapper
+    assert wrapper.index("New-WeatherKillOnCloseJob") < wrapper.index("Start-WeatherProcessInJob")
+    assert wrapper.index("Start-WeatherProcessInJob") < wrapper.index("$child.WaitForExit()")
+
+
+def test_daily_refresh_is_serialized_and_cannot_cross_the_graded_window():
+    wrapper = WRAPPER.read_text(encoding="utf-8-sig")
+
+    assert "workload_admission.ps1" in wrapper
+    assert "Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot" in wrapper
+    assert '-Workload "daily_refresh_$Stage"' in wrapper
+    assert '-AllowStageAWindow:($Stage -eq "settlement")' in wrapper
+    assert "$localMinute -ge 715 -or $localMinute -lt 30" in wrapper
+    assert "$minute -ge 715 -or $minute -lt 30" in wrapper
+    assert "Closing the kill-on-close Job" in wrapper
+    assert "$childExitCode = 75" in wrapper
+    assert "Exit-WeatherHeavyWorkloadLease" in wrapper
 
 
 def test_daily_refresh_parser_accepts_delegated_child_contract():
@@ -177,12 +214,14 @@ def test_daily_refresh_powershell_scripts_parse_without_execution():
     env["WEATHER_DAILY_WRAPPER"] = str(WRAPPER)
     env["WEATHER_DAILY_REGISTER"] = str(REGISTER)
     env["WEATHER_DAILY_CONTRACT"] = str(CONTRACT)
+    env["WEATHER_DAILY_JOB_HELPER"] = str(JOB_HELPER)
     script = r"""
 $ErrorActionPreference = 'Stop'
 $paths = @(
     $env:WEATHER_DAILY_WRAPPER,
     $env:WEATHER_DAILY_REGISTER,
-    $env:WEATHER_DAILY_CONTRACT
+    $env:WEATHER_DAILY_CONTRACT,
+    $env:WEATHER_DAILY_JOB_HELPER
 )
 $results = foreach ($path in $paths) {
     $tokens = $null
@@ -216,7 +255,7 @@ $results | ConvertTo-Json -Depth 4 -Compress
 
     assert result.returncode == 0, result.stderr
     rows = json.loads(result.stdout)
-    assert len(rows) == 3
+    assert len(rows) == 4
     assert all(row["errors"] == [] for row in rows)
 
 

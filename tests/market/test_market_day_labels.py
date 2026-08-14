@@ -9,7 +9,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-from weather.backtesting.settlement_ledger import build_label
+from unittest import mock
+
+from weather.backtesting import settlement_ledger
+from weather.backtesting.settlement_ledger import FolderFinalizationError, build_label
 from weather.market.market_day_labels import finalize_folders, missing_fraction, quality_grade
 
 
@@ -63,6 +66,123 @@ class TestMarketDayLabels(unittest.TestCase):
 
         self.assertEqual(missing_fraction(frame, ["market_yes"]), 1.0)
         self.assertAlmostEqual(missing_fraction(frame, ["model_probability"]), 0.5)
+
+    def _partial_failure_fixture(self, root):
+        """Two folders; the first one finalized will raise, the second succeed."""
+        good = root / "highest-temperature-in-toronto-on-may-27-2026"
+        good.mkdir()
+        _write_toronto_tape(good)
+        bad = root / "highest-temperature-in-nyc-on-may-27-2026"
+        bad.mkdir()
+        _write_toronto_tape(bad)
+        daily = root / "daily.csv"
+        daily.write_text(
+            "local_date,row_count,max_temp_bucket_c\n2026-05-27,24,25\n",
+            encoding="utf-8",
+        )
+        return good, bad, daily
+
+    def test_one_failing_folder_does_not_discard_the_others(self):
+        """A transient ledger error on one market must not cost the whole day.
+
+        On 2026-08-11 a single `[Errno 13] Permission denied` aborted the loop
+        before write_labels_csv and all 12 markets lost their 2026-08-10 rows.
+        """
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good, bad, daily = self._partial_failure_fixture(root)
+            labels_csv = root / "labels.csv"
+            ledger_root = root / "settlements"
+            real = settlement_ledger.finalize_folder
+
+            def flaky(folder, **kwargs):
+                if Path(folder).name.startswith("highest-temperature-in-nyc"):
+                    raise PermissionError(
+                        13, "Permission denied", str(ledger_root / "nyc" / "ledger.jsonl")
+                    )
+                return real(folder, **kwargs)
+
+            with mock.patch.object(settlement_ledger, "finalize_folder", side_effect=flaky):
+                with self.assertRaises(FolderFinalizationError) as ctx:
+                    finalize_folders(
+                        [bad, good],
+                        daily_summary_path=daily,
+                        labels_csv=labels_csv,
+                        ledger_root=ledger_root,
+                        folder_attempts=1,
+                    )
+
+            # The failure is reported, not swallowed...
+            self.assertEqual(len(ctx.exception.failures), 1)
+            self.assertIn("PermissionError", ctx.exception.failures[0][1])
+            # ...and the market that succeeded was still persisted.
+            csv_rows = list(csv.DictReader(labels_csv.open(encoding="utf-8", newline="")))
+            self.assertEqual([row["event_slug"] for row in csv_rows], [good.name])
+            self.assertEqual([label["event_slug"] for label in ctx.exception.labels], [good.name])
+
+    def test_partial_run_merges_instead_of_truncating_the_labels_csv(self):
+        """A partial re-finalize must not delete rows it did not regenerate."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good, bad, daily = self._partial_failure_fixture(root)
+            labels_csv = root / "labels.csv"
+            ledger_root = root / "settlements"
+            settlement_ledger.write_labels_csv(
+                labels_csv,
+                [{"event_slug": "highest-temperature-in-denver-on-may-01-2026",
+                  "market_id": "denver", "target_date": "2026-05-01"}],
+            )
+            real = settlement_ledger.finalize_folder
+
+            def flaky(folder, **kwargs):
+                if Path(folder).name.startswith("highest-temperature-in-nyc"):
+                    raise PermissionError(13, "Permission denied", "ledger.jsonl")
+                return real(folder, **kwargs)
+
+            with mock.patch.object(settlement_ledger, "finalize_folder", side_effect=flaky):
+                with self.assertRaises(FolderFinalizationError):
+                    finalize_folders(
+                        [bad, good],
+                        daily_summary_path=daily,
+                        labels_csv=labels_csv,
+                        ledger_root=ledger_root,
+                        folder_attempts=1,
+                    )
+
+            slugs = {
+                row["event_slug"]
+                for row in csv.DictReader(labels_csv.open(encoding="utf-8", newline=""))
+            }
+            self.assertIn("highest-temperature-in-denver-on-may-01-2026", slugs)
+            self.assertIn(good.name, slugs)
+
+    def test_transient_folder_error_is_retried_before_failing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            good, _bad, daily = self._partial_failure_fixture(root)
+            labels_csv = root / "labels.csv"
+            ledger_root = root / "settlements"
+            real = settlement_ledger.finalize_folder
+            calls = {"n": 0}
+
+            def flaky_once(folder, **kwargs):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    raise PermissionError(13, "Permission denied", "ledger.jsonl")
+                return real(folder, **kwargs)
+
+            with mock.patch.object(settlement_ledger, "finalize_folder", side_effect=flaky_once):
+                labels = finalize_folders(
+                    [good],
+                    daily_summary_path=daily,
+                    labels_csv=labels_csv,
+                    ledger_root=ledger_root,
+                )
+
+            self.assertEqual(calls["n"], 2)
+            self.assertEqual([label["event_slug"] for label in labels], [good.name])
 
     def test_finalize_writes_folder_json_and_labels_csv(self):
         with tempfile.TemporaryDirectory() as tmp:

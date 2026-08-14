@@ -12,23 +12,26 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$TaskName = "WeatherMarketMakingDailyRoll",
-    [string]$At = "19:30",
+    [string]$At = "07:05",
     [string]$Timezone = "America/Toronto",
     [string]$BudgetUsdc = "500",
     [string]$Mode = "paper-live-forward",
     [string]$Markets = "all",
-    [int]$IntervalSeconds = 60
+    [int]$IntervalSeconds = 60,
+    [double]$QuoteSize = 20.0,
+    [double]$MaxBandNotional = 25.0,
+    [double]$MaxEventNotional = 25.0
 )
 
-$python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
-if (-not (Test-Path $python)) {
-    throw "venv pythonw not found at $python -- run from the repo with its venv created."
+$wrapper = Join-Path $RepoRoot "scripts\ops\market_making_daily_roll_task.ps1"
+if (-not (Test-Path $wrapper)) {
+    throw "daily-roll task wrapper not found at $wrapper"
 }
 
-$arguments = "-m weather.operations.market_making_daily_roll start --timezone $Timezone --budget-usdc $BudgetUsdc --mode $Mode --markets $Markets --interval-seconds $IntervalSeconds"
+$arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$wrapper`" -Verb start -RepoRoot `"$RepoRoot`" -Timezone $Timezone -BudgetUsdc $BudgetUsdc -Mode $Mode -Markets $Markets -IntervalSeconds $IntervalSeconds -QuoteSize $QuoteSize -MaxBandNotional $MaxBandNotional -MaxEventNotional $MaxEventNotional"
 
 $action = New-ScheduledTaskAction `
-    -Execute $python `
+    -Execute "powershell.exe" `
     -Argument $arguments `
     -WorkingDirectory $RepoRoot
 

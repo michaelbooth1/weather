@@ -3,6 +3,13 @@
 Status: canonical plan, 2026-08-06. Written because the workstation is nearly full and the
 instinct — delete on the workstation — does not work on its own.
 
+> **THE MIRROR IS PAUSED as of 2026-08-12** ([record](mirror-paused-2026-08-12.md)). Two things
+> below invert while it is off. **The `/MIR` restore hazard is suspended**, so deletion on the
+> workstation now works on its own and needs no source-side exclusion first — but only until the
+> mirror restarts, when the first pass re-copies everything deleted there. And **step 3 below
+> (bound the mirror's `snapshots` scope) is moot while nothing is being mirrored at all**; it
+> becomes the right first move again at restart, not before.
+
 ## The reframe
 
 **The workstation does not generate that data. Production pushes it there nightly.**

@@ -1,0 +1,19 @@
+{
+  "artifact": "settlement-provenance-for-panel-2026-09-67a.csv",
+  "built_by": "production host MICHAEL, from data/settlements/*/ledger.jsonl",
+  "bytes": 44946,
+  "contains_no_model_output": true,
+  "counts": {
+    "material_gap_ge_30min": 87,
+    "source_daily_summary": 487,
+    "source_snapshot_high": 37
+  },
+  "keyed_to": {
+    "panel": "pit-panel-floor-2026-09-65a.csv",
+    "panel_sha256": "966ff8cb85c03121022341cc87da6ccaabdc67609d744bbc001b95f4ba96eaad"
+  },
+  "rows": 524,
+  "sha256": "73501415ea8dd31db8816c3fb4b5e8db92eb0d5448b8b5f48e7c57b6c44597cd",
+  "what_settlement_high_is": "NOT handed over by the venue. Most rows carry settlement_source 'daily_summary', i.e. our own maximum over an observation series across the recorded daily_max_window. The gap columns are that series' recorded coverage holes, in minutes.",
+  "why_it_matters": "Every Brier number in this campaign scores against settlement_high. A coverage gap can make the label an UNDER-read of the day's true maximum. On 2026-06-09, chicago, atlanta and san-francisco settled with material gaps of 45.736, 45.726 and 45.699 minutes simultaneously -- a fleet-wide stall, not a station fault."
+}

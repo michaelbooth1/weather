@@ -1,0 +1,100 @@
+{
+  "mission": "2026-09-62a",
+  "frozen_on": "2026-08-10",
+  "question": "Does point +/- z(1-alpha/2) times crossed-pigeonhole-bootstrap SD attain nominal two-sided coverage on the sealed panel?",
+  "input": {
+    "path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/paired-band-rows.csv",
+    "sha256": "4352e77692893c3ac36add9653eabfe0d014de7a02bf083ec6c10e2944dc4e88",
+    "rows": 135179,
+    "last_allowed_target_date": "2026-07-30",
+    "forbidden_columns": [
+      "outcome",
+      "market_probability",
+      "repair_probability"
+    ],
+    "paired_field": "repair_squared_error - control_squared_error"
+  },
+  "endpoints": {
+    "out_of_season_c": {
+      "stratum": "C",
+      "date_clusters": 27,
+      "market_clusters": 12,
+      "rows": 84183,
+      "statistic": "sum synthetic paired delta SSE / fixed observed market SSE"
+    },
+    "severity_tail": {
+      "date_clusters": 49,
+      "market_clusters": 12,
+      "rows": 5930,
+      "membership": "repair_squared_error > market_squared_error and abs(sqrt(repair_squared_error) - sqrt(market_squared_error)) >= 0.30",
+      "membership_identity": "For a binary Brier row sqrt(SSE)=abs(p-y), so the absolute square-root difference equals abs(p_repair-p_market) without reading y or either probability.",
+      "statistic": "sum synthetic paired delta SSE / fixed row count"
+    },
+    "in_season_b": {
+      "stratum": "B",
+      "date_clusters": 23,
+      "market_clusters": 12,
+      "rows": 50996,
+      "statistic": "sum synthetic paired delta SSE / fixed observed market SSE"
+    }
+  },
+  "variance_model": {
+    "model": "delta[d,m,j] = date_effect[d] + market_effect[m] + residual[d,m,j]",
+    "component_estimator": "Henderson method 3 on the observed repair-minus-control field, using nested unbalanced two-way additive least-squares residual sums of squares and truncating a negative raw component to zero",
+    "simulation_distribution": "Independent mean-zero Gaussian date effects, market effects, and row residuals with the endpoint-specific observed component variances",
+    "cell_generation": "For each occupied cell, n*(date_effect+market_effect) + sqrt(n)*residual_sd*standard_normal; observed date-by-market occupancy n is fixed",
+    "true_effect": 0.0
+  },
+  "bootstrap": {
+    "method": "Independently resample D dates with replacement and M markets with replacement; multiply the two multinomial cell weights; recompute the endpoint including its fixed observed denominator; SD uses ddof=1.",
+    "alphas": [
+      0.05,
+      0.0025
+    ],
+    "interval": "point +/- NormalDist().inv_cdf(1-alpha/2) * bootstrap_sd",
+    "pilot_replications": 600,
+    "draw_grid": [
+      499,
+      999,
+      1999,
+      3999
+    ],
+    "draw_reference": 3999,
+    "draw_selection": "Use the smallest grid value >=499 for which, for every endpoint, mean bootstrap SD differs from the 3999-draw mean by <=0.5% and the median paired absolute relative SD difference is <=3%. If none passes, use 3999.",
+    "coverage_replications": 50000,
+    "coverage_batch_size": 20
+  },
+  "positive_control": {
+    "run_before_panel": true,
+    "date_clusters": 200,
+    "market_clusters": 200,
+    "replications": 20000,
+    "batch_size": 20,
+    "known_model": "balanced additive Gaussian mean with independent N(0,1) date and N(0,1) market effects and no residual; the point estimator is exactly N(0, 1/D + 1/M)",
+    "oracle_check": "The exact known SD interval and the crossed-bootstrap-SD interval must each recover both nominal rejection rates within 4 null Monte-Carlo standard errors.",
+    "scale_check": "Mean crossed-bootstrap SD divided by the exact known SD must be within 2.5% of one.",
+    "fatal_rule": "If any oracle, bootstrap coverage, or scale check fails, stop before simulating the panel and label panel results uninterpretable."
+  },
+  "random_seeds": {
+    "master": 20260962,
+    "pilot": 2026096201,
+    "positive_control": 2026096202,
+    "out_of_season_c": 2026096203,
+    "severity_tail": 2026096204,
+    "in_season_b": 2026096205
+  },
+  "coverage_decision": {
+    "nominal_rule": "For each endpoint and alpha, nominal alpha must lie inside the two-sided 95% Wilson interval for the empirical rejection probability. Otherwise coverage is short or long for that endpoint.",
+    "corrected_quantile": "If coverage is short, use the empirical (1-alpha) quantile of abs(point/bootstrap_sd); report endpoint-specific values and their maximum as the conservative proposed quantile.",
+    "resolution": "Report Monte-Carlo SE and the smallest absolute rejection-rate excess detectable with 80% power by a two-sided 5% normal-approximation test at each nominal alpha.",
+    "sensitivity": "The result is conditional on the endpoint-specific Henderson components. Report all raw and truncated components and their variance shares."
+  },
+  "ledger": {
+    "decision_spend": "none",
+    "decision_allocation": "none",
+    "alpha_spent": "7 of 20",
+    "alpha_available": 13,
+    "decision_10": "allocated and unspent"
+  },
+  "frozen_protocol_protection": "Do not edit docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json. Any quantile change is only a proposed disclosed amendment for the operator."
+}

@@ -32,11 +32,17 @@ from weather.calibration.feature_model import (
     feature_model_frame,
     smoothed_dist,
 )
+from weather.calibration.feature_training_policy import (
+    TRAINING_FEATURE_POLICY_ID,
+    training_feature_exclusions,
+    training_feature_names,
+)
 from weather.calibration.feature_probability_calibration import (
     blend_distribution,
     fit_temperature_blend_grid,
     temperature_scale_distribution,
 )
+from weather.market.market_registry import REGISTRY, MarketSpec
 from weather.model.feature_store import FEATURE_SCHEMA_VERSION, NATIVE_NAN_FEATURE_COLUMNS
 from weather.release_artifacts import sha256_file
 from weather.schema_registry import schema_version
@@ -193,14 +199,24 @@ def _fit_market_hour(
     all_cloud_groups: Sequence[str],
     hgb_parameters: Mapping[str, Any],
     numeric_feature_count: int,
+    market_spec: MarketSpec,
     unit: str,
 ) -> dict[str, Any]:
     frame, _current_feature_names = feature_model_frame(
         records,
         list(all_wind_groups),
         list(all_cloud_groups),
+        market_spec=market_spec,
     )
-    names = [str(value) for value in feature_names]
+    parent_names = [str(value) for value in feature_names]
+    parent_numeric_count = int(numeric_feature_count)
+    names = training_feature_names(parent_names, market_spec=market_spec)
+    numeric_feature_count = len(
+        training_feature_names(
+            parent_names[:parent_numeric_count],
+            market_spec=market_spec,
+        )
+    )
     missing_columns = [name for name in names if name not in frame]
     if missing_columns:
         raise BaseModelCandidateFitError(
@@ -352,6 +368,18 @@ def fit_market_candidate(
 ) -> dict[str, Any]:
     """Fit one market and publish only the five supplied immutable outputs."""
 
+    market_spec = REGISTRY.get(market_id)
+    if market_spec is None:
+        raise BaseModelCandidateFitError(
+            f"base fitting requires a registered market: {market_id!r}"
+        )
+    if str(unit).upper() != market_spec.unit:
+        raise BaseModelCandidateFitError(
+            f"market unit disagrees with registry for {market_id}: "
+            f"requested={unit!r}, registry={market_spec.unit!r}"
+        )
+    exclusions = list(training_feature_exclusions(market_spec))
+
     by_hour: dict[str, list[Mapping[str, Any]]] = {}
     for row in records:
         hour = str(int(row["cutoff_hour"]))
@@ -378,6 +406,8 @@ def fit_market_candidate(
         "pit_forecast_preflight_sha256": pit_forecast_preflight_sha256,
         "market_id": market_id,
         "unit": unit,
+        "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+        "training_feature_exclusions": exclusions,
     }
     lr_output: dict[str, Any] = {
         "schema_version": FEATURE_MODEL_COEFS_SCHEMA_VERSION,
@@ -394,6 +424,8 @@ def fit_market_candidate(
         "pit_forecast_preflight_sha256": pit_forecast_preflight_sha256,
         "market_id": market_id,
         "unit": unit,
+        "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+        "training_feature_exclusions": exclusions,
     }
     temperature_by_hour: dict[str, float] = {}
     hour_receipts: dict[str, Any] = {}
@@ -421,6 +453,7 @@ def fit_market_candidate(
             all_cloud_groups=parent_hour.get("all_cloud_groups") or [],
             hgb_parameters=parent_model.get_params(),
             numeric_feature_count=len(parent_lr_hour.get("scaler_mean") or []),
+            market_spec=market_spec,
             unit=unit,
         )
         hgb_output[hour] = {
@@ -493,6 +526,8 @@ def fit_market_candidate(
             "parent_release_id": parent_release_id,
             "feature_contract_id": feature_contract_id,
             "runtime_id": runtime_id,
+            "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+            "training_feature_exclusions": exclusions,
             "corpus_manifest_sha256": corpus_manifest_sha256,
             "pit_forecast_corpus_manifest_sha256": (
                 pit_forecast_corpus_manifest_sha256
@@ -524,6 +559,8 @@ def fit_market_candidate(
             "training_as_of": training_as_of,
             "feature_contract_id": feature_contract_id,
             "runtime_id": runtime_id,
+            "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+            "training_feature_exclusions": exclusions,
             "corpus_manifest_sha256": corpus_manifest_sha256,
             "pit_forecast_corpus_manifest_sha256": (
                 pit_forecast_corpus_manifest_sha256
@@ -543,6 +580,8 @@ def fit_market_candidate(
         f"- Training as-of: `{training_as_of}`",
         f"- Feature contract: `{feature_contract_id}`",
         f"- Runtime ID: `{runtime_id}`",
+        f"- Training feature policy: `{TRAINING_FEATURE_POLICY_ID}`",
+        f"- Training feature exclusions: {', '.join(exclusions) if exclusions else 'none'}",
         f"- Cutoff hours: {', '.join(parent_hours)}",
         "- Output scope: immutable candidate only",
         "",

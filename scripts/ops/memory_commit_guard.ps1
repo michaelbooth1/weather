@@ -69,6 +69,53 @@ $status = @{
     action = "none"
 }
 
+# A scheduled PowerShell wrapper can be terminated while its delegated Python
+# child survives in the S4U session. That happened to the evidence refresh on
+# 2026-08-13: Task Scheduler no longer owned the run, but the orphaned
+# weather.operations.daily_refresh child exhausted host commit and starved
+# every snapshot market inside the graded window. The ordinary commit rule
+# deliberately exempts governed weather modules, so handle this narrower case
+# from scheduler truth: during the protected window, an evidence-refresh child
+# older than two minutes cannot be legitimate when its owning task is not
+# Running. Stop children before shims by sorting on private bytes.
+$localNow = Get-Date
+$evidenceTaskName = "WeatherEveningEvidenceRefresh"
+if ($localNow.Hour -ge 12 -and $localNow.Hour -lt 18) {
+    $evidenceTask = Get-ScheduledTask -TaskName $evidenceTaskName -ErrorAction SilentlyContinue
+    if ($evidenceTask -and [string]$evidenceTask.State -ne "Running") {
+        $escapedTaskName = [regex]::Escape($evidenceTaskName)
+        $orphanedEvidence = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+            ForEach-Object {
+                $cmd = [string]$_.CommandLine
+                $ageMinutes = ($localNow - $_.CreationDate).TotalMinutes
+                if ($ageMinutes -lt 2) { return }
+                if ($cmd -notmatch '(?i)-m\s+weather\.operations\.daily_refresh') { return }
+                if ($cmd -notmatch "(?i)--scheduler-task-name\s+$escapedTaskName(?:\s|$)") { return }
+                $proc = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
+                if (-not $proc) { return }
+                [pscustomobject]@{
+                    Id = $_.ProcessId
+                    PrivateBytes = $proc.PrivateMemorySize64
+                    PrivateMB = [math]::Round($proc.PrivateMemorySize64 / 1MB, 0)
+                    AgeMinutes = [math]::Round($ageMinutes, 0)
+                }
+            } | Where-Object { $null -ne $_ } | Sort-Object PrivateBytes -Descending)
+        foreach ($target in $orphanedEvidence) {
+            Write-GuardLog "ACTION" ("owning task {0} is {1} inside protected window; killing orphaned daily-refresh pid {2} age {3}m private {4}MB" -f `
+                $evidenceTaskName, $evidenceTask.State, $target.Id, $target.AgeMinutes, $target.PrivateMB)
+            try {
+                Stop-Process -Id $target.Id -Force -Confirm:$false -ErrorAction Stop
+                $status.action = "killed_orphaned_evidence_pid_$($target.Id)"
+                Write-GuardLog "ACTION" ("pid {0} terminated" -f $target.Id)
+            }
+            catch {
+                $status.action = "kill_failed_orphaned_evidence_pid_$($target.Id)"
+                Write-GuardLog "ERROR" ("failed to kill orphaned daily-refresh pid {0}: {1}" -f $target.Id, $_.Exception.Message)
+            }
+        }
+    }
+}
+
 if ($freeRamMB -lt $warnFreePhysicalMB) {
     $topWorkingSet = Get-Process -ErrorAction SilentlyContinue |
         Sort-Object WorkingSet64 -Descending | Select-Object -First 5 |
@@ -86,7 +133,7 @@ if ($commitPercent -ge $WarnPercent) {
     $status.action = "warned"
 }
 
-if ($commitPercent -ge $ActPercent) {
+if ($commitPercent -ge $ActPercent -and $status.action -eq "none") {
     $candidates = Get-CimInstance Win32_Process -Filter "Name like 'python%'" | ForEach-Object {
         $proc = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue
         if ($null -eq $proc) { return }

@@ -181,6 +181,22 @@ directory, and stage-specific SLA. Countability still requires the running
 wrapper PID/instance, task state, action, child lineage, and run-time
 correlation to match; child-supplied flags alone are not evidence.
 
+The wrapper owns the entire delegated process tree with a Windows Job Object
+configured for `KILL_ON_JOB_CLOSE`. It creates the Python child suspended,
+assigns it to that Job, and resumes it only after assignment succeeds. Thus no
+child instruction or descendant can run outside containment, and terminating
+the scheduled wrapper closes the only Job handle and tears down the tree.
+Failure to create, assign, or resume fails before daily-refresh work can begin.
+
+The same containment primitive backs `scripts/ops/bounded_worktree_test_suite.ps1`.
+That runner admits tests only from 00:30–12:00, against a registered clean
+worktree whose branch and `HEAD` equal an explicit commit, while all three
+capture workers are healthy and Windows commit is below the configured start
+ceiling. It rechecks capture and commit between size-bounded pytest chunks,
+writes a JUnit artifact per chunk, and owns each child in a kill-on-close Job.
+It never merges, pushes, checks out, registers a task, or writes production
+data; a full PASS is evidence for a separate reviewed merge, not the merge.
+
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This
 keeps shared pre-promotion producers available to learning without allowing
@@ -273,6 +289,9 @@ host that otherwise captures continuously:
   with wrapper/child creation times correlated to the task run. Only the exact
   expected Windows venv redirector may appear between producer and wrapper;
   the observed chain is bounded to two ancestors and fails closed if over-deep.
+  It also holds the shared OS-backed heavy-workload lease before it disables
+  capture, so a bounded suite, guarded merge, tiering job, or daily chain can
+  never overlap the window.
 - `WeatherTrainingWindowRestore` is a later dead-man task that unconditionally
   re-enables supervisors and issues all three `ensure` commands.
 
@@ -284,6 +303,12 @@ Do not enable both the direct nightly task and the single-host training window
 for the same workload. The registration scripts do not remove the alternative
 task automatically; inspect and reconcile Task Scheduler explicitly when
 changing topology.
+
+The delegated daily-refresh wrapper uses the same lease and owns its Python
+tree through a kill-on-close Job. It refuses to start outside 00:30–11:55 and
+closes the Job at 11:55, so a delayed or long settlement run cannot enter the
+12:00–18:00 graded capture window. This deadline is independent of per-step
+memory admission and Task Scheduler's broader execution limit.
 
 `scripts/ops/training_window_contract.ps1` is the single action-token owner for
 both training-window registration and delegated-child attestation. Changing

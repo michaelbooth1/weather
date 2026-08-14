@@ -77,6 +77,17 @@ GOVERNING_CONSTANTS = (
         "silently changes settlement truth.",
     ),
     ConstantSpec(
+        "weather.calibration.pooled_training",
+        "POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS",
+        "Maximum age, in days, of the selection universe's latest target date when a "
+        "production point-in-time lock is taken.",
+        "THE CAPTURE STREAK HAS A SHELF LIFE AND THIS IS IT. A banked run of contiguous "
+        "complete days stops being usable for a production PIT lock once its LATEST day is "
+        "older than this. So a stalled settlement chain does not merely delay the retrain — "
+        "it ages out evidence already earned. Found 2026-08-09; it was written nowhere and "
+        "the relationship to the settlement backlog is invisible from either number alone.",
+    ),
+    ConstantSpec(
         "weather.backtesting.settlement_ledger",
         "MATERIAL_COVERAGE_WINDOW",
         "Human-readable coverage window for material capture.",

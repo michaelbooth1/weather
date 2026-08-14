@@ -1,8 +1,9 @@
 """Streaming readers and deterministic rebuilds for full-depth CLOB books.
 
-The canonical full-book representation is ``order_books.jsonl``.  Expanded
-CSV and gzip CSV are analysis projections.  Callers use this boundary so
-tiering an old ``order_books_long.csv`` cannot strand a full-book corpus read.
+The canonical full-book representation is ``order_books.jsonl``, or the byte-identical
+``order_books.jsonl.gz`` once a closed day has been tiered.  Expanded CSV and gzip CSV
+are analysis projections.  Callers use this boundary so tiering either an old
+``order_books_long.csv`` or the raw tape itself cannot strand a full-book corpus read.
 """
 
 from __future__ import annotations
@@ -21,9 +22,17 @@ from weather.market.market_microstructure_constants import BOOK_LEVEL_COLUMNS
 
 
 RAW_BOOK_FILENAME = "order_books.jsonl"
+RAW_BOOK_GZIP_FILENAME = "order_books.jsonl.gz"
 GZIP_LONG_FILENAME = "order_books_long.csv.gz"
 LONG_FILENAME = "order_books_long.csv"
-ACCEPTED_REPRESENTATIONS = ("raw_jsonl", "gzip_csv", "csv")
+
+# `raw_jsonl_gzip` is the SAME canonical bytes as `raw_jsonl`, only stored compressed --
+# the tiering job verifies the decompressed payload's sha256 and line count against the
+# source before the source is removed. It therefore ranks immediately after the plain raw
+# tape and ahead of every CSV projection, and it is `canonical=True`. A caller that reaches
+# a CSV has genuinely lost the full-depth book; a caller that reaches the gzip has not.
+CANONICAL_REPRESENTATIONS = ("raw_jsonl", "raw_jsonl_gzip")
+ACCEPTED_REPRESENTATIONS = ("raw_jsonl", "raw_jsonl_gzip", "gzip_csv", "csv")
 
 
 @dataclass(frozen=True)
@@ -59,9 +68,15 @@ def level_rows_from_raw_record(record: dict[str, Any]) -> list[dict[str, Any]]:
     return order_book_level_rows(book, token, captured_at, capture_id)
 
 
+def _raw_handle(path: Path):
+    if path.name.lower().endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8", newline="")
+    return path.open("r", encoding="utf-8")
+
+
 def iter_raw_jsonl_level_rows(path: str | Path) -> Iterator[dict[str, Any]]:
     path = Path(path)
-    with path.open("r", encoding="utf-8") as handle:
+    with _raw_handle(path) as handle:
         for line_number, line in enumerate(handle, start=1):
             text = line.strip()
             if not text:
@@ -102,6 +117,7 @@ def resolve_full_book_representation(
     folder = Path(folder)
     paths = {
         "raw_jsonl": folder / RAW_BOOK_FILENAME,
+        "raw_jsonl_gzip": folder / RAW_BOOK_GZIP_FILENAME,
         "gzip_csv": folder / GZIP_LONG_FILENAME,
         "csv": folder / LONG_FILENAME,
     }
@@ -115,7 +131,7 @@ def resolve_full_book_representation(
             return FullBookReadProvenance(
                 representation=representation,
                 path=str(path),
-                canonical=representation == "raw_jsonl",
+                canonical=representation in CANONICAL_REPRESENTATIONS,
                 fallback_reason=(
                     None
                     if index == 0
@@ -134,7 +150,7 @@ def iter_full_book_rows(
     preference: Iterable[str] = ACCEPTED_REPRESENTATIONS,
 ) -> tuple[Iterator[dict[str, Any]], FullBookReadProvenance]:
     provenance = resolve_full_book_representation(folder, preference=preference)
-    if provenance.representation == "raw_jsonl":
+    if provenance.representation in CANONICAL_REPRESENTATIONS:
         rows = iter_raw_jsonl_level_rows(provenance.path)
     else:
         rows = iter_long_csv_rows(provenance.path)

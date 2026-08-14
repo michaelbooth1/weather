@@ -1,0 +1,62 @@
+{
+  "schema_version": "pit_field_evaluation_amendment_v1",
+  "amendment_id": "2026-09-61a-A1",
+  "amends_protocol": "docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json",
+  "amends_protocol_sha256": "336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146",
+  "base_protocol_edited_in_place": false,
+  "status": "ADOPTED_PRE_EXECUTION",
+  "decided_on": "2026-08-10",
+  "decided_by": "production agent, operator side",
+  "evidence": "docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md (-09-62a)",
+
+  "change": {
+    "field": "inference.interval and inference.mde test quantile",
+    "from": 3.0233414397391534,
+    "to": 3.1098893,
+    "applies_to": "BOTH required endpoints -- the C primary and the incumbent-frozen severity tail",
+    "nominal_alpha_unchanged": 0.0025,
+    "note": "alpha itself does not move. -09-62a measured that the normal quantile does not DELIVER 0.0025 on the thin tail, so the quantile is corrected to deliver the alpha the ledger already declares."
+  },
+
+  "why_uniform_rather_than_endpoint_specific": [
+    "-09-62a measured the C primary as calibrated (0.00240 at nominal 0.0025) and only the 5,930-row severity tail as short (0.00340 [0.002927, 0.003950]). An endpoint-specific rule is therefore the statistically exact option and would cost no power on C.",
+    "It is rejected anyway. A per-endpoint quantile makes 'which quantile applies here' a live choice at analysis time, and this campaign's recorded failure mode is researcher degrees of freedom, not lost power.",
+    "The measured cost of uniformity is a 1.0223929 multiplier on every MDE. Everything that matters survives it: the practical >=5% step clears the corrected 4.513457% floor, the alpha=0.05 D=73 / 2026-10-16 confirmation date is untouched, and decision 10's P0 MDE moves 6.790047% -> 6.942096% of G, still inside its 10% gate.",
+    "q=3.1098893 is a LOWER bound on the correction, not a point estimate. -09-62a simulates Gaussian date/market/residual effects, but the severity tail is by construction a selected-extreme subset (incumbent SE > market SE and disagreement >= 0.30) and is not Gaussian. Simulating a heavy-tailed field as thin-tailed understates far-tail miscalibration. Uniform adoption buys margin against that."
+  ],
+
+  "why_decision_10_is_not_renumbered": {
+    "concern": "The base protocol's deviation_policy says a change to the verdict rule invalidates decision 10 and requires a newly numbered preregistration.",
+    "resolution": "That clause exists to stop a rule being tuned once results are visible. Nothing has been executed: no C outcome, market probability, candidate probability, or bootstrap draw exists. The amendment was decided from a simulation under a TRUE-ZERO effect that never touched the candidate.",
+    "direction_of_every_effect": "Strictly conservative. A wider quantile makes the primary interval harder to exclude zero, so acceptance is harder. A larger MDE makes the actual_power_gate (reject if candidate-native primary MDE > 10% of G) harder to pass. There is no path by which this amendment raises the false-accept rate or helps a candidate.",
+    "conclusion": "Decision 10 keeps its number and its allocation. Renumbering would imply a fresh look was taken; none was."
+  },
+
+  "unchanged_by_this_amendment": [
+    "estimand, population, B/C strata, and the 2026-07-31 boundary exclusion",
+    "the 12 named features, lead 1, valid hours 07:00-20:00, and every frozen aggregation",
+    "B-only scaling, the exponential tilt, lambda=0.01, the optimizer contract, and the B-only screen",
+    "both endpoint definitions, the frozen severity-tail membership rule, and the exact-clone negative control",
+    "crossed date x market pigeonhole bootstrap, 10,000 draws, seed 6102026",
+    "the accept structure: primary lower bound > 0 AND secondary point improvement >= 0",
+    "the spend trigger for decision 10, and the campaign accounting of 7 of 20 spent, 13 available"
+  ],
+
+  "recomputed_constants": {
+    "mde_multiplier_vs_unadjusted": 1.4104552,
+    "previous_mde_multiplier": 1.3795628,
+    "correction_ratio_on_existing_mdes": 1.0223929,
+    "campaign_adjusted_market_floor_gap_share": 0.04513457,
+    "previous_campaign_adjusted_floor_gap_share": 0.04414601,
+    "decision_10_p0_mde_gap_share_under_declared_assumption": 0.06942096,
+    "decision_10_detectability_boundary_equal_components": 0.0720244,
+    "decision_10_mde_at_components_0075_gap_share": 0.10413145
+  },
+
+  "executor_instructions": [
+    "Execute the base protocol unchanged in every respect except the test quantile named above.",
+    "Report both the corrected-quantile result and, as a readout only, the result at the original z. If they disagree on the verdict, the corrected quantile governs and the disagreement must be disclosed.",
+    "Re-derive the candidate-native MDE from the candidate's own effect field, as the base protocol requires. These planning constants do not replace that.",
+    "Any further deviation invalidates decision 10 and requires a newly numbered preregistration."
+  ]
+}

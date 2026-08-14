@@ -1,0 +1,60 @@
+{
+  "schema_version": "repair_zero_audit_seed_v1",
+  "mission": "2026-09-64a",
+  "input": {
+    "relative_path": "scratch/runs/gap-remeasure-repaired-2026-09-44a/paired-band-rows.csv",
+    "sha256": "4352e77692893c3ac36add9653eabfe0d014de7a02bf083ec6c10e2944dc4e88",
+    "expected_band_rows": 135179,
+    "expected_snapshot_rows": 12289,
+    "expected_date_clusters": 50,
+    "expected_market_clusters": 12,
+    "expected_market_days": 524,
+    "expected_strata": {
+      "B": {
+        "band_rows": 50996,
+        "snapshot_rows": 4636,
+        "date_clusters": 23,
+        "market_clusters": 12,
+        "market_days": 204
+      },
+      "C": {
+        "band_rows": 84183,
+        "snapshot_rows": 7653,
+        "date_clusters": 27,
+        "market_clusters": 12,
+        "market_days": 320
+      }
+    }
+  },
+  "probability": {
+    "exact_zero": 0.0,
+    "empty_interval_upper_exclusive": 1e-06,
+    "mass_tolerance": 1e-09
+  },
+  "references": {
+    "served_realized_zero_count": 1017,
+    "served_snapshot_count": 100040,
+    "served_affected_market_days": 20,
+    "served_market_days": 663,
+    "served_affected_markets": 11,
+    "served_markets": 12,
+    "c_gap": 0.021135322
+  },
+  "regime_boundary": "2026-07-31",
+  "units": {
+    "celsius_markets": [
+      "toronto"
+    ],
+    "default": "F"
+  },
+  "bootstrap": {
+    "method": "crossed target_date x market pigeonhole bootstrap",
+    "seed": 20260964,
+    "replicates": 10000,
+    "interval_quantiles": [
+      0.025,
+      0.975
+    ]
+  },
+  "diagnostic_exclusion": "Exclude the complete 11-band snapshot book whenever the repaired realized-band probability is exactly zero. This changes the estimand and sizes an artifact; it is not a correction."
+}

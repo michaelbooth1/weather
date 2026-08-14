@@ -1,0 +1,17 @@
+{
+  "artifact": "served-floor-for-panel-2026-09-66a.csv",
+  "built_by": "production host MICHAEL, from data/snapshots/*/features_long.csv",
+  "bytes": 744043,
+  "contains_no_outcomes": true,
+  "keyed_to": {
+    "panel": "pit-panel-floor-2026-09-65a.csv",
+    "panel_sha256": "966ff8cb85c03121022341cc87da6ccaabdc67609d744bbc001b95f4ba96eaad"
+  },
+  "matched": 12289,
+  "matched_but_floor_empty": 1353,
+  "raw_columns_are_for_contrast_only": "wu_max_since_7am_c / station_max_since_7am_c are what a replay reconstructs from. Before dawn max_since_7am carries the PREVIOUS day's window. Above the settled high in 21.776% of pre-fix and 7.478% of post-fix snapshots, against 0.207%/0.008% for high_so_far.",
+  "rows": 12289,
+  "served_floor_definition": "high_so_far from features_long.csv. variant_prediction_runtime.py:369 computes floor_bucket = round_half_up(high_so_far); served_floor_bucket applies that rounding.",
+  "sha256": "4f9da7539a2dcae5b0b2e2a425499f992ef46812a1abd76b82a1242a3e9effbe",
+  "unmatched": 0
+}

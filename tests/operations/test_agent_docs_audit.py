@@ -18,6 +18,21 @@ def test_broken_local_links_reports_missing_target(tmp_path):
     ]
 
 
+def test_broken_local_links_ignores_link_shaped_powershell_in_fences(tmp_path):
+    doc = tmp_path / "guide.md"
+    doc.write_text(
+        "```powershell\n"
+        '$paused = ([string](Get-ScheduledTask -TaskName "WeatherDataMirror").State)\n'
+        "```\n"
+        "[missing](outside.md)\n",
+        encoding="utf-8",
+    )
+
+    assert broken_local_links(tmp_path, [doc]) == [
+        "guide.md: missing link target: outside.md"
+    ]
+
+
 def test_broken_local_links_preserves_exact_historical_exclusion(tmp_path):
     doc = (
         tmp_path

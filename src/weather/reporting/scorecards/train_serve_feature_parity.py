@@ -1247,6 +1247,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if (
             report["summary"]["all_known_defects_rediscovered"]
             and report["summary"]["coverage_blocker_count"] == 0
+            and report["summary"]["unexpected_blocking_finding_count"] == 0
         ) else 2
     return 0 if report["status"] == "PASS" else 2
 

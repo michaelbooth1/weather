@@ -28,6 +28,11 @@ from weather.calibration.feature_probability_calibration import (
     fit_temperature_blend_grid,
     temperature_scale_distribution,
 )
+from weather.calibration.feature_training_policy import (
+    TRAINING_FEATURE_POLICY_ID,
+    training_feature_exclusions,
+    training_feature_names,
+)
 from weather.model.feature_store import (
     FEATURE_COLUMNS,
     FEATURE_SCHEMA_VERSION,
@@ -208,9 +213,9 @@ WIND_GROUPS = ["E-SE/onshore-ish", "S-SW", "W-NW", "N-NE", "SSE", "Other/variabl
 CLOUD_GROUPS = ["Precip", "Fog/haze", "Fair/clear", "Partly cloudy", "Mostly cloudy/overcast", "Other"]
 
 
-def late_day_feature_columns(all_wind_groups, all_cloud_groups):
+def late_day_feature_columns(all_wind_groups, all_cloud_groups, *, market_spec):
     return (
-        list(LATE_DAY_NUMERIC_FEATURES)
+        training_feature_names(LATE_DAY_NUMERIC_FEATURES, market_spec=market_spec)
         + [f"wind_{g}" for g in all_wind_groups]
         + [f"cloud_{g}" for g in all_cloud_groups]
     )
@@ -395,9 +400,13 @@ def neutralize_feature_family(row, train_matrix, feature_cols, family_columns):
     return out
 
 
-def feature_model_columns(all_wind_groups, all_cloud_groups):
+def feature_model_columns(all_wind_groups, all_cloud_groups, *, market_spec):
     numeric_cols = [
-        column for column in FEATURE_COLUMNS
+        column
+        for column in training_feature_names(
+            FEATURE_COLUMNS,
+            market_spec=market_spec,
+        )
         if column not in {"wind_group", "cloud_group"}
     ]
     feature_cols = (
@@ -415,10 +424,17 @@ def performance_warning_count(caught_warnings):
     )
 
 
-def feature_model_frame(records, all_wind_groups, all_cloud_groups):
+def feature_model_frame(
+    records,
+    all_wind_groups,
+    all_cloud_groups,
+    *,
+    market_spec,
+):
     numeric_cols, feature_cols = feature_model_columns(
         all_wind_groups,
         all_cloud_groups,
+        market_spec=market_spec,
     )
     source = pd.DataFrame(records)
     df = source.reindex(
@@ -698,6 +714,8 @@ def evaluate_feature_family_segments(
     all_wind_groups,
     all_cloud_groups,
     bucket_space,
+    *,
+    market_spec,
     n_splits=5,
 ):
     validation_rows = []
@@ -710,6 +728,7 @@ def evaluate_feature_family_segments(
             records,
             all_wind_groups,
             all_cloud_groups,
+            market_spec=market_spec,
         )
         feature_families = feature_family_columns(feature_cols)
         x_frame = df[feature_cols].copy()
@@ -890,6 +909,7 @@ def main_item27_feature_value_report(market_id="toronto", n_splits=5):
         WIND_GROUPS,
         CLOUD_GROUPS,
         bucket_space,
+        market_spec=spec,
         n_splits=n_splits,
     )
     report_path = os.path.join(
@@ -937,6 +957,10 @@ def train_late_day_continuation_models(
         "schema_version": LATE_DAY_MODEL_SCHEMA_VERSION,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "trained_at": trained_at,
+        "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+        "training_feature_exclusions": list(
+            training_feature_exclusions(model.spec)
+        ),
     }
     late_day_validation_rows = []
     late_day_ablation_rows = []
@@ -1051,8 +1075,16 @@ def train_late_day_continuation_models(
         for g in all_cloud_groups:
             ld_df[f"cloud_{g}"] = (ld_df["cloud_group"] == g).astype(float)
 
-        ld_feature_cols = late_day_feature_columns(all_wind_groups, all_cloud_groups)
-        ld_numeric_count = len(LATE_DAY_NUMERIC_FEATURES)
+        ld_numeric_features = training_feature_names(
+            LATE_DAY_NUMERIC_FEATURES,
+            market_spec=model.spec,
+        )
+        ld_feature_cols = late_day_feature_columns(
+            all_wind_groups,
+            all_cloud_groups,
+            market_spec=model.spec,
+        )
+        ld_numeric_count = len(ld_numeric_features)
 
         ld_X = ld_df[ld_feature_cols].copy()
         ld_y = ld_df["is_extended"].copy()
@@ -1091,7 +1123,7 @@ def train_late_day_continuation_models(
         late_day_info[str(H)] = {
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "feature_names": ld_feature_cols,
-            "numeric_feature_names": list(LATE_DAY_NUMERIC_FEATURES),
+            "numeric_feature_names": ld_numeric_features,
             "numeric_feature_count": ld_numeric_count,
             "coef": coefs,
             "intercept": intercept,
@@ -1219,11 +1251,15 @@ def main(market_id="toronto"):
         "schema_version": FEATURE_MODEL_COEFS_SCHEMA_VERSION,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "trained_at": trained_at,
+        "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+        "training_feature_exclusions": list(training_feature_exclusions(spec)),
     }
     hgb_models_info = {
         "schema_version": FEATURE_MODEL_HGB_SCHEMA_VERSION,
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "trained_at": trained_at,
+        "training_feature_policy_id": TRAINING_FEATURE_POLICY_ID,
+        "training_feature_exclusions": list(training_feature_exclusions(spec)),
     }
 
     for hour in INTRADAY_CUTOFF_HOURS:
@@ -1239,11 +1275,13 @@ def main(market_id="toronto"):
                 records,
                 all_wind_groups,
                 all_cloud_groups,
+                market_spec=spec,
             )
-            numeric_cols = [
-                column for column in FEATURE_COLUMNS
-                if column not in {"wind_group", "cloud_group"}
-            ]
+            numeric_cols, _ = feature_model_columns(
+                all_wind_groups,
+                all_cloud_groups,
+                market_spec=spec,
+            )
             n_numeric = len(numeric_cols)
             feature_families = feature_family_columns(feature_cols)
 

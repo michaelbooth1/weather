@@ -1,12 +1,21 @@
 import json
+import pickle
+from datetime import date
+
+import pytest
 
 from weather.operations.all_shadow_release_bootstrap import (
+    AllShadowBootstrapError,
+    _first_party_research_lineage,
     _runtime_market_inventory,
     _verified_release_research_lineage,
     _verified_release_role_source,
     all_shadow_promotion,
 )
-from weather.operations.release_candidate_contract import _corpus_manifest
+from weather.operations.release_candidate_contract import (
+    CandidateContractError,
+    _corpus_manifest,
+)
 
 
 def test_runtime_inventory_is_exact_twelve_market_native_unit_fleet():
@@ -141,6 +150,7 @@ def test_verified_source_release_supplies_model_bound_research_lineage(
         bundle_sha,
         research_corpus_lineage=observed,
         research_corpus_lineage_provenance={
+            "kind": "verified_immutable_release",
             "verification_status": "PASS",
             "source_release_id": "r1",
             "source_release_manifest_sha256": "a" * 64,
@@ -154,3 +164,131 @@ def test_verified_source_release_supplies_model_bound_research_lineage(
     assert frozen["lineage_source"]["kind"] == "verified_immutable_release"
     assert frozen["lineage_source"]["source_release_id"] == "r1"
     assert frozen["corpus_lineage"] == lineage
+
+
+def test_first_party_lineage_binds_exact_code_owned_corpus_and_model_inputs(
+    tmp_path,
+    monkeypatch,
+):
+    history = tmp_path / "forecast-history"
+    history.mkdir()
+    bundle = tmp_path / "bundle.pkl"
+    with bundle.open("wb") as handle:
+        pickle.dump(
+            {
+                "models": {
+                    "7": {"feature_names": ["forecast_high", "high_so_far"]}
+                }
+            },
+            handle,
+        )
+    market_ids = list(_runtime_market_inventory()["market_ids"])
+    selected_dates = ["2024-06-10", "2025-06-10"]
+    population = {
+        "policy_id": "test-first-party",
+        "years": [2024, 2025],
+        "selected_dates": selected_dates,
+        "cutoff_hours_local": [7],
+        "market_ids": market_ids,
+        "station_day_exclusions": [],
+        "expected_market_date_cutoff_count": len(market_ids) * 2,
+    }
+
+    monkeypatch.setattr(
+        "weather.operations.all_shadow_release_bootstrap._training_population_for_target",
+        lambda _target: population,
+    )
+    monkeypatch.setattr(
+        "weather.operations.all_shadow_release_bootstrap.ForecastTrainingVariantResolver",
+        lambda *_args, **_kwargs: object(),
+    )
+
+    def fake_build(spec, *, cutoff_hours, included_target_dates, **_kwargs):
+        return [
+            {
+                "market_id": spec.id,
+                "target_date": date.fromisoformat(target_date),
+                "year": int(target_date[:4]),
+                "cutoff_hour": cutoff_hours[0],
+                "forecast_high": 80.0,
+                "high_so_far": 75.0,
+                "final_bucket": 81,
+            }
+            for target_date in sorted(included_target_dates)
+        ]
+
+    monkeypatch.setattr(
+        "weather.operations.all_shadow_release_bootstrap.build_market_records",
+        fake_build,
+    )
+
+    lineage, proof = _first_party_research_lineage(
+        model_bundle_path=bundle,
+        forecast_history_root=history,
+        target_date="2026-06-10",
+        holdout_year=2025,
+        forecast_training_variant="rich",
+    )
+    frozen = _corpus_manifest(
+        {},
+        "b" * 64,
+        research_corpus_lineage=lineage,
+        research_corpus_lineage_provenance=proof,
+    )
+
+    assert lineage["selection_training"]["row_count"] == len(market_ids)
+    assert lineage["evaluation"]["row_count"] == len(market_ids)
+    assert lineage["final_refit"]["row_count"] == len(market_ids) * 2
+    assert lineage["model_input_fields"] == ["forecast_high", "high_so_far"]
+    assert frozen["lineage_source"]["kind"] == "first_party_corpus_assembly"
+    assert frozen["lineage_source"]["assembled_corpus_sha256"] == lineage[
+        "final_refit"
+    ]["sha256"]
+    tampered = {**proof, "assembled_row_count": proof["assembled_row_count"] - 1}
+    with pytest.raises(CandidateContractError, match="does not match the assembled corpus"):
+        _corpus_manifest(
+            {},
+            "b" * 64,
+            research_corpus_lineage=lineage,
+            research_corpus_lineage_provenance=tampered,
+        )
+
+
+def test_first_party_lineage_blocks_an_incomplete_matrix(tmp_path, monkeypatch):
+    history = tmp_path / "forecast-history"
+    history.mkdir()
+    bundle = tmp_path / "bundle.pkl"
+    with bundle.open("wb") as handle:
+        pickle.dump(
+            {"models": {"7": {"feature_names": ["forecast_high"]}}},
+            handle,
+        )
+    market_ids = list(_runtime_market_inventory()["market_ids"])
+    monkeypatch.setattr(
+        "weather.operations.all_shadow_release_bootstrap._training_population_for_target",
+        lambda _target: {
+            "years": [2024, 2025],
+            "selected_dates": ["2024-06-10", "2025-06-10"],
+            "cutoff_hours_local": [7],
+            "market_ids": market_ids,
+            "station_day_exclusions": [],
+            "expected_market_date_cutoff_count": len(market_ids) * 2,
+        },
+    )
+    monkeypatch.setattr(
+        "weather.operations.all_shadow_release_bootstrap.ForecastTrainingVariantResolver",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        "weather.operations.all_shadow_release_bootstrap.build_market_records",
+        lambda *_args, **_kwargs: [],
+    )
+
+    with pytest.raises(AllShadowBootstrapError, match="exact code-owned matrix"):
+        _first_party_research_lineage(
+            model_bundle_path=bundle,
+            forecast_history_root=history,
+            target_date="2026-06-10",
+            holdout_year=2025,
+            forecast_training_variant="rich",
+        )

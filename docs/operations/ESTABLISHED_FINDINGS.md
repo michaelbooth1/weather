@@ -21,15 +21,231 @@ starts from what we know instead of re-deriving it.
 
 ## 0. Objectives, in priority order
 
-1. **Protect the Toronto capture streak.** Contiguous complete Toronto days gate the learning loop and
-   release admissibility. A lost streak day is the most expensive routine failure available.
-2. **Find a model that beats the market.** We currently do not. See §1.
-3. **The end goal is the market-making bot.** MM outranks the taker. The taker is deprioritized and
-   its tape has been deleted.
+1. **Keep settled, promotion-countable days accruing.** **REFRAMED 2026-08-10 — see §0d.** The old
+   wording was *"protect the contiguous streak"*, and **contiguity now gates nothing on the critical
+   path.** What the live work needs is the **volume of promotion-countable date clusters**, which
+   do **not** have to be contiguous. Capture health still matters and is watched directly.
+2. **Build a better FORECAST than the market — from our own information.** We currently do not
+   beat it (§1). **The central goal is stated in full in §0c and that section governs**: aim at
+   forecast accuracy, never at benchmark-consuming shortcuts, and expect the tradeable edge to
+   follow in time rather than be targeted directly.
+3. **The end goal is the market-making bot.** MM outranks the taker. It is **downstream of
+   objective 2, not a competing objective** (§0c). The taker is deprioritized and its tape deleted.
 
 **The primary model objective is the 09:00–14:00 local slice**, leakage-audited and walk-forward — not
 aggregate Brier. Aggregate-Brier chasing was explicitly abandoned: it hides the slice where the model
 is weakest and where the tradable edge would live.
+
+---
+
+## 0a. The PIT 21-field wall is REAL — and the production agent's fix would have re-broken a known defect
+
+**`-09-55a`, 2026-08-09. NO-GO.** The frozen 21-field point-in-time contract is **not satisfiable on
+the free tier**, and it is **not** the routing defect I proposed.
+
+**I conflated field AVAILABILITY with point-in-time VALIDITY.** I argued that because production's
+archive holds 461 days of exactly those 21 fields from `historical-forecast-api`, the fields are
+free-tier available and the plan was simply querying the wrong endpoint. The fields are available.
+**They are not available as of an issue time**, and that is the whole content of the contract.
+
+Verified directly in `data/forecast_history/cyyz/forecast_long.csv` — `issue_time_basis` splits
+**exactly by source**:
+
+| Source | `issue_time_basis` | Rows |
+| --- | --- | ---: |
+| `open_meteo_previous_runs` | **`fixed_lead_day_offset`** — genuine issue-time evidence | 51,240 |
+| `open_meteo_historical_forecast` | **`stitched_continuous_archive`** — settled, no true issue time | 11,064 |
+
+**So genuine PIT provenance exists in OUR ARCHIVE for temperature only.** Historical Forecast
+returns the *settled* profile; it cannot say what was forecast at the cutoff.
+
+> ### NARROWED 2026-08-09 — "temperature only" is a property of what we REQUEST, not of the free tier
+>
+> Probed directly against `previous-runs-api.open-meteo.com`, read-only, **12 of the 21 declared
+> fields return complete PIT data at lead 7** (Toronto, 2026-07-05→06, 48/48 non-null each):
+>
+> | PIT-available free (12) | NOT available (9) |
+> | --- | --- |
+> | `temperature_2m`, `cloud_cover`, `shortwave_radiation`, `wind_speed_10m`, `cape`, `direct_radiation`, `diffuse_radiation`, `wind_gusts_10m`, `precipitation_probability`, `precipitation`, `vapour_pressure_deficit`, `et0_fao_evapotranspiration` | `cloud_cover_low/mid/high`, `visibility`, `soil_temperature_0cm`, `soil_moisture_0_to_1cm` (all return 0/48); `temperature_925hPa`, `temperature_850hPa`, `geopotential_height_500hPa` (HTTP 400) |
+>
+> **The cause is in our own fetcher:** `forecast_history.py:692` builds
+> `hourly = ",".join(f"temperature_2m_previous_day{lead}" ...)` — **it has only ever asked for
+> temperature.** Eleven additional PIT-honest fields have been free the whole time and were never
+> requested.
+>
+> **Scope of this probe, stated so nobody over-reads it: ONE market, TWO target dates, leads 1 and 7.**
+> It is strong on *availability* and says nothing about coverage across markets, dates, or history
+> depth. **Treat as a verified probe, not a full trace** — it needs a mission before the fetcher
+> changes.
+>
+> **What survives unchanged:** the 9 failing fields are a real wall; the stitched-source refusal is
+> still correct; and `-09-55a`'s NO-GO on *its* proposed fix stands. What narrows is the **scope** —
+> the wall covers 9 fields, not 21.
+
+> **And the repair I proposed has a name in this repository already.**
+> `stitched_forecast_high_without_issue_time` is a **declared known defect** in
+> `train_serve_feature_parity_known_defects_v0.1.json`, dimensions `availability` and `provenance`,
+> and `forecast_high is NOT point-in-time` is recorded as **~6% of the cool bias**. Sourcing the 21
+> fields from stitched data would have re-introduced a contamination defect the project already
+> tracks by name. **The mission stopped rather than silently changing candidate training semantics.**
+
+**This retroactively supports §0b.** The retrain path's terminal blocker is a genuine wall requiring
+either a paid provider (closed, forbidden) or a contract change that would degrade point-in-time
+honesty. **Stepping off that path was correct, and this NO-GO closes it out rather than costing us.**
+
+## 0b. OPERATOR DECISION 2026-08-09 — the goal is a BETTER model, not a QUALIFIED one
+
+**"I think the goal should be a better one. I am happy making small improvements at a time until we
+hit our goal."**
+
+### What this drops
+
+The **production release and qualification machinery** stops being the critical path: the release
+store and active pointer, promotion, immutable qualification, Release #1, and the `base_retrain`
+blocker chain that consumed six missions in a single day. Every one of those blockers was the same
+shape — **designed and never built** — and the chain was being walked for a payoff that **cannot
+currently be quantified**: §1's `74.97%` is retired **with no replacement**, so the retrain's
+expected value has no current estimate.
+
+Meanwhile the **only shipped improvement in the month** was a **serving-path** fix needing none of
+that machinery (§3: served 1.6639 → 1.4980).
+
+### What this does NOT drop — and this is not negotiable
+
+**Leakage-free, point-in-time-honest evaluation.** "Better" measured with leakage is not better, and
+this project has already retracted exactly that claim once: **item-224's "win" over the market was
+leakage** (`RETRACTED_AND_FALSE_LEADS.md` §1). Dropping *qualification* must never become dropping
+*honesty*.
+
+So every improvement still requires: crossed date × market clustering, power stated before
+interpretation, no pooling across `2026-07-31`, and a walk-forward or replay design that cannot see
+its own target. **The bar for believing a result is unchanged. Only the bar for shipping one moved.**
+
+### What it means in practice
+
+Work is now ranked by **measurable served improvement per unit of effort**, using the existing
+replay harness. The retrain remains desirable and is no longer the gate.
+
+*(The instruction that stood here — "decompose the gap before picking improvements" — was **carried
+out**: `-09-56a` → §1c, and `-09-57a` → §1d. It is no longer a prerequisite; it is a result.)*
+
+---
+
+## 0c. THE CENTRAL GOAL — operator, 2026-08-09
+
+> **"We should always aim for a better forecast which in time should lead to a tradeable edge
+> somewhere."**
+
+**This is the standing goal of the project. It resolves the ambiguity in §0b — "better" means a
+better FORECAST.** Read it as the ordering rule for every future decision.
+
+### Why it is right, stated so nobody re-opens it
+
+1. **It is the only axis we can measure today.** We have Brier, a market benchmark, crossed
+   clustering, and a panel with a known MDE per stratum (§1d). We have **zero** trading outcome
+   evidence — **no trade has ever been made and `fills.jsonl` has never been written** (§8b).
+   Optimising the unmeasurable is precisely how a month was spent on eligibility meters.
+2. **Forecast accuracy is an OUTCOME, not a proxy.** It is the one thing this project has ever
+   measured honestly, and it is immune to the dominant defect pattern (`HOW_WE_GET_THINGS_WRONG.md`
+   pattern 2).
+3. **"Somewhere" is load-bearing and correct.** Edge need not exist in every market or hour.
+   `-09-46a` found zero positive cells in 114 — **for the current model**. A materially better
+   forecast is what could open a cell that does not exist today.
+
+### The ONE qualifier, without which the goal misfires immediately
+
+**Better *from our own information* — never by consuming the benchmark.**
+
+This is not pedantry; it is load-bearing, and the evidence is one day old. On a pure
+forecast-accuracy criterion, the top-ranked candidate we currently hold is **market shrinkage:
+65.111% of the gap closed, confirmable today, and provably zero tradeable edge** (§1c). The goal as
+literally stated would select it first. **A forecast improvement obtained by moving toward the
+market cannot ever become an edge over that market.**
+
+Those controls keep their real value: they **localise where our information is missing** — the
+disagreement set. **Rank 1 is an instrument pointing at rank 4, not a candidate.**
+
+### And the conversion is not automatic — there is a threshold
+
+§1's standing caveat binds this goal: the 1.42x comparison is against **market mid**. A taker pays
+`5% × (1−p)` and cannot trade at mid; a maker is paid the spread. **Forecast improvement converts
+to edge only above transaction costs; below that threshold it converts to nothing at all.** So
+"in time" is honest, and **no accuracy gain may be reported as expected P&L without re-deriving it
+in trading terms.**
+
+### What this changes in practice
+
+- **§0 objective 2 is now "a better forecast than the market", not "a model that beats the market"**
+  — the same target, stated as the thing we can measure.
+- Rank work by **expected served accuracy gain from own-information sources**, per unit of effort.
+- **Benchmark-consuming controls are diagnostics.** Never rank, ship, or book them as improvement.
+- The MM track is **not cancelled** — it is downstream. §1c's open MM hypothesis (a maker needs a
+  fair value that is not *worse* than the market's, not one that beats it) remains a legitimate
+  question and is unaffected by this ordering.
+
+---
+
+## 0d. THE STREAK GATES NOTHING ON THE CRITICAL PATH — operator challenge, 2026-08-10
+
+**Operator: *"I thought the streak would have been worth more but we hit 14 days and it bought us
+very little. What good is it now?"*** **The challenge is correct, and the mechanism is worse than
+bad luck.**
+
+### Both consumers of contiguity are off the critical path
+
+| Consumer of *contiguous* days | Status |
+| --- | --- |
+| PIT staging receipt — `point_in_time_staging_receipt.py:253` requires a **contiguous 14-day window** | serves the **retrain / release** path — **off the critical path** (§0b) |
+| Release admissibility | **deferred indefinitely** (§0b) |
+
+### And banking a streak was never possible — it has a 7-day shelf life
+
+**`POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS = 7`** (`pooled_training.py:54`, enforced at line 391).
+Pooled PIT training requires the **latest** target to be at most 7 days old. **So the 14-day streak
+banked in July had already expired before anything could consume it.** It "bought very little"
+**structurally, not through misfortune** — and a future retrain would need a *fresh* streak anyway,
+so early banking carries **no option value**.
+
+### What the live work actually needs — and it is NOT contiguity
+
+§1d's post-boundary confirmation panel is the only thing standing between us and being able to
+**believe** any improvement. It needs **promotion-countable date clusters**. Crossed date × market
+clustering treats dates as **exchangeable** — **gaps are irrelevant.** And per §5 the admission bar
+is **`promotion_countable`, not `quality_grade == "complete"`.**
+
+Measured 2026-08-10, post-boundary:
+
+| Date | Countable markets | Grade |
+| --- | ---: | --- |
+| 07-31 → 08-05 | **12 / 12** each | complete |
+| 08-06 | 0 | missing_settlement |
+| **08-07** | **11 / 12** | **`partial` — and it still counts** |
+| 08-08 | 0 | missing_settlement |
+| 08-09 | **12 / 12** | complete (settled by today's 09:30 run) |
+
+**Eight usable date clusters, not five.** §1d planned from **D=5 on 08-09 accruing ~1/day**, which
+predicts D=6 today. **We are at D=8 — two ahead of schedule**, while the streak counter reads
+**0/14** and looks like a catastrophe.
+
+### The real defect: we count the wrong property, loudly
+
+**`08-07` breaks the streak and simultaneously counts for the panel.** The metric that screams is
+measuring something nothing consumes; the metric that matters has **no counter at all**. Same shape
+as the settlement-hole detector that went blind on 2026-08-10 — *ask what a monitor counts, not
+whether it is green* — but inverted: **a red light over a non-problem, and no light at all over the
+live clock.**
+
+### What changes
+
+- **Objective 1 is reframed** to settled promotion-countable accrual (§0). Contiguity is demoted to
+  a health *proxy*, not a goal.
+- **A lost day still costs a date cluster**, which is real — the confirmation clock is fed one day
+  at a time and cannot be conjured from nothing. **But it is a linear cost, not a reset.** Do not
+  treat a broken streak as an emergency, and do not treat 14 contiguous days as an achievement.
+- **Capture health is watched directly** (in-window gap, captures/day), and the settlement-hole
+  detector was repaired 2026-08-10. Neither needs the streak as a proxy.
+- **If the retrain returns to the critical path, rebuild the streak then** — the 7-day shelf life
+  means it must be fresh regardless.
 
 ---
 
@@ -81,12 +297,16 @@ measured −0.8346 C-eq seasonal centre defect, which is *smaller*. The mechanis
 too-cool mass below the trusted floor is truncated and shifts served centre. **Never weaken the floor.**
 
 **The reliability share is the number to look at.** `1.12%` said calibration was worth nothing.
-The current-surface figure is **15.228%** — over an order of magnitude larger. **Whether any of it
-is recoverable is NOT established**, and nobody should fit a recalibration pass until it is: the
-two figures may not share a denominator, and this project has already paid once for reasoning
-across mismatched denominators (`RETRACTED_AND_FALSE_LEADS`, the absorption waterfall). The repair
-did not cause the change — paired delta **+0.076pp [−0.246, +0.452], power 0.074**.
-**Establish the denominator first. Then decide.**
+The current-surface figure is **15.228%** — over an order of magnitude larger. The repair did not
+cause the change — paired delta **+0.076pp [−0.246, +0.452], power 0.074**.
+
+> **DECIDED 2026-08-09 (`-09-56a`) — do not fit a recalibration pass.** The open question here was
+> "is any of the 15.228% recoverable?" It was answered by measuring recovery directly rather than
+> by reconciling denominators: a mapping fitted on in-season B and scored on out-of-season C
+> recovers **8.829% of the gap, crossed 95% [−2.467%, +16.494%]**. See **§1c**.
+> **The two percentages still do not share a denominator** — 15.228% is a share of served *loss*,
+> 8.829% a share of the *gap versus the market*. **Never equate them, and never subtract one from
+> the other.** They agree only on the decision, which is no.
 
 **Loss is still concentrated in a severity tail.** **4.387% of band rows carry 64.140% of positive
 excess loss.** Any work that improves the pooled average while leaving the tail alone is close to
@@ -274,13 +494,15 @@ The headline 1.4233x is **in-season**. The archive covers May 10 – Jun 30 (§4
 (`-09-44a`) — worse, and the stratum the repair moved unfavourably (+0.016, not powered).
 **Citing 1.4233x as "the gap" understates what we actually serve.** Say which stratum, always.
 
-### 5. The GAP has never been decomposed on the current surface
+### 5. The GAP has never been decomposed on the current surface — **RESOLVED 2026-08-09 (`-09-56a`), see §1c**
 
-§1 carries a served-**loss** decomposition (84.772% / 15.228%). The retired 98.88% / 1.12%
-decomposed the **gap versus the market**. Those are different estimands on different panels, so
-**neither answers "of our excess Brier over the market, how much is calibration and how much is
-information?"** on today's model. That is the question "recalibration cannot close it" was
-supposed to answer, and it is currently unsupported in both directions.
+*Original text, kept because it states the estimand precisely:* §1 carries a served-**loss**
+decomposition (84.772% / 15.228%). The retired 98.88% / 1.12% decomposed the **gap versus the
+market**. Those are different estimands on different panels, so **neither answers "of our excess
+Brier over the market, how much is calibration and how much is information?"** on today's model.
+
+**`-09-56a` answered it. The gap is information-dominated: recoverable calibration is bounded at
+16.494% of the served gap and is not distinguishable from zero. See §1c.**
 
 ### A standing caveat on the benchmark itself
 
@@ -288,6 +510,559 @@ The 1.42x comparison is **model versus market mid-price**. That is the right ben
 the better forecaster." It is **not** the right benchmark for "can we make money": a taker pays
 `5% x (1-p)` and cannot trade at mid, while a maker is paid the spread. **Do not carry a
 mid-price accuracy comparison into a profitability conclusion without re-deriving it.**
+
+---
+
+## 1c. THE GAP IS INFORMATION, NOT CALIBRATION — measured, `-09-56a`, 2026-08-09
+
+Closes §1b.5 and the §1 "establish the denominator" question. **Fit on in-season B (D=23), score on
+out-of-season C (D=27, the stratum we actually serve).** Method frozen before any result at
+predeclaration `d8e49409`; source is the `-09-44a` repaired export, SHA-256 `9a70ac80`. Verifier
+reproduced **22/22** checks including both ratios.
+
+| Quantity, out-of-season C | Value | Crossed 95% |
+| --- | ---: | ---: |
+| Raw model / market Brier | `0.060112820` / `0.038977498` | ratio **1.542244x** |
+| Raw excess gap | `0.021135322` | — |
+| **Recoverable calibration share** | **8.829%** | **[−2.467%, +16.494%]** |
+| **Remaining information share** | **91.171%** | **[83.506%, 102.467%]** |
+
+Power **0.458**, 80%-power MDE **13.344pp** — below the binding bar.
+
+**Cite the BOUND, never the point.** 8.829% is underpowered and may be zero. What the interval
+licenses is that **even at its most favourable endpoint, calibration is at most 16.494% of the
+gap** — a minority throughout. That is enough to close calibration as a workstream and not enough
+to claim a recoverable 8.829%. **`8.829%` must not become a headline number**; four of those were
+retired in one day on 2026-08-09 already.
+
+**Scope of the bound: the leakage-safe monotone families actually tested.** Scalar isotonic,
+per-market isotonic, daily-expanding isotonic, and the simplex-native power map `q ∝ p^β`
+(β=0.55 selected on B only, reselected inside all 10,000 bootstrap draws). It does **not** prove
+every conceivable mapping is worthless. It does mean nobody should build one without a new
+mechanism.
+
+### The predeclared isotonic map made things WORSE — and the reason is a method rule
+
+It worsened C Brier by **+0.018168 [+0.012980, +0.022995]**, and — the diagnostic that matters —
+**worsened its own B *training* score, 0.053380 → 0.078717.** Implementation was correct: zero mass
+failures, zero order violations. **Binary per-band PAVA followed by categorical renormalization is
+not fitting the objective being scored; the fit does not survive the simplex projection.** A
+mapping that cannot improve its own training score is a broken objective, not a weak signal.
+**Check the training score first — it is free and it localises the fault instantly.**
+
+### The market-shrinkage numbers are a MEASUREMENT, not a candidate
+
+| Control on out-of-season C | Brier improvement | Gap closed |
+| --- | ---: | ---: |
+| Shrink 50% toward market on `\|model−market\| ≥ 0.30` rows | `0.013761 [0.010011, 0.018194]` | **65.111% [60.514%, 70.111%]** |
+| Shrink 25% toward market, global | `0.009437 [0.007316, 0.011937]` | 44.652% [42.055%, 48.722%] |
+| Full market replacement on the disagreement set | `0.018099 [0.012472, 0.024704]` | 85.632% — an **opportunity ceiling** |
+
+**These consume the benchmark they are scored against.** They establish that when we disagree
+sharply with the market the market is usually right, and they **localise our information deficit to
+the disagreement set**. They are not evidence of edge — `-09-46a` found **zero** positive
+model-skew cells in 114 — and they cannot be cited as a route to beating the market.
+**Never book a market-shrinkage delta as model improvement.**
+
+**But the MM question is OPEN, not closed — do not let the paragraph above be read as forbidding
+it.** A maker does not need to *beat* the market; it earns the spread and needs a fair value that
+is not *worse* than the market's, i.e. it needs to avoid adverse selection. A market-shrunk fair
+value is exactly that shape, and `-09-48a` found the harvest path blocked on **having** a fair
+value at all. **This is a hypothesis to trace, not a finding**, and §1's standing caveat binds it:
+a mid-price accuracy comparison must be re-derived before it becomes a profitability conclusion.
+Anyone testing it must price adverse selection and the maker's actual fill economics, not Brier.
+
+**Citation hazard — two "blending" results that do not contradict each other.** §1's *"blending
+model with market HURTS on clean data"* is an older panel, clean regime, global blend. This is the
+**out-of-season current surface, gated to the disagreement set**. Different panel, different
+stratum, different gate. **Neither refutes the other; cite the one whose stratum you are in.**
+
+### Deprioritized by this result
+
+- **Recalibration as a workstream — closed** (see the bound above).
+- **Scalar isotonic mapping — NO-GO** on this categorical surface.
+- **Global sharpening — still retired.** The fitted β is **below 1**, i.e. *smoothing*.
+- **More input completeness — still not a gap-closing candidate.** `-09-44a` bounded it; `-09-56a`
+  found no new mechanism.
+
+---
+
+## 1d. WHAT THE PANEL CAN CERTIFY — `-09-57a`, 2026-08-09
+
+`-09-56a` says what to improve. **This says whether we could ever tell that we did.** Positive
+control reproduced to `6.1e-18`: `-09-44a`'s in-season MDE is exactly `0.0030551161`.
+
+### The tail is NOT blind — the feared premise is falsified
+
+| Endpoint | D/M/rows | 80% MDE | **MDE as share of that endpoint's gap** |
+| --- | --- | ---: | ---: |
+| In-season ratio | 23/12/50,996 | `0.0030551` | **0.7218%** |
+| Out-of-season ratio | 27/12/84,183 | `0.0377305` | **6.9582%** |
+| **Severity tail SSE** | 49/12/5,930 | `0.0151764` | **3.5326%** |
+| 09:00–14:00 primary | 49/12/34,694 | `0.0016776` | **9.3700%** |
+
+**The panel can referee the tail that carries 64.140% of the loss**, at 3.53% of its remaining gap
+(4.87% under the ledger). **The primary window stays too blunt** at 9.37% — §5's ~504-date
+requirement is unchanged; the window remains a readout, not an accept/reject rule.
+
+### THERE IS A HARD FLOOR, AND IT IS SET BY MARKETS NOT DATES
+
+**The 12 fixed market clusters leave an asymptotic MDE floor of ~`0.0173` ratio points, ~3.2% of
+the out-of-season gap.** Checked directly: **D=100,000 still gives `0.0173087`.**
+
+> **A step worth ≤2.5% of the gap is NOT confirmable at any date count.** More waiting cannot fix
+> it. Only more markets, a paired design, or batching can.
+
+Confirmation schedule (design simulation over the sealed cluster structure — **no post-boundary row
+was read**): D=5 today → 15.06% · D=9 on 08-13 → 11.37% · D=15 → 9.03% · **D=29, 2026-09-02** for a
+6.96% step · **D=73, 2026-10-16** for a **5%** step · D=365 → 3.62%.
+
+### Unadjusted reuse is unsafe — see `CAMPAIGN_LEDGER.md`
+
+Ten unadjusted looks give a **39.0%** false-accept probability; fifty give **92.2%**, with a mean
+best null "improvement" equal to the whole `-09-44a` MDE. **The 20-decision α=0.0025 ledger is
+adopted and live in `CAMPAIGN_LEDGER.md`; 7 of 20 are already spent by `-09-56a`.**
+
+### Synthesis with `-09-56a` — done here because each mission was forbidden the other
+
+| `-09-56a` candidate | Out-of-season gap closure | Confirmable |
+| --- | ---: | --- |
+| Shrink 50% toward market, disagreement set | **65.111%** | at **D=5, today** — but it *consumes the benchmark* |
+| Shrink 25% toward market, global | 44.652% | at D=5 — same objection |
+| Season-matched refit (proxy) | 24.893% | at D=5, but its own CI is [−20.5%, +55.2%] |
+| Global smoothing `q ∝ p^β` | 8.829% | ~D=17, ~2026-08-21 — CI already includes zero |
+| **New PIT information feature** | **unidentified** | **cannot be scheduled** |
+
+**Every sized candidate clears the 3.2% floor. The one that would constitute real edge is the one
+with no size.** And these are **indicative, not certified**: `-09-57a` is explicit that MDE depends
+on the candidate's own date × market effect field, and its curve is a proxy built from `-09-44a`'s
+repair-minus-control field. **Re-derive the MDE for the candidate you actually test.**
+
+### The consequence for "small improvements at a time"
+
+**The path is viable but has a minimum step size.** Practically, **≥5% of the gap**, confirmable
+from **2026-10-16**. Below ~3.2%, improvements are *permanently* unconfirmable individually and
+**must be accumulated and tested as a batch.**
+
+---
+
+## 1e. THE PIT SOURCE STOPS 2026-06-23 — and that, not dispersion, is what `-09-58a` found
+
+`-09-58a` screened two PIT-honest own-information dispersion signals on in-season B and returned
+**NO-GO**. No feature was built, C was never scored, and **campaign decision 8 closed unused** —
+the ledger worked exactly as designed on its first use.
+
+### Read it as a BLIND null, not a precise one
+
+| Signal | OOF MSE improvement [crossed 95%] | Power | 80% MDE |
+| --- | ---: | ---: | ---: |
+| Seven-run forecast-high SD | `−0.002960 [−0.012636, +0.003834]` | **0.113** | `0.011356` |
+| Lagged five-day error SD | `−0.013338 [−0.068979, +0.001003]` | **0.103** | `0.055613` |
+
+**These are wide intervals at power ~0.11. Contrast `-09-44a`, whose *tight* interval licensed a
+conclusion.** The report is right that the negative points must not be redescribed as "dispersion
+is protective" — and **the symmetric warning is equally binding: this does NOT establish that
+dispersion signals are worthless.** It establishes that a screen on **11–14 date clusters could not
+see anything.** Distinguishing a blind null from a precise one is the distinction this project has
+already paid to learn.
+
+### Why the screen was blind — the finding that matters
+
+**The PIT-honest source ends `2026-06-23`. Verified on production, not taken from the report:**
+
+```
+fixed_lead_day_offset        n=25620  min=2021-05-10  MAX=2026-06-23
+stitched_continuous_archive  n= 5532  min=2018-05-10  MAX=2026-06-23
+```
+
+**Out-of-season C is July. It has ZERO PIT-honest coverage.** So *any* PIT-honest forecast-derived
+feature is currently **untestable on the stratum we actually serve** — the confirmatory design of
+§1c cannot be run at all for this class of candidate.
+
+It also thinned the screen itself. B is D=23; coverage left **17 and 20**, and the forward-chain
+warm-up (6 prior clusters required) took each down to **11 and 14**. Both costs are real; the
+warm-up is the larger one, so **re-fetching alone would take the screen to ~17 clusters, not to
+comfort.** The decisive gain from a re-fetch is **C becoming testable at all.**
+
+### IT IS FULLY RECOVERABLE — there is no clock
+
+Probed directly against the same free endpoint the fetcher already uses
+(`previous-runs-api.open-meteo.com`), read-only, nothing written:
+
+| Probe | Result |
+| --- | --- |
+| Toronto, 2026-07-05 → 07-11, leads 1–7 | **HTTP 200, 168/168 non-null at every lead** |
+| 2025-07-01 (last year) | 200, 72/72 at leads 1 and 7 |
+| 2021-06-01 (the configured floor) | 200, 72/72 at leads 1 and 7 |
+
+**Nothing has been lost and no retention cliff exists.** The gap is not decay — **we stopped
+running the fetch.** This was checked *because* a deadline would have been urgent; there is none,
+and that is worth stating so nobody manufactures urgency later.
+
+### The consequence
+
+**The ~60-call archive re-fetch — code landed by `-09-33a`, never run, parked when the retrain left
+the critical path (§4b) — is now the blocker for the CURRENT goal too.** It stopped being a retrain
+prerequisite and became a prerequisite for testing any PIT-honest feature under §0c.
+
+### FETCHED AND STAGED 2026-08-10 — the gap is closed, but NOT adopted
+
+Operator authorized the re-fetch. **Staged to `C:\tmp\pit-refetch-2026-08-10`, deliberately NOT
+written into production `data/`.**
+
+| | |
+| --- | ---: |
+| Markets | **12 / 12** |
+| Range | **2026-06-03 → 2026-08-09** — the date gap **and** the sealed corpus in both strata |
+| Variables per market | **84** (12 fields × leads 1–7) **in ONE call** |
+| Rows | **1,645,056** (1,137,024 + 508,032 front segment) |
+| Coverage | **100.0000%** non-null, every market, both segments |
+| Provenance | `fixed_lead_day_offset` / `open_meteo_previous_runs` — **stitched endpoint never touched** |
+
+**Two segments, and the second one matters more than it looks.** The first closed the *date* gap
+(`06-24 → 08-09`). But the **11 missing fields were absent from the ENTIRE archive, not just the
+gap** — including in-season B. A front segment (`06-03 → 06-23`, `C:\tmp\pit-refetch-2026-08-10-front`)
+was fetched so the sealed corpus is covered in **both** strata. **Without it the fit-on-B /
+score-on-C design of §1c would have had a test stratum and no training stratum.**
+
+**Positive control against the archive.** The staged range begins exactly where the archive stops,
+so `2026-06-23` was fetched separately and compared to a known-good row:
+
+```
+STAGED  2026-06-23T00:00 lead1: temp=13.1  cloud=100  cape=0.0
+ARCHIVE 2026-06-23T00:00 lead1: temp=13.1  cloud=''   cape=''      TEMPERATURE MATCH: True
+```
+
+**Exact reproduction of the field we already hold, and real values where the archive is blank.**
+That blankness is the finding made concrete: the columns existed in the schema all along —
+`forecast_history.py:692` only ever asked for `temperature_2m_previous_day{lead}`.
+
+### ADOPTION IS A SERVING CHANGE — do not "just copy it in"
+
+**`model_features.py:1775` calls `load_forecast_daily(daily_path_for(spec))` and feeds
+`forecast_high` into the HISTORICAL ANALOG DAYS** used to build today's forecast. Backfilling
+`2026-06-24` onward would hand the analog path real values where it currently has `None`, **for
+exactly the recent dates it looks at**. That is an unmeasured change to what we serve.
+
+**Sequence: measure by replay against the sealed corpus, then adopt.** Never the other way round —
+§3's floor fix moved the served ratio `1.6639 → 1.4980`, so serving changes are not small. Staging
+first costs nothing and keeps the option.
+
+**Do not conclude from `-09-58a` that own-information dispersion is a dead end.** The honest
+statement is that **it has not yet been tested at usable power, and the thing preventing that is a
+fetch nobody has run.**
+
+---
+
+## 1f. THE TAIL IS CENTRE OVERCONFIDENCE, AND IT IS EX-ANTE PREDICTABLE — `-09-59a`, 2026-08-10
+
+**GO.** Severity-tail membership is predictable from **own information alone**, forward, with no
+provider call and no new data.
+
+| Own-information family | Forward AUROC [crossed 95%] |
+| --- | ---: |
+| Schedule only (market/unit + season + cutoff) | 0.49298 [0.43398, 0.55117] |
+| **Band / own distribution state** | **0.85207 [0.81556, 0.88834]** |
+| Weather at cutoff | 0.54832 [0.49180, 0.60039] — **not established** |
+| **Full** | **0.90260 [0.88356, 0.91772]**, MDE 0.02406 |
+
+Observed AUROC **exceeds all 500 draws** of the corrected global-permutation null (mean 0.49985,
+max 0.51243). Concentration is **not** a density artifact — equal-snapshot and equal-market-day
+weighting both reproduce 4.387% / 64.140%.
+
+### What the tail actually is
+
+| Own-distribution position | Tail prevalence | Share of tail rows |
+| --- | ---: | ---: |
+| **Centre / modal band** | **26.5929%** | **55.1096%** |
+| Adjacent shoulders | 7.2769% | 29.2243% |
+| Other / extreme bands | 0.9377% | 15.6661% |
+
+**Centre + shoulders carry 84.33% of tail rows.** Centre-minus-shoulder is **+19.3160 points
+[15.8026, 23.1529], power 1.000.** **The tail is centre-and-shoulder OVERCONFIDENCE, not an
+extreme-bin phenomenon** — which independently corroborates §1's "our mode wins ~24%".
+
+**Routes this CLOSES:**
+
+- **"One or two bad markets" is dead.** Effective market count **11.44 of 12** (HHI 0.08739); the
+  top two hold 23.47% of tail rows against 16.76% of all rows. There is no operational station fix.
+- **Season and cutoff gating: NO-GO.** C−B `+1.3731 [−0.0497, 2.7464]` power 0.496; primary−early
+  `+0.6263 [−0.2027, 1.3803]` power 0.343. Unsupported in both directions.
+- **Weather alone is not established** — AUROC 0.548, Brier improvement negative. It adds
+  *collectively* after band state (+0.05053 [0.01903, 0.08255]) but the increment is +0.117 in B
+  and +0.026 [−0.003, +0.058] in C, and **that asymmetry bars a weather-regime claim.**
+
+### Addressability, and it is a CEILING not a gain
+
+Top 5% of forward scores: precision **39.70%** (8.62× base rate), recalls **43.10%** of tail rows
+and **27.42% [20.86%, 34.12%]** of all positive excess loss. **No served improvement was measured.
+Do not book 27.42% as expected gain** — it is what a perfect intervention on that slice could
+reach.
+
+### THREE things to carry forward — mine, not the report's
+
+**1. This is NOT closed by §1c.** §1c closed **global, information-free monotone mappings**. A
+reshape fired by an **own-information trigger** uses information to decide *where* to act, which
+makes it a model change, not a calibration map. Anyone citing "recalibration is closed" against
+this has conflated the two.
+
+**2. Anchor the expected size to §1c's `8.829% [−2.467%, +16.494%]`, not to 27.42%.** §1c's
+β=0.55 **global smoothing is the closest already-measured analogue of "flatten the centre"**, and
+it was not distinguishable from zero. Two readings, both live: conditioning could **concentrate a
+benefit that global smoothing diluted across the 95% of rows that were fine** — or §1c's upper
+bound already caps it. **Whoever tests this must say which they expect, in advance.**
+
+**3. Open caveat worth one cheap check: the `|p_model − p_market| ≥ 0.30` gate mechanically favours
+high-probability bands.** A band where we assign 0.01 can only enter the tail if the market assigns
+**≥0.31**. So "the tail is centre-concentrated" is **partly definitional**. It is not refuted —
+extreme bands still supply 929 tail rows — but the report tested *density* artifacts and not this
+one. **Re-run the position split under a relative or rank-based disagreement gate before building
+on the centre story.**
+
+### Ledger
+
+**No decision spent.** No candidate fitted, no C candidate score, no probabilities modified. Any
+mission that turns direction 1 or 2 into a candidate **must declare and spend a slot explicitly**.
+
+---
+
+## 1g. WHERE THE LOSS IS IS NOT WHERE THE FIX WORKS — `-09-60a`, 2026-08-10
+
+**NO-GO at P0, zero ledger cost.** Conditional own-distribution reshaping **does not beat global
+smoothing** on in-season B. The production agent's predeclared expectation was the opposite and was
+**falsified cleanly**.
+
+| B score | Brier |
+| --- | ---: |
+| Incumbent | `0.053379789` |
+| **Global smoothing, β=0.55** | **`0.050612803`** |
+| Conditional, β=0.52 / threshold 0.65 | `0.051511678` |
+
+**Conditional lost on the very data it was fitted on**, by `0.000898875`. Forward: global
+`0.053566688` vs conditional `0.054804104`, paired **`−0.001237416 [−0.003005130, +0.000583109]`**
+— not distinguishable from zero, but the point is in the wrong direction and the rule required
+conditional to *win*.
+
+### The number that interprets the result: the trigger fired on 46.786% of snapshots
+
+The fit was free to pick any threshold, including a narrow tail-focused one. **It chose to fire on
+nearly half the panel — and still lost to firing on all of it.** The gradient points at full
+coverage.
+
+> **Smoothing's benefit is DIFFUSE, not concentrated at the tail. Conditioning discards benefit
+> instead of concentrating it.**
+
+**This dissociates two things §1f made it tempting to conflate.** The tail carries **64.140%** of
+excess loss and is predictable at **AUROC 0.90260** — and **knowing where the loss is does not tell
+you where the remedy applies.** §1f's 27.42% "addressability ceiling" was flagged as unbookable;
+this is *why* it was unbookable.
+
+### What this closes
+
+**Distribution reshaping as a direction.** §1c bounded the global family at **8.829%
+[−2.467%, +16.494%]**, not distinguishable from zero; `-09-60a` shows conditioning cannot
+concentrate it. **The whole family is capped by a number indistinguishable from zero.** Strictly,
+one trigger form (peak probability) and one reshape form (power map) were tested — but with the
+global bound and the coverage gradient both pointing the same way, **do not spend another decision
+here without a genuinely new mechanism.**
+
+**Safety held throughout:** probability mass preserved, all **12,882** zero-probability B rows
+stayed exactly zero, the serving floor untouched.
+
+### What is left, stated plainly
+
+Every own-information lever derivable from **what we already hold** has now been tested and bounded:
+recalibration (§1c), conditional reshape (here), markets and season/cutoff (§1f), own station
+weather at cutoff (§1f, AUROC 0.548), input completeness (`-09-44a`, ≤0.6%). Market shrinkage works
+and is **forbidden** as benchmark-consuming (§0c).
+
+> **We have exhausted what can be done by reshaping what we already know. The remaining lever is
+> knowing MORE.**
+
+And there is exactly one untapped free source: **the 11 PIT forecast fields the fetcher never
+requested** (§0a). **Note carefully — §1f tested our own *station observations* at cutoff, not
+*forecast-model output at issue time*.** Those fields do not exist in the archive, so they are
+**untested, not disproven.** That makes the re-fetch the top item, and it is production work
+because the workstation may not call providers.
+
+---
+
+## 1h. THE PIT-FIELD TEST IS PRE-REGISTERED AND FROZEN — `-09-61a`, 2026-08-10
+
+The 12-field corpus of §1e has a **frozen, hashed protocol written before the data was
+integrated**, so the candidate cannot be fished. `-09-63a` later executed its B-only integrity
+screen unchanged; the result is in §1j.
+
+| | |
+| --- | --- |
+| Artifact | `docs/roadmap/pit-field-evaluation-protocol-2026-09-61a.json` |
+| SHA-256 | `336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146` |
+| Campaign | Allocated here; **CLOSED UNUSED by `-09-63a`**. α remains **7 of 20**; 13 available |
+| Candidate | ONE lead-1 target-day surface-heating / convective-budget tilt, 12 named features, no sweep |
+| Design | fit on in-season B (D=23) → score once on out-of-season C (D=27), the §1c pattern |
+
+**Digest reproduced independently on the production host** (15,048 bytes) and the roll verdict
+re-run here: **ROLL-FREE, 4 files, 0 importable.** Merged `21356a85`, capture 6 loops both sides.
+
+### P0 — the BOUNDARY is the result, not the point estimate
+
+| Quantity | Value |
+| --- | ---: |
+| C incumbent excess-Brier gap `G` | `0.021135322` |
+| MDE under the declared coherent-effect assumption (`a=b=c=0.05`) | **6.790047% of `G`** = `0.001435098` |
+| Campaign-adjusted floor (3.2% × 1.3796) | `4.414601%` |
+| Detectability boundary for a 10% effect | **`a=b=c ≤ 0.0736372`** |
+| MDE at `a=b=c=0.075` | `10.185071%` — the 10% target is **no longer visible** |
+
+**Verdict: CONTINUE CONDITIONALLY.** Every figure above reproduces here to all printed digits
+(`z=3.0233414397392`, `K=3.8649626733121`). **The 10% target is a declared hypothesis, not a
+measured prior** — `-09-44a`'s ≤0.6% precedent is the cautionary comparison, and the protocol
+rejects as `NO_GO_UNDERPOWERED_EFFECT_FIELD` if the candidate's *own* effect field yields an MDE
+above 10% of `G`. That is §1d's "re-derive the MDE for the candidate you actually test", enforced.
+
+### The protocol is EXECUTABLE — verified against the staged corpus, 2026-08-10
+
+The frozen coverage gate (lead 1, local hours 07:00–20:00, sealed dates only, 12 fields × 12
+markets) was run against what is actually staged:
+
+| Segment | Sealed dates | Cells expected | Missing | Duplicate | Non-finite |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Front `…-front` | 21 (`06-03 → 06-23`) | 42,336 | **0** | **0** | **0** |
+| Back `…-08-10` | 37 (`06-24 → 07-30`) | 74,592 | **0** | **0** | **0** |
+| **Total** | **58** | **116,928** | **0** | **0** | **0** |
+
+**The gate passes on the full sealed window.** Nothing past `2026-07-30` enters either stratum.
+
+> **TRAP — the corpus is in TWO ROOTS and the main one's manifest says `start_date 2026-06-24`.**
+> An executor who reads `C:\tmp\pit-refetch-2026-08-10` alone gets **37 of 58 sealed dates** and,
+> because B is June, would fit on **7 B dates instead of 23** — and the manifest would look
+> complete while it happened. Both roots are required. See `CORPUS.md` in the main root.
+
+### THE ASSUMPTION NOBODY HAD MEASURED AT FREEZE — resolved before execution by `-09-62a`
+
+The protocol builds its interval as `point ± z(1−α/2) × bootstrap SD`, **z = 3.0233 at
+α=0.0025 — a three-sigma normal quantile off a bootstrap whose market dimension has 12 clusters.**
+That is the campaign-wide convention, inherited from `-09-44a` and `-09-57a`, not a `-09-61a`
+choice.
+
+**`-09-57a` measured multiplicity, never coverage.** Its 50,000-campaign simulation null-centres
+the *real* crossed-bootstrap distribution to price best-of-k selection — so if that distribution's
+dispersion is wrong at M=12, the multiplicity result inherits the error rather than detecting it.
+**At protocol freeze no mission had measured empirical coverage.** `-09-62a` subsequently measured
+it under a true-zero simulation before any candidate execution; §1i records the result and adopted
+amendment A1.
+
+The direction of the risk is known from the cluster-robust literature: few-cluster normal
+intervals **under-cover**, and the error grows in the far tail. For scale, at 11 degrees of freedom
+`t(1−0.00125) = 4.02` against `z = 3.02` — **a 33% wider interval, at the exact α this ledger
+runs on.**
+
+> **If the interval under-covers, α=0.0025 is nominal rather than real, every MDE in §1d is
+> optimistic, and the 3.2% floor is a floor on the wrong quantity.** This gated decision 10 and
+> retroactively qualified decisions 1–7. `-09-62a` measured it before decision 10 could be spent.
+
+This is filed as the next mission rather than left as a note, per `HOW_WE_GET_THINGS_WRONG.md`
+pattern 5.
+
+### What was done right, and is worth copying
+
+- **The negative control is an algebraic identity**, not an exchangeability assumption: an exact
+  incumbent clone whose improvement is zero row by row. `-09-59a` had to correct its control
+  mid-flight; this one **cannot drift**. It verifies the scoring path, not the inference calibration
+   — which is precisely why the coverage mission was still required; §1i now closes it.
+- **The spend trigger is conservative**: decision 10 is spent by the first computation that touches
+  candidate-dependent C state together with any C outcome or market price — *including a failed
+  attempt*. A broken run cannot become a free look.
+- **Both endpoints are mandatory, and a primary win with a negative tail point is REJECTED.**
+  That is `-09-60a` (§1g) converted into a rule.
+
+---
+
+## 1i. ALPHA=0.0025 IS SHORT ON THE THIN TAIL, NOT GENERICALLY AT M=12 — `-09-62a`, 2026-08-10
+
+Coverage is now measured under a true-zero simulation using the sealed panel's actual occupancy
+and endpoint-specific date / market / residual components from the real `-09-44a`
+repair-minus-control field. The predeclared M=200 positive control passed at both alpha levels.
+
+| Endpoint | Empirical alpha at nominal 0.05 | Empirical alpha at nominal 0.0025 | Restoring `q` at 0.0025 |
+| --- | ---: | ---: | ---: |
+| Out-of-season C | `0.04244` | **`0.00240`** | `3.006595` |
+| **Severity tail** | **`0.04908`** | **`0.00340 [0.002927, 0.003950]`** | **`3.109889`** |
+| In-season B | `0.00346` | `0` | `2.019972` |
+
+The tail result uses 50,000 coverage replications (170 rejections; MC SE `0.000260`) and resolves
+an absolute `0.00090` excess over the ledger alpha; the predeclared 80%-power resolution was
+`0.0006486`. **The prior that every M=12 endpoint must under-cover is falsified.** Component mix
+matters: C is nominal at ledger alpha and B is conservative, while the 5,930-row tail is short.
+
+**ADOPTED 2026-08-10 as amendment A1 — uniform, both endpoints.** `z=3.0233414` is replaced by
+`q=3.1098893` for **both** required decision-10 endpoints, not only the short tail. Nominal α is
+unchanged at `0.0025`; the quantile is corrected to *deliver* it. The amendment is
+`docs/roadmap/pit-field-evaluation-protocol-2026-09-61a-amendment-A1.json`, SHA-256
+`549e26a3a55494e0da2d406809ad67c43dba60c6fbb3604aec62488ea4e8f2bb`; **the base protocol is
+byte-identical and was edited nowhere** (`336150be1a62e88c2fe40ccd7b77916576d08981617ebbff1e01195007cfc146`).
+The exact endpoint-specific rule was rejected deliberately: it would have cost no power on C, but it
+makes *"which quantile applies here"* a live choice at analysis time, and this campaign's recorded
+failure mode is researcher degrees of freedom, not lost power. **Decision 10 keeps its number** —
+nothing has been executed, and every effect of A1 is strictly conservative (see `CAMPAIGN_LEDGER.md`).
+
+> **A LIMITATION THE `-09-62a` REPORT DID NOT STATE: `q=3.1098893` IS A LOWER BOUND, NOT A POINT
+> ESTIMATE.** The coverage simulation draws **Gaussian** date, market, and residual effects, but the
+> severity tail is **by construction a selected-extreme subset** — incumbent SE > market SE and
+> disagreement ≥ 0.30 — and is **not Gaussian**. Simulating a heavy-tailed field as thin-tailed
+> **understates** far-tail miscalibration, so the true restoring quantile is **at least**
+> `3.1098893`. Do not read it as the calibrated answer, and do not use it to argue the correction is
+> now "priced". Uniform adoption was chosen partly to buy margin against exactly this.
+
+This changes the section 1d campaign MDE multiplier from `1.3796` to `1.410455`
+(current ledger MDEs x `1.022393`). The four proxy MDEs become `0.004309` B ratio, `0.053218` C
+ratio, `0.021406` tail SSE, and `0.002366` primary-window Brier. The campaign-adjusted market
+floor moves from `4.414601%` to **`4.513457%`**, so the practical >=5% step survives. The
+alpha=0.05 D=73 / **2026-10-16** confirmation date also survives because neither required endpoint
+under-covered at 0.05.
+
+Decision 10's coherent `a=b=c=0.05` P0 MDE moves from `6.790047%` to `6.942096%` of `G`, still
+below its 10% gate. **The frozen `-09-61a` protocol was NOT edited in place, and must not be** —
+A1 is a separate, hashed, side-by-side amendment, which is the only permitted shape for a change
+here. Decision 10 was **allocated and unspent as of this mission**, and was CLOSED UNUSED hours
+later by `-09-63a` — see §1j. This calibration mission spent and allocated no
+alpha and A1 spends none, so the ledger remains **7 of 20 spent, 13 available**. Full method,
+components, seeds, coverage table, and evidence hashes are in
+`docs/roadmap/agent-report-2026-08-19-workstation-interval-coverage.md`.
+---
+
+## 1j. DECISION 10 CLOSED UNUSED BEFORE FITTING — `-09-63a`, 2026-08-10
+
+**NO-GO at Gate 3, zero ledger cost — and the gate was measuring the wrong thing.** The required
+feature extract reproduced its frozen SHA-256 `60b450f1…ac8`. Before any fit, the B-only screen
+found what it read as a realized winning band with incumbent repaired probability exactly zero, and
+failed closed.
+
+**What survives, and is the point of this section:** no beta was fitted, no expanding-window B
+curve was produced, and **the surface-heating mechanism was not tested in either direction.**
+Treating the absent coefficient vector as evidence about the mechanism would be a second error.
+Only B outcomes and incumbent repaired probabilities were materialized; no C outcome, market
+probability, candidate state, bootstrap draw, or clone control was ever computed.
+**Decision 10 is closed unused and RETIRED, must never be reassigned, and alpha remains 7 of 20
+spent, 13 available.**
+
+**What does NOT survive is the trigger.** `-09-63a` named Denver `2026-06-08`, snapshot
+`20260608T030552-0400`, band 4 as a served zero. **Production served `0.5206313021` on that row.**
+The zero was a research-replay artifact: replay rebuilt `high_so_far = 91` from
+`wu_current.max_since_7am_c` against a current temperature of 68, giving a replay floor of 91 where
+the captured served floor was 68. `-09-65a` reached the same conclusion independently. The full
+trace is `docs/operations/GATE_3_FIRED_ON_A_FLOOR_WE_NEVER_SERVED_2026-08-10.md`, and the
+replay-vs-served floor divergence it exposes is an open production question, not a settled finding.
+
+Of the B floor crossings, only **two** are genuine — Chicago `2026-06-14` (70/69) and San Francisco
+`2026-06-09` (68/67); NYC `2026-06-22` is a fallback row with a blank `served_floor_bucket`.
+`-09-68a` then showed the gate is structurally mis-specified rather than unlucky: a fail-on-any-row
+gate has `P(fire) = 1 − (1 − q)^n`, which at 2 crossings in 204 B market-days fires **86.60%** of the
+time on the observed panel and **99.27%** at 500 market-days, **regardless of candidate quality**.
+It must not be re-registered unchanged.
+
+> **This section is therefore evidence about the INSTRUMENT, not about the candidate.** The NO-GO
+> and the zero alpha cost are real; the stated cause is retracted. Do not cite the Denver row.
 
 ---
 
@@ -597,6 +1372,119 @@ tail, not pooled**, and should ship dark until release #1 is locked.
 
 ---
 
+## 4a-bis. THE ARCHIVE IS NECESSARY BUT NOT SUFFICIENT — `-09-50a`, 2026-08-09
+
+**The retrain never reaches preflight, and the reason has nothing to do with the archive.**
+`base_retrain.load_parent_contract()` requires a **verified ACTIVE parent release**, and this host
+has **no release store at all**. Verified on production, not taken on report:
+
+- `artifacts/releases/current_release.json` — **absent**; `artifacts/releases/` **does not exist**.
+- `base_retrain.py` has **zero** bootstrap / `allow_missing` / `no_parent` / `first_release`
+  escape paths. The requirement is unconditional.
+- `load_parent_contract` further demands the parent's semantic contract be
+  `RESEARCH_ONLY_CANDIDATE_MODE`.
+
+**This corrects a framing this file and `STATE_OF_PLAY` carried all day.** The archive extension was
+described as "THE critical path — nothing else competes." It is **necessary and not sufficient**:
+extending it does not let the retrain run, and this blocker needs a **decision**, not a fetch.
+
+### The break exists, is documented, and has never been run
+
+`NIGHTLY_RETRAIN_RUNBOOK.md` §"First inactive production release" defines one fail-closed bootstrap,
+`nightly_retrain run --release-candidate-mode production --bootstrap-first-inactive-release`, whose
+precondition is **exactly our current state**: *"`current_release.json` is absent and the releases
+root is absent or completely empty."*
+
+**Two things are unresolved and must not be guessed:**
+
+1. The bootstrap **deliberately leaves the active pointer absent** — it "checks again at whole-run
+   finalization that the active pointer is still absent." So it alone does **not** satisfy
+   `load_parent_contract`; an activation step is still required, and activation is the thing
+   `release-one-deferred-until-a-retrained-candidate.md` deferred.
+2. The bootstrap runs with `--release-candidate-mode production`, while `load_parent_contract`
+   rejects a parent that is not `RESEARCH_ONLY_CANDIDATE_MODE`. **These may conflict.** Do not
+   assume they resolve; map it.
+
+> **The sequencing in canon was inverted.** Release #1 was treated as *downstream* of the first
+> retrain, and the retrain requires a release-shaped parent *first*. **This is why the retrain has
+> never run, and no amount of archive work would have revealed it.**
+
+### RESOLVED 2026-08-09 by `-09-51a`: it is a CODE contradiction, not a decision
+
+**There is no supported path on current master from an empty release store to the first base
+retrain.** Three mutually reinforcing reasons, of which I verified 1 and 3 directly:
+
+1. The nightly bootstrap builds a **production-capable** release, but `load_parent_contract`
+   **raises** unless the parent is `RESEARCH_ONLY_CANDIDATE_MODE`.
+2. The **research-only** bootstrap requires complete corpus lineage **or** an existing verified
+   release. Production has neither.
+3. **The nightly plan runs `base_retrain` BEFORE candidate release construction** —
+   `all_market_base_retrain` is appended as a plan step at `nightly_retrain.py:1327`, while
+   `run_candidate_release_step` is only reached at `:2588`. **The circularity is in the code.**
+
+> **AND THE DEFERRAL IS NOT THE OBSTACLE.** Creating the research parent would freeze **research
+> scaffolding only** — it does **not** commit the deferred production Release #1 and does **not**
+> start its confirmation window. So `release-one-deferred-until-a-retrained-candidate.md` **stands
+> and is simply not in the way.** Nobody needs to relitigate it.
+
+A scratch-root rehearsal proved the **downstream** research-parent mechanism works once a parent
+exists. **So the gap is confined to CREATING one**, and the fix is engineering with a known target,
+not a judgement call.
+
+### The held branch is NOT the fix — audited and closed out, 2026-08-09 (`-09-52a`)
+
+`codex/workstation-research-2026-07-22` rewrites the same files, so it was audited before any fresh
+code was commissioned. **It closes none of the three causes**, and it cannot: **it does not contain
+`base_retrain.py` at all** (verified — `git cat-file` fails on that path), so it predates the very
+contract it would need to satisfy. Its bootstrap stays production-only and it has no empty-store
+research-lineage source.
+
+**Landing it is a NO-GO on its own terms:** 191 files, **72,114 insertions**, 1,365 deletions
+(verified), **32 live merge conflicts**, it modifies the **live serving loader** and promotion
+contracts, and it is **ROLL-SENSITIVE across six files in all three capture closures**.
+
+> **A correction worth keeping.** I wrote that this branch's hold was "a temporary measure whose
+> justification expired," by analogy with the Windows auto-update block. **Half right, and the wrong
+> half mattered.** The *calendar* justification did expire; the *substantive* migration and serving
+> risks never did. **Checking one stated reason and concluding about the whole is its own error** —
+> ask what else a hold might be protecting before calling it stale.
+
+**Do not re-audit this branch for the bootstrap gap.** The required fix is a **small current-master
+path that creates a verified research-only parent with first-party corpus lineage before
+`base_retrain` runs.**
+
+**Start from `all_shadow_release_bootstrap.py`**, which already does most of it — its docstring is
+*"Build one immutable research-only all-shadow release without a pointer"*, and it already emits
+`RESEARCH_ONLY_CANDIDATE_MODE`. **The single blocking gap is that
+`_verified_release_research_lineage()` sources lineage from a prior verified release's
+`training_evaluation_corpus` role** — which an empty store cannot provide. That is cause 2, localized
+to one function.
+
+### BROKEN 2026-08-09 by `-09-53a` — `base_retrain` reached preflight for the first time ever
+
+**The circularity is closed.** First-party lineage assembled and bound all **12,600 / 12,600** cells;
+a scratch parent verified as `research_only` with **12 shadow markets and 84 base roles and no
+pointer**; and **`base_retrain` accepted that parent and proceeded past `load_parent_contract`.**
+Production's release store and pointer remain **absent** — the one-shot is untouched.
+
+**The contract was generalized, not relaxed** — checked line by line on this host, because the diff
+showed 25 deletions in a contract module:
+
+- the `verified_immutable_release` branch is preserved **verbatim**;
+- `verification_status != "PASS"` still raises **first**, for every kind;
+- the new `first_party_corpus_assembly` branch is **stricter than the branch beside it** — it
+  recomputes `assembly_contract_sha256` and `model_input_fields_sha256` from content and cross-checks
+  `assembled_corpus_sha256` / `assembled_row_count` against `final_refit` *and* against the assembly
+  contract's own `record_count` and `market_ids` length;
+- an unrecognised `kind` falls through to `raise CandidateContractError(...)`. **Fail-closed.**
+
+**THE FRONTIER HAS MOVED, not vanished.** Preflight now blocks on the **missing official base and
+PIT forecast corpus manifests** — the same defect `-09-50a` saw from the other side ("the only
+retained research corpus manifest has the wrong schema and target, and is rejected outright by the
+immutable PIT-corpus verifier"). `base_retrain` takes them as
+`--base-retrain-corpus-manifest` / `--base-retrain-pit-forecast-corpus-manifest`. **That is now the
+binding blocker on objective #2.**
+
 ## 4b. The forecast archive covers the wrong 52 days — this blocks the retrain
 
 Measured 2026-08-06. Canonical:
@@ -872,6 +1760,13 @@ Each of these has already cost a retracted result. They are not stylistic prefer
   estimate as a movement.
 - **Known power requirements:** the primary-slice endpoint needs ~504 dates; the severe-tail endpoint
   needs ~4. A test whose N you have not checked is a test you cannot interpret.
+- **Score any fitted mapping on its OWN training set before reading its test result** (`-09-56a`).
+  Binary per-band PAVA worsened B from 0.053380 to 0.078717 — a fit that cannot improve the data it
+  was fitted on has a **broken objective**, not a weak signal, and its test number means nothing.
+  This check is free and it localises the fault immediately.
+- **A control that consumes the benchmark is a measurement, not a candidate** (§1c). Shrinking
+  toward the market closes the market gap by construction. It shows *where* information is missing;
+  it is never evidence of edge and must not be booked as improvement.
 
 ---
 
@@ -1048,22 +1943,25 @@ power 0.104 and an 80%-power MDE of 48.36 points. **Indistinguishable from zero.
 blocker" was directionally right but **stated far more firmly than eight dates support** — and the
 reason label was never the binding constraint anyway.
 
-## 8c. The MM decision now depends on a capture change, and that is a CLOCK
+## 8c. Public execution capture and own-account fills answer different questions
 
-**Established 2026-08-10 by `-09-47a`.** The route to deciding whether market-making is a business
-or a donation is now fully mapped, and every branch but one is closed:
+**Established 2026-08-10 by `-09-47a`, corrected by production audit 2026-08-13.** The original
+section conflated a market-wide public-flow tape with our own quote-selection process. The public
+tape is necessary for market price paths and counterfactual markouts; it cannot reveal which of our
+resting orders filled, their queue position, our fees/rebates, inventory, or realized P&L.
 
 | Route to `f` | Status |
 | --- | --- |
 | Model edge makes quoting profitable regardless | **RETIRED** (`-09-46a`: 114 cells, zero positive) |
 | Measure `f` from the retained tape | **IMPOSSIBLE** — 411 executions, and no cancellation labels |
 | Reconstruct executions from `price_change` / `book` deltas | **NO-GO** (§1b.3) — unidentified |
-| **Capture the execution tape going forward** | **the only remaining route** |
+| Capture the public execution tape going forward | **NECESSARY BUT NOT SUFFICIENT** — price paths, market trades, and counterfactual markouts only |
+| Capture authoritative own-account user events, open orders, positions, fees and rebate receipts during a bounded maker session | **THE ROUTE TO OUR REALIZED FILL SELECTION AND ECONOMICS** |
 
-**So the deciding evidence does not exist yet and can only be accumulated.** Every day without
-execution capture is a day added to the eventual decision date — this is a stopped clock that has
-not started, the same shape as §8b and the streak clock. **Do not plan the MM track against elapsed
-calendar days; plan it against captured execution-days.**
+**So the deciding economic evidence does not exist yet and can only be accumulated.** Public
+execution-days and own-account maker sessions are separate denominators and must never be merged
+into one counter. A public trade after our hypothetical quote supports a counterfactual; only an
+authoritative account event proves a fill, and only reconciled positions/fees/rebates support P&L.
 
 ### What must be captured (documented from venue docs; NO endpoint was called)
 
@@ -1077,9 +1975,10 @@ calendar days; plan it against captured execution-days.**
    `GET https://data-api.polymarket.com/trades?market=<condition_id>&start=&end=&limit=&offset=&takerOnly=true`.
    Page inside bounded windows; `offset` caps at 10,000. Its timestamp is integer-valued, so it
    **cannot** prove sub-second ordering — use it to reconcile, never to replace the live stream.
-3. **NOT sufficient: the authenticated user stream.** It carries rich trade lifecycle records but
-   **only for our own account**, so it cannot estimate a market-wide informed-flow denominator, and
-   it produces nothing before an order is ever placed.
+3. **Necessary for Stage 2: authenticated own-account evidence.** The user stream, open-order
+   reader, position reader, and fee/rebate receipts are the authority for our lifecycle and P&L.
+   They cannot estimate a market-wide informed-flow denominator, but the public stream cannot
+   substitute for them. Mutation stays disabled if any authoritative reader is absent or stale.
 
 ### Three cautions that bound the change
 
@@ -1095,9 +1994,45 @@ calendar days; plan it against captured execution-days.**
   historically, but a new producer should use and *test* the documented `{"type":"market"}` form
   rather than silently inheriting that compatibility assumption.
 
-**Enabling this is an operator decision** — it is a production capture change on the live host, and
-the standing "no paid API" rule is about **weather** providers, not the exchange's own public
-endpoints. Nothing here has been enabled.
+> ## AUTHORIZED BY THE OPERATOR, 2026-08-09
+>
+> **1. Start capturing the execution tape — approved, effective immediately.**
+> **2. Authorize a paper-only market-harvest lane — approved.**
+>
+> Public capture still supplies market-path evaluation, but it is not a prerequisite for preparing
+> the fail-closed own-account lifecycle implementation. The two evidence sources are complementary.
+
+> ## AUTHORIZED BY THE OPERATOR, 2026-08-13
+>
+> Prepare and, from a genuinely eligible International host only, run a minimal real-world test with
+> a finite **100 USDC-equivalent hard cap**. Exactly one market, post-only orders, no naked sells,
+> existing risk ceilings non-raisable, and authoritative user-event plus position readers are
+> mandatory. Ontario production remains preparation-only and never receives wallet credentials.
+>
+> This supersedes the "nothing here has been enabled" note that stood until 2026-08-09. The standing
+> "no paid API" rule is about **weather** providers; the exchange's public market stream and
+> `/trades` endpoint are a separate question and are now in scope for capture.
+
+**Implementation is staged deliberately, because the volume claim is an extrapolation.** §8c's
+"order 10² per market-day" rests on scaling 411 observed trades by a 2.222% duty cycle, and message
+limits truncate sessions so the true rate is **≥** that, not **≈** that. Nothing is sized from it.
+
+| Stage | Who | When | Purpose |
+| --- | --- | --- | --- |
+| **Bounded public-tape pilot** | production | **00:30–09:00**, inside the heavy-work window | measure the real rate, prove the documented subscription frame, prove identity survives end-to-end |
+| **Continuous producer** | workstation mission | after the pilot returns numbers | build to the §8c contract using measured values |
+| **Bounded own-account maker session** | eligible International host | after Stage-0/1 readiness and authoritative readers pass | prove post-only lifecycle, reconciled fills/positions/fees/rebates, and bounded realized economics |
+
+**The pilot must not run inside 12:00–18:00.** It opens a network connection on the capture host,
+and capture already died once on 2026-08-09.
+
+### One design fact that makes the permanent producer cheap
+
+The subscription delivers `book`, `price_change` **and** `last_trade_price` on one stream, but we
+choose what to persist. At ~70 executions per market-day across 12 markets, an **execution-only**
+tape is well under 1 MB/day. **The expensive thing was never the trades — it was persisting the book
+that arrives alongside them.** So the July disarm's "hundreds of MB/day" objection does not apply to
+a producer that discards book and `price_change` at write time.
 
 ### The SECOND operator decision, from `-09-48a`: authorize a market-harvest lane?
 
@@ -1121,9 +2056,51 @@ implemented.** Deleting the map or relabelling promotion is explicitly *not* suf
 **What one successful day would and would not prove.** Would: route reachability and operational
 mechanics — nonzero quote permissions, two-sided intended prices/sizes, lifecycle and post-only
 behaviour, uptime, gate exposure, and a paper markout column under a declared $0 reward. **Would
-NOT**: identify `A` or `f`, prove real fills, profitability, a unique break-even, reward
-eligibility, live readiness, model edge, or promotion — and one day is not a powered economic
-endpoint. **Forward execution capture (above) remains the only route to `f`.**
+NOT**: identify `A` or an informed-fill fraction, prove real fills, profitability, a unique break-even, reward
+eligibility, live readiness, model edge, or promotion—and one day is not a powered economic
+endpoint. Public execution capture supplies the counterfactual market path; a bounded own-account
+session supplies actual fills. Neither alone identifies a universal informed-flow fraction.
+
+## 8d. A terminated scheduled wrapper can leave its governed child alive — measured 2026-08-13
+
+`WeatherEveningEvidenceRefresh` started at **12:03:20 local** and Task Scheduler later reported the
+wrapper terminated (`0x41306`), but its delegated `weather.operations.daily_refresh` process tree
+remained alive. The proof is direct: both surviving Python processes had the task's exact creation
+second, the child named PID `19872` in `daily_refresh_faulthandler_20260813T160323Z.log`, and its
+parent/child relationship was still present after the scheduled task returned to `Ready`.
+
+At the last pre-kill guard sample the child held **44,391 MB private commit**. Snapshot admission
+failed for all 12 markets, and the authoritative streak checker recorded a **13:24→13:57 local
+gap, 32.5 minutes**, so `2026-08-13` is unavoidably partial. Disk free fell from **180.6 GB to
+146.8 GB** while commit expanded; **26.2 GB returned immediately after process teardown**, proving
+most of the apparent disk burn was transient pagefile/commit pressure rather than retained tapes.
+
+The process could not be terminated from the interactive session because it belonged to S4U. The
+already-scheduled S4U memory guard terminated the exact two-process tree after it was taught the
+narrow ownership rule: inside 12:00–18:00, an evidence-refresh `daily_refresh` child older than two
+minutes is an orphan when its owning scheduled task is not `Running`. The task was disabled before
+its 14:00 retry. By **14:00:20**, all 12 current event folders were fresh, snapshot admission passed,
+and the last fleet cadence had zero errors and zero stale markets.
+
+> A governed `-m weather.*` exemption is not sufficient by itself. Scheduler ownership must be
+> checked, because termination of the wrapper does not guarantee termination of its delegated
+> child.
+
+**Follow-up proof, 2026-08-13 18:16–18:21 local.** After the wrapper was changed to create its
+Python child suspended, assign it to a Windows Job Object with `KILL_ON_JOB_CLOSE`, and only then
+resume it, a real `WeatherEveningEvidenceRefresh` scheduled invocation established the tree
+`3288 → 17464 → 20180`. At the five-minute inspection, PID `20180` held **9,030.1 MB working set**
+and **13,810.1 MB private memory**; system commit was **28,703,297,536 / 37,054,656,512 bytes
+(77.46%)**. `Stop-ScheduledTask` moved the task to `Ready`, returned `0x41306`, and all three PIDs
+were gone in under three seconds without a separate process kill. System commit then fell to
+**16.91 / 34.51 GB (49.00%)**.
+
+This retires the orphan-cleanup defect but establishes a separate daytime-resource defect. The
+14:00/17:00 task is disabled again. Do not re-enable it until its evidence workload is chunked and
+guarded by capture-health plus commit admission; child-tree containment alone does not make an
+eight-hour monolith safe beside capture.
+
+---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 

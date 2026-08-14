@@ -41,6 +41,7 @@ distillation and should be read before model, measurement, or research work.
 | [STATE_OF_PLAY.md](STATE_OF_PLAY.md) | *What is happening right now?* — **read first** |
 | [Established Findings](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval |
 | [Retracted Claims And False Leads](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not |
+| [How We Get Things Wrong](HOW_WE_GET_THINGS_WRONG.md) | *What SHAPE do our mistakes take?* — five recurring patterns; read before designing a gate or trusting a green signal |
 | [Open Backlog](OPEN_BACKLOG.md) | *What is known-broken and unassigned?* — ranked, hand-kept |
 | [Delegation Contract](DELEGATION_CONTRACT.md) | *How do we work?* — boundaries, roll verdicts, handoff structure |
 | [Operating Reference](OPERATING_REFERENCE.md) | *What is scheduled and what are the constants?* — **generated; fix the constant, not the doc** |

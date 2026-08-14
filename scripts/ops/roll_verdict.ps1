@@ -22,7 +22,11 @@
     rather than warning.
 
 .PARAMETER Branch
-    Branch to judge, e.g. origin/codex/workstation-....  Compared against master.
+    Branch to judge, e.g. origin/codex/workstation-....
+
+.PARAMETER Base
+    The ref the merge will be applied to. Default `master`, which is auto-corrected to
+    origin/master when local master is strictly behind it -- see the base resolution below.
 
 .PARAMETER MaxStatusAgeHours
     Refuse to judge from closure evidence older than this. Default 24.
@@ -38,6 +42,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
+    [string]$Base = "master",
     [int]$MaxStatusAgeHours = 24,
     [string]$JsonOut = ""
 )
@@ -126,10 +131,43 @@ if ($closures.Count -eq 0) {
     exit 1
 }
 
-# Compare against master, matching what the merge will actually apply.
-$changed = @(& git diff --name-only "master...$Branch" 2>$null | Where-Object { $_ })
+# Compare against the ref the merge will ACTUALLY be applied to.
+#
+# This was a bare `master...$Branch`. Local master is routinely behind origin/master -- the merge
+# drivers reconcile before calling this, but a hand-run verdict does not -- and a stale base
+# silently inflates the changed set with everything that landed on origin in between. The -09-68a
+# report classified 67 paths for a 3-file mission that way. It stayed ROLL-FREE by luck of file
+# types, but a wrong changed set can just as easily attribute a roll to the wrong file, and the
+# whole point of this script is that hand-derived verdicts are wrong in both directions at once.
+#
+# Correcting the base can only REMOVE files that are already on origin/master, and a file already
+# on the base cannot be changed by merging the branch -- so it cannot hide a real roll. It is a
+# correctness fix, not a relaxation. The automated path is unaffected: the drivers reconcile
+# first, so `behind` is 0 there and the base stays exactly `master`.
+$baseRef = $Base
+$baseNote = $null
+$originRef = "origin/master"
+& git rev-parse --verify --quiet "$originRef^{commit}" | Out-Null
+$haveOrigin = ($LASTEXITCODE -eq 0)
+if ($haveOrigin -and $Base -eq "master") {
+    $counts = @((& git rev-list --left-right --count "master...$originRef") -split "\s+" | Where-Object { $_ })
+    if ($counts.Count -eq 2) {
+        $ahead = [int]$counts[0]
+        $behind = [int]$counts[1]
+        if ($behind -gt 0 -and $ahead -eq 0) {
+            $baseRef = $originRef
+            $baseNote = "local master is $behind commit(s) behind $originRef and 0 ahead; judged against $originRef, which is the tree the merge lands on"
+        }
+        elseif ($behind -gt 0 -and $ahead -gt 0) {
+            $baseNote = "DIVERGED: local master is $ahead ahead and $behind behind $originRef. Judged against local master. Reconcile before trusting this verdict."
+        }
+    }
+}
+$baseSha = (& git rev-parse --short "$baseRef")
+
+$changed = @(& git diff --name-only "$baseRef...$Branch" 2>$null | Where-Object { $_ })
 if ($changed.Count -eq 0) {
-    Write-Output "UNDECIDABLE: no changed files found for $Branch (is it fetched?)"
+    Write-Output "UNDECIDABLE: no changed files found for $Branch against $baseRef ($baseSha) (is it fetched?)"
     exit 1
 }
 
@@ -152,6 +190,8 @@ elseif ($dormantHits.Count -gt 0) { "ROLL-FREE-IF-DORMANT" }
 else { "ROLL-FREE" }
 
 Write-Output "branch:   $Branch"
+Write-Output "base:     $baseRef ($baseSha)"
+if ($baseNote) { Write-Output "base:     $baseNote" }
 Write-Output "changed:  $($changed.Count) file(s); $($candidates.Count) importable"
 Write-Output "closures: $($closures.Keys -join ', ')"
 foreach ($r in $rows) {
@@ -167,6 +207,7 @@ Write-Output "VERDICT: $verdict"
 if ($JsonOut) {
     $payload = [ordered]@{
         generated_at = (Get-Date).ToString("o"); branch = $Branch; verdict = $verdict
+        base_ref = $baseRef; base_sha = $baseSha; base_note = $baseNote
         closures_used = @($closures.Keys); problems = @($problems)
         files = @($rows | ForEach-Object { [ordered]@{ file = $_.file; closures = @($_.closures); rolls = $_.rolls } })
     }

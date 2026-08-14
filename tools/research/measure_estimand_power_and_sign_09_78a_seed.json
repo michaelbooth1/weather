@@ -1,0 +1,59 @@
+{
+  "schema_version": "estimand_power_and_sign_seed_v1",
+  "mission": "2026-09-78a",
+  "input": {
+    "csv_relative_path": "docs/roadmap/repair-ceiling-single-environment-2026-09-77a.csv",
+    "csv_sha256": "3d782223e5b882d2bbda233f6abaed42b1a30442126979835720aa7e610611a8",
+    "expected_rows": 368,
+    "expected_date_clusters": 11,
+    "expected_market_clusters": 12,
+    "expected_market_days": 66,
+    "expected_sharper_rows": 254,
+    "expected_argmax_changes": 196,
+    "required_stratum": "B",
+    "regime_boundary_exclusive": "2026-07-31"
+  },
+  "simulation": {
+    "rng": "numpy.random.Generator(PCG64)",
+    "seed": 20260978,
+    "draws_per_null": 100000,
+    "chunk_size": 1000,
+    "crossed_bootstrap": "independent multinomial pigeonhole counts for target_date and market_id, shared between Null I and Null C within each replicate",
+    "null_i": "draw each row band independently from incumbent q",
+    "null_c": "draw each row band independently from candidate p",
+    "expected_mean_magnitude": 0.1385161075,
+    "mean_receipt_absolute_tolerance": 0.001,
+    "probability_mass_tolerance": 1e-10
+  },
+  "power": {
+    "uniform_q": 3.1098893,
+    "z_80_percent_power": 0.8416212336,
+    "alpha": 0.0025,
+    "power": 0.8,
+    "corrected_twelve_market_floor": 0.0451345675,
+    "rule": "abs(analytic null mean) > (uniform_q + z_80_percent_power) * simulated crossed SE",
+    "equality_is_no_go": true
+  },
+  "direction": {
+    "large_majority_sharpening_threshold": 0.6666666666666666,
+    "minimum_closer_share_rule": "Assign candidate-closeness to rows in descending squared arm distance and find the smallest strict majority of total distance; this is the most favorable lower bound on the required row share."
+  },
+  "outputs": {
+    "result_json": "docs/roadmap/estimand-power-and-sign-2026-09-78a.json",
+    "breakdown_csv": "docs/roadmap/estimand-power-and-sign-breakdown-2026-09-78a.csv",
+    "preregistration_draft": "docs/roadmap/observation-recovery-single-environment-preregistration-draft-2026-09-77a.json",
+    "checksums": "docs/roadmap/estimand-power-and-sign-2026-09-78a.sha256"
+  },
+  "campaign": {
+    "alpha_spent": 7,
+    "alpha_budget": 20,
+    "alpha_available": 13,
+    "alpha_allocated_by_mission": 0,
+    "decision_10": "CLOSED_UNUSED_NOT_REASSIGNED",
+    "realized_band_read": false,
+    "settlement_consulted": false,
+    "outcome_scored": false,
+    "market_compared": false,
+    "C_endpoint": false
+  }
+}
