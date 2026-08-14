@@ -224,7 +224,10 @@ Contributing factors worth fixing structurally:
   next append, and console logs rotate at managed-loop startup before Windows
   opens the new child handle. Rotation renames to timestamped siblings and never
   deletes prior archives. Supervisor restart-budget reads span retained
-  diagnostics siblings, so diagnostics rotation cannot clear breaker state.
+  diagnostics siblings, so diagnostics rotation cannot clear breaker state. On
+  first adoption, archives whose physical last write predates the breaker
+  window are excluded before content is read; retained cold history must not
+  turn a recovery guard into a multi-gigabyte capture stall.
 - 15.7 GB RAM is undersized for capture + any concurrent analysis. A RAM
   upgrade (32-64 GB) is the single best hardware improvement; a second
   physical disk for `data\` (separating tape writes from OS/pagefile) is the
