@@ -66,6 +66,8 @@ def test_execution_tape_post_merge_adoption_is_exact_and_fail_closed() -> None:
     assert 'RunLevel -ne "Limited"' in text
     assert "Settings.Priority -ne 7" in text
     assert 'State -ne "Disabled"' in text
+    assert "$enabledByThisRun = $true" in text
+    assert "would not restore the reviewed held state" in text
     assert "Enable-ScheduledTask -TaskName $SupervisorTaskName" in text
     assert "Start-ScheduledTask -TaskName $SupervisorTaskName" in text
     assert "execution_tape_supervisor stop" in text

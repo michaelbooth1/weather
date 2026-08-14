@@ -118,6 +118,10 @@ if ([string]$supervisorTask.Principal.LogonType -ne "S4U" -or
     Refuse-Adoption "execution-tape supervisor principal or priority is not exact"
 }
 if ([string]$supervisorTask.State -ne "Disabled") {
+    # The exact task identity is proven above. Treat an unexpected pre-enabled
+    # task as cleanup-required too; refusing while leaving its producer able to
+    # run would not restore the reviewed held state.
+    $enabledByThisRun = $true
     Refuse-Adoption "execution-tape supervisor was not held Disabled before adoption"
 }
 
