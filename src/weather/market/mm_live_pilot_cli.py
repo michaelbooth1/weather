@@ -709,10 +709,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fetch current geoblock evidence and build the public Stage 0 identity.",
     )
     identity.add_argument("--funder-address", required=True)
-    identity.add_argument("--wallet-type", required=True)
+    identity.add_argument(
+        "--wallet-type",
+        choices=["deposit_wallet", "gnosis_safe"],
+        required=True,
+    )
     identity.add_argument(
         "--signature-type",
-        choices=sorted(SIGNATURE_TYPE_IDS),
+        choices=["POLY_1271", "POLY_GNOSIS_SAFE"],
         required=True,
     )
     identity.add_argument("--budget", required=True, type=float)

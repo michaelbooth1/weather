@@ -99,28 +99,29 @@ def test_pinned_client_factory_uses_bootstrap_identity_and_server_time():
         captured["client"] = kwargs
         return "client-object"
 
+    identity = {
+        "schema_version": "mm_stage0_client_identity_v0.1",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "platform": "polymarket_global",
+        "international_platform_confirmed": True,
+        "physical_location_matches_geoblock_confirmed": True,
+        "geoblock_circumvention_absent_confirmed": True,
+        "geographic_eligibility": eligible_geoblock(),
+        "clob_host": "https://clob.polymarket.com",
+        "settlement_unit": "pUSD",
+        "chain_id": 137,
+        "sdk_distribution": "py-clob-client-v2",
+        "sdk_version": "1.1.0",
+        "wallet_type": "deposit_wallet",
+        "funder_address": REFERENCES["POLYMARKET_FUNDER_ADDRESS"],
+        "signature_type": "POLY_1271",
+        "signature_type_id": 3,
+        "isolated_pilot_wallet": True,
+        "pilot_wallet_max_funding_usdc": 100,
+    }
     client = build_pinned_clob_client(
         bundle,
-        {
-            "schema_version": "mm_stage0_client_identity_v0.1",
-            "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
-            "platform": "polymarket_global",
-            "international_platform_confirmed": True,
-            "physical_location_matches_geoblock_confirmed": True,
-            "geoblock_circumvention_absent_confirmed": True,
-            "geographic_eligibility": eligible_geoblock(),
-            "clob_host": "https://clob.polymarket.com",
-            "settlement_unit": "pUSD",
-            "chain_id": 137,
-            "sdk_distribution": "py-clob-client-v2",
-            "sdk_version": "1.1.0",
-            "wallet_type": "deposit_wallet",
-            "funder_address": REFERENCES["POLYMARKET_FUNDER_ADDRESS"],
-            "signature_type": "POLY_1271",
-            "signature_type_id": 3,
-            "isolated_pilot_wallet": True,
-            "pilot_wallet_max_funding_usdc": 100,
-        },
+        identity,
         client_factory=client_factory,
         api_creds_factory=api_creds_factory,
     )
@@ -132,6 +133,17 @@ def test_pinned_client_factory_uses_bootstrap_identity_and_server_time():
     assert captured["client"]["use_server_time"] is True
     assert captured["client"]["retry_on_error"] is False
     assert captured["api_creds"]["api_key"] == "api-key-value"
+
+    identity["wallet_type"] = "gnosis_safe"
+    identity["signature_type"] = "POLY_GNOSIS_SAFE"
+    identity["signature_type_id"] = 2
+    build_pinned_clob_client(
+        bundle,
+        identity,
+        client_factory=client_factory,
+        api_creds_factory=api_creds_factory,
+    )
+    assert captured["client"]["signature_type"] == 2
 
 
 def test_stage0_identity_rejects_missing_topology_and_secret_fields():
@@ -163,7 +175,10 @@ def test_stage0_identity_rejects_missing_topology_and_secret_fields():
         "private_key": "must-never-be-here",
     }
 
-    with pytest.raises(RuntimeError, match="exact_public_schema.*secret_material_absent.*wallet_type"):
+    with pytest.raises(
+        RuntimeError,
+        match="exact_public_schema.*secret_material_absent.*pilot_wallet_signature_topology",
+    ):
         build_pinned_clob_client(
             bundle,
             identity,

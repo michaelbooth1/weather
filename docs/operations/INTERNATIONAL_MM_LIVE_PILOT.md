@@ -73,8 +73,9 @@ All must be current for the target date and selected market:
    balance and allowance each backing the requested budget, a content-bound
    account snapshot, an observed zero open-order count, current
    book/min size/tick/neg-risk, market fee
-   eligibility, a non-posting signed-order preview bound to the exact signer,
-   funder, signature type, and token (raw signature discarded), account-wide
+   eligibility, a non-posting signed-order preview bound to the exact EOA/API
+   owner, order signer, funder/maker, signature type, and token (raw signature
+   discarded), account-wide
    user stream, rotating heartbeat chain,
    cancel-all-to-zero, SDK contract, and secret hygiene. It cannot authorize a
    general maker run.
@@ -82,9 +83,10 @@ All must be current for the target date and selected market:
    API secret, passphrase, and private key must all enter by storage reference;
    their values are forbidden in environment variables, command lines, logs,
    config, or artifacts. The public funder address may be supplied directly.
-   On this Windows host the only prepared resolver is `wincred://`, backed by
+   On a Windows execution host the prepared resolver is `wincred://`, backed by
    the current user's Windows Credential Manager generic credentials. Provision
-   entries through the interactive Credential Manager UI; never put a secret in
+   entries through the interactive Credential Manager UI or the one-time,
+   outside-repository importer documented below; never put a secret in
    `cmdkey /pass`, PowerShell history, a scheduled-task argument, or a reference
    URI. The loader does not print target names or resolved values.
 5. The official International CLOB client `py-clob-client-v2==1.1.0` is
@@ -206,7 +208,9 @@ manifest; requiring the later observed bootstrap here would create an
 impossible dependency cycle. The returned raw SDK client is still not order
 authorization: only `weather.market.mm_live_lifecycle_probe`, with a passing
 observed bootstrap and its separate literal confirmation, may perform Stage 1.
-No credential entries were read or created by this change.
+`weather.market.mm_credential_import_cli` is the separate one-time migration
+boundary for an already supplied external credential file. It is not imported
+by the live runner and cannot authorize an order.
 
 ### Eligible-host operator commands
 
@@ -218,16 +222,27 @@ history.
 First create the public identity with a current official geoblock response. The
 command derives the numeric signature ID, strips the detected IP, rejects proxy
 configuration and blocked locations, and writes no identity if any public gate
-fails. Choose the wallet and signature types from the exact topology established
-during wallet setup; do not guess or switch them after a failed probe:
+fails. Only these two documented topologies are accepted:
+
+| Wallet class | Signature | EOA/API owner | Order signer | Funder/maker |
+| --- | --- | --- | --- | --- |
+| Existing Gnosis Safe | `POLY_GNOSIS_SAFE` / `2` | private-key EOA | same EOA | distinct Safe |
+| New deposit wallet | `POLY_1271` / `3` | private-key EOA | deposit wallet | same deposit wallet |
+
+The supplied funded-wallet configuration declares the first topology. Offline
+validation on 2026-08-13 with the exact pinned SDK proved that its private key
+derives its public EOA, that the SDK selects that EOA as the type-2 order signer,
+and that the configured Safe funder is distinct. This is not exchange
+authentication or order evidence; Stage 0 must still prove it against live
+account reads on the eligible host. Do not switch topology after a failed probe:
 
 ```powershell
 $pilotFunderAddress = "replace-with-public-funder-address"
 $pilotConditionId = "replace-with-condition-id"
 $pilotTokenId = "replace-with-token-id"
 $pilotTargetDate = "replace-with-target-date"
-$pilotWalletType = "replace-with-verified-wallet-type"
-$pilotSignatureType = "replace-with-verified-signature-type"
+$pilotWalletType = "gnosis_safe"
+$pilotSignatureType = "POLY_GNOSIS_SAFE"
 
 .\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli prepare-identity `
   --funder-address $pilotFunderAddress `
@@ -244,16 +259,36 @@ $pilotSignatureType = "replace-with-verified-signature-type"
 ```
 
 Only after identity preparation passes, provision the four secret values as
-Windows Credential Manager generic credentials through the interactive UI. Set
-only their `wincred://` references and the public funder address in the process
-environment. The required variables are `POLYMARKET_API_KEY_STORAGE_REF`,
+Windows Credential Manager generic credentials. If an external source file is
+used, keep it outside the repository, remove inherited broad ACLs, and run the
+importer only on the eligible execution host. The importer validates the private
+key/address and exact wallet/signature topology, refuses existing fixed targets,
+rolls back partial writes, ignores relayer/RPC/location/live-flag fields, and
+emits only a public reference manifest and secret-free receipt:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
+  --source-env C:\secure\pilot.env.txt `
+  --manifest-out C:\pilot\credential-references.json `
+  --receipt-out C:\pilot\credential-import-receipt.json `
+  --confirm-source-acl-private `
+  --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
+```
+
+Do not proceed unless the receipt is `PASS`, reports exactly four entries, and
+has no rollback. Then set only the manifest's `wincred://` references and public
+funder address in the process environment. The required variables are
+`POLYMARKET_API_KEY_STORAGE_REF`,
 `POLYMARKET_API_SECRET_STORAGE_REF`,
 `POLYMARKET_API_PASSPHRASE_STORAGE_REF`,
 `POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
 `POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
 credentials themselves. Install the repository's exact `live` dependency extra
 in the eligible host's dedicated virtual environment; the runtime rejects any
-SDK version other than the pinned version.
+SDK version other than the pinned version. After a successful import, independent
+keyless doctor, and secured transfer verification, delete the source credential
+file using the eligible host's approved secure-deletion procedure. The importer
+never deletes it automatically.
 
 Run the keyless doctor before Stage 0. It validates the exact SDK version,
 Windows resolver availability, reference URI shapes and completeness, direct-
@@ -498,15 +533,18 @@ it only if the exact version proves post-only placement, rotating REST
 heartbeats, account-wide user events, cancel-all-to-zero, and asynchronous fill
 settlement in a keyless contract test.
 
-The isolated wallet model is also unproven. Before funding it, Stage 0 must show
-that the exact signer, funder/deposit-wallet, signature type, and API-key owner
-are mutually consistent. A balance read is not sufficient: the same identity
+The supplied Safe wallet's local cryptographic topology is proven, but its live
+exchange behavior is still unproven. Stage 0 must show that the exact signer,
+Safe/deposit-wallet funder, signature type, and API-key owner satisfy the
+topology table above. A balance read is not sufficient: the same identity
 must pass authenticated user-stream subscription, heartbeat, a signed-order
 preview or non-posting contract probe, and cancel-all. Do not rely on a manual
 UI-trade workaround or silently switch wallet/signature models after a failure.
 
 Official references reviewed on 2026-08-13:
 
+- <https://docs.polymarket.com/trading/overview>
+- <https://docs.polymarket.com/api-reference/authentication>
 - <https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0>
 - <https://github.com/Polymarket/agent-skills/blob/main/order-patterns.md>
 - <https://github.com/Polymarket/py-sdk>

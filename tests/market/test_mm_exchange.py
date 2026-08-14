@@ -396,6 +396,8 @@ class TestMMExchange(unittest.TestCase):
                 self.open_orders = []
                 self.heartbeat_counter = 0
                 self.signed_maker = "0x" + "a" * 40
+                self.signed_signer = None
+                self.signature_type = 3
                 self.next_order_response = {
                     "success": True,
                     "orderID": "order-1",
@@ -447,10 +449,14 @@ class TestMMExchange(unittest.TestCase):
             def create_order(self, order, *, options):
                 self.calls.append(("create_order", order, options))
                 return {
-                    "signer": self.get_address(),
+                    "signer": self.signed_signer or (
+                        self.signed_maker
+                        if self.signature_type == 3
+                        else self.get_address()
+                    ),
                     "maker": self.signed_maker,
                     "tokenId": order["token_id"],
-                    "signatureType": 3,
+                    "signatureType": self.signature_type,
                     "signature": "0x" + "f" * 130,
                 }
 
@@ -553,7 +559,44 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(preview["status"], "VERIFIED_NON_POSTING_PREVIEW")
         self.assertFalse(preview["signature_retained"])
         self.assertNotIn("signature", preview)
+        self.assertEqual(preview["client_signer_address"], "0x" + "d" * 40)
+        self.assertEqual(preview["order_signer_address"], "0x" + "a" * 40)
         self.assertEqual(len(preview["signed_order_sha256"]), 64)
+
+        safe_client = FakeClient()
+        safe_client.signature_type = 2
+        safe_adapter = make_adapter(safe_client)
+        safe_adapter.refresh_market_rules()
+        safe_preview = safe_adapter.preview_signed_order(
+            {
+                "token_id": "token-80",
+                "price": 0.01,
+                "size": 5,
+                "side": "BUY",
+            },
+            expected_signature_type_id=2,
+        )
+        self.assertEqual(safe_preview["client_signer_address"], "0x" + "d" * 40)
+        self.assertEqual(safe_preview["order_signer_address"], "0x" + "d" * 40)
+        self.assertEqual(safe_preview["maker_address"], "0x" + "a" * 40)
+
+        eoa_order_signer_client = FakeClient()
+        eoa_order_signer_client.signed_signer = eoa_order_signer_client.get_address()
+        eoa_order_signer_adapter = make_adapter(eoa_order_signer_client)
+        eoa_order_signer_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "order_signer_matches_wallet_topology",
+        ):
+            eoa_order_signer_adapter.preview_signed_order(
+                {
+                    "token_id": "token-80",
+                    "price": 0.01,
+                    "size": 5,
+                    "side": "BUY",
+                },
+                expected_signature_type_id=3,
+            )
         valid_intent = {
             "token_id": "token-80",
             "price": 0.49,

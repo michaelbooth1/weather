@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-13 14:05 (capture recovered after an orphaned evidence child; today's
-grade is already partial).** Read this first, then `ESTABLISHED_FINDINGS.md`.
+**Last rewritten: 2026-08-13 20:04 (capture healthy; today's grade remains irrecoverably partial;
+International live-pilot preparation advanced).** Read this first, then `ESTABLISHED_FINDINGS.md`.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** Answers *"what is happening right now?"* —
 > **not what we know.** `ESTABLISHED_FINDINGS` owns findings and every interval ·
@@ -68,9 +68,9 @@ MORE.** Numbers: §1, §1b, §1i, §4.
 | --- | --- | --- |
 | `-09-73a` … `-09-78a` | observation-recovery candidate | **THREAD CLOSED UNPOWERED, α UNSPENT.** `-09-78a` (§5e) NO-GO under *both* calibration premises including the candidate's own. **The limit is the stratum's 11 date clusters, not the 12-market floor** — ~22 would flip it. Draft stays unfrozen |
 | `-09-63a` | B-only screen — **NO-GO at Gate 3** | **STILL QUEUED.** Conflicted 08-11 05:30 in `ESTABLISHED_FINDINGS`/`STATE_OF_PLAY`; driver aborted cleanly. Report **not in-repo** — cite the branch |
-| `-09-69a` | execution-tape continuous capture | **APPROVED; NOT YET RUNNING.** Exact-tip suite re-armed **08-13 20:30** after the prior run aborted on its own commit ceiling. Merge only on the full suite verdict, then prove real execution rows before starting harvest-lane code |
+| `-09-69a` | execution-tape continuous capture | **APPROVED; NOT YET RUNNING.** The original exact-tip suite is re-armed **08-13 20:30**. The corrected identity-safe tape branch has its guarded merge at **01:30** and bounded production probe at **02:15**. Accept only task artifacts and the guarded merge verdict; prove real rows before starting harvest-lane code |
 | International rebate economics | paper accounting and fail-closed venue evidence | **BUILT, NOT MERGED** on `codex/international-rebate-pivot` at `a8b172a8`. Production remains on the obsolete US snapshot until post-window tests, quiet-window merge, a fresh International snapshot, and explicit baseline acceptance |
-| International live probe | bounded exchange-lifecycle test | **PREP ONLY** on `codex/international-live-probe`: International-only, one market, ≤100 USDC-equivalent, official CLOB v2 adapter boundary. No credentials, readiness artifact, continuous execution rows, or live order exists |
+| International live probe | bounded exchange-lifecycle test | **PREP ONLY** on `codex/international-live-probe`: fail-closed Stage 0/1 CLI and eligible-host credential importer built; supplied funded Safe/type-2 bundle was validated offline against the exact pinned SDK without emitting secrets. The source stays outside the repo with a private ACL and was **not imported on this host**. Full suite is staged for **04:30** but must be rebound to the final tip. No readiness artifact, continuous execution rows, authenticated exchange call, or live order exists; mutation must run on the separate genuinely eligible host |
 | PIT extract | frozen lead-1 daily features, **shipped in-repo** | `docs/roadmap/pit-lead1-daily-features-2026-09-61a.csv`, sha256 `60b450f1…`, **696 rows** |
 | PIT fields | staged 12/12, `06-03 → 08-09`, 100% coverage | **NOT adopted** — a serving change; replay first (§1e) |
 

@@ -105,6 +105,7 @@
   "source_urls": [
     "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
     "https://docs.polymarket.com/api-reference/authentication",
+    "https://docs.polymarket.com/trading/overview",
     "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
     "https://docs.polymarket.com/api-reference/wss/user",
     "https://docs.polymarket.com/trading/orders/overview",

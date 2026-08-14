@@ -720,9 +720,9 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
         "signature_type_id": 3,
         "funder_address": "0x0000000000000000000000000000000000000001",
         "wallet_identity": {
-            "private_key_signer_address": "0x0000000000000000000000000000000000000001",
+            "private_key_signer_address": "0x0000000000000000000000000000000000000002",
             "order_signer_address": "0x0000000000000000000000000000000000000001",
-            "api_key_owner_address": "0x0000000000000000000000000000000000000001",
+            "api_key_owner_address": "0x0000000000000000000000000000000000000002",
             "consistency_verified": True,
         },
         "sdk_contract": {
@@ -1470,6 +1470,27 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertIn("wallet_identity_consistency_verified", gate["missing"])
         self.assertIn("dead_man_heartbeat_rotating_id_chain_verified", gate["missing"])
         self.assertIn("dead_man_heartbeat_cadence_verified", gate["missing"])
+
+    def test_platform_verification_gate_accepts_existing_gnosis_safe_topology(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_platform_verification(Path(tmp) / "platform_safe.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["wallet_type"] = "gnosis_safe"
+            payload["signature_type"] = "POLY_GNOSIS_SAFE"
+            payload["signature_type_id"] = 2
+            payload["wallet_identity"]["order_signer_address"] = (
+                payload["wallet_identity"]["private_key_signer_address"]
+            )
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+            )
+
+        self.assertTrue(gate["ok"], gate["missing"])
 
     def test_platform_verification_gate_enforces_operator_and_wallet_budget_caps(self):
         with tempfile.TemporaryDirectory() as tmp:
