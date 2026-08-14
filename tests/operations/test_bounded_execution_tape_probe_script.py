@@ -23,6 +23,9 @@ def test_probe_owns_child_and_enforces_resource_bounds() -> None:
 
     assert "windows_kill_on_close_job.ps1" in script
     assert "Start-WeatherProcessInJob" in script
+    assert '@{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720 }' in script
+    assert '@{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180 }' in script
+    assert '@{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180 }' in script
     assert "working set $workingSetMB MB exceeds" in script
     assert "host commit $commit% exceeds abort ceiling" in script
 
