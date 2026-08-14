@@ -21,6 +21,10 @@ These instructions apply to `scripts/ops/`.
   executable task logic. Merge queues use `merge_queue_driver.ps1` and bind
   every approved branch to a full reviewed SHA; movable branch-only queues are
   unsupported.
+- A scheduled roll-sensitive merge that depends on a bounded full suite uses
+  `suite_gated_quiet_merge.ps1`. Bind its task action, log, branch, and full tip;
+  a task exit code without the correlated exact full-suite verdict is not merge
+  evidence.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.
