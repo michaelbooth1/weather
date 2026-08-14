@@ -257,9 +257,11 @@ After a reviewed execution-tape producer lands, use
 starting an unbounded process and killing it later. The probe is restricted to 01:00–04:00,
 requires the reviewed full SHA to be an ancestor of synchronized production master, and runs
 the read-only producer in a kill-on-close Windows Job for a bounded interval. It fails unless
-the new session proves full routed coverage, writes at least one new execution observation,
-adds no parse or routing errors, stops cleanly, stays inside working-set and host-commit
-ceilings, and leaves all three capture workers healthy with an advancing snapshot heartbeat.
+the new session observes the complete active seed set connected, writes at least one cleanly
+routed execution observation, adds no parse or routing errors, stops cleanly, stays inside
+working-set and host-commit ceilings, and leaves all three capture workers healthy with an
+advancing snapshot heartbeat. A connected socket plus one routed observation does not prove
+that every subscribed asset traded or that the public stream can identify our own fills.
 It writes the latest result and append-only history under `data/alerts/`. The probe neither
 registers nor authorizes continuous capture.
 
