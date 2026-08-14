@@ -28,6 +28,12 @@ These instructions apply to `scripts/ops/`.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.
+- Registration sources for unattended recurring work must explicitly bind a
+  current-user `S4U` / `Limited` principal. Re-running a registrar must not
+  replace an unattended task with an interactive-logon dependency. The
+  credential-vault push and mirror tasks are the intentional interactive
+  exceptions; do not convert them to S4U because that session cannot access the
+  vault.
 - Editing a script does not authorize registering, disabling, starting, or
   deleting a task. Make those changes only when the user explicitly places the
   host scheduler in scope.
