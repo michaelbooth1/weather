@@ -12,6 +12,7 @@ from pathlib import Path
 from weather.collection.redaction import has_unredacted_sensitive_url_parts
 from weather.market.market_config import ensure_date
 from weather.market.market_making_run_constants import (
+    MAX_OPERATOR_PILOT_BUDGET_USDC,
     PLATFORM_VERIFICATION_SCHEMA_VERSION,
     SCHEMA_VERSION,
 )
@@ -141,7 +142,6 @@ PILOT_WALLET_SIGNATURE_TYPES = {
     "gnosis_safe": ("POLY_GNOSIS_SAFE", 2),
     "deposit_wallet": ("POLY_1271", 3),
 }
-MAX_OPERATOR_PILOT_BUDGET_USDC = 100.0
 INTERNATIONAL_SETTLEMENT_UNIT = "pUSD"
 
 

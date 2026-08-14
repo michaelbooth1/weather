@@ -17,7 +17,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from weather.market.market_making_preflight import (
-    MAX_OPERATOR_PILOT_BUDGET_USDC,
     INTERNATIONAL_SETTLEMENT_UNIT,
     contains_secret_material,
     dict_value,
@@ -28,6 +27,7 @@ from weather.market.market_making_preflight import (
     signature_type_consistent,
     valid_evm_address,
 )
+from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
 from weather.market.mm_official_adapter import (
     CONDITION_ID_RE,

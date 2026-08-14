@@ -19,6 +19,7 @@ from importlib import metadata
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.mm_policy import bool_value
 from weather.market.mm_geoblock import (
     collect_official_geoblock_evidence,
@@ -692,6 +693,12 @@ class OfficialPolymarketGlobalAdapter:
 
         gate = dict(bootstrap_gate or {})
         checks = gate.get("checks")
+        try:
+            requested_budget = Decimal(str(gate.get("requested_budget_usdc")))
+            wallet_cap = Decimal(str(gate.get("pilot_wallet_max_funding_usdc")))
+        except (InvalidOperation, TypeError, ValueError):
+            requested_budget = wallet_cap = None
+        operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
         binding = {
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
@@ -716,6 +723,18 @@ class OfficialPolymarketGlobalAdapter:
             == str(self.maker_address or "").lower(),
             "sdk": str(gate.get("sdk_version") or "") == str(self.sdk_version or ""),
             "signature_type": gate.get("signature_type_id") in {0, 1, 2, 3},
+            "wallet_cap": (
+                wallet_cap is not None
+                and wallet_cap.is_finite()
+                and Decimal("0") < wallet_cap <= operator_cap
+            ),
+            "requested_budget": (
+                requested_budget is not None
+                and requested_budget.is_finite()
+                and Decimal("0") < requested_budget <= operator_cap
+                and wallet_cap is not None
+                and requested_budget <= wallet_cap
+            ),
         }
         missing = [name for name, valid in binding.items() if not valid]
         if missing:

@@ -58,12 +58,13 @@ from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     SIGNATURE_TYPE_IDS,
 )
+from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
 from weather.schema_registry import schema_version
 
 
 RECEIPT_SCHEMA_VERSION = schema_version("mm_live_pilot_command_receipt")
-MAX_PILOT_BUDGET = 100.0
+MAX_PILOT_BUDGET = MAX_OPERATOR_PILOT_BUDGET_USDC
 BUNDLE_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE"
 IDENTITY_CONFIRMATION = "INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY"
 DOCTOR_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE0_KEYLESS_DOCTOR"

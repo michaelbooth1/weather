@@ -1,9 +1,4 @@
-"""Date/budget market-making run orchestrator.
-
-The pure policy module decides whether a single band should quote. This module
-owns operator concerns around target-date discovery, run folders, preflight
-gates, budget accounting, and fail-closed shadow/paper run artifacts.
-"""
+"""Target-date, preflight, budget-accounting, and artifact run orchestrator."""
 
 from __future__ import annotations
 
@@ -15,7 +10,6 @@ import argparse
 import csv
 import hashlib
 import json
-import math
 import time
 from collections import Counter
 from datetime import date, datetime, time as dt_time, timedelta, timezone
@@ -31,7 +25,6 @@ from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.mm_policy import (
     DEFAULT_OBSERVATION_STATUS,
     DEFAULT_KNOWN_EDGE_MAP,
-    DEFAULT_POLICY_CONFIG,
     DEFAULT_PROMOTION_REFRESH,
     DEFAULT_SNAPSHOTS_ROOT,
     POLICY_VERSION,
@@ -110,6 +103,7 @@ from weather.market.market_making_run_support import (  # noqa: E402
     write_csv,
     write_json,
 )
+from weather.market.market_making_live_pilot import build_run_policy_config
 from weather.market.live_forward_gate import build_live_forward_gate
 from weather.market.market_making_model_variants import (
     build_model_variant_quote_rows,
@@ -149,7 +143,6 @@ from weather.market.worker_release_binding import (
     worker_release_summary_fields,
 )
 from weather.market.market_making_preflight import (  # noqa: E402
-    MAX_OPERATOR_PILOT_BUDGET_USDC,
     REMEDIATION_RULES,
     SECRET_FIELD_NAMES,
     SUPPORTED_PLATFORM_IDS,
@@ -1291,15 +1284,6 @@ def build_run_once(
     release_check_runtime=True,
 ):
     mode = normalize_mode(mode)
-    live_pilot_budget = float(budget_usdc)
-    if mode == "live-pilot" and (
-        not math.isfinite(live_pilot_budget)
-        or not 0 < live_pilot_budget <= MAX_OPERATOR_PILOT_BUDGET_USDC
-    ):
-        raise ValueError(
-            "live-pilot budget must be finite, greater than zero, and no more than "
-            f"{MAX_OPERATOR_PILOT_BUDGET_USDC:.2f} USDC"
-        )
     now = utc_now(now)
     target = ensure_date(target_date)
     release_binding = load_worker_release_binding(
@@ -1316,44 +1300,7 @@ def build_run_once(
     release_summary_fields = worker_release_summary_fields(release_binding)
     quote_columns = worker_tape_columns(RUN_QUOTE_COLUMNS, release_binding)
     specs = selected_specs(markets)
-    if mode == "live-pilot" and len(specs) != 1:
-        raise ValueError("live-pilot is restricted to exactly one market")
-    policy_config = {**DEFAULT_POLICY_CONFIG, **(policy_config or {})}
-    if mode == "live-pilot":
-        live_limits = {
-            "max_daily_loss": (
-                policy_config.get("max_daily_loss", live_pilot_budget),
-                min(live_pilot_budget, float(DEFAULT_POLICY_CONFIG["max_daily_loss"])),
-                True,
-            ),
-            "max_event_notional": (
-                policy_config["max_event_notional"],
-                float(DEFAULT_POLICY_CONFIG["max_event_notional"]),
-                True,
-            ),
-            "max_band_notional": (
-                policy_config["max_band_notional"],
-                float(DEFAULT_POLICY_CONFIG["max_band_notional"]),
-                True,
-            ),
-            "quote_ttl_seconds": (
-                policy_config.get("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS),
-                float(DEFAULT_QUOTE_TTL_SECONDS),
-                False,
-            ),
-        }
-        for key, (requested_value, ceiling, allow_zero) in live_limits.items():
-            requested = float(requested_value)
-            if not math.isfinite(requested) or requested < 0 or (not allow_zero and requested == 0):
-                qualifier = "non-negative" if allow_zero else "greater than zero"
-                raise ValueError(f"live-pilot {key} must be finite and {qualifier}")
-            policy_config[key] = min(requested, ceiling)
-    else:
-        policy_config["max_daily_loss"] = min(
-            float(policy_config.get("max_daily_loss", budget_usdc)),
-            float(budget_usdc),
-        )
-        policy_config.setdefault("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS)
+    policy_config = build_run_policy_config(mode, budget_usdc, len(specs), overrides=policy_config)
     evidence_timezone = getattr(getattr(specs[0], "tz", None), "key", None) if specs else None
     evidence_classification = classify_market_making_evidence(
         target,

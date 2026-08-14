@@ -15,8 +15,13 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from weather.market.mm_official_adapter import exact_current_positions_evidence
-from weather.market.mm_official_adapter import CONDITION_ID_RE, EVM_ADDRESS_RE
+from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
+from weather.market.mm_official_adapter import (
+    CONDITION_ID_RE,
+    EVM_ADDRESS_RE,
+    MAX_STAGE1_ORDER_NOTIONAL,
+    exact_current_positions_evidence,
+)
 
 
 SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.1"
@@ -135,6 +140,12 @@ def _minimum_probe_intent(market_rules):
 
 def _validate_bootstrap_binding(adapter, bootstrap_gate):
     checks = bootstrap_gate.get("checks")
+    try:
+        requested_budget = Decimal(str(bootstrap_gate.get("requested_budget_usdc")))
+        wallet_cap = Decimal(str(bootstrap_gate.get("pilot_wallet_max_funding_usdc")))
+    except (ArithmeticError, TypeError, ValueError):
+        requested_budget = wallet_cap = None
+    operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
     required = {
         "required": bootstrap_gate.get("required") is True,
         "ok": bootstrap_gate.get("ok") is True,
@@ -166,6 +177,18 @@ def _validate_bootstrap_binding(adapter, bootstrap_gate):
         "condition_format": CONDITION_ID_RE.fullmatch(
             str(bootstrap_gate.get("condition_id") or "")
         ) is not None,
+        "wallet_cap": (
+            wallet_cap is not None
+            and wallet_cap.is_finite()
+            and Decimal("0") < wallet_cap <= operator_cap
+        ),
+        "requested_budget": (
+            requested_budget is not None
+            and requested_budget.is_finite()
+            and Decimal("0") < requested_budget <= operator_cap
+            and wallet_cap is not None
+            and requested_budget <= wallet_cap
+        ),
         "maker_format": EVM_ADDRESS_RE.fullmatch(
             str(bootstrap_gate.get("funder_address") or "")
         ) is not None,
@@ -622,6 +645,14 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
     }
     journal_evidence = {}
     requested_budget = Decimal(str(bootstrap_gate.get("requested_budget_usdc")))
+    wallet_cap = Decimal(str(bootstrap_gate.get("pilot_wallet_max_funding_usdc")))
+    operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
+    if not all((
+        requested_budget.is_finite(),
+        wallet_cap.is_finite(),
+        Decimal("0") < requested_budget <= wallet_cap <= operator_cap,
+    )):
+        raise RuntimeError("Stage 1 lifecycle bundle exceeds the operator wallet or budget cap")
     for mode, result in results.items():
         try:
             notional = Decimal(str(result.get("order_notional_usdc")))
@@ -656,7 +687,11 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
             "starting_positions": result.get("starting_zero_positions_verified") is True,
             "live_order": result.get("placement_status") == "live",
             "order_id": bool(str(result.get("order_id") or "")),
-            "notional": notional.is_finite() and Decimal("0") < notional <= requested_budget,
+            "notional": (
+                notional.is_finite()
+                and Decimal("0") < notional <= requested_budget
+                and notional <= MAX_STAGE1_ORDER_NOTIONAL
+            ),
             "open_observation": result.get("open_order_observed") is True,
             "user_observation": result.get("authoritative_user_event_observed") is True,
             "cancellation": result.get("cancellation_observed") is True,

@@ -42,6 +42,8 @@ eligible.
 - Exactly one weather market per run.
 - Existing ceilings may be lowered but not raised: **25** daily loss, **25**
   event notional, **10** band notional, and **120 seconds** quote TTL.
+  `weather.market.market_making_live_pilot` owns this mode-specific normalization;
+  the general run orchestrator delegates to it before evaluating any gate.
 - Smallest current exchange-valid share size and current tick size, read from
   the selected book immediately before the order.
 - Post-only limit orders only. No marketable retry after a post-only rejection.
@@ -162,7 +164,10 @@ After both distinct probes pass, construct
 `weather.market.mm_live_lifecycle_probe.build_stage1_lifecycle_bundle`. The
 builder rereads both append-only journals, verifies their hashes and critical
 events, requires distinct journal files and order IDs, and derives the no-fill,
-cancel-all, and heartbeat-lapse facts. Do not hand-author those facts. The
+cancel-all, and heartbeat-lapse facts. It independently rejects a bootstrap
+wallet/request cap above 100 pUSD and either reported order above 10 pUSD;
+upstream PASS booleans do not substitute for these numeric checks. Do not
+hand-author those facts. The
 tracked bundle template is deliberately fail-safe.
 
 Stage 1 is the only order mutation allowed from the bootstrap artifact. Its
@@ -200,6 +205,9 @@ Stage 0, the ordinary runner, or a retry after
 an ambiguous response cannot call the adapter's order method directly.
 The adapter also clamps its effective per-order notional limit to **10 pUSD**
 even if a direct library caller requests more; callers may only lower it.
+Capability issuance and the lifecycle executor independently revalidate the
+finite positive requested budget, isolated-wallet cap, and 100 pUSD operator
+ceiling before any order mutation.
 It also requires a new, non-existing journal path. Before placement it writes
 and flushes the authorization, bootstrap hash, exact intent, and budget; after
 placement it appends exchange observation, cancellation, zero-open-order, and

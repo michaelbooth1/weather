@@ -24,6 +24,7 @@ def bootstrap_gate():
         "token_id": "12345",
         "funder_address": "0x" + "a" * 40,
         "sdk_version": "1.1.0",
+        "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 100.0,
         "account_snapshot_sha256": "b" * 64,
         "geoblock_country": "CH",
@@ -317,6 +318,27 @@ def test_stage1_probe_rejects_missing_confirmation_before_mutation(tmp_path):
     assert not (tmp_path / "must-not-exist.jsonl").exists()
 
 
+def test_stage1_probe_revalidates_operator_budget_cap_before_mutation(tmp_path):
+    clock = FakeClock()
+    adapter = FakeAdapter(clock)
+    gate = bootstrap_gate()
+    gate["requested_budget_usdc"] = 100.01
+
+    with pytest.raises(RuntimeError, match="requested_budget"):
+        execute_stage1_lifecycle_probe(
+            adapter,
+            gate,
+            confirmation=CONFIRMATION,
+            cancellation_mode="cancel_all",
+            journal_path=tmp_path / "oversized-budget.jsonl",
+            monotonic_clock=clock,
+            sleeper=clock.sleep,
+        )
+
+    assert adapter.place_calls == 0
+    assert not (tmp_path / "oversized-budget.jsonl").exists()
+
+
 def test_stage1_binds_adapter_wallet_condition_token_and_sdk_before_journal(tmp_path):
     clock = FakeClock()
     adapter = FakeAdapter(clock)
@@ -430,6 +452,11 @@ def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(t
         "heartbeat_acknowledgment_verified": True,
     }
     assert len(bundle["bundle_sha256"]) == 64
+
+    oversized_result = dict(cancel_result)
+    oversized_result["order_notional_usdc"] = 10.01
+    with pytest.raises(RuntimeError, match="notional"):
+        build_stage1_lifecycle_bundle(gate, oversized_result, dead_result)
 
 
 def test_stage1_bundle_rejects_journal_tampering(tmp_path):

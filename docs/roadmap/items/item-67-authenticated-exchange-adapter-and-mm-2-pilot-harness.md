@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - INTERNATIONAL BOUNDED PROBE PROOF RUNNING; ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - REFRESHED INTERNATIONAL STAGE 0/1 FOCUSED-GREEN; EXACT SUITE AND ELIGIBLE-HOST EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -396,3 +396,14 @@ eligible candidate all block. The related location refresh now has a
 snapshot without rewriting tracked configuration. This selects the lifecycle
 probe only; it does not implement the Stage 2 maker quote or prove reward
 scoring, fills, rebates, or profit.
+
+Refreshed-stack audit update (2026-08-14 UTC): the failed frozen stack was not
+waived. Its live-pilot commits were replayed on current master plus the green
+per-run International economics branch. Live-pilot budget/policy normalization
+now has a dedicated pure owner module, returning the general run orchestrator
+below the 2,000-line architecture ratchet. Capability issuance, lifecycle
+execution, and lifecycle-bundle assembly each independently revalidate the
+finite positive requested budget, isolated-wallet cap, 100 pUSD operator cap,
+and 10 pUSD per-order cap instead of trusting upstream PASS booleans. The
+focused live/economics/architecture matrix passes; an immutable exact-tip full
+suite and reviewed source transfer remain mandatory before eligible-host use.

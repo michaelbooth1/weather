@@ -20,13 +20,13 @@ from weather.market.mm_official_adapter import (
     require_official_clob_version,
 )
 from weather.market.market_making_preflight import (
-    MAX_OPERATOR_PILOT_BUDGET_USDC,
     INTERNATIONAL_SETTLEMENT_UNIT,
     contains_secret_material,
     international_jurisdiction,
     pilot_wallet_signature_topology,
     valid_evm_address,
 )
+from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 
 
 REFERENCE_ENV = {

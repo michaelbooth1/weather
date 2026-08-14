@@ -88,6 +88,7 @@ def official_stage1_gate(adapter, snapshot_character="b"):
         "funder_address": adapter.maker_address,
         "sdk_version": adapter.sdk_version,
         "signature_type_id": 3,
+        "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 100.0,
         "account_snapshot_sha256": snapshot_character * 64,
         "geoblock_country": "CH",
@@ -644,6 +645,14 @@ class TestMMExchange(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "geoblock proof blocks order mutation"):
             blocked_adapter.authorize_stage1_lifecycle(
                 official_stage1_gate(blocked_adapter)
+            )
+
+        oversized_budget_adapter = make_adapter(FakeClient())
+        oversized_budget_gate = official_stage1_gate(oversized_budget_adapter)
+        oversized_budget_gate["requested_budget_usdc"] = 100.01
+        with self.assertRaisesRegex(RuntimeError, "requested_budget"):
+            oversized_budget_adapter.authorize_stage1_lifecycle(
+                oversized_budget_gate
             )
 
         route_changed_adapter = make_adapter(FakeClient())
