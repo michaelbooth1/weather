@@ -214,12 +214,61 @@ by the live runner and cannot authorize an order.
 
 ### Eligible-host operator commands
 
-These commands are preparation for a genuinely eligible physical Windows host;
-they must not be run from the blocked Ontario production host. Never put a secret
-value in the command line, environment, identity manifest, output path, or shell
-history.
+The final sequence is for a genuinely eligible physical Windows host. Public
+metadata, economics, and book selection may be rehearsed from a blocked host,
+but they must be rerun on the eligible host; identity preparation, credential
+import, authenticated Stage 0, and every mutation must not run from the blocked
+Ontario production host. Never put a secret value in the command line,
+environment, identity manifest, output path, or shell history.
 
-First create the public identity with a current official geoblock response. The
+Select the exact Stage 1 market from fresh public data before creating the
+identity. Do not hand-pick a condition or retain an old token from a prior day.
+The metadata refresh's `--metadata-only` mode leaves the tracked location
+registry byte-for-byte unchanged. The selector authenticates nowhere and can
+neither place nor cancel an order; it requires a passing content-bound
+International economics snapshot and current book rules, then emits a
+content-hashed plan that explicitly is not trading authorization:
+
+```powershell
+$pilotTargetDate = "replace-with-target-date"
+
+.\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
+  --locations .\config\locations.json `
+  --event-metadata C:\pilot\location-market-events.json `
+  --metadata-only
+
+.\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global `
+  --event-metadata C:\pilot\location-market-events.json `
+  --snapshot C:\pilot\exchange-economics.json `
+  --target-date $pilotTargetDate `
+  --max-age-hours 2
+
+.\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
+  --economics-snapshot C:\pilot\exchange-economics.json `
+  --target-date $pilotTargetDate `
+  --plan-out C:\pilot\stage1-candidate.json
+
+$pilotPlan = Get-Content -LiteralPath C:\pilot\stage1-candidate.json -Raw | ConvertFrom-Json
+if (
+  $pilotPlan.status -ne "PASS" -or
+  $pilotPlan.selection_is_trading_authorization -or
+  [DateTimeOffset]::Parse($pilotPlan.expires_at_utc) -le [DateTimeOffset]::UtcNow
+) {
+  throw "Stage 1 public candidate selection did not pass"
+}
+$pilotConditionId = [string]$pilotPlan.selected.condition_id
+$pilotTokenId = [string]$pilotPlan.selected.token_id
+```
+
+The plan expires after five minutes. If it expires, rerun the selector with a
+new output path; refresh the economics snapshot too when its own gate expires.
+Stage 0 still rereads the exact book and fails closed on any condition, token,
+min-size, tick, neg-risk, fee, or closed-state drift. The plan's minimum-tick
+intent is only a far-from-mid lifecycle probe and will normally not qualify for
+liquidity rewards or provide maker-fill economics evidence. Stage 2 must use a
+separate current quote decision after Stage 1 passes.
+
+Next create the public identity with a current official geoblock response. The
 command derives the numeric signature ID, strips the detected IP, rejects proxy
 configuration and blocked locations, and writes no identity if any public gate
 fails. Only these two documented topologies are accepted:
@@ -238,9 +287,6 @@ account reads on the eligible host. Do not switch topology after a failed probe:
 
 ```powershell
 $pilotFunderAddress = "replace-with-public-funder-address"
-$pilotConditionId = "replace-with-condition-id"
-$pilotTokenId = "replace-with-token-id"
-$pilotTargetDate = "replace-with-target-date"
 $pilotWalletType = "gnosis_safe"
 $pilotSignatureType = "POLY_GNOSIS_SAFE"
 
@@ -549,6 +595,9 @@ Official references reviewed on 2026-08-13:
 - <https://github.com/Polymarket/agent-skills/blob/main/order-patterns.md>
 - <https://github.com/Polymarket/py-sdk>
 - <https://docs.polymarket.com/programs/maker-rebates>
+- <https://docs.polymarket.com/programs/liquidity-rewards>
+- <https://docs.polymarket.com/trading/orders/create>
+- <https://docs.polymarket.com/api-reference/trade/get-order-scoring-status>
 - <https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker>
 
 ## Stop conditions

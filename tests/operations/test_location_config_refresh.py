@@ -3,6 +3,7 @@ import json
 from weather.operations.location_config_refresh import (
     build_location_market_events,
     durable_locations_payload,
+    main,
 )
 
 
@@ -76,3 +77,43 @@ def test_location_config_refresh_splits_volatile_market_events_from_durable_loca
 def test_location_config_refresh_payload_is_json_serializable():
     payload = build_location_market_events({"locations": []}, [], generated_at_utc="2026-06-20T00:00:00+00:00")
     json.dumps(payload)
+
+
+def test_metadata_only_cli_leaves_location_registry_unchanged(tmp_path):
+    locations_path = tmp_path / "locations.json"
+    event_metadata_path = tmp_path / "events-out.json"
+    events_path = tmp_path / "events-in.json"
+    locations_path.write_text(
+        json.dumps({
+            "schema_version": "location_registry_v0.1",
+            "locations": [{
+                "id": "atlanta",
+                "polymarket": {
+                    "event_slug_prefix": "highest-temperature-in-atlanta-on",
+                },
+            }],
+        }, indent=3),
+        encoding="utf-8",
+    )
+    events_path.write_text(
+        json.dumps({
+            "events": [{
+                "id": "123",
+                "slug": "highest-temperature-in-atlanta-on-august-14-2026",
+                "markets": [],
+            }],
+        }),
+        encoding="utf-8",
+    )
+    before = locations_path.read_bytes()
+
+    main([
+        "--locations", str(locations_path),
+        "--event-metadata", str(event_metadata_path),
+        "--events-json", str(events_path),
+        "--metadata-only",
+    ])
+
+    assert locations_path.read_bytes() == before
+    payload = json.loads(event_metadata_path.read_text(encoding="utf-8"))
+    assert payload["locations"][0]["active_events"][0]["event_date"] == "2026-08-14"

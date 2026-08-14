@@ -1351,6 +1351,13 @@ REGISTERED_SCHEMAS = (
         "Secret-free eligible-host credential import result with validation check names, entry counts, and rollback state.",
     ),
     SchemaSpec(
+        "mm_live_market_candidate_plan",
+        "mm_live_market_candidate_plan_v0.1",
+        "weather.market.mm_live_candidate_cli",
+        "active",
+        "Fresh public International weather-market candidate selected from a content-bound economics snapshot and current CLOB books for the bounded lifecycle probe; never trading authorization.",
+    ),
+    SchemaSpec(
         "mm_platform_verification",
         "mm_platform_verification_v0.4",
         "weather.market.market_making_run",
