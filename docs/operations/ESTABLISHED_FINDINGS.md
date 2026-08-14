@@ -2219,6 +2219,28 @@ queue, and only an immutable explicitly approved exact-tip queue authorizes inte
 changes remove three standing warnings without weakening capture, closure, task, or exact-tip
 checks.
 
+## 8k. Historical maker legs require their own captured International economics
+
+**Immutable exact-tip suite measured 2026-08-14 04:30–04:38 local.** Branch
+`codex/international-live-probe` was clean at
+`904ce2d824fe48071062eb9a769d6a5e921b4dba`; all three capture workers passed every
+chunk admission. The complete 17-chunk receipt contains **4,425 tests: 4,418 passed and 7
+failed**, with terminal verdict `3 CHUNK(S) FAILED; do not merge`.
+
+Four failures are one economics defect: daily maker scoring returned `BLOCK` when selecting,
+trimming, or mixing historical run inputs because it tried to bind those legs to the newest
+current-day condition/token snapshot. International condition and token identities roll by date;
+the current snapshot cannot truthfully supply an older run's economics. Two failures enforce the
+module-size ownership ratchet after the live-pilot runner crossed its warning threshold. The final
+failure is a stale-stack research inventory mismatch already repaired on current production
+master. None is a capture or resource-admission failure.
+
+The correction is to atomically freeze the validated snapshot in each run, then score in a bounded
+two-pass stream that verifies file hash, source hash, snapshot/quote identity, target date, and
+run-time freshness. Missing, mixed, replaced, or tampered captures stay unbound with zero incentive
+economics. A focused repair is green on an isolated current-master branch, but the failed exact tip
+remains ineligible until its refreshed cumulative successor passes a new immutable full suite.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

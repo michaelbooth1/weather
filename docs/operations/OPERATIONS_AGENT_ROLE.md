@@ -15,12 +15,14 @@ days without a rewrite and ended up asserting three things that were no longer t
 
 ## 1. Read these first, in this order
 
-1. **`MEMORY.md`** in the auto-memory directory (`C:\Users\micha\.claude\projects\c--Users-micha-Desktop-github-weather\memory\`).
+1. **`STATE_OF_PLAY.md`** — what is happening right now. Capped at ~90 lines, rewritten not appended.
+   This order matches the repository-wide agent contract; start here again after context compaction.
+2. **`MEMORY.md`** in the auto-memory directory (`C:\Users\micha\.claude\projects\c--Users-micha-Desktop-github-weather\memory\`).
    The index loads automatically; the linked files do not. **Read the linked file before acting on
    an index line** — the index compresses to the point of being misleading on its own.
-2. **`docs/operations/reserved-confirmation-window.md`** — which dates are held out and why. **It
-   wins over any handoff text, including this one.** Reading a reserved date destroys it permanently.
-3. **`STATE_OF_PLAY.md`** — what is happening right now. Capped at ~90 lines, rewritten not appended.
+3. **`docs/operations/reserved-confirmation-window.md`** before accessing dated evidence — which
+   dates are held out and why. **It wins over any handoff text, including this one.** Reading a
+   reserved date destroys it permanently.
 4. **`ESTABLISHED_FINDINGS.md`** — what is known, and **the only place to cite numbers from.**
    `RETRACTED_AND_FALSE_LEADS.md` is what is false despite looking true. Read it before you get
    excited about anything; it is the longer of the two.
@@ -140,8 +142,10 @@ nowhere** — it is derived. `OPERATING_REFERENCE.md` is **generated**; fix the 
 - **`git commit -F <file>`.** PowerShell 5.1 here-strings mangle `-m`. Other 5.1 traps: no `&&`/`||`;
   `Remove-Item -Path` treats `[...]` as wildcards, use `-LiteralPath`; `$var +=` inside
   `ForEach-Object` is scriptblock-local; avoid `2>$null` on native git.
-- **Log rotation is the known capture killer.** The crash mode is **reopening** a big `.jsonl`, and
-  **the breaker's state lives in the file you rotate.** It took capture down 5h54m on 08-09.
+- **Unsafe manual log rotation is a known capture killer.** The crash mode is **reopening** a big
+  `.jsonl`, and **the breaker's state lives in the file you rotate.** It took capture down 5h54m on
+  08-09. The repository-owned non-deleting rotation path is production-proved; use that path and
+  preserve its timestamped archives and breaker history rather than improvising a move or truncate.
 - **Worktree tests test PRODUCTION code** unless you check. **Print the module `__file__` first.**
 
 ---

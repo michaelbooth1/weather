@@ -47,6 +47,9 @@ machine-local state.
 - Configured Weather Underground history is the settlement proxy. METAR, ECCC,
   NWS, Open-Meteo, marine, and related sources are supporting evidence unless a
   specific contract explicitly says otherwise.
+- The trading product is **International Polymarket only**. Polymarket US code,
+  fixtures, and historical evidence are compatibility surfaces, not an allowed
+  platform for new probes, credentials, live-readiness, or order mutation.
 - Paid weather-provider access is unsupported. Do not add credentials, required
   environment variables, or plans that depend on a paid weather source.
 - Model changes must preserve train/serve feature parity, effective WU print
