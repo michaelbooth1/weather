@@ -211,6 +211,35 @@ def test_rotate_sidecar_retries_transient_windows_permission_error(
     assert sleeps == [0.1, 0.2]
 
 
+def test_rotate_sidecar_persistent_permission_error_still_fails_closed(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "diagnostics.jsonl"
+    path.write_text("legacy\n", encoding="utf-8")
+    attempts = []
+    sleeps = []
+
+    def locked_rename(source, target):
+        attempts.append((source, target))
+        raise PermissionError("persistent scanner lock")
+
+    monkeypatch.setattr(Path, "rename", locked_rename)
+    with pytest.raises(PermissionError, match="persistent scanner lock"):
+        weather_io.rotate_sidecar(
+            path,
+            max_bytes=1,
+            now=datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc),
+            max_attempts=3,
+            retry_delay_seconds=0.1,
+            sleep_fn=sleeps.append,
+        )
+
+    assert path.exists()
+    assert len(attempts) == 3
+    assert sleeps == [0.1, 0.2]
+
+
 def test_jsonl_integrity_counts_malformed_lines(tmp_path):
     path = tmp_path / "loop_console.log"
     path.write_text('{"ok": true}\nnot-json\n{"ok": false}\n', encoding="utf-8")
