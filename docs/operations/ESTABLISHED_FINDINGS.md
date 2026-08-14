@@ -2173,6 +2173,21 @@ with SHA-256 `FB263B9FD9A6FFC461F4FC76EC27D0E0560468C6EE1FB742995D2D9A0C3560D8`.
 `staleness_sweep.ps1` now rejects `DEAD` or `BLOCKED` states generically in every configured
 closure rather than carrying a permanent warning for one historical filename.
 
+## 8h. Maker recovery outside the evidence window is non-countable waste
+
+**Production state measured 2026-08-14 03:31 local; bounded recovery added 2026-08-14.** The prior
+maker status recorded a run started at **23:01 local** for the previous target date. Its evidence
+classifier correctly marked it `post_settlement_evaluation`, false for the live-forward gate, and
+“started after active-day evidence window.” The supervisor had only a **07:05** lower launch bound;
+same-target recovery after the **20:00** evidence cutoff was therefore allowed to consume restart
+budget and create a run folder that could never count.
+
+Maker `ensure` now has a fail-closed **07:05–20:00** local launch/recovery window aligned to the
+configured evidence cutoff. A healthy worker is left alone after the boundary; only a proposed
+`start` or `restart` becomes `scheduled_wait`, before recovery-budget accounting or process
+mutation. The taker remains intentionally unbounded at the end of day. Inverted windows are
+rejected rather than silently interpreted as overnight ranges.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

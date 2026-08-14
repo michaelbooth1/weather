@@ -22,18 +22,7 @@ day. **Detection latency must be below the fatal gap or the guard cannot save a 
 See `derived-rules-are-the-invisible-ones` — the relationship between these two numbers is written
 nowhere and neither number looks wrong alone.
 
-## 2. The maker restarts all night outside its own evidence window
-
-`daily_roll_status.json` carries `start_time_gate.start_after_local_time: "07:05"` and **no end
-time**, while `evidence_classification` rejects any run started outside **07:00–20:00** local
-(`counts_toward_live_forward_gate: false`, reason *"run started after active-day evidence window"*).
-
-Overnight restarts are therefore **non-countable by construction**, but each still consumes restart
-budget and writes a run folder that is later quarantined. This was verified not to block the 07:05
-start; it is waste rather than a current outage. The gate needs an end time symmetric with the one
-it already has.
-
-## 3. Revert the Windows auto-reboot block after the build window
+## 2. Revert the Windows auto-reboot block after the build window
 
 AU policy was changed on 2026-08-03 to stop an unattended reboot breaking the streak during the
 release build window. **It is still in place.** Leaving it indefinitely means security updates stop
