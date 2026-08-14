@@ -1510,13 +1510,37 @@ def acquire_file_lock(
     return None
 
 
-def release_file_lock(handle: int | None, path: str | Path) -> None:
+def release_file_lock(
+    handle: int | None,
+    path: str | Path,
+    *,
+    attempts: int = 6,
+    sleep_seconds: float = 0.1,
+    sleep_fn: SleepFn = time.sleep,
+) -> None:
+    """Close and remove a process lock, retrying transient Windows denials.
+
+    Antivirus and indexing can briefly retain the directory entry after the
+    owning handle closes. Leaving that entry behind is not cosmetic: if the
+    owning Python process remains alive, the next lifecycle decision correctly
+    treats the lock as live and can remain blocked until its stale threshold.
+    Persistent denial still raises so callers never report an unproven release.
+    """
+
     if handle is None:
         return
+    attempts = max(1, int(attempts))
+    sleep_seconds = max(0.0, float(sleep_seconds))
     try:
         os.close(handle)
     finally:
-        try:
-            Path(path).unlink()
-        except FileNotFoundError:
-            pass
+        for attempt in range(attempts):
+            try:
+                Path(path).unlink()
+                return
+            except FileNotFoundError:
+                return
+            except PermissionError:
+                if attempt + 1 >= attempts:
+                    raise
+                sleep_fn(sleep_seconds)
