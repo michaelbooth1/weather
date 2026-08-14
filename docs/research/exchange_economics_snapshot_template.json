@@ -18,16 +18,24 @@
     "name": "polymarket_global_per_condition_fee_schedule_v1",
     "taker_fee_model": "fee = shares * rate * price * (1 - price)",
     "maker_fee_rate": 0.0,
+    "fee_precision_decimals": 5,
+    "minimum_nonzero_fee_usdc": 0.00001,
+    "subminimum_fee_rounds_to_zero": true,
     "per_condition_source_of_truth": "markets[].fee_schedule"
   },
   "maker_rebate": {
     "formula": "maker_rebate = executed_maker_fee_weight * fee_schedule.rebate_rate",
     "documented_payout_asset": "pUSD",
+    "minimum_accrued_payout_pusd": 1.0,
+    "payout_cadence": "daily",
+    "calculation_scope": "per_market",
     "paper_accounting_unit": "usd_equivalent",
     "requires_resting_fill": true,
     "requires_actual_reconciliation": true,
+    "requires_minimum_payout_reconciliation": true,
     "requires_payout_asset_reconciliation": true,
-    "actual_reconciliation_endpoint": "https://clob.polymarket.com/rebates/current"
+    "actual_reconciliation_endpoint": "https://clob.polymarket.com/rebates/current",
+    "actual_reconciliation_endpoint_requires_auth": false
   },
   "liquidity_rewards": {
     "formula": "polymarket_global_Q_score_market_specific",
