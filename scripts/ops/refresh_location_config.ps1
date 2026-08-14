@@ -1,4 +1,6 @@
-# Refreshes the generated Polymarket event-metadata config from live data.
+# Refreshes the generated Polymarket event-metadata config from live data, then
+# independently validates today's configured markets against live Gamma before
+# reporting task success.
 #
 # Regenerates config/location_market_events.json so the collection loops always
 # hold the current and upcoming daily temperature-market events plus their CLOB
@@ -29,12 +31,42 @@ $arguments = @(
     "--event-metadata",
     $EventMetadata
 )
+$targetDate = (Get-Date).ToString("yyyy-MM-dd")
+$validationJson = Join-Path $RepoRoot "data\backtest\event_metadata_validation.json"
+$validationReport = Join-Path $RepoRoot "data\backtest\event_metadata_validation_report.md"
+$validationArguments = @(
+    "-m",
+    "weather.operations.event_metadata_validation",
+    "--target-date",
+    $targetDate,
+    "--locations",
+    $Locations,
+    "--event-metadata",
+    $EventMetadata,
+    "--json-out",
+    $validationJson,
+    "--report-out",
+    $validationReport
+)
 
 Push-Location $RepoRoot
 try {
     & $python @arguments
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
+    }
+    & $python @validationArguments
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+    try {
+        $validation = Get-Content -Raw -Encoding UTF8 -LiteralPath $validationJson | ConvertFrom-Json
+    }
+    catch {
+        throw "event metadata validation receipt is missing or unreadable: $validationJson"
+    }
+    if ([string]$validation.target_date -ne $targetDate -or [string]$validation.status -ne "PASS") {
+        throw "event metadata validation did not pass for $targetDate; inspect $validationReport"
     }
 }
 finally {

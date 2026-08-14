@@ -2276,6 +2276,22 @@ cadence argument and S4U principal, run a fresh exact-tip suite, use the guarded
 and measure the live stop-to-recovery interval. Keep the backlog item open until that evidence
 exists.
 
+## 8m. Target-date validation must precede the active-day maker launch
+
+**Live paper-path reproduction and recovery measured 2026-08-14 07:05–07:09 local.** The scheduled
+paper-maker started on the current date with all three useful-write checks passing, but all **12/12
+markets** failed preflight because the validation artifact still targeted `2026-08-13`. The live
+location configuration had already refreshed successfully at 06:00; the next existing validation
+producer was the 09:30 daily chain. This ordering made the 07:05 launch non-countable despite fresh
+capture and current market configuration.
+
+An independent live validation for `2026-08-14` passed **12/12 markets with zero issues**. On the
+next maker tick, preflight changed to `PASS` and the run counted toward live-forward evidence. It
+still had **zero quote-permission rows, zero open orders, and zero fills** because policy found no
+executable edge; no risk or evidence gate was weakened. The durable location-refresh wrapper now
+runs that independent live validation after regenerating configuration and refuses task success
+unless the receipt is readable, dated to the same local target date, and `PASS`.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
