@@ -30,9 +30,11 @@ operator must also confirm that the response matches the host's real physical
 location and that no VPN, proxy, relay, or other geoblock circumvention is in
 use. Viewing and public capture may continue from a blocked host; order
 mutation may not. On 2026-08-13 the production host returned `blocked=true`,
-`country=CA`, `region=ON`, so this host is preparation/read-only only. Never
-move submission unless the new host is genuinely and lawfully physically
-eligible.
+`country=CA`, `region=ON`, so this host is preparation/read-only at that
+location. On 2026-08-14 the operator designated this same PC as the eventual
+execution host and will physically relocate it before live use. The historical
+blocked result remains binding until a fresh response proves the relocated PC
+eligible; a host designation, move plan, or old response is not eligibility.
 
 ## Immutable pilot envelope
 
@@ -122,8 +124,10 @@ All must be current for the target date and selected market:
    `live_trade_permission` is always false. Zero quote-permission rows means no
    live test.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
-9. The submitting host is physically eligible. The production Ontario host is
-   currently blocked and cannot satisfy this prerequisite.
+9. The submitting host is physically eligible. This production PC cannot
+   satisfy the prerequisite while its current evidence is Ontario/blocked; it
+   may satisfy it only after physical relocation and a fresh matching official
+   response.
 
 ## Staged protocol
 
@@ -243,14 +247,24 @@ observed bootstrap and its separate literal confirmation, may perform Stage 1.
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
 
-### Eligible-host preparation commands
+### Same-PC relocation and eligible-host preparation
 
-The final sequence is for a genuinely eligible physical Windows host. Public
-metadata, economics, and book selection may be rehearsed from a blocked host,
-but they must be rerun on the eligible host; identity preparation, credential
-import, authenticated Stage 0, and every mutation must not run from the blocked
-Ontario production host. Never put a secret value in the command line,
-environment, identity manifest, output path, or shell history.
+The final sequence runs from this production checkout after the PC is
+physically relocated. There is no source-transfer or second-machine deployment
+step. Public metadata, economics, and book selection may be rehearsed while the
+PC is blocked, but they must be rerun after relocation; identity preparation,
+credential import, authenticated Stage 0, and every mutation must not run while
+the current official response is blocked. Never put a secret value in the
+command line, environment, identity manifest, output path, or shell history.
+
+Plan the physical move and first lifecycle session outside both the 12:00-18:00
+graded window and the 18:00-00:30 near-close protection window. The move will
+interrupt capture even though the code is unchanged. After boot and network
+recovery, log in once so Credential Manager and `WeatherOneShotPush` are
+available, prove master equals origin at the reviewed exact tip, prove all
+capture workers and the public execution-tape producer recovered, clear the
+pending reboot state, and ensure no heavy scheduled job can overlap the session.
+Do not trade merely because Windows restarted successfully.
 
 Select the exact Stage 1 market from fresh public data before creating the
 identity. Do not hand-pick a condition or retain an old token from a prior day.
@@ -335,10 +349,10 @@ $pilotSignatureType = "POLY_GNOSIS_SAFE"
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
 ```
 
-Only after identity preparation passes, provision the four secret values as
-Windows Credential Manager generic credentials. If an external source file is
-used, keep it outside the repository, remove inherited broad ACLs, and run the
-importer only on the eligible execution host. The importer validates the private
+Only after relocated-PC identity preparation passes, provision the four secret
+values as Windows Credential Manager generic credentials. If an external
+source file is used, keep it outside the repository, remove inherited broad
+ACLs, and run the importer only after this PC is eligible. The importer validates the private
 key/address and exact wallet/signature topology, refuses existing fixed targets,
 rolls back partial writes, ignores relayer/RPC/location/live-flag fields, and
 emits only a public reference manifest and secret-free receipt:
@@ -361,11 +375,11 @@ funder address in the process environment. The required variables are
 `POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
 `POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
 credentials themselves. Install the repository's exact `live` dependency extra
-in the eligible host's dedicated virtual environment; the runtime rejects any
-SDK version other than the pinned version. After a successful import, independent
-keyless doctor, and secured transfer verification, delete the source credential
-file using the eligible host's approved secure-deletion procedure. The importer
-never deletes it automatically.
+in this checkout's dedicated virtual environment; the runtime rejects any SDK
+version other than the pinned version. After a successful import, independent
+keyless doctor, and operator verification of the external source's retained
+copy, delete the source credential file using the approved secure-deletion
+procedure. The importer never deletes it automatically.
 
 ```powershell
 .\venv\Scripts\python.exe -m pip install -e ".[live]"
@@ -398,8 +412,9 @@ prepared in advance and run consecutively; an expired bootstrap is a stop, not a
 reason to edit timestamps or reuse an earlier gate.
 
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
-no exchange-mutation commands. Before a live test, create and review a
-host-owned wrapper outside the repository that imports `run_stage0` and
+no exchange-mutation commands. After relocation and fresh candidate selection,
+create and review a host-owned wrapper outside the repository on this PC that
+imports `run_stage0` and
 `run_stage1`, fixes every public identifier and new output path, and exposes no
 secret or risk-ceiling arguments. Stage 0 never submits an order, but it does
 send authenticated heartbeat and cancel-all requests, so it belongs behind the
@@ -574,9 +589,10 @@ permission for an automatic approval or retry.
 The direct account-wide WebSocket reader remains the authoritative user-event
 boundary, while the unified SDK owns authenticated REST reads and order
 signing/submission. Before any credentialed Stage 0/1 session, the exact wheel
-must be installed through the `live` extra on the eligible host, the fixed-scope
-host wrapper must pass the keyless doctor, and the eligible-host Stage 0 proof
-must pass. The successful source/wheel audit is not wallet or exchange evidence.
+must be installed through the `live` extra in this checkout after relocation,
+the fixed-scope host wrapper must pass the keyless doctor, and the relocated-
+host Stage 0 proof must pass. The successful source/wheel audit is not wallet or
+exchange evidence.
 
 The supplied Safe wallet's local cryptographic topology is proven, but its live
 exchange behavior is still unproven. Stage 0 must show that the exact signer,

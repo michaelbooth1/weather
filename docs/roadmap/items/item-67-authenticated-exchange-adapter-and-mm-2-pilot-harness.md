@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - COMBINED-TIP SUITE AND ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - COMBINED-TIP SUITE AND RELOCATED-HOST EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -443,7 +443,24 @@ execution, and lifecycle-bundle assembly each independently revalidate the
 finite positive requested budget, isolated-wallet cap, 100 pUSD operator cap,
 and 10 pUSD per-order cap instead of trusting upstream PASS booleans. The
 focused live/economics/architecture matrix passes; an immutable exact-tip full
-suite and reviewed source transfer remain mandatory before eligible-host use.
+suite and reviewed same-PC deployment remain mandatory before relocated-host use.
+
+## 2026-08-14 same-PC execution-host decision
+
+The operator designated the existing 16 GB production PC as the live
+International execution host after it is physically relocated. The former
+separate-host transfer blocker is therefore closed. The code, exact reviewed
+tip, runtime environment, capture evidence, and eventual credential references
+will remain on one PC; moving it does not by itself pass any exchange gate.
+
+While the PC's current official response remains Ontario/blocked, no credential
+import, authentication, Stage 0 heartbeat/cancel-all, or Stage 1 mutation is
+allowed. After relocation, the same checkout must obtain a fresh matching
+unblocked response, recover capture and public execution supervision, pass the
+keyless doctor, and use a newly reviewed fixed-scope wrapper sealed to the fresh
+condition, token, budget, and output paths. The wrapper remains intentionally
+unwritten until fresh candidate selection because prebuilding a parameterized
+mutation surface would recreate the generic live CLI that this item forbids.
 
 Current integration disposition (2026-08-14 UTC):
 
@@ -453,7 +470,7 @@ branch has since merged current production and is therefore a new, unproved
 exact tip; its scheduled full suite must pass before integration. The earlier
 proofs establish software consistency only, not live evidence or integration
 authority. Stage 0/1 must land first; Stage 2 must then merge current production
-and pass a fresh suite on that combined tree before eligible-host transfer. The
+and pass a fresh suite on that combined tree before relocated-host use. The
 two unchecked live-evidence bullets above remain open until a tiny real
 lifecycle and paid-vs-predicted settlement/rebate record are reconciled without
 weakening any gate or increasing any ceiling. Exact suite measurements live

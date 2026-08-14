@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 14:08 (the combined Stage 0/1 tip awaits its exact suite; the
-continuous public-tape repair and cumulative market-harvest/client-upgrade lane are stacked behind it).** Read this first, then `ESTABLISHED_FINDINGS.md`
+**Last rewritten: 2026-08-14 18:45 (the execution host is now this production PC after physical
+relocation; the combined Stage 0/1 tip still awaits its exact suite).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -36,9 +36,11 @@ enough to the market to control adverse selection and inventory. **We do not bea
 - Public execution capture and own-account lifecycle evidence answer different questions.
   Public data supplies market paths/counterfactual markouts. Authoritative user events, open
   orders, positions, fees, and rebate receipts supply our realized lifecycle and economics (§8c).
-- A live test is authorized only from a genuinely eligible **International** host: exactly one
-  market, finite non-raisable 100 USDC-equivalent cap, post-only, no naked sells, and all existing
-  risk/readiness gates. Ontario production never receives credentials or places/cancels orders.
+- The operator designated this 16 GB production PC as the eventual **International** execution host
+  after it is physically relocated. While its current official geoblock evidence is Ontario/blocked,
+  it remains read-only and receives no credential import. Relocation removes the obsolete source-
+  transfer step; it does not waive a fresh official unblocked response, exactly one market, the finite
+  non-raisable 100 pUSD-equivalent cap, post-only/no-naked-sell rules, or any existing gate.
 
 ## In flight
 
@@ -46,7 +48,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | --- | --- |
 | Public execution tape (`-09-69a`) | Continuous public-only supervision is integrated. The first real adoption refused a Windows venv launcher/worker PID mismatch and the task remains Disabled. The predecessor repair tip passed its pre-quiet immutable full suite; its branch is now refreshed onto the combined Stage 0/1 parent and focused-green, but must pass a new exact-tip suite, guarded merge, and fail-closed adoption tonight. This is public path evidence only, never fills, intensity, rebates, or P&L (§8o). |
 | International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
-| International live probe | The refreshed current-production + economics + Stage 0/1 successor is pushed and focused-green. Because merging current production created a new exact tip, its old suite proof does not qualify it; the 08-15 00:30 exact-tip suite and 01:00 suite-gated merge must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible; its immutable bundle task refused and produced no artifact. The cumulative successor migrates the official adapter to `polymarket-client==0.6.0` with a no-deploy wallet preflight, one-submit post-only path, and current heartbeat contract. A separately reviewed fixed-scope wrapper is still required on the eligible host before authenticated Stage 0 or either Stage 1 mutation (§8k). |
+| International live probe | The refreshed current-production + economics + Stage 0/1 successor is pushed and focused-green. Because merging current production created a new exact tip, its old suite proof does not qualify it; the 08-15 00:30 exact-tip suite and 01:00 suite-gated merge must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible; its immutable bundle task refused and produced no artifact. The cumulative successor migrates the official adapter to `polymarket-client==0.6.0` with a no-deploy wallet preflight, one-submit post-only path, and current heartbeat contract. After integration and physical relocation, a separately reviewed fixed-scope wrapper on this PC is still required before authenticated Stage 0 or either Stage 1 mutation (§8k). |
 | Paper-only market harvest | The `market_harvest` permission lane is implemented on the combined Stage 0/1 parent and included in the cumulative client-upgrade successor. It can issue bounded paper quote permission from current International books and event state without claiming model edge or promotion, but cannot select `live-pilot`. After Stage 0/1 and the execution-tape repair land, refresh the cumulative successor onto production, run an exact-tip full suite, and merge it only through the guarded quiet-window path. A real active-market paper tick must emit permission before either Stage 1 mutation is eligible. |
 | Bounded maker Stage 2 | Successor `0994fa13` is exact-suite green only on the predecessor Stage 0/1 parent. It is not integration- or live-ready: land the current combined Stage 0/1 branch first, merge that production result into Stage 2, reprove the new combined exact tip, and review the eligible-host wrapper. The current paper run emits no quote or live-trade permission, so integration alone cannot authorize a submit (§§8m, 8n). |
 | Snapshot fatal-gap bound | The prepared roll-sensitive branch passed its immutable full suite with every capture admission healthy. It predates the S4U registrar repair now on production, so it still needs current master merged into it, a fresh exact-tip suite, guarded quiet-window adoption, and live stop-to-recovery timing before the backlog item can close (§8l). |
