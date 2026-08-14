@@ -122,10 +122,12 @@ nowhere** — it is derived. `OPERATING_REFERENCE.md` is **generated**; fix the 
   production twice; open ledgers `FileShare.ReadWrite`.
 - **Roll sensitivity is the loaded-module closure, not a glob.** Run
   `scripts\ops\roll_verdict.ps1 -Branch <branch>` — exit 0 roll-free, 2 roll-free while a dormant
-  loop stays down, 3 roll-sensitive, 1 undecidable. **It needs an `origin/`-prefixed ref and cannot
-  evaluate `master` against `master`.** `.ps1` and `docs/` and `config/` are roll-free; the closure
-  is 78 entries, all `src/weather/*.py`. The whole `schema_registry*` family is in **all four**
-  closures. Roll-sensitive merges go in **01:00–04:00**; never merge inside 12:00–18:00.
+  loop stays down, 3 roll-sensitive, 1 undecidable. It accepts any locally resolvable topic ref,
+  including a local worktree branch or an `origin/` ref. It cannot evaluate `master` against itself
+  or a topic already fully integrated into `master`, because that comparison has no changed files.
+  `.ps1`, `docs/`, and `config/` are roll-free. Closure sizes and membership are dynamic evidence;
+  never copy their current counts into a verdict. Roll-sensitive merges go in **01:00–04:00**;
+  never merge inside 12:00–18:00.
 - The former `data\snapshots\loop_status_supervisor_status.json` tombstone was retired from the
   live namespace on 2026-08-14 and preserved under `_retired_supervisor_status`. The live files are
   `loop_supervisor_status.json`, `clob_loop_supervisor_status.json`,
