@@ -7,7 +7,7 @@ class before a writer adds a new file family under `data/`.
 
 | Storage class | Purpose | Examples | Retention and deletion gate |
 | :--- | :--- | :--- | :--- |
-| `canonical_evidence` | Append-only or source-of-truth evidence that cannot be safely rebuilt later. | Snapshot JSONL, replay inputs, shared raw forecast payloads, settlement ledgers, market-making lifecycle and risk ledgers, taker run ledgers, raw CLOB books, websocket messages, price-history source evidence, CLOB token maps. | Permanent archive unless a family-specific reviewed bounded-retention policy applies. Local deletion requires exact paths, reason, operator authorization, and checksums. |
+| `canonical_evidence` | Append-only or source-of-truth evidence that cannot be safely rebuilt later. | Snapshot JSONL, replay inputs, shared raw forecast payloads, settlement ledgers, market-making lifecycle and risk ledgers, taker run ledgers, raw CLOB books, websocket messages, execution-tape trade/dedupe/gap/seed parts, price-history source evidence, CLOB token maps. | Permanent archive unless a family-specific reviewed bounded-retention policy applies. Local deletion requires exact paths, reason, operator authorization, and checksums. |
 | `analysis_projection` | Tables, partitions, or indexes derived from canonical evidence for faster reads and reports. | Snapshot CSV long tables, CLOB summary/long CSVs, price-history CSVs, closed-day Parquet partitions, taker incremental SQLite checkpoints, large backtest row exports, model artifacts with rebuild manifests. | Rebuildable, but not disposable by size alone. Deletion requires a reviewed cleanup manifest and named rebuild source. `order_books_long` is rebuilt exactly from `order_books.jsonl`; gzip is its retained serving projection. |
 | `operator_cache` | Reports, dashboards, status files, provider/runtime caches, console logs, and local workflow outputs. | `data/backtest/*_report.md`, `fleet_observability.json`, replay-cache entries, `data/logs/*.log`, provider cache folders, bounded observation-trigger source caches. | TTL or cleanup-manifest driven. Replay-cache cleanup is stricter: exact full-key reachability only, with ambiguity retained; never age or LRU. Incident-linked logs or reports must be named in an incident or cleanup manifest before deletion. |
 
@@ -26,6 +26,12 @@ The code-backed registry lives in
 
 `weather.reporting.data_quality.data_retention_inventory` uses the registry to summarize
 bytes and recent growth by storage class.
+
+Execution-tape `trades-*.jsonl`, `dedupe-*.jsonl`, `gaps-*.jsonl`,
+`seeds-*.jsonl`, and unrouted rejection parts are canonical evidence. Their
+atomic global and per-market-day status files are operator caches: they can be
+reconstructed from the append-only tapes, and each status names the physical
+files and fsynced receipts it last counted.
 
 ## Operator Rule
 

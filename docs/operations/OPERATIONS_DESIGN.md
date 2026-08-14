@@ -91,6 +91,56 @@ Windows holds the detached child's console handle for the process lifetime,
 console rotation occurs at the next managed loop startup before opening the
 new handle.
 
+### Execution-Tape Producer (Available, Not Armed)
+
+`weather.market.execution_tape_capture` is an explicit, read-only operator
+command for the public market websocket. It is not registered with Task
+Scheduler, is not supervised, and is not part of the three-loop production
+topology above. The producer builds subscriptions only from the retained
+`config/location_market_events.json` seed; it does not discover markets from a
+live REST endpoint and has no order, credential, wallet, or signing path.
+
+Each active location market-day writes bounded 64 MiB append-only parts under
+`data/snapshots/<event>/execution_tape/`: `trades`, repeated-identity annotations,
+connection `gaps`, and subscription `seeds`. The current public market-channel
+contract does not guarantee a transaction hash on `last_trade_price`, nor does
+it document the hash plus execution economics as a unique fill identifier. The
+writer therefore retains every observation and suppresses none. A repeated
+identity is annotated on the legacy-named `dedupe` tape, and transaction-hash
+reuse is counted, but both observations remain on the trade tape because they
+may be distinct fills. All public-stream execution rows remain price-path
+evidence but set
+`identity_integrity=BLOCKED_UNIQUE_EXECUTION_COUNTS`, so trade-count, fill-count,
+and intensity claims cannot consume them as unique executions. Only a separate
+source with a documented event ID may support those claims. The documented
+`size`, `fee_rate_bps`, `timestamp`, and transaction hash fields are optional;
+their absence is retained as `null` and counted as partial economics rather than
+invented as zero or rejected. A row with a valid market, token, side, and price
+can still support a receipt-ordered price path, but not missing size, fee, or
+exchange-time claims. Treat rows as received-time state observations: resample
+by asset and time or take state transitions. Never row-weight a price
+distribution or infer fill probability, volume, or intensity from public row
+frequency because redelivery cannot be separated from identical executions.
+Atomic per-market-day `status.json` and global
+`data/snapshots/execution_tape_status.json` state the physical tapes last
+counted, current connection state, reconnect count, and seconds dark. An empty
+trade tape is classified as connected-and-quiet only when connection coverage
+supports that conclusion. Coverage begins only after inbound routed market
+events cumulatively prove every requested asset ID in the market-day; a frame
+for one token, socket connection, subscription send, or `PONG` heartbeat alone
+is not full market-day coverage. Each asset is hash-bound to its exact condition
+in the seed; a token paired with another condition in the same event is rejected
+as evidence loss rather than accepted by coarse market-day routing. An empty tape with a gap is
+explicitly disconnected evidence, not a quiet market. After route proof, the
+connection also has an inbound-silence deadline: a server `PONG` or market frame
+must continue arriving, so local heartbeat sends cannot sustain green status.
+Any invalid execution message, unrouted execution, or ambiguous token/condition
+route changes global status to `DEGRADED_EVIDENCE_LOSS`; a healthy socket cannot
+override evidence loss.
+The offline
+`python -m weather.market.execution_tape_capture status` command prints that
+last-counted global status without opening a connection.
+
 ### Observation-Trigger Loop
 
 - `data/snapshots/observation_trigger_status.json`
