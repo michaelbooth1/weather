@@ -655,7 +655,7 @@ def test_context_closes_the_unified_client_when_wiring_fails(tmp_path):
     assert client.closed is True
 
 
-@pytest.mark.parametrize("command", ["stage0", "stage1"])
+@pytest.mark.parametrize("command", ["stage0", "stage1", "stage2"])
 def test_parser_does_not_expose_exchange_mutation_commands(command):
     with pytest.raises(SystemExit) as exc:
         cli.build_parser().parse_args([command])

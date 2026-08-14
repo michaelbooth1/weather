@@ -1,7 +1,5 @@
 import csv
 import json
-import os
-import sys
 import tempfile
 import unittest
 from datetime import datetime
@@ -704,6 +702,30 @@ class TestMMExchange(unittest.TestCase):
             "size": 5,
             "side": "BUY",
         }
+        closed_only_client = FakeClient()
+        closed_only_client.get_closed_only_mode = lambda: True
+        closed_only_adapter = make_adapter(closed_only_client)
+        closed_only_adapter.heartbeat()
+        closed_only_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(RuntimeError, "account is in closed-only mode"):
+            closed_only_adapter.place_order(valid_intent)
+        self.assertFalse(any(
+            call[0] == "post_order"
+            for call in closed_only_client.calls
+        ))
+
+        malformed_closed_only_client = FakeClient()
+        malformed_closed_only_client.get_closed_only_mode = lambda: None
+        malformed_closed_only_adapter = make_adapter(malformed_closed_only_client)
+        malformed_closed_only_adapter.heartbeat()
+        malformed_closed_only_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(RuntimeError, "authoritative boolean"):
+            malformed_closed_only_adapter.place_order(valid_intent)
+        self.assertFalse(any(
+            call[0] == "post_order"
+            for call in malformed_closed_only_client.calls
+        ))
+
         blocked_adapter = make_adapter(FakeClient())
         blocked_adapter.geoblock_checker = lambda: geoblock_evidence(
             blocked=True,
@@ -980,6 +1002,14 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(
             sum(1 for call in client.calls if call[0] == "get_balance_allowance"),
             1,
+        )
+        collateral_evidence = adapter.refresh_collateral_evidence()
+        self.assertEqual(collateral_evidence["balance_atomic"], "100")
+        self.assertEqual(collateral_evidence["allowances_atomic"], {"exchange": "100"})
+        self.assertEqual(len(collateral_evidence["response_sha256"]), 64)
+        self.assertEqual(
+            sum(1 for call in client.calls if call[0] == "get_balance_allowance"),
+            2,
         )
         self.assertEqual(adapter.fees()["fee_rate_bps"], "50")
         self.assertEqual(

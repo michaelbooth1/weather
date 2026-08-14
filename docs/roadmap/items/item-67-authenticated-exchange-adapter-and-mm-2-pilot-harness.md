@@ -32,19 +32,21 @@ behavior before any size increase.
 - [x] Reconcile user WebSocket fills/order updates and REST open-order queries
   into the existing `order_lifecycle.jsonl`, `budget_ledger.jsonl`, and risk
   event artifacts.
-- [ ] Implement the MM-2 day-one probes: heartbeat-lapse throwaway order,
-  min-size/tick/post-only rejection checks, one tiny two-sided quote, cancel-all
-  verification, balance-reserve reconciliation, and user WebSocket lifecycle
-  verification.
+- [x] Implement the fail-closed MM-2 day-one software boundaries: distinct
+  heartbeat-lapse and cancel-all Stage 1 probes, min-size/tick/post-only checks,
+  and one smallest-valid backed-BUY Stage 2 quote with final cancel-all,
+  balance/position reconciliation, and user WebSocket lifecycle verification.
 - [x] Re-prove the exact selected SDK against the current official post-only,
   heartbeat, account-reader, user-stream, cancellation, and asynchronous
   settlement contract before credentialed integration. The selected
   `polymarket-client==0.6.0` source and published wheel passed the keyless
   contract audit on 2026-08-14; eligible-host wallet and exchange evidence
   remain separate open gates.
-- [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
-  genuinely eligible execution host. Do not add a generic repository live
+- [ ] Review and bind fixed-scope, host-owned Stage 0/1 and Stage 2 wrappers on
+  the genuinely eligible execution host. Do not add a generic repository live
   mutation CLI to close this item.
+- [ ] Execute those boundaries on a genuinely eligible International host and
+  retain the real Stage 0, both Stage 1 modes, Stage 2, and account evidence.
 - [x] Add report-side paid-vs-predicted reconciliation for maker rebates,
   liquidity rewards, redemptions, fees, pUSD/USDC balances, and settlement P&L
   before any size increase.
@@ -464,14 +466,75 @@ mutation surface would recreate the generic live CLI that this item forbids.
 
 Current integration disposition (2026-08-14 UTC):
 
-The predecessor refreshed Stage 0/1 tip and its stacked bounded Stage 2
-successor each passed separate immutable exact-tip full suites. This Stage 0/1
-branch has since merged current production and is therefore a new, unproved
-exact tip; its scheduled full suite must pass before integration. The earlier
-proofs establish software consistency only, not live evidence or integration
-authority. Stage 0/1 must land first; Stage 2 must then merge current production
-and pass a fresh suite on that combined tree before relocated-host use. The
+The predecessor refreshed Stage 0/1 tip and its old bounded Stage 2 successor
+each passed separate immutable exact-tip full suites. The current Stage 0/1
+branch has since merged production and is therefore a new, unproved exact tip;
+its scheduled full suite must pass before integration. Bounded Stage 2 is now
+pre-stacked on the cumulative unified-client/market-harvest line. The retired
+v1.1 SDK and rotating-ID heartbeat assumptions were removed from both Stage 2
+authorization layers, and focused combined checks pass. This new stack still
+has no immutable full-suite proof or integration authority. Stage 0/1 must land
+first; then refresh this stack onto production plus the execution-tape repair
+and pass a new exact-tip suite before relocated-host use. The
 two unchecked live-evidence bullets above remain open until a tiny real
 lifecycle and paid-vs-predicted settlement/rebate record are reconciled without
 weakening any gate or increasing any ceiling. Exact suite measurements live
 only in `docs/operations/ESTABLISHED_FINDINGS.md` §§8k and 8n.
+
+Stage 2 software-preparation update (2026-08-13 UTC):
+`weather.market.mm_live_stage2` now owns the first economics-order boundary.
+It accepts no credentials and exposes no CLI. It requires a content-hashed,
+fully passing International `mm_platform_verification_v0.4`, the exact Stage 1
+bundle/funder/condition/token binding, and one current quote row whose named
+data, book, watcher, economics, release, account, and risk preflight gates all
+pass. The adapter issues one opaque Stage 2 capability, rechecks current
+physical eligibility, forces the exact official SDK post-only path, permits a
+backed BUY only, and consumes the capability before its sole network submit.
+
+The executor uses the fresh exchange minimum size, does not restart the quote
+TTL after setup, maintains the current bodyless heartbeat and exact
+acknowledgment contract, and stops on stale or
+ambiguous state. After the starting zero-state proof, every exit invokes final
+cancel-all and requires exact zero-open-order truth. Authoritative confirmed
+maker fills must reconcile exactly to the isolated wallet's current scoped
+position; taker, pending/failed, out-of-scope, or unexplained position evidence
+fails. A confirmed fill may leave backed inventory for Stage 3 rather than
+fabricating a zero-position result. Fee rates are not treated as paid fees and
+unverified rebates are accepted as zero, so the Stage 2 result cannot claim
+profitability. Real eligible-host execution and all post-fill settlement/payout
+evidence remain open; no network or credential operation was performed here.
+
+Stage 2 evidence/safety audit update (2026-08-13 UTC): the live capability now
+also requires a content-bound, still-current paper-live-forward artifact with
+the exact same model/policy/market/quote treatment and a fresh exact-event
+public execution-tape status backed by the corrected bounded-probe receipt.
+The paper boundary parses and hashes retained
+`mm_live_stage2_paper_counterfactual_v0.1` JSON bytes; a loose row plus a
+caller-asserted digest is not sufficient.
+The probe receipt, global status, and exact market-day status likewise enter as
+retained JSON bytes and are hashed inside Stage 2, binding the live envelope to
+the captured files rather than reconstructed dictionaries.
+The probe receipt no longer depends on a nonexistent `evidence_integrity`
+field or overclaims full routed coverage: it proves the complete active seed
+set connected, at least one cleanly routed observation, unchanged integrity
+counters, clean teardown, and capture-worker survival. The executor binds both
+evidence hashes and uses their earliest expiry as the submission deadline.
+
+The same audit corrected two risk/cleanup defects. Daily loss is cumulative:
+loss already recorded for the UTC day plus the new order's full at-risk
+notional must remain at or below 25 pUSD. Cleanup actions are independent, so
+a pre-cancel open-order reader failure cannot suppress cancel-all, the final
+open-order proof, terminal user-event collection, or exact position evidence;
+the session still fails after attempting all remaining safety actions. The
+official adapter also handles the documented Boolean closed-only response,
+continues to accept the older explicit mapping shape, and fails closed on any
+other response before network submission.
+
+Stage 2 now also performs the checklist's previously missing balance half of
+"balance/position reconciliation." It refreshes and hashes the authenticated
+atomic collateral/allowance response before authorization and after cleanup,
+requires the starting balance and every allowance to back the frozen budget
+without exceeding the 100 pUSD wallet cap, and requires the final collateral
+decrease to equal confirmed maker fill notional. The official fee schedule
+states maker fees are zero; any unexplained collateral difference still fails
+instead of being labeled a fee or rebate.
