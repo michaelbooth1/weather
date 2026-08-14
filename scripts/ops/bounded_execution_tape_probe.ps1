@@ -39,14 +39,16 @@ if ($StartCommitPercent -ge $AbortCommitPercent) {
 
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 $jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+$workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
 $statusPath = Join-Path $RepoRoot "data\snapshots\execution_tape_status.json"
 $snapshotStatusPath = Join-Path $RepoRoot "data\snapshots\loop_status.json"
-foreach ($required in @($python, $jobScript, $snapshotStatusPath)) {
+foreach ($required in @($python, $jobScript, $workloadLeaseScript, $snapshotStatusPath)) {
     if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
         throw "required probe dependency is missing: $required"
     }
 }
 . $jobScript
+. $workloadLeaseScript
 
 function Get-CommitPercent {
     $limit = (Get-Counter "\Memory\Commit Limit").CounterSamples[0].CookedValue
@@ -140,6 +142,15 @@ $record = [ordered]@{
 }
 $job = $null
 $child = $null
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_execution_tape_probe"
+if ($null -eq $workloadLease) {
+    $record.stage = "blocked_workload_lease"
+    $record.detail = "another heavyweight host workload owns data/logs/heavy_workload.lock"
+    $record.finished_at = (Get-Date).ToString("o")
+    Write-ProbeRecord $record
+    Write-Error $record.detail -ErrorAction Continue
+    exit 1
+}
 
 try {
     # This proof is intentionally tied to the quiet window. A missed task must
@@ -280,6 +291,7 @@ catch {
 finally {
     if ($null -ne $job) { $job.Dispose() }
     if ($null -ne $child) { $child.Dispose() }
+    Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
     $record.finished_at = (Get-Date).ToString("o")
     Write-ProbeRecord $record
 }

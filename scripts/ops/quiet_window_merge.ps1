@@ -24,6 +24,8 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = "C:\Users\micha\Desktop\github\weather"
 $py = Join-Path $repo "venv\Scripts\python.exe"
+$workloadLeaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+. $workloadLeaseScript
 $reportPath = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 $historyPath = Join-Path $repo "data\alerts\quiet_window_merge_history.jsonl"
 $log = New-Object System.Collections.Generic.List[string]
@@ -165,6 +167,9 @@ Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(
 # nothing about the CLOB or observation workers. The checker validates all three workers'
 # status + writer-lock PID, process liveness, heartbeat freshness, and loaded-source
 # fingerprint against the current tree. That is the same recovery contract supervisors own.
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload "quiet_window_merge"
+if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+try {
 function Get-CaptureState {
     try {
         $raw = @(& $py -m weather.operations.capture_recovery_check --repo-root $repo --json)
@@ -264,3 +269,5 @@ if (-not $pushed) {
 Note "pushed $mergeCommit via WeatherOneShotPush"
 Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush)"
 exit 0
+}
+finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }

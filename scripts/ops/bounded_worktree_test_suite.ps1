@@ -45,13 +45,15 @@ if ($WorktreeRoot -eq $RepoRoot) {
 
 $contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
 $jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
-foreach ($requiredScript in @($contractScript, $jobScript)) {
+$workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript)) {
     if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
         throw "required suite helper is missing: $requiredScript"
     }
 }
 . $contractScript
 . $jobScript
+. $workloadLeaseScript
 
 function Write-SuiteLog {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -155,6 +157,8 @@ $python = (Resolve-Path -LiteralPath $python).Path
 $previousPythonPath = $env:PYTHONPATH
 $previousLocation = (Get-Location).Path
 $env:PYTHONPATH = Join-Path $WorktreeRoot "src"
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
+if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
 try {
     Set-Location -LiteralPath $WorktreeRoot
     $resolvedImport = (& $python -c "import weather; print(weather.__file__)").Trim()
@@ -238,4 +242,5 @@ try {
 finally {
     Set-Location -LiteralPath $previousLocation
     $env:PYTHONPATH = $previousPythonPath
+    Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
 }

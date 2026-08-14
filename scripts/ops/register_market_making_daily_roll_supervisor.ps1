@@ -2,7 +2,7 @@
 # Scheduled Task.
 #
 # Layering: the existing WeatherMarketMakingDailyRoll task still creates the
-# daily paper-live-forward run at 19:30 local time. This supervisor runs the
+# daily paper-live-forward run at 07:05 local time. This supervisor runs the
 # short-lived `ensure` command every minute and at logon; it starts only after
 # the configured local start time unless a same-day run already exists, then
 # restarts dead, idle, or superseded-code loops through the launcher's bounded
@@ -16,22 +16,25 @@ param(
     [string]$TaskName = "WeatherMarketMakingDailyRollSupervisor",
     [int]$EnsureEveryMinutes = 1,
     [string]$Timezone = "America/Toronto",
-    [string]$StartAfterLocalTime = "19:30",
+    [string]$StartAfterLocalTime = "07:05",
     [string]$BudgetUsdc = "500",
     [string]$Mode = "paper-live-forward",
     [string]$Markets = "all",
-    [int]$IntervalSeconds = 60
+    [int]$IntervalSeconds = 60,
+    [double]$QuoteSize = 20.0,
+    [double]$MaxBandNotional = 25.0,
+    [double]$MaxEventNotional = 25.0
 )
 
-$python = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
-if (-not (Test-Path $python)) {
-    throw "venv pythonw not found at $python -- run from the repo with its venv created."
+$wrapper = Join-Path $RepoRoot "scripts\ops\market_making_daily_roll_task.ps1"
+if (-not (Test-Path $wrapper)) {
+    throw "daily-roll task wrapper not found at $wrapper"
 }
 
-$arguments = "-m weather.operations.market_making_daily_roll ensure --timezone $Timezone --start-after-local-time $StartAfterLocalTime --budget-usdc $BudgetUsdc --mode $Mode --markets $Markets --interval-seconds $IntervalSeconds"
+$arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$wrapper`" -Verb ensure -RepoRoot `"$RepoRoot`" -Timezone $Timezone -StartAfterLocalTime $StartAfterLocalTime -BudgetUsdc $BudgetUsdc -Mode $Mode -Markets $Markets -IntervalSeconds $IntervalSeconds -QuoteSize $QuoteSize -MaxBandNotional $MaxBandNotional -MaxEventNotional $MaxEventNotional"
 
 $action = New-ScheduledTaskAction `
-    -Execute $python `
+    -Execute "powershell.exe" `
     -Argument $arguments `
     -WorkingDirectory $RepoRoot
 
