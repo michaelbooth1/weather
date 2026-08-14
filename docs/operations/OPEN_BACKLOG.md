@@ -22,14 +22,7 @@ day. **Detection latency must be below the fatal gap or the guard cannot save a 
 See `derived-rules-are-the-invisible-ones` — the relationship between these two numbers is written
 nowhere and neither number looks wrong alone.
 
-## 2. Start-race orphans are unreapable
-
-The supervisor stops only the PID in its status file. `-09-45a` (merged 2026-08-08 17:57) fixes the
-**maker** daily-start race; the general shape — a duplicate worker the supervisor cannot see or
-reap — is not fixed. On 2026-08-07 a duplicate maker caused **430** memory-admission refusals and put
-the streak day `AT_RISK`. `staleness_sweep.ps1` §12 detects it; the code fix is unowned.
-
-## 3. A dead tombstone reads as live closure evidence
+## 2. A dead tombstone reads as live closure evidence
 
 `data/snapshots/loop_status_supervisor_status.json` is `state=DEAD` with
 `restart_budget_exceeded=6>=6`, but still carries a full `source_scope_files` list.
@@ -37,7 +30,7 @@ the streak day `AT_RISK`. `staleness_sweep.ps1` §12 detects it; the code fix is
 roll verdict manually — which is already forbidden, so this is defence in depth. Delete or mark
 the tombstone through a reviewed evidence-preserving change.
 
-## 4. The maker restarts all night outside its own evidence window
+## 3. The maker restarts all night outside its own evidence window
 
 `daily_roll_status.json` carries `start_time_gate.start_after_local_time: "07:05"` and **no end
 time**, while `evidence_classification` rejects any run started outside **07:00–20:00** local
@@ -48,7 +41,7 @@ budget and writes a run folder that is later quarantined. This was verified not 
 start; it is waste rather than a current outage. The gate needs an end time symmetric with the one
 it already has.
 
-## 5. Revert the Windows auto-reboot block after the build window
+## 4. Revert the Windows auto-reboot block after the build window
 
 AU policy was changed on 2026-08-03 to stop an unattended reboot breaking the streak during the
 release build window. **It is still in place.** Leaving it indefinitely means security updates stop
