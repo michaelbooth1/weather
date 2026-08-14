@@ -548,7 +548,32 @@ def recovery_history_cache_path(diagnostics_path: str | Path) -> Path:
     )
 
 
-def _cached_rotated_recovery_events(diagnostics_path: Path) -> list[dict[str, Any]]:
+def _rotated_sidecar_can_contain_window_events(
+    path: Path,
+    *,
+    window_start: datetime,
+) -> bool:
+    """Return whether a retained archive can contain a physically recent event.
+
+    Rotation is a rename after the last append, so the archive mtime is an upper
+    bound on when any row was written.  This guard matters on first adoption:
+    production can retain gigabytes of old diagnostic archives and scanning all
+    of them while a capture worker is waiting to restart defeats the purpose of
+    the recovery circuit.  Stat failures fail safe by keeping the archive.
+    """
+
+    try:
+        modified_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+    except OSError:
+        return True
+    return modified_at >= window_start
+
+
+def _cached_rotated_recovery_events(
+    diagnostics_path: Path,
+    *,
+    window_start: datetime,
+) -> list[dict[str, Any]]:
     cache_path = recovery_history_cache_path(diagnostics_path)
     payload = read_json_file(cache_path)
     cached_events: list[dict[str, Any]] = []
@@ -586,7 +611,14 @@ def _cached_rotated_recovery_events(diagnostics_path: Path) -> list[dict[str, An
                 "event": row["event"],
             })
 
-    rotated_paths = rotated_sidecar_paths(diagnostics_path)
+    rotated_paths = [
+        path
+        for path in rotated_sidecar_paths(diagnostics_path)
+        if _rotated_sidecar_can_contain_window_events(
+            path,
+            window_start=window_start,
+        )
+    ]
     new_paths = [path for path in rotated_paths if str(path) not in indexed_paths]
     if not new_paths:
         return cached_events
@@ -627,11 +659,18 @@ def recent_recovery_events(
     now_utc = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
     window_start = now_utc - timedelta(hours=float(window_hours))
     events = [
-        *_cached_rotated_recovery_events(diagnostics_path),
+        *_cached_rotated_recovery_events(
+            diagnostics_path,
+            window_start=window_start,
+        ),
         *_recovery_events_from_path(diagnostics_path),
     ]
     return sorted(
-        (row for row in events if row["time"] >= window_start),
+        (
+            row
+            for row in events
+            if window_start <= row["time"] <= now_utc
+        ),
         key=lambda row: (row["time"], row.get("source_path") or "", row.get("line") or 0),
     )
 

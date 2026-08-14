@@ -339,6 +339,56 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(after["action"], "circuit_open")
         self.assertIn(str(rotated), cache["indexed_rotated_paths"])
 
+    def test_restart_budget_skips_rotated_archives_older_than_window(self):
+        now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            old_archive = root / "diagnostics.20260808T120000000000Z.jsonl"
+            old_archive.write_text(
+                json.dumps({
+                    "time": (now - timedelta(minutes=5)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEAD",
+                    "restart_cause": "DEAD",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            old_mtime = (now - timedelta(hours=25)).timestamp()
+            os.utime(old_archive, (old_mtime, old_mtime))
+
+            events = supervisor.recent_recovery_events(
+                diagnostics_path,
+                now=now,
+                window_hours=24,
+            )
+
+        self.assertEqual(events, [])
+
+    def test_restart_budget_rejects_future_dated_events(self):
+        now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            diagnostics_path = Path(tmp) / "diagnostics.jsonl"
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (now + timedelta(hours=1)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEAD",
+                    "restart_cause": "DEAD",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            events = supervisor.recent_recovery_events(
+                diagnostics_path,
+                now=now,
+                window_hours=24,
+            )
+
+        self.assertEqual(events, [])
+
     def test_stale_code_restarts_do_not_consume_crash_budget(self):
         # A burst of commits makes every collection loop detect stale code and
         # exit cleanly; those benign current-code re-adoptions must not trip the
