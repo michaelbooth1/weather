@@ -99,6 +99,10 @@ See [path policy](path-policy.md),
 
 ## Release and execution safety
 
+- The trading product uses International Polymarket (`polymarket_global`) only.
+  Polymarket US implementation, tests, and historical records may remain for
+  compatibility, but must not be selected for a new probe, credential setup,
+  live-readiness decision, or exchange mutation.
 - A configured active release must bind the complete verified release graph.
   Missing, mismatched, or corrupt components block serving; do not fall back to
   ambient global artifacts.

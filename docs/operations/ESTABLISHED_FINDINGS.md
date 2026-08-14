@@ -2219,6 +2219,32 @@ queue, and only an immutable explicitly approved exact-tip queue authorizes inte
 changes remove three standing warnings without weakening capture, closure, task, or exact-tip
 checks.
 
+## 8k. Historical maker legs require their own captured International economics
+
+**Immutable exact-tip suite measured 2026-08-14 04:30–04:38 local.** Branch
+`codex/international-live-probe` was clean at
+`904ce2d824fe48071062eb9a769d6a5e921b4dba`; all three capture workers passed every
+chunk admission. The complete 17-chunk receipt contains **4,425 tests: 4,418 passed and 7
+failed**, with terminal verdict `3 CHUNK(S) FAILED; do not merge`.
+
+Four failures are one economics defect: daily maker scoring returned `BLOCK` when selecting,
+trimming, or mixing historical run inputs because it tried to bind those legs to the newest
+current-day condition/token snapshot. International condition and token identities roll by date;
+the current snapshot cannot truthfully supply an older run's economics. Two failures enforce the
+module-size ownership ratchet after the live-pilot runner crossed its warning threshold. The final
+failure is a stale-stack research inventory mismatch already repaired on current production
+master. None is a capture or resource-admission failure.
+
+The correction is to atomically freeze the validated snapshot in each run, then score in a bounded
+two-pass stream that verifies file hash, source hash, snapshot/quote identity, target date, and
+run-time freshness. Missing, mixed, replaced, or tampered captures stay unbound with zero incentive
+economics. The isolated current-master repair at
+`9f3b926ecf6332ea23db990ee38401cce6f87495` then passed its own immutable **17/17 chunks and
+4,417/4,417 tests** with all capture admissions healthy. It is pushed and proven roll-sensitive,
+so production integration must wait for the next quiet window. The failed old live-probe tip is
+still ineligible; its refreshed cumulative successor must inherit this repair and pass a separate
+exact-tip suite.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

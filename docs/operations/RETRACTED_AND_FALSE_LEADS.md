@@ -274,6 +274,14 @@ part that can cost a streak day. If capture was restored, exit 2 is a healthy ru
 
 ## 4. Backlog and branch traps
 
+### "Today's exchange-economics snapshot can score historical maker runs" — RETRACTED
+
+That is false for International markets because each dated condition has its own condition and
+token identities. A current snapshot is evidence for its own target date, not a timeless fee table
+that can rehabilitate older quote legs. Historical legs require the exact snapshot frozen by their
+run; absent or tampered captures remain unbound with zero incentive economics. See §8k of
+`ESTABLISHED_FINDINGS.md` for the immutable suite receipt and corrected binding contract.
+
 ### "Forward public execution capture is the only route to the maker's informed-fill fraction" — RETRACTED
 
 This looked true because the retained book tape cannot distinguish cancellations from executions,

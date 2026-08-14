@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-06-24 - LIVE CREDENTIALS ABSENT; EVIDENCE BLOCKED]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - INTERNATIONAL BOUNDED PROBE PROOF RUNNING; ELIGIBLE-HOST EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -166,3 +166,26 @@ No market-risk code changes were made.
 - No live exchange CLI invocation was run because the existing harness requires
   both an eligible `live-pilot` run folder and external credential references
   before live verbs can be enabled.
+
+## 2026-08-14 International-only pilot disposition
+
+The credential-absence disposition above is historical and is no longer the
+owning blocker. The operator approved an International Polymarket pilot from a
+separate genuinely eligible execution host. Ontario production remains a
+read-only build, capture, and evidence host: do not install or inspect wallet
+credentials here and do not place or cancel orders from it. Polymarket US is
+outside product scope and must never be used.
+
+The current Stage 0/1 contract is exactly one International condition/token, a
+finite non-raisable 100 pUSD-equivalent wallet cap, forced post-only behavior,
+no naked sells, and all existing lower risk ceilings preserved. Mutation stays
+disabled unless authoritative user-event health, user-event, open-order, and
+exact-position readers are present. The official-client adapter must not expose
+a generic command-line live-mutation path.
+
+Stage 0/1 remains proof-gated on an immutable exact-tip full suite and a
+reviewed source transfer to the eligible host. A separate bounded Stage 2
+lifecycle implementation is not integration-ready or live-ready. The two
+unchecked live-evidence bullets above remain open until a tiny real lifecycle
+and paid-vs-predicted settlement/rebate record are reconciled without weakening
+any gate or increasing any ceiling.
