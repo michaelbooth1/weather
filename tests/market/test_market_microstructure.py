@@ -2082,6 +2082,25 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertIn('{"event": "first"}\n', rotated_text)
         self.assertEqual(active["event"], "second")
 
+    def test_dormant_enrichment_diagnostic_writer_is_also_bounded(self):
+        now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "clob_enrichment_diagnostics.jsonl"
+            path.write_text("legacy-diagnostics\n", encoding="utf-8")
+            with patch.object(mm, "CLOB_SIDECAR_ROTATE_BYTES", 1), \
+                    patch.object(mm, "utc_now", return_value=now):
+                mm.append_clob_enrichment_diagnostic({"event": "first"}, path=path)
+
+            rotated = list(
+                Path(tmp).glob(
+                    "clob_enrichment_diagnostics.20260612T150000000000Z*.jsonl"
+                )
+            )
+            active = json.loads(path.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(rotated), 1)
+        self.assertEqual(active["event"], "first")
+
     def test_start_clob_loop_rotates_console_before_opening_child_handle(self):
         now = datetime(2026, 6, 12, 15, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:

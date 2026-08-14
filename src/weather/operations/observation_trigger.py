@@ -31,7 +31,13 @@ from weather.collection.triggered_snapshot_queue import (
     enqueue_triggered_snapshot,
     triggered_snapshot_queue_status,
 )
-from weather.io import read_jsonl as io_read_jsonl
+from weather.io import (
+    ROTATE_BEFORE_APPEND,
+    ROTATE_BEFORE_LAUNCH,
+    append_rotating_jsonl,
+    read_jsonl as io_read_jsonl,
+    rotate_sidecar_policy,
+)
 from weather.market.market_config import config_for_date, date_from_event_slug
 from weather.market.live_observation_normalization import update_monotonic_high_ledger
 from weather.market.market_registry import DEFAULT_MARKET_ID, all_specs, spec_for_id, spec_for_slug
@@ -54,7 +60,6 @@ from weather.operations.supervisor import (
     managed_stop_expected_command,
     authorize_writer_lock_removal,
     age_seconds as supervisor_age_seconds,
-    append_jsonl as supervisor_append_jsonl,
     attach_status_writer,
     atomic_write_json,
     configure_json_console_logging,
@@ -150,6 +155,14 @@ def runtime_observation_supervisor_spec():
     )
 
 
+def runtime_observation_sidecar_rotation_policy():
+    return {
+        EVENTS_PATH: ROTATE_BEFORE_APPEND,
+        DIAGNOSTICS_PATH: ROTATE_BEFORE_APPEND,
+        CONSOLE_LOG_PATH: ROTATE_BEFORE_LAUNCH,
+    }
+
+
 def utc_now():
     return shared_utc_now()
 
@@ -163,7 +176,7 @@ def read_json(path):
 
 
 def append_jsonl(path, payload):
-    return supervisor_append_jsonl(path, payload)
+    return append_rotating_jsonl(path, payload, now=utc_now())
 
 
 def read_status(path=None):
@@ -1022,6 +1035,10 @@ def start_watcher_detached(
             "writer_lock": lock_cleanup,
         })
         return {"started": False, "reason": lock_cleanup.get("reason"), "writer_lock": lock_cleanup}
+    sidecar_rotations = rotate_sidecar_policy(
+        runtime_observation_sidecar_rotation_policy(),
+        now=now,
+    )
     command = _watcher_loop_command(market, interval_seconds, stale_after_seconds)
     child = launch_detached(
         command,
@@ -1049,8 +1066,19 @@ def start_watcher_detached(
         "started_by": "supervisor",
         "paused": PAUSE_FLAG_PATH.exists(),
     })
-    append_diagnostic({"time": now.isoformat(), "supervisor": "start", "pid": child.pid, "writer_lock": lock_cleanup})
-    return {"started": True, "pid": child.pid, "writer_lock": lock_cleanup}
+    append_diagnostic({
+        "time": now.isoformat(),
+        "supervisor": "start",
+        "pid": child.pid,
+        "writer_lock": lock_cleanup,
+        "sidecar_rotations": sidecar_rotations,
+    })
+    return {
+        "started": True,
+        "pid": child.pid,
+        "writer_lock": lock_cleanup,
+        "sidecar_rotations": sidecar_rotations,
+    }
 
 
 def acquire_supervisor_lock(path=None):

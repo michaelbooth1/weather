@@ -25,6 +25,11 @@ CSV_DIAGNOSTIC_COLUMNS = {
 }
 LEGACY_CSV_ENCODINGS = ("cp1252", "latin-1")
 MAX_RETRY_DELAY_SECONDS = 10.0
+DEFAULT_SIDECAR_ROTATE_BYTES = 64 * 1024 * 1024
+DEFAULT_SIDECAR_ROTATE_ATTEMPTS = 6
+DEFAULT_SIDECAR_ROTATE_RETRY_SECONDS = 0.1
+ROTATE_BEFORE_APPEND = "before_append"
+ROTATE_BEFORE_LAUNCH = "before_launch"
 
 
 def sha256_file(path: str | Path) -> str:
@@ -485,6 +490,107 @@ def write_text_atomic(
     return path
 
 
+def rotate_sidecar(
+    path: str | Path,
+    *,
+    max_bytes: int | None = None,
+    now: datetime | None = None,
+    max_attempts: int = DEFAULT_SIDECAR_ROTATE_ATTEMPTS,
+    retry_delay_seconds: float = DEFAULT_SIDECAR_ROTATE_RETRY_SECONDS,
+    sleep_fn: SleepFn = time.sleep,
+) -> Path | None:
+    """Move an oversized sidecar to a timestamped sibling without deletion."""
+
+    path = Path(path)
+    max_bytes = DEFAULT_SIDECAR_ROTATE_BYTES if max_bytes is None else int(max_bytes)
+    if max_bytes <= 0:
+        raise ValueError("max_bytes must be positive")
+    max_attempts = int(max_attempts)
+    retry_delay_seconds = float(retry_delay_seconds)
+    if max_attempts <= 0:
+        raise ValueError("max_attempts must be positive")
+    if retry_delay_seconds < 0:
+        raise ValueError("retry_delay_seconds must be non-negative")
+    try:
+        if path.stat().st_size < max_bytes:
+            return None
+    except FileNotFoundError:
+        return None
+
+    rotated_at = now or datetime.now(timezone.utc)
+    if rotated_at.tzinfo is None:
+        rotated_at = rotated_at.replace(tzinfo=timezone.utc)
+    stamp = rotated_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    for collision_index in range(1000):
+        collision = "" if collision_index == 0 else f".{collision_index}"
+        rotated = path.with_name(f"{path.stem}.{stamp}{collision}{path.suffix}")
+        if rotated.exists():
+            continue
+        for attempt in range(max_attempts):
+            try:
+                path.rename(rotated)
+            except FileNotFoundError:
+                # Another writer won the rotation race.
+                return None
+            except FileExistsError:
+                # Windows rename is non-overwriting; preserve the sibling and
+                # reserve a new collision suffix.
+                break
+            except PermissionError:
+                # Antivirus/indexing can hold a large sidecar briefly. The
+                # incident this policy closes was exactly such a transient
+                # Windows reopen denial, so a one-shot rename merely moves the
+                # same failure to a different syscall.
+                if attempt + 1 >= max_attempts:
+                    raise
+                delay = min(
+                    MAX_RETRY_DELAY_SECONDS,
+                    retry_delay_seconds * (2 ** attempt),
+                )
+                sleep_fn(delay)
+                continue
+            return rotated
+    raise RuntimeError(f"could not reserve a rotated sibling for {path}")
+
+
+def rotated_sidecar_paths(path: str | Path) -> list[Path]:
+    """Return timestamped siblings created by :func:`rotate_sidecar`."""
+
+    path = Path(path)
+    pattern = re.compile(
+        rf"^{re.escape(path.stem)}\.\d{{8}}T\d+Z(?:\.\d+)?{re.escape(path.suffix)}$"
+    )
+    try:
+        siblings = path.parent.iterdir()
+    except FileNotFoundError:
+        return []
+    return sorted(
+        candidate
+        for candidate in siblings
+        if candidate.is_file() and pattern.fullmatch(candidate.name)
+    )
+
+
+def rotate_sidecar_policy(
+    policy: dict[str | Path, str],
+    *,
+    triggers: Iterable[str] | None = None,
+    max_bytes: int | None = None,
+    now: datetime | None = None,
+) -> dict[str, str]:
+    """Rotate the selected paths in a declarative managed-loop policy."""
+
+    selected = set(triggers) if triggers is not None else None
+    rotations: dict[str, str] = {}
+    for raw_path, trigger in policy.items():
+        if selected is not None and trigger not in selected:
+            continue
+        rotated = rotate_sidecar(raw_path, max_bytes=max_bytes, now=now)
+        if rotated is not None:
+            rotations[str(Path(raw_path))] = str(rotated)
+    return rotations
+
+
 def append_jsonl(path: str | Path, payload: Any) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -495,6 +601,19 @@ def append_jsonl(path: str | Path, payload: Any) -> Path:
         else:
             handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
     return path
+
+
+def append_rotating_jsonl(
+    path: str | Path,
+    payload: Any,
+    *,
+    max_bytes: int | None = None,
+    now: datetime | None = None,
+) -> Path:
+    """Rotate an oversized append-opened JSONL sidecar before reopening it."""
+
+    rotate_sidecar(path, max_bytes=max_bytes, now=now)
+    return append_jsonl(path, payload)
 
 
 def writer_lock_path(path: str | Path) -> Path:

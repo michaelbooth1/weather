@@ -361,6 +361,44 @@ class ObservationTriggerTests(unittest.TestCase):
         self.assertFalse(calls["stdout_closed_during_call"])
         self.assertTrue(calls["stderr_is_stdout"])
 
+    def test_start_watcher_rotates_all_sidecars_before_launch(self):
+        now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            events_path = root / "observation_triggers.jsonl"
+            diagnostics_path = root / "observation_trigger_diagnostics.jsonl"
+            console_path = root / "observation_trigger_console.log"
+            for path in (events_path, diagnostics_path, console_path):
+                path.write_text(f"legacy-{path.name}\n", encoding="utf-8")
+
+            def fake_popen(command, cwd=None, stdout=None, stderr=None, creationflags=0):
+                self.assertFalse(events_path.exists())
+                self.assertFalse(diagnostics_path.exists())
+                self.assertEqual(stdout.tell(), 0)
+                self.assertIs(stdout, stderr)
+                stdout.write("new-child-console\n")
+                stdout.flush()
+                return FakeProcess()
+
+            with patch.object(observation_trigger, "STATUS_PATH", root / "status.json"), \
+                    patch.object(observation_trigger, "EVENTS_PATH", events_path), \
+                    patch.object(observation_trigger, "DIAGNOSTICS_PATH", diagnostics_path), \
+                    patch.object(observation_trigger, "CONSOLE_LOG_PATH", console_path), \
+                    patch.object(observation_trigger, "PAUSE_FLAG_PATH", root / "pause.flag"), \
+                    patch("weather.io.DEFAULT_SIDECAR_ROTATE_BYTES", 1), \
+                    patch.object(observation_trigger.subprocess, "Popen", fake_popen):
+                result = observation_trigger.start_watcher_detached(now=now)
+
+            rotated_events = list(root.glob("observation_triggers.*.jsonl"))
+            rotated_diagnostics = list(root.glob("observation_trigger_diagnostics.*.jsonl"))
+            rotated_console = list(root.glob("observation_trigger_console.*.log"))
+
+        self.assertTrue(result["started"])
+        self.assertEqual(len(rotated_events), 1)
+        self.assertEqual(len(rotated_diagnostics), 1)
+        self.assertEqual(len(rotated_console), 1)
+        self.assertEqual(len(result["sidecar_rotations"]), 3)
+
     def test_start_watcher_detached_blocks_live_writer_lock(self):
         now = datetime(2026, 6, 13, 16, 0, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:

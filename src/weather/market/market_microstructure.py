@@ -16,9 +16,15 @@ from pathlib import Path
 import requests
 
 # Compatibility re-export; retry policy is owned by weather.io.
-from weather.io import request_with_retries
-
-from weather.io import read_csv_rows as io_read_csv_rows
+from weather.io import (
+    ROTATE_BEFORE_APPEND,
+    ROTATE_BEFORE_LAUNCH,
+    append_rotating_jsonl,
+    read_csv_rows as io_read_csv_rows,
+    request_with_retries,
+    rotate_sidecar,
+    rotate_sidecar_policy,
+)
 from weather.market.market_config import config_from_event, config_for_date
 from weather.market.market_microstructure_features import write_clob_feature_rows
 from weather.market.market_registry import all_specs, spec_for_id
@@ -173,6 +179,13 @@ def runtime_clob_supervisor_spec():
     )
 
 
+def runtime_clob_sidecar_rotation_policy():
+    return {
+        CLOB_DIAGNOSTICS_PATH: ROTATE_BEFORE_APPEND,
+        CLOB_LOOP_CONSOLE_LOG_PATH: ROTATE_BEFORE_LAUNCH,
+    }
+
+
 def utc_now():
     return datetime.now(timezone.utc)
 
@@ -194,46 +207,28 @@ def write_clob_enrichment_status(status, path=None):
 
 
 def rotate_clob_sidecar(path, *, max_bytes=None, now=None):
-    """Move an oversized CLOB sidecar to a timestamped sibling without deletion."""
-    path = Path(path)
+    """Compatibility wrapper for the shared managed-sidecar rotation helper."""
     max_bytes = CLOB_SIDECAR_ROTATE_BYTES if max_bytes is None else int(max_bytes)
-    if max_bytes <= 0:
-        raise ValueError("max_bytes must be positive")
-    try:
-        if path.stat().st_size < max_bytes:
-            return None
-    except FileNotFoundError:
-        return None
-
-    rotated_at = now or utc_now()
-    if rotated_at.tzinfo is None:
-        rotated_at = rotated_at.replace(tzinfo=timezone.utc)
-    stamp = rotated_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    for collision_index in range(1000):
-        collision = "" if collision_index == 0 else f".{collision_index}"
-        rotated = path.with_name(f"{path.stem}.{stamp}{collision}{path.suffix}")
-        if rotated.exists():
-            continue
-        try:
-            path.rename(rotated)
-        except FileNotFoundError:
-            # Another diagnostics writer won the rotation race.
-            return None
-        except FileExistsError:
-            # Windows rename is non-overwriting; preserve the sibling and retry.
-            continue
-        return rotated
-    raise RuntimeError(f"could not reserve a rotated sibling for {path}")
+    return rotate_sidecar(path, max_bytes=max_bytes, now=now or utc_now())
 
 
 def append_clob_enrichment_diagnostic(record, path=None):
-    return append_jsonl(path or CLOB_ENRICHMENT_DIAGNOSTICS_PATH, record)
+    return append_rotating_jsonl(
+        path or CLOB_ENRICHMENT_DIAGNOSTICS_PATH,
+        record,
+        max_bytes=CLOB_SIDECAR_ROTATE_BYTES,
+        now=utc_now(),
+    )
 
 
 def append_clob_diagnostic(record, path=None):
     target = Path(path or CLOB_DIAGNOSTICS_PATH)
-    rotate_clob_sidecar(target)
-    return append_jsonl(target, record)
+    return append_rotating_jsonl(
+        target,
+        record,
+        max_bytes=CLOB_SIDECAR_ROTATE_BYTES,
+        now=utc_now(),
+    )
 
 
 def clob_supervisor_lock_is_stale(path=None, max_age_seconds=120):
@@ -1194,7 +1189,12 @@ def start_clob_loop_detached(
             "writer_lock": lock_cleanup,
         })
         return {"started": False, "reason": lock_cleanup.get("reason"), "writer_lock": lock_cleanup}
-    console_log_rotation = rotate_clob_sidecar(CLOB_LOOP_CONSOLE_LOG_PATH, now=now)
+    sidecar_rotations = rotate_sidecar_policy(
+        runtime_clob_sidecar_rotation_policy(),
+        max_bytes=CLOB_SIDECAR_ROTATE_BYTES,
+        now=now,
+    )
+    console_log_rotation = sidecar_rotations.get(str(Path(CLOB_LOOP_CONSOLE_LOG_PATH)))
     command = _clob_loop_command(
             market_id=market_id,
             target_date=target_date,
@@ -1278,13 +1278,15 @@ def start_clob_loop_detached(
         "websocket_heartbeat_seconds": ws_heartbeat_seconds,
         "websocket_connect_timeout": ws_connect_timeout,
         "writer_lock": lock_cleanup,
-        "console_log_rotated_to": str(console_log_rotation) if console_log_rotation else None,
+        "sidecar_rotations": sidecar_rotations,
+        "console_log_rotated_to": console_log_rotation,
     })
     return {
         "started": True,
         "pid": child.pid,
         "writer_lock": lock_cleanup,
-        "console_log_rotated_to": str(console_log_rotation) if console_log_rotation else None,
+        "sidecar_rotations": sidecar_rotations,
+        "console_log_rotated_to": console_log_rotation,
     }
 
 

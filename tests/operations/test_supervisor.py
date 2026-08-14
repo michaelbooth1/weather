@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
+from weather import io as weather_io
 from weather.operations import supervisor
 from weather.operations import bot_daily_roll_supervisor
 from weather.operations import windows_processes
@@ -323,6 +324,97 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertFalse(circuit["allowed"])
         self.assertEqual(circuit["action"], "circuit_open")
         self.assertEqual(circuit["recent_recovery_count"], 2)
+
+    def test_diagnostics_rotation_does_not_reset_restart_budget(self):
+        now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            spec = supervisor.SupervisorSpec(
+                name="snapshot",
+                module="weather.example",
+                status_path=root / "loop_status.json",
+                diagnostics_path=diagnostics_path,
+                console_log_path=root / "loop_console.log",
+                restart_budget=1,
+            )
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (now - timedelta(minutes=5)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEAD",
+                    "restart_cause": "DEAD",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            before = supervisor.supervisor_recovery_guard(spec, "restart", now=now)
+            rotated = weather_io.rotate_sidecar(
+                diagnostics_path,
+                max_bytes=1,
+                now=now - timedelta(minutes=1),
+            )
+            after = supervisor.supervisor_recovery_guard(spec, "restart", now=now)
+            cache = supervisor.read_json_file(
+                supervisor.recovery_history_cache_path(diagnostics_path)
+            )
+
+        self.assertEqual(before["recent_recovery_count"], 1)
+        self.assertEqual(before["action"], "circuit_open")
+        self.assertIsNotNone(rotated)
+        self.assertEqual(after["recent_recovery_count"], 1)
+        self.assertEqual(after["action"], "circuit_open")
+        self.assertIn(str(rotated), cache["indexed_rotated_paths"])
+
+    def test_restart_budget_skips_rotated_archives_older_than_window(self):
+        now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            old_archive = root / "diagnostics.20260808T120000000000Z.jsonl"
+            old_archive.write_text(
+                json.dumps({
+                    "time": (now - timedelta(minutes=5)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEAD",
+                    "restart_cause": "DEAD",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            old_mtime = (now - timedelta(hours=25)).timestamp()
+            os.utime(old_archive, (old_mtime, old_mtime))
+
+            events = supervisor.recent_recovery_events(
+                diagnostics_path,
+                now=now,
+                window_hours=24,
+            )
+
+        self.assertEqual(events, [])
+
+    def test_restart_budget_rejects_future_dated_events(self):
+        now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            diagnostics_path = Path(tmp) / "diagnostics.jsonl"
+            diagnostics_path.write_text(
+                json.dumps({
+                    "time": (now + timedelta(hours=1)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "restart",
+                    "state": "DEAD",
+                    "restart_cause": "DEAD",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            events = supervisor.recent_recovery_events(
+                diagnostics_path,
+                now=now,
+                window_hours=24,
+            )
+
+        self.assertEqual(events, [])
 
     def test_stale_code_restarts_do_not_consume_crash_budget(self):
         # A burst of commits makes every collection loop detect stale code and
