@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping
 
 from weather.paths import REPO_ROOT
 from weather.runtime_identity import current_identity_for, identities_match
+from weather.schema_registry import schema_version
 
 
 @dataclass(frozen=True)
@@ -29,7 +30,10 @@ class WorkerSpec:
 
 
 WORKERS = (
-    WorkerSpec("snapshot_tracker", "loop_status.json", ".loop_status.json.writer.lock", 300.0),
+    # The normal snapshot loop can sleep for almost its full 10-minute cadence.
+    # Keep recovery stricter than the 15-minute capture-gap objective while not
+    # declaring a healthy, identity-current sleeping worker stale mid-cycle.
+    WorkerSpec("snapshot_tracker", "loop_status.json", ".loop_status.json.writer.lock", 720.0),
     WorkerSpec(
         "market_microstructure",
         "clob_loop_status.json",
@@ -169,7 +173,7 @@ def check_capture_recovery(
         )
 
     return {
-        "schema_version": "capture_recovery_check_v1",
+        "schema_version": schema_version("capture_recovery_check"),
         "checked_at": checked_at.isoformat(),
         "repo_root": str(root),
         "ok": len(rows) == len(WORKERS) and all(row["ok"] for row in rows),
