@@ -51,7 +51,7 @@ from weather.model.feature_store import (
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.paths import REPO_ROOT, data_path
 from weather.operations.power import keep_system_awake
-from weather.runtime_identity import get_runtime_identity
+from weather.runtime_identity import current_identity_for, get_runtime_identity, identities_match
 from weather.operations.supervisor import (
     SupervisorSpec,
     acquire_file_lock,
@@ -1094,17 +1094,32 @@ def source_identity_error(value):
     return "code identity differs" in text or "source tree" in text
 
 
+def observation_runtime_matches_current(status, current_identity=None):
+    """Return whether the managed watcher still matches its loaded source closure."""
+    if not status or not status.get("runtime_identity"):
+        return True
+    current_identity = current_identity or current_identity_for(status["runtime_identity"])
+    return identities_match(status["runtime_identity"], current_identity)
+
+
 def ensure_decision(
     health_state,
     pid_alive,
     last_error=None,
     *,
+    runtime_matches_current=True,
     writer_lock_healthy=True,
 ):
     if not writer_lock_healthy:
         return "restart" if pid_alive else "start"
     if health_state in {"DEGRADED", "ERRORING"} and source_identity_error(last_error):
         return "restart" if pid_alive else "start"
+    if (
+        not runtime_matches_current
+        and health_state in {"RUNNING", "PAUSED", "DEGRADED", "ERRORING"}
+        and pid_alive
+    ):
+        return "restart"
     if health_state in {"RUNNING", "PAUSED", "DEGRADED", "ERRORING"}:
         return "noop"
     if pid_alive:
@@ -1140,10 +1155,12 @@ def ensure_watcher_loop(
             status_pid=(status or {}).get("pid"),
             status_pid_alive=alive,
         )
+        runtime_matches_current = observation_runtime_matches_current(status)
         action = ensure_decision(
             health["state"],
             alive,
             health.get("last_error"),
+            runtime_matches_current=runtime_matches_current,
             writer_lock_healthy=writer_lock["healthy"],
         )
         if action in {"start", "restart"}:
@@ -1153,6 +1170,8 @@ def ensure_watcher_loop(
                 restart_cause = writer_lock["reason"]
             elif source_identity_error(health.get("last_error")):
                 restart_cause = "source_identity_error"
+            elif not runtime_matches_current:
+                restart_cause = "runtime_identity"
             else:
                 restart_cause = health["state"]
         else:
@@ -1163,6 +1182,7 @@ def ensure_watcher_loop(
             "pid": health.get("pid"),
             "restart_cause": restart_cause,
             "writer_lock": writer_lock,
+            "runtime_identity_matches_current": runtime_matches_current,
             "runtime_identity_before": (status or {}).get("runtime_identity"),
         }
         guard = supervisor_recovery_guard(spec, action, now=now)

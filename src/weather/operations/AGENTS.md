@@ -12,6 +12,10 @@ Scope: scheduled jobs, supervisors, and lifecycle orchestration under
 - Long-running Windows workers use the repo venv, repository working directory,
   `sitecustomize.py`, runtime-identity checks, and silent child-process defaults.
   Preserve those assumptions when changing Task Scheduler registration.
+- Every live worker closure reported by `scripts/ops/roll_verdict.ps1` must have
+  a supervisor-side loaded-source identity comparison and benign automatic
+  readoption. A fresh heartbeat proves liveness, not that a worker adopted the
+  current source tree.
 - `daily_refresh_registry.STEP_ORDER` is the canonical morning pipeline order.
   Maintain stage barriers and carried-forward resume state when adding steps.
 - Nightly training writes candidate-only outputs and may construct an inactive
