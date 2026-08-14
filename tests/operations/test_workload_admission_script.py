@@ -17,6 +17,7 @@ WRAPPERS = (
     "bounded_execution_tape_probe.ps1",
     "clob_tiering_run.ps1",
     "clob_raw_tape_tiering_run.ps1",
+    "daily_refresh.ps1",
 )
 
 

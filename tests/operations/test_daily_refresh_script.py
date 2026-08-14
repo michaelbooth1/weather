@@ -165,6 +165,18 @@ def test_daily_refresh_child_tree_is_owned_by_a_kill_on_close_job():
     assert wrapper.index("Start-WeatherProcessInJob") < wrapper.index("$child.WaitForExit()")
 
 
+def test_daily_refresh_is_serialized_and_cannot_cross_the_graded_window():
+    wrapper = WRAPPER.read_text(encoding="utf-8-sig")
+
+    assert "workload_admission.ps1" in wrapper
+    assert 'Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "daily_refresh_$Stage"' in wrapper
+    assert "$localMinute -ge 715 -or $localMinute -lt 30" in wrapper
+    assert "$minute -ge 715 -or $minute -lt 30" in wrapper
+    assert "Closing the kill-on-close Job" in wrapper
+    assert "$childExitCode = 75" in wrapper
+    assert "Exit-WeatherHeavyWorkloadLease" in wrapper
+
+
 def test_daily_refresh_parser_accepts_delegated_child_contract():
     args = build_parser().parse_args([
         "run",

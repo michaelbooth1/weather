@@ -274,6 +274,19 @@ part that can cost a streak day. If capture was restored, exit 2 is a healthy ru
 
 ## 4. Backlog and branch traps
 
+### "Forward public execution capture is the only route to the maker's informed-fill fraction" — RETRACTED
+
+This looked true because the retained book tape cannot distinguish cancellations from executions,
+and the public market stream adds explicit trade events. That fixes the **market path**, not our
+selection into fills. Public trades do not prove that our resting order filled, where it sat in
+queue, what fee or rebate applied, or what inventory the account held.
+
+The corrected evidence split is: public executions for price paths and counterfactual markouts;
+authoritative own-account user events, orders, positions, fees and rebate receipts for realized
+lifecycle and P&L. The authenticated stream is not a market-wide flow denominator, but it is
+indispensable for our own economics. Treating either source as a substitute for the other recreates
+the project's recurring error of calling eligibility evidence an outcome.
+
 ### Branch names lie
 
 `-09-01a` is named "consolidate merge queue" and contains a 1,536-line point-in-time training corpus,

@@ -54,6 +54,13 @@ machine-local state.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
   readiness/release gates.
+- Agent-started or ad-hoc heavy host work is allowed only from 00:30–09:00
+  local and must hold the shared lease from
+  `scripts/ops/workload_admission.ps1`. The repository-owned Stage-A daily
+  chain is the sole scheduled exception: it may run 09:30–11:55 under an
+  absolute child-tree teardown deadline. The 12:00–18:00 graded window and
+  18:00–00:30 near-close window are protected; separate resource checks do
+  not make overlapping heavy jobs safe.
 - **Merging code on the production host can restart live capture.** Supervisors
   fingerprint the source files they have imported, so landing a change to a
   loop-imported module triggers a `STALE_CODE` readoption restart. Inside the
@@ -61,7 +68,8 @@ machine-local state.
   objective. **Get the verdict from `scripts\ops\roll_verdict.ps1 -Branch <b>`;
   never derive it by hand.** Roll-sensitive branches merge in the 01:00-04:00
   quiet window via `scripts/ops/quiet_window_merge.ps1`, which consults that
-  verdict, merges locally, proves capture recovered, and only then pushes.
+  verdict, merges locally, proves all three capture workers recovered, and
+  only then invokes `WeatherOneShotPush` and verifies `origin/master`.
   **A roll-free branch does not need the quiet window** — requiring it of every
   branch is what backed the merge queue up to 25 branches. Markdown, `docs/`,
   `config/` and `.ps1` are roll-free. **Pushing a branch never rolls anything**,
