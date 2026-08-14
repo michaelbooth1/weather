@@ -353,3 +353,27 @@ result only after cleanup succeeds. A separate offline command rereads both
 results and journals to build the lifecycle bundle. This makes the bounded test
 operator-executable on an eligible host; it does not enable the ordinary maker
 runner and does not make the Ontario host eligible.
+
+Wallet-topology and eligible-host credential-preparation update (2026-08-13
+UTC): current official documentation distinguishes existing Gnosis Safe
+signature type 2 from the new deposit-wallet/POLY_1271 type 3 flow. The pinned
+SDK also gives them different signed-order identities: type 2 uses the EOA as
+API owner and order signer with the distinct Safe as maker/funder; type 3 uses
+the EOA as API owner and the distinct deposit wallet as order signer, maker,
+and funder. The former equality gate was therefore wrong for type 3 and
+insufficiently explicit for both. Stage 0, bootstrap, and full v0.4 promotion
+now accept only these two exact topologies and recompute their address
+relationships instead of trusting a generic consistency boolean.
+
+The operator supplied an external credential file for a funded type-2 Safe.
+Without emitting values or making a network request, an isolated environment
+with the exact pinned SDK proved that the private key derives the declared EOA,
+the SDK selects that EOA as the type-2 order signer, and the configured Safe
+funder is distinct. The source file remains outside the repository and its ACL
+was restricted to the current account, SYSTEM, and Administrators. No credential
+was imported on the blocked Ontario host. A one-time eligible-host importer is
+prepared to validate the same topology, create only new Credential Manager
+targets, roll back partial writes, ignore unused relayer/RPC/self-assertion
+fields, and emit only a public reference manifest plus a secret-free receipt.
+Live account authentication and every order mutation remain blocked until the
+genuinely eligible execution host passes the fresh Stage 0 gates.

@@ -1109,9 +1109,16 @@ class OfficialPolymarketGlobalAdapter:
             signed_signature_type = int(signed_signature_type)
         except (TypeError, ValueError) as exc:
             raise RuntimeError("signed order omitted its signature type") from exc
+        expected_order_signer = (
+            str(self.maker_address or "").lower()
+            if signed_signature_type == 3
+            else client_signer
+        )
         checks = {
-            "signer_matches_client": (
-                signer == client_signer and EVM_ADDRESS_RE.fullmatch(signer) is not None
+            "client_signer_valid": EVM_ADDRESS_RE.fullmatch(client_signer) is not None,
+            "order_signer_matches_wallet_topology": (
+                signer == expected_order_signer
+                and EVM_ADDRESS_RE.fullmatch(signer) is not None
             ),
             "maker_matches_funder": (
                 maker == str(self.maker_address or "").lower()
@@ -1134,7 +1141,8 @@ class OfficialPolymarketGlobalAdapter:
             "signature": signature,
         }
         return {
-            "signer_address": signer,
+            "client_signer_address": client_signer,
+            "order_signer_address": signer,
             "maker_address": maker,
             "token_id": signed_token,
             "signature_type_id": signed_signature_type,

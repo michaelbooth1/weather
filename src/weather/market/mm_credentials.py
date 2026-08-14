@@ -24,8 +24,7 @@ from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     contains_secret_material,
     international_jurisdiction,
-    non_empty_text,
-    signature_type_consistent,
+    pilot_wallet_signature_topology,
     valid_evm_address,
 )
 
@@ -144,6 +143,103 @@ def resolve_credential_reference(reference, *, wincred_reader=None):
     return reader(target)
 
 
+def windows_generic_credential_exists(target):
+    """Check a Generic Credential target without copying its secret blob."""
+
+    if os.name != "nt":
+        raise RuntimeError("Windows Credential Manager is supported only on Windows")
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [("unused", ctypes.c_byte)]
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    pointer = ctypes.POINTER(CREDENTIAL)()
+    cred_read = advapi32.CredReadW
+    cred_read.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
+    cred_read.restype = wintypes.BOOL
+    cred_free = advapi32.CredFree
+    cred_free.argtypes = [ctypes.c_void_p]
+    cred_free.restype = None
+    if cred_read(str(target), 1, 0, ctypes.byref(pointer)):
+        cred_free(pointer)
+        return True
+    error = ctypes.get_last_error()
+    if error == 1168:  # ERROR_NOT_FOUND
+        return False
+    raise OSError(error, "Windows Credential Manager target could not be checked")
+
+
+def write_windows_generic_credential(target, value):
+    """Write a new current-user Generic Credential without command-line secrets."""
+
+    if os.name != "nt":
+        raise RuntimeError("Windows Credential Manager is supported only on Windows")
+    target = str(target or "").strip()
+    if not target:
+        raise ValueError("credential target is required")
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ValueError("credential value must be a nonempty NUL-free string")
+    encoded = value.encode("utf-8")
+    if len(encoded) > 5120:
+        raise ValueError("credential value exceeds the Generic Credential limit")
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [
+            ("Flags", wintypes.DWORD),
+            ("Type", wintypes.DWORD),
+            ("TargetName", wintypes.LPWSTR),
+            ("Comment", wintypes.LPWSTR),
+            ("LastWritten", wintypes.FILETIME),
+            ("CredentialBlobSize", wintypes.DWORD),
+            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
+            ("Persist", wintypes.DWORD),
+            ("AttributeCount", wintypes.DWORD),
+            ("Attributes", ctypes.c_void_p),
+            ("TargetAlias", wintypes.LPWSTR),
+            ("UserName", wintypes.LPWSTR),
+        ]
+
+    buffer = (ctypes.c_ubyte * len(encoded)).from_buffer_copy(encoded)
+    credential = CREDENTIAL()
+    credential.Type = 1  # CRED_TYPE_GENERIC
+    credential.TargetName = target
+    credential.Comment = "Weather International live-pilot credential"
+    credential.CredentialBlobSize = len(encoded)
+    credential.CredentialBlob = ctypes.cast(
+        buffer,
+        ctypes.POINTER(ctypes.c_ubyte),
+    )
+    credential.Persist = 2  # CRED_PERSIST_LOCAL_MACHINE, current-user scoped
+    credential.UserName = "weather-live-pilot"
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    cred_write = advapi32.CredWriteW
+    cred_write.argtypes = [ctypes.POINTER(CREDENTIAL), wintypes.DWORD]
+    cred_write.restype = wintypes.BOOL
+    if not cred_write(ctypes.byref(credential), 0):
+        error = ctypes.get_last_error()
+        raise OSError(error, "Windows Credential Manager target could not be written")
+
+
+def delete_windows_generic_credential(target):
+    """Delete one exact Generic Credential target."""
+
+    if os.name != "nt":
+        raise RuntimeError("Windows Credential Manager is supported only on Windows")
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    cred_delete = advapi32.CredDeleteW
+    cred_delete.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+    cred_delete.restype = wintypes.BOOL
+    if not cred_delete(str(target), 1, 0):
+        error = ctypes.get_last_error()
+        if error != 1168:
+            raise OSError(error, "Windows Credential Manager target could not be deleted")
+
+
 def load_global_credential_bundle(env=None, *, wincred_reader=None):
     env = env if env is not None else os.environ
     diagnostics = credential_diagnostics("polymarket_global", env=env)
@@ -204,8 +300,9 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
         "chain": identity.get("chain_id") == 137,
         "sdk_distribution": identity.get("sdk_distribution") == OFFICIAL_CLOB_DISTRIBUTION,
         "sdk_version": identity.get("sdk_version") == OFFICIAL_CLOB_VERSION,
-        "signature": signature_type_consistent(identity),
-        "wallet_type": non_empty_text(identity.get("wallet_type")),
+        "pilot_wallet_signature_topology": pilot_wallet_signature_topology(
+            identity
+        ),
         "funder": valid_evm_address(identity.get("funder_address")),
         "expected_funder": (
             expected_funder is None
@@ -258,8 +355,8 @@ def build_pinned_clob_client(
         )
     identity = identity_gate["identity"]
     signature_type_id = identity.get("signature_type_id")
-    if signature_type_id not in {0, 1, 2, 3}:
-        raise RuntimeError("Stage 0 client identity does not carry a supported signature type id")
+    if signature_type_id not in {2, 3}:
+        raise RuntimeError("Stage 0 requires a supported Safe or deposit-wallet signature type")
     if client_factory is None or api_creds_factory is None:
         require_official_clob_version()
         from py_clob_client_v2 import ApiCreds, ClobClient

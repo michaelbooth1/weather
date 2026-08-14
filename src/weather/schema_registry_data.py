@@ -1337,6 +1337,20 @@ REGISTERED_SCHEMAS = (
         "Secret-free PASS/FAIL receipt for International identity preparation, keyless setup diagnosis, Stage 0, either one-submit Stage 1 probe, or offline lifecycle-bundle construction, including final zero-account-state cleanup where exchange authentication is used.",
     ),
     SchemaSpec(
+        "mm_live_credential_reference_manifest",
+        "mm_live_credential_reference_manifest_v0.1",
+        "weather.market.mm_credential_import_cli",
+        "active",
+        "Public International pilot wallet topology and fixed Windows Credential Manager references emitted by the one-time eligible-host credential importer; contains no credential values.",
+    ),
+    SchemaSpec(
+        "mm_live_credential_import_receipt",
+        "mm_live_credential_import_receipt_v0.1",
+        "weather.market.mm_credential_import_cli",
+        "active",
+        "Secret-free eligible-host credential import result with validation check names, entry counts, and rollback state.",
+    ),
+    SchemaSpec(
         "mm_platform_verification",
         "mm_platform_verification_v0.4",
         "weather.market.market_making_run",

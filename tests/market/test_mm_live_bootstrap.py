@@ -15,6 +15,7 @@ from weather.market.mm_geoblock import collect_official_geoblock_evidence
 NOW = "2026-08-13T19:00:00+00:00"
 TARGET_DATE = "2026-08-13"
 ADDRESS = "0x0000000000000000000000000000000000000001"
+SIGNER_ADDRESS = "0x0000000000000000000000000000000000000002"
 CONDITION_ID = "0x" + "1" * 64
 TOKEN_ID = "12345"
 
@@ -84,9 +85,9 @@ def bootstrap_payload():
         "signature_type_id": 3,
         "funder_address": ADDRESS,
         "wallet_identity": {
-            "private_key_signer_address": ADDRESS,
+            "private_key_signer_address": SIGNER_ADDRESS,
             "order_signer_address": ADDRESS,
-            "api_key_owner_address": ADDRESS,
+            "api_key_owner_address": SIGNER_ADDRESS,
             "api_key_authentication_verified": True,
             "signed_order_preview_verified": True,
             "signed_order_preview_sha256": "e" * 64,
@@ -153,6 +154,7 @@ def bootstrap_payload():
         "source_urls": [
             "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
             "https://docs.polymarket.com/api-reference/authentication",
+            "https://docs.polymarket.com/trading/overview",
             "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
             "https://docs.polymarket.com/api-reference/wss/user",
             "https://docs.polymarket.com/trading/orders/overview",
@@ -356,7 +358,7 @@ def test_finite_stage0_gate_rejects_a_modified_final_journal(tmp_path):
 def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path):
     class Client:
         def get_address(self):
-            return ADDRESS
+            return SIGNER_ADDRESS
 
     class UserStream:
         def __init__(self, path):
@@ -453,7 +455,8 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
             }
             return {
                 "status": "VERIFIED_NON_POSTING_PREVIEW",
-                "signer_address": ADDRESS,
+                "client_signer_address": SIGNER_ADDRESS,
+                "order_signer_address": ADDRESS,
                 "maker_address": ADDRESS,
                 "token_id": TOKEN_ID,
                 "signature_type_id": expected_signature_type_id,
@@ -537,6 +540,60 @@ def test_bootstrap_gate_rejects_unproved_signed_order_topology(tmp_path):
 
     assert not gate["ok"]
     assert "signed_order_preview_verified" in gate["missing"]
+
+
+def test_bootstrap_gate_rejects_eoa_as_deposit_wallet_order_signer(tmp_path):
+    payload = finalized_bootstrap_payload(tmp_path, name="wrong-order-signer")
+    payload["wallet_identity"]["order_signer_address"] = SIGNER_ADDRESS
+    path = write_payload(tmp_path / "bootstrap-wrong-order-signer.json", payload)
+
+    gate = load_platform_bootstrap_gate(
+        path,
+        TARGET_DATE,
+        requested_budget_usdc=100.0,
+        now=NOW,
+    )
+
+    assert not gate["ok"]
+    assert "order_signer_matches_wallet_topology" in gate["missing"]
+
+
+def test_bootstrap_gate_rejects_same_eoa_and_deposit_wallet(tmp_path):
+    payload = finalized_bootstrap_payload(tmp_path, name="same-wallet")
+    payload["wallet_identity"]["private_key_signer_address"] = ADDRESS
+    payload["wallet_identity"]["api_key_owner_address"] = ADDRESS
+    path = write_payload(tmp_path / "bootstrap-same-wallet.json", payload)
+
+    gate = load_platform_bootstrap_gate(
+        path,
+        TARGET_DATE,
+        requested_budget_usdc=100.0,
+        now=NOW,
+    )
+
+    assert not gate["ok"]
+    assert "signer_funder_relation_matches_wallet_topology" in gate["missing"]
+
+
+def test_bootstrap_gate_accepts_existing_gnosis_safe_topology(tmp_path):
+    payload = bootstrap_payload()
+    payload["wallet_type"] = "gnosis_safe"
+    payload["signature_type"] = "POLY_GNOSIS_SAFE"
+    payload["signature_type_id"] = 2
+    payload["wallet_identity"]["order_signer_address"] = SIGNER_ADDRESS
+    path = write_payload(
+        tmp_path / "bootstrap-gnosis-safe.json",
+        finalized_bootstrap_payload(tmp_path, name="gnosis-safe", payload=payload),
+    )
+
+    gate = load_platform_bootstrap_gate(
+        path,
+        TARGET_DATE,
+        requested_budget_usdc=100.0,
+        now=NOW,
+    )
+
+    assert gate["ok"], gate["missing"]
 
 
 def test_bootstrap_gate_rejects_us_wrong_market_over_budget_and_secret_material(tmp_path):

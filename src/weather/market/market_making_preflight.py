@@ -137,6 +137,10 @@ SIGNATURE_TYPE_IDS = {
     "POLY_GNOSIS_SAFE": 2,
     "POLY_1271": 3,
 }
+PILOT_WALLET_SIGNATURE_TYPES = {
+    "gnosis_safe": ("POLY_GNOSIS_SAFE", 2),
+    "deposit_wallet": ("POLY_1271", 3),
+}
 MAX_OPERATOR_PILOT_BUDGET_USDC = 100.0
 INTERNATIONAL_SETTLEMENT_UNIT = "pUSD"
 
@@ -193,6 +197,54 @@ def signature_type_consistent(payload):
 
 def valid_evm_address(value):
     return isinstance(value, str) and re.fullmatch(r"0x[0-9a-fA-F]{40}", value.strip()) is not None
+
+
+def pilot_wallet_signature_topology(payload):
+    wallet_type = str(payload.get("wallet_type") or "").strip().lower()
+    expected = PILOT_WALLET_SIGNATURE_TYPES.get(wallet_type)
+    if expected is None:
+        return False
+    expected_name, expected_id = expected
+    return (
+        str(payload.get("signature_type") or "").strip().upper() == expected_name
+        and payload.get("signature_type_id") == expected_id
+    )
+
+
+def pilot_wallet_identity_topology_checks(payload, wallet_identity):
+    """Prove the two supported International pilot wallet relationships."""
+
+    wallet_identity = dict(wallet_identity or {})
+    private_key_signer = str(
+        wallet_identity.get("private_key_signer_address") or ""
+    ).strip().lower()
+    order_signer = str(
+        wallet_identity.get("order_signer_address") or ""
+    ).strip().lower()
+    api_key_owner = str(
+        wallet_identity.get("api_key_owner_address") or ""
+    ).strip().lower()
+    funder_address = str(payload.get("funder_address") or "").strip().lower()
+    signature_type_id = payload.get("signature_type_id")
+    expected_order_signer = (
+        funder_address if signature_type_id == 3 else private_key_signer
+    )
+    return {
+        "pilot_wallet_signature_topology": pilot_wallet_signature_topology(payload),
+        "private_key_signer_matches_api_key_owner": (
+            valid_evm_address(private_key_signer)
+            and private_key_signer == api_key_owner
+        ),
+        "order_signer_matches_wallet_topology": (
+            valid_evm_address(order_signer)
+            and order_signer == expected_order_signer
+        ),
+        "signer_funder_relation_matches_wallet_topology": (
+            valid_evm_address(private_key_signer)
+            and valid_evm_address(funder_address)
+            and private_key_signer != funder_address
+        ),
+    }
 
 
 def valid_clob_token_id(value):
@@ -311,6 +363,10 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
     sdk = dict_value(payload, "sdk_contract")
     heartbeat = dict_value(payload, "dead_man_heartbeat")
     lifecycle_bundle = dict_value(payload, "stage1_lifecycle_bundle")
+    wallet_topology_checks = pilot_wallet_identity_topology_checks(
+        payload,
+        wallet_identity,
+    )
     lifecycle_results = dict_value(lifecycle_bundle, "lifecycle_results")
     cancel_probe = dict_value(lifecycle_results, "cancel_all")
     dead_man_probe = dict_value(lifecycle_results, "dead_man")
@@ -367,6 +423,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             wallet_identity.get("consistency_verified"),
             False,
         ),
+        **wallet_topology_checks,
         "sdk_distribution_exact": sdk.get("distribution") == OFFICIAL_CLOB_DISTRIBUTION,
         "sdk_version_exact": sdk.get("version") == OFFICIAL_CLOB_VERSION,
         "sdk_exact_version_verified": bool_value(sdk.get("exact_version_verified"), False),

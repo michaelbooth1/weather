@@ -232,6 +232,50 @@ def test_prepare_identity_writes_fail_receipt_but_no_manifest_when_location_bloc
     assert "physical_geo_eligibility" in receipt["missing"]
 
 
+@pytest.mark.parametrize(
+    ("wallet_type", "signature_type", "missing_check"),
+    [
+        ("eoa", "POLY_1271", "pilot_wallet_signature_topology"),
+        ("deposit_wallet", "EOA", "pilot_wallet_signature_topology"),
+        ("gnosis_safe", "POLY_1271", "pilot_wallet_signature_topology"),
+    ],
+)
+def test_prepare_identity_rejects_non_deposit_wallet_topology(
+    tmp_path,
+    wallet_type,
+    signature_type,
+    missing_check,
+):
+    command_args = prepare_args(tmp_path)
+    command_args.wallet_type = wallet_type
+    command_args.signature_type = signature_type
+
+    with pytest.raises(RuntimeError, match="did not pass"):
+        cli.run_prepare_identity(command_args, geoblock_collector=geoblock_evidence)
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["status"] == "FAIL"
+    assert missing_check in receipt["missing"]
+    assert not Path(command_args.identity_out).exists()
+
+
+def test_prepare_identity_accepts_existing_gnosis_safe_topology(tmp_path):
+    command_args = prepare_args(tmp_path)
+    command_args.wallet_type = "gnosis_safe"
+    command_args.signature_type = "POLY_GNOSIS_SAFE"
+
+    receipt = cli.run_prepare_identity(
+        command_args,
+        geoblock_collector=geoblock_evidence,
+    )
+
+    identity = json.loads(Path(command_args.identity_out).read_text(encoding="utf-8"))
+    assert receipt["status"] == "PASS"
+    assert identity["wallet_type"] == "gnosis_safe"
+    assert identity["signature_type"] == "POLY_GNOSIS_SAFE"
+    assert identity["signature_type_id"] == 2
+
+
 def test_prepare_identity_wrong_confirmation_does_not_fetch_geoblock(tmp_path):
     command_args = prepare_args(tmp_path)
     command_args.confirmation = "yes"

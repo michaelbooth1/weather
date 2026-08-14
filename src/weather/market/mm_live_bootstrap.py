@@ -23,6 +23,7 @@ from weather.market.market_making_preflight import (
     dict_value,
     international_jurisdiction,
     non_empty_text,
+    pilot_wallet_identity_topology_checks,
     recent_utc_timestamp,
     signature_type_consistent,
     valid_evm_address,
@@ -52,6 +53,7 @@ MAX_STAGE0_USER_STREAM_JOURNAL_BYTES = 10_000_000
 REQUIRED_SOURCE_URLS = {
     "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
     "https://docs.polymarket.com/api-reference/authentication",
+    "https://docs.polymarket.com/trading/overview",
     "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
     "https://docs.polymarket.com/api-reference/wss/user",
     "https://docs.polymarket.com/trading/orders/overview",
@@ -228,8 +230,14 @@ def collect_platform_bootstrap_payload(
     )
     if not all((
         signed_preview.get("status") == "VERIFIED_NON_POSTING_PREVIEW",
-        str(signed_preview.get("signer_address") or "").lower()
+        str(signed_preview.get("client_signer_address") or "").lower()
         == signer_address.lower(),
+        str(signed_preview.get("order_signer_address") or "").lower()
+        == (
+            str(identity.get("funder_address") or "").lower()
+            if identity.get("signature_type_id") == 3
+            else signer_address.lower()
+        ),
         str(signed_preview.get("maker_address") or "").lower()
         == str(identity.get("funder_address") or "").lower(),
         str(signed_preview.get("token_id") or "") == str(adapter.token_id),
@@ -332,7 +340,7 @@ def collect_platform_bootstrap_payload(
         "funder_address": identity.get("funder_address"),
         "wallet_identity": {
             "private_key_signer_address": signer_address,
-            "order_signer_address": signed_preview["signer_address"],
+            "order_signer_address": signed_preview["order_signer_address"],
             "api_key_owner_address": signer_address,
             "api_key_authentication_verified": True,
             "signed_order_preview_verified": True,
@@ -549,14 +557,10 @@ def load_platform_bootstrap_gate(
     tick_size = maybe_float(market.get("tick_size"))
     token_id = str(market.get("token_id") or "").strip()
     condition_id = str(market.get("condition_id") or "").strip()
-    signer_addresses = [
-        str(wallet_identity.get(name) or "").strip().lower()
-        for name in (
-            "private_key_signer_address",
-            "order_signer_address",
-            "api_key_owner_address",
-        )
-    ]
+    wallet_topology_checks = pilot_wallet_identity_topology_checks(
+        payload,
+        wallet_identity,
+    )
 
     checks = {
         "schema_version_supported": payload.get("schema_version") == SCHEMA_VERSION,
@@ -608,14 +612,7 @@ def load_platform_bootstrap_gate(
             and len(str(wallet_identity.get("signed_order_preview_sha256") or "")) == 64
             and wallet_identity.get("signed_order_preview_signature_retained") is False
         ),
-        "wallet_signer_identities_equal": (
-            all(valid_evm_address(value) for value in signer_addresses)
-            and len(set(signer_addresses)) == 1
-        ),
-        "eoa_funder_equals_signer": (
-            payload.get("signature_type_id") != 0
-            or str(payload.get("funder_address") or "").lower() == signer_addresses[0]
-        ),
+        **wallet_topology_checks,
         "isolated_pilot_wallet": bool_value(payload.get("isolated_pilot_wallet"), False),
         "wallet_cap_within_operator_limit": (
             wallet_cap is not None
