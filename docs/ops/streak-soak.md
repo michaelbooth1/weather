@@ -131,7 +131,9 @@ depending on the clock:
 | --- | --- |
 | 12:00–18:00 | graded capture window — the streak day is being decided; capture/memory faults are `CRITICAL` |
 | 09:30–11:00 | daily chain — settlement and grading of yesterday |
-| 01:00–04:00 | quiet window — the only safe slot for code merges and heavy steps |
+| 00:30–09:00 | agent/ad-hoc heavy-work window — every heavy wrapper also needs the shared OS-held lease |
+| 09:30–11:55 | repository-owned Stage-A chain only — absolute Job-owned child-tree teardown at 11:55 |
+| 01:00–04:00 | quiet window — required for roll-sensitive merges; roll-free merges do not wait |
 | 23:30–00:45 | day rollover — stale location config here blacks out capture |
 
 Outputs, all under `data/alerts/`:
@@ -213,14 +215,27 @@ the new code (a `STALE_CODE` restart). If the code is bad, capture dies — and 
 guarded operation:
 
 ```powershell
-.\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... [-DryRun] [-Force]
+.\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
+  -ExpectedTip <full-tested-commit-sha> [-DryRun] [-Force]
 ```
 
-It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, proves the loop
-count did not fall and the snapshot heartbeat advanced, and **only then** pushes. If capture
+It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, and proves all three
+workers have matching status/lock PIDs, live processes, fresh heartbeats, and loaded-source
+fingerprints matching the tree. A worker whose PID or loaded-source identity changed must also
+advance its heartbeat during the settle. An unchanged worker need not advance merely because an
+unrelated closure rolled; this matters for the snapshot worker's normal ten-minute cycle, which is
+longer than the five-minute settle. **Only then** does it start `WeatherOneShotPush` and require
+`origin/master` to acknowledge the exact merge commit. If capture
 does not recover it resets to the pre-merge commit — nothing published, no history to
-rewrite, and the supervisors readopt the previous code. It refuses to run outside 01:00–04:00
-without `-Force` and never inside 12:00–18:00. The outcome lands in
+rewrite — and holds the workload lease for up to `-RollbackRecoverySeconds` (default 1200)
+until all three supervisors prove they have re-adopted the previous code. Failure to prove
+rollback adoption is recorded separately as `rollback_recovery_failed`; it is never reported
+as a completed rollback. It refuses to run outside 01:00–04:00
+without `-Force`, never inside 12:00–18:00, and never during the protected 18:00–00:30
+near-close window. `-ExpectedTip` is optional for interactive use but required operationally
+for a scheduled or already-reviewed merge: the script aborts before any automatic commit if
+the named branch no longer resolves to that exact full SHA, and merges the immutable commit
+object rather than the movable branch ref. The outcome lands in
 `data/alerts/quiet_window_merge_last.json` and is surfaced by `status.ps1`.
 
 Two behaviours that are easy to get wrong, both found by testing it before its first real run:
@@ -237,9 +252,24 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
   to kill the script *between* `git merge` and `git merge --abort`, leaving a half-merged
   tree that rolls the fleet with no rollback in flight.
 
-Expect `stage: merged_unpushed`: the task is S4U, so its `git push` (and `git fetch`) cannot
-reach the credential vault. The merge and the capture verification still happen; the commit
-simply waits for `WeatherOneShotPush`, and `status.ps1` says so.
+`stage: merged_unpushed` means the credential-bearing `WeatherOneShotPush` task did not acknowledge
+the merge within its bounded wait. The merge and recovery proof succeeded, but publication did
+not; the quiet wrapper never attempts an interactive or S4U `git push` itself.
+
+### Bounded execution-tape proof
+
+After a reviewed execution-tape producer lands, use
+`scripts/ops/bounded_execution_tape_probe.ps1` for the first production proof instead of
+starting an unbounded process and killing it later. The probe is restricted to 01:00–04:00,
+requires the reviewed full SHA to be an ancestor of synchronized production master, and runs
+the read-only producer in a kill-on-close Windows Job for a bounded interval. It fails unless
+the new session observes the complete active seed set connected, writes at least one cleanly
+routed execution observation, adds no parse or routing errors, stops cleanly, stays inside
+working-set and host-commit ceilings, and leaves all three capture workers healthy with an
+advancing snapshot heartbeat. A connected socket plus one routed observation does not prove
+that every subscribed asset traded or that the public stream can identify our own fills.
+It writes the latest result and append-only history under `data/alerts/`. The probe neither
+registers nor authorizes continuous capture.
 
 ## Why every task is S4U
 

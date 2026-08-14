@@ -32,10 +32,14 @@ is reading a fixed snapshot of that morning, not a stale-by-a-day copy.
 
 ---
 
-## 2. Standing boundaries — inherited by every mission
+## 2. Standing boundaries — inherited by every delegated workstation mission
 
-These are not per-mission preferences. A mission that breaches one has failed regardless of its
-result.
+These are not per-mission preferences. A delegated workstation mission that breaches one has
+failed regardless of its result. They do **not** revoke the production master agent's separate
+authority in `OPERATIONS_AGENT_ROLE.md` to operate this host, schedule tasks, integrate reviewed
+work, or write required receipts. A production agent executing delegated implementation scope is
+still bound by this section for that mission; a production operations action is governed by the
+role file and host runbooks.
 
 **Production safety**
 

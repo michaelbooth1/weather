@@ -1,12 +1,13 @@
 # Merge a validated topic branch into master during the quiet window, verifying that the
 # capture fleet survives the code roll BEFORE anything is published.
 #
-#   .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... [-Force] [-DryRun]
+#   .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
+#       [-ExpectedTip <full-commit-sha>] [-Force] [-DryRun]
 #
 # Why this exists: merging a branch that touches modules the capture loops have imported
 # makes the supervisors readopt the new code (STALE_CODE restart). If that code is bad,
 # capture dies. Doing the merge locally first, proving capture recovers, and only then
-# pushing means a bad merge is undone by `git reset --hard origin/master` with nothing
+# publishing means a bad merge is undone by resetting to the exact pre-merge commit with nothing
 # published and no history to rewrite.
 #
 # Refuses to run outside 01:00-04:00 without -Force: a roll inside the 12:00-18:00 graded
@@ -14,17 +15,23 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
+    [string]$ExpectedTip = "",
     [switch]$Force,
     [switch]$DryRun,
-    [int]$SettleSeconds = 300
+    [int]$SettleSeconds = 300,
+    [ValidateRange(60, 3600)][int]$RollbackRecoverySeconds = 1200
 )
 
 $ErrorActionPreference = "Stop"
 $repo = "C:\Users\micha\Desktop\github\weather"
 $py = Join-Path $repo "venv\Scripts\python.exe"
+$workloadLeaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+. $workloadLeaseScript
 $reportPath = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 $historyPath = Join-Path $repo "data\alerts\quiet_window_merge_history.jsonl"
 $log = New-Object System.Collections.Generic.List[string]
+$resolvedBranchTip = $null
+$mergeTarget = $Branch
 function Note($m) {
     $line = "{0}  {1}" -f (Get-Date -Format "HH:mm:ss"), $m
     $log.Add($line); Write-Output $line
@@ -37,6 +44,7 @@ function Fail($m) {
 function Save-Report($ok, $stage, $detail) {
     $record = [ordered]@{
         ts = (Get-Date).ToString("o"); branch = $Branch; ok = $ok
+        expected_tip = $ExpectedTip; resolved_branch_tip = $resolvedBranchTip
         stage = $stage; detail = $detail; log = @($log)
     }
     try {
@@ -54,6 +62,11 @@ function Save-Report($ok, $stage, $detail) {
     catch {}
 }
 
+$ExpectedTip = $ExpectedTip.Trim().ToLowerInvariant()
+if ($ExpectedTip -and $ExpectedTip -notmatch '^[0-9a-f]{40}$') {
+    Fail "ExpectedTip must be a full 40-character hexadecimal commit SHA"
+}
+
 # ---- window guard, proportional to the branch's actual roll verdict ----
 # This used to demand 01:00-04:00 for EVERY branch, including branches that cannot roll
 # anything. That is a guard against a risk the branch does not carry, and it was the real
@@ -68,8 +81,9 @@ function Save-Report($ok, $stage, $detail) {
 $h = (Get-Date).Hour + ((Get-Date).Minute / 60.0)
 $verdictScript = Join-Path $repo "scripts\ops\roll_verdict.ps1"
 $rollFree = $false
+$verdictRef = $(if ($ExpectedTip) { $ExpectedTip } else { $Branch })
 if (Test-Path -LiteralPath $verdictScript) {
-    & $verdictScript -Branch $Branch | ForEach-Object { Note "roll_verdict: $_" }
+    & $verdictScript -Branch $verdictRef | ForEach-Object { Note "roll_verdict: $_" }
     $rollFree = ($LASTEXITCODE -eq 0)
     Note ("roll verdict exit {0} -> {1}" -f $LASTEXITCODE, $(if ($rollFree) { "ROLL-FREE" } else { "treated as ROLL-SENSITIVE" }))
 }
@@ -116,6 +130,19 @@ if ($unexpected.Count -gt 0) {
 # letting a stale merge look like a fresh one.
 & git fetch origin --prune | Out-Null
 if ($LASTEXITCODE -ne 0) { Note "WARNING: git fetch failed (no credential vault under S4U?); merging the last-fetched copy of $Branch" }
+$branchCommitRef = "{0}^{{commit}}" -f $Branch
+& git rev-parse --verify $branchCommitRef | Out-Null
+if ($LASTEXITCODE -ne 0) { Fail "branch not found: $Branch" }
+$resolvedBranchTip = (& git rev-parse $branchCommitRef).Trim().ToLowerInvariant()
+if ($ExpectedTip) {
+    if ($resolvedBranchTip -ne $ExpectedTip) {
+        Fail "branch tip moved: $Branch resolves to $resolvedBranchTip, expected reviewed tip $ExpectedTip"
+    }
+    # Merge the immutable object, not the movable ref, so the reviewed identity remains
+    # bound even if another process updates the branch after this check.
+    $mergeTarget = $resolvedBranchTip
+    Note "exact-tip binding passed: $Branch -> $resolvedBranchTip"
+}
 $head = (& git rev-parse HEAD).Trim()
 $originMaster = (& git rev-parse origin/master).Trim()
 if ($head -ne $originMaster) { Fail "local master ($head) != origin/master ($originMaster); reconcile first" }
@@ -134,33 +161,38 @@ $preMerge = (& git rev-parse HEAD).Trim()
 # NativeCommandError and terminates -- and git writes routine notices to stderr, so a
 # harmless "CRLF will be replaced by LF" warning killed a dry run mid-merge and left the
 # tree in a half-merged state (2026-07-25). Send stdout to Out-Null and let stderr print.
-& git rev-parse --verify "$Branch" | Out-Null
-if ($LASTEXITCODE -ne 0) { Fail "branch not found: $Branch" }
-Note "pre-merge HEAD $preMerge; merging $Branch ($(& git rev-parse --short $Branch))"
+Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(0, 12)))"
 
 # ---- capture baseline (what we will require to still be true afterwards) ----
+# Command lines are hidden for S4U-owned processes, and one fresh snapshot heartbeat says
+# nothing about the CLOB or observation workers. The checker validates all three workers'
+# status + writer-lock PID, process liveness, heartbeat freshness, and loaded-source
+# fingerprint against the current tree. That is the same recovery contract supervisors own.
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload "quiet_window_merge"
+if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+try {
 function Get-CaptureState {
-    $s = @{ loops = 0; heartbeat = $null }
-    Get-CimInstance Win32_Process | Where-Object {
-        ($_.CommandLine -like '*weather.collection.snapshot_tracker*' -or
-        $_.CommandLine -like '*weather.market.market_microstructure*' -or
-        $_.CommandLine -like '*weather.operations.observation_trigger*') -and
-        $_.CommandLine -notlike '*hot_capture*' -and
-        $_.CommandLine -notlike '*--expected-runtime-fingerprint*'
-    } | ForEach-Object { $s.loops++ }
     try {
-        $j = Get-Content (Join-Path $repo "data\snapshots\loop_status.json") -Raw | ConvertFrom-Json
-        $s.heartbeat = [datetime]$j.last_heartbeat
+        $raw = @(& $py -m weather.operations.capture_recovery_check --repo-root $repo --json)
+        $exitCode = $LASTEXITCODE
+        $state = (($raw -join "`n") | ConvertFrom-Json)
+        if ($exitCode -ne 0) { $state.ok = $false }
+        return $state
     }
-    catch {}
-    return $s
+    catch {
+        return [PSCustomObject]@{ ok = $false; workers = @(); error = $_.Exception.Message }
+    }
 }
 $before = Get-CaptureState
-Note "capture before: $($before.loops) loops, heartbeat $($before.heartbeat)"
-if ($before.loops -lt 1) { Fail "no capture loops running before the merge; fix that first" }
+Note "capture before: ok=$($before.ok), workers=$(@($before.workers).Count)"
+if (-not $before.ok -or @($before.workers).Count -ne 3) {
+    $detail = @($before.workers | Where-Object { -not $_.ok } | ForEach-Object { "$($_.name)=$($_.reasons -join ',')" }) -join "; "
+    if (-not $detail) { $detail = [string]$before.error }
+    Fail "capture recovery contract is not healthy before merge: $detail"
+}
 
 if ($DryRun) {
-    & git merge --no-commit --no-ff $Branch | Out-Null
+    & git merge --no-commit --no-ff $mergeTarget | Out-Null
     $conflicts = @(& git diff --name-only --diff-filter=U | Where-Object { $_ })
     # Always unwind: leaving a half-merged tree changes loop-loaded modules on disk and
     # provokes a STALE_CODE readoption roll. `merge --abort` restores the pre-merge state
@@ -172,7 +204,7 @@ if ($DryRun) {
 }
 
 # ---- merge locally (this is what triggers the readoption roll) ----
-& git merge --no-ff $Branch -m "Merge $Branch into master"
+& git merge --no-ff $mergeTarget -m "Merge $Branch into master"
 if ($LASTEXITCODE -ne 0) {
     & git merge --abort | Out-Null
     Fail "merge failed or conflicted; working tree restored"
@@ -184,56 +216,93 @@ Note "merged locally as $mergeCommit (NOT pushed yet)"
 Note "waiting ${SettleSeconds}s for supervisors to readopt the new code..."
 Start-Sleep -Seconds $SettleSeconds
 $after = Get-CaptureState
-Note "capture after: $($after.loops) loops, heartbeat $($after.heartbeat)"
+Note "capture after: ok=$($after.ok), workers=$(@($after.workers).Count)"
 
 $ok = $true
 $why = @()
-if ($after.loops -lt $before.loops) { $ok = $false; $why += "loop count fell $($before.loops) -> $($after.loops)" }
-if ($null -eq $after.heartbeat) { $ok = $false; $why += "no readable snapshot heartbeat" }
-elseif ($before.heartbeat -and $after.heartbeat -le $before.heartbeat) {
-    $ok = $false; $why += "snapshot heartbeat did not advance ($($before.heartbeat) -> $($after.heartbeat))"
+if (-not $after.ok -or @($after.workers).Count -ne 3) {
+    $ok = $false
+    $why += @($after.workers | Where-Object { -not $_.ok } | ForEach-Object { "$($_.name)=$($_.reasons -join ',')" })
+    if ($after.error) { $why += [string]$after.error }
 }
-else {
-    $age = ((Get-Date) - $after.heartbeat).TotalMinutes
-    if ($age -gt 20) { $ok = $false; $why += ("heartbeat stale by {0:N1} min" -f $age) }
+foreach ($beforeWorker in @($before.workers)) {
+    $afterWorker = @($after.workers | Where-Object { $_.name -eq $beforeWorker.name }) | Select-Object -First 1
+    if (-not $afterWorker) {
+        $ok = $false; $why += "$($beforeWorker.name) missing after merge"; continue
+    }
+    # The snapshot worker normally heartbeats once per roughly ten-minute cycle, longer
+    # than the default five-minute settle. Requiring every healthy worker to advance here
+    # made a CLOB-only roll depend on where the unrelated snapshot sleep happened to fall.
+    # The recovery checker above still requires every worker to be fresh, live, locked by
+    # the matching PID, and loaded from the current tree. Require heartbeat advancement in
+    # addition when this worker actually readopted (PID or recorded source identity changed).
+    $workerReadopted = (
+        [int]$afterWorker.pid -ne [int]$beforeWorker.pid -or
+        [string]$afterWorker.recorded_source_fingerprint -ne [string]$beforeWorker.recorded_source_fingerprint
+    )
+    if (-not $workerReadopted) { continue }
+    try {
+        if ([datetime]$afterWorker.last_heartbeat -le [datetime]$beforeWorker.last_heartbeat) {
+            $ok = $false
+            $why += "$($beforeWorker.name) readopted but heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
+        }
+    }
+    catch { $ok = $false; $why += "$($beforeWorker.name) readoption heartbeat comparison failed" }
 }
 
 if (-not $ok) {
     Note "capture did NOT recover: $($why -join '; ')"
     & git reset --hard $preMerge | Out-Null
-    Note "rolled back to $preMerge; supervisors will readopt the previous code. Nothing was pushed."
+    Note "rolled back to $preMerge; nothing was pushed. Waiting up to ${RollbackRecoverySeconds}s for all workers to re-adopt the rollback..."
+    $rollbackDeadline = (Get-Date).AddSeconds($RollbackRecoverySeconds)
+    $rollbackState = Get-CaptureState
+    while (
+        (-not $rollbackState.ok -or @($rollbackState.workers).Count -ne 3) -and
+        (Get-Date) -lt $rollbackDeadline
+    ) {
+        Start-Sleep -Seconds 15
+        $rollbackState = Get-CaptureState
+    }
+    if (-not $rollbackState.ok -or @($rollbackState.workers).Count -ne 3) {
+        $rollbackWhy = @(
+            $rollbackState.workers |
+                Where-Object { -not $_.ok } |
+                ForEach-Object { "$($_.name)=$($_.reasons -join ',')" }
+        )
+        if ($rollbackState.error) { $rollbackWhy += [string]$rollbackState.error }
+        if ($rollbackWhy.Count -eq 0) { $rollbackWhy += "capture recovery contract unreadable" }
+        $detail = "merge recovery failed: $($why -join '; '); rollback recovery unproven: $($rollbackWhy -join '; ')"
+        Note $detail
+        Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+        exit 4
+    }
+    Note "all three workers re-adopted the rollback and satisfy the capture recovery contract"
     Save-Report -ok $false -stage "rolled_back" -detail ($why -join "; ")
     exit 2
 }
 
-# ---- only now publish ----
-Note "capture healthy after the roll; pushing"
-& git push origin master
-if ($LASTEXITCODE -ne 0) {
-    # Expected under S4U: session 0 cannot reach the credential vault. Do NOT stop here --
-    # a merge that lands locally but never reaches origin blocks the workstation agent until
-    # somebody logs in, which overnight means hours of idle. WeatherOneShotPush is
-    # deliberately Interactive and runs in the operator's logon session (which survives an
-    # RDP disconnect), so hand the push to it rather than deferring to morning.
-    Note "direct push failed (no credential vault under S4U); handing off to WeatherOneShotPush"
-    try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
-    catch { Note "could not start WeatherOneShotPush: $($_.Exception.Message)" }
-    # A successful push updates refs/remotes/origin/master locally, so this verifies the
-    # push landed without needing a fetch -- which would need the same credentials.
-    $pushed = $false
-    for ($i = 0; $i -lt 18; $i++) {
-        Start-Sleep -Seconds 10
-        if ((& git rev-parse origin/master).Trim() -eq $mergeCommit) { $pushed = $true; break }
-    }
-    if (-not $pushed) {
-        Note "handoff did not publish within 3 min. Merge is committed locally and capture is healthy; run WeatherOneShotPush once a session is available."
-        Save-Report -ok $true -stage "merged_unpushed" -detail "push failed; commit $mergeCommit is local"
-        exit 3
-    }
-    Note "pushed $mergeCommit via WeatherOneShotPush"
-    Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush handoff)"
-    exit 0
+# ---- only now publish, through the credential-bearing scheduled task ----
+# Interactive git push is forbidden on this host. The scheduled task owns the credential
+# context, and origin/master is the acknowledgement that the immutable merge commit landed.
+Note "capture healthy after the roll; handing $mergeCommit to WeatherOneShotPush"
+try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
+catch {
+    Note "could not start WeatherOneShotPush: $($_.Exception.Message)"
+    Save-Report -ok $true -stage "merged_unpushed" -detail "push task start failed; commit $mergeCommit is local"
+    exit 3
 }
-Note "pushed $mergeCommit"
-Save-Report -ok $true -stage "pushed" -detail $mergeCommit
+$pushed = $false
+for ($i = 0; $i -lt 18; $i++) {
+    Start-Sleep -Seconds 10
+    if ((& git rev-parse origin/master).Trim() -eq $mergeCommit) { $pushed = $true; break }
+}
+if (-not $pushed) {
+    Note "WeatherOneShotPush did not publish within 3 min. Merge is committed locally and capture is healthy."
+    Save-Report -ok $true -stage "merged_unpushed" -detail "push task did not acknowledge commit $mergeCommit"
+    exit 3
+}
+Note "pushed $mergeCommit via WeatherOneShotPush"
+Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (via WeatherOneShotPush)"
 exit 0
+}
+finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }

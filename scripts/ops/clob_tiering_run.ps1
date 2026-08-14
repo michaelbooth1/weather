@@ -41,6 +41,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+. $workloadLeaseScript
 
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
@@ -64,8 +66,9 @@ function Write-TaskStatus {
 # on. Compressing ~30 GB is heavy sustained I/O, so it never runs inside that
 # window on a normal trigger. 05:00 is the intended slot.
 $now = Get-Date
-if ((-not $Forced) -and $now.Hour -ge 12 -and $now.Hour -lt 18) {
-    Write-Host "REFUSED: inside the 12:00-18:00 graded capture window. Re-run with -Forced only if you accept the streak risk."
+$localMinute = ($now.Hour * 60) + $now.Minute
+if ($localMinute -ge (12 * 60) -or $localMinute -lt 30) {
+    Write-Host "REFUSED: inside the 12:00-00:30 protected capture window; -Forced cannot bypass host policy."
     Write-TaskStatus @{ status = "REFUSED_CAPTURE_WINDOW"; local_time = $now.ToString("s") }
     exit 0
 }
@@ -86,8 +89,15 @@ if (-not $PlanOnly) {
 if ($SettledBefore) { $arguments += @("--settled-before", $SettledBefore) }
 $arguments += @("--out", $outJson, "--report", $outReport)
 
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "clob_projection_tiering"
+if ($null -eq $workloadLease) {
+    Write-TaskStatus @{ status = "SKIPPED_WORKLOAD_LEASE_BUSY"; local_time = $now.ToString("s") }
+    Write-Host "SKIPPED: another heavyweight host workload owns data/logs/heavy_workload.lock"
+    exit 0
+}
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$proc = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $RepoRoot -NoNewWindow -PassThru
+try {
+$proc = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru
 
 # Touching .Handle forces .NET to cache the process handle. Without it,
 # $proc.ExitCode reads back $null after the process exits and a clean run gets
@@ -122,5 +132,6 @@ Write-TaskStatus @{
 
 $reclaimedGb = [math]::Round(($freeAfter - $freeBefore) / 1GB, 2)
 Write-Host ("clob tiering {0}: exit={1} elapsed={2:N1}s reclaimed={3} GB free={4:N1} GB" -f $mode, $exitCode, $sw.Elapsed.TotalSeconds, $reclaimedGb, ($freeAfter / 1GB))
-
+}
+finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
 exit $exitCode

@@ -16,6 +16,15 @@ These instructions apply to `scripts/ops/`.
   evidence or production readiness.
 - Canonical scripts live here. Files directly under `scripts/` are compatibility
   shims unless another owning document says otherwise.
+- Recurring task actions must execute a repository-owned script or module. A
+  host-local file may hold logs or queue data, but must not be the only copy of
+  executable task logic. Merge queues use `merge_queue_driver.ps1` and bind
+  every approved branch to a full reviewed SHA; movable branch-only queues are
+  unsupported.
+- A scheduled roll-sensitive merge that depends on a bounded full suite uses
+  `suite_gated_quiet_merge.ps1`. Bind its task action, log, branch, and full tip;
+  a task exit code without the correlated exact full-suite verdict is not merge
+  evidence.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.
@@ -39,6 +48,12 @@ Choose one retraining topology per host:
 Do not leave both topologies enabled for the same workload. Preserve the
 training window's `finally` restoration and independent restore task when
 modifying it.
+
+Every heavyweight wrapper must hold the shared lease from
+`workload_admission.ps1` across its expensive or capture-disrupting section.
+Resource headroom and time-window checks remain mandatory and independent; the
+lease prevents two individually admissible jobs from overlapping. A stale
+metadata file is not ownership—the open OS file handle is.
 
 Producer provenance follows the chosen topology. The direct nightly action
 passes `scheduler-invocation-topology=direct`. The daily-refresh tasks and

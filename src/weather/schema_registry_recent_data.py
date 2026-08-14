@@ -7,6 +7,20 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "capture_recovery_check",
+        "capture_recovery_check_v1",
+        "weather.operations.capture_recovery_check",
+        "active",
+        "Bounded post-readoption proof that every capture worker is live and bound to the current source fingerprint.",
+    ),
+    SchemaSpec(
+        "settlement_hole_check",
+        "settlement_hole_check_v1",
+        "weather.operations.settlement_hole_check",
+        "active",
+        "Bounded recent-settlement coverage audit by market and local settlement date.",
+    ),
+    SchemaSpec(
         "severe_tail_ex_ante_casebook",
         "severe_tail_ex_ante_casebook_v0.1",
         "weather.reporting.casebooks.severe_tail_ex_ante",

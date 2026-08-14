@@ -34,8 +34,8 @@ scheduler rather than describing it from memory.
 | --- | --- |
 | 00:05–00:30 | taker/MM daily roll-over — brief spike |
 | 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here, and the quiet merge window (01:00–04:00) sits inside it |
-| 09:30–12:30 | Stage A settlement chain — heavy, scheduled |
-| 12:30–18:00 | moderate; **the graded capture window closes at 18:00 and the streak verdict is computed over 12:00–18:00** |
+| 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
+| 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
 | 18:00–00:05 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch |
 
 Stage-A settlement safeguards: the daily taker edge-permission aggregation is
@@ -152,6 +152,9 @@ maintenance window:
   exact running PowerShell wrapper action, its own Python command, and the
   OS-observed bounded parent process lineage. A stale, disabled, unrelated,
   mismatched, or manually invoked topology remains non-countable.
+  Before disabling capture it must acquire the same OS-held heavy-workload
+  lease used by the daily chain, guarded merges, bounded suites/probes, and
+  tiering. A busy lease skips the window without touching capture.
 - **`WeatherTrainingWindowRestore` (04:15 daily)**: dead-man backstop that
   unconditionally re-enables supervisors and ensures all loops, in case the
   window process dies mid-flight.
@@ -170,9 +173,13 @@ predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
    replays, conversions, backfills, or bulk file operations. Near-close tape
    is the highest-value data this platform collects; the 15-second fast-mode
    contract has no slack for IO contention.
-2. **Heavy ad-hoc work runs 01:00–08:30**, and checks first:
+2. **Heavy ad-hoc work runs 00:30–09:00**, holds the shared lease from
+   `scripts/ops/workload_admission.ps1`, and checks first:
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
-   ≥ 50 GB disk free.
+   ≥ 50 GB disk free. The lease itself rejects acquisition outside that
+   window. Only the settlement Stage-A wrapper can request the explicit
+   09:30–11:55 exception. Bounded test suites additionally kill their complete
+   Job-owned child tree at 09:00 rather than merely checking the start time.
 3. **Memory budget for any single ad-hoc job: 8 GB private bytes.** The
    `WeatherMemoryCommitGuard` task (every 5 min) warns when available physical
    RAM is below 1.5 GiB and records the top working-set processes. It also
@@ -189,8 +196,10 @@ predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
    nobody left to consume the result. Orphaned bare-script python is logged
    but not killed, since detached-by-design launchers are legitimate here.
 5. Scheduled `-m weather.*` heavy work stays governed by its own admission
-   gate (capture-resource DEFER on this live host) — this policy does not
-   loosen it.
+   gate (capture-resource DEFER on this live host) **and** the shared workload
+   lease—neither mechanism loosens the other. The daily-refresh wrapper tears
+   down its complete Job-owned child tree at 11:55 rather than crossing into
+   the graded window.
 
 ## Incident 2026-07-12 (why this policy exists)
 

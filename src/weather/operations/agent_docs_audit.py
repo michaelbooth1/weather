@@ -176,7 +176,6 @@ def _markdown_outside_fenced_code(text: str) -> str:
     characters and longer closing fences keeps the scanner deterministic
     without trying to parse the rest of Markdown.
     """
-
     fence: tuple[str, int] | None = None
     visible: list[str] = []
     for line in text.splitlines(keepends=True):

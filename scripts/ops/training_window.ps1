@@ -39,10 +39,14 @@ $ErrorActionPreference = "Continue"
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $scriptPath = (Resolve-Path -LiteralPath $PSCommandPath -ErrorAction Stop).Path
 $contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
-if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
-    throw "training window contract script not found at $contractScript"
+$workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+foreach ($requiredScript in @($contractScript, $workloadLeaseScript)) {
+    if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
+        throw "training window helper not found at $requiredScript"
+    }
 }
 . $contractScript
+. $workloadLeaseScript
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 $logDir = Join-Path $RepoRoot "data\logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force $logDir | Out-Null }
@@ -182,6 +186,12 @@ if ($dirtyPaths.Count -gt 0) {
 $childExit = -1
 $nightlyStatus = "not_run"
 $nightlyAdmission = "not_run"
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "training_window"
+if ($null -eq $workloadLease) {
+    Write-WindowStatus "skipped" "heavy_workload_lease_busy"
+    Write-WindowLog "SKIP" "another heavyweight host workload owns data/logs/heavy_workload.lock; capture remains running"
+    exit 0
+}
 try {
     # ---- Stop capture cleanly: supervisors first so nothing revives mid-window ----
     foreach ($task in $supervisorTasks) {
@@ -305,9 +315,12 @@ try {
     }
 } finally {
     # ---- Restore capture no matter what happened above ----
-    Write-WindowStatus "restore" "in_progress"
-    Restore-Capture
-    Write-WindowStatus "closed" "nightly_${nightlyStatus}_admission_${nightlyAdmission}_exit_$childExit"
-    Write-WindowLog "INFO" "window closed (nightly $nightlyStatus, admission $nightlyAdmission, exit $childExit); capture restore issued"
+    try {
+        Write-WindowStatus "restore" "in_progress"
+        Restore-Capture
+        Write-WindowStatus "closed" "nightly_${nightlyStatus}_admission_${nightlyAdmission}_exit_$childExit"
+        Write-WindowLog "INFO" "window closed (nightly $nightlyStatus, admission $nightlyAdmission, exit $childExit); capture restore issued"
+    }
+    finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
 }
 exit $childExit

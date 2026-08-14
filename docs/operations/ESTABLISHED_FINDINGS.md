@@ -1943,22 +1943,25 @@ power 0.104 and an 80%-power MDE of 48.36 points. **Indistinguishable from zero.
 blocker" was directionally right but **stated far more firmly than eight dates support** — and the
 reason label was never the binding constraint anyway.
 
-## 8c. The MM decision now depends on a capture change, and that is a CLOCK
+## 8c. Public execution capture and own-account fills answer different questions
 
-**Established 2026-08-10 by `-09-47a`.** The route to deciding whether market-making is a business
-or a donation is now fully mapped, and every branch but one is closed:
+**Established 2026-08-10 by `-09-47a`, corrected by production audit 2026-08-13.** The original
+section conflated a market-wide public-flow tape with our own quote-selection process. The public
+tape is necessary for market price paths and counterfactual markouts; it cannot reveal which of our
+resting orders filled, their queue position, our fees/rebates, inventory, or realized P&L.
 
 | Route to `f` | Status |
 | --- | --- |
 | Model edge makes quoting profitable regardless | **RETIRED** (`-09-46a`: 114 cells, zero positive) |
 | Measure `f` from the retained tape | **IMPOSSIBLE** — 411 executions, and no cancellation labels |
 | Reconstruct executions from `price_change` / `book` deltas | **NO-GO** (§1b.3) — unidentified |
-| **Capture the execution tape going forward** | **the only remaining route** |
+| Capture the public execution tape going forward | **NECESSARY BUT NOT SUFFICIENT** — price paths, market trades, and counterfactual markouts only |
+| Capture authoritative own-account user events, open orders, positions, fees and rebate receipts during a bounded maker session | **THE ROUTE TO OUR REALIZED FILL SELECTION AND ECONOMICS** |
 
-**So the deciding evidence does not exist yet and can only be accumulated.** Every day without
-execution capture is a day added to the eventual decision date — this is a stopped clock that has
-not started, the same shape as §8b and the streak clock. **Do not plan the MM track against elapsed
-calendar days; plan it against captured execution-days.**
+**So the deciding economic evidence does not exist yet and can only be accumulated.** Public
+execution-days and own-account maker sessions are separate denominators and must never be merged
+into one counter. A public trade after our hypothetical quote supports a counterfactual; only an
+authoritative account event proves a fill, and only reconciled positions/fees/rebates support P&L.
 
 ### What must be captured (documented from venue docs; NO endpoint was called)
 
@@ -1972,9 +1975,10 @@ calendar days; plan it against captured execution-days.**
    `GET https://data-api.polymarket.com/trades?market=<condition_id>&start=&end=&limit=&offset=&takerOnly=true`.
    Page inside bounded windows; `offset` caps at 10,000. Its timestamp is integer-valued, so it
    **cannot** prove sub-second ordering — use it to reconcile, never to replace the live stream.
-3. **NOT sufficient: the authenticated user stream.** It carries rich trade lifecycle records but
-   **only for our own account**, so it cannot estimate a market-wide informed-flow denominator, and
-   it produces nothing before an order is ever placed.
+3. **Necessary for Stage 2: authenticated own-account evidence.** The user stream, open-order
+   reader, position reader, and fee/rebate receipts are the authority for our lifecycle and P&L.
+   They cannot estimate a market-wide informed-flow denominator, but the public stream cannot
+   substitute for them. Mutation stays disabled if any authoritative reader is absent or stale.
 
 ### Three cautions that bound the change
 
@@ -1993,12 +1997,17 @@ calendar days; plan it against captured execution-days.**
 > ## AUTHORIZED BY THE OPERATOR, 2026-08-09
 >
 > **1. Start capturing the execution tape — approved, effective immediately.**
-> **2. Authorize a paper-only market-harvest lane — approved, sequenced AFTERWARDS.**
+> **2. Authorize a paper-only market-harvest lane — approved.**
 >
-> The ordering is the operator's and is load-bearing: **capture supplies the evaluation that makes
-> the harvest lane's output meaningful.** Authorising the lane first would produce a bot that quotes
-> with no way to know whether it should. **Do not start lane work until execution capture is
-> running and producing rows.**
+> Public capture still supplies market-path evaluation, but it is not a prerequisite for preparing
+> the fail-closed own-account lifecycle implementation. The two evidence sources are complementary.
+
+> ## AUTHORIZED BY THE OPERATOR, 2026-08-13
+>
+> Prepare and, from a genuinely eligible International host only, run a minimal real-world test with
+> a finite **100 USDC-equivalent hard cap**. Exactly one market, post-only orders, no naked sells,
+> existing risk ceilings non-raisable, and authoritative user-event plus position readers are
+> mandatory. Ontario production remains preparation-only and never receives wallet credentials.
 >
 > This supersedes the "nothing here has been enabled" note that stood until 2026-08-09. The standing
 > "no paid API" rule is about **weather** providers; the exchange's public market stream and
@@ -2010,8 +2019,9 @@ limits truncate sessions so the true rate is **≥** that, not **≈** that. Not
 
 | Stage | Who | When | Purpose |
 | --- | --- | --- | --- |
-| **Bounded pilot** | production | **after 18:00**, outside the graded window | measure the real rate, prove the documented subscription frame, prove identity survives end-to-end |
+| **Bounded public-tape pilot** | production | **00:30–09:00**, inside the heavy-work window | measure the real rate, prove the documented subscription frame, prove identity survives end-to-end |
 | **Continuous producer** | workstation mission | after the pilot returns numbers | build to the §8c contract using measured values |
+| **Bounded own-account maker session** | eligible International host | after Stage-0/1 readiness and authoritative readers pass | prove post-only lifecycle, reconciled fills/positions/fees/rebates, and bounded realized economics |
 
 **The pilot must not run inside 12:00–18:00.** It opens a network connection on the capture host,
 and capture already died once on 2026-08-09.
@@ -2046,9 +2056,10 @@ implemented.** Deleting the map or relabelling promotion is explicitly *not* suf
 **What one successful day would and would not prove.** Would: route reachability and operational
 mechanics — nonzero quote permissions, two-sided intended prices/sizes, lifecycle and post-only
 behaviour, uptime, gate exposure, and a paper markout column under a declared $0 reward. **Would
-NOT**: identify `A` or `f`, prove real fills, profitability, a unique break-even, reward
-eligibility, live readiness, model edge, or promotion — and one day is not a powered economic
-endpoint. **Forward execution capture (above) remains the only route to `f`.**
+NOT**: identify `A` or an informed-fill fraction, prove real fills, profitability, a unique break-even, reward
+eligibility, live readiness, model edge, or promotion—and one day is not a powered economic
+endpoint. Public execution capture supplies the counterfactual market path; a bounded own-account
+session supplies actual fills. Neither alone identifies a universal informed-flow fraction.
 
 ## 8d. A terminated scheduled wrapper can leave its governed child alive — measured 2026-08-13
 
@@ -2073,7 +2084,21 @@ and the last fleet cadence had zero errors and zero stale markets.
 
 > A governed `-m weather.*` exemption is not sufficient by itself. Scheduler ownership must be
 > checked, because termination of the wrapper does not guarantee termination of its delegated
-> child. Do not re-enable `WeatherEveningEvidenceRefresh` until the wrapper owns child-tree teardown.
+> child.
+
+**Follow-up proof, 2026-08-13 18:16–18:21 local.** After the wrapper was changed to create its
+Python child suspended, assign it to a Windows Job Object with `KILL_ON_JOB_CLOSE`, and only then
+resume it, a real `WeatherEveningEvidenceRefresh` scheduled invocation established the tree
+`3288 → 17464 → 20180`. At the five-minute inspection, PID `20180` held **9,030.1 MB working set**
+and **13,810.1 MB private memory**; system commit was **28,703,297,536 / 37,054,656,512 bytes
+(77.46%)**. `Stop-ScheduledTask` moved the task to `Ready`, returned `0x41306`, and all three PIDs
+were gone in under three seconds without a separate process kill. System commit then fell to
+**16.91 / 34.51 GB (49.00%)**.
+
+This retires the orphan-cleanup defect but establishes a separate daytime-resource defect. The
+14:00/17:00 task is disabled again. Do not re-enable it until its evidence workload is chunked and
+guarded by capture-health plus commit admission; child-tree containment alone does not make an
+eight-hour monolith safe beside capture.
 
 ---
 

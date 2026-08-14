@@ -32,10 +32,14 @@ if (-not (Test-Path -LiteralPath $contractScript -PathType Leaf)) {
 }
 . $contractScript
 $jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
-if (-not (Test-Path -LiteralPath $jobScript -PathType Leaf)) {
-    throw "kill-on-close Job helper not found at $jobScript"
+$workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+foreach ($requiredScript in @($jobScript, $workloadLeaseScript)) {
+    if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
+        throw "daily refresh helper not found at $requiredScript"
+    }
 }
 . $jobScript
+. $workloadLeaseScript
 
 $schedulerCommand = Get-Command $SchedulerTaskExecutable `
     -CommandType Application -ErrorAction Stop
@@ -90,6 +94,18 @@ $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
 $child = $null
 $childJob = $null
 $childExitCode = $null
+$localMinute = ((Get-Date).Hour * 60) + (Get-Date).Minute
+if ($localMinute -ge 715 -or $localMinute -lt 30) {
+    Write-Output "REFUSED: daily refresh cannot run inside 11:55-00:30 protected host time"
+    exit 75
+}
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
+    -Workload "daily_refresh_$Stage" `
+    -AllowStageAWindow:($Stage -eq "settlement")
+if ($null -eq $workloadLease) {
+    Write-Output "REFUSED: another heavyweight host workload owns data/logs/heavy_workload.lock"
+    exit 76
+}
 try {
     # Create the delegated refresh suspended, assign it to the kill-on-close
     # Job, and only then resume its first thread. Future descendants inherit
@@ -100,11 +116,33 @@ try {
         -FilePath $python `
         -ArgumentString $childArgumentString `
         -WorkingDirectory $RepoRoot
-    $child.WaitForExit()
-    $childExitCode = $child.ExitCode
+    $deadlineReached = $false
+    while (-not $child.HasExited) {
+        $now = Get-Date
+        $minute = ($now.Hour * 60) + $now.Minute
+        if ($minute -ge 715 -or $minute -lt 30) {
+            $deadlineReached = $true
+            break
+        }
+        Start-Sleep -Seconds 2
+        $child.Refresh()
+    }
+    if ($deadlineReached) {
+        # Closing the kill-on-close Job is the authoritative child-tree teardown.
+        $childJob.Dispose()
+        $childJob = $null
+        $child.WaitForExit()
+        $childExitCode = 75
+        Write-Output "STOPPED: daily refresh reached the 11:55 protected-window deadline"
+    }
+    else {
+        $child.WaitForExit()
+        $childExitCode = $child.ExitCode
+    }
 }
 finally {
     if ($childJob) { $childJob.Dispose() }
     if ($child) { $child.Dispose() }
+    Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
 }
 exit $childExitCode

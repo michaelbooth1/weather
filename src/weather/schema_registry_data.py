@@ -2098,7 +2098,8 @@ EXCLUDED_SCHEMA_LITERALS = (
         "native_station_pressure_train_serve_v1",
         "weather.calibration.feature_training_policy",
         "training_feature_policy_id",
-        "Train/serve native-station-pressure policy identifier, not a "
+        "Train/serve native-station-pressure feature-selection policy identifier "
+        "embedded in artifacts, not a "
         "serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
