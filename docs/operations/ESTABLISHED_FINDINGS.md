@@ -2241,9 +2241,20 @@ run-time freshness. Missing, mixed, replaced, or tampered captures stay unbound 
 economics. The isolated current-master repair at
 `9f3b926ecf6332ea23db990ee38401cce6f87495` then passed its own immutable **17/17 chunks and
 4,417/4,417 tests** with all capture admissions healthy. It is pushed and proven roll-sensitive,
-so production integration must wait for the next quiet window. The failed old live-probe tip is
-still ineligible; its refreshed cumulative successor must inherit this repair and pass a separate
-exact-tip suite.
+so production integration must wait for the next quiet window.
+
+**Refreshed cumulative successor measured 2026-08-14 05:31–05:39 local.** Branch
+`codex/international-live-probe-refresh-20260814` was clean and pushed at
+`59e7bbfe9d9e47e88807a832238544c291e7c42a`. It contains current master, the per-run economics
+repair, and the International Stage 0/1 stack. Its one immutable receipt passed **18/18 chunks and
+4,523/4,523 tests**, with **19/19** preflight/chunk admissions observing all three capture workers
+healthy. The task result was zero and the log contains one start segment and one terminal
+`ALL CHUNKS PASSED` verdict. The runner is back below the 2,000-line ownership threshold through a
+dedicated live-pilot policy module. Capability, lifecycle, and bundle boundaries each revalidate
+the 100 pUSD wallet/request ceiling, and reported lifecycle orders cannot exceed 10 pUSD. The
+post-push verdict is still roll-sensitive through the live CLOB loop and schema registries. This
+cumulative exact tip supersedes the standalone economics branch as the preferred integration
+target, but does not authorize an out-of-window merge or an Ontario-host order.
 
 ---
 
