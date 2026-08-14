@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 07:28 (the refreshed bounded Stage 2 stack is exact-suite green;
-the snapshot fatal-gap branch still needs current-master/live-timing proof).** Read this first, then `ESTABLISHED_FINDINGS.md`
+**Last rewritten: 2026-08-14 08:15 (the continuous public-tape supervisor is integrated but
+held after a fail-closed Windows launcher mismatch; its exact repair is queued).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
@@ -20,7 +20,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 | Capture streak | Reset. `08-14` is currently `ON_TRACK`; it is the earliest possible new full day after the `08-13` incident. |
 | MM countable days | Today's paper run is countable after the target-date validation producer was repaired. It has zero quote permissions; a countable day never required a `QUOTE` (§§8b, 8m). |
 | Archive coverage | Does not include the current target period; the permitted re-fetch remains un-run. |
-| Execution evidence | The bounded public-tape pilot passed. The producer is stopped after the proof; no own-account economic counter exists (§8c). |
+| Execution evidence | The bounded public-tape pilot passed. Continuous supervision is integrated, but the recurring producer is held Disabled pending the exact queued launcher repair; no own-account economic counter exists (§§8c, 8o). |
 
 ## Closed decisions — do not relitigate without new evidence
 
@@ -44,7 +44,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 
 | Work | State / next action |
 | --- | --- |
-| Public execution tape (`-09-69a`) | Integrated and production-proved. The bounded pilot established documented subscription/routing and capture coexistence, not fills, intensity, rebates, or P&L. The durable producer remains stopped; use the measured pilot to design continuous capture without persisting book bursts. |
+| Public execution tape (`-09-69a`) | Continuous public-only supervision is integrated. The first real adoption refused a Windows venv launcher/worker PID mismatch and the task remains Disabled. Exact child-adoption repair `02a2c1ff` is pushed; same-day reproof, guarded merge, and fail-closed adoption are queued for tonight after the Stage 0/1 merge. This is public path evidence only, never fills, intensity, rebates, or P&L (§8o). |
 | International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
 | International live probe | Refreshed current-master + economics + Stage 0/1 successor is pushed and exact-suite green. It independently clamps all operator/lifecycle caps and stays roll-sensitive. A same-tip reproof is armed for 08-15 00:30 and its suite-gated merge for 01:00; either must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible and its 08:40 bundle task must refuse. |
 | Bounded maker Stage 2 | Refreshed successor `0994fa13` is exact-suite green on the refreshed Stage 0/1 parent; the obsolete lineage is retained and only its bounded-probe delta was replayed. It is not integration- or live-ready: land parent `59e7bbfe` first, merge current production, reprove that combined exact tip, and review the eligible-host wrapper (§8n). |
@@ -76,6 +76,10 @@ until valid queues exist. Never delete held branches.
   intentionally Disabled for one 08-15 integration night so it cannot stop capture during the
   01:00 guarded merge; the independent 04:15 restore stays armed and a 04:20 one-shot re-enables
   the daily window. Do not reinterpret bundle absence or a fail-closed merge as an incident.
+- `WeatherExecutionTapeSupervisor` is intentionally Disabled after its first adoption exposed the
+  Windows venv launcher as a parent of the true status/lock owner. The repair branch adopts only
+  an exact verified direct child and adds a post-merge guard that tears back down on disagreement.
+  Do not manually enable the task ahead of the queued exact-suite and guarded-merge chain.
 - Windows Update installed current security updates after the temporary notify-only override was
   removed and now reports a pending reboot. Do not reboot in the graded window; coordinate a
   controlled off-window restart with session/push continuity and prove unattended S4U recovery.
