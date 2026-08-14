@@ -75,6 +75,26 @@ $closureFiles = [ordered]@{
     "observation-trigger" = "data\snapshots\observation_trigger_supervisor_status.json"
     "clob-enrichment"     = "data\snapshots\clob_enrichment_status.json"
 }
+$executionTask = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
+$executionWorkerStatus = Join-Path $repo "data\snapshots\execution_tape_status.json"
+$executionWriterLock = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
+$executionActive = $false
+if ($executionTask -and [string]$executionTask.State -ne "Disabled") {
+    $executionActive = $true
+}
+elseif (Test-Path -LiteralPath $executionWriterLock) {
+    $executionActive = $true
+}
+elseif (Test-Path -LiteralPath $executionWorkerStatus) {
+    try {
+        $executionWorker = Get-Content -LiteralPath $executionWorkerStatus -Raw | ConvertFrom-Json
+        $executionActive = [string]$executionWorker.state -ne "STOPPED"
+    }
+    catch { $executionActive = $false }
+}
+if ($executionActive) {
+    $closureFiles["execution-tape"] = "data\snapshots\execution_tape_supervisor_status.json"
+}
 function Get-ClosureStatus($path) {
     try { $j = Get-Content -LiteralPath $path -Raw -ErrorAction Stop | ConvertFrom-Json } catch { return $null }
     $scope = $null

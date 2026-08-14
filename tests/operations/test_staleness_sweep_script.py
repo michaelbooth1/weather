@@ -26,3 +26,13 @@ def test_unapproved_remote_branches_do_not_imply_an_armed_merge_queue():
 
     assert 'Add-Finding "git/no_merge_trigger"' not in text
     assert "branch -r --no-merged origin/master" not in text
+
+
+def test_execution_tape_closure_is_required_only_while_armed_or_active():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert 'Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor"' in text
+    assert '[string]$executionTask.State -ne "Disabled"' in text
+    assert '"data\\snapshots\\.execution_tape_status.json.writer.lock"' in text
+    assert '[string]$executionWorker.state -ne "STOPPED"' in text
+    assert '$closureFiles["execution-tape"]' in text

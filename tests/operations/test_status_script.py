@@ -150,3 +150,16 @@ def test_status_fails_closed_on_unsynchronized_windows_clock() -> None:
     assert 'Source:\\s*Local CMOS Clock' in text
     assert "system clock is not synchronized" in text
     assert 'Write-Output ("  CLOCK     : {0}"' in text
+
+
+def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert 'Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor"' in text
+    assert '$executionTapeState.armed = [string]$executionTapeTask.State -ne "Disabled"' in text
+    assert '"execution_tape_status.json"' in text
+    assert '".execution_tape_status.json.writer.lock"' in text
+    assert '"execution_tape_supervisor_status.json"' in text
+    assert '$executionAge -le 180' in text
+    assert 'public execution-tape evidence integrity is BLOCKED_EVIDENCE_LOSS' in text
+    assert 'execution_tape = $executionTapeState' in text

@@ -51,7 +51,10 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Set-Location $repo
 
-# The four closures, by the file that actually carries each one.
+# The three streak-critical closures, the historical enrichment closure, and
+# the auxiliary public execution-tape closure while that producer is armed or
+# still running. An unarmed optional producer cannot roll and must not make all
+# ordinary verdicts undecidable merely because it has never emitted a status.
 #
 # The former `loop_status_supervisor_status.json` was a frozen DEAD snapshot tombstone and was
 # retired from the live namespace on 2026-08-14. A hand-derived verdict on 2026-08-06 read it as a
@@ -64,6 +67,31 @@ $statusFiles = @(
     "data\snapshots\observation_trigger_supervisor_status.json" # observation-trigger
     "data\snapshots\clob_enrichment_status.json"              # CLOB-enrichment
 )
+$executionTask = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
+$executionWorkerStatus = Join-Path $repo "data\snapshots\execution_tape_status.json"
+$executionWriterLock = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
+$executionActive = $false
+if ($executionTask -and [string]$executionTask.State -ne "Disabled") {
+    $executionActive = $true
+}
+elseif (Test-Path -LiteralPath $executionWriterLock) {
+    # A disabled/missing task does not prove its detached child is gone.
+    $executionActive = $true
+}
+elseif (Test-Path -LiteralPath $executionWorkerStatus) {
+    try {
+        $executionWorker = Get-Content -LiteralPath $executionWorkerStatus -Raw | ConvertFrom-Json
+        $executionActive = [string]$executionWorker.state -ne "STOPPED"
+    }
+    catch {
+        # No task and no writer lock means an unreadable retained bounded-pilot
+        # artifact cannot describe a currently rollable process.
+        $executionActive = $false
+    }
+}
+if ($executionActive) {
+    $statusFiles += "data\snapshots\execution_tape_supervisor_status.json"
+}
 
 # A closure is only load-bearing if its loop is actually running. A dormant loop cannot be
 # rolled by a merge, so its stale closure must not veto an otherwise safe merge -- but it is
