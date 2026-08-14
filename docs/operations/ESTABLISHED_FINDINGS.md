@@ -2142,6 +2142,67 @@ new exact source and passed PID, writer-lock, heartbeat, and runtime-fingerprint
 closes log regrowth as an unowned streak risk. Archive lifecycle is a separate retention decision;
 do not delete these retained files as part of rotation.
 
+## 8f. Daily-roll launch decisions must be serialized, not only duplicate-checked
+
+**Incident measured 2026-08-07; maker mitigation landed 2026-08-08; taker parity added
+2026-08-14.** Two maker workers started **47 seconds** apart. Both launchers read the old status
+before either launch result was durable, the second PID replaced the first in the status file, and
+the supervisor later stopped only the recorded PID. The unrecorded worker survived with **431 MB**
+resident while the host recorded **430** memory-admission refusals and two protected-window capture
+gaps of **24** and **41 minutes**. The same defect class had produced taker orphans on 2026-06-30
+and 2026-07-04.
+
+The durable invariant is stronger than “check whether a worker already exists.” Direct `start` and
+supervisor `ensure` must acquire the same process-safe lock around the complete read/retire/launch/
+persist lifecycle decision. Maker and taker daily rolls now do so, fail closed if the lock cannot
+be acquired, and carry a concurrent start/ensure regression proving that only one worker launches
+and the waiter adopts its status. `staleness_sweep.ps1` keeps duplicate-process enumeration as an
+invariant-breach detector; it is no longer the primary mitigation.
+
+## 8g. A DEAD status with a source closure is a tombstone, not live roll evidence
+
+**Failure measured 2026-08-06; stale artifact retired 2026-08-14.** The frozen
+`loop_status_supervisor_status.json` described the snapshot loop as `DEAD`, `BLOCKED`, and
+`restart_budget_exceeded=6>=6`, but also retained a complete `source_scope_files` list. Hand
+analysis counted it as a fifth live closure while missing the differently named CLOB-enrichment
+closure. The explicit `roll_verdict.ps1` inventory already rejected that mistake.
+
+The stale file is preserved outside the live status namespace as
+`data/snapshots/_retired_supervisor_status/loop_status_supervisor_status.20260713T182612Z.json`
+with SHA-256 `FB263B9FD9A6FFC461F4FC76EC27D0E0560468C6EE1FB742995D2D9A0C3560D8`.
+`staleness_sweep.ps1` now rejects `DEAD` or `BLOCKED` states generically in every configured
+closure rather than carrying a permanent warning for one historical filename.
+
+## 8h. Maker recovery outside the evidence window is non-countable waste
+
+**Production state measured 2026-08-14 03:31 local; bounded recovery added 2026-08-14.** The prior
+maker status recorded a run started at **23:01 local** for the previous target date. Its evidence
+classifier correctly marked it `post_settlement_evaluation`, false for the live-forward gate, and
+“started after active-day evidence window.” The supervisor had only a **07:05** lower launch bound;
+same-target recovery after the **20:00** evidence cutoff was therefore allowed to consume restart
+budget and create a run folder that could never count.
+
+Maker `ensure` now has a fail-closed **07:05–20:00** local launch/recovery window aligned to the
+configured evidence cutoff. A healthy worker is left alone after the boundary; only a proposed
+`start` or `restart` becomes `scheduled_wait`, before recovery-budget accounting or process
+mutation. The taker remains intentionally unbounded at the end of day. Inverted windows are
+rejected rather than silently interpreted as overnight ranges.
+
+## 8i. The temporary Windows Update block outlived its build window
+
+**Policy audited and restored 2026-08-14 03:40 local.** The host still carried
+`AUOptions=2` (notify-only) and `NoAutoRebootWithLoggedOnUsers=1`, installed for the 2026-08-03
+release build window. Notify-only prevented unattended security-update download and installation;
+the temporary safeguard had become a security-maintenance outage.
+
+Both override values were removed after exporting the exact AU registry key to
+`C:/Users/micha/ops/windowsupdate-au-policy-before-revert-20260814.reg` (SHA-256
+`D3B8580B079287627A429F04A7FE6A0F37F84C02125C4F230F62D9F695874EA9`). Windows Update active
+hours remain **08:00–01:00**, outside the automatic-restart window described by the streak runbook,
+and neither Windows Update nor Component Based Servicing reported a pending reboot at the change.
+No scan, download, installation, or reboot was initiated. `status.ps1` now fails visibly if
+`AUOptions=2` returns.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

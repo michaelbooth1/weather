@@ -53,24 +53,42 @@ def local_time_gate(
     now: datetime,
     timezone_name: str,
     start_after_local_time: str | None,
+    start_no_later_than_local_time: str | None = None,
 ) -> dict[str, Any]:
-    threshold = parse_local_hhmm(start_after_local_time)
+    start_threshold = parse_local_hhmm(start_after_local_time)
+    end_threshold = parse_local_hhmm(start_no_later_than_local_time)
+    if start_threshold is not None and end_threshold is not None and start_threshold >= end_threshold:
+        raise ValueError(
+            "start_after_local_time must be earlier than start_no_later_than_local_time"
+        )
     local_now = now.astimezone(ZoneInfo(timezone_name))
-    if threshold is None:
-        return {
-            "allowed": True,
-            "timezone": timezone_name,
-            "local_now": local_now.isoformat(),
-            "start_after_local_time": None,
-            "reason": "no_start_after_gate",
-        }
-    allowed = local_now.time().replace(second=0, microsecond=0) >= threshold
+    local_clock = local_now.time().replace(tzinfo=None)
+    before_start = start_threshold is not None and local_clock < start_threshold
+    after_end = end_threshold is not None and local_clock > end_threshold
+    allowed = not before_start and not after_end
+    if before_start:
+        reason = "before_daily_start_time"
+    elif after_end:
+        reason = "after_daily_end_time"
+    elif start_threshold is not None and end_threshold is not None:
+        reason = "daily_start_window_open"
+    elif start_threshold is not None:
+        reason = "start_time_reached"
+    elif end_threshold is not None:
+        reason = "before_daily_end_time"
+    else:
+        reason = "no_start_time_gate"
     return {
         "allowed": allowed,
         "timezone": timezone_name,
         "local_now": local_now.isoformat(),
-        "start_after_local_time": threshold.isoformat(timespec="minutes"),
-        "reason": "start_time_reached" if allowed else "before_daily_start_time",
+        "start_after_local_time": (
+            start_threshold.isoformat(timespec="minutes") if start_threshold is not None else None
+        ),
+        "start_no_later_than_local_time": (
+            end_threshold.isoformat(timespec="minutes") if end_threshold is not None else None
+        ),
+        "reason": reason,
     }
 
 
@@ -356,6 +374,7 @@ def ensure_daily_roll(
     current_identity: dict[str, Any] | None = None,
     timezone_name: str = "America/Toronto",
     start_after_local_time: str | None = None,
+    start_no_later_than_local_time: str | None = None,
     diagnostic_append_fn: Callable[[Path, dict[str, Any]], Any] = append_daily_roll_diagnostic,
 ) -> dict[str, Any]:
     current = parse_datetime(now) or utc_now()
@@ -367,6 +386,7 @@ def ensure_daily_roll(
         now=current,
         timezone_name=timezone_name,
         start_after_local_time=start_after_local_time,
+        start_no_later_than_local_time=start_no_later_than_local_time,
     )
     if not same_target and not start_gate.get("allowed"):
         result = {
@@ -376,7 +396,7 @@ def ensure_daily_roll(
             "target_date": status.get("target_date"),
             "expected_target_date": target_date,
             "restart_cause": None,
-            "detail": "daily roll has not reached its configured local start time",
+            "detail": "daily roll is outside its configured local launch window",
             "start_time_gate": start_gate,
             "runtime_identity_before": status.get("runtime_identity"),
             "current_runtime_identity": current_identity,
@@ -413,6 +433,20 @@ def ensure_daily_roll(
         "latest_useful_write": health.get("latest_useful_write"),
         "start_time_gate": start_gate,
     }
+    if action in {"start", "restart"} and not start_gate.get("allowed"):
+        result["intended_action"] = action
+        result["action"] = "scheduled_wait"
+        result["state"] = "SCHEDULED_WAIT"
+        result["reason"] = start_gate.get("reason")
+        result["detail"] = "daily roll recovery is outside its configured local launch window"
+        annotate_status_with_supervisor(
+            status,
+            result,
+            now=current,
+            write_status_fn=write_status_fn,
+            status_path=spec.status_path,
+        )
+        return result
     guard = supervisor_recovery_guard(spec, action, now=current)
     result["recovery_guard"] = guard
     if action in {"start", "restart"}:

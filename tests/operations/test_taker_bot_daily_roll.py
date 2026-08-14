@@ -2,6 +2,8 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -289,6 +291,80 @@ class TestTakerBotDailyRoll(unittest.TestCase):
         self.assertEqual(saved["pid"], 7654)
         self.assertEqual(saved["action"], "noop")
         self.assertEqual(first["schema_version"], "taker_bot_daily_roll_v0.1")
+
+    def test_direct_start_and_supervisor_ensure_serialize_launch_decision(self):
+        launch_entered = threading.Event()
+        release_launch = threading.Event()
+        ensure_entered = threading.Event()
+        calls = []
+        results = {}
+        errors = []
+
+        def launcher(command, repo_root, console_log_path):
+            calls.append(list(command))
+            launch_entered.set()
+            if not release_launch.wait(5):
+                raise RuntimeError("test timed out waiting to release the launcher")
+            return 7654
+
+        def pid_alive(pid, target_date=None):
+            return int(pid or 0) == 7654 and target_date == "2026-06-18"
+
+        def record(name, callback):
+            try:
+                results[name] = callback()
+            except BaseException as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            common = {
+                "status_path": status_path,
+                "console_log_path": tmp / "daily_roll_console.log",
+                "runs_root": tmp / "taker_runs",
+                "repo_root": tmp,
+                "python_executable": "python.exe",
+                "now": "2026-06-18T04:01:00+00:00",
+                "pid_alive": pid_alive,
+                "launcher": launcher,
+            }
+            direct = threading.Thread(
+                target=record,
+                args=("direct", lambda: start_for_date("2026-06-18", **common)),
+            )
+
+            def ensure_callback():
+                ensure_entered.set()
+                return ensure_for_date(
+                    "2026-06-18",
+                    diagnostics_path=tmp / "daily_roll_diagnostics.jsonl",
+                    start_after_local_time="00:00",
+                    **common,
+                )
+
+            supervisor = threading.Thread(
+                target=record,
+                args=("supervisor", ensure_callback),
+            )
+            direct.start()
+            self.assertTrue(launch_entered.wait(2))
+            supervisor.start()
+            self.assertTrue(ensure_entered.wait(2))
+            time.sleep(0.2)
+            self.assertTrue(supervisor.is_alive())
+            release_launch.set()
+            direct.join(15)
+            supervisor.join(15)
+            lock_path = status_path.with_name(f"{status_path.name}.launch.lock")
+
+        self.assertFalse(direct.is_alive())
+        self.assertFalse(supervisor.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(results["direct"]["status"], "started")
+        self.assertEqual(results["supervisor"]["action"], "noop")
+        self.assertFalse(lock_path.exists())
 
     def test_scheduled_start_retires_previous_date_tree_before_launch(self):
         launches = []

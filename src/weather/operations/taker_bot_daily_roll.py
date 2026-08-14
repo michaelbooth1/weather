@@ -41,7 +41,11 @@ from weather.operations.bot_run_liveness import (
     utc_iso as liveness_utc_iso,
 )
 from weather.operations.bot_daily_roll_supervisor import ensure_daily_roll
-from weather.operations.supervisor import SupervisorSpec
+from weather.operations.supervisor import (
+    SupervisorSpec,
+    acquire_file_lock,
+    release_file_lock,
+)
 from weather.runtime_identity import get_runtime_identity
 from weather.paths import REPO_ROOT
 from weather.schema_registry import schema_version
@@ -59,6 +63,9 @@ DEFAULT_BUDGET_USDC = 100.0
 DEFAULT_MARKETS = "all"
 DEFAULT_INTERVAL_SECONDS = 60.0
 DEFAULT_STRATEGIES = DEFAULT_BAKEOFF_STRATEGIES
+LAUNCH_LOCK_ATTEMPTS = 100
+LAUNCH_LOCK_SLEEP_SECONDS = 0.1
+LAUNCH_LOCK_STALE_AFTER_SECONDS = 600.0
 COUNTERFACTUAL_RETENTION_FILENAMES = (
     "counterfactual_orders_long.csv",
     "settled_counterfactual_orders_long.csv",
@@ -98,6 +105,32 @@ TAKER_DAILY_ROLL_SUPERVISOR = SupervisorSpec(
 
 def utc_now():
     return datetime.now(timezone.utc)
+
+
+def daily_roll_launch_lock_path(status_path=DEFAULT_STATUS_PATH):
+    """Return the process-safe lock that serializes taker lifecycle decisions."""
+    status_path = Path(status_path)
+    return status_path.with_name(f"{status_path.name}.launch.lock")
+
+
+def _run_with_daily_roll_launch_lock(callback, *, status_path):
+    lock_path = daily_roll_launch_lock_path(status_path)
+    handle = acquire_file_lock(
+        lock_path,
+        attempts=LAUNCH_LOCK_ATTEMPTS,
+        stale_after_seconds=LAUNCH_LOCK_STALE_AFTER_SECONDS,
+        sleep_seconds=LAUNCH_LOCK_SLEEP_SECONDS,
+        pid_check=pid_is_python,
+    )
+    if handle is None:
+        raise RuntimeError(
+            "taker-bot daily-roll launch lock remained busy; refusing an "
+            f"unserialized lifecycle decision ({lock_path})"
+        )
+    try:
+        return callback()
+    finally:
+        release_file_lock(handle, lock_path)
 
 
 def parse_datetime(value):
@@ -1322,7 +1355,42 @@ def start_for_date(
     force_retire_latest_run=False,
     retire_process_tree=retire_taker_bot_process_tree,
     retire_superseded_process=True,
+    _launch_lock_held=False,
 ):
+    if not _launch_lock_held:
+        return _run_with_daily_roll_launch_lock(
+            lambda: start_for_date(
+                target_date,
+                budget_usdc=budget_usdc,
+                markets=markets,
+                interval_seconds=interval_seconds,
+                timezone_name=timezone_name,
+                status_path=status_path,
+                console_log_path=console_log_path,
+                runs_root=runs_root,
+                repo_root=repo_root,
+                python_executable=python_executable,
+                force=force,
+                once=once,
+                config_overrides=config_overrides,
+                strategies=strategies,
+                experiment_id=experiment_id,
+                disable_counterfactual_tape=disable_counterfactual_tape,
+                min_free_bytes=min_free_bytes,
+                max_activity_age_seconds=max_activity_age_seconds,
+                startup_grace_seconds=startup_grace_seconds,
+                disk_usage_fn=disk_usage_fn,
+                activity_stat_fn=activity_stat_fn,
+                now=now,
+                pid_alive=pid_alive,
+                launcher=launcher,
+                force_retire_latest_run=force_retire_latest_run,
+                retire_process_tree=retire_process_tree,
+                retire_superseded_process=retire_superseded_process,
+                _launch_lock_held=True,
+            ),
+            status_path=status_path,
+        )
     target_date = ensure_date(target_date)
     status_path = Path(status_path)
     console_log_path = Path(console_log_path)
@@ -1590,7 +1658,42 @@ def ensure_for_date(
     launcher=launch_taker_bot_process,
     start_after_local_time=DEFAULT_START_AFTER_LOCAL_TIME,
     current_identity=None,
+    _launch_lock_held=False,
 ):
+    if not _launch_lock_held:
+        return _run_with_daily_roll_launch_lock(
+            lambda: ensure_for_date(
+                target_date,
+                budget_usdc=budget_usdc,
+                markets=markets,
+                interval_seconds=interval_seconds,
+                timezone_name=timezone_name,
+                status_path=status_path,
+                diagnostics_path=diagnostics_path,
+                console_log_path=console_log_path,
+                runs_root=runs_root,
+                repo_root=repo_root,
+                python_executable=python_executable,
+                once=once,
+                config_overrides=config_overrides,
+                strategies=strategies,
+                experiment_id=experiment_id,
+                disable_counterfactual_tape=disable_counterfactual_tape,
+                min_free_bytes=min_free_bytes,
+                max_activity_age_seconds=max_activity_age_seconds,
+                startup_grace_seconds=startup_grace_seconds,
+                disk_usage_fn=disk_usage_fn,
+                activity_stat_fn=activity_stat_fn,
+                now=now,
+                pid_alive=pid_alive,
+                pid_stop_check=pid_stop_check,
+                launcher=launcher,
+                start_after_local_time=start_after_local_time,
+                current_identity=current_identity,
+                _launch_lock_held=True,
+            ),
+            status_path=status_path,
+        )
     target_date = ensure_date(target_date)
     spec = runtime_taker_daily_roll_supervisor_spec(
         status_path=status_path,
@@ -1637,6 +1740,7 @@ def ensure_for_date(
             launcher=launcher,
             force_retire_latest_run=force_retire_latest_run,
             retire_superseded_process=False,
+            _launch_lock_held=True,
         )
 
     return ensure_daily_roll(
