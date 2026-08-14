@@ -6,6 +6,7 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$Timezone = "America/Toronto",
     [string]$StartAfterLocalTime = "07:05",
+    [string]$StartNoLaterThanLocalTime = "20:00",
     [string]$BudgetUsdc = "500",
     [string]$Mode = "paper-live-forward",
     [string]$Markets = "all",
@@ -39,7 +40,10 @@ $arguments = @(
     "--min-free-bytes", [string]$MinFreeBytes
 )
 if ($Verb -eq "ensure") {
-    $arguments += @("--start-after-local-time", $StartAfterLocalTime)
+    $arguments += @(
+        "--start-after-local-time", $StartAfterLocalTime,
+        "--start-no-later-than-local-time", $StartNoLaterThanLocalTime
+    )
 }
 
 $process = Start-Process -FilePath $python -ArgumentList $arguments `

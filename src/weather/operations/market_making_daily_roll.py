@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 from weather.collection.snapshot_tracker import pid_is_python
 from weather.market.market_making_evidence import (
+    DEFAULT_ACTIVE_WINDOW_END,
     EVIDENCE_MODE_AUTO,
     EVIDENCE_MODE_CHOICES,
     classify_market_making_evidence,
@@ -59,6 +60,7 @@ DEFAULT_TASK_NAME = "WeatherMarketMakingDailyRoll"
 DEFAULT_SUPERVISOR_TASK_NAME = "WeatherMarketMakingDailyRollSupervisor"
 DEFAULT_TIMEZONE = "America/Toronto"
 DEFAULT_START_AFTER_LOCAL_TIME = "19:30"
+DEFAULT_START_NO_LATER_THAN_LOCAL_TIME = DEFAULT_ACTIVE_WINDOW_END
 DEFAULT_BUDGET_USDC = 500.0
 DEFAULT_MODE = "paper-live-forward"
 DEFAULT_MARKETS = "all"
@@ -666,6 +668,9 @@ def enrich_market_making_liveness_status(
             "start_time_gate_allowed": start_time_gate.get("allowed"),
             "start_reason": start_time_gate.get("reason"),
             "start_after_local_time": start_time_gate.get("start_after_local_time"),
+            "start_no_later_than_local_time": start_time_gate.get(
+                "start_no_later_than_local_time"
+            ),
             "start_time_gate_timezone": start_time_gate.get("timezone"),
         }
         operator.update({
@@ -1163,6 +1168,7 @@ def ensure_for_date(
     pid_alive=pid_matches_market_making_run,
     launcher=launch_market_making_process,
     start_after_local_time=DEFAULT_START_AFTER_LOCAL_TIME,
+    start_no_later_than_local_time=DEFAULT_START_NO_LATER_THAN_LOCAL_TIME,
     current_identity=None,
     _launch_lock_held=False,
 ):
@@ -1193,6 +1199,7 @@ def ensure_for_date(
                 pid_alive=pid_alive,
                 launcher=launcher,
                 start_after_local_time=start_after_local_time,
+                start_no_later_than_local_time=start_no_later_than_local_time,
                 current_identity=current_identity,
                 _launch_lock_held=True,
             ),
@@ -1256,6 +1263,7 @@ def ensure_for_date(
         current_identity=current_identity,
         timezone_name=timezone_name,
         start_after_local_time=start_after_local_time,
+        start_no_later_than_local_time=start_no_later_than_local_time,
     )
     previous_target = result.get("status_target_date")
     if (
@@ -1468,6 +1476,7 @@ def cmd_ensure(args):
         startup_grace_seconds=args.startup_grace_seconds,
         now=parse_datetime(args.now),
         start_after_local_time=args.start_after_local_time,
+        start_no_later_than_local_time=args.start_no_later_than_local_time,
     )
     print(json.dumps(payload, indent=2, sort_keys=True, default=str))
     return 0
@@ -1496,6 +1505,10 @@ def build_parser():
     ensure_parser = build_start_parser(sub.add_parser("ensure", help="Supervisor check: restart dead, idle, or stale-code maker rolls."))
     ensure_parser.add_argument("--diagnostics-out", default=str(DEFAULT_DIAGNOSTICS_PATH))
     ensure_parser.add_argument("--start-after-local-time", default=DEFAULT_START_AFTER_LOCAL_TIME)
+    ensure_parser.add_argument(
+        "--start-no-later-than-local-time",
+        default=DEFAULT_START_NO_LATER_THAN_LOCAL_TIME,
+    )
     ensure_parser.set_defaults(func=cmd_ensure)
     stop = sub.add_parser("stop", help="Stop the current paper market-making daily-roll process.")
     stop.add_argument("--date", default=None, help="Expected target date for the process. Defaults to status target_date.")

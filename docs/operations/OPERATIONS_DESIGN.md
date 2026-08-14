@@ -208,7 +208,11 @@ surface when Streamlit is unavailable.
 
 Bot daily-roll workers and reporting jobs have their own launchers,
 supervisors, status artifacts, and evidence gates. They consume capture output
-but are not a fourth capture loop.
+but are not a fourth capture loop. The maker supervisor may launch or recover a
+worker only inside its configured local evidence window. A healthy worker is
+not killed at the end boundary, but a dead, idle, or stale-code worker remains
+stopped after that boundary so non-countable recovery cannot consume restart
+budget or create another run folder. The taker supervisor has no end boundary.
 
 ## Daily Refresh Delegated-Child Tasks
 

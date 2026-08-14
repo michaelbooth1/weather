@@ -675,7 +675,7 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
                     repo_root=tmp,
                     python_executable="python.exe",
                     now="2026-06-16T23:20:00+00:00",
-                    start_after_local_time="19:30",
+                    start_after_local_time="19:00",
                     max_activity_age_seconds=120,
                     startup_grace_seconds=60,
                     launcher=launcher,
@@ -726,6 +726,65 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertFalse(supervisor["start_time_gate"]["allowed"])
         self.assertEqual(supervisor["start_time_gate"]["start_after_local_time"], "19:30")
         self.assertEqual(supervisor["start_time_gate"]["reason"], "before_daily_start_time")
+
+    def test_ensure_does_not_launch_after_evidence_window(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            status_path = tmp / "daily_roll_status.json"
+            _write_status(status_path, tmp, started_at="2026-06-16T23:00:00+00:00")
+
+            payload = ensure_for_date(
+                "2026-06-16",
+                status_path=status_path,
+                diagnostics_path=tmp / "daily_roll_diagnostics.jsonl",
+                console_log_path=tmp / "daily_roll_console.log",
+                runs_root=tmp / "mm_runs",
+                repo_root=tmp,
+                python_executable="python.exe",
+                now="2026-06-17T03:01:00+00:00",
+                start_after_local_time="07:05",
+                start_no_later_than_local_time="20:00",
+                launcher=lambda command, repo_root, console_log_path: calls.append(command),
+                pid_alive=lambda pid, target_date=None: False,
+            )
+            saved = json.loads(status_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, [])
+        self.assertEqual(payload["action"], "scheduled_wait")
+        self.assertEqual(payload["intended_action"], "start")
+        self.assertEqual(payload["state"], "SCHEDULED_WAIT")
+        self.assertEqual(payload["reason"], "after_daily_end_time")
+        self.assertNotIn("recovery_guard", payload)
+        self.assertEqual(
+            saved["daily_roll_supervisor"]["start_time_gate"][
+                "start_no_later_than_local_time"
+            ],
+            "20:00",
+        )
+
+    def test_ensure_rejects_inverted_launch_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            with self.assertRaisesRegex(
+                ValueError,
+                "start_after_local_time must be earlier",
+            ):
+                ensure_for_date(
+                    "2026-06-16",
+                    status_path=tmp / "daily_roll_status.json",
+                    diagnostics_path=tmp / "daily_roll_diagnostics.jsonl",
+                    console_log_path=tmp / "daily_roll_console.log",
+                    runs_root=tmp / "mm_runs",
+                    repo_root=tmp,
+                    python_executable="python.exe",
+                    now="2026-06-16T16:00:00+00:00",
+                    start_after_local_time="20:00",
+                    start_no_later_than_local_time="07:05",
+                    launcher=lambda command, repo_root, console_log_path: 9100,
+                    pid_alive=lambda pid, target_date=None: False,
+                )
 
     def test_day_roll_finalizes_superseded_scoring_projection_and_persists_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
