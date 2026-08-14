@@ -340,7 +340,7 @@ def test_keyless_doctor_names_missing_sdk_and_reference_without_reading_secrets(
     assert "Weather/Pilot" not in raw
 
 
-def test_stage0_cli_writes_bootstrap_only_after_zero_state_cleanup(tmp_path):
+def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path):
     command_args = args(tmp_path, "stage0")
     live_context = context(tmp_path)
 
@@ -373,7 +373,7 @@ def test_stage0_cli_writes_bootstrap_only_after_zero_state_cleanup(tmp_path):
     assert saved_bootstrap["user_stream"]["journal_sha256"] == final_sha256
 
 
-def test_stage1_cli_writes_result_after_exact_gate_and_final_cleanup(tmp_path):
+def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_path):
     command_args = args(tmp_path, "stage1")
     live_context = context(tmp_path)
     seen = {}
@@ -596,26 +596,30 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
     assert captured["position_scope"] == (ADDRESS, CONDITION_ID)
 
 
+@pytest.mark.parametrize("command", ["stage0", "stage1"])
+def test_parser_does_not_expose_exchange_mutation_commands(command):
+    with pytest.raises(SystemExit) as exc:
+        cli.build_parser().parse_args([command])
+
+    assert exc.value.code == 2
+
+
 def test_main_reports_only_exception_type_not_raw_message(monkeypatch, capsys, tmp_path):
-    command_args = args(tmp_path, "stage1")
+    identity = tmp_path / "identity.json"
+    identity.write_text("{}", encoding="utf-8")
     argv = [
-        "stage1",
-        "--identity", command_args.identity,
-        "--target-date", command_args.target_date,
-        "--condition-id", command_args.condition_id,
-        "--token-id", command_args.token_id,
-        "--budget", str(command_args.budget),
-        "--user-stream-journal", command_args.user_stream_journal,
-        "--receipt-out", command_args.receipt_out,
-        "--bootstrap", command_args.bootstrap,
-        "--cancellation-mode", command_args.cancellation_mode,
-        "--lifecycle-journal", command_args.lifecycle_journal,
-        "--result-out", command_args.result_out,
-        "--confirmation", command_args.confirmation,
+        "doctor",
+        "--identity", str(identity),
+        "--target-date", "2026-08-14",
+        "--condition-id", CONDITION_ID,
+        "--token-id", TOKEN_ID,
+        "--budget", "100",
+        "--receipt-out", str(tmp_path / "doctor-receipt.json"),
+        "--confirmation", cli.DOCTOR_CONFIRMATION,
     ]
     monkeypatch.setattr(
         cli,
-        "run_stage1",
+        "run_doctor",
         lambda _args: (_ for _ in ()).throw(RuntimeError("RAW-SECRET-MESSAGE")),
     )
 

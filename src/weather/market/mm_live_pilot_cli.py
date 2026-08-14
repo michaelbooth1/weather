@@ -1,9 +1,11 @@
-"""Fail-closed operator CLI for the first International lifecycle probes.
+"""Fail-closed preparation CLI for the first International lifecycle probes.
 
 The command accepts only public scope identifiers and paths. Authentication is
 resolved from Windows Credential Manager references already present in the
 process environment; secret values are never accepted as arguments or written
-to artifacts. Stage 1 remains limited to the exact one-submit lifecycle core.
+to artifacts. Exchange-mutating Stage 0 and Stage 1 functions are deliberately
+not exposed by this parser; a separately reviewed host-owned wrapper must call
+those library boundaries on an eligible machine.
 """
 
 from __future__ import annotations
@@ -689,17 +691,6 @@ def run_bundle(
     return receipt
 
 
-def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--identity", required=True)
-    parser.add_argument("--target-date", required=True)
-    parser.add_argument("--condition-id", required=True)
-    parser.add_argument("--token-id", required=True)
-    parser.add_argument("--budget", required=True, type=float)
-    parser.add_argument("--user-stream-journal", required=True)
-    parser.add_argument("--receipt-out", required=True)
-    parser.add_argument("--user-stream-ready-timeout-seconds", type=float, default=45.0)
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -740,19 +731,6 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--receipt-out", required=True)
     doctor.add_argument("--confirmation", required=True)
 
-    stage0 = commands.add_parser("stage0", help="Collect the pre-order International account bootstrap.")
-    _add_common_arguments(stage0)
-    stage0.add_argument("--bootstrap-out", required=True)
-    stage0.add_argument("--confirmation", required=True)
-
-    stage1 = commands.add_parser("stage1", help="Run exactly one Stage 1 cancellation proof.")
-    _add_common_arguments(stage1)
-    stage1.add_argument("--bootstrap", required=True)
-    stage1.add_argument("--cancellation-mode", choices=sorted(CANCELLATION_MODES), required=True)
-    stage1.add_argument("--lifecycle-journal", required=True)
-    stage1.add_argument("--result-out", required=True)
-    stage1.add_argument("--confirmation", required=True)
-
     bundle = commands.add_parser(
         "bundle",
         help="Offline verification and binding of the two Stage 1 results and journals.",
@@ -777,10 +755,6 @@ def main(argv: list[str] | None = None) -> int:
             receipt = run_prepare_identity(args)
         elif args.command == "doctor":
             receipt = run_doctor(args)
-        elif args.command == "stage0":
-            receipt = run_stage0(args)
-        elif args.command == "stage1":
-            receipt = run_stage1(args)
         else:
             receipt = run_bundle(args)
     except Exception as exc:

@@ -172,10 +172,14 @@ path continues to require that stronger artifact and must never accept the
 bootstrap artifact. Version v0.4 embeds the bundle and its SHA-256, rechecks
 the two probe identities and budgets, and requires its flattened private-stream,
 cancel-all, and heartbeat claims to match the bundle's derived facts. The
-fail-closed `weather.market.mm_live_pilot_cli` operator surface wires the
-prepared bootstrap collector and lifecycle orchestrator to credential-by-reference
-loading, the pinned official client, the account-wide user stream, and the exact
-position reader. It requires the literal confirmation
+fail-closed `weather.market.mm_live_pilot_cli` preparation surface exposes only
+identity preparation, the keyless doctor, and offline bundle construction.
+Exchange-mutating Stage 0 and Stage 1 remain library boundaries for a separately
+reviewed, host-owned eligible-machine wrapper; the generic CLI cannot invoke
+them. Those library boundaries wire the prepared bootstrap collector and
+lifecycle orchestrator to credential-by-reference loading, the pinned official
+client, the account-wide user stream, and the exact position reader. Stage 1
+requires the literal confirmation
 `INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE`, a passing bootstrap bound to
 the exact adapter funder, condition, token, and SDK, zero starting orders, and
 one cancellation mode per run. Every starting, ending, and failure-cleanup
@@ -212,7 +216,7 @@ observed bootstrap and its separate literal confirmation, may perform Stage 1.
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
 
-### Eligible-host operator commands
+### Eligible-host preparation commands
 
 The final sequence is for a genuinely eligible physical Windows host. Public
 metadata, economics, and book selection may be rehearsed from a blocked host,
@@ -362,62 +366,19 @@ Stage 0. The final Stage 0, both Stage 1 modes, and bundle construction should b
 prepared in advance and run consecutively; an expired bootstrap is a stop, not a
 reason to edit timestamps or reuse an earlier gate.
 
-Run Stage 0 once with new output paths. It never submits an order, but it does
-send authenticated heartbeat and cancel-all requests and must end with zero-order
-and exact-scope zero-position proof. The finite command records the stream as
-active at collection, then stops it cleanly and binds the final durable journal
-hash. A persisted `transport_active=true` assertion cannot pass the gate; Stage 1
-rereads the finalized journal and verifies both its prefix and terminal hashes:
+Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
+no exchange-mutation commands. Before a live test, create and review a
+host-owned wrapper outside the repository that imports `run_stage0` and
+`run_stage1`, fixes every public identifier and new output path, and exposes no
+secret or risk-ceiling arguments. Stage 0 never submits an order, but it does
+send authenticated heartbeat and cancel-all requests, so it belongs behind the
+same reviewed boundary. Run Stage 0 once, then each Stage 1 cancellation mode in
+its own fresh process. Each Stage 1 call can perform exactly one network submit,
+writes its PASS result only after final cancel-all/zero-state cleanup, and
+serializes exception types rather than raw SDK messages. The wrapper review and
+its exact source hash become prerequisites; their absence is a stop.
 
-```powershell
-.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli stage0 `
-  --identity C:\pilot\identity.json `
-  --target-date $pilotTargetDate `
-  --condition-id $pilotConditionId `
-  --token-id $pilotTokenId `
-  --budget 100 `
-  --user-stream-journal C:\pilot\stage0-user-stream.jsonl `
-  --bootstrap-out C:\pilot\stage0-bootstrap.json `
-  --receipt-out C:\pilot\stage0-receipt.json `
-  --confirmation INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY
-```
-
-Run each Stage 1 cancellation mode in its own fresh process with distinct,
-non-existing journal and result paths. Each command can perform exactly one
-network submit, writes its PASS result only after final cancel-all/zero-state
-cleanup, and serializes exception types rather than raw SDK messages:
-
-```powershell
-.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli stage1 `
-  --identity C:\pilot\identity.json `
-  --bootstrap C:\pilot\stage0-bootstrap.json `
-  --target-date $pilotTargetDate `
-  --condition-id $pilotConditionId `
-  --token-id $pilotTokenId `
-  --budget 100 `
-  --cancellation-mode cancel_all `
-  --user-stream-journal C:\pilot\cancel-all-user-stream.jsonl `
-  --lifecycle-journal C:\pilot\cancel-all-lifecycle.jsonl `
-  --result-out C:\pilot\cancel-all-result.json `
-  --receipt-out C:\pilot\cancel-all-receipt.json `
-  --confirmation INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE
-
-.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli stage1 `
-  --identity C:\pilot\identity.json `
-  --bootstrap C:\pilot\stage0-bootstrap.json `
-  --target-date $pilotTargetDate `
-  --condition-id $pilotConditionId `
-  --token-id $pilotTokenId `
-  --budget 100 `
-  --cancellation-mode dead_man `
-  --user-stream-journal C:\pilot\dead-man-user-stream.jsonl `
-  --lifecycle-journal C:\pilot\dead-man-lifecycle.jsonl `
-  --result-out C:\pilot\dead-man-result.json `
-  --receipt-out C:\pilot\dead-man-receipt.json `
-  --confirmation INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE
-```
-
-Only after both commands pass, build the content-bound bundle offline. The
+Only after both Stage 1 calls pass, build the content-bound bundle offline. The
 builder rereads and hashes both lifecycle journals rather than trusting copied
 booleans:
 
