@@ -63,7 +63,11 @@ Get-CimInstance Win32_Process | Where-Object { $_.Name -in @("python.exe", "pyth
 # the same evidence the resource gate uses and still fails closed if any part
 # is absent, stale, unreadable, or mismatched.
 $portableCaps = [ordered]@{
-    "snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 300.0 }
+    # Snapshot intentionally sleeps for nearly ten minutes between cycles. Keep this
+    # aligned with capture_recovery_check and the bounded-suite admission contract: 12
+    # minutes tolerates a complete normal cycle while remaining below the 15-minute streak
+    # gap limit. CLOB and observation retain their three-minute contracts.
+    "snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720.0 }
     "market_microstructure" = @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180.0 }
     "observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }
 }
@@ -161,6 +165,59 @@ if ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) {
 }
 elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
     $warns.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days left")
+}
+
+# ---- system clock ----
+# CLOB heartbeats, order TTLs, evidence ordering, and scheduled one-shots all trust the
+# Windows clock. W32Time is trigger-start on this workgroup host, so a stopped service is
+# not itself a failure. Use the bounded Time-Service event stream as durable last-sync
+# evidence, and only inspect the live source when the service is already running.
+$clockService = $null
+$clockLastSync = $null
+$clockSyncAgeH = $null
+$clockSource = $null
+$clockSynchronized = $null
+try {
+    $clockService = Get-Service -Name W32Time -ErrorAction Stop
+    $syncEvent = Get-WinEvent -FilterHashtable @{
+        LogName = "System"
+        ProviderName = "Microsoft-Windows-Time-Service"
+        Id = 35, 37
+        StartTime = (Get-Date).AddDays(-7)
+    } -MaxEvents 1 -ErrorAction Stop
+    if ($syncEvent) {
+        $clockLastSync = [datetime]$syncEvent.TimeCreated
+        $clockSyncAgeH = [math]::Round(((Get-Date) - $clockLastSync).TotalHours, 1)
+    }
+    if ($clockService.Status -eq "Running") {
+        $clockStatusText = ((& w32tm.exe /query /status 2>&1) -join "`n")
+        $clockQueryExit = $LASTEXITCODE
+        $sourceMatch = [regex]::Match($clockStatusText, "(?m)^Source:\s*(.+?)\s*$")
+        if ($sourceMatch.Success) { $clockSource = $sourceMatch.Groups[1].Value.Trim() }
+        if ($clockQueryExit -ne 0 -or -not $sourceMatch.Success) {
+            $clockSynchronized = $false
+            $clockSource = "unavailable"
+        }
+        else {
+            $clockSynchronized = -not (
+                $clockStatusText -match "Leap Indicator:\s*3" -or
+                $clockStatusText -match "Source:\s*Local CMOS Clock"
+            )
+        }
+    }
+}
+catch { }
+if ($clockSynchronized -eq $false) {
+    $flags.Add("system clock is not synchronized (source $clockSource)")
+}
+elseif ($null -eq $clockLastSync) {
+    $flags.Add("system clock has no successful Windows Time event in 7 days")
+}
+elseif ($clockSyncAgeH -gt 24) {
+    $flags.Add("system clock last received valid time $clockSyncAgeH hours ago")
+}
+elseif ($clockSyncAgeH -gt 12) {
+    $warns.Add("system clock last received valid time $clockSyncAgeH hours ago")
 }
 
 # ---- daily chain ----
@@ -405,13 +462,20 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         if ($actionArguments -match '(?i)-SettleSeconds\s+(\d+)') {
             $settleSeconds = [int]$Matches[1]
         }
+        $rollbackRecoverySeconds = 1200
+        if ($actionArguments -match '(?i)-RollbackRecoverySeconds\s+(\d+)') {
+            $rollbackRecoverySeconds = [int]$Matches[1]
+        }
+        $successProtectionSeconds = $settleSeconds + 240
+        $rollbackProtectionSeconds = $settleSeconds + $rollbackRecoverySeconds + 60
+        $protectedSeconds = [math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)
         $armedQuietMerges.Add([PSCustomObject]@{
                 name = $name
                 at = [datetime]$ti.NextRunTime
-                # Include the push handoff allowance after the recovery settle. The dangerous
-                # case is another driver publishing local master before the guarded script has
-                # completed its own recovery verdict and publication transaction.
-                protected_until = ([datetime]$ti.NextRunTime).AddSeconds($settleSeconds + 240)
+                # Cover both success (settle + push acknowledgement) and failure (settle +
+                # bounded rollback readoption proof). The dangerous case is another driver
+                # publishing local master before the guarded script has completed either path.
+                protected_until = ([datetime]$ti.NextRunTime).AddSeconds($protectedSeconds)
             })
     }
     # Both push tasks are deliberately Interactive: the Windows credential vault is not
@@ -664,7 +728,10 @@ if (Test-Path $qwf) {
         $qwAgeH = ((Get-Date) - [datetime]$qw.ts).TotalHours
         # A rollback means capture did not survive the code roll -- streak-critical, and the
         # branch still needs a human decision. Never let that scroll past in a log file.
-        if ($qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
+        if ($qw.stage -eq "rollback_recovery_failed" -and $qwAgeH -lt 36) {
+            $flags.Add("quiet-window merge rollback recovery is UNPROVEN ($($qw.detail)) - protect capture and reconcile before another merge")
+        }
+        elseif ($qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
             $flags.Add("quiet-window merge ROLLED BACK ($($qw.detail)) - capture did not recover; branch unmerged")
         }
         elseif ($qw.stage -eq "merged_unpushed" -and $qwAgeH -lt 36) {
@@ -726,6 +793,10 @@ if ($Json) {
         }
         capture  = $capState; ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
+        clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })
+            synchronized = $clockSynchronized; source = $clockSource; sync_age_hours = $clockSyncAgeH
+            last_sync = $(if ($clockLastSync) { $clockLastSync.ToString("o") } else { $null })
+        }
         chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail; payload_blocked = $chainBlocked }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
         mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH
@@ -760,6 +831,11 @@ $diskTrend = if ($null -eq $diskDelta) { "" }
 elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
 else { "  (+{0} GB/day)" -f $diskDelta }
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free{3}" -f $freeRamGB, $totRamGB, $freeDiskGB, $diskTrend)
+$clockState = if ($clockSynchronized -eq $false) { "UNSYNCHRONIZED" }
+elseif ($null -eq $clockLastSync) { "UNKNOWN" }
+elseif ($clockService.Status -eq "Running" -and $clockSource) { "synced via $clockSource, $clockSyncAgeH h ago" }
+else { "last valid sample $clockSyncAgeH h ago (trigger-start service $($clockService.Status))" }
+Write-Output ("  CLOCK     : {0}" -f $clockState)
 $chainNote = if ($chainStatus -eq "critical" -and -not $chainFail) { "all steps OK - 'critical' is the readiness gate, expected pre-release" }
 else { "0x2 = gates BLOCK, expected pre-release" }
 Write-Output ("  CHAIN     : {0} / {1}   ({2})" -f $chainStatus, $chainTerm, $chainNote)

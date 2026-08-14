@@ -50,9 +50,20 @@ def test_quiet_merge_recovery_interval_cannot_overlap_sensitive_driver():
 
     assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
     assert "-SettleSeconds\\s+(\\d+)" in text
+    assert "-RollbackRecoverySeconds\\s+(\\d+)" in text
     assert "$settleSeconds + 240" in text
+    assert "$settleSeconds + $rollbackRecoverySeconds + 60" in text
+    assert "[math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)" in text
     assert "$sensitiveDriverNextRun -ge $mergeTask.at" in text
     assert "the driver can publish unverified local master" in text
+
+
+def test_status_flags_unproven_rollback_recovery_separately() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$qw.stage -eq "rollback_recovery_failed"' in text
+    assert "rollback recovery is UNPROVEN" in text
+    assert '$qw.stage -eq "rolled_back"' in text
 
 
 def test_settlement_scan_seeks_from_end_instead_of_rescanning_each_ledger():
@@ -83,3 +94,25 @@ def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:
 
     assert "Get-WeatherHeavyWorkloadLeaseState" in text
     assert "heavy workload lease active" in text
+
+
+def test_status_snapshot_fallback_matches_the_twelve_minute_capture_contract() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '"snapshot_tracker"      = @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720.0 }' in text
+    assert '"market_microstructure" = @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180.0 }' in text
+    assert '"observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }' in text
+
+
+def test_status_fails_closed_on_unsynchronized_windows_clock() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert 'ProviderName = "Microsoft-Windows-Time-Service"' in text
+    assert "Id = 35, 37" in text
+    assert 'Get-Service -Name W32Time' in text
+    assert "$clockQueryExit = $LASTEXITCODE" in text
+    assert 'if ($clockQueryExit -ne 0 -or -not $sourceMatch.Success)' in text
+    assert 'Leap Indicator:\\s*3' in text
+    assert 'Source:\\s*Local CMOS Clock' in text
+    assert "system clock is not synchronized" in text
+    assert 'Write-Output ("  CLOCK     : {0}"' in text

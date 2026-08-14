@@ -18,7 +18,8 @@ param(
     [string]$ExpectedTip = "",
     [switch]$Force,
     [switch]$DryRun,
-    [int]$SettleSeconds = 300
+    [int]$SettleSeconds = 300,
+    [ValidateRange(60, 3600)][int]$RollbackRecoverySeconds = 1200
 )
 
 $ErrorActionPreference = "Stop"
@@ -229,19 +230,53 @@ foreach ($beforeWorker in @($before.workers)) {
     if (-not $afterWorker) {
         $ok = $false; $why += "$($beforeWorker.name) missing after merge"; continue
     }
+    # The snapshot worker normally heartbeats once per roughly ten-minute cycle, longer
+    # than the default five-minute settle. Requiring every healthy worker to advance here
+    # made a CLOB-only roll depend on where the unrelated snapshot sleep happened to fall.
+    # The recovery checker above still requires every worker to be fresh, live, locked by
+    # the matching PID, and loaded from the current tree. Require heartbeat advancement in
+    # addition when this worker actually readopted (PID or recorded source identity changed).
+    $workerReadopted = (
+        [int]$afterWorker.pid -ne [int]$beforeWorker.pid -or
+        [string]$afterWorker.recorded_source_fingerprint -ne [string]$beforeWorker.recorded_source_fingerprint
+    )
+    if (-not $workerReadopted) { continue }
     try {
         if ([datetime]$afterWorker.last_heartbeat -le [datetime]$beforeWorker.last_heartbeat) {
             $ok = $false
-            $why += "$($beforeWorker.name) heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
+            $why += "$($beforeWorker.name) readopted but heartbeat did not advance ($($beforeWorker.last_heartbeat) -> $($afterWorker.last_heartbeat))"
         }
     }
-    catch { $ok = $false; $why += "$($beforeWorker.name) heartbeat comparison failed" }
+    catch { $ok = $false; $why += "$($beforeWorker.name) readoption heartbeat comparison failed" }
 }
 
 if (-not $ok) {
     Note "capture did NOT recover: $($why -join '; ')"
     & git reset --hard $preMerge | Out-Null
-    Note "rolled back to $preMerge; supervisors will readopt the previous code. Nothing was pushed."
+    Note "rolled back to $preMerge; nothing was pushed. Waiting up to ${RollbackRecoverySeconds}s for all workers to re-adopt the rollback..."
+    $rollbackDeadline = (Get-Date).AddSeconds($RollbackRecoverySeconds)
+    $rollbackState = Get-CaptureState
+    while (
+        (-not $rollbackState.ok -or @($rollbackState.workers).Count -ne 3) -and
+        (Get-Date) -lt $rollbackDeadline
+    ) {
+        Start-Sleep -Seconds 15
+        $rollbackState = Get-CaptureState
+    }
+    if (-not $rollbackState.ok -or @($rollbackState.workers).Count -ne 3) {
+        $rollbackWhy = @(
+            $rollbackState.workers |
+                Where-Object { -not $_.ok } |
+                ForEach-Object { "$($_.name)=$($_.reasons -join ',')" }
+        )
+        if ($rollbackState.error) { $rollbackWhy += [string]$rollbackState.error }
+        if ($rollbackWhy.Count -eq 0) { $rollbackWhy += "capture recovery contract unreadable" }
+        $detail = "merge recovery failed: $($why -join '; '); rollback recovery unproven: $($rollbackWhy -join '; ')"
+        Note $detail
+        Save-Report -ok $false -stage "rollback_recovery_failed" -detail $detail
+        exit 4
+    }
+    Note "all three workers re-adopted the rollback and satisfy the capture recovery contract"
     Save-Report -ok $false -stage "rolled_back" -detail ($why -join "; ")
     exit 2
 }

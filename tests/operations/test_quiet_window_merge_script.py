@@ -44,7 +44,11 @@ def test_recovery_proof_covers_exact_capture_fleet_and_loaded_source_identity() 
     assert "@($before.workers).Count -ne 3" in script
     assert "@($after.workers).Count -ne 3" in script
     assert "$beforeWorker in @($before.workers)" in script
-    assert "heartbeat did not advance" in script
+    assert "$workerReadopted" in script
+    assert "[int]$afterWorker.pid -ne [int]$beforeWorker.pid" in script
+    assert "recorded_source_fingerprint" in script
+    assert "readopted but heartbeat did not advance" in script
+    assert "if (-not $workerReadopted) { continue }" in script
     assert "Get-CimInstance Win32_Process" not in script
 
 
@@ -54,3 +58,18 @@ def test_publish_uses_only_the_credential_bearing_scheduled_task() -> None:
     assert "Start-ScheduledTask -TaskName WeatherOneShotPush" in script
     assert "& git push" not in script.lower()
     assert "git rev-parse origin/master" in script
+
+
+def test_failed_merge_proves_rollback_readoption_before_reporting_rolled_back() -> None:
+    script = _script_text()
+
+    reset = script.index("& git reset --hard $preMerge")
+    rollback_wait = script.index("$rollbackDeadline = (Get-Date).AddSeconds")
+    rollback_proof = script.index(
+        'Note "all three workers re-adopted the rollback and satisfy the capture recovery contract"'
+    )
+    rolled_back = script.index('Save-Report -ok $false -stage "rolled_back"')
+
+    assert "[ValidateRange(60, 3600)][int]$RollbackRecoverySeconds = 1200" in script
+    assert 'Save-Report -ok $false -stage "rollback_recovery_failed"' in script
+    assert reset < rollback_wait < rollback_proof < rolled_back
