@@ -535,6 +535,7 @@ def run_live_capture(
     max_age_hours: float = DEFAULT_EVENT_METADATA_MAX_AGE_HOURS,
     shutdown_event: threading.Event | None = None,
     websocket_factory: Callable[..., Any] | None = None,
+    process_status: dict[str, Any] | None = None,
 ) -> None:
     """Run until interrupted, reloading only auditable retained event metadata."""
 
@@ -543,6 +544,7 @@ def run_live_capture(
         (),
         snapshots_root=snapshots_root,
         max_part_bytes=max_part_bytes,
+        process_status=process_status,
     )
     fleet: ConnectionFleet | None = None
     active_signature: str | None = None

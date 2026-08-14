@@ -40,6 +40,19 @@ def test_location_refresh_revalidates_target_date_before_success() -> None:
     assert "--no-live-fetch" not in text
 
 
+def test_execution_tape_registrar_is_public_only_and_low_priority() -> None:
+    text = (ROOT / "scripts" / "ops" / "register_execution_tape_supervisor.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "weather.operations.execution_tape_supervisor ensure" in text
+    assert "--market all" in text
+    assert "-Priority 7" in text
+    assert "public execution-tape" in text
+    for forbidden in ("credential", "private-key", "api-key", "wallet", "live-order"):
+        assert f"--{forbidden}" not in text.lower()
+
+
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     wrapper = (ROOT / "scripts" / "ops" / "market_making_daily_roll_task.ps1").read_text(
         encoding="utf-8-sig"

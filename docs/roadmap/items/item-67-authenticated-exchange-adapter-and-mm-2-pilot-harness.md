@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - INTERNATIONAL BOUNDED PROBE PROOF RUNNING; ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - REFRESHED BOUNDED PROBE SUITE-PROVED; ELIGIBLE-HOST EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -183,9 +183,12 @@ disabled unless authoritative user-event health, user-event, open-order, and
 exact-position readers are present. The official-client adapter must not expose
 a generic command-line live-mutation path.
 
-Stage 0/1 remains proof-gated on an immutable exact-tip full suite and a
-reviewed source transfer to the eligible host. A separate bounded Stage 2
-lifecycle implementation is not integration-ready or live-ready. The two
-unchecked live-evidence bullets above remain open until a tiny real lifecycle
-and paid-vs-predicted settlement/rebate record are reconciled without weakening
-any gate or increasing any ceiling.
+The refreshed Stage 0/1 tip and its stacked bounded Stage 2 successor have each
+passed separate immutable exact-tip full suites. This is software consistency,
+not live evidence or integration authority. Stage 0/1 must land first; Stage 2
+must then merge current production and pass a fresh suite on that combined
+tree before eligible-host transfer. The two unchecked live-evidence bullets
+above remain open until a tiny real lifecycle and paid-vs-predicted
+settlement/rebate record are reconciled without weakening any gate or
+increasing any ceiling. Exact suite measurements live only in
+`docs/operations/ESTABLISHED_FINDINGS.md` §§8k and 8n.

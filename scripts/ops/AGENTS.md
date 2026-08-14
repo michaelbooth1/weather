@@ -41,8 +41,10 @@ These instructions apply to `scripts/ops/`.
   deleting a task. Make those changes only when the user explicitly places the
   host scheduler in scope.
 
-The three capture supervisors are snapshot, CLOB, and observation-trigger.
-Keep their task names and `ensure` arguments aligned with
+The three streak-critical capture supervisors are snapshot, CLOB, and
+observation-trigger. The auxiliary public execution-tape producer has its own
+supervisor only after it is explicitly armed; it does not change three-worker
+streak grading. Keep all armed task names and `ensure` arguments aligned with
 `docs/operations/OPERATIONS_DESIGN.md`. An intentional stop must account for
 both the detached worker and the supervisor that can revive it.
 
