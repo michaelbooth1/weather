@@ -398,6 +398,8 @@ class TestMMExchange(unittest.TestCase):
                 self.signed_maker = "0x" + "a" * 40
                 self.signed_signer = None
                 self.signature_type = 3
+                self.book_asset_id = "token-80"
+                self.book_condition_id = "0x" + "b" * 64
                 self.next_order_response = {
                     "success": True,
                     "orderID": "order-1",
@@ -429,7 +431,8 @@ class TestMMExchange(unittest.TestCase):
             def get_order_book(self, token_id):
                 self.calls.append(("get_order_book", token_id))
                 return {
-                    "asset_id": token_id,
+                    "asset_id": self.book_asset_id,
+                    "market": self.book_condition_id,
                     "min_order_size": "5",
                     "tick_size": "0.01",
                     "neg_risk": False,
@@ -545,6 +548,7 @@ class TestMMExchange(unittest.TestCase):
                 "side": "BUY",
             })
         market_rules = adapter.refresh_market_rules()
+        self.assertEqual(market_rules["condition_id"], "0x" + "b" * 64)
         self.assertEqual(market_rules["tick_size"], "0.01")
         self.assertEqual(market_rules["best_ask"], "0.51")
         preview = adapter.preview_signed_order(
@@ -562,6 +566,16 @@ class TestMMExchange(unittest.TestCase):
         self.assertEqual(preview["client_signer_address"], "0x" + "d" * 40)
         self.assertEqual(preview["order_signer_address"], "0x" + "a" * 40)
         self.assertEqual(len(preview["signed_order_sha256"]), 64)
+
+        missing_book_token_client = FakeClient()
+        missing_book_token_client.book_asset_id = ""
+        with self.assertRaisesRegex(RuntimeError, "order-book token differs"):
+            make_adapter(missing_book_token_client).refresh_market_rules()
+
+        wrong_book_condition_client = FakeClient()
+        wrong_book_condition_client.book_condition_id = "0x" + "c" * 64
+        with self.assertRaisesRegex(RuntimeError, "order-book condition differs"):
+            make_adapter(wrong_book_condition_client).refresh_market_rules()
 
         safe_client = FakeClient()
         safe_client.signature_type = 2
