@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-14 09:55 (the combined Stage 0/1 tip is focused-green and awaits its
+**Last rewritten: 2026-08-14 09:54 (the combined Stage 0/1 tip is focused-green and awaits its
 exact suite; the continuous public-tape repair is stacked behind it).** Read this first, then `ESTABLISHED_FINDINGS.md`
 and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
@@ -44,7 +44,7 @@ enough to the market to control adverse selection and inventory. **We do not bea
 
 | Work | State / next action |
 | --- | --- |
-| Public execution tape (`-09-69a`) | Continuous public-only supervision is integrated. The first real adoption refused a Windows venv launcher/worker PID mismatch and the task remains Disabled. The predecessor repair tip passed its pre-quiet immutable full suite; its branch is being refreshed onto the combined Stage 0/1 parent and must pass a new exact-tip suite, guarded merge, and fail-closed adoption tonight. This is public path evidence only, never fills, intensity, rebates, or P&L (§8o). |
+| Public execution tape (`-09-69a`) | Continuous public-only supervision is integrated. The first real adoption refused a Windows venv launcher/worker PID mismatch and the task remains Disabled. The predecessor repair tip passed its pre-quiet immutable full suite; its branch is now refreshed onto the combined Stage 0/1 parent and focused-green, but must pass a new exact-tip suite, guarded merge, and fail-closed adoption tonight. This is public path evidence only, never fills, intensity, rebates, or P&L (§8o). |
 | International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
 | International live probe | The refreshed current-production + economics + Stage 0/1 successor is pushed and focused-green. Because merging current production created a new exact tip, its old suite proof does not qualify it; the 08-15 00:30 exact-tip suite and 01:00 suite-gated merge must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible; its immutable bundle task refused and produced no artifact. After integration, a separately reviewed wrapper must still be created on the eligible host before authenticated Stage 0 or either Stage 1 mutation (§8k). |
 | Bounded maker Stage 2 | Successor `0994fa13` is exact-suite green only on the predecessor Stage 0/1 parent. It is not integration- or live-ready: land the current combined Stage 0/1 branch first, merge that production result into Stage 2, reprove the new combined exact tip, and review the eligible-host wrapper. The current paper run emits no quote or live-trade permission, so integration alone cannot authorize a submit (§§8m, 8n). |
