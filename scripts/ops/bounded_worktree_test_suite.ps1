@@ -73,7 +73,9 @@ function Get-CommitPercent {
 function Get-HealthyCaptureWorkerCount {
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
-        @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 300 },
+        # Snapshot normally sleeps for almost its 10-minute cadence. Keep this
+        # below the 15-minute streak limit without rejecting a healthy sleeper.
+        @{ Status = "loop_status.json"; Lock = ".loop_status.json.writer.lock"; MaxAge = 720 },
         @{ Status = "clob_loop_status.json"; Lock = ".clob_loop_status.json.writer.lock"; MaxAge = 180 },
         @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180 }
     )
