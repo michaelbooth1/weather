@@ -423,7 +423,10 @@ if (($unpushed -ne "?") -and ([int]$unpushed -gt 0)) { $warns.Add("$unpushed com
 # ---- scheduled tasks (classify against what is EXPECTED) ----
 # Tasks that exit non-zero BY DESIGN pre-release, and tasks intentionally disabled.
 $expNonZero = @{
-    "WeatherDailySettlementPromotionRefresh" = @("0x2")   # model-skill gates BLOCK
+    # 0x4B = the repository-owned wrapper reached/refused the 11:55 protected-window
+    # deadline and its kill-on-close Job tore down the delegated child tree. The OS-held
+    # workload lease is the ownership signal; stale JSON/lock text is diagnostic residue.
+    "WeatherDailySettlementPromotionRefresh" = @("0x2", "0x4B")
     "WeatherEveningEvidenceRefresh"          = @("0x2")   # evidence gates BLOCK
     "WeatherTrainingWindow"                  = @("0x2")   # no promotion pre-release
     # 0x41306 = we terminated a wedged push. Pushes need an interactive logon session,
