@@ -93,6 +93,33 @@ class TestSupervisorPrimitives(unittest.TestCase):
 
         self.assertIsNone(handle)
 
+    def test_file_lock_release_retries_transient_windows_permission_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = Path(tmp) / "supervisor.lock"
+            handle = supervisor.acquire_file_lock(lock_path)
+            real_unlink = Path.unlink
+            calls = []
+            sleeps = []
+
+            def transient_unlink(path):
+                calls.append(path)
+                if len(calls) == 1:
+                    raise PermissionError(13, "transient scanner lock", str(path))
+                return real_unlink(path)
+
+            with mock.patch.object(Path, "unlink", autospec=True, side_effect=transient_unlink):
+                supervisor.release_file_lock(
+                    handle,
+                    lock_path,
+                    attempts=3,
+                    sleep_seconds=0.1,
+                    sleep_fn=sleeps.append,
+                )
+
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(sleeps, [0.1])
+            self.assertFalse(lock_path.exists())
+
     def test_heartbeat_state_and_age_helpers(self):
         now = datetime(2026, 6, 16, 12, 0, tzinfo=timezone.utc)
         status = {

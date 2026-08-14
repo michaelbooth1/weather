@@ -457,6 +457,21 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
+    # A replaced exact-tip quiet merge is safe to retain disabled as immutable
+    # evidence once that reviewed object is already in production history. Do
+    # not hard-code dated task names: bind the classification to the action's
+    # full SHA and Git ancestry. An unmerged or unreadable tip remains anomalous.
+    $integratedDisabledMerge = $false
+    $integratedDisabledTip = $null
+    if (
+        $st -eq "Disabled" -and
+        $actionArguments -like "*quiet_window_merge.ps1*" -and
+        $actionArguments -match '(?i)(?:^|\s)-ExpectedTip\s+([0-9a-f]{40})(?:\s|$)'
+    ) {
+        $integratedDisabledTip = $Matches[1].ToLowerInvariant()
+        & git -C $repo merge-base --is-ancestor $integratedDisabledTip HEAD 2>$null
+        $integratedDisabledMerge = ($LASTEXITCODE -eq 0)
+    }
     if ($oneShot -and $ti.NextRunTime -and $actionArguments -like "*quiet_window_merge.ps1*") {
         $settleSeconds = 300
         if ($actionArguments -match '(?i)-SettleSeconds\s+(\d+)') {
@@ -524,6 +539,9 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # off" and points at the wrong artifact. Deliberate beats incidental.
         $onDemandCompleted = ($noTriggers -and $res -eq "0x0" -and $ti.LastRunTime)
         if ($expDisabled -contains $name) { }
+        elseif ($integratedDisabledMerge) {
+            $warns.Add("$name is disabled and retained as spent exact-tip merge evidence; $integratedDisabledTip is already in production history")
+        }
         elseif ($onDemandCompleted) {
             $warns.Add("$name completed an on-demand run at $($ti.LastRunTime) and is now disabled (exit 0x0) - verify its artifact before relying on the result")
         }

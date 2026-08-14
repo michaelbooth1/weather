@@ -121,6 +121,27 @@ ARTIFACT_FAMILIES = (
         notes="A named failure is valid evidence; an absent status tape is not.",
     ),
     ArtifactFamilyClassification(
+        "execution_tape_evidence",
+        "market",
+        CANONICAL_EVIDENCE,
+        (
+            "snapshots/*/execution_tape/trades-*.jsonl",
+            "snapshots/*/execution_tape/dedupe-*.jsonl",
+            "snapshots/*/execution_tape/gaps-*.jsonl",
+            "snapshots/*/execution_tape/seeds-*.jsonl",
+            "snapshots/execution_tape_unrouted/*.jsonl",
+        ),
+        "permanent_market_execution_and_connection_evidence",
+        "not rebuildable with original millisecond timing, delivery order, reconnect gaps, or duplicate redeliveries",
+        "canonical_evidence_review_gate",
+        True,
+        examples=(
+            "data/snapshots/<event>/execution_tape/trades-00000.jsonl",
+            "data/snapshots/<event>/execution_tape/gaps-00000.jsonl",
+        ),
+        notes="Transaction-hash dedupe retains the first execution; conflicting redeliveries and dark-gap transitions remain append-only evidence.",
+    ),
+    ArtifactFamilyClassification(
         "snapshot_jsonl_evidence",
         "collection/model/market",
         CANONICAL_EVIDENCE,
@@ -479,6 +500,8 @@ ARTIFACT_FAMILIES = (
         "operations/reporting",
         OPERATOR_CACHE,
         (
+            "snapshots/execution_tape_status.json",
+            "snapshots/*/execution_tape/status.json",
             "backtest/daily_refresh_status.json",
             "backtest/fleet_observability.json",
             "backtest/artifact_provenance_manifest.json",

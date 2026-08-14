@@ -289,6 +289,11 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("market_anchor_time_split_validation"), "market_anchor_time_split_validation_v0.2")
         self.assertEqual(schema_version("clob_coverage_audit"), "clob_coverage_audit_v0.3")
         self.assertEqual(schema_version("clob_capture_status"), "clob_capture_status_v0.1")
+        self.assertEqual(schema_version("execution_tape_trade"), "execution_tape_trade_v0.1")
+        self.assertEqual(schema_version("execution_tape_dedupe"), "execution_tape_dedupe_v0.1")
+        self.assertEqual(schema_version("execution_tape_gap"), "execution_tape_gap_v0.1")
+        self.assertEqual(schema_version("execution_tape_seed"), "execution_tape_seed_v0.1")
+        self.assertEqual(schema_version("execution_tape_status"), "execution_tape_status_v0.1")
         self.assertEqual(
             schema_version("clob_enrichment_capture_status"),
             "clob_enrichment_capture_status_v0.1",

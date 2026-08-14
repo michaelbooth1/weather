@@ -29,6 +29,11 @@ class TestStorageClassRegistry(unittest.TestCase):
             "data/snapshots/event/observation_payloads.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/observation_payloads/s1_metar_hash.json": CANONICAL_EVIDENCE,
             "data/snapshots/event/clob_capture_status.jsonl": CANONICAL_EVIDENCE,
+            "data/snapshots/event/execution_tape/trades-00000.jsonl": CANONICAL_EVIDENCE,
+            "data/snapshots/event/execution_tape/dedupe-00000.jsonl": CANONICAL_EVIDENCE,
+            "data/snapshots/event/execution_tape/gaps-00000.jsonl": CANONICAL_EVIDENCE,
+            "data/snapshots/event/execution_tape/seeds-00000.jsonl": CANONICAL_EVIDENCE,
+            "data/snapshots/execution_tape_unrouted/rejections-00000.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/order_books.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/market_ws.jsonl": CANONICAL_EVIDENCE,
             "data/snapshots/event/snapshot_explanations.jsonl": CANONICAL_EVIDENCE,
@@ -52,6 +57,8 @@ class TestStorageClassRegistry(unittest.TestCase):
             "data/backtest/cache/replay/event/key.json": OPERATOR_CACHE,
             "data/logs/daily_refresh.log": OPERATOR_CACHE,
             "data/snapshots/observation_source_cache/toronto.json": OPERATOR_CACHE,
+            "data/snapshots/execution_tape_status.json": OPERATOR_CACHE,
+            "data/snapshots/event/execution_tape/status.json": OPERATOR_CACHE,
         }
 
         for path, expected in examples.items():
