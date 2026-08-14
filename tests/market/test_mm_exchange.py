@@ -668,6 +668,45 @@ class TestMMExchange(unittest.TestCase):
             for call in wrong_signer_client.calls
         ))
 
+        malformed_signature_client = FakeClient()
+        malformed_signature_client.signature_type = 2
+        original_create_order = malformed_signature_client.create_order
+
+        def create_malformed_order(order, *, options):
+            signed = original_create_order(order, options=options)
+            signed["signature"] = "present-but-not-an-eip-signature"
+            return signed
+
+        malformed_signature_client.create_order = create_malformed_order
+        malformed_signature_adapter = make_adapter(malformed_signature_client)
+        malformed_signature_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(RuntimeError, "signature_valid"):
+            malformed_signature_adapter.preview_signed_order(
+                {
+                    "token_id": "token-80",
+                    "price": 0.01,
+                    "size": 5,
+                    "side": "BUY",
+                },
+                expected_signature_type_id=2,
+            )
+
+        malformed_heartbeat_client = FakeClient()
+        malformed_heartbeat_client.post_heartbeat = lambda _heartbeat_id: {
+            "heartbeat_id": 123,
+        }
+        with self.assertRaisesRegex(RuntimeError, "nonempty string heartbeat id"):
+            make_adapter(malformed_heartbeat_client).heartbeat()
+
+        repeated_heartbeat_client = FakeClient()
+        repeated_heartbeat_client.post_heartbeat = lambda _heartbeat_id: {
+            "heartbeat_id": "hb-static",
+        }
+        repeated_heartbeat_adapter = make_adapter(repeated_heartbeat_client)
+        repeated_heartbeat_adapter.heartbeat()
+        with self.assertRaisesRegex(RuntimeError, "nonempty string heartbeat id"):
+            repeated_heartbeat_adapter.heartbeat()
+
         stopped_stream_client = FakeClient()
         stopped_stream_adapter = make_adapter(stopped_stream_client)
         stopped_stream_adapter.heartbeat()
@@ -768,6 +807,30 @@ class TestMMExchange(unittest.TestCase):
             )
         self.assertTrue(
             unsafe_adapter.probe_evidence()["cancel_all_zero_open_orders_verified"]
+        )
+
+        malformed_success_client = FakeClient()
+        malformed_success_client.next_order_response["success"] = "false"
+        malformed_success_adapter = make_adapter(malformed_success_client)
+        malformed_success_adapter.heartbeat()
+        malformed_success_adapter.refresh_market_rules()
+        malformed_success_capability = (
+            malformed_success_adapter.authorize_stage1_lifecycle(
+                official_stage1_gate(
+                    malformed_success_adapter,
+                    snapshot_character="e",
+                )
+            )
+        )
+        with self.assertRaisesRegex(RuntimeError, "execution-free live order"):
+            malformed_success_adapter.place_order(
+                valid_intent,
+                stage1_capability=malformed_success_capability,
+            )
+        self.assertTrue(
+            malformed_success_adapter.probe_evidence()[
+                "cancel_all_zero_open_orders_verified"
+            ]
         )
 
         with self.assertRaisesRegex(RuntimeError, "heartbeat id does not continue"):
