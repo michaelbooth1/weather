@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from weather.market.mm_exchange import (  # noqa: E402
     PolymarketGlobalHTTPAdapter,
@@ -487,6 +488,23 @@ class TestMMExchange(unittest.TestCase):
         self.assertFalse(read_only.supports_trading)
         with self.assertRaisesRegex(RuntimeError, "verified authoritative user-event"):
             read_only.place_order({"token_id": "token-80", "price": 0.49, "size": 5, "side": "BUY"})
+
+        raised_ceiling = OfficialPolymarketGlobalAdapter(
+            client,
+            sdk_version="1.1.0",
+            max_order_notional=100,
+        )
+        lowered_ceiling = OfficialPolymarketGlobalAdapter(
+            client,
+            sdk_version="1.1.0",
+            max_order_notional=2,
+        )
+        self.assertEqual(raised_ceiling.max_order_notional, Decimal("10"))
+        self.assertEqual(
+            raised_ceiling.diagnostics()["max_order_notional_ceiling"],
+            "10",
+        )
+        self.assertEqual(lowered_ceiling.max_order_notional, Decimal("2"))
 
         unverified = OfficialPolymarketGlobalAdapter(
             client,

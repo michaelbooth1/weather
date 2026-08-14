@@ -198,6 +198,8 @@ It fetches again immediately before submit. The capability permits exactly one
 network submit and is consumed before that final check and the SDK call, so
 Stage 0, the ordinary runner, or a retry after
 an ambiguous response cannot call the adapter's order method directly.
+The adapter also clamps its effective per-order notional limit to **10 pUSD**
+even if a direct library caller requests more; callers may only lower it.
 It also requires a new, non-existing journal path. Before placement it writes
 and flushes the authorization, bootstrap hash, exact intent, and budget; after
 placement it appends exchange observation, cancellation, zero-open-order, and

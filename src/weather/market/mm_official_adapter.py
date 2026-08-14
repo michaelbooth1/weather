@@ -28,6 +28,7 @@ from weather.market.mm_geoblock import (
 
 OFFICIAL_CLOB_DISTRIBUTION = "py-clob-client-v2"
 OFFICIAL_CLOB_VERSION = "1.1.0"
+MAX_STAGE1_ORDER_NOTIONAL = Decimal("10")
 CURRENT_REBATES_URL = "https://clob.polymarket.com/rebates/current"
 CURRENT_POSITIONS_URL = "https://data-api.polymarket.com/positions"
 EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
@@ -643,9 +644,13 @@ class OfficialPolymarketGlobalAdapter:
             market_rules_max_age_seconds,
             "market_rules_max_age_seconds",
         )
-        self.max_order_notional = _required_decimal(
+        requested_max_order_notional = _required_decimal(
             max_order_notional,
             "max_order_notional",
+        )
+        self.max_order_notional = min(
+            requested_max_order_notional,
+            MAX_STAGE1_ORDER_NOTIONAL,
         )
         self.cancel_verify_attempts = max(1, int(cancel_verify_attempts))
         self.cancel_verify_interval_seconds = max(
@@ -819,6 +824,8 @@ class OfficialPolymarketGlobalAdapter:
             "sdk_distribution": OFFICIAL_CLOB_DISTRIBUTION,
             "sdk_version": self.sdk_version,
             "sdk_version_pinned": self.sdk_version == OFFICIAL_CLOB_VERSION,
+            "max_order_notional": str(self.max_order_notional),
+            "max_order_notional_ceiling": str(MAX_STAGE1_ORDER_NOTIONAL),
             "token_id_present": self.token_id is not None,
             "user_event_reader_present": self.user_event_reader is not None,
             "user_event_health_reader_present": self.user_event_health_reader is not None,
