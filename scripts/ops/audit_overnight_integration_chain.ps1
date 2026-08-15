@@ -7,8 +7,11 @@ param(
     [Parameter(Mandatory = $true)][string]$RepoRoot,
     [Parameter(Mandatory = $true)][string]$Stage01Tip,
     [Parameter(Mandatory = $true)][string]$ExecutionTapeTip,
+    [Parameter(Mandatory = $true)][string]$AuditScriptTip,
+    [Parameter(Mandatory = $true)][string]$AuditScriptSha256,
     [Parameter(Mandatory = $true)][string]$ReportPath,
     [string]$AuditTaskName = "",
+    [string]$AuditScriptBranch = "codex/agent-context-resilience-20260814",
     [string]$Stage01Branch = "codex/international-live-probe-refresh-20260814",
     [string]$ExecutionTapeBranch = "codex/execution-tape-launcher-adoption-20260814",
     [string]$Stage01SuiteTask = "WeatherInternationalLiveProbeRefreshSuite0815",
@@ -27,6 +30,8 @@ $RepoRoot = [IO.Path]::GetFullPath($RepoRoot)
 $ReportPath = [IO.Path]::GetFullPath($ReportPath)
 $Stage01Tip = $Stage01Tip.Trim().ToLowerInvariant()
 $ExecutionTapeTip = $ExecutionTapeTip.Trim().ToLowerInvariant()
+$AuditScriptTip = $AuditScriptTip.Trim().ToLowerInvariant()
+$AuditScriptSha256 = $AuditScriptSha256.Trim().ToLowerInvariant()
 $expectedDate = [datetime]"2026-08-15"
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 $checks = New-Object System.Collections.Generic.List[object]
@@ -90,13 +95,40 @@ function Check-SuiteReceipt {
     }
 }
 
-foreach ($tip in @($Stage01Tip, $ExecutionTapeTip)) {
+foreach ($tip in @($Stage01Tip, $ExecutionTapeTip, $AuditScriptTip)) {
     if ($tip -notmatch "^[0-9a-f]{40}$") {
         throw "Expected tips must be full 40-character hexadecimal SHAs"
     }
 }
+if ($AuditScriptSha256 -notmatch "^[0-9a-f]{64}$") {
+    throw "AuditScriptSha256 must be a full 64-character hexadecimal digest"
+}
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "repository Python interpreter is missing"
+}
+
+$actualScriptHash = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
+Add-Check "audit_script_hash" ($actualScriptHash -eq $AuditScriptSha256) (
+    "actual={0}; expected={1}" -f $actualScriptHash, $AuditScriptSha256
+)
+try {
+    $auditLocal = (& git -C $RepoRoot rev-parse `
+        "refs/heads/$AuditScriptBranch").Trim().ToLowerInvariant()
+    $auditRemote = (& git -C $RepoRoot rev-parse `
+        "refs/remotes/origin/$AuditScriptBranch").Trim().ToLowerInvariant()
+    $auditRefOk = (
+        $LASTEXITCODE -eq 0 -and
+        $auditLocal -eq $AuditScriptTip -and
+        $auditRemote -eq $AuditScriptTip
+    )
+    Add-Check "audit_script_ref" $auditRefOk (
+        "local={0}; remote={1}; expected={2}" -f
+        $auditLocal, $auditRemote, $AuditScriptTip
+    )
+}
+catch {
+    Add-Check "audit_script_ref" $false ("inspection failed: {0}" -f
+        $_.Exception.GetType().Name)
 }
 
 foreach ($taskName in @(
@@ -279,6 +311,8 @@ $result = [ordered]@{
     ok = $failures.Count -eq 0
     stage01_tip = $Stage01Tip
     execution_tape_tip = $ExecutionTapeTip
+    audit_script_tip = $AuditScriptTip
+    audit_script_sha256 = $AuditScriptSha256
     checks = @($checks)
     failures = @($failures)
 }

@@ -87,6 +87,10 @@ def test_overnight_chain_audit_is_exact_read_only_and_fail_closed() -> None:
 
     assert "Stage01Tip" in text
     assert "ExecutionTapeTip" in text
+    assert "AuditScriptTip" in text
+    assert "AuditScriptSha256" in text
+    assert "Get-FileHash -LiteralPath $PSCommandPath" in text
+    assert '"refs/remotes/origin/$AuditScriptBranch"' in text
     assert "VERDICT: ALL CHUNKS PASSED" in text
     assert "merge-base --is-ancestor $tip master" in text
     assert "capture_recovery_check --json" in text
