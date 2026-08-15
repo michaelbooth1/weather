@@ -2392,6 +2392,33 @@ off-host mirror is operator-paused and new capture remains single-disk evidence.
 the proof burst ages out of both the short and 24-hour windows; investigate if the multi-window
 slope converges upward or absolute free space approaches the monitor's fixed thresholds.
 
+## 8q. The paper market-harvest route works; an end-of-day market is not a safe live candidate
+
+**One-market forward proof measured 2026-08-15 18:34-18:35 local and independently audited.**
+The clean exact branch tip `9f8915c4aa1a7ae210ddc3c85f3c8c50f4d0e925` collected a fresh
+International economics v0.3 snapshot, then ran one Toronto `market_harvest` paper tick. The run
+retained **11 quote-intent rows**, **2 quote-permission rows**, **4 two-sided paper lifecycle legs**,
+and **0 live-permission rows**. Preflight passed. The fixed ceilings remained **25 pUSD** for the
+run/daily loss and event notional, **10 pUSD** per band, and **120 seconds** TTL. The fill tape
+retained the public-counterfactual and authoritative-account field boundary, but no real fill or
+account evidence exists.
+
+Candidate-plan v0.2 then correctly returned `BLOCK`: the only paper-proved midpoints were
+**0.9985** and **0.002**, both outside its non-raisable **0.20-0.80** safety interval. It selected
+no condition or token, authorized nothing, and named
+`current_paper_proved_safe_fee_eligible_book_candidate` as missing. This is evidence that the
+paper route is reachable and that current-market selection fails closed; it is not evidence of a
+safe candidate, reward eligibility, a fill, a rebate, or profit. Do not weaken the midpoint gate to
+turn a late-day market green. Select again from a fresh paper tick when a current market naturally
+meets the existing interval.
+
+The preserved receipt and independent audit are under
+`C:/Users/micha/ops/live-test-parent-proof-0815c/`. The audit binds the run-script hash, exact local
+and remote tip, Scheduler start/completion records, economics and candidate hashes, complete paper
+tape hashes, risk ceilings, zero live permission, and the safe refusal. No baseline was accepted and
+no secret or live-mutation path was used. This is a single operational proof, not a powered economic
+endpoint; no interval or P&L claim is available.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

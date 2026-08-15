@@ -1,4 +1,4 @@
-# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - CUMULATIVE PUSD CONTRACT FOCUSED-GREEN; EXPLICIT ACCEPTANCE OPEN]
+# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - INTERNATIONAL V0.3 COLLECTION PROVED; EXPLICIT ACCEPTANCE OPEN]
 
 Goal: produce and maintain a current, source-verified exchange-economics
 snapshot, with a tracked template, an accept-baseline mechanism, and a recurring
@@ -127,3 +127,10 @@ v0.2 snapshot and requires a newly collected v0.3 International snapshot.
 Collection does not accept a baseline. Until the branch lands and the operator
 explicitly accepts a reviewed current International baseline, drift must remain
 BLOCK. No scheduled path may accept the baseline automatically.
+
+The external one-market paper proof subsequently collected and independently
+audited a fresh gate-valid v0.3 International snapshot without invoking
+`accept` or changing production economics state. That closes live collection
+as an assumption, but not the unchecked informed-acceptance requirement. The
+paper and candidate outcome is recorded only in
+`docs/operations/ESTABLISHED_FINDINGS.md` section 8q.

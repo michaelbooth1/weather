@@ -1,4 +1,4 @@
-# 328. Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - CUMULATIVE PARENT FOCUSED-GREEN; EXACT SUITE AND ACTIVE-DAY PROOF OPEN]
+# 328. Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - ONE-MARKET PAPER ROUTE PROVED; EXACT SUITE AND INTEGRATION OPEN]
 
 Goal: make the approved market-centered rebate experiment reachable without
 misrepresenting model promotion or manufacturing model edge.
@@ -52,7 +52,7 @@ Scope:
 - [ ] Pass the immutable exact-tip full suite on the refreshed parent.
 - [ ] Integrate through the guarded roll-sensitive path and adopt the new code
   without disrupting capture.
-- [ ] Run one active-day, one-market `paper-live-forward` tick and prove nonzero
+- [x] Run one active-day, one-market `paper-live-forward` tick and prove nonzero
   quote permission, two-sided post-only intent, zero live permission, exact
   risk ceilings, and public-tape counterfactual markout fields.
 - [x] Bind the successful paper row into the eligible-host Stage 1 candidate
@@ -86,3 +86,13 @@ the no-model/no-prebuilt-feature shape. After the protected capture window,
 collect a fresh external v0.3 snapshot, rerun the one-market tick, and require
 nonzero quote permission before closing the active-day proof. Immutable exact-
 tip full-suite proof and guarded integration remain open.
+
+The fresh retry closes the route-reachability checkbox. It passed the retained
+paper gates and produced exchange-shaped, two-sided paper lifecycle intent with
+zero live permission while preserving the risk ceilings and counterfactual
+fields. The separately audited candidate step then refused the late-day books
+because they were outside its existing safe midpoint interval. That refusal is
+not a paper-lane failure and must not be bypassed; it leaves fresh safe-candidate
+selection open for a naturally qualifying market. Exact measurements and their
+claim boundary live only in `docs/operations/ESTABLISHED_FINDINGS.md` section
+8q. The immutable full suite and guarded integration remain open.

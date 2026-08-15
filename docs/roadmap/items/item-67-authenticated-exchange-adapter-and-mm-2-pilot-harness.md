@@ -501,3 +501,12 @@ integration. Bounded Stage 2 remains a successor and must be refreshed only
 after that parent lands. The two live-evidence checklist bullets remain open
 until this PC is physically eligible and the staged lifecycle is run under the
 canonical pilot envelope.
+
+The subsequent one-market retry proved the paper market-harvest route but did
+not produce a safe Stage 1 candidate: candidate-plan v0.2 correctly refused the
+late-day extreme books under its fixed midpoint interval. This closes no live
+evidence checkbox and requires no code/risk relaxation. After parent
+integration, candidate selection should be repeated from a fresh paper tick
+only when a market naturally satisfies the existing gates. See
+`docs/operations/ESTABLISHED_FINDINGS.md` section 8q for the sole quantitative
+record.

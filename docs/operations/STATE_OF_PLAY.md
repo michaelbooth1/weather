@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-15 15:23 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-15 18:42 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -22,8 +22,8 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 | Capture | Healthy and on track today. Protect the 12:00-18:00 graded window; do not run heavy work or merge roll-sensitive code there. |
 | Production software | International Stage 0/1 and continuous public execution capture are adopted. They prove software consistency and public observation, not order authority, fills, or profit. |
 | Cumulative live-test parent | `codex/live-test-parent-refresh-20260815` is refreshed on current master and contains the paper harvest lane, unified official client, and pUSD payout-asset contract. Focused tests and the isolated real-wheel SDK contract pass; immutable exact-tip full-suite proof and guarded integration remain open. |
-| Paper proof boundary | Candidate-plan v0.2 now requires a still-current successful one-market `market_harvest` quote, hashes the complete retained paper tape, binds the exact condition/token, and remains explicitly non-authorizing. `run_stage1` revalidates it before credential resolution. |
-| Active paper attempt | The first real one-market attempt failed closed on two independent inputs: production economics is v0.2 while the branch requires v0.3, and missing prebuilt CLOB features exposed a model-anchored fallback in the model-independent lane. The branch now projects current harvest features directly from public books. Collect a fresh external v0.3 snapshot and reprove after 18:00; do not accept a baseline automatically. |
+| Paper proof | The one-market `market_harvest` route passed preflight, emitted two-sided paper permission and lifecycle intent, retained all ceilings, and emitted no live permission. Candidate-plan v0.2 safely selected nothing because the only proved books were outside its fixed midpoint interval. This is a route proof, not a safe candidate or profit result. |
+| Candidate boundary | Keep the existing midpoint, fee/rebate, book, paper-proof, expiry, and condition/token gates. Select again from a fresh paper tick when a market naturally qualifies; never weaken a gate to force a candidate. `run_stage1` revalidates the non-authorizing plan before credential resolution. |
 | Public execution tape | Supervised producer is current, connected, and integrity-valid. Retained gaps make the accumulated full price path unusable; keep collecting future clean intervals. Public rows never prove our fills or P&L. |
 | Stage 2 | Prepared only as a stacked successor. Refresh it on the integrated cumulative parent and require a new exact-tip suite; do not merge it into the parent early. |
 | First live-money test | After this PC is physically moved to a genuinely eligible location: rerun public metadata/economics/paper selection, import credentials by reference, pass doctor and Stage 0, perform the two tiny supervised Stage 1 cancellation probes, build verification, then run one bounded Stage 2 quote session. |
@@ -50,19 +50,18 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 
 ## Immediate execution order
 
-1. After 18:00, collect a fresh external International economics v0.3 snapshot
-   on the cumulative branch. Audit it; do not run `accept`.
-2. Rerun one Toronto `paper-live-forward` tick with `market_harvest`. Require
-   nonzero quote permission, two-sided intent, zero live permission, current
-   exchange size/tick, retained ceilings, and counterfactual tape fields.
-3. Finish the cumulative branch, push only through `WeatherOneShotPush`, obtain
+1. Finish the cumulative branch documentation and merge current roll-free
+   production monitor repairs into it. Preserve the audited paper proof as
+   evidence for its exact source tip; do not accept the economics baseline.
+2. Push only through `WeatherOneShotPush`, obtain
    `roll_verdict.ps1`, and run an immutable exact-tip full suite with the real
    pinned SDK contract. Never weaken or ignore a failure.
-4. Merge the roll-sensitive parent only through the guarded 01:00-04:00 path,
+3. Merge the roll-sensitive parent only through the guarded 01:00-04:00 path,
    prove capture recovery/adoption, then refresh Stage 2 on that production tip.
-5. Before relocation, review a fixed-scope host-owned wrapper sealed to new
-   output paths and the fresh candidate plan. It must not expose a generic
-   mutation or secret-bearing CLI.
+4. Obtain a new paper-bound candidate only when a current market passes the
+   existing safe interval naturally. Before relocation, review a fixed-scope
+   host-owned wrapper sealed to new output paths and that fresh plan. It must
+   not expose a generic mutation or secret-bearing CLI.
 
 ## Host and workflow state
 
