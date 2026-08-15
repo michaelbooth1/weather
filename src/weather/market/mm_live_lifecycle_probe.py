@@ -1,7 +1,7 @@
 """Dedicated first-order lifecycle probe for International Polymarket.
 
 This module accepts an already-authenticated, fail-closed adapter plus a passing
-``mm_platform_bootstrap_v0.1`` gate. The bounded operator CLI wires that narrow
+``mm_platform_bootstrap_v0.2`` gate. The bounded operator CLI wires that narrow
 surface to credential references; the ordinary maker runner never calls it.
 """
 
@@ -149,7 +149,7 @@ def _validate_bootstrap_binding(adapter, bootstrap_gate):
     required = {
         "required": bootstrap_gate.get("required") is True,
         "ok": bootstrap_gate.get("ok") is True,
-        "schema": bootstrap_gate.get("schema_version") == "mm_platform_bootstrap_v0.1",
+        "schema": bootstrap_gate.get("schema_version") == "mm_platform_bootstrap_v0.2",
         "status": bootstrap_gate.get("status") == "PASS",
         "platform": bootstrap_gate.get("platform") == "polymarket_global",
         "settlement_unit": bootstrap_gate.get("settlement_unit") == "pUSD",
@@ -312,10 +312,12 @@ def execute_stage1_lifecycle_probe(
         )
         phase = "heartbeat"
         first_heartbeat = adapter.heartbeat()
+        if first_heartbeat != {"status": "ok"}:
+            raise RuntimeError("Stage 1 did not receive the current heartbeat acknowledgment")
         last_heartbeat_at = clock()
         journal.record(
             "heartbeat_acknowledged",
-            heartbeat_id_present=bool(_value(first_heartbeat, "heartbeat_id")),
+            status_ok=True,
         )
         phase = "market_rules"
         rules = adapter.refresh_market_rules()
@@ -370,11 +372,13 @@ def execute_stage1_lifecycle_probe(
         while clock() <= observation_deadline:
             if clock() - last_heartbeat_at >= heartbeat_interval:
                 continued_heartbeat = adapter.heartbeat()
+                if continued_heartbeat != {"status": "ok"}:
+                    raise RuntimeError("Stage 1 continuation heartbeat was not acknowledged")
                 last_heartbeat_at = clock()
                 journal.record(
                     "heartbeat_continued",
                     phase=phase,
-                    heartbeat_id_present=bool(_value(continued_heartbeat, "heartbeat_id")),
+                    status_ok=True,
                 )
             observed_open = _contains_order(adapter.open_orders(), order_id)
             user_events = adapter.user_events()
@@ -398,6 +402,8 @@ def execute_stage1_lifecycle_probe(
         phase = "cancellation"
         journal.record("cancellation_started", order_id=order_id, mode=cancellation_mode)
         pre_cancel_heartbeat = adapter.heartbeat()
+        if pre_cancel_heartbeat != {"status": "ok"}:
+            raise RuntimeError("Stage 1 pre-cancellation heartbeat was not acknowledged")
         last_heartbeat_at = clock()
         if not _contains_order(adapter.open_orders(), order_id):
             raise RuntimeError("Stage 1 order was not live immediately before cancellation proof")
@@ -405,7 +411,7 @@ def execute_stage1_lifecycle_probe(
             "pre_cancellation_heartbeat_acknowledged",
             order_id=order_id,
             mode=cancellation_mode,
-            heartbeat_id_present=bool(_value(pre_cancel_heartbeat, "heartbeat_id")),
+            status_ok=True,
         )
         if cancellation_mode == "cancel_all":
             cancel_response = adapter.cancel_all()
@@ -479,7 +485,7 @@ def execute_stage1_lifecycle_probe(
             "bootstrap_schema_version": bootstrap_gate.get("schema_version"),
             "condition_id": bootstrap_gate.get("condition_id"),
             "token_id": bootstrap_gate.get("token_id"),
-            "heartbeat_id_acknowledged": bool(_value(first_heartbeat, "heartbeat_id")),
+            "heartbeat_acknowledged": first_heartbeat == {"status": "ok"},
             "starting_zero_open_orders_verified": True,
             "starting_zero_positions_verified": True,
             "intent": intent,
@@ -682,7 +688,7 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
             "submission_geo_hash": len(
                 str(result.get("submission_geoblock_evidence_sha256") or "")
             ) == 64,
-            "heartbeat": result.get("heartbeat_id_acknowledged") is True,
+            "heartbeat": result.get("heartbeat_acknowledged") is True,
             "starting_orders": result.get("starting_zero_open_orders_verified") is True,
             "starting_positions": result.get("starting_zero_positions_verified") is True,
             "live_order": result.get("placement_status") == "live",

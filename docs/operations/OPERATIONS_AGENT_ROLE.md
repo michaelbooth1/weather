@@ -81,9 +81,14 @@ standing condition. A frozen or unverified copy, an unencrypted system disk, or 
 is still operational state and must not be hidden from the operator.
 
 The research workstation may not call exchange or weather-provider endpoints unless a mission
-explicitly designates it as the eligible International execution host. The Ontario production host
-must never place or cancel orders; live mutation belongs only on a genuinely eligible host after
-the operator's explicit request and all existing gates.
+explicitly designates it as the eligible International execution host. **Operator decision
+2026-08-14:** this 16 GB production PC is the intended live execution host after it is physically
+relocated to a genuinely eligible location. While its official response is Ontario/blocked, do not
+import or resolve trading credentials, authenticate, place, or cancel. After relocation, this same
+PC may cross those boundaries only when a fresh official unblocked response matches its real
+location and the explicit authorization, exact-tip, readiness, risk, credential-by-reference, and
+fixed-scope-wrapper gates all pass. The designation removes a separate-host/source-transfer
+requirement; it weakens no exchange or risk gate.
 
 ---
 

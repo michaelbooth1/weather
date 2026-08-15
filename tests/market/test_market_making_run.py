@@ -76,11 +76,11 @@ def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
             "platform": "polymarket_global",
             "settlement_unit": "pUSD",
             "cancellation_mode": mode,
-            "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
             "bootstrap_sha256": bootstrap_sha256,
             "condition_id": "0x" + "b" * 64,
             "token_id": "12345",
-            "heartbeat_id_acknowledged": True,
+            "heartbeat_acknowledged": True,
             "starting_zero_open_orders_verified": True,
             "starting_zero_positions_verified": True,
             "order_notional_usdc": 0.05,
@@ -110,7 +110,7 @@ def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
         "created_at_utc": NOW,
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
-        "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
         "bootstrap_sha256": bootstrap_sha256,
         "condition_id": "0x" + "b" * 64,
         "token_id": "12345",
@@ -726,8 +726,8 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
             "consistency_verified": True,
         },
         "sdk_contract": {
-            "distribution": "py-clob-client-v2",
-            "version": "1.1.0",
+            "distribution": "polymarket-client",
+            "version": "0.6.0",
             "exact_version_verified": True,
             "wallet_model_probe_verified": True,
         },
@@ -770,10 +770,11 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
             "zero_open_orders_verified": True,
         },
         "dead_man_heartbeat": {
-            "endpoint": "/v1/heartbeats",
+            "endpoint": "/heartbeats",
             "endpoint_verified": True,
-            "initial_empty_id_verified": True,
-            "rotating_id_chain_verified": True,
+            "request_body_absent_verified": True,
+            "two_acknowledgments_verified": True,
+            "acknowledgment_count": 2,
             "acknowledgment_verified": True,
             "cadence_seconds": 5,
             "stale_placement_disarm_verified": True,
@@ -1453,7 +1454,7 @@ class TestMarketMakingRun(unittest.TestCase):
             payload["signature_type_id"] = 0
             payload["wallet_identity"]["api_key_owner_address"] = "not-an-address"
             payload["wallet_identity"]["consistency_verified"] = False
-            payload["dead_man_heartbeat"]["rotating_id_chain_verified"] = False
+            payload["dead_man_heartbeat"]["two_acknowledgments_verified"] = False
             payload["dead_man_heartbeat"]["cadence_seconds"] = 5.01
             path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -1468,7 +1469,7 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertIn("signature_type_consistent", gate["missing"])
         self.assertIn("api_key_owner_address_valid", gate["missing"])
         self.assertIn("wallet_identity_consistency_verified", gate["missing"])
-        self.assertIn("dead_man_heartbeat_rotating_id_chain_verified", gate["missing"])
+        self.assertIn("dead_man_heartbeat_two_acknowledgments_verified", gate["missing"])
         self.assertIn("dead_man_heartbeat_cadence_verified", gate["missing"])
 
     def test_platform_verification_gate_accepts_existing_gnosis_safe_topology(self):

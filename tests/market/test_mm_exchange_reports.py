@@ -43,7 +43,7 @@ class TestMMExchangeReports(unittest.TestCase):
                         "date": "2026-06-14",
                         "maker_address": "0x" + "a" * 40,
                         "condition_id": "0x" + "b" * 64,
-                        "asset_address": "0x" + "c" * 40,
+                        "asset_address": reports.PUSD_COLLATERAL_PROXY_ADDRESS,
                         "rebated_fees_usdc": "0.01",
                     }],
                 },
@@ -228,6 +228,41 @@ class TestMMExchangeReports(unittest.TestCase):
 
         self.assertTrue(reconciliation["complete"])
         self.assertEqual(reconciliation["actual_maker_rebate_usdc"], 0.0)
+
+    def test_rebate_reconciliation_rejects_non_pusd_asset(self):
+        maker = "0x" + "a" * 40
+        condition = "0x" + "b" * 64
+        reconciliation = reports.maker_rebate_reconciliation({
+            "maker_rebate_evidence": {
+                "status": "OBSERVED",
+                "query_scope": "exact_maker_date",
+                "http_status": 200,
+                "response_sha256": "e" * 64,
+                "request_url": (
+                    "https://clob.polymarket.com/rebates/current?"
+                    f"date=2026-06-14&maker_address={maker}"
+                ),
+                "query_date": "2026-06-14",
+                "queried_at_utc": "2026-06-15T01:00:00+00:00",
+                "maker_address": maker,
+                "condition_id": condition,
+                "payout_cycle_complete": True,
+                "rows": [{
+                    "date": "2026-06-14",
+                    "maker_address": maker,
+                    "condition_id": condition,
+                    "asset_address": "0x" + "d" * 40,
+                    "rebated_fees_usdc": "0.01",
+                }],
+            },
+        })
+
+        self.assertFalse(reconciliation["complete"])
+        self.assertIn(
+            "maker_rebate_payout_asset_mismatch",
+            reconciliation["blockers"],
+        )
+        self.assertIsNone(reconciliation["actual_maker_rebate_usdc"])
 
     def test_empty_positions_and_configured_fee_rate_are_not_actual_financial_evidence(self):
         financial = reports.build_financial_reconciliation(

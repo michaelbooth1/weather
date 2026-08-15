@@ -1317,10 +1317,10 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_platform_bootstrap",
-        "mm_platform_bootstrap_v0.1",
+        "mm_platform_bootstrap_v0.2",
         "weather.market.mm_live_bootstrap",
         "active",
-        "Read-only International physical eligibility, wallet, authenticated account, non-posting signed-order topology, market, stream, heartbeat, cancellation, and secret-hygiene proof before the first lifecycle order.",
+        "International physical eligibility, wallet, authenticated account, non-posting signed-order topology, market, stream, current heartbeat acknowledgment, cancellation, and secret-hygiene proof before the first lifecycle order.",
     ),
     SchemaSpec(
         "mm_stage1_lifecycle_bundle",
@@ -2230,6 +2230,12 @@ EXCLUDED_SCHEMA_LITERALS = (
         "weather.market.market_making_model_variants",
         "model_variant_basket_id",
         "Market-making model variant basket identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "market_harvest_v0",
+        "weather.market.market_making_run_support",
+        "model_variant_id",
+        "Paper-only market-harvest model variant identifier, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
         "polymarket_symmetric_price_v1",

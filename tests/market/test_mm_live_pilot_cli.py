@@ -89,12 +89,20 @@ class FakeAdapter:
         }
 
 
+class FakeClient:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
 def context(tmp_path, name="context-stream.jsonl"):
     stream = FakeStream(tmp_path / name)
     adapter = FakeAdapter()
     return cli.LivePilotContext(
         credentials=object(),
-        client=object(),
+        client=FakeClient(),
         user_stream=stream,
         adapter=adapter,
     )
@@ -303,7 +311,7 @@ def test_keyless_doctor_passes_without_resolving_credential_targets(tmp_path):
     receipt = cli.run_doctor(
         command_args,
         env=env,
-        sdk_version_getter=lambda: "1.1.0",
+        sdk_version_getter=lambda: "0.6.0",
         platform_name="nt",
     )
 
@@ -349,7 +357,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
         context_builder=lambda *_args, **_kwargs: live_context,
         stream_waiter=lambda stream, **_kwargs: stream.start(),
         bootstrap_collector=lambda _adapter, stream, *_args, **_kwargs: {
-            "schema_version": "mm_platform_bootstrap_v0.1",
+            "schema_version": "mm_platform_bootstrap_v0.2",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -573,7 +581,16 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
         captured["position_scope"] = (maker, condition)
         return {"rows": []}
 
-    client = object()
+    client = SimpleNamespace(signer="0x" + "c" * 40)
+
+    def heartbeat_sender_factory(**kwargs):
+        captured["heartbeat_sender"] = kwargs
+        return "heartbeat-sender"
+
+    def market_rule_fetcher(token):
+        captured["market_rule_token"] = token
+        return {"token_id": token}
+
     result = cli.build_live_pilot_context(
         {"identity": "public"},
         token_id=TOKEN_ID,
@@ -584,6 +601,8 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
         user_stream_factory=StreamFactory,
         adapter_factory=AdapterFactory,
         position_fetcher=position_fetcher,
+        heartbeat_sender_factory=heartbeat_sender_factory,
+        market_rule_fetcher=market_rule_fetcher,
     )
 
     assert repr(result) == (
@@ -591,9 +610,49 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
     )
     assert captured["adapter"]["authoritative_readers_verified"] is True
     assert captured["adapter"]["max_order_notional"] == 10.0
+    assert captured["adapter"]["heartbeat_sender"] == "heartbeat-sender"
+    assert captured["heartbeat_sender"]["signer_address"] == client.signer
+    assert captured["heartbeat_sender"]["api_secret"] == "api-secret"
     assert captured["stream"]["journal_path"] == tmp_path / "stream.jsonl"
     captured["adapter"]["position_reader"]()
     assert captured["position_scope"] == (ADDRESS, CONDITION_ID)
+    captured["adapter"]["market_rule_reader"]()
+    assert captured["market_rule_token"] == TOKEN_ID
+
+
+def test_context_closes_the_unified_client_when_wiring_fails(tmp_path):
+    class Credentials:
+        api_key = "key-secret"
+        api_secret = "api-secret"
+        api_passphrase = "pass-secret"
+        funder = ADDRESS
+
+    class Client(FakeClient):
+        signer = "0x" + "c" * 40
+
+    class Adapter:
+        def __init__(self, _client, **_kwargs):
+            pass
+
+        def diagnostics(self):
+            return {"supports_trading": False}
+
+    client = Client()
+    with pytest.raises(RuntimeError, match="authoritative reader boundary"):
+        cli.build_live_pilot_context(
+            {"identity": "public"},
+            token_id=TOKEN_ID,
+            condition_id=CONDITION_ID,
+            user_stream_journal=tmp_path / "failed-stream.jsonl",
+            credential_loader=lambda _env: Credentials(),
+            client_builder=lambda credentials, identity: client,
+            user_stream_factory=lambda **kwargs: FakeStream(kwargs["journal_path"]),
+            adapter_factory=Adapter,
+            heartbeat_sender_factory=lambda **_kwargs: object(),
+            market_rule_fetcher=lambda token: {"token_id": token},
+        )
+
+    assert client.closed is True
 
 
 @pytest.mark.parametrize("command", ["stage0", "stage1"])
