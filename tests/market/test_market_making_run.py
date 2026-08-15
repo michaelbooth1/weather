@@ -2064,11 +2064,16 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertEqual({row["known_edge_permission"] for row in rows}, {"market_harvest"})
         self.assertEqual({row["promotion_state"] for row in rows}, {"BLOCK"})
         self.assertEqual({row["model_variant_probability_source"] for row in rows}, {"market_mid_no_model"})
+        self.assertEqual({row["action"] for row in rows}, {"QUOTE"})
+        self.assertEqual({row["side"] for row in rows}, {"TWO_SIDED"})
+        self.assertEqual({row["budget_action"] for row in rows}, {"reserved"})
         self.assertEqual({row["fair_probability"] for row in rows}, {""})
         self.assertEqual({row["served_fair_probability"] for row in rows}, {""})
         self.assertEqual({row["expected_reward_score"] for row in rows}, {"0.0"})
         self.assertEqual({row["expected_rebate_value"] for row in rows}, {"0.0"})
         self.assertTrue(all(row["live_trade_permission"] == "False" for row in rows))
+        self.assertTrue(all(float(row["bid_size"]) >= 5.0 for row in rows))
+        self.assertTrue(all(float(row["ask_size"]) >= 5.0 for row in rows))
 
     def test_market_harvest_profile_rejects_live_pilot_mode(self):
         with self.assertRaisesRegex(ValueError, "paper-only"):

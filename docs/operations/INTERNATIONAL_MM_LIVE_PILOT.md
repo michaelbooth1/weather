@@ -122,7 +122,12 @@ All must be current for the target date and selected market:
    model-freshness permission dependencies. Model promotion remains unchanged,
    model probability fields remain empty, assumed reward remains zero, and
    `live_trade_permission` is always false. Zero quote-permission rows means no
-   live test.
+   live test. The Stage 1 selector must read the retained `run_config.json` and
+   `quote_intents_long.csv`, stream and hash the complete quote tape, and bind a
+   still-current successful row for the exact selected condition and token.
+   The resulting plan remains non-authorizing; Stage 0, physical eligibility,
+   account state, current market rules, the literal confirmation, and the
+   one-submit adapter capability remain independent mutation gates.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
 9. The submitting host is physically eligible. This production PC cannot
    satisfy the prerequisite while its current evidence is Ontario/blocked; it
@@ -266,16 +271,22 @@ capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
 Do not trade merely because Windows restarted successfully.
 
-Select the exact Stage 1 market from fresh public data before creating the
-identity. Do not hand-pick a condition or retain an old token from a prior day.
+Select the exact Stage 1 market from fresh public data and a successful
+one-market paper tick before creating the identity. Do not hand-pick a
+condition/token pair or retain one from a prior day.
 The metadata refresh's `--metadata-only` mode leaves the tracked location
 registry byte-for-byte unchanged. The selector authenticates nowhere and can
 neither place nor cancel an order; it requires a passing content-bound
-International economics snapshot and current book rules, then emits a
-content-hashed plan that explicitly is not trading authorization:
+International economics snapshot, a current paper-only market-harvest quote,
+and current book rules, then emits a content-hashed plan that explicitly is not
+trading authorization:
 
 ```powershell
 $pilotTargetDate = "replace-with-target-date"
+$pilotMarketId = "replace-with-one-built-in-market-id"
+$paperRunId = "pilot-paper-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
+$paperRunsRoot = "C:\pilot\paper-runs"
+$paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRunId)
 
 .\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
   --locations .\config\locations.json `
@@ -288,9 +299,22 @@ $pilotTargetDate = "replace-with-target-date"
   --target-date $pilotTargetDate `
   --max-age-hours 2
 
+.\venv\Scripts\python.exe -m weather.market.market_making_run `
+  --date $pilotTargetDate `
+  --budget-usdc 25 `
+  --mode paper-live-forward `
+  --permission-profile market_harvest `
+  --markets $pilotMarketId `
+  --exchange-economics-snapshot C:\pilot\exchange-economics.json `
+  --runs-root $paperRunsRoot `
+  --run-id $paperRunId `
+  --once
+
 .\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
   --economics-snapshot C:\pilot\exchange-economics.json `
   --target-date $pilotTargetDate `
+  --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
+  --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
   --plan-out C:\pilot\stage1-candidate.json
 
 $pilotPlan = Get-Content -LiteralPath C:\pilot\stage1-candidate.json -Raw | ConvertFrom-Json
@@ -305,8 +329,14 @@ $pilotConditionId = [string]$pilotPlan.selected.condition_id
 $pilotTokenId = [string]$pilotPlan.selected.token_id
 ```
 
-The plan expires after five minutes. If it expires, rerun the selector with a
-new output path; refresh the economics snapshot too when its own gate expires.
+The plan expires at the earlier of five minutes or the selected paper row's
+quote TTL (currently at most 120 seconds). If it expires, run a new one-market
+paper tick and selector with new output paths; refresh the economics snapshot
+too when its own gate expires. After Stage 0, repeat the paper tick and selector
+immediately before Stage 1 with `--expected-condition-id $pilotConditionId` and
+`--expected-token-id $pilotTokenId`. That constrained refresh must select the
+exact Stage 0 scope or block; it cannot silently switch markets after the
+authenticated bootstrap.
 Stage 0 still rereads the exact book and fails closed on any condition, token,
 min-size, tick, neg-risk, fee, or closed-state drift. The plan's minimum-tick
 intent is only a far-from-mid lifecycle probe and will normally not qualify for
@@ -416,7 +446,11 @@ no exchange-mutation commands. After relocation and fresh candidate selection,
 create and review a host-owned wrapper outside the repository on this PC that
 imports `run_stage0` and
 `run_stage1`, fixes every public identifier and new output path, and exposes no
-secret or risk-ceiling arguments. Stage 0 never submits an order, but it does
+secret or risk-ceiling arguments. Every `run_stage1` call must receive the
+fresh constrained candidate-plan path; the library validates its semantic hash,
+embedded source hashes, current paper-proof expiry, exact condition/token, and
+nonmarketable post-only minimum-tick intent before it resolves credentials or
+constructs a mutation-capable adapter. Stage 0 never submits an order, but it does
 send authenticated heartbeat and cancel-all requests, so it belongs behind the
 same reviewed boundary. Run Stage 0 once, then each Stage 1 cancellation mode in
 its own fresh process. Each Stage 1 call can perform exactly one network submit,

@@ -1352,10 +1352,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_live_market_candidate_plan",
-        "mm_live_market_candidate_plan_v0.1",
+        "mm_live_market_candidate_plan_v0.2",
         "weather.market.mm_live_candidate_cli",
         "active",
-        "Fresh public International weather-market candidate selected from a content-bound economics snapshot and current CLOB books for the bounded lifecycle probe; never trading authorization.",
+        "Fresh public International weather-market candidate selected from a content-bound economics snapshot, a current paper-only market-harvest quote, and current CLOB books for the bounded lifecycle probe; never trading authorization.",
+        supersedes=("mm_live_market_candidate_plan_v0.1",),
+    ),
+    SchemaSpec(
+        "mm_live_market_candidate_plan_legacy",
+        "mm_live_market_candidate_plan_v0.1",
+        "weather.market.mm_live_candidate_cli",
+        "legacy",
+        "Public-book-only lifecycle candidate plan before paper-quote proof binding.",
     ),
     SchemaSpec(
         "mm_platform_verification",

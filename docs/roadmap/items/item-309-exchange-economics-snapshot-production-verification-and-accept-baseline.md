@@ -1,4 +1,4 @@
-# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - PAYOUT-ASSET CONTRACT AND EXPLICIT BASELINE ACCEPTANCE OPEN]
+# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - CUMULATIVE PUSD CONTRACT FOCUSED-GREEN; EXPLICIT ACCEPTANCE OPEN]
 
 Goal: produce and maintain a current, source-verified exchange-economics
 snapshot, with a tracked template, an accept-baseline mechanism, and a recurring
@@ -119,8 +119,11 @@ authorize a US live probe, credential installation, or order mutation.
 ## 2026-08-15 current disposition
 
 International snapshot production and item 300's per-run binding are integrated
-and exact-suite proven. The active blocker is narrower: the official pUSD
-payout-asset contract and informed acceptance repair remain on an unmerged
-branch. Until that lands and an operator explicitly accepts a current
-International baseline, drift must remain BLOCK. No scheduled path may accept
-the baseline automatically.
+and exact-suite proven. The official pUSD payout-asset contract and informed
+acceptance repair are included in the current-master cumulative live-test
+branch; focused tests pass, while its immutable full suite and guarded
+integration remain open. The contract correctly rejects the old production
+v0.2 snapshot and requires a newly collected v0.3 International snapshot.
+Collection does not accept a baseline. Until the branch lands and the operator
+explicitly accepts a reviewed current International baseline, drift must remain
+BLOCK. No scheduled path may accept the baseline automatically.

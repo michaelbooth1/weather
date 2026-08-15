@@ -5,7 +5,8 @@ resolved from Windows Credential Manager references already present in the
 process environment; secret values are never accepted as arguments or written
 to artifacts. Exchange-mutating Stage 0 and Stage 1 functions are deliberately
 not exposed by this parser; a separately reviewed host-owned wrapper must call
-those library boundaries on an eligible machine.
+those library boundaries on an eligible machine. Stage 1 additionally requires
+a fresh non-authorizing candidate plan bound to a successful paper-only quote.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ from weather.market.mm_live_lifecycle_probe import (
     build_stage1_lifecycle_bundle,
     execute_stage1_lifecycle_probe,
 )
+from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
 from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
     OFFICIAL_CLOB_VERSION,
@@ -603,6 +605,7 @@ def run_stage1(
     context_builder=build_live_pilot_context,
     stream_waiter=wait_for_user_stream,
     bootstrap_loader=load_platform_bootstrap_gate,
+    candidate_loader=load_stage1_candidate_gate,
     lifecycle_executor=execute_stage1_lifecycle_probe,
 ) -> dict:
     if args.confirmation != STAGE1_CONFIRMATION:
@@ -622,6 +625,13 @@ def run_stage1(
     result = None
     try:
         identity = _read_json_object(args.identity)
+        candidate_gate = candidate_loader(
+            args.candidate_plan,
+            args.target_date,
+            expected_token_id=args.token_id,
+            expected_condition_id=args.condition_id,
+        )
+        receipt["candidate_gate"] = dict(candidate_gate)
         gate = bootstrap_loader(
             args.bootstrap,
             args.target_date,
@@ -648,6 +658,20 @@ def run_stage1(
             cancellation_mode=args.cancellation_mode,
             journal_path=paths["lifecycle_journal"],
         )
+        result = dict(result or {})
+        result["candidate_plan_sha256"] = candidate_gate["plan_sha256"]
+        result["candidate_semantic_plan_sha256"] = candidate_gate[
+            "semantic_plan_sha256"
+        ]
+        result["paper_run_config_sha256"] = candidate_gate[
+            "paper_run_config_sha256"
+        ]
+        result["paper_quote_intents_sha256"] = candidate_gate[
+            "paper_quote_intents_sha256"
+        ]
+        result["paper_quote_row_sha256"] = candidate_gate[
+            "paper_quote_row_sha256"
+        ]
     except Exception as exc:
         operation_error = exc
 

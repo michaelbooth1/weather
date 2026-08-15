@@ -1,4 +1,4 @@
-# 328. Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - REFRESHED ON CURRENT MASTER; EXACT SUITE AND ACTIVE-DAY PROOF OPEN]
+# 328. Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - CUMULATIVE PARENT FOCUSED-GREEN; EXACT SUITE AND ACTIVE-DAY PROOF OPEN]
 
 Goal: make the approved market-centered rebate experiment reachable without
 misrepresenting model promotion or manufacturing model edge.
@@ -51,7 +51,7 @@ Scope:
 - [ ] Run one active-day, one-market `paper-live-forward` tick and prove nonzero
   quote permission, two-sided post-only intent, zero live permission, exact
   risk ceilings, and public-tape counterfactual markout fields.
-- [ ] Bind the successful paper row into the eligible-host Stage 1 candidate
+- [x] Bind the successful paper row into the eligible-host Stage 1 candidate
   selection without allowing it to authorize mutation by itself.
 
 Acceptance: a current one-market paper run can emit an exchange-valid,
@@ -60,3 +60,22 @@ promotion is BLOCK, while every retained non-model safety/economics gate passes,
 all live permission remains false, and no caller or dynamic artifact can raise
 the existing ceilings. Live orders remain exclusively owned by item 67's
 eligible-host staged lifecycle.
+
+## 2026-08-15 cumulative-parent disposition
+
+The refreshed harvest lane, unified official client, and pUSD payout-asset
+contract now share one current-master parent. Focused tests and the real
+`polymarket-client==0.6.0` wheel contract pass. Candidate-plan v0.2 streams and
+hashes the complete paper quote tape, requires a still-current successful
+`market_harvest` row with two-sided intent and zero live permission, binds the
+exact condition/token, and is revalidated by `run_stage1` before credentials or
+a mutation-capable adapter are constructed. The plan explicitly remains
+non-authorizing.
+
+The first real one-market paper attempt was useful but not successful: the new
+v0.3 economics gate rejected the production v0.2 snapshot, so it emitted zero
+quote permissions and no live permission. No baseline was accepted. After the
+protected capture window, collect a fresh external v0.3 snapshot, rerun the
+one-market tick, and require nonzero quote permission before closing the active-
+day proof. Immutable exact-tip full-suite proof and guarded integration remain
+open.

@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CLIENT/STAGE 2 INTEGRATION AND ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CUMULATIVE CLIENT/PUSD PARENT FOCUSED-GREEN; FULL SUITE, STAGE 2, AND LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -425,10 +425,14 @@ read-only `weather.market.mm_live_candidate_cli` binds a current validated
 International economics snapshot to current CLOB books, limits selection to
 built-in weather markets, requires positive fee and maker-rebate parameters,
 central probability, a non-crossed tight book, and exact agreement between the
-book and economics min-size/tick rules. It emits a content-hashed five-minute
-plan with an explicitly non-authorizing, minimum-tick Stage 1 intent and ranked
-alternates. Book rule drift, extreme or crossed books, stale economics, and no
-eligible candidate all block. The related location refresh now has a
+book and economics min-size/tick rules. Candidate-plan v0.2 additionally
+streams and hashes the complete one-market paper quote tape and requires a
+still-current successful `market_harvest` row for the exact condition/token.
+Its expiry is the earlier of five minutes and the paper quote TTL. It emits an
+explicitly non-authorizing, minimum-tick Stage 1 intent and ranked alternates;
+`run_stage1` revalidates that binding before credential resolution. Book rule
+drift, extreme or crossed books, stale economics, missing paper permission, and
+no eligible candidate all block. The related location refresh now has a
 `--metadata-only` mode so public preparation can write an external event
 snapshot without rewriting tracked configuration. This selects the lifecycle
 probe only; it does not implement the Stage 2 maker quote or prove reward
@@ -484,11 +488,14 @@ public execution capture is also adopted. Those milestones retire the former
 software-integration blocker but create no order authority and supply no
 own-account fill, fee, rebate, position, or P&L evidence.
 
-The next parent is the paper-only market-harvest lane, which must prove one
-active-market quote-permission path without weakening ordinary model promotion.
-The official client upgrade and pUSD payout-asset contract are stacked behind
-that lane and behind current master; they require a refreshed exact-tip suite.
-Bounded Stage 2 remains a successor and must be refreshed only after that parent
-lands. The two live-evidence checklist bullets remain open until this PC is
-physically eligible and the staged lifecycle is run under the canonical pilot
-envelope.
+The paper-only market-harvest lane, unified official client, and pUSD payout-
+asset contract now share one current-master cumulative parent. Focused tests and
+the isolated real-wheel SDK contract pass. The first one-market paper attempt
+failed closed on the expected v0.2-to-v0.3 economics schema mismatch, emitted no
+quote permission, and changed no live state; collect a fresh external v0.3
+snapshot and rerun after the protected window without accepting a baseline.
+The cumulative parent still needs an immutable exact-tip full suite and guarded
+integration. Bounded Stage 2 remains a successor and must be refreshed only
+after that parent lands. The two live-evidence checklist bullets remain open
+until this PC is physically eligible and the staged lifecycle is run under the
+canonical pilot envelope.
