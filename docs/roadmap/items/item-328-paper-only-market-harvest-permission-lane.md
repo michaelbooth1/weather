@@ -31,7 +31,11 @@ Scope:
   promotion and known-edge permission. Leave the default `model` profile and
   all model BLOCK behavior unchanged.
 - [x] Assemble harvest rows from current event/token metadata, CLOB books, and
-  CLOB features without reading model snapshot probabilities.
+  CLOB features without reading model snapshot probabilities. When the
+  prebuilt feature file is absent, derive the current midpoint, spread, depth,
+  identity, and age directly from the latest book capture. Select only the
+  latest token-registry capture so retained historical rows cannot duplicate a
+  current intent.
 - [x] Keep active-event validation, source and watcher health, information-event
   pulls/widening, CLOB discovery/continuity/freshness/depth, exchange economics,
   current minimum size/tick, cadence, current-high, and budget/risk gates.
@@ -73,9 +77,12 @@ a mutation-capable adapter are constructed. The plan explicitly remains
 non-authorizing.
 
 The first real one-market paper attempt was useful but not successful: the new
-v0.3 economics gate rejected the production v0.2 snapshot, so it emitted zero
-quote permissions and no live permission. No baseline was accepted. After the
-protected capture window, collect a fresh external v0.3 snapshot, rerun the
-one-market tick, and require nonzero quote permission before closing the active-
-day proof. Immutable exact-tip full-suite proof and guarded integration remain
-open.
+v0.3 economics gate rejected the production v0.2 snapshot, and the absence of a
+prebuilt CLOB-feature file exposed a model-snapshot-anchored fallback in the
+otherwise model-independent lane. It emitted zero quote permissions and no live
+permission; no baseline was accepted. The cumulative branch now projects
+harvest features directly from the latest public book rows and regression-tests
+the no-model/no-prebuilt-feature shape. After the protected capture window,
+collect a fresh external v0.3 snapshot, rerun the one-market tick, and require
+nonzero quote permission before closing the active-day proof. Immutable exact-
+tip full-suite proof and guarded integration remain open.

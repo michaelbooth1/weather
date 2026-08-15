@@ -491,9 +491,11 @@ own-account fill, fee, rebate, position, or P&L evidence.
 The paper-only market-harvest lane, unified official client, and pUSD payout-
 asset contract now share one current-master cumulative parent. Focused tests and
 the isolated real-wheel SDK contract pass. The first one-market paper attempt
-failed closed on the expected v0.2-to-v0.3 economics schema mismatch, emitted no
-quote permission, and changed no live state; collect a fresh external v0.3
-snapshot and rerun after the protected window without accepting a baseline.
+failed closed on both the expected v0.2-to-v0.3 economics schema mismatch and a
+missing model-independent CLOB-feature fallback. The parent now derives harvest
+features directly from current public books without model rows. The attempt
+emitted no quote permission and changed no live state; collect a fresh external
+v0.3 snapshot and rerun after the protected window without accepting a baseline.
 The cumulative parent still needs an immutable exact-tip full suite and guarded
 integration. Bounded Stage 2 remains a successor and must be refreshed only
 after that parent lands. The two live-evidence checklist bullets remain open

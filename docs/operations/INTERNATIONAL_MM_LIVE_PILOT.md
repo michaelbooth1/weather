@@ -116,7 +116,12 @@ All must be current for the target date and selected market:
    ```
 
    `market_harvest` assembles rows from current event metadata, CLOB tokens,
-   books, and features. It retains active-event, source/watcher, information
+   books, and features. When no prebuilt feature file exists, it projects the
+   current midpoint, spread, depth, and age directly from the latest public
+   book capture and uses only the latest token-registry capture; retained token
+   history cannot duplicate current quote intents. It does not reintroduce
+   model snapshot rows as the fallback.
+   It retains active-event, source/watcher, information
    event, CLOB continuity/freshness, economics, minimum-size, tick, cadence,
    current-high, budget, and notional gates while omitting only model-row and
    model-freshness permission dependencies. Model promotion remains unchanged,

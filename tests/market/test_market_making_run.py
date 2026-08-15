@@ -1999,6 +1999,19 @@ class TestMarketMakingRun(unittest.TestCase):
             snapshots_root, promotion = write_market_fixture(root)
             folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
             (folder / "snapshots_long.csv").unlink()
+            clob_features = folder / "clob_features_long.csv"
+            if clob_features.exists():
+                clob_features.unlink()
+            current_tokens = read_csv(folder / "clob_tokens.csv")
+            historical_tokens = [
+                {**row, "captured_at_utc": "2026-06-14T15:58:20+00:00"}
+                for row in current_tokens
+            ]
+            write_csv(
+                folder / "clob_tokens.csv",
+                list(current_tokens[0].keys()),
+                historical_tokens + current_tokens,
+            )
             promotion.write_text(json.dumps({
                 "decisions": {
                     "markets": [{
@@ -2043,6 +2056,7 @@ class TestMarketMakingRun(unittest.TestCase):
             preflight = json.loads((run_folder / "preflight.json").read_text(encoding="utf-8"))
             run_config = json.loads((run_folder / "run_config.json").read_text(encoding="utf-8"))
             rows = read_csv(run_folder / "quote_intents_long.csv")
+            generated_feature_file_exists = clob_features.exists()
 
         self.assertEqual(payload["preflight_status"], "PASS")
         self.assertEqual(payload["quote_permission_rows"], 2)
@@ -2074,6 +2088,9 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertTrue(all(row["live_trade_permission"] == "False" for row in rows))
         self.assertTrue(all(float(row["bid_size"]) >= 5.0 for row in rows))
         self.assertTrue(all(float(row["ask_size"]) >= 5.0 for row in rows))
+        self.assertTrue(all(row["snapshot_id"] for row in rows))
+        self.assertTrue(all(row["book_age_seconds"] != "" for row in rows))
+        self.assertFalse(generated_feature_file_exists)
 
     def test_market_harvest_profile_rejects_live_pilot_mode(self):
         with self.assertRaisesRegex(ValueError, "paper-only"):

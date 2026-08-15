@@ -212,6 +212,60 @@ def latest_clob_feature_rows(folder, snapshot_id, build_if_missing=False, max_ag
     return latest_rows_for_snapshot(generated, snapshot_id)
 
 
+def market_harvest_clob_feature_rows(book_rows, *, now=None):
+    """Project current book rows into model-independent harvest features.
+
+    The ordinary feature builder is anchored to model snapshot rows. The
+    market-harvest profile deliberately has no model-row dependency, so its
+    current midpoint, spread, depth, and freshness projection must come
+    directly from the latest public book capture instead.
+    """
+
+    current = utc_now(now)
+    rows = []
+    for book in book_rows or []:
+        captured = parse_time(
+            first_present(book, "book_time_utc", "captured_at_utc")
+        )
+        bid_depth_1pct = maybe_float(book.get("bid_depth_1pct"))
+        ask_depth_1pct = maybe_float(book.get("ask_depth_1pct"))
+        bid_depth_5pct = maybe_float(book.get("bid_depth_5pct"))
+        ask_depth_5pct = maybe_float(book.get("ask_depth_5pct"))
+        bid_depth_all = maybe_float(book.get("bid_depth_all"))
+        ask_depth_all = maybe_float(book.get("ask_depth_all"))
+
+        def total(left, right):
+            if left is None and right is None:
+                return None
+            return (left or 0.0) + (right or 0.0)
+
+        row = dict(book)
+        row.update({
+            "snapshot_id": book.get("capture_id"),
+            "clob_token_id": book.get("clob_token_id"),
+            "clob_feature_available": 1.0,
+            "clob_book_captured_at_utc": (
+                captured.isoformat() if captured is not None else ""
+            ),
+            "clob_book_age_seconds": (
+                (current - captured).total_seconds()
+                if captured is not None
+                else None
+            ),
+            "clob_midpoint": maybe_float(book.get("midpoint")),
+            "clob_spread": maybe_float(book.get("spread")),
+            "clob_best_bid": maybe_float(book.get("best_bid")),
+            "clob_best_ask": maybe_float(book.get("best_ask")),
+            "clob_depth_1pct_total": total(bid_depth_1pct, ask_depth_1pct),
+            "clob_depth_5pct_total": total(bid_depth_5pct, ask_depth_5pct),
+            "clob_depth_all_total": total(bid_depth_all, ask_depth_all),
+            "clob_imbalance_1pct": maybe_float(book.get("imbalance_1pct")),
+            "clob_imbalance_5pct": maybe_float(book.get("imbalance_5pct")),
+        })
+        rows.append(row)
+    return rows
+
+
 def row_key_without_token(row):
     kind, value, value_hi = snapshot_band_key(row)
     return row.get("snapshot_id"), kind, value, value_hi
@@ -266,9 +320,22 @@ def assemble_market_harvest_inputs_for_market(
     features add executable market state. Model snapshots, model promotion,
     and known-edge records are deliberately not permission inputs.
     """
+    all_token_rows = read_csv_rows(Path(folder) / "clob_tokens.csv")
+    latest_token_time = max(
+        (
+            parse_time(row.get("captured_at_utc"))
+            or datetime.min.replace(tzinfo=timezone.utc)
+            for row in all_token_rows
+        ),
+        default=datetime.min.replace(tzinfo=timezone.utc),
+    )
     token_rows = [
         row
-        for row in read_csv_rows(Path(folder) / "clob_tokens.csv")
+        for row in all_token_rows
+        if (
+            parse_time(row.get("captured_at_utc"))
+            or datetime.min.replace(tzinfo=timezone.utc)
+        ) == latest_token_time
         if str(row.get("outcome") or "").strip().lower() in {"", "yes"}
         and boolish_active(row.get("active"))
         and not bool_value(row.get("closed"), False)

@@ -75,6 +75,7 @@ from weather.market.market_making_run_support import (  # noqa: E402
     classify_zero_trade_root_cause,
     latest_book_rows,
     latest_clob_feature_rows,
+    market_harvest_clob_feature_rows,
     latest_rows_for_snapshot,
     lifecycle_blocked_by_budget_events,
     lifecycle_fill_transition,
@@ -1456,10 +1457,18 @@ def build_run_once(
             max_age_seconds=float(policy_config["max_book_age_seconds"]),
             market_id=spec.id,
         )
+        if permission_profile == "market_harvest" and not clob_feature_rows:
+            clob_feature_rows = market_harvest_clob_feature_rows(
+                book_rows,
+                now=now,
+            )
         evidence_snapshot_id = snapshot_id
         if permission_profile == "market_harvest" and clob_feature_rows:
             evidence_snapshot_id = clob_feature_rows[0].get("snapshot_id")
-        source_rows = source_status_for_snapshot(folder, evidence_snapshot_id)
+        source_rows = source_status_for_snapshot(
+            folder,
+            None if permission_profile == "market_harvest" else evidence_snapshot_id,
+        )
         promotion = promotion_states.get(spec.id, {"promotion_state": "BLOCK"})
         preflight = preflight_market(
             spec,
