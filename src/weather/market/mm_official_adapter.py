@@ -32,6 +32,7 @@ OFFICIAL_CLOB_VERSION = "0.6.0"
 MAX_STAGE1_ORDER_NOTIONAL = Decimal("10")
 CURRENT_REBATES_URL = "https://clob.polymarket.com/rebates/current"
 CURRENT_POSITIONS_URL = "https://data-api.polymarket.com/positions"
+PUSD_COLLATERAL_PROXY_ADDRESS = "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb"
 EVM_ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
 EVM_SIGNATURE_RE = re.compile(r"^0x[0-9a-fA-F]{130}$")
 CONDITION_ID_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
@@ -383,6 +384,10 @@ def fetch_current_maker_rebates(
             raise RuntimeError("maker-rebate row condition_id is invalid")
         if not EVM_ADDRESS_RE.fullmatch(asset_address):
             raise RuntimeError("maker-rebate row asset_address is invalid")
+        if asset_address.lower() != PUSD_COLLATERAL_PROXY_ADDRESS:
+            raise RuntimeError(
+                "maker-rebate row asset_address is not the official pUSD collateral proxy"
+            )
         if not amount.is_finite() or amount < 0:
             raise RuntimeError("maker-rebate row amount must be finite and nonnegative")
         normalized.append({

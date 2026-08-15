@@ -19,6 +19,7 @@ from weather.market.mm_exchange import (  # noqa: E402
 from weather.market.market_making_run_support import load_open_lifecycle_orders  # noqa: E402
 from weather.market.mm_official_adapter import (  # noqa: E402
     OfficialPolymarketGlobalAdapter,
+    PUSD_COLLATERAL_PROXY_ADDRESS,
     exact_current_positions_evidence,
     fetch_current_positions,
     fetch_current_maker_rebates,
@@ -299,7 +300,7 @@ class TestMMExchange(unittest.TestCase):
     def test_public_maker_rebate_reader_validates_exact_response_scope(self):
         maker_address = "0x" + "a" * 40
         condition_id = "0x" + "b" * 64
-        asset_address = "0x" + "c" * 40
+        asset_address = PUSD_COLLATERAL_PROXY_ADDRESS
         captured = {}
 
         class Response:
@@ -331,6 +332,19 @@ class TestMMExchange(unittest.TestCase):
         self.assertIn("date=2026-08-13", captured["url"])
         self.assertIn("maker_address=", captured["url"])
         self.assertTrue(captured["closed"])
+
+        class WrongAssetResponse(Response):
+            def read(self):
+                payload = json.loads(super().read().decode("utf-8"))
+                payload[0]["asset_address"] = "0x" + "d" * 40
+                return json.dumps(payload).encode("utf-8")
+
+        with self.assertRaisesRegex(RuntimeError, "official pUSD collateral proxy"):
+            fetch_current_maker_rebates(
+                maker_address,
+                "2026-08-13",
+                opener=lambda _request, timeout: WrongAssetResponse(),
+            )
 
         evidence = fetch_current_maker_rebates(
             maker_address,
@@ -530,7 +544,7 @@ class TestMMExchange(unittest.TestCase):
                 rebate_reader=lambda: [{
                     "date": "2026-08-13",
                     "condition_id": "0x" + "b" * 64,
-                    "asset_address": "0x" + "c" * 40,
+                    "asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
                     "maker_address": "0x" + "a" * 40,
                     "rebated_fees_usdc": "1.25",
                 }],
@@ -1070,7 +1084,7 @@ class TestMMExchange(unittest.TestCase):
                             "date": "2026-06-14",
                             "maker_address": "0x" + "a" * 40,
                             "condition_id": "0x" + "b" * 64,
-                            "asset_address": "0x" + "c" * 40,
+                            "asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
                             "rebated_fees_usdc": 0.01,
                         }],
                     },
