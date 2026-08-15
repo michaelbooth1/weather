@@ -1465,6 +1465,7 @@ def accept_snapshot_baseline(
     platform=DEFAULT_PLATFORM,
     now=None,
     max_age_hours=None,
+    acknowledge_payout_asset_conflict=False,
 ):
     gate = load_exchange_economics_gate(
         snapshot_path,
@@ -1478,6 +1479,15 @@ def accept_snapshot_baseline(
     payload = _load_json(snapshot_path)
     if payload is None:
         raise ValueError(f"invalid exchange-economics snapshot JSON: {snapshot_path}")
+    payout_terms_conflict = (
+        (payload.get("maker_rebate") or {}).get("documentation_asset_terms_conflict")
+        is True
+    )
+    if payout_terms_conflict and acknowledge_payout_asset_conflict is not True:
+        raise ValueError(
+            "explicit payout-asset conflict acknowledgement is required before "
+            "accepting the International economics baseline"
+        )
     accepted_payload = deepcopy(payload)
     accepted_payload["accepted_at_utc"] = utc_now(now).isoformat()
     accepted_payload["accepted_from_snapshot_path"] = str(snapshot_path)
@@ -1489,6 +1499,9 @@ def accept_snapshot_baseline(
         "source_hash": gate.get("source_hash"),
         "verified_at_utc": gate.get("verified_at_utc"),
         "verified_for_target_date": gate.get("verified_for_target_date"),
+        "payout_asset_conflict_acknowledged": bool(
+            acknowledge_payout_asset_conflict
+        ),
     }
     accepted_out = write_json(accepted_snapshot_path, accepted_payload)
     drift = build_drift_report(
@@ -1708,6 +1721,11 @@ def main(argv=None):
     publish.add_argument("--now", default=None)
     publish.add_argument("--max-age-hours", type=float, default=None)
     publish.add_argument("--accept", action="store_true", help="Also promote the published snapshot to the accepted baseline.")
+    publish.add_argument(
+        "--acknowledge-payout-asset-conflict",
+        action="store_true",
+        help="Acknowledge the official pUSD/USDC payout-amount terminology conflict before baseline acceptance.",
+    )
     publish.add_argument("--accepted-snapshot", default=str(DEFAULT_ACCEPTED_SNAPSHOT))
     publish.add_argument("--json-out", default=str(DEFAULT_DRIFT_REPORT))
 
@@ -1719,6 +1737,11 @@ def main(argv=None):
     accept.add_argument("--now", default=None)
     accept.add_argument("--max-age-hours", type=float, default=None)
     accept.add_argument("--json-out", default=str(DEFAULT_DRIFT_REPORT))
+    accept.add_argument(
+        "--acknowledge-payout-asset-conflict",
+        action="store_true",
+        help="Acknowledge the official pUSD/USDC payout-amount terminology conflict before baseline acceptance.",
+    )
 
     drift = sub.add_parser("drift", help="Validate current snapshot and compare it to the accepted baseline.")
     _add_drift_args(drift)
@@ -1755,6 +1778,9 @@ def main(argv=None):
                 platform=args.platform,
                 now=args.now,
                 max_age_hours=args.max_age_hours,
+                acknowledge_payout_asset_conflict=(
+                    args.acknowledge_payout_asset_conflict
+                ),
             )
             print(f"Accepted baseline: {payload['acceptance']['status']} -> {payload['acceptance']['accepted_snapshot_path']}")
         return payload
@@ -1767,6 +1793,9 @@ def main(argv=None):
             platform=args.platform,
             now=args.now,
             max_age_hours=args.max_age_hours,
+            acknowledge_payout_asset_conflict=(
+                args.acknowledge_payout_asset_conflict
+            ),
         )
         print(f"Accepted baseline: {payload['status']} -> {payload['accepted_snapshot_path']}")
         return payload

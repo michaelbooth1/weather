@@ -216,17 +216,35 @@ def test_publish_accept_and_later_material_drift_round_trip(tmp_path):
 
     published_payload = _snapshot()
     _write(snapshot_path, published_payload)
+    with pytest.raises(
+        ValueError,
+        match="explicit payout-asset conflict acknowledgement",
+    ):
+        exchange_economics.accept_snapshot_baseline(
+            snapshot_path=snapshot_path,
+            accepted_snapshot_path=accepted_path,
+            drift_report_path=drift_path,
+            target_date=TARGET_DATE,
+            now=NOW,
+        )
+    assert not accepted_path.exists()
+
     accepted = exchange_economics.accept_snapshot_baseline(
         snapshot_path=snapshot_path,
         accepted_snapshot_path=accepted_path,
         drift_report_path=drift_path,
         target_date=TARGET_DATE,
         now=NOW,
+        acknowledge_payout_asset_conflict=True,
     )
 
     assert accepted["status"] == "PASS"
     assert accepted["drift"]["accepted_snapshot_present"] is True
     assert accepted["drift"]["rescore_required"] is False
+    accepted_payload = json.loads(accepted_path.read_text(encoding="utf-8"))
+    assert accepted_payload["accepted_gate"][
+        "payout_asset_conflict_acknowledged"
+    ] is True
 
     current = json.loads(snapshot_path.read_text(encoding="utf-8"))
     current["fee_model"]["taker_fee_rate"] = 0.06

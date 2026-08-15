@@ -231,9 +231,10 @@ Retryable failures remain pending, and terminal results are published to
 .\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.daily.daily_learning
-.\venv\Scripts\python.exe -m weather.market.exchange_economics publish --target-date 2026-06-23
-.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-06-23
-.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date 2026-06-23
+$targetDate = "YYYY-MM-DD"
+.\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global --target-date $targetDate
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date $targetDate --acknowledge-payout-asset-conflict
+.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date $targetDate
 .\venv\Scripts\python.exe -m weather.reporting.source_gates.observed_floor_safety_monitor --target-date 2026-07-30
 # After the Toronto lock, explicitly restore fail-closed enforcement:
 .\venv\Scripts\python.exe -m weather.reporting.source_gates.observed_floor_safety_monitor --target-date 2026-07-30 --fail-closed
