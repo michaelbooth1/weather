@@ -104,7 +104,8 @@ report. The acknowledgment is mandatory because the official program calls the
 payout pUSD while the reconciliation API describes `rebated_fees_usdc` as a
 USDC amount. It does not resolve that conflict or prove payment; the later live
 receipt still requires the returned asset address and observed wallet balance
-delta. Never schedule automatic acceptance.
+delta. The address must equal the current pUSD collateral proxy content-bound
+from the official contracts page. Never schedule automatic acceptance.
 
 ## Drift check
 

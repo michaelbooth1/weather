@@ -57,6 +57,15 @@ def test_snapshot_payload_defaults_match_international_rules_and_zero_reward_pri
     assert payload["maker_rebate"]["reconciliation_api_documented_amount_unit"] == "USDC"
     assert payload["maker_rebate"]["documentation_asset_terms_conflict"] is True
     assert payload["maker_rebate"]["actual_payout_asset_status"] == "wallet_reconciliation_required"
+    assert (
+        payload["maker_rebate"]["documented_payout_asset_address"]
+        == exchange_economics.PUSD_COLLATERAL_PROXY_ADDRESS
+    )
+    assert (
+        payload["maker_rebate"]["payout_asset_address_source"]
+        == exchange_economics.PUSD_CONTRACTS_URL
+    )
+    assert payload["maker_rebate"]["requires_returned_asset_address_match"] is True
     assert payload["maker_rebate"]["minimum_accrued_payout_pusd"] == 1.0
     assert payload["maker_rebate"]["payout_cadence"] == "daily"
     assert payload["maker_rebate"]["calculation_scope"] == "per_market"
@@ -354,6 +363,21 @@ def test_snapshot_fails_closed_when_rebate_is_zero_or_endpoint_drifts():
         in hidden_conflict_gate["missing"]
     )
 
+    wrong_asset = _snapshot()
+    wrong_asset["maker_rebate"]["documented_payout_asset_address"] = (
+        "0x" + "d" * 40
+    )
+    wrong_asset_gate = exchange_economics._check_snapshot_payload(
+        wrong_asset,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    assert wrong_asset_gate["status"] == "BLOCK"
+    assert (
+        "global_rebate_payout_asset_reconciliation_required"
+        in wrong_asset_gate["missing"]
+    )
+
 
 def test_snapshot_fails_closed_when_rule_document_semantics_are_not_verified():
     payload = _snapshot()
@@ -467,6 +491,11 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
                 maker_address Date in YYYY-MM-DD format condition_id
                 asset_address maker_address rebated_fees_usdc
                 Each entry includes the USDC amount rebated.
+            """,
+            "https://docs.polymarket.com/resources/contracts.md": """
+                All contracts are deployed on Polygon mainnet (Chain ID: 137).
+                pUSD - CollateralToken (proxy)
+                0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB
             """,
         }
         return documents[url]

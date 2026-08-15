@@ -8,11 +8,12 @@
     "https://docs.polymarket.com/programs/maker-rebates",
     "https://docs.polymarket.com/programs/liquidity-rewards",
     "https://docs.polymarket.com/api-reference/rewards/get-current-active-rewards-configurations",
-    "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker"
+    "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker",
+    "https://docs.polymarket.com/resources/contracts"
   ],
   "source_verification": {
     "mode": "manual_template_not_runtime_proof",
-    "operator_note": "This file documents the v0.2 shape only. It cannot pass the runtime gate. Use collect-global so official API response bytes and exact condition/token identities are content-bound."
+    "operator_note": "This file documents the v0.3 shape only. It cannot pass the runtime gate. Use collect-global so official API response bytes and exact condition/token identities are content-bound."
   },
   "fee_model": {
     "name": "polymarket_global_per_condition_fee_schedule_v1",
@@ -31,6 +32,9 @@
     "reconciliation_api_documented_amount_unit": "USDC",
     "documentation_asset_terms_conflict": true,
     "actual_payout_asset_status": "wallet_reconciliation_required",
+    "documented_payout_asset_address": "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb",
+    "payout_asset_address_source": "https://docs.polymarket.com/resources/contracts",
+    "requires_returned_asset_address_match": true,
     "minimum_accrued_payout_pusd": 1.0,
     "payout_cadence": "daily",
     "calculation_scope": "per_market",

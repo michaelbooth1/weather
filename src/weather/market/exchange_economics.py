@@ -44,12 +44,15 @@ STALE_EVIDENCE_BASIS = "paper_stale_exchange_economics"
 GLOBAL_PLATFORM = "polymarket_global"
 GAMMA_EVENT_BY_SLUG_URL = "https://gamma-api.polymarket.com/events/slug/{slug}"
 CLOB_CURRENT_REWARDS_URL = "https://clob.polymarket.com/rewards/markets/current"
+PUSD_COLLATERAL_PROXY_ADDRESS = "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb"
+PUSD_CONTRACTS_URL = "https://docs.polymarket.com/resources/contracts"
 GLOBAL_SOURCE_URLS = (
     "https://docs.polymarket.com/trading/fees",
     "https://docs.polymarket.com/programs/maker-rebates",
     "https://docs.polymarket.com/programs/liquidity-rewards",
     "https://docs.polymarket.com/api-reference/rewards/get-current-active-rewards-configurations",
     "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker",
+    PUSD_CONTRACTS_URL,
 )
 GLOBAL_SOURCE_MARKDOWN_URLS = {
     url: f"{url}.md"
@@ -284,6 +287,15 @@ def _rule_document_semantic_checks(canonical_url, source_text):
                 "usdc amount rebated" in text
                 or "rebated fee amount in usdc" in text
             ),
+        }
+    if canonical_url.endswith("/resources/contracts"):
+        return {
+            "polygon_mainnet": "chain id: 137" in text,
+            "pusd_collateral_proxy": all((
+                "pusd" in text,
+                "collateraltoken (proxy)" in text,
+                PUSD_COLLATERAL_PROXY_ADDRESS in text,
+            )),
         }
     return {"recognized_rule_document": False}
 
@@ -583,6 +595,9 @@ def collect_global_snapshot_payload(
             "reconciliation_api_documented_amount_unit": "USDC",
             "documentation_asset_terms_conflict": True,
             "actual_payout_asset_status": "wallet_reconciliation_required",
+            "documented_payout_asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
+            "payout_asset_address_source": PUSD_CONTRACTS_URL,
+            "requires_returned_asset_address_match": True,
             "minimum_accrued_payout_pusd": 1.0,
             "payout_cadence": "daily",
             "calculation_scope": "per_market",
@@ -956,6 +971,11 @@ def _global_market_economics_checks(payload):
             and maker_rebate.get("documentation_asset_terms_conflict") is True
             and maker_rebate.get("actual_payout_asset_status")
             == "wallet_reconciliation_required"
+            and maker_rebate.get("documented_payout_asset_address")
+            == PUSD_COLLATERAL_PROXY_ADDRESS
+            and maker_rebate.get("payout_asset_address_source")
+            == PUSD_CONTRACTS_URL
+            and maker_rebate.get("requires_returned_asset_address_match") is True
             and maker_rebate.get("requires_payout_asset_reconciliation") is True
             and maker_rebate.get("actual_reconciliation_endpoint")
             == "https://clob.polymarket.com/rebates/current"
@@ -1634,6 +1654,9 @@ def build_snapshot_payload(
             "reconciliation_api_documented_amount_unit": "USDC",
             "documentation_asset_terms_conflict": True,
             "actual_payout_asset_status": "wallet_reconciliation_required",
+            "documented_payout_asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
+            "payout_asset_address_source": PUSD_CONTRACTS_URL,
+            "requires_returned_asset_address_match": True,
             "minimum_accrued_payout_pusd": 1.0,
             "payout_cadence": "daily",
             "calculation_scope": "per_market",
