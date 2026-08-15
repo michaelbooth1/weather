@@ -1,4 +1,4 @@
-# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-14 - INTERNATIONAL SNAPSHOT PIVOT AWAITS PROOF AND INTEGRATION]
+# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - PAYOUT-ASSET CONTRACT AND EXPLICIT BASELINE ACCEPTANCE OPEN]
 
 Goal: produce and maintain a current, source-verified exchange-economics
 snapshot, with a tracked template, an accept-baseline mechanism, and a recurring
@@ -105,13 +105,22 @@ International Polymarket only, and Polymarket US must never be used. Production
 has not yet integrated the isolated International snapshot implementation, so
 the item's current acceptance is not satisfied.
 
-- [ ] Integrate a source-verified `polymarket_global` snapshot whose per-market
+- [x] Integrate a source-verified `polymarket_global` snapshot whose per-market
   fee schedule, maker-rebate terms, tick size, minimum size, condition id, and
   token ids come from the official International surfaces.
 - [ ] Preserve explicit operator acceptance of a new economics baseline; drift
   detection must never accept a baseline automatically.
-- [ ] Prove the refreshed International workflow with an exact-tip full suite
+- [x] Prove the refreshed International workflow with an exact-tip full suite
   and the item-300 per-run binding repair before restoring `COMPLETE`.
 
 Legacy US implementation and tests are compatibility/history only. They do not
 authorize a US live probe, credential installation, or order mutation.
+
+## 2026-08-15 current disposition
+
+International snapshot production and item 300's per-run binding are integrated
+and exact-suite proven. The active blocker is narrower: the official pUSD
+payout-asset contract and informed acceptance repair remain on an unmerged
+branch. Until that lands and an operator explicitly accepts a current
+International baseline, drift must remain BLOCK. No scheduled path may accept
+the baseline automatically.

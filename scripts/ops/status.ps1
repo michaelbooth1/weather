@@ -220,8 +220,9 @@ elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
 # ---- system clock ----
 # CLOB heartbeats, order TTLs, evidence ordering, and scheduled one-shots all trust the
 # Windows clock. W32Time is trigger-start on this workgroup host, so a stopped service is
-# not itself a failure. Use the bounded Time-Service event stream as durable last-sync
-# evidence, and only inspect the live source when the service is already running.
+# not itself a failure. Use the bounded Time-Service event stream as a fallback, but
+# prefer the live w32tm last-success timestamp when the service is already running.
+# The event stream can lag a successful resync by more than a day on this host.
 $clockService = $null
 $clockLastSync = $null
 $clockSyncAgeH = $null
@@ -243,6 +244,10 @@ try {
         $clockStatusText = ((& w32tm.exe /query /status 2>&1) -join "`n")
         $clockQueryExit = $LASTEXITCODE
         $sourceMatch = [regex]::Match($clockStatusText, "(?m)^Source:\s*(.+?)\s*$")
+        $liveSyncMatch = [regex]::Match(
+            $clockStatusText,
+            "(?m)^Last Successful Sync Time:\s*(.+?)\s*$"
+        )
         if ($sourceMatch.Success) { $clockSource = $sourceMatch.Groups[1].Value.Trim() }
         if ($clockQueryExit -ne 0 -or -not $sourceMatch.Success) {
             $clockSynchronized = $false
@@ -253,6 +258,12 @@ try {
                 $clockStatusText -match "Leap Indicator:\s*3" -or
                 $clockStatusText -match "Source:\s*Local CMOS Clock"
             )
+            $liveSync = [datetime]::MinValue
+            if ($liveSyncMatch.Success -and
+                [datetime]::TryParse($liveSyncMatch.Groups[1].Value.Trim(), [ref]$liveSync)) {
+                $clockLastSync = $liveSync
+                $clockSyncAgeH = [math]::Round(((Get-Date) - $clockLastSync).TotalHours, 1)
+            }
         }
     }
 }
@@ -276,6 +287,11 @@ $cf = Join-Path $repo "data\backtest\daily_refresh_status.json"
 if (Test-Path $cf) { try { $chain = Get-Content $cf -Raw | ConvertFrom-Json } catch {} }
 $chainStatus = if ($chain) { [string]$chain.status } else { "?" }
 $chainTerm = if ($chain -and $chain.terminal) { "terminal" } else { "running/unknown" }
+$chainTaskResult = $null
+try {
+    $chainTaskInfo = Get-ScheduledTaskInfo -TaskName "WeatherDailySettlementPromotionRefresh"
+    $chainTaskResult = "0x{0:X}" -f $chainTaskInfo.LastTaskResult
+} catch {}
 # A `critical` run with every step OK is NOT a broken chain: it is the production-readiness
 # gate correctly reporting that no release pointer exists yet, which is the standing
 # pre-release state (2026-07-26: 24/24 steps ok, SLA pass, 69 blockers led by
@@ -534,6 +550,26 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
+    $completeAuditReceipt = $null
+    $auditReportPath = $null
+    if (
+        $actionArguments -like "*audit_overnight_integration_chain.ps1*" -and
+        $actionArguments -match '(?i)-ReportPath\s+(?:"([^"]+)"|(\S+))'
+    ) {
+        $auditReportPath = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
+        try {
+            $candidateAuditReceipt = Get-Content -LiteralPath $auditReportPath -Raw |
+                ConvertFrom-Json
+            if (
+                $candidateAuditReceipt.schema_version -eq
+                    "overnight_integration_chain_audit_v1" -and
+                $candidateAuditReceipt.complete -eq $true
+            ) {
+                $completeAuditReceipt = $candidateAuditReceipt
+            }
+        }
+        catch { }
+    }
     $isQuietMergeAction = (
         $actionArguments -like "*quiet_window_merge.ps1*" -or
         $actionArguments -like "*suite_gated_quiet_merge.ps1*"
@@ -633,6 +669,43 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             # work. Exit 0x0 proves the task RAN and disarmed; it proves nothing about output.
             # Say only what the exit code supports, and point at the artifact that would show it.
             $warns.Add("$name ran $($ti.LastRunTime) and self-disarmed cleanly (spent one-shot, exit 0x0) - task ran; exit code does NOT prove it produced output, check its artifact")
+        }
+        elseif ($oneShot -and -not $ti.NextRunTime -and $ti.LastRunTime) {
+            # A failed one-shot can deliberately self-disable too. Describe the
+            # completed run and its durable receipt, not the expected terminal
+            # scheduler state.
+            $spentFailure = "$name spent one-shot FAILED $res on $($ti.LastRunTime); verify its artifact"
+            $auditFailures = @($completeAuditReceipt.failures)
+            $knownRetainedGapOnly = (
+                $null -ne $completeAuditReceipt -and
+                $completeAuditReceipt.ok -eq $false -and
+                $auditFailures.Count -eq 1 -and
+                [string]$auditFailures[0] -like
+                    "execution_tape_runtime:*health=DEGRADED; capture=CONNECTED; integrity=PASS; identity=True; lock=True*"
+            )
+            if ($completeAuditReceipt -and $completeAuditReceipt.ok -eq $true) {
+                $warns.Add(
+                    "$name retained failed scheduler result $res; later complete audit receipt is PASS"
+                )
+            }
+            elseif ($knownRetainedGapOnly) {
+                $warns.Add(
+                    "$name complete audit remains BLOCK only for retained execution-tape gaps; " +
+                    "producer is CONNECTED with integrity, identity, and lock PASS"
+                )
+            }
+            elseif ($completeAuditReceipt) {
+                $flags.Add(
+                    "$name complete audit verdict is BLOCK with $($auditFailures.Count) failure(s); " +
+                    "review $auditReportPath"
+                )
+            }
+            elseif ([datetime]$ti.LastRunTime -lt (Get-Date).AddHours(-24)) {
+                $warns.Add($spentFailure)
+            }
+            else {
+                $flags.Add($spentFailure)
+            }
         }
         else { $flags.Add("$name unexpectedly DISABLED") }
     }
@@ -968,8 +1041,19 @@ elseif ($null -eq $clockLastSync) { "UNKNOWN" }
 elseif ($clockService.Status -eq "Running" -and $clockSource) { "synced via $clockSource, $clockSyncAgeH h ago" }
 else { "last valid sample $clockSyncAgeH h ago (trigger-start service $($clockService.Status))" }
 Write-Output ("  CLOCK     : {0}" -f $clockState)
-$chainNote = if ($chainStatus -eq "critical" -and -not $chainFail) { "all steps OK - 'critical' is the readiness gate, expected pre-release" }
-else { "0x2 = gates BLOCK, expected pre-release" }
+$chainNote = if ($chainTaskResult -eq "0x4B" -and $chain -and $chain.terminal) {
+    "0x4B = protected-window deadline; durable terminal status verified"
+}
+elseif ($chainStatus -eq "critical" -and -not $chainFail) {
+    "all steps OK - 'critical' is the readiness gate, expected pre-release"
+}
+elseif ($chainTaskResult -eq "0x2") {
+    "0x2 = gates BLOCK, expected pre-release"
+}
+elseif ($chainTaskResult) {
+    "$chainTaskResult = last scheduled result"
+}
+else { "scheduled result unavailable" }
 Write-Output ("  CHAIN     : {0} / {1}   ({2})" -f $chainStatus, $chainTerm, $chainNote)
 if ($chainFail) { Write-Output ("              step: {0}" -f $chainFail) }
 if ($chainGate) { Write-Output ("              gate: {0}" -f $chainGate) }

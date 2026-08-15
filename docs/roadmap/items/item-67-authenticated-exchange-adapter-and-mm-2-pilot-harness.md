@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - COMBINED-TIP SUITE AND ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CLIENT/STAGE 2 INTEGRATION AND ELIGIBLE-HOST EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -421,3 +421,20 @@ two unchecked live-evidence bullets above remain open until a tiny real
 lifecycle and paid-vs-predicted settlement/rebate record are reconciled without
 weakening any gate or increasing any ceiling. Exact suite measurements live
 only in `docs/operations/ESTABLISHED_FINDINGS.md` §§8k and 8n.
+
+## 2026-08-15 current integration disposition
+
+The refreshed International Stage 0/1 tip passed its immutable exact-tip suite,
+merged through the guarded workflow, and is in production history. Continuous
+public execution capture is also adopted. Those milestones retire the former
+software-integration blocker but create no order authority and supply no
+own-account fill, fee, rebate, position, or P&L evidence.
+
+The next parent is the paper-only market-harvest lane, which must prove one
+active-market quote-permission path without weakening ordinary model promotion.
+The official client upgrade and pUSD payout-asset contract are stacked behind
+that lane and behind current master; they require a refreshed exact-tip suite.
+Bounded Stage 2 remains a successor and must be refreshed only after that parent
+lands. The two live-evidence checklist bullets remain open until this PC is
+physically eligible and the staged lifecycle is run under the canonical pilot
+envelope.
