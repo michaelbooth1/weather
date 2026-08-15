@@ -7,6 +7,10 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
 def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
+    assert '$Trigger.PSObject.Properties["Repetition"]' in text
+    assert '$repetitionProperty.Value.PSObject.Properties["Interval"]' in text
+    assert "-not $_.Repetition.Interval" not in text
+    assert text.count("Test-WeatherOneShotTrigger -Trigger $_") == 2
     assert "$oneShot -and $ti.NextRunTime" in text
     assert '([datetime]$ti.NextRunTime) -gt (Get-Date)' in text
     assert "is re-armed for" in text

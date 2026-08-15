@@ -465,6 +465,20 @@ $lastCommit = & git -C $repo log -1 --format="%h %s" 2>$null
 if (($unpushed -ne "?") -and ([int]$unpushed -gt 0)) { $warns.Add("$unpushed commit(s) unpushed (run WeatherOneShotPush)") }
 
 # ---- scheduled tasks (classify against what is EXPECTED) ----
+function Test-WeatherOneShotTrigger {
+    param([object]$Trigger)
+
+    if ($Trigger.CimClass.CimClassName -ne "MSFT_TaskTimeTrigger") { return $false }
+    # Task Scheduler omits Repetition entirely for a true one-shot. Direct
+    # member access to that valid sparse shape terminates a strict-mode caller.
+    $repetitionProperty = $Trigger.PSObject.Properties["Repetition"]
+    if ($null -eq $repetitionProperty -or $null -eq $repetitionProperty.Value) {
+        return $true
+    }
+    $intervalProperty = $repetitionProperty.Value.PSObject.Properties["Interval"]
+    return $null -eq $intervalProperty -or -not $intervalProperty.Value
+}
+
 # Tasks that exit non-zero BY DESIGN pre-release, and tasks intentionally disabled.
 $expNonZero = @{
     # 0x4B = the repository-owned wrapper reached/refused the 11:55 protected-window
@@ -521,7 +535,7 @@ $trainingReenable = @(Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable
         }
         $candidateActions = @($candidate.Actions)
         $candidateTriggers = @($candidate.Triggers | Where-Object {
-                $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
+                Test-WeatherOneShotTrigger -Trigger $_
             })
         if ($candidateActions.Count -ne 1 -or $candidateTriggers.Count -ne 1) {
             return $false
@@ -574,7 +588,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     # registered as a time trigger that then repeats every couple of minutes, so matching
     # the trigger class alone flagged nine recurring tasks as armed one-shot work.
     $oneShot = @($_.Triggers | Where-Object {
-            $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
+            Test-WeatherOneShotTrigger -Trigger $_
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
