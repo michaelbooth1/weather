@@ -2500,10 +2500,12 @@ Production snapshot schema v0.2 preserved the program's pUSD term and required l
 reconciliation, but it did not expose the conflicting API term as a material baseline field. The
 current International snapshot therefore must **not** be accepted as the operator baseline yet.
 Isolated branch `codex/rebate-asset-contract-20260815` at pushed tip
-`e05502081771c1f25b28238ac5ce979a86cadafd` advances the snapshot to v0.3, records both terms and
+`ad22cbc7827f94376e509fc7dfef0f20ef5bccb4` advances the snapshot to v0.3, records both terms and
 the conflict, requires the endpoint's `asset_address` and USDC amount semantics, and keeps wallet
-reconciliation mandatory. Its focused market/schema selection passed **30/30 tests**; the exact
-live Markdown endpoint also satisfied every new semantic check.
+reconciliation mandatory. Baseline acceptance separately requires an explicit payout-asset-
+conflict acknowledgment and records it in the accepted receipt; collection cannot supply that
+acknowledgment. Its focused market/schema selection passed **30/30 tests**; the exact live
+Markdown endpoint also satisfied every new semantic check.
 
 The branch is `ROLL-SENSITIVE` only because its schema-registry edit closes over all **4** live
 capture closures. Fold it into the pending unified-client refresh rather than paying for a

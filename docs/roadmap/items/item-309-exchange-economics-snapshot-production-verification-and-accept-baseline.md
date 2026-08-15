@@ -129,7 +129,8 @@ required. A 2026-08-15 current-document review also found that the official
 program calls the payout pUSD while the reconciliation endpoint calls
 `rebated_fees_usdc` a USDC amount and returns `asset_address`. Pushed v0.3
 contract branch `codex/rebate-asset-contract-20260815` makes that disagreement
-material and keeps observed wallet-asset reconciliation mandatory. Fold it into
+material, keeps observed wallet-asset reconciliation mandatory, and requires a
+separate explicit conflict acknowledgment at acceptance. Fold it into
 the pending unified-client refresh and reprove the combined exact tip. Do not
 clear the blocker by copying or auto-accepting the v0.2 snapshot: after v0.3
 integration, an operator must still review and explicitly accept the
