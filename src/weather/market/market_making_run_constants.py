@@ -8,6 +8,7 @@ from weather.market.mm_policy import QUOTE_COLUMNS
 SCHEMA_VERSION = "mm_run_v0.2"
 PLATFORM_VERIFICATION_SCHEMA_VERSION = "mm_platform_verification_v0.4"
 RUN_MODES = {"shadow", "paper-live-forward", "live-pilot"}
+PERMISSION_PROFILES = {"model", "market_harvest"}
 DEFAULT_RUNS_ROOT = data_path() / "mm_runs"
 DEFAULT_QUOTE_TTL_SECONDS = 120.0
 MAX_OPERATOR_PILOT_BUDGET_USDC = 100.0

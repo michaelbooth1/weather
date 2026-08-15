@@ -353,6 +353,7 @@ infrastructure work remains.
 | 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | [Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 328 | [Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - REFRESHED ON CURRENT MASTER; EXACT SUITE AND ACTIVE-DAY PROOF OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |
 
 ### Architecture And Maintainability
 

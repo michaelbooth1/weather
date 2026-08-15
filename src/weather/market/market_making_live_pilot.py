@@ -63,3 +63,25 @@ def build_run_policy_config(mode, budget_usdc, selected_market_count, overrides=
             raise ValueError(f"live-pilot {key} must be finite and {qualifier}")
         config[key] = min(requested, ceiling)
     return config
+
+
+def build_market_harvest_policy_config(budget_usdc, config):
+    """Clamp the paper harvest profile to the existing conservative ceilings."""
+    budget = float(budget_usdc)
+    if not math.isfinite(budget) or budget <= 0:
+        raise ValueError("market_harvest budget must be finite and greater than zero")
+    config = dict(config or {})
+    ceilings = {
+        "quote_size": float(DEFAULT_POLICY_CONFIG["quote_size"]),
+        "max_event_notional": float(DEFAULT_POLICY_CONFIG["max_event_notional"]),
+        "max_band_notional": 10.0,
+        "max_daily_loss": min(budget, float(DEFAULT_POLICY_CONFIG["max_daily_loss"])),
+    }
+    for key, ceiling in ceilings.items():
+        requested = float(config.get(key, ceiling))
+        if not math.isfinite(requested) or requested < 0:
+            raise ValueError(f"market_harvest {key} must be finite and non-negative")
+        config[key] = min(requested, ceiling)
+    config["harvest_half_spread"] = 0.01
+    config["max_harvest_spread"] = 0.08
+    return config

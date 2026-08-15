@@ -1992,6 +1992,94 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertIn("order_lifecycle", payload)
             self.assertGreaterEqual(payload["order_lifecycle"]["posted_this_tick_count"], 1)
 
+    def test_market_harvest_profile_emits_paper_quotes_without_model_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            (folder / "snapshots_long.csv").unlink()
+            promotion.write_text(json.dumps({
+                "decisions": {
+                    "markets": [{
+                        "market_id": "atlanta",
+                        "action": "BLOCK_CANDIDATE",
+                        "verdict": "BLOCK",
+                    }]
+                }
+            }), encoding="utf-8")
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(
+                root / "known_edge.json",
+                permission="no_quote",
+                reason="model_edge_retired",
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                permission_profile="market_harvest",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="market-harvest-no-model",
+                now=NOW,
+                policy_config={
+                    "quote_size": 500.0,
+                    "max_event_notional": 500.0,
+                    "max_band_notional": 500.0,
+                    "max_daily_loss": 500.0,
+                    "harvest_half_spread": 0.001,
+                    "max_harvest_spread": 0.99,
+                },
+            )
+
+            run_folder = Path(payload["run_folder"])
+            preflight = json.loads((run_folder / "preflight.json").read_text(encoding="utf-8"))
+            run_config = json.loads((run_folder / "run_config.json").read_text(encoding="utf-8"))
+            rows = read_csv(run_folder / "quote_intents_long.csv")
+
+        self.assertEqual(payload["preflight_status"], "PASS")
+        self.assertEqual(payload["quote_permission_rows"], 2)
+        self.assertEqual(payload["live_trade_permission_rows"], 0)
+        self.assertEqual(payload["reason_counts"], {"QUOTE_MARKET_HARVEST_MID": 2})
+        self.assertEqual(preflight["permission_profile"], "market_harvest")
+        gate_names = {gate["name"] for gate in preflight["markets"][0]["gates"]}
+        self.assertNotIn("snapshot_model_rows", gate_names)
+        self.assertNotIn("model_freshness", gate_names)
+        self.assertIn("market_harvest_paper_only", gate_names)
+        self.assertEqual(run_config["permission_profile"], "market_harvest")
+        self.assertFalse(run_config["shadow_safety"]["live_trade_permission_allowed"])
+        self.assertEqual(run_config["policy_config"]["quote_size"], 5.0)
+        self.assertEqual(run_config["policy_config"]["max_event_notional"], 25.0)
+        self.assertEqual(run_config["policy_config"]["max_band_notional"], 10.0)
+        self.assertEqual(run_config["policy_config"]["max_daily_loss"], 25.0)
+        self.assertEqual(run_config["policy_config"]["harvest_half_spread"], 0.01)
+        self.assertEqual(run_config["policy_config"]["max_harvest_spread"], 0.08)
+        self.assertEqual({row["known_edge_permission"] for row in rows}, {"market_harvest"})
+        self.assertEqual({row["promotion_state"] for row in rows}, {"BLOCK"})
+        self.assertEqual({row["model_variant_probability_source"] for row in rows}, {"market_mid_no_model"})
+        self.assertEqual({row["fair_probability"] for row in rows}, {""})
+        self.assertEqual({row["served_fair_probability"] for row in rows}, {""})
+        self.assertEqual({row["expected_reward_score"] for row in rows}, {"0.0"})
+        self.assertEqual({row["expected_rebate_value"] for row in rows}, {"0.0"})
+        self.assertTrue(all(row["live_trade_permission"] == "False" for row in rows))
+
+    def test_market_harvest_profile_rejects_live_pilot_mode(self):
+        with self.assertRaisesRegex(ValueError, "paper-only"):
+            build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="live-pilot",
+                permission_profile="market_harvest",
+                markets=["atlanta"],
+                now=NOW,
+            )
+
     def test_blank_clob_tokens_are_market_discovery_blocker(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

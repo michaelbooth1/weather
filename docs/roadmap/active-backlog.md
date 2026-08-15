@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-15T18:58:59.725675+00:00
+Generated: 2026-08-15T19:02:50.453482+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 321 |
-| Active items | 33 |
+| Items | 322 |
+| Active items | 34 |
 | OPEN | 4 |
-| PARTIAL | 29 |
+| PARTIAL | 30 |
 | COMPLETE | 288 |
-| ROADMAP rows | 321 |
-| ROADMAP primary rows | 321 |
-| Metadata manifest rows | 321 |
+| ROADMAP rows | 322 |
+| ROADMAP primary rows | 322 |
+| Metadata manifest rows | 322 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -58,6 +58,7 @@ Status: `OK`
 | 324 | PARTIAL | 2026-07-15 | FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 328 | PARTIAL | 2026-08-15 | REFRESHED ON CURRENT MASTER; EXACT SUITE AND ACTIVE-DAY PROOF OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
 
 ## Lint Issues
 
