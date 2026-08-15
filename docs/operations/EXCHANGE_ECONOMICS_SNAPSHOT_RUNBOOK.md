@@ -92,12 +92,20 @@ Accept only after reviewing the current per-condition snapshot and deciding
 whether material drift requires paper-evidence rescoring:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-08-13
+$targetDate = "YYYY-MM-DD"
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept `
+  --target-date $targetDate `
+  --acknowledge-payout-asset-conflict
 ```
 
 Acceptance copies the validated snapshot to
 `data/backtest/exchange_economics_accepted_snapshot.json` and writes the drift
-report. Never schedule automatic acceptance.
+report. The acknowledgment is mandatory because the official program calls the
+payout pUSD while the reconciliation API describes `rebated_fees_usdc` as a
+USDC amount. It does not resolve that conflict or prove payment; the later live
+receipt still requires the returned asset address and observed wallet balance
+delta. The address must equal the current pUSD collateral proxy content-bound
+from the official contracts page. Never schedule automatic acceptance.
 
 ## Drift check
 

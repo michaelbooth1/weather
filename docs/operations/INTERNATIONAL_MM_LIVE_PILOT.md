@@ -520,6 +520,12 @@ during an outstanding order is forbidden.
 Use the public official `GET /rebates/current?date=...&maker_address=...`
 response for the completed next payout cycle. Count only rows matching the
 pilot's exact date, maker address, and condition ID; sum `rebated_fees_usdc`.
+The program document calls the payout asset pUSD while this API document calls
+that amount USDC and returns an `asset_address`. Preserve both documented terms
+as an explicit conflict: the field name is an accrual amount, not proof of the
+wallet asset actually credited. Require the returned address to equal the
+current official pUSD collateral proxy from the contracts page, then require
+the observed wallet balance delta before calling a rebate paid.
 Current reward-campaign metadata is eligibility evidence, not payout evidence.
 A completed exact-scope query with no matching row is a reconciled zero, not a
 missing value. Before the payout cycle is complete, even a positive current

@@ -217,10 +217,10 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "exchange_economics_snapshot",
-        "exchange_economics_snapshot_v0.2",
+        "exchange_economics_snapshot_v0.3",
         "weather.market.exchange_economics",
         "active",
-        "Content-bound International Polymarket per-condition fee, rebate, reward, tick/min-order, and order-semantics snapshot.",
+        "Content-bound International Polymarket per-condition fee, rebate, payout-asset reconciliation, reward, tick/min-order, and order-semantics snapshot.",
     ),
     SchemaSpec(
         "exchange_economics_drift",

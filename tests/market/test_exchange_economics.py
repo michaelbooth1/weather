@@ -52,6 +52,20 @@ def test_snapshot_payload_defaults_match_international_rules_and_zero_reward_pri
     assert payload["maker_rebate"]["requires_resting_fill"] is True
     assert payload["maker_rebate"]["requires_actual_reconciliation"] is True
     assert payload["maker_rebate"]["documented_payout_asset"] == "pUSD"
+    assert payload["maker_rebate"]["program_documented_payout_asset"] == "pUSD"
+    assert payload["maker_rebate"]["reconciliation_api_amount_field"] == "rebated_fees_usdc"
+    assert payload["maker_rebate"]["reconciliation_api_documented_amount_unit"] == "USDC"
+    assert payload["maker_rebate"]["documentation_asset_terms_conflict"] is True
+    assert payload["maker_rebate"]["actual_payout_asset_status"] == "wallet_reconciliation_required"
+    assert (
+        payload["maker_rebate"]["documented_payout_asset_address"]
+        == exchange_economics.PUSD_COLLATERAL_PROXY_ADDRESS
+    )
+    assert (
+        payload["maker_rebate"]["payout_asset_address_source"]
+        == exchange_economics.PUSD_CONTRACTS_URL
+    )
+    assert payload["maker_rebate"]["requires_returned_asset_address_match"] is True
     assert payload["maker_rebate"]["minimum_accrued_payout_pusd"] == 1.0
     assert payload["maker_rebate"]["payout_cadence"] == "daily"
     assert payload["maker_rebate"]["calculation_scope"] == "per_market"
@@ -211,17 +225,35 @@ def test_publish_accept_and_later_material_drift_round_trip(tmp_path):
 
     published_payload = _snapshot()
     _write(snapshot_path, published_payload)
+    with pytest.raises(
+        ValueError,
+        match="explicit payout-asset conflict acknowledgement",
+    ):
+        exchange_economics.accept_snapshot_baseline(
+            snapshot_path=snapshot_path,
+            accepted_snapshot_path=accepted_path,
+            drift_report_path=drift_path,
+            target_date=TARGET_DATE,
+            now=NOW,
+        )
+    assert not accepted_path.exists()
+
     accepted = exchange_economics.accept_snapshot_baseline(
         snapshot_path=snapshot_path,
         accepted_snapshot_path=accepted_path,
         drift_report_path=drift_path,
         target_date=TARGET_DATE,
         now=NOW,
+        acknowledge_payout_asset_conflict=True,
     )
 
     assert accepted["status"] == "PASS"
     assert accepted["drift"]["accepted_snapshot_present"] is True
     assert accepted["drift"]["rescore_required"] is False
+    accepted_payload = json.loads(accepted_path.read_text(encoding="utf-8"))
+    assert accepted_payload["accepted_gate"][
+        "payout_asset_conflict_acknowledged"
+    ] is True
 
     current = json.loads(snapshot_path.read_text(encoding="utf-8"))
     current["fee_model"]["taker_fee_rate"] = 0.06
@@ -317,6 +349,34 @@ def test_snapshot_fails_closed_when_rebate_is_zero_or_endpoint_drifts():
     )
     assert wrong_gate["status"] == "BLOCK"
     assert "global_rebate_payout_asset_reconciliation_required" in wrong_gate["missing"]
+
+    hidden_conflict = _snapshot()
+    hidden_conflict["maker_rebate"]["documentation_asset_terms_conflict"] = False
+    hidden_conflict_gate = exchange_economics._check_snapshot_payload(
+        hidden_conflict,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    assert hidden_conflict_gate["status"] == "BLOCK"
+    assert (
+        "global_rebate_payout_asset_reconciliation_required"
+        in hidden_conflict_gate["missing"]
+    )
+
+    wrong_asset = _snapshot()
+    wrong_asset["maker_rebate"]["documented_payout_asset_address"] = (
+        "0x" + "d" * 40
+    )
+    wrong_asset_gate = exchange_economics._check_snapshot_payload(
+        wrong_asset,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    assert wrong_asset_gate["status"] == "BLOCK"
+    assert (
+        "global_rebate_payout_asset_reconciliation_required"
+        in wrong_asset_gate["missing"]
+    )
 
 
 def test_snapshot_fails_closed_when_rule_document_semantics_are_not_verified():
@@ -429,7 +489,13 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
             "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker.md": """
                 GET /rebates/current. This endpoint does not require authentication.
                 maker_address Date in YYYY-MM-DD format condition_id
-                maker_address rebated_fees_usdc
+                asset_address maker_address rebated_fees_usdc
+                Each entry includes the USDC amount rebated.
+            """,
+            "https://docs.polymarket.com/resources/contracts.md": """
+                All contracts are deployed on Polygon mainnet (Chain ID: 137).
+                pUSD - CollateralToken (proxy)
+                0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB
             """,
         }
         return documents[url]
