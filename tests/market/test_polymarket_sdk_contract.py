@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from importlib import metadata
 
 import pytest
@@ -12,7 +13,11 @@ try:
     import polymarket
     from polymarket import ApiKeyCreds, SecureClient
     from polymarket._internal.hmac import build_hmac_signature as sdk_hmac
-except ModuleNotFoundError:
+except ModuleNotFoundError as exc:
+    if os.environ.get("WEATHER_REQUIRE_LIVE_SDK_CONTRACT") == "1":
+        raise RuntimeError(
+            "production-host exact suite requires the pinned live SDK contract"
+        ) from exc
     polymarket = None
     ApiKeyCreds = SecureClient = sdk_hmac = None
 
