@@ -356,10 +356,17 @@ if ($chain -and $chain.steps) {
     $bad = @($chain.steps | Where-Object { $_.status -and $_.status -notin @("ok", "skipped") })
     if ($bad.Count -gt 0) {
         $f = $bad[0]
-        $why = [string]$f.result.reason
-        if (-not $why) { $why = [string]$f.error }
-        if (-not $why) { $why = [string]$f.result.status }
-        if (-not $why) { $why = [string]$f.status }
+        $fResult = $null
+        $resultProperty = $f.PSObject.Properties["result"]
+        if ($null -ne $resultProperty) { $fResult = $resultProperty.Value }
+        $reasonProperty = if ($null -ne $fResult) { $fResult.PSObject.Properties["reason"] } else { $null }
+        $errorProperty = $f.PSObject.Properties["error"]
+        $resultStatusProperty = if ($null -ne $fResult) { $fResult.PSObject.Properties["status"] } else { $null }
+        $stepStatusProperty = $f.PSObject.Properties["status"]
+        $why = if ($null -ne $reasonProperty) { [string]$reasonProperty.Value } else { "" }
+        if (-not $why -and $null -ne $errorProperty) { $why = [string]$errorProperty.Value }
+        if (-not $why -and $null -ne $resultStatusProperty) { $why = [string]$resultStatusProperty.Value }
+        if (-not $why -and $null -ne $stepStatusProperty) { $why = [string]$stepStatusProperty.Value }
         # A deferral is the resource gates working as designed (heavy steps refusing to run
         # beside live capture), not a fault. Say so, or every quiet-window-bound run looks broken.
         # WHEN it failed matters as much as what failed: a step that broke this morning and
