@@ -80,6 +80,32 @@ def test_execution_tape_post_merge_adoption_is_exact_and_fail_closed() -> None:
     assert "price_path_evidence_usable" in text
 
 
+def test_overnight_chain_audit_is_exact_read_only_and_fail_closed() -> None:
+    text = (
+        ROOT / "scripts" / "ops" / "audit_overnight_integration_chain.ps1"
+    ).read_text(encoding="utf-8-sig")
+
+    assert "Stage01Tip" in text
+    assert "ExecutionTapeTip" in text
+    assert "VERDICT: ALL CHUNKS PASSED" in text
+    assert "merge-base --is-ancestor $tip master" in text
+    assert "capture_recovery_check --json" in text
+    assert "runtime_identity_matches_current" in text
+    assert ".execution_tape_status.json.writer.lock" in text
+    assert "WeatherEveningEvidenceRefresh" in text
+    assert "WeatherOneShotPush" in text
+    assert "Disable-ScheduledTask -TaskName $AuditTaskName" in text
+    for forbidden in (
+        "Start-ScheduledTask",
+        "Enable-ScheduledTask",
+        "Register-ScheduledTask",
+        "git merge",
+        "git push",
+        "execution_tape_supervisor ensure",
+    ):
+        assert forbidden not in text
+
+
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     wrapper = (ROOT / "scripts" / "ops" / "market_making_daily_roll_task.ps1").read_text(
         encoding="utf-8-sig"

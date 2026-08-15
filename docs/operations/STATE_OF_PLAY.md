@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-14 21:38 (same-PC execution is the approved deployment
-shape; the exact Stage 0/1 and execution-tape chain is armed for tonight).**
+**Last rewritten: 2026-08-14 23:50 (same-PC execution is the approved deployment
+shape; the exact Stage 0/1 and execution-tape chain plus final audit are armed).**
 Read this first, then `ESTABLISHED_FINDINGS.md` and
 `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
@@ -57,9 +57,10 @@ adverse selection and inventory. **We do not currently beat the market.**
 
 ## Overnight host state
 
-- The six exact one-shots from 00:30 through 04:20 are armed. Task Scheduler
-  actions own their full tips, branches, receipts, and order; copied hashes in
-  prose do not.
+- The six exact integration one-shots from 00:30 through 04:20 are armed. A
+  seventh read-only audit runs at 04:35, writes a dated host-local JSON receipt,
+  records failures, and never repairs them. Task Scheduler owns the full tips,
+  branches, receipts, and order—not prose.
 - `WeatherExecutionTapeSupervisor` stays **Disabled** until the fail-closed
   adoption proves the exact merged source, managed child, status, writer lock,
   and all three core capture workers.
