@@ -147,6 +147,10 @@ def test_optional_chain_readiness_is_safe_for_strict_mode_callers() -> None:
     assert '$chain.PSObject.Properties["production_readiness"]' in text
     assert '$chain.PSObject.Properties["summary"]' in text
     assert '$value.PSObject.Properties["status"]' in text
+    assert '$f.PSObject.Properties["result"]' in text
+    assert '$fResult.PSObject.Properties["reason"]' in text
+    assert '$f.PSObject.Properties["error"]' in text
+    assert "$f.result.reason" not in text
     assert "if ($chain -and $chain.production_readiness)" not in text
 
 
