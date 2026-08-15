@@ -1,7 +1,7 @@
 # State of play
 
-**Last rewritten: 2026-08-15 12:10 (daily deadline audited; unified client is
-the next software gate).** Read this first, then
+**Last rewritten: 2026-08-15 12:20 (rebate asset semantics audited; unified
+client remains the next software gate).** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
 > **REWRITTEN, never appended. Capped at ~90 lines.** This page says what is
@@ -35,8 +35,9 @@ input only where evidence supports it. **We do not currently beat the market.**
   establish realized lifecycle and economics.
 - The off-host weather mirror is operator-paused. Do not restart it until the
   operator decides the project has earned that cost.
-- A new International economics baseline requires explicit operator review and
-  acceptance. Never copy or auto-accept it to make drift green.
+- A new International baseline requires v0.3 plus explicit operator acceptance.
+  Official pages call the payout pUSD but the reconciliation amount USDC;
+  preserve the conflict and require wallet-asset evidence. Never auto-accept v0.2.
 
 ## Critical path
 
@@ -45,10 +46,10 @@ input only where evidence supports it. **We do not currently beat the market.**
 | Capture continuity | All core workers are current-code-bound and healthy. Protect the graded window and the rebuilding streak. |
 | International Stage 0/1 | Exact-tip suite, guarded merge, and production adoption passed. This proves software consistency, not live authority. |
 | Public execution tape | Recurring supervised capture is adopted, current, and connected. Retained gaps make today's full price path unusable; keep the healthy producer running and qualify future clean intervals. |
-| Unified International client | Official `polymarket-client==0.6.0` branch is prepared but behind current production. Its real wheel contract and focused adapter suite pass in an isolated verification venv. Refresh it onto master, install the exact live dependency only in the next admitted heavy window, require that contract not to skip, then run an immutable full suite and quiet-window merge. |
+| Unified International client | Official `polymarket-client==0.6.0` branch is prepared but behind current production. Its real wheel contract and focused adapter suite pass in an isolated verification venv. Refresh it onto master and fold in the pushed v0.3 rebate-asset contract, install the exact live dependency only in the next admitted heavy window, require that contract not to skip, then run one immutable full suite and quiet-window merge. |
 | Bounded maker Stage 2 | Stacked on the client line. Refresh only after the unified client lands, then reprove the new exact tip independently. |
 | Paper economics | Current ordinary maker preflight is countable but policy emits no quotes. The prepared paper-only market-harvest lane is the next way to measure quote availability, markouts, inventory, and modeled rebates without pretending the model has edge. |
-| First live-money test | After relocation: fresh eligibility, explicit International baseline acceptance, credential import by reference, doctor, Stage 0, both tiny Stage 1 cancellation modes, then a reviewed one-market Stage 2 session. No unattended mutation. |
+| First live-money test | After relocation: fresh eligibility, v0.3 economics integration and explicit International baseline acceptance, credential import by reference, doctor, Stage 0, both tiny Stage 1 cancellation modes, then a reviewed one-market Stage 2 session. No unattended mutation. |
 | Model evidence | Current scoring still blocks promotion. Relevant-season archive depth, not another speculative feature, is the main training constraint. |
 
 ## Host and workflow state

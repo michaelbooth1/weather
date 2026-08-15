@@ -125,6 +125,12 @@ Production currently publishes a current `polymarket_global` snapshot and the
 guarded combined-tip suite and per-run binding integration passed on
 2026-08-15. The accepted comparison baseline is deliberately still the
 historical US snapshot, so the drift report remains `BLOCK` with rescore
-required. Do not clear that blocker by copying or auto-accepting the current
-snapshot: an operator must review and explicitly accept the International
-baseline before this item can return to `COMPLETE`.
+required. A 2026-08-15 current-document review also found that the official
+program calls the payout pUSD while the reconciliation endpoint calls
+`rebated_fees_usdc` a USDC amount and returns `asset_address`. Pushed v0.3
+contract branch `codex/rebate-asset-contract-20260815` makes that disagreement
+material and keeps observed wallet-asset reconciliation mandatory. Fold it into
+the pending unified-client refresh and reprove the combined exact tip. Do not
+clear the blocker by copying or auto-accepting the v0.2 snapshot: after v0.3
+integration, an operator must still review and explicitly accept the
+International baseline before this item can return to `COMPLETE`.

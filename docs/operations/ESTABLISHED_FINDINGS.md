@@ -2487,6 +2487,33 @@ window, reprove the new exact tip, and use the guarded quiet-window integration 
 
 ---
 
+## 8t. Official rebate documents disagree on the payout-amount asset label
+
+**Current-document review measured 2026-08-15 12:15-12:20 local.** The official International
+maker-rebate program says rebates are paid daily in **pUSD**, directly to the wallet, after a
+minimum accrued payout of **1 pUSD**. The official public reconciliation endpoint instead names
+its amount field `rebated_fees_usdc`, describes it as a **USDC** amount, and returns a separate
+`asset_address`. Those statements are both current official evidence; the endpoint field name is
+not proof of the asset that actually reached the wallet.
+
+Production snapshot schema v0.2 preserved the program's pUSD term and required later payout-asset
+reconciliation, but it did not expose the conflicting API term as a material baseline field. The
+current International snapshot therefore must **not** be accepted as the operator baseline yet.
+Isolated branch `codex/rebate-asset-contract-20260815` at pushed tip
+`e05502081771c1f25b28238ac5ce979a86cadafd` advances the snapshot to v0.3, records both terms and
+the conflict, requires the endpoint's `asset_address` and USDC amount semantics, and keeps wallet
+reconciliation mandatory. Its focused market/schema selection passed **30/30 tests**; the exact
+live Markdown endpoint also satisfied every new semantic check.
+
+The branch is `ROLL-SENSITIVE` only because its schema-registry edit closes over all **4** live
+capture closures. Fold it into the pending unified-client refresh rather than paying for a
+separate production roll, then require that combined tip's immutable suite and guarded quiet-
+window merge. Even after integration, an endpoint row proves only an accrued amount. Completed-
+cycle scope, returned asset address, and observed wallet balance delta remain required before a
+rebate can be called paid or profit reconciled.
+
+---
+
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
 Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
