@@ -276,9 +276,14 @@ def _rule_document_semantic_checks(canonical_url, source_text):
             "request_scope": all(("maker_address" in text, "yyyy-mm-dd" in text)),
             "response_scope": all((
                 "condition_id" in text,
+                "asset_address" in text,
                 "maker_address" in text,
                 "rebated_fees_usdc" in text,
             )),
+            "response_unit_usdc": (
+                "usdc amount rebated" in text
+                or "rebated fee amount in usdc" in text
+            ),
         }
     return {"recognized_rule_document": False}
 
@@ -573,6 +578,11 @@ def collect_global_snapshot_payload(
             "maker_rebate_rate": rebate_rate,
             "credited_when": "daily_after_eligible_resting_liquidity_executes",
             "documented_payout_asset": "pUSD",
+            "program_documented_payout_asset": "pUSD",
+            "reconciliation_api_amount_field": "rebated_fees_usdc",
+            "reconciliation_api_documented_amount_unit": "USDC",
+            "documentation_asset_terms_conflict": True,
+            "actual_payout_asset_status": "wallet_reconciliation_required",
             "minimum_accrued_payout_pusd": 1.0,
             "payout_cadence": "daily",
             "calculation_scope": "per_market",
@@ -938,6 +948,14 @@ def _global_market_economics_checks(payload):
         ),
         "global_rebate_payout_asset_reconciliation_required": (
             maker_rebate.get("documented_payout_asset") == "pUSD"
+            and maker_rebate.get("program_documented_payout_asset") == "pUSD"
+            and maker_rebate.get("reconciliation_api_amount_field")
+            == "rebated_fees_usdc"
+            and maker_rebate.get("reconciliation_api_documented_amount_unit")
+            == "USDC"
+            and maker_rebate.get("documentation_asset_terms_conflict") is True
+            and maker_rebate.get("actual_payout_asset_status")
+            == "wallet_reconciliation_required"
             and maker_rebate.get("requires_payout_asset_reconciliation") is True
             and maker_rebate.get("actual_reconciliation_endpoint")
             == "https://clob.polymarket.com/rebates/current"
@@ -1598,6 +1616,11 @@ def build_snapshot_payload(
             "pool_share": maker_rebate_pool_share,
             "maker_rebate_rate": maker_rebate_pool_share,
             "documented_payout_asset": "pUSD",
+            "program_documented_payout_asset": "pUSD",
+            "reconciliation_api_amount_field": "rebated_fees_usdc",
+            "reconciliation_api_documented_amount_unit": "USDC",
+            "documentation_asset_terms_conflict": True,
+            "actual_payout_asset_status": "wallet_reconciliation_required",
             "minimum_accrued_payout_pusd": 1.0,
             "payout_cadence": "daily",
             "calculation_scope": "per_market",

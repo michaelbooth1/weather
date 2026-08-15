@@ -52,6 +52,11 @@ def test_snapshot_payload_defaults_match_international_rules_and_zero_reward_pri
     assert payload["maker_rebate"]["requires_resting_fill"] is True
     assert payload["maker_rebate"]["requires_actual_reconciliation"] is True
     assert payload["maker_rebate"]["documented_payout_asset"] == "pUSD"
+    assert payload["maker_rebate"]["program_documented_payout_asset"] == "pUSD"
+    assert payload["maker_rebate"]["reconciliation_api_amount_field"] == "rebated_fees_usdc"
+    assert payload["maker_rebate"]["reconciliation_api_documented_amount_unit"] == "USDC"
+    assert payload["maker_rebate"]["documentation_asset_terms_conflict"] is True
+    assert payload["maker_rebate"]["actual_payout_asset_status"] == "wallet_reconciliation_required"
     assert payload["maker_rebate"]["minimum_accrued_payout_pusd"] == 1.0
     assert payload["maker_rebate"]["payout_cadence"] == "daily"
     assert payload["maker_rebate"]["calculation_scope"] == "per_market"
@@ -318,6 +323,19 @@ def test_snapshot_fails_closed_when_rebate_is_zero_or_endpoint_drifts():
     assert wrong_gate["status"] == "BLOCK"
     assert "global_rebate_payout_asset_reconciliation_required" in wrong_gate["missing"]
 
+    hidden_conflict = _snapshot()
+    hidden_conflict["maker_rebate"]["documentation_asset_terms_conflict"] = False
+    hidden_conflict_gate = exchange_economics._check_snapshot_payload(
+        hidden_conflict,
+        target_date=TARGET_DATE,
+        now=NOW,
+    )
+    assert hidden_conflict_gate["status"] == "BLOCK"
+    assert (
+        "global_rebate_payout_asset_reconciliation_required"
+        in hidden_conflict_gate["missing"]
+    )
+
 
 def test_snapshot_fails_closed_when_rule_document_semantics_are_not_verified():
     payload = _snapshot()
@@ -429,7 +447,8 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
             "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker.md": """
                 GET /rebates/current. This endpoint does not require authentication.
                 maker_address Date in YYYY-MM-DD format condition_id
-                maker_address rebated_fees_usdc
+                asset_address maker_address rebated_fees_usdc
+                Each entry includes the USDC amount rebated.
             """,
         }
         return documents[url]

@@ -1,5 +1,5 @@
 {
-  "schema_version": "exchange_economics_snapshot_v0.2",
+  "schema_version": "exchange_economics_snapshot_v0.3",
   "platform": "polymarket_global",
   "platform_surface": "international_clob",
   "max_age_hours": 24,
@@ -26,6 +26,11 @@
   "maker_rebate": {
     "formula": "maker_rebate = executed_maker_fee_weight * fee_schedule.rebate_rate",
     "documented_payout_asset": "pUSD",
+    "program_documented_payout_asset": "pUSD",
+    "reconciliation_api_amount_field": "rebated_fees_usdc",
+    "reconciliation_api_documented_amount_unit": "USDC",
+    "documentation_asset_terms_conflict": true,
+    "actual_payout_asset_status": "wallet_reconciliation_required",
     "minimum_accrued_payout_pusd": 1.0,
     "payout_cadence": "daily",
     "calculation_scope": "per_market",
