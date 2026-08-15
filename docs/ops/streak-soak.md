@@ -248,10 +248,12 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
 
 - **The tracked tree is dirty most nights.** `WeatherLocationConfigRefresh` rewrites
   `config/locations.json` and `config/location_market_events.json` every 6h, including at
-  ~00:00 — so a naive "refuse if dirty" guard aborts almost every run. That named pair is
-  committed automatically before the merge (regenerated config is not *work*; the fleet
-  rebuilds it within 6h), and the rollback point is taken **after** that commit so a rollback
-  undoes only the merge. Anything modified outside that pair still aborts.
+  ~00:00, and the countability pass regenerates
+  `docs/operations/OPERATING_REFERENCE.md` from live scheduled-task state. A naive "refuse if
+  dirty" guard therefore aborts normal merges. Exactly those three fleet-generated paths are
+  committed automatically before the merge, and the rollback point is taken **after** that
+  commit so a rollback undoes only the merge. Anything modified outside that exact set still
+  aborts.
 - **Never redirect git's stderr** (`*>$null`, `2>&1`). Under `$ErrorActionPreference='Stop'`,
   PowerShell 5.1 wraps each redirected stderr line in a `NativeCommandError` and terminates —
   and git writes routine notices there, so a `CRLF will be replaced by LF` warning is enough

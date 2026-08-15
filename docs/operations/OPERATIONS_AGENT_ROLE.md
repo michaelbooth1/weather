@@ -244,7 +244,9 @@ the 31 until you have traced a single instance end to end.
 
 The working tree normally carries three fleet-generated modified files
 (`config/location_market_events.json`, `config/locations.json`,
-`docs/operations/OPERATING_REFERENCE.md`). Routine churn — leave them uncommitted.
+`docs/operations/OPERATING_REFERENCE.md`). Routine churn — leave them uncommitted. The guarded
+quiet-window merge is the sole cleanup exception: after its immutable-tip guard passes, it
+commits exactly those three paths so its rollback point cannot discard generated state.
 
 ---
 
