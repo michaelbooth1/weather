@@ -19,6 +19,7 @@ st.set_page_config(page_title="Weather Markets", layout="wide")
 def _market_labels():
     labels = {
         "Home": "overview",
+        "Control Room": "control",
         "Roadmap": "roadmap",
         "History": "history",
         "Operations": "ops",
@@ -82,6 +83,10 @@ def main():
         from app.views.overview import render_overview_page
 
         render_overview_page(LIVE_REFRESH_SECONDS)
+    elif market_id == "control":
+        from app.views.control_room import render_control_room_page
+
+        render_control_room_page(LIVE_REFRESH_SECONDS)
     elif market_id == "mm":
         from app.views.market_making import render_market_making_page
 

@@ -79,6 +79,7 @@ Useful dashboard query targets:
 
 ```text
 http://localhost:8501/?market=overview
+http://localhost:8501/?market=control
 http://localhost:8501/?market=toronto
 http://localhost:8501/?market=ops
 http://localhost:8501/?market=mm
@@ -98,8 +99,16 @@ promotes a release, and fails closed to a named no-bet or unavailable state
 when its local `data/` inputs are missing, stale, blocked, malformed, or
 mid-copy.
 
-The dashboard views are overview, per-market detail, history, market making,
-operations, and roadmap.
+The dashboard views are overview, operator control room, per-market detail,
+history, market making, operations, and roadmap. The **Operator Control Room**
+is the decision-first, read-only surface for the capped International
+Polymarket maker pilot. It binds the latest maker run to an exact-target-date
+readiness receipt, the canonical host digest, International platform identity,
+execution-tape integrity, and the explicitly accepted exchange-economics
+baseline. Missing, stale, US-platform, or contradictory evidence produces
+`HOLD`; clearing every software gate produces only `READY FOR EXPLICIT
+APPROVAL`, never trading authority. The page has no order, cancel, credential,
+promotion, or risk-setting controls.
 
 Each per-market detail route shows the current serving build's recorded
 distribution pipeline at its effective cutoff: stage distributions, centre

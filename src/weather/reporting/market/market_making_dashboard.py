@@ -69,3 +69,38 @@ def latest_run(runs_root=RUNS_ROOT):
         return None, {}
     folder = folders[0]
     return folder, read_json(folder / "run_summary.json", {}) or {}
+
+
+def latest_readiness(backtest_root=BACKTEST_ROOT, target_date=None):
+    """Return the newest readiness receipt, bound to ``target_date`` when supplied.
+
+    A readiness receipt is date-scoped evidence. Falling back to a receipt for a
+    different market day would make a missing current receipt look healthier than
+    it is, so an exact-date miss deliberately returns no evidence.
+    """
+
+    root = Path(backtest_root)
+    if not root.exists():
+        return None, {}
+    candidates = [
+        path
+        for path in root.glob("mm_live_readiness*.json")
+        if path.is_file()
+    ]
+    if target_date is not None:
+        matching = []
+        for path in candidates:
+            payload = read_json(path, {}) or {}
+            if (
+                isinstance(payload, dict)
+                and str(payload.get("target_date") or "") == str(target_date)
+            ):
+                matching.append((path, payload))
+        if not matching:
+            return None, {}
+        return max(matching, key=lambda item: item[0].stat().st_mtime)
+    if not candidates:
+        return None, {}
+    path = max(candidates, key=lambda item: item.stat().st_mtime)
+    payload = read_json(path, {}) or {}
+    return path, payload if isinstance(payload, dict) else {}
