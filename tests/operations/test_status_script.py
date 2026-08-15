@@ -7,6 +7,13 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
 def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
+    assert '$Trigger.PSObject.Properties["CimClass"]' in text
+    assert '$cimClassProperty.Value.PSObject.Properties["CimClassName"]' in text
+    assert "$Trigger.CimClass.CimClassName" not in text
+    assert '$Trigger.PSObject.Properties["Repetition"]' in text
+    assert '$repetitionProperty.Value.PSObject.Properties["Interval"]' in text
+    assert "-not $_.Repetition.Interval" not in text
+    assert text.count("Test-WeatherOneShotTrigger -Trigger $_") == 2
     assert "$oneShot -and $ti.NextRunTime" in text
     assert '([datetime]$ti.NextRunTime) -gt (Get-Date)' in text
     assert "is re-armed for" in text
@@ -139,6 +146,19 @@ def test_temporary_training_hold_requires_an_exact_bounded_reenable() -> None:
     assert '[string]$candidateAction.Arguments -cne $expectedArguments' in text
     assert '$expDisabled += "WeatherTrainingWindow"' in text
     assert "automatic re-enable is armed" in text
+
+
+def test_optional_chain_readiness_is_safe_for_strict_mode_callers() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$chain.PSObject.Properties["production_readiness"]' in text
+    assert '$chain.PSObject.Properties["summary"]' in text
+    assert '$value.PSObject.Properties["status"]' in text
+    assert '$f.PSObject.Properties["result"]' in text
+    assert '$fResult.PSObject.Properties["reason"]' in text
+    assert '$f.PSObject.Properties["error"]' in text
+    assert "$f.result.reason" not in text
+    assert "if ($chain -and $chain.production_readiness)" not in text
 
 
 def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:

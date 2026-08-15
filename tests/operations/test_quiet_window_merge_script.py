@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -28,6 +29,20 @@ def test_exact_tip_guard_precedes_any_automatic_commit_or_merge() -> None:
     merge = script.index("& git merge --no-ff $mergeTarget")
 
     assert guard < automatic_commit < merge
+
+
+def test_quiet_merge_accepts_only_the_three_fleet_generated_drift_paths() -> None:
+    script = _script_text()
+
+    match = re.search(r"\$autoRefreshed = @\((.*?)\)\n\$dirtyTracked", script, re.DOTALL)
+    assert match is not None
+    assert re.findall(r'"([^"]+)"', match.group(1)) == [
+        "config/locations.json",
+        "config/location_market_events.json",
+        "docs/operations/OPERATING_REFERENCE.md",
+    ]
+    assert "fleet-generated drift set" in script
+    assert 'git commit -m "ops: preserve fleet-generated drift' in script
 
 
 def test_quiet_merge_records_expected_and_resolved_tip() -> None:

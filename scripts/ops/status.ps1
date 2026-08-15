@@ -298,8 +298,19 @@ try {
 # active_release_verification_failed). Reporting that as breakage is the same false-positive
 # trap as the old 0x2 exit code, so name what it actually means.
 $chainGate = $null
-if ($chain -and $chain.production_readiness) {
-    $pr = $chain.production_readiness
+$chainProductionReadiness = $null
+if ($chain) {
+    # status.ps1 is invoked from strict-mode operational wrappers as well as directly.
+    # production_readiness is optional on interrupted/pre-gate chain receipts; direct
+    # member access turns that valid absence into a terminating PropertyNotFoundException
+    # under the caller's inherited strict mode.
+    $productionReadinessProperty = $chain.PSObject.Properties["production_readiness"]
+    if ($null -ne $productionReadinessProperty) {
+        $chainProductionReadiness = $productionReadinessProperty.Value
+    }
+}
+if ($chainProductionReadiness) {
+    $pr = $chainProductionReadiness
     if ([string]$pr.status -eq "SKIPPED") {
         # A SKIPPED readiness gate carries `reason` + `pipeline_status`, NOT stage/
         # blocker_count/first_blocker. The generic format below therefore rendered it as
@@ -321,9 +332,19 @@ if ($chain -and $chain.production_readiness) {
 # trading_evidence were each BLOCK inside $chain.summary. Reading step status alone says
 # "the chain is healthy" and is wrong -- surface the payload verdicts too.
 $chainBlocked = $null
-if ($chain -and $chain.summary) {
-    $blocked = @($chain.summary.PSObject.Properties |
-        Where-Object { $_.Value -and [string]$_.Value.status -eq "BLOCK" } |
+$chainSummary = $null
+if ($chain) {
+    $summaryProperty = $chain.PSObject.Properties["summary"]
+    if ($null -ne $summaryProperty) { $chainSummary = $summaryProperty.Value }
+}
+if ($chainSummary) {
+    $blocked = @($chainSummary.PSObject.Properties |
+        Where-Object {
+            $value = $_.Value
+            if ($null -eq $value) { return $false }
+            $statusProperty = $value.PSObject.Properties["status"]
+            return $null -ne $statusProperty -and [string]$statusProperty.Value -eq "BLOCK"
+        } |
         ForEach-Object { $_.Name })
     if ($blocked.Count -gt 0) { $chainBlocked = "{0} step(s) BLOCK in payload: {1}" -f $blocked.Count, ($blocked -join ", ") }
 }
@@ -335,10 +356,17 @@ if ($chain -and $chain.steps) {
     $bad = @($chain.steps | Where-Object { $_.status -and $_.status -notin @("ok", "skipped") })
     if ($bad.Count -gt 0) {
         $f = $bad[0]
-        $why = [string]$f.result.reason
-        if (-not $why) { $why = [string]$f.error }
-        if (-not $why) { $why = [string]$f.result.status }
-        if (-not $why) { $why = [string]$f.status }
+        $fResult = $null
+        $resultProperty = $f.PSObject.Properties["result"]
+        if ($null -ne $resultProperty) { $fResult = $resultProperty.Value }
+        $reasonProperty = if ($null -ne $fResult) { $fResult.PSObject.Properties["reason"] } else { $null }
+        $errorProperty = $f.PSObject.Properties["error"]
+        $resultStatusProperty = if ($null -ne $fResult) { $fResult.PSObject.Properties["status"] } else { $null }
+        $stepStatusProperty = $f.PSObject.Properties["status"]
+        $why = if ($null -ne $reasonProperty) { [string]$reasonProperty.Value } else { "" }
+        if (-not $why -and $null -ne $errorProperty) { $why = [string]$errorProperty.Value }
+        if (-not $why -and $null -ne $resultStatusProperty) { $why = [string]$resultStatusProperty.Value }
+        if (-not $why -and $null -ne $stepStatusProperty) { $why = [string]$stepStatusProperty.Value }
         # A deferral is the resource gates working as designed (heavy steps refusing to run
         # beside live capture), not a fault. Say so, or every quiet-window-bound run looks broken.
         # WHEN it failed matters as much as what failed: a step that broke this morning and
@@ -437,6 +465,27 @@ $lastCommit = & git -C $repo log -1 --format="%h %s" 2>$null
 if (($unpushed -ne "?") -and ([int]$unpushed -gt 0)) { $warns.Add("$unpushed commit(s) unpushed (run WeatherOneShotPush)") }
 
 # ---- scheduled tasks (classify against what is EXPECTED) ----
+function Test-WeatherOneShotTrigger {
+    param([object]$Trigger)
+
+    if ($null -eq $Trigger) { return $false }
+    $cimClassProperty = $Trigger.PSObject.Properties["CimClass"]
+    if ($null -eq $cimClassProperty -or $null -eq $cimClassProperty.Value) { return $false }
+    $classNameProperty = $cimClassProperty.Value.PSObject.Properties["CimClassName"]
+    if ($null -eq $classNameProperty -or
+        [string]$classNameProperty.Value -ne "MSFT_TaskTimeTrigger") {
+        return $false
+    }
+    # Task Scheduler omits Repetition entirely for a true one-shot. Direct
+    # member access to that valid sparse shape terminates a strict-mode caller.
+    $repetitionProperty = $Trigger.PSObject.Properties["Repetition"]
+    if ($null -eq $repetitionProperty -or $null -eq $repetitionProperty.Value) {
+        return $true
+    }
+    $intervalProperty = $repetitionProperty.Value.PSObject.Properties["Interval"]
+    return $null -eq $intervalProperty -or -not $intervalProperty.Value
+}
+
 # Tasks that exit non-zero BY DESIGN pre-release, and tasks intentionally disabled.
 $expNonZero = @{
     # 0x4B = the repository-owned wrapper reached/refused the 11:55 protected-window
@@ -493,7 +542,7 @@ $trainingReenable = @(Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable
         }
         $candidateActions = @($candidate.Actions)
         $candidateTriggers = @($candidate.Triggers | Where-Object {
-                $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
+                Test-WeatherOneShotTrigger -Trigger $_
             })
         if ($candidateActions.Count -ne 1 -or $candidateTriggers.Count -ne 1) {
             return $false
@@ -546,7 +595,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     # registered as a time trigger that then repeats every couple of minutes, so matching
     # the trigger class alone flagged nine recurring tasks as armed one-shot work.
     $oneShot = @($_.Triggers | Where-Object {
-            $_.CimClass.CimClassName -eq "MSFT_TaskTimeTrigger" -and -not $_.Repetition.Interval
+            Test-WeatherOneShotTrigger -Trigger $_
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
