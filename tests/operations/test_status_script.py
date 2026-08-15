@@ -181,6 +181,18 @@ def test_failed_disabled_one_shot_reports_the_run_not_the_terminal_state() -> No
     assert "(Get-Date).AddHours(-24)" in text
 
 
+def test_complete_overnight_audit_receipt_replaces_stale_verify_artifact_flag() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '"*audit_overnight_integration_chain.ps1*"' in text
+    assert "-ReportPath\\s+" in text
+    assert '"overnight_integration_chain_audit_v1"' in text
+    assert "$candidateAuditReceipt.complete -eq $true" in text
+    assert "$knownRetainedGapOnly" in text
+    assert "complete audit remains BLOCK only for retained execution-tape gaps" in text
+    assert "complete audit verdict is BLOCK" in text
+
+
 def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

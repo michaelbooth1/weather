@@ -550,6 +550,25 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
+    $completeAuditReceipt = $null
+    if (
+        $actionArguments -like "*audit_overnight_integration_chain.ps1*" -and
+        $actionArguments -match '(?i)-ReportPath\s+(?:"([^"]+)"|(\S+))'
+    ) {
+        $auditReportPath = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
+        try {
+            $candidateAuditReceipt = Get-Content -LiteralPath $auditReportPath -Raw |
+                ConvertFrom-Json
+            if (
+                $candidateAuditReceipt.schema_version -eq
+                    "overnight_integration_chain_audit_v1" -and
+                $candidateAuditReceipt.complete -eq $true
+            ) {
+                $completeAuditReceipt = $candidateAuditReceipt
+            }
+        }
+        catch { }
+    }
     $isQuietMergeAction = (
         $actionArguments -like "*quiet_window_merge.ps1*" -or
         $actionArguments -like "*suite_gated_quiet_merge.ps1*"
@@ -655,7 +674,32 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             # failed run, not the expected terminal scheduler state. Keep a fresh
             # failure actionable; age old spent evidence down to a warning.
             $spentFailure = "$name spent one-shot FAILED $res on $($ti.LastRunTime); verify its artifact"
-            if ([datetime]$ti.LastRunTime -lt (Get-Date).AddHours(-24)) {
+            $auditFailures = @($completeAuditReceipt.failures)
+            $knownRetainedGapOnly = (
+                $null -ne $completeAuditReceipt -and
+                $completeAuditReceipt.ok -eq $false -and
+                $auditFailures.Count -eq 1 -and
+                [string]$auditFailures[0] -like
+                    "execution_tape_runtime:*health=DEGRADED; capture=CONNECTED; integrity=PASS; identity=True; lock=True*"
+            )
+            if ($completeAuditReceipt -and $completeAuditReceipt.ok -eq $true) {
+                $warns.Add(
+                    "$name retained failed scheduler result $res; later complete audit receipt is PASS"
+                )
+            }
+            elseif ($knownRetainedGapOnly) {
+                $warns.Add(
+                    "$name complete audit remains BLOCK only for retained execution-tape gaps; " +
+                    "producer is CONNECTED with integrity, identity, and lock PASS"
+                )
+            }
+            elseif ($completeAuditReceipt) {
+                $flags.Add(
+                    "$name complete audit verdict is BLOCK with $($auditFailures.Count) failure(s); " +
+                    "review $auditReportPath"
+                )
+            }
+            elseif ([datetime]$ti.LastRunTime -lt (Get-Date).AddHours(-24)) {
                 $warns.Add($spentFailure)
             }
             else {
