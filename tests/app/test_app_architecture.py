@@ -29,7 +29,7 @@ SYS_PATH_MUTATION_PATTERNS = (
     "sys.path" + ".append",
 )
 ROUTER_PATH = Path("app/streamlit_app.py")
-SINGLE_MARKET_VIEW_PATH = Path("app/views/single_market.py")
+VIEW_ROOT = Path("app/views")
 
 
 def test_app_files_do_not_mutate_sys_path_or_import_legacy_wrappers():
@@ -57,38 +57,46 @@ def test_app_files_decode_as_utf8_without_mojibake_fragments():
     assert offenders == {}
 
 
-def test_streamlit_router_stays_thin_and_single_market_view_owns_page_body():
+def test_streamlit_router_stays_thin_and_exposes_only_two_pages():
     router_text = ROUTER_PATH.read_text(encoding="utf-8")
-    single_market_text = SINGLE_MARKET_VIEW_PATH.read_text(encoding="utf-8")
     router_forbidden = [
         "SnapshotStore",
         "PolymarketClient",
         "TorontoHighTempModel",
+        "all_specs",
         "data_path(",
         "@st.fragment",
-        "st.title(f\"{spec.city_label} Weather Market\")",
+        "render_single_market_page",
+        "render_operations_page",
+        "render_market_making_page",
+        "render_overview_page",
+        "render_history_page",
     ]
 
-    assert SINGLE_MARKET_VIEW_PATH.exists()
+    view_files = {path.name for path in VIEW_ROOT.glob("*.py")}
+    assert view_files == {"__init__.py", "control_room.py", "roadmap.py"}
     assert len(router_text.splitlines()) <= 100
-    assert "render_single_market_page" in router_text
-    assert "def render_single_market_page" in single_market_text
-    assert "SnapshotStore" in single_market_text
-    assert "PolymarketClient" in single_market_text
-    assert "TorontoHighTempModel" in single_market_text
-    assert {
-        pattern: pattern in router_text
-        for pattern in router_forbidden
-        if pattern in router_text
-    } == {}
+    assert "render_control_room_page" in router_text
+    assert "render_roadmap_page" in router_text
+    assert all(pattern not in router_text for pattern in router_forbidden)
 
 
-def test_single_market_uses_served_floor_and_native_unit_labels():
-    single_market_text = SINGLE_MARKET_VIEW_PATH.read_text(encoding="utf-8")
+def test_frontend_does_not_reintroduce_retired_page_modules_or_routes():
+    app_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in Path("app").rglob("*.py")
+    )
+    retired = (
+        "app.views.history",
+        "app.views.market_making",
+        "app.views.model_pipeline",
+        "app.views.operations",
+        "app.views.overview",
+        "app.views.single_market",
+        '"overview"',
+        '"history"',
+        '"ops"',
+        '"mm"',
+    )
 
-    assert 'model.get("distribution_components")' in single_market_text
-    assert "Trusted observed-high floor" in single_market_text
-    assert "Floor (Min possible high)" not in single_market_text
-    assert "observed_bucket} C" not in single_market_text
-    assert "high_so_far')} C" not in single_market_text
-    assert "d['final_high']} C" not in single_market_text
+    assert all(marker not in app_text for marker in retired)

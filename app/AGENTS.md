@@ -1,11 +1,14 @@
 # Streamlit App Instructions
 
-The canonical entry point is `app/streamlit_app.py`. Keep it a thin router;
-page bodies belong in `app/views/`, reusable table rendering belongs in
-`app/table_utils.py`, and domain logic belongs in its owning `weather` package.
+The canonical entry point is `app/streamlit_app.py`. It intentionally exposes
+only two pages: the default read-only Control Room and Roadmap. Keep it a thin
+router; page bodies belong in `app/views/`, reusable table rendering belongs
+in `app/table_utils.py`, and domain logic belongs in its owning `weather`
+package.
 
-- Preserve query-parameter compatibility for overview, market, history,
-  operations, market-making, and roadmap views.
+- Preserve `?market=control` and `?roadmap` compatibility. Retired overview,
+  city, history, operations, and market-making routes fall back to Control Room;
+  do not restore their page modules without an explicit product decision.
 - Avoid import-time network calls in the router. Views should use existing
   cached/domain helpers rather than reimplementing model or market behavior.
 - Keep UI tables Arrow-safe and user-facing text UTF-8 clean.

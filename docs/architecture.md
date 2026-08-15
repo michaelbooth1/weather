@@ -52,7 +52,9 @@ owns its exact-target-date reduction and fail-closed `HOLD` decision; the
 `app/views/control_room.py` view only renders that result. Even a complete
 software pass stops at `READY FOR EXPLICIT APPROVAL`. The dashboard does not
 grant trading authority or expose order, cancel, credential, promotion, or
-risk-setting actions.
+risk-setting actions. The frontend intentionally contains only this Control
+Room and the active Roadmap; retired market, history, overview, and operations
+views are not hidden routes or retained application code.
 
 The paper taker writes `orders_long.csv` and its counterfactual tape by append.
 Real order evidence is permanent. Counterfactual replay detail has a specific

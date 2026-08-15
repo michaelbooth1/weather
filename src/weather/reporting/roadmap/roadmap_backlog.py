@@ -386,31 +386,42 @@ def summarize_roadmap_status(
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
     payload = build_payload(roadmap_root, generated_at_utc=generated_at_utc)
-    items = payload.get("items") or []
-    open_items = [item for item in items if item.get("status") == "OPEN"]
-    open_item_rows = [
+    active_items = payload.get("active_items") or []
+    active_item_rows = [
         {
             "number": item.get("number"),
             "title": item.get("title"),
+            "status": item.get("status"),
             "date": item.get("date"),
             "disposition": item.get("disposition") or "",
             "blocked": item_has_blocked_marker(item),
+            "owner_package": item.get("owner_package") or "",
+            "open_checklist_count": item.get("open_checklist_count") or 0,
+            "checked_checklist_count": item.get("checked_checklist_count") or 0,
             "path": item.get("path"),
         }
-        for item in open_items
+        for item in active_items
     ]
-    blocked_count = sum(1 for item in open_item_rows if item["blocked"])
+    open_item_rows = [row for row in active_item_rows if row["status"] == "OPEN"]
+    active_blocked_count = sum(1 for item in active_item_rows if item["blocked"])
+    open_blocked_count = sum(1 for item in open_item_rows if item["blocked"])
     summary = payload.get("summary") or {}
     return {
         "schema_version": payload.get("schema_version"),
         "generated_at_utc": payload.get("generated_at_utc"),
         "roadmap_root": payload.get("roadmap_root"),
         "status": payload.get("status"),
+        "total_item_count": summary.get("item_count", 0),
         "closed_item_count": summary.get("complete_item_count", 0),
+        "active_item_count": len(active_item_rows),
+        "partial_item_count": summary.get("partial_item_count", 0),
         "open_item_count": len(open_item_rows),
-        "open_blocked_item_count": blocked_count,
-        "open_unblocked_item_count": len(open_item_rows) - blocked_count,
+        "active_blocked_item_count": active_blocked_count,
+        "active_unblocked_item_count": len(active_item_rows) - active_blocked_count,
+        "open_blocked_item_count": open_blocked_count,
+        "open_unblocked_item_count": len(open_item_rows) - open_blocked_count,
         "lint_error_count": summary.get("lint_error_count", 0),
+        "active_items": active_item_rows,
         "open_items": open_item_rows,
     }
 

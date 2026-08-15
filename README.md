@@ -68,56 +68,34 @@ Canonical Streamlit entrypoint:
 The former root wrapper was retired on 2026-07-20. Use the canonical entrypoint
 above for every dashboard launch.
 
-The operator launcher starts Streamlit if needed, opens the Operations page, and
-writes Streamlit logs under `data/logs/`:
+The operator launcher starts Streamlit if needed, opens the read-only Control
+Room, and writes Streamlit logs under `data/logs/`:
 
 ```powershell
 .\scripts\launch\start_weather_dashboard.cmd
 ```
 
-Useful dashboard query targets:
+The frontend deliberately has only two pages:
 
 ```text
-http://localhost:8501/?market=overview
 http://localhost:8501/?market=control
-http://localhost:8501/?market=toronto
-http://localhost:8501/?market=ops
-http://localhost:8501/?market=mm
-http://localhost:8501/?history
 http://localhost:8501/?roadmap
 ```
 
-The overview route is the read-only paper homepage. Its **Safest bets right
-now** shortlist reads persisted paper-taker run evidence and shows only
-candidates that clear the current freshness, permission-map, liquidity, and
-after-cost-value gates. Each card is bound back to the current permission
-record, recomputed calibrated fair value, exact run and strategy lineage,
-producer order identity, configured native settlement unit, selected side
-token, and coherent paper-fill arithmetic. A market price above 90% is not
-excluded when those gates still pass. The page never places orders, never
-promotes a release, and fails closed to a named no-bet or unavailable state
-when its local `data/` inputs are missing, stale, blocked, malformed, or
-mid-copy.
-
-The dashboard views are overview, operator control room, per-market detail,
-history, market making, operations, and roadmap. The **Operator Control Room**
-is the decision-first, read-only surface for the capped International
+The **Control Room** is the decision-first surface for the capped International
 Polymarket maker pilot. It binds the latest maker run to an exact-target-date
 readiness receipt, the canonical host digest, International platform identity,
 execution-tape integrity, and the explicitly accepted exchange-economics
 baseline. Missing, stale, US-platform, or contradictory evidence produces
 `HOLD`; clearing every software gate produces only `READY FOR EXPLICIT
-APPROVAL`, never trading authority. The page has no order, cancel, credential,
+APPROVAL`, never trading authority. It has no order, cancel, credential,
 promotion, or risk-setting controls.
 
-Each per-market detail route shows the current serving build's recorded
-distribution pipeline at its effective cutoff: stage distributions, centre
-movement, explicit missing snapshots, trusted-floor binding mass, and the final
-served probabilities beside market-implied probabilities. It does not replay
-alternate cutoffs. The Operations route leads with the canonical host digest,
-keeps operational capture continuity separate from receipt-backed release
-admissibility, and shows the age/state of the daily refresh and morning
-briefing rather than treating stored artifacts as live state.
+The **Roadmap** presents all active `OPEN` and `PARTIAL` work from the canonical
+roadmap index, separates dependency-held items from work with a clear path, and
+surfaces roadmap-integrity failures. Legacy or unknown query routes fall back
+to the Control Room; the retired frontend pages are not retained as hidden
+code.
 
 ## Tests And Local Checks
 

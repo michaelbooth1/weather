@@ -84,7 +84,6 @@ TARGET_MODULES = [
     Path("src/weather/reporting/fleet/fleet_observability.py"),
     Path("src/weather/reporting/location_analysis/location_trust.py"),
     Path("src/weather/reporting/candidate_lifecycle/multi_variant_shadow.py"),
-    Path("src/weather/reporting/overview_helpers.py"),
     Path("src/weather/reporting/candidate_lifecycle/price_free_model_learning.py"),
     Path("src/weather/reporting/scorecards/progress_audit.py"),
     Path("src/weather/reporting/promotion/promotion_corpus.py"),
@@ -254,7 +253,7 @@ REPORTING_CASEBOOK_MODULES = [
 REPORTING_MARKET_MODULES = [
     Path("src/weather/reporting/market/market_beating_objective_scoreboard.py"),
     Path("src/weather/reporting/market/market_benchmark_residual_edge.py"),
-    Path("src/weather/reporting/market/market_making_dashboard.py"),
+    Path("src/weather/reporting/market/operator_control_room.py"),
     Path("src/weather/reporting/market/market_residual_repair_program.py"),
     Path("src/weather/reporting/market/trading_evidence.py"),
 ]
@@ -403,7 +402,6 @@ REPORTING_SAFE_SLICE_ROOT_NAMES = {
 REPORTING_ROOT_SHARED_MODULES = {
     "__init__.py",
     "formatting.py",
-    "overview_helpers.py",
 }
 DAILY_REFRESH_SPLIT_MODULES = sorted(Path("src/weather/operations").glob("daily_refresh_*.py"))
 TARGET_MODULES.extend(

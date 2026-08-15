@@ -4,20 +4,74 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
+import json
 import math
 from pathlib import Path
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
-from weather.reporting.market.market_making_dashboard import (
-    BACKTEST_ROOT,
-    RUNS_ROOT,
-    latest_readiness,
-    latest_run,
-    read_json,
-)
+from weather.paths import data_path
 
 
 INTERNATIONAL_PLATFORM = "polymarket_global"
+RUNS_ROOT = data_path("mm_runs")
+BACKTEST_ROOT = data_path("backtest")
+
+
+def read_json(path, default=None):
+    path = Path(path)
+    if not path.exists():
+        return default
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+def run_folders(runs_root=RUNS_ROOT):
+    runs_root = Path(runs_root)
+    if not runs_root.exists():
+        return []
+    folders = [summary.parent for summary in runs_root.glob("*/*/run_summary.json")]
+    return sorted(folders, key=lambda folder: folder.stat().st_mtime, reverse=True)
+
+
+def latest_run(runs_root=RUNS_ROOT):
+    folders = run_folders(runs_root)
+    if not folders:
+        return None, {}
+    folder = folders[0]
+    payload = read_json(folder / "run_summary.json", {}) or {}
+    return folder, payload if isinstance(payload, dict) else {}
+
+
+def latest_readiness(backtest_root=BACKTEST_ROOT, target_date=None):
+    """Return only exact-market-day readiness when a target date is supplied."""
+
+    root = Path(backtest_root)
+    if not root.exists():
+        return None, {}
+    candidates = [
+        path for path in root.glob("mm_live_readiness*.json") if path.is_file()
+    ]
+    if target_date is not None:
+        matching = []
+        for path in candidates:
+            payload = read_json(path, {}) or {}
+            if (
+                isinstance(payload, dict)
+                and str(payload.get("target_date") or "") == str(target_date)
+            ):
+                matching.append((path, payload))
+        return (
+            max(matching, key=lambda item: item[0].stat().st_mtime)
+            if matching
+            else (None, {})
+        )
+    if not candidates:
+        return None, {}
+    path = max(candidates, key=lambda item: item.stat().st_mtime)
+    payload = read_json(path, {}) or {}
+    return path, payload if isinstance(payload, dict) else {}
 
 
 def _text(value, fallback="-"):

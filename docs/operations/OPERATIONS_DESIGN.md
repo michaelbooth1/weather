@@ -7,10 +7,10 @@ The operating setup has three layers:
 1. Windows Task Scheduler runs short-lived supervisors that keep three
    streak-critical capture loops healthy and, when explicitly armed, one
    auxiliary public execution-tape producer healthy.
-2. A lightweight desktop launcher starts the Streamlit dashboard and opens the
-   Operations view.
-3. The Operations view and status CLIs provide health, code-version, log, and
-   recovery controls.
+2. A lightweight desktop launcher starts the two-page Streamlit dashboard and
+   opens the read-only Control Room.
+3. The Control Room and status CLIs expose health and code-version evidence;
+   supported CLIs and runbooks remain the only recovery/control surfaces.
 
 The dashboard launcher does not own capture. Closing Streamlit must not stop
 evidence collection, and opening Streamlit must not create a second copy of a
@@ -70,8 +70,8 @@ replaces its task with the supplied parameters.
 
 4. Open the dashboard with `scripts/launch/start_weather_dashboard.cmd` or
    `scripts/launch/start_weather_dashboard.ps1`.
-5. Confirm the Operations view at `http://localhost:8501/?market=ops` reports
-   current runtime identity and fresh capture.
+5. Confirm the Control Room at `http://localhost:8501/?market=control` reports
+   current runtime identity and fresh capture. This view is read-only.
 
 ## Loop Outputs
 
@@ -235,15 +235,19 @@ After changing code:
 
 To stop a loop deliberately, stop the worker and disable its scheduled
 supervisor so the next `ensure` tick does not revive it. Re-enable supervision
-and issue `ensure` to restore it. Use the loop's supported CLI or Operations
-control rather than killing an arbitrary Python process.
+and issue `ensure` to restore it. Use the loop's supported CLI and owning
+runbook rather than killing an arbitrary Python process; the dashboard has no
+recovery controls.
 
 ## Dashboard Role
 
-The Operations view is the human cockpit for current checkout identity, loop
-health, heartbeats, useful-write freshness, errors, logs, and supported control
-actions. Status CLIs and their JSON files remain the fail-closed diagnostic
-surface when Streamlit is unavailable.
+The Control Room is the read-only human cockpit for current checkout identity,
+loop health, readiness, evidence freshness, and the capped International maker
+pilot decision. The Roadmap is the active-work view. Neither page places or
+cancels orders, changes risk, manages credentials, promotes releases, or
+controls host processes. Status CLIs, their JSON files, and owning runbooks
+remain the fail-closed diagnostic and control surfaces when Streamlit is
+unavailable.
 
 Bot daily-roll workers and reporting jobs have their own launchers,
 supervisors, status artifacts, and evidence gates. They consume capture output
