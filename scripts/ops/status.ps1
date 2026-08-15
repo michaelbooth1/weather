@@ -468,7 +468,14 @@ if (($unpushed -ne "?") -and ([int]$unpushed -gt 0)) { $warns.Add("$unpushed com
 function Test-WeatherOneShotTrigger {
     param([object]$Trigger)
 
-    if ($Trigger.CimClass.CimClassName -ne "MSFT_TaskTimeTrigger") { return $false }
+    if ($null -eq $Trigger) { return $false }
+    $cimClassProperty = $Trigger.PSObject.Properties["CimClass"]
+    if ($null -eq $cimClassProperty -or $null -eq $cimClassProperty.Value) { return $false }
+    $classNameProperty = $cimClassProperty.Value.PSObject.Properties["CimClassName"]
+    if ($null -eq $classNameProperty -or
+        [string]$classNameProperty.Value -ne "MSFT_TaskTimeTrigger") {
+        return $false
+    }
     # Task Scheduler omits Repetition entirely for a true one-shot. Direct
     # member access to that valid sparse shape terminates a strict-mode caller.
     $repetitionProperty = $Trigger.PSObject.Properties["Repetition"]
