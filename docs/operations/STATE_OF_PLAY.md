@@ -74,11 +74,10 @@ input only where evidence supports it. **We do not currently beat the market.**
 - AC sleep is disabled and disk, memory, clock sync, Defender, and volume health
   have current operating headroom. The LAN dashboard remains deferred and must
   use a private-network-only rule when enabled.
-- The overnight chain audit failed before producing a receipt under Windows
-  PowerShell 5.1. A roll-free fix now uses explicit generic-list conversion,
-  writes an incomplete fail-closed receipt before self-disable, and fixes stale
-  clock, failed-one-shot, and daily-deadline status wording. Publish and rerun it
-  without weakening the audit's execution-tape failure.
+- The repaired overnight audit now has a complete exact-tip receipt. Its sole
+  failure is the retained execution-tape coverage gap; current connection,
+  integrity, identity, and lock pass. The same roll-free ops branch corrects the
+  watchdog's stale clock and spent-audit false alarms; integrate it after grading.
 - The bounded production suite now forces any checked-in live-SDK contract test
   to execute instead of silently skip. Ordinary developer tests may still omit
   optional live dependencies.
