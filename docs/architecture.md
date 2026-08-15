@@ -46,6 +46,14 @@ snapshot loop. The observation-trigger loop can request recomputation when
 low-cost live observations change. See the
 [operations topology](operations/OPERATIONS_DESIGN.md).
 
+The Streamlit Operator Control Room is a read-only projection of persisted
+reporting and operations evidence. `weather.reporting.market.operator_control_room`
+owns its exact-target-date reduction and fail-closed `HOLD` decision; the
+`app/views/control_room.py` view only renders that result. Even a complete
+software pass stops at `READY FOR EXPLICIT APPROVAL`. The dashboard does not
+grant trading authority or expose order, cancel, credential, promotion, or
+risk-setting actions.
+
 The paper taker writes `orders_long.csv` and its counterfactual tape by append.
 Real order evidence is permanent. Counterfactual replay detail has a specific
 date-bounded policy: daily-roll startup removes only hash-bound allowlisted raw

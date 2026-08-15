@@ -10,6 +10,7 @@ import streamlit as st
 from app.table_utils import arrow_safe_dataframe, display_cell
 from weather.reporting.market.market_making_dashboard import (
     BACKTEST_ROOT,
+    latest_readiness as _service_latest_readiness,
     read_csv as _read_csv,
     read_json as _read_json,
     read_jsonl as _read_jsonl,
@@ -63,26 +64,7 @@ def _permission_rows(permission_counts):
 
 
 def _latest_readiness(backtest_root=BACKTEST_ROOT, target_date=None):
-    root = Path(backtest_root)
-    if not root.exists():
-        return None, {}
-    candidates = [
-        path for path in root.glob("mm_live_readiness*.json")
-        if path.is_file()
-    ]
-    if target_date:
-        matching = []
-        for path in candidates:
-            payload = _read_json(path, {}) or {}
-            if str(payload.get("target_date") or "") == str(target_date):
-                matching.append((path, payload))
-        if matching:
-            path, payload = max(matching, key=lambda item: item[0].stat().st_mtime)
-            return path, payload
-    if not candidates:
-        return None, {}
-    path = max(candidates, key=lambda item: item.stat().st_mtime)
-    return path, _read_json(path, {}) or {}
+    return _service_latest_readiness(backtest_root, target_date=target_date)
 
 
 def _readiness_summary_rows(readiness):
