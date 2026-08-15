@@ -21,8 +21,8 @@ The gate combines:
   validated by `daily_refresh_cli.configure()`;
 - daily-refresh entrypoint smoke checks for registered step runners and required
   runtime globals such as `utc_now`;
-- a fixture-backed Streamlit single-market route smoke that renders snapshot
-  history through the real app router without network calls;
+- deterministic fixture-backed Streamlit smokes for the current Control Room
+  and Roadmap routes through the real app router without network calls;
 - current-window log signature grouping and owner routing for Streamlit,
   daily-refresh, snapshot, CLOB, observation-trigger, taker, and maker logs.
 

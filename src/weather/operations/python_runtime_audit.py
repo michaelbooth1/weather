@@ -7,8 +7,7 @@ import json
 import re
 import subprocess
 import sys
-import tempfile
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -313,141 +312,90 @@ def daily_refresh_step_smoke() -> dict[str, Any]:
     }
 
 
-def _write_streamlit_smoke_snapshot(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "\n".join(
-            [
-                "snapshot_id,captured_at_local,range_label,model_probability,market_yes,edge,top_temp_c,top_probability",
-                "s1,2026-06-24T12:00:00,70 F,0.60,0.50,0.10,70,0.60",
-                "s2,2026-06-24T12:10:00,70 F,0.62,0.50,0.12,70,0.62",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-
-
-def _streamlit_smoke_classes(snapshot_csv: Path):
-    class SmokeSnapshotStore:
-        def __init__(self, event_slug: str | None = None):
-            self.event_slug = event_slug
-            self.long_path = snapshot_csv
-            self.wide_path = snapshot_csv.parent / "snapshots_wide.csv"
-            self.forecasts_long_path = snapshot_csv.parent / "forecasts_long.csv"
-            self.jsonl_path = snapshot_csv.parent / "snapshots.jsonl"
-
-        def maybe_write(self, *_args, **_kwargs):
-            return {"written": False, "status": "not_due", "next_due_at": "smoke"}
-
-    class SmokePolymarketClient:
-        def __init__(self, market_id: str | None = None):
-            self.market_id = market_id
-
-        def get_event(self):
-            return {
-                "active": True,
-                "liquidity": 1000,
-                "volume": 2000,
-                "openInterest": 300,
-                "updatedAt": "2026-06-24T12:00:00Z",
-                "slug": "highest-temperature-in-nyc-on-june-24",
-                "title": "Smoke NYC high temperature market",
-                "description": "Smoke route fixture.",
-                "resolutionSource": "",
-            }
-
-        def event_market_rows(self, _event):
-            return [{"Range": "70 F", "Yes": "50.0%", "No": "50.0%"}]
-
-    class SmokeModel:
-        target_date = date(2026, 6, 24)
-
-        def __init__(self, market_id: str | None = None):
-            self.market_id = market_id
-
-        def clear_historical_cache(self):
-            return None
-
-        def fetch_historical_sources(self):
-            return {}
-
-        def fetch_live_sources(self):
-            return {}
-
-        def source_cache_ttl_minutes(self, _name):
-            return 5
-
-        def market_bins(self, _event):
-            return [{"label": "70 F", "market_yes": 0.50}]
-
-        def bin_probability(self, distribution, bin_data):
-            return float(distribution.get(70) or bin_data.get("market_yes") or 0.0)
-
-        def build(self, _event, historical_sources=None, live_sources=None):
-            return {
-                "sources": {
-                    "wu_current": {
-                        "ok": True,
-                        "stale": False,
-                        "fetched_at": "2026-06-24T12:00:00-04:00",
-                    }
-                },
-                "source_rows": [{"Source": "Smoke", "Status": "Live"}],
-                "forecast_rows": [],
-                "top_temp": 70,
-                "distribution": {70: 0.60},
-                "model_version": "route-smoke",
-                "model_rows": [{"Range": "70 F", "Probability": "60.0%"}],
-                "deep_dive_rows": [{"Metric": "Smoke", "Value": "ok"}],
-                "notes": ["Route smoke fixture"],
-                "analog_search": None,
-            }
-
-    return SmokeSnapshotStore, SmokePolymarketClient, SmokeModel
-
-
 def streamlit_route_smoke() -> dict[str, Any]:
     try:
         import streamlit as st
         from streamlit.testing.v1 import AppTest
-        import app.views.single_market as single_market
+        import app.views.control_room as control_room
     except Exception as exc:  # noqa: BLE001 - audit should report missing optional test surface
         return {
             "status": "ERROR",
             "error": f"{type(exc).__name__}: {exc}",
-            "route": "single_market",
+            "routes": ["control", "roadmap"],
         }
 
-    with tempfile.TemporaryDirectory() as tmp:
-        snapshot_csv = Path(tmp) / "snapshots_long.csv"
-        _write_streamlit_smoke_snapshot(snapshot_csv)
-        store_cls, client_cls, model_cls = _streamlit_smoke_classes(snapshot_csv)
-        st.cache_data.clear()
-        st.cache_resource.clear()
-        with (
-            patch.object(single_market, "SnapshotStore", store_cls),
-            patch.object(single_market, "PolymarketClient", client_cls),
-            patch.object(single_market, "TorontoHighTempModel", model_cls),
-            patch(
-                "weather.reporting.location_analysis.location_trust.score_market",
-                lambda _market_id: {
-                    "trust_score": 100,
-                    "grade": "Strong",
-                    "settled_days": 1,
-                    "model_ece": 0.0,
-                    "rationale": "Route smoke fixture.",
+    control_snapshot = {
+        "target_date": None,
+        "run": {"available": False, "path": "fixture://runs", "payload": {}},
+        "readiness": {
+            "available": False,
+            "path": "fixture://backtest",
+            "payload": {},
+            "error": "no current run target date is available",
+        },
+        "platform_verification": {"available": False, "path": "fixture://platform"},
+        "economics_snapshot": {"available": False, "path": "fixture://economics"},
+        "economics_drift": {"available": False, "path": "fixture://drift"},
+        "economics_accepted": {"available": False, "path": "fixture://accepted"},
+    }
+    operations_snapshot = {
+        "host_status": {
+            "available": True,
+            "path": "fixture://status.ps1",
+            "payload": {
+                "verdict": "OK",
+                "flags": [],
+                "streak": {"today": "ON_TRACK"},
+                "execution_tape": {
+                    "process_healthy": True,
+                    "capture_state": "CONNECTED",
+                    "evidence_integrity": "PASS",
+                    "price_path_usable": False,
                 },
-            ),
+            },
+        }
+    }
+    roadmap_summary = {
+        "generated_at_utc": "2026-06-24T12:00:00+00:00",
+        "status": "OK",
+        "total_item_count": 1,
+        "closed_item_count": 1,
+        "active_item_count": 0,
+        "partial_item_count": 0,
+        "open_item_count": 0,
+        "active_blocked_item_count": 0,
+        "active_unblocked_item_count": 0,
+        "lint_error_count": 0,
+        "active_items": [],
+    }
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    exceptions = []
+    with (
+        patch.object(
+            control_room,
+            "_load_control_room_snapshot",
+            return_value=(control_snapshot, operations_snapshot),
+        ),
+        patch(
+            "weather.reporting.roadmap.roadmap_backlog.summarize_roadmap_status",
+            return_value=roadmap_summary,
+        ),
+    ):
+        for route, query_params in (
+            ("control", {"market": "control"}),
+            ("roadmap", {"roadmap": ""}),
         ):
             app_test = AppTest.from_file(str(REPO_ROOT / "app" / "streamlit_app.py"))
-            app_test.query_params["market"] = "nyc"
+            app_test.query_params.update(query_params)
             app_test.run()
-            exceptions = [str(item) for item in app_test.exception]
+            exceptions.extend(
+                f"{route}: {item}"
+                for item in app_test.exception
+            )
     return {
         "status": "PASS" if not exceptions else "BLOCK",
-        "route": "single_market",
-        "query_params": {"market": "nyc"},
+        "routes": ["control", "roadmap"],
         "exception_count": len(exceptions),
         "exceptions": exceptions,
     }

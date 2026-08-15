@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-14T13:49:27.208488+00:00
+Generated: 2026-08-15T18:24:37.028408+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 320 |
+| Items | 321 |
 | Active items | 34 |
 | OPEN | 4 |
 | PARTIAL | 30 |
-| COMPLETE | 286 |
-| ROADMAP rows | 320 |
-| ROADMAP primary rows | 320 |
-| Metadata manifest rows | 320 |
+| COMPLETE | 287 |
+| ROADMAP rows | 321 |
+| ROADMAP primary rows | 321 |
+| Metadata manifest rows | 321 |
 | Lint errors | 0 |
 
 ## Active Items

@@ -112,10 +112,11 @@ def test_log_signature_audit_blocks_unowned_current_traceback(tmp_path):
     assert any("NameError" in row["normalized_message"] for row in payload["unowned_signatures"])
 
 
-def test_streamlit_single_market_route_smoke_has_no_runtime_exception():
+def test_streamlit_two_page_route_smoke_has_no_runtime_exception():
     payload = audit.streamlit_route_smoke()
 
     assert payload["status"] == "PASS"
+    assert payload["routes"] == ["control", "roadmap"]
     assert payload["exception_count"] == 0
 
 

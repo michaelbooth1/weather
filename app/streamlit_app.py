@@ -1,100 +1,69 @@
-"""Streamlit app router."""
+"""Two-page Streamlit router for the local operator frontend."""
 
 from __future__ import annotations
 
 import streamlit as st
 
-from weather.market.market_registry import all_specs
 
-
-# The snapshot loop writes every 10 minutes, so a 60s refresh re-rendered the
-# same data five times over. 300s stays responsive while cutting the load this
-# page puts on a host whose binding constraint is capture.
 LIVE_REFRESH_SECONDS = 300
+PAGE_LABELS = {
+    "Control Room": "control",
+    "Roadmap": "roadmap",
+}
 
 
-st.set_page_config(page_title="Weather Markets", layout="wide")
+st.set_page_config(
+    page_title="Weather Operations",
+    page_icon=":material/cloud:",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 
-def _market_labels():
-    labels = {
-        "Home": "overview",
-        "Control Room": "control",
-        "Roadmap": "roadmap",
-        "History": "history",
-        "Operations": "ops",
-        "Market Making": "mm",
-    }
-    labels.update({spec.city_label: spec.id for spec in all_specs()})
-    return labels
-
-
-def _default_market():
+def _default_page():
     if "roadmap" in st.query_params:
         return "roadmap"
-    return "history" if "history" in st.query_params else st.query_params.get("market", "overview")
+    requested = st.query_params.get("market")
+    return requested if requested in PAGE_LABELS.values() else "control"
 
 
-def _selected_market_id(labels):
-    default_market = _default_market()
-    label_list = list(labels.keys())
-    default_index = 0
-    for index, label in enumerate(label_list):
-        if labels[label] == default_market:
-            default_index = index
-            break
-    selected_label = st.sidebar.selectbox("Market", label_list, index=default_index)
-    return labels[selected_label]
+def _selected_page():
+    default_page = _default_page()
+    labels = list(PAGE_LABELS)
+    default_index = next(
+        index
+        for index, label in enumerate(labels)
+        if PAGE_LABELS[label] == default_page
+    )
+    st.sidebar.markdown("### Weather Operations")
+    st.sidebar.caption("International maker pilot")
+    selected = st.sidebar.selectbox("Page", labels, index=default_index)
+    st.sidebar.caption("Read-only frontend")
+    return PAGE_LABELS[selected]
 
 
-def _sync_query_params(market_id):
-    if market_id == "roadmap":
+def _sync_query_params(page):
+    if page == "roadmap":
         if "roadmap" not in st.query_params or st.query_params.get("market"):
             st.query_params.clear()
             st.query_params["roadmap"] = ""
         return
-    if market_id == "history":
-        if "history" not in st.query_params or st.query_params.get("market") or "roadmap" in st.query_params:
-            st.query_params.clear()
-            st.query_params["history"] = ""
-        return
-    if "history" in st.query_params or "roadmap" in st.query_params:
+    if "roadmap" in st.query_params or st.query_params.get("market") != "control":
         st.query_params.clear()
-    st.query_params["market"] = market_id
+        st.query_params["market"] = "control"
 
 
 def main():
-    market_id = _selected_market_id(_market_labels())
-    _sync_query_params(market_id)
-
-    if market_id == "history":
-        from app.views.history import render_history_page
-
-        render_history_page()
-    elif market_id == "roadmap":
+    page = _selected_page()
+    _sync_query_params(page)
+    if page == "roadmap":
         from app.views.roadmap import render_roadmap_page
 
         render_roadmap_page()
-    elif market_id == "ops":
-        from app.views.operations import render_operations_page
-
-        render_operations_page()
-    elif market_id == "overview":
-        from app.views.overview import render_overview_page
-
-        render_overview_page(LIVE_REFRESH_SECONDS)
-    elif market_id == "control":
+    else:
         from app.views.control_room import render_control_room_page
 
         render_control_room_page(LIVE_REFRESH_SECONDS)
-    elif market_id == "mm":
-        from app.views.market_making import render_market_making_page
-
-        render_market_making_page(LIVE_REFRESH_SECONDS)
-    else:
-        from app.views.single_market import render_single_market_page
-
-        render_single_market_page(market_id, LIVE_REFRESH_SECONDS)
 
 
 main()

@@ -1,4 +1,4 @@
-# Starts the Streamlit dashboard and opens the Operations page.
+# Starts the Streamlit dashboard and opens the read-only Control Room.
 #
 # The durable loops are supervised separately by Windows Task Scheduler. This
 # launcher is intentionally just the human-facing dashboard entrypoint.
@@ -54,7 +54,7 @@ if (-not $isListening) {
     Start-Sleep -Seconds 2
 }
 
-$url = "http://localhost:$Port/?market=ops"
+$url = "http://localhost:$Port/?market=control"
 if (-not $NoBrowser) {
     Start-Process $url | Out-Null
 }

@@ -70,10 +70,8 @@ def test_dashboard_and_backfill_entrypoints_import_without_repo_path_mutation():
         "import weather.collection.historical_backfill_plan",
         "import weather.collection.historical_backfill_runner",
         "import tools.backfill_all",
-        "import app.views.history",
-        "import app.views.market_making",
-        "import app.views.operations",
-        "import app.views.overview",
+        "import app.views.control_room",
+        "import app.views.roadmap",
         "py_compile.compile('app/streamlit_app.py', doraise=True)",
     ])
     result = subprocess.run(

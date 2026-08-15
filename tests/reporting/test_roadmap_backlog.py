@@ -124,7 +124,7 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertEqual(payload["metadata_manifest"][0]["owner_package"], "weather.reporting")
         self.assertEqual(payload["metadata_manifest"][0]["status"], "OPEN")
 
-    def test_summarize_roadmap_status_counts_closed_and_open_blocked_markers(self):
+    def test_summarize_roadmap_status_counts_all_active_and_blocked_markers(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             items = root / "items"
@@ -133,13 +133,23 @@ class RoadmapBacklogTests(unittest.TestCase):
             _item(items / "item-002-open-blocks.md", 2, "OPEN 2026-06-21 - FORECAST CEILING BLOCKS LOCK-IN")
             _item(items / "item-003-open-unblocked.md", 3, "OPEN 2026-06-21 - FEATURE UNBLOCKED")
             _item(items / "item-004-complete.md", 4, "COMPLETE 2026-06-21 - DONE")
+            _item(items / "item-005-partial.md", 5, "PARTIAL 2026-06-21 - BUILD IN PROGRESS")
 
             summary = summarize_roadmap_status(root, generated_at_utc="2026-06-21T00:00:00+00:00")
 
         self.assertEqual(summary["closed_item_count"], 1)
+        self.assertEqual(summary["total_item_count"], 5)
+        self.assertEqual(summary["active_item_count"], 4)
+        self.assertEqual(summary["partial_item_count"], 1)
         self.assertEqual(summary["open_item_count"], 3)
+        self.assertEqual(summary["active_blocked_item_count"], 2)
+        self.assertEqual(summary["active_unblocked_item_count"], 2)
         self.assertEqual(summary["open_blocked_item_count"], 2)
         self.assertEqual(summary["open_unblocked_item_count"], 1)
+        self.assertEqual(
+            [row["status"] for row in summary["active_items"]],
+            ["OPEN", "OPEN", "OPEN", "PARTIAL"],
+        )
         self.assertEqual(
             [row["blocked"] for row in summary["open_items"]],
             [True, True, False],

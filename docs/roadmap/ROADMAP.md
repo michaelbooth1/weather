@@ -66,6 +66,7 @@ infrastructure work remains.
 | 11 | [Source Freshness Panel [COMPLETE - TTL POLICY TRACKED IN ITEM 17]](items/item-11-source-freshness-panel.md) |
 | 12 | [Model Explanation Panel [COMPLETE]](items/item-12-model-explanation-panel.md) |
 | 13 | [Snapshot Controls [COMPLETE]](items/item-13-snapshot-controls.md) |
+| 327 | [Two-Page Operator Frontend Reset [COMPLETE 2026-08-15 - CONTROL ROOM AND ACTIVE ROADMAP ONLY]](items/item-327-two-page-operator-frontend-reset.md) |
 
 ### Data Quality And Operations
 

@@ -31,7 +31,7 @@ def _timestamp(value):
 
 
 def _load_control_room_snapshot():
-    from app.views.operations import host_status_snapshot
+    from weather.operations.operator_host_status import host_status_snapshot
     from weather.reporting.market.operator_control_room import collect_control_room_snapshot
 
     return collect_control_room_snapshot(), {"host_status": host_status_snapshot()}
@@ -140,7 +140,7 @@ def render_control_room_page(refresh_seconds=300):
         st.dataframe(
             arrow_safe_dataframe(attention),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
     else:
         st.success("No software blockers remain. Await explicit approval for a named run.")
@@ -159,7 +159,7 @@ def render_control_room_page(refresh_seconds=300):
         "Status": "ALWAYS MANUAL",
         "Evidence-backed meaning": "Approval is scoped to one named run and is never inferred from this dashboard.",
     })
-    st.dataframe(arrow_safe_dataframe(runway), hide_index=True, use_container_width=True)
+    st.dataframe(arrow_safe_dataframe(runway), hide_index=True, width="stretch")
 
     contract = evaluation.get("pilot_contract") or {}
     max_budget = _text(contract.get("max_budget_usdc"), "100")
@@ -189,7 +189,7 @@ def render_control_room_page(refresh_seconds=300):
                 {"Metric": "Reserved budget", "Value": lifecycle.get("current_reserved_usdc")},
             ]),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
     with right:
         st.subheader("Current readiness receipt")
@@ -207,7 +207,7 @@ def render_control_room_page(refresh_seconds=300):
                 {"Metric": "Evidence mode", "Value": (readiness.get("summary") or {}).get("evidence_mode")},
             ]),
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
     with st.expander("Evidence provenance"):
@@ -234,5 +234,5 @@ def render_control_room_page(refresh_seconds=300):
             "Recorded": _text(artifact_payload(host_artifact).get("ts"), "not recorded"),
             "Path": host_artifact.get("path"),
         })
-        st.dataframe(arrow_safe_dataframe(rows), hide_index=True, use_container_width=True)
+        st.dataframe(arrow_safe_dataframe(rows), hide_index=True, width="stretch")
         st.caption(f"Automatic page refresh: {refresh_seconds} seconds. No artifact is modified by this view.")
