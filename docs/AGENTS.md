@@ -13,6 +13,19 @@ These instructions apply under `docs/`.
 Use [README.md](README.md) to decide which class a file belongs to. Do not turn
 a dated audit into current guidance by silently modernizing its transcript.
 
+## Current-state boundary
+
+- `operations/STATE_OF_PLAY.md` is the only global current-state narrative.
+  The production operations master owns its integration-line rewrite. Do not
+  edit it from an ordinary feature, research, or handoff branch merely because
+  that branch changes future state.
+- Dated handoffs and reports are scoped mission records. Filename recency does
+  not make one global instruction. Verify an apparently open mission against
+  `STATE_OF_PLAY.md`, its exact branch/report pair, and any later acceptance or
+  rejection before acting.
+- After compaction, use summaries and memory as indexes into canonical files.
+  Re-read the owner document and dynamic source before resuming a mutation.
+
 ## Writing rules
 
 - Put each fact in one canonical file and link to it from other entry points.

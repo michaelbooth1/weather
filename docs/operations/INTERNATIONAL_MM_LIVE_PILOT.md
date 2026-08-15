@@ -30,9 +30,11 @@ operator must also confirm that the response matches the host's real physical
 location and that no VPN, proxy, relay, or other geoblock circumvention is in
 use. Viewing and public capture may continue from a blocked host; order
 mutation may not. On 2026-08-13 the production host returned `blocked=true`,
-`country=CA`, `region=ON`, so this host is preparation/read-only only. Never
-move submission unless the new host is genuinely and lawfully physically
-eligible.
+`country=CA`, `region=ON`, so this host is preparation/read-only at that
+location. On 2026-08-14 the operator designated this same PC as the eventual
+execution host and will physically relocate it before live use. The historical
+blocked result remains binding until a fresh response proves the relocated PC
+eligible; a host designation, move plan, or old response is not eligibility.
 
 ## Immutable pilot envelope
 
@@ -105,8 +107,10 @@ All must be current for the target date and selected market:
 7. A simultaneous one-market paper counterfactual has quote permission and is
    writing auditable artifacts. Zero quote-permission rows means no live test.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
-9. The submitting host is physically eligible. The production Ontario host is
-   currently blocked and cannot satisfy this prerequisite.
+9. The submitting host is physically eligible. This production PC cannot
+   satisfy the prerequisite while its current evidence is Ontario/blocked; it
+   may satisfy it only after physical relocation and a fresh matching official
+   response.
 
 ## Staged protocol
 
@@ -226,14 +230,24 @@ observed bootstrap and its separate literal confirmation, may perform Stage 1.
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
 
-### Eligible-host preparation commands
+### Same-PC relocation and eligible-host preparation
 
-The final sequence is for a genuinely eligible physical Windows host. Public
-metadata, economics, and book selection may be rehearsed from a blocked host,
-but they must be rerun on the eligible host; identity preparation, credential
-import, authenticated Stage 0, and every mutation must not run from the blocked
-Ontario production host. Never put a secret value in the command line,
-environment, identity manifest, output path, or shell history.
+The final sequence runs from this production checkout after the PC is
+physically relocated. There is no source-transfer or second-machine deployment
+step. Public metadata, economics, and book selection may be rehearsed while the
+PC is blocked, but they must be rerun after relocation; identity preparation,
+credential import, authenticated Stage 0, and every mutation must not run while
+the current official response is blocked. Never put a secret value in the
+command line, environment, identity manifest, output path, or shell history.
+
+Plan the physical move and first lifecycle session outside both the 12:00-18:00
+graded window and the 18:00-00:30 near-close protection window. The move will
+interrupt capture even though the code is unchanged. After boot and network
+recovery, log in once so Credential Manager and `WeatherOneShotPush` are
+available, prove master equals origin at the reviewed exact tip, prove all
+capture workers and the public execution-tape producer recovered, clear the
+pending reboot state, and ensure no heavy scheduled job can overlap the session.
+Do not trade merely because Windows restarted successfully.
 
 Select the exact Stage 1 market from fresh public data before creating the
 identity. Do not hand-pick a condition or retain an old token from a prior day.

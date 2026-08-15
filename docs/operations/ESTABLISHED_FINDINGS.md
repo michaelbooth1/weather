@@ -2033,6 +2033,14 @@ unique fills, execution intensity, our fills, queue position, fees, rebates, inv
 > "no paid API" rule is about **weather** providers; the exchange's public market stream and
 > `/trades` endpoint are a separate question and are now in scope for capture.
 
+> ## OPERATOR UPDATE, 2026-08-14
+>
+> The same production PC is now the designated execution machine after physical relocation to a
+> genuinely eligible location. The historical Ontario/blocked result remains binding at that
+> location; designation and a move plan are not eligibility. A fresh official response matching
+> the real location and every existing authorization, exact-tip, credential, risk, and readiness
+> gate remain mandatory. Current disposition belongs in `STATE_OF_PLAY.md` and `AGENT_CONTEXT.md`.
+
 **Implementation remains staged deliberately.** The production pilot replaces the old linear
 extrapolation for one bounded interval, but it does not establish a stable daily rate or solve the
 own-account evidence gap.
@@ -2319,8 +2327,9 @@ prove eligible-host dependencies, authenticated lifecycle authority, order accep
 fee or rebate receipt, realized P&L, or profitability. Stage 2 remains stacked on the unmerged
 Stage 0/1 parent and remains roll-sensitive. Land that parent first; then merge current production
 into Stage 2, run a fresh exact-tip suite for the combined tree, review the eligible-host wrapper,
-and use the guarded quiet-window path. Ontario production still cannot receive credentials or
-place or cancel an order.
+and use the guarded quiet-window path. This proof established no physical eligibility or live
+authority; current execution-host disposition belongs in `STATE_OF_PLAY.md` and
+`AGENT_CONTEXT.md`.
 
 ## 8o. Windows venv launchers require child-PID adoption for supervised public capture
 

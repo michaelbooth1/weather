@@ -8,8 +8,10 @@ record that is valuable evidence but not current instruction.
 
 | Need | Canonical source | Class |
 | --- | --- | --- |
+| **What is happening right now** | [State of play](operations/STATE_OF_PLAY.md) | Integration-owned current state |
 | Product purpose, setup, dashboard, command catalog | [Root README](../README.md) | Canonical guide |
 | Agent rules and task routing | [Root AGENTS.md](../AGENTS.md) | Canonical guide |
+| Production-host role, authority, and safety | [Operations agent role](operations/OPERATIONS_AGENT_ROLE.md) | Canonical role |
 | Durable domain constraints | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
 | **What we have measured about the model** | [Established findings](operations/ESTABLISHED_FINDINGS.md) | Canonical distillation |
 | **Claims that were wrong, and traps that look true** | [Retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md) | Canonical distillation |
@@ -23,7 +25,7 @@ record that is valuable evidence but not current instruction.
 | **Capture streak, quiet-window merges, host safety** | [Code-soak streak runbook](ops/streak-soak.md) | Canonical runbook |
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
-| Agent decision log and cross-host correspondence | `roadmap/workstation-handoff-*.md`, `roadmap/agent-report-*.md` | Dated evidence; newest is current |
+| Agent decision log and cross-host correspondence | `roadmap/workstation-handoff-*.md`, `roadmap/agent-report-*.md` | Dated, mission-scoped evidence |
 | Roadmap item scope/status/evidence | `roadmap/items/item-*.md` | Canonical per item |
 | Operations and runbooks | [Operations index](operations/README.md) | Canonical index |
 | Research findings | `research/` and dated roadmap audits | Historical evidence unless labeled otherwise |
@@ -56,7 +58,8 @@ fastest current-work view. `roadmap/ROADMAP.md` is the full taxonomy/index.
 Dated audits, research reports, incident notes, completed item transcripts, and
 older narratives are immutable evidence, not operator instructions.
 
-**The correspondence is too large to read.** It is ~600 files and grows daily.
+**The correspondence is too large to read.** It is a large append-only record
+and grows continually.
 [Established findings](operations/ESTABLISHED_FINDINGS.md) and
 [retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md) are the distilled state of
 what it established — read those first, and go to the dated files only for the detail behind a
@@ -66,10 +69,11 @@ specific finding.
 under `roadmap/items/` own engineering scope, status, acceptance criteria, and
 evidence. The dated `workstation-handoff-*` / `agent-report-*` pair is the
 append-only decision log of the production-host and workstation agent loop: what
-was instructed, what was measured, what was accepted or rejected, and why. Recent
-research direction lives almost entirely in that correspondence, so an agent
-asking "why are we doing this?" should read the newest handoff, not only the
-backlog. See [the roadmap agent guide](roadmap/AGENTS.md) for the convention.
+was instructed, what was measured, what was accepted or rejected, and why. It is
+not global current state, and the newest filename is not automatic authority.
+Read correspondence only for a named mission after `STATE_OF_PLAY.md`; verify
+the branch/report pair and any later acceptance or rejection. See [the roadmap
+agent guide](roadmap/AGENTS.md) for the convention.
 
 ## Update this file when
 

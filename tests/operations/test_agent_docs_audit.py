@@ -1,6 +1,7 @@
 from weather.operations.agent_docs_audit import (
     audit_repo,
     broken_local_links,
+    knowledge_routing_errors,
     legacy_command_matches,
 )
 
@@ -57,3 +58,31 @@ def test_legacy_command_scan_rejects_root_script_shims_but_allows_canonical_path
     assert legacy_command_matches(legacy_launcher)
     assert legacy_command_matches(r".\scripts\ops\register_daily_refresh.ps1") == []
     assert legacy_command_matches(r".\scripts\launch\start_weather_dashboard.cmd") == []
+
+
+def test_knowledge_routing_rejects_volatile_current_state_in_cold_start_docs(tmp_path):
+    paths = {
+        "docs/operations/STATE_OF_PLAY.md": "\n".join(
+            ["# State of play", "REWRITTEN, never appended", *(["state"] * 101)]
+        ),
+        "docs/operations/OPERATIONS_AGENT_ROLE.md": (
+            "# Role\n## Historical snapshot\nold current state\n"
+        ),
+        "docs/README.md": "Dated evidence; newest is current\n",
+        "docs/roadmap/AGENTS.md": (
+            "The newest `workstation-handoff-*` is live instruction\n"
+        ),
+        "docs/operations/README.md": "**LIVE INCIDENT**\n",
+    }
+    for relative, text in paths.items():
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    errors = knowledge_routing_errors(tmp_path)
+
+    assert any("cold-start limit" in error for error in errors)
+    assert any("Historical snapshot" in error for error in errors)
+    assert any("newest is current" in error for error in errors)
+    assert any("live instruction" in error for error in errors)
+    assert any("LIVE INCIDENT" in error for error in errors)

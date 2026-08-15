@@ -31,7 +31,10 @@ REQUIRED_FILES = (
     "docs/development.md",
     "docs/documentation-maintenance.md",
     "docs/operations/AGENT_CONTEXT.md",
+    "docs/operations/DELEGATION_CONTRACT.md",
+    "docs/operations/OPERATIONS_AGENT_ROLE.md",
     "docs/operations/README.md",
+    "docs/operations/STATE_OF_PLAY.md",
     "docs/roadmap/AGENTS.md",
     "docs/roadmap/active-backlog.md",
     "scripts/ops/AGENTS.md",
@@ -57,8 +60,11 @@ CANONICAL_DOCS = (
     "docs/development.md",
     "docs/documentation-maintenance.md",
     "docs/operations/AGENT_CONTEXT.md",
+    "docs/operations/DELEGATION_CONTRACT.md",
+    "docs/operations/OPERATIONS_AGENT_ROLE.md",
     "docs/operations/OPERATIONS_DESIGN.md",
     "docs/operations/README.md",
+    "docs/operations/STATE_OF_PLAY.md",
     "docs/operations/artifact-storage-policy.md",
     "docs/operations/config-inventory.md",
     "docs/operations/package-boundaries.md",
@@ -73,9 +79,12 @@ UPDATE_TRIGGER_DOCS = (
     "docs/development.md",
     "docs/documentation-maintenance.md",
     "docs/operations/AGENT_CONTEXT.md",
+    "docs/operations/DELEGATION_CONTRACT.md",
     "docs/operations/NIGHTLY_RETRAIN_RUNBOOK.md",
+    "docs/operations/OPERATIONS_AGENT_ROLE.md",
     "docs/operations/OPERATIONS_DESIGN.md",
     "docs/operations/README.md",
+    "docs/operations/STATE_OF_PLAY.md",
     "docs/operations/artifact-storage-policy.md",
     "docs/operations/config-inventory.md",
     "docs/operations/package-boundaries.md",
@@ -108,6 +117,9 @@ LEGACY_COMMAND_PATTERNS = (
     ),
 )
 
+STATE_OF_PLAY_MAX_LINES = 100
+OPERATIONS_ROLE_MAX_LINES = 220
+
 
 def _markdown_files(repo_root: Path) -> list[Path]:
     ignored_dirs = {
@@ -137,6 +149,86 @@ def legacy_command_matches(text: str) -> list[str]:
         for pattern in LEGACY_COMMAND_PATTERNS
         for match in pattern.finditer(text)
     ]
+
+
+def knowledge_routing_errors(repo_root: Path) -> list[str]:
+    """Check the compact, high-authority paths a cold or compacted agent reads.
+
+    These checks intentionally avoid judging factual freshness. They ratchet the
+    repository's routing topology so current state has one owner and historical
+    records cannot silently become global instruction again.
+    """
+
+    errors: list[str] = []
+
+    state_path = repo_root / "docs/operations/STATE_OF_PLAY.md"
+    if state_path.is_file():
+        state = state_path.read_text(encoding="utf-8-sig")
+        line_count = len(state.splitlines())
+        if line_count > STATE_OF_PLAY_MAX_LINES:
+            errors.append(
+                "docs/operations/STATE_OF_PLAY.md: "
+                f"{line_count} lines exceeds the {STATE_OF_PLAY_MAX_LINES}-line "
+                "cold-start limit"
+            )
+        if "REWRITTEN, never appended" not in state:
+            errors.append(
+                "docs/operations/STATE_OF_PLAY.md: missing rewrite-not-append contract"
+            )
+
+    role_path = repo_root / "docs/operations/OPERATIONS_AGENT_ROLE.md"
+    if role_path.is_file():
+        role = role_path.read_text(encoding="utf-8-sig")
+        line_count = len(role.splitlines())
+        if line_count > OPERATIONS_ROLE_MAX_LINES:
+            errors.append(
+                "docs/operations/OPERATIONS_AGENT_ROLE.md: "
+                f"{line_count} lines exceeds the {OPERATIONS_ROLE_MAX_LINES}-line "
+                "durable-role limit"
+            )
+        for forbidden_heading in (
+            "## 7. Historical snapshot",
+            "## Historical snapshot",
+            "## Open questions worth fresh eyes",
+        ):
+            if forbidden_heading in role:
+                errors.append(
+                    "docs/operations/OPERATIONS_AGENT_ROLE.md: volatile section "
+                    f"belongs in state, roadmap, or dated evidence: {forbidden_heading}"
+                )
+
+    forbidden_phrases = {
+        "docs/README.md": (
+            "Dated evidence; newest is current",
+            'should read the newest handoff',
+        ),
+        "docs/roadmap/AGENTS.md": (
+            "The newest `workstation-handoff-*` is live instruction",
+        ),
+        "docs/operations/README.md": ("LIVE INCIDENT",),
+    }
+    for relative, phrases in forbidden_phrases.items():
+        path = repo_root / relative
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8-sig")
+        for phrase in phrases:
+            if phrase.casefold() in text.casefold():
+                errors.append(
+                    f"{relative}: stale-routing phrase makes dated evidence current: {phrase}"
+                )
+
+    required_sections = {
+        "AGENTS.md": "## Context recovery",
+        "docs/AGENTS.md": "## Current-state boundary",
+        "docs/documentation-maintenance.md": "## LLM and compaction design",
+    }
+    for relative, section in required_sections.items():
+        path = repo_root / relative
+        if path.is_file() and section not in path.read_text(encoding="utf-8-sig"):
+            errors.append(f"{relative}: missing compaction contract section: {section}")
+
+    return errors
 
 
 def _link_target(raw_target: str) -> str:
@@ -326,6 +418,7 @@ def audit_repo(repo_root: Path = REPO_ROOT) -> list[str]:
             errors.append(f"{relative}: missing update trigger")
 
     errors.extend(broken_local_links(repo_root))
+    errors.extend(knowledge_routing_errors(repo_root))
 
     config_inventory = (repo_root / "docs/operations/config-inventory.md").read_text(
         encoding="utf-8-sig"

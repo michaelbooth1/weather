@@ -16,7 +16,7 @@ Conventions for naming, ordering and reading the correspondence are in
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, git authority, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
-| **Workstation (32 GB)** | Research, implementation, measurement | Cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
+| **Workstation (32 GB)** | Research, implementation, measurement | Cannot see authoritative production `data/`; any mirror is non-authoritative |
 
 The production host writes handoffs and verifies handbacks. The workstation implements and measures.
 **The workstation never merges, never registers, and never writes production state.**
@@ -25,10 +25,9 @@ The production host writes handoffs and verifies handbacks. The workstation impl
 about live state. A workstation mission that needs live evidence must be handed that evidence as
 facts in the handoff, and must say which of its conclusions depend on them.
 
-**Since 2026-08-12 the mirror is PAUSED, so it does not lag — it is FROZEN**
-([record](mirror-paused-2026-08-12.md)). The rule above is unchanged and now binds harder: a date
-after 2026-08-12 simply does not exist on the workstation, and a mission that reads `data/` there
-is reading a fixed snapshot of that morning, not a stale-by-a-day copy.
+Current mirror state belongs in [STATE_OF_PLAY.md](STATE_OF_PLAY.md) and its
+[pause record](mirror-paused-2026-08-12.md). Whether the mirror is running,
+lagging, paused, or frozen does not change the evidence boundary above.
 
 ---
 
@@ -182,8 +181,17 @@ The production agent verifies before accepting. Standard checks:
 - **Reproduction commands are checked for path existence on this host.** Workstation scratch paths are
   the most common defect in an otherwise correct report.
 - **Roll verdict is re-derived** before scheduling a merge window.
-- **Push is verified**, always: `git ls-tree -r --name-only origin/master | Select-String '<slug>'`.
-  Claiming a push without verifying it has happened here and was caught by the operator.
+- **Push and identity are verified against the exact remote topic ref**, never
+  `origin/master` before integration:
+
+  ```powershell
+  git rev-parse "origin/<exact-branch>^{commit}"
+  git ls-tree -r --name-only origin/<exact-branch> -- docs/roadmap/<exact-report>.md
+  ```
+
+  The resolved tip must equal the handback commit and the exact report path must
+  exist in that tree. A cached local branch name or an unrelated file on
+  `origin/master` is not push evidence.
 
 ---
 

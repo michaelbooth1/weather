@@ -1,104 +1,99 @@
 # State of play
 
-**Last rewritten: 2026-08-14 09:54 (the combined Stage 0/1 tip is focused-green and awaits its
-exact suite; the continuous public-tape repair is stacked behind it).** Read this first, then `ESTABLISHED_FINDINGS.md`
-and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
+**Last rewritten: 2026-08-14 21:38 (same-PC execution is the approved deployment
+shape; the exact Stage 0/1 and execution-tape chain is armed for tonight).**
+Read this first, then `ESTABLISHED_FINDINGS.md` and
+`RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
-> **REWRITTEN, never appended. Capped at ~90 lines.** This page answers *what is happening now*.
-> Findings and numbers belong in `ESTABLISHED_FINDINGS`; false claims in
-> `RETRACTED_AND_FALSE_LEADS`; invariants in `AGENT_CONTEXT`; cross-host mechanics in
-> `DELEGATION_CONTRACT`. Do not cite this page as quantitative evidence.
+> **REWRITTEN, never appended. Capped at ~90 lines.** This page answers what is
+> happening now. Findings and numbers belong in `ESTABLISHED_FINDINGS`; false
+> claims in `RETRACTED_AND_FALSE_LEADS`; invariants in `AGENT_CONTEXT`;
+> cross-host mechanics in `DELEGATION_CONTRACT`. Do not cite this page as
+> quantitative evidence. The production operations master is its sole
+> integration owner.
 
-**Objectives:** protect capture continuity; make the **International Polymarket** market maker
-profitable after costs from spread plus documented maker rebates; get the weather model close
-enough to the market to control adverse selection and inventory. **We do not beat the market.**
-
-## Current clocks
-
-| Clock | Current state |
-| --- | --- |
-| Capture streak | Reset. `08-14` is currently `ON_TRACK`; it is the earliest possible new full day after the `08-13` incident. |
-| MM countable days | Today's paper run is countable after the target-date validation producer was repaired. It has zero quote permissions; a countable day never required a `QUOTE` (§§8b, 8m). |
-| Archive coverage | Does not include the current target period; the permitted re-fetch remains un-run. |
-| Execution evidence | The bounded public-tape pilot passed. Continuous supervision is integrated, but the recurring producer is held Disabled pending the exact queued launcher repair; no own-account economic counter exists (§§8c, 8o). |
+**Objectives:** protect capture continuity; make the **International
+Polymarket** market maker profitable after costs from spread plus documented
+maker rebates; get the weather model close enough to the market to control
+adverse selection and inventory. **We do not currently beat the market.**
 
 ## Closed decisions — do not relitigate without new evidence
 
-- **International-only maker-rebate pivot approved 2026-08-13. Never use Polymarket US.** The
-  model is a quote-centre and risk-control input, not assumed alpha. Profit must survive spread,
-  adverse selection, inventory, fees, and only rebates actually documented as paid.
-- The instrument audit, observation-recovery candidate, reshaping, input, and old model-edge paths
-  are closed or unpowered. The surviving shipped model change is the serving floor. See §§1, 1b,
-  1i, 4, and 5e; do not resurrect retired headlines from roadmap correspondence.
-- **No alpha is allocated.** Decision 10 remains closed unused and must never be reassigned.
-- Release #1 remains deferred; release machinery is off the rebate-pilot critical path.
-  Free-tier weather sources only; no paid provider.
-- Public execution capture and own-account lifecycle evidence answer different questions.
-  Public data supplies market paths/counterfactual markouts. Authoritative user events, open
-  orders, positions, fees, and rebate receipts supply our realized lifecycle and economics (§8c).
-- A live test is authorized only from a genuinely eligible **International** host: exactly one
-  market, finite non-raisable 100 USDC-equivalent cap, post-only, no naked sells, and all existing
-  risk/readiness gates. Ontario production never receives credentials or places/cancels orders.
+- **International Polymarket only. Never use Polymarket US.** The model is a
+  quote-centre and risk-control input, not assumed alpha. Profit must survive
+  spread, adverse selection, inventory, fees, and rebates actually received.
+- **This production PC is the intended live execution machine after physical
+  relocation.** Its historical Ontario/blocked response remains binding at that
+  location. A fresh official response matching the real location, explicit
+  authorization, exact reviewed code, credentials by reference, fixed-scope
+  wrapper, and every readiness/risk gate remain mandatory. The same-PC decision
+  removes a source-transfer step; it does not authorize an order.
+- The first real-money lifecycle test remains exactly one market, post-only,
+  no naked sells, and a finite non-raisable 100 USDC-equivalent cap. Existing
+  lower risk ceilings remain non-raisable.
+- **No alpha is allocated.** Decision 10 remains closed unused. The instrument,
+  observation-recovery, reshaping, old input, and historical edge-reproduction
+  paths are closed or unpowered. Do not rebuild them from dated correspondence.
+- Release #1 remains off the rebate-pilot critical path. Free weather sources
+  only; no paid provider.
+- Public execution capture and own-account lifecycle evidence answer different
+  questions. Public paths support counterfactual markouts. Authoritative user
+  events, open orders, positions, fees, and rebate receipts establish realized
+  lifecycle and economics.
+- The off-host mirror is operator-paused. Do not restart it until the operator
+  decides the project has shown enough value to justify the mirror.
 
-## In flight
+## Critical path
 
-| Work | State / next action |
+| Work | Current state / next action |
 | --- | --- |
-| Public execution tape (`-09-69a`) | Continuous public-only supervision is integrated. The first real adoption refused a Windows venv launcher/worker PID mismatch and the task remains Disabled. The predecessor repair tip passed its pre-quiet immutable full suite; its branch is now refreshed onto the combined Stage 0/1 parent and focused-green, but must pass a new exact-tip suite, guarded merge, and fail-closed adoption tonight. This is public path evidence only, never fills, intensity, rebates, or P&L (§8o). |
-| International rebate economics | Historical legs now bind only to atomically frozen per-run snapshots in a bounded stream. Its exact-green repair is included in the refreshed cumulative Stage 0/1 tip, which supersedes the standalone repair as the preferred integration target. |
-| International live probe | The refreshed current-production + economics + Stage 0/1 successor is pushed and focused-green. Because merging current production created a new exact tip, its old suite proof does not qualify it; the 08-15 00:30 exact-tip suite and 01:00 suite-gated merge must refuse if identity, resource, receipt, or capture guards fail. The failed old tip remains ineligible; its immutable bundle task refused and produced no artifact. After integration, a separately reviewed wrapper must still be created on the eligible host before authenticated Stage 0 or either Stage 1 mutation (§8k). |
-| Bounded maker Stage 2 | Successor `0994fa13` is exact-suite green only on the predecessor Stage 0/1 parent. It is not integration- or live-ready: land the current combined Stage 0/1 branch first, merge that production result into Stage 2, reprove the new combined exact tip, and review the eligible-host wrapper. The current paper run emits no quote or live-trade permission, so integration alone cannot authorize a submit (§§8m, 8n). |
-| Snapshot fatal-gap bound | The prepared roll-sensitive branch passed its immutable full suite with every capture admission healthy. It predates the S4U registrar repair now on production, so it still needs current master merged into it, a fresh exact-tip suite, guarded quiet-window adoption, and live stop-to-recovery timing before the backlog item can close (§8l). |
-| Observation recovery (`-09-73a`…`-09-78a`) | Thread closed unpowered; alpha unspent. Leave the draft unfrozen (§5e). |
+| Capture continuity | Healthy and current-code-bound. Protect the graded window; the reset streak is rebuilding. |
+| International Stage 0/1 | Refreshed cumulative branch is clean, pushed, exact-tip task-bound, and roll-sensitive. Its bounded full suite runs at 00:30; its suite-gated quiet merge runs at 01:00. Either must refuse on identity, resource, receipt, merge, or recovery disagreement. |
+| Public execution tape | Continuous public-only supervision is integrated but intentionally Disabled after a Windows venv parent/child identity mismatch. Its exact repair is stacked behind Stage 0/1, with suite at 01:30, guarded merge at 02:00, and fail-closed adoption at 02:15. This never proves our fills, rebates, or P&L. |
+| Unified International client | The official unified-client upgrade and bodyless heartbeat contract are prepared on a separate roll-sensitive branch. Do not integrate it ahead of tonight's chain; combine it with the resulting master and reprove the exact combined tip. |
+| Bounded maker Stage 2 | Pre-stacked on the unified-client line with one-submit, BUY-only, post-only, no-naked-sell, and bounded-risk behavior. It is not integration- or live-ready until its parents land, the combined tip is reproved, and the fixed-scope relocated-host wrapper is reviewed. |
+| First live-money test | Preparation is authorized; exchange mutation is not an unattended next step. After relocation, fresh eligibility, wallet/bootstrap, user-event, position, heartbeat, cancel, paper-counterfactual, and explicit session gates must all pass. |
+| LAN dashboard | Deferred to tomorrow. This host has measured RAM headroom; the existing launcher is low priority and LAN-bind capable. Add a private-network-only firewall rule, then measure real per-view memory before making it recurring. |
 
-Legacy `WeatherMergeQueueDriver` and `WeatherMergeSensitiveDriver` are **Disabled**. Their old
-branch-only queues lacked immutable expected-tip binding and could collide with guarded work.
-The repository-owned v1 driver requires reviewed full SHAs; do not re-enable either recurring driver
-until valid queues exist. Never delete held branches.
+## Overnight host state
 
-## Operations — what is actually wrong today
+- The six exact one-shots from 00:30 through 04:20 are armed. Task Scheduler
+  actions own their full tips, branches, receipts, and order; copied hashes in
+  prose do not.
+- `WeatherExecutionTapeSupervisor` stays **Disabled** until the fail-closed
+  adoption proves the exact merged source, managed child, status, writer lock,
+  and all three core capture workers.
+- `WeatherEveningEvidenceRefresh` stays **Disabled**. The wrapper-owned child
+  teardown defect remains disqualifying beside capture.
+- `WeatherTrainingWindow` is intentionally held Disabled tonight. Its 04:15
+  dead-man restore remains armed; a 04:20 one-shot re-enables the daily window.
+- Windows has a pending reboot. Active hours are 12:00-06:00 to protect both
+  grading and tonight's integration. Do not reboot before the chain completes;
+  later maintenance must prove S4U capture recovery and restore the interactive
+  session needed by `WeatherOneShotPush`.
+- Production `master` equals `origin/master`. The only tracked dirt is the two
+  expected generated location-config files; guarded merge owns their safe
+  pre-merge commit. `WeatherOneShotPush` has the canonical master action.
+- AC sleep and hibernation are disabled. No dashboard or heavyweight process is
+  running. Disk and memory have adequate current headroom, but every heavy
+  wrapper still needs its own admission and the shared OS-held lease.
 
-- **Capture is healthy; `08-13` is not recoverable.** A terminated evidence wrapper left its child
-  alive and starved capture. Job ownership now proves child-tree teardown, but the workload remains
-  unsafe beside capture. `WeatherEveningEvidenceRefresh` stays **Disabled** (§8d).
-- Built-in non-deleting log rotation is now live. Adoption preserved timestamped archives, opened
-  small live sidecars, retained breaker history, and passed exact-source recovery for all capture
-  workers. Log regrowth is no longer the open backlog item; archive retention remains deliberate.
-- Snapshot, CLOB, and observation workers now use cadence-aware freshness and readoption proof.
-  Guarded merges require every worker healthy and require heartbeat advance only from workers whose
-  loaded source actually changed. Status treats an exact-tip merge failure as spent only when Git
-  proves that full tip is already in production; unreadable or unintegrated tips still flag.
-- Heavy wrappers share one OS-held workload lease. Ordinary heavy work is admitted only during the
-  overnight window; the named Stage-A chain is the sole late-morning exception and owns a hard
-  teardown. Nothing heavy runs during grading or near-close capture.
-- The frozen International suite failed; its refreshed successor passed separately, then merged
-  newer production and therefore requires a fresh exact-tip suite. The old tip's
-  08:40 bundle ran, refused the failed receipt, and created no artifact. `WeatherTrainingWindow` is
-  intentionally Disabled for one 08-15 integration night so it cannot stop capture during the
-  01:00 guarded merge; the independent 04:15 restore stays armed and a 04:20 one-shot re-enables
-  the daily window. Do not reinterpret bundle absence or a fail-closed merge as an incident.
-- `WeatherExecutionTapeSupervisor` is intentionally Disabled after its first adoption exposed the
-  Windows venv launcher as a parent of the true status/lock owner. The repair branch adopts only
-  an exact verified direct child and adds a post-merge guard that tears back down on disagreement.
-  Do not manually enable the task ahead of the queued exact-suite and guarded-merge chain.
-- Windows Update installed current security updates after the temporary notify-only override was
-  removed and now reports a pending reboot. Do not reboot in the graded window; coordinate a
-  controlled off-window restart with session/push continuity and prove unattended S4U recovery.
-- Settlement holes through `08-11` are closed. A failure count does not prove a date is
-  unrecoverable; verify row content and source identity (§8d and settlement findings).
-- The off-host mirror is operator-paused. Its frozen copy is neither current nor proven
-  restorable; task state controls alert suppression. See `mirror-paused-2026-08-12.md`.
-- Memory commit is no longer at its former ceiling. The remaining admission deferral cites
-  always-live capture rather than memory pressure and deserves a separate trace; do not weaken it.
-- Disk is not the current binding constraint. The recent alarm measures a one-day burst rather
-  than an established steady burn, and the available evidence does not assign that burst to a
-  single cause. Keep raw order books as canonical evidence and keep monitoring the longer windows.
+## Do not chase these as new incidents
 
-## Daily reads and update rule
+- The two old International suite/bundle `0x1` results belong to superseded
+  failed tips. The bundle correctly produced no artifact.
+- The execution-tape supervisor's Disabled state is intentional until adoption.
+- A blocked promotion chain is expected before release and live evidence; do
+  not weaken gates to turn it green.
+- The status clock-age note uses the last Time-Service event and can lag the
+  live `w32tm` synchronization time. Verify the live source before alarming.
+- The status disk headline is a short-window trend, not an established burn
+  rate. Preserve raw evidence and use longer-window measurements.
 
-Read `STALENESS_SWEEP.md`, `MORNING_BRIEFING.md`, `MM_COUNTABILITY.md`, and
-`data/backtest/daily_refresh_report.md`. `OPERATING_REFERENCE.md` is generated. Merge timing comes
-only from `roll_verdict.ps1`. Expected blocked task exits do not imply master is green.
+## Update this file when
 
-Update this file only when a decision changes, the critical path moves, or a mission returns.
-Replace stale text; if adding a fact, identify what became untrue.
+Rewrite this page immediately after tonight's tasks produce real outcomes,
+after any operator decision or accepted handback changes the critical path, and
+after every merge/runtime adoption. Remove superseded state rather than adding
+another layer. Feature branches do not independently publish this page as
+current; the production operations master resolves it on the integration line.

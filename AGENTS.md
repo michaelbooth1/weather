@@ -20,7 +20,7 @@ durable, and linked to one canonical source instead of copying volatile facts.
 5. **For any model, measurement, or research task, read
    [established findings](docs/operations/ESTABLISHED_FINDINGS.md) and
    [retracted claims and false leads](docs/operations/RETRACTED_AND_FALSE_LEADS.md).**
-   The dated correspondence under `docs/roadmap/` is ~600 files and cannot be read;
+   The dated correspondence under `docs/roadmap/` is a large append-only record and cannot be read wholesale;
    those two files are its distilled state. Skipping them causes agents to
    re-derive known results or rebuild retracted ones.
 6. **For a cross-host mission — writing a handoff, executing one, or verifying a
@@ -33,6 +33,25 @@ durable, and linked to one canonical source instead of copying volatile facts.
 
 Do not use `.claude/settings.local.json` as project guidance. It is ignored,
 machine-local state.
+
+## Context recovery
+
+After a context compaction, session handoff, or long pause, treat the
+conversation summary, auto-memory, and dated correspondence as **routing hints,
+not authority**. Re-read `STATE_OF_PLAY.md`, inspect the current branch and
+working tree, then re-open the canonical owner for the action you are about to
+take. For host operations, re-run the supported status command and re-resolve
+task actions, exact tips, receipts, and runtime health before any mutation.
+Never resume a stateful command from a copied status line alone.
+
+`STATE_OF_PLAY.md` is the one global current-state narrative and has one
+integration owner: the production operations master. Feature and research
+branches update their durable owner docs and roadmap items, but do not edit the
+state page unless the operations master explicitly assigns that rewrite. A
+branch may propose state text, but it is not current until integrated. After an
+operator decision, accepted mission, merge, or runtime adoption changes the
+critical path, the operations master rewrites the page on the integration line
+and removes what became false.
 
 ## Non-negotiable contracts
 

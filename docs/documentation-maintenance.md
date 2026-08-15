@@ -14,6 +14,8 @@ metrics, versions, or operational state.
 | Repository-wide agent rules | root `AGENTS.md` |
 | Subtree-specific constraints | nearest scoped `AGENTS.md` |
 | Documentation routing/classification | `docs/README.md` |
+| Global current critical path and closed decisions | `docs/operations/STATE_OF_PLAY.md` |
+| Production-host role, authority, and safety | `docs/operations/OPERATIONS_AGENT_ROLE.md` |
 | Durable domain invariants | `docs/operations/AGENT_CONTEXT.md` |
 | Architecture/data flow | `docs/architecture.md` |
 | Package edges and facade ownership | operations boundary/ownership docs |
@@ -23,6 +25,28 @@ metrics, versions, or operational state.
 | Current work | generated roadmap active backlog |
 | Item status/scope/evidence | numbered roadmap item file |
 | Exact versions, counts, hashes, and active state | code, config, manifests, generated reports |
+
+## LLM and compaction design
+
+- Put the answer or governing rule in the first screenful; background and
+  rationale follow. An agent should not need the bottom half of a long file to
+  discover that its premise is obsolete.
+- One document owns one question. Routers summarize and link; they do not copy
+  branches, commit IDs, schedules, metrics, or current dispositions.
+- Conversation summaries, auto-memory, and dated correspondence are indexes,
+  not authority. After compaction, agents re-read `STATE_OF_PLAY.md` and the
+  action's canonical owner, then verify dynamic state at its source.
+- `STATE_OF_PLAY.md` is integration-linear. The production operations master
+  rewrites it after an accepted decision, mission, merge, or runtime adoption.
+  Ordinary topic branches do not carry speculative future-state edits. If a
+  branch proposes text, it is not current until the integration owner rewrites
+  it against the actual result.
+- Keep durable roles and contracts free of historical snapshots and open-work
+  lists. Move dated evidence to a dated record and link it only when it explains
+  a current rule.
+- Use explicit precedence language when two sources can disagree. Avoid phrases
+  such as "newest is current" unless a machine-verifiable lifecycle makes that
+  statement true.
 
 ## Change triggers
 
@@ -41,6 +65,9 @@ metrics, versions, or operational state.
 - Artifact or release lifecycle: update artifact/release runbooks and gates.
 - New work or changed status: update the numbered item and regenerate the
   active backlog; do not put project status in `AGENTS.md`.
+- Operator decision, accepted handback, merge, or runtime adoption that changes
+  the critical path: have the production operations master rewrite
+  `STATE_OF_PLAY.md` on the integration line and remove superseded state.
 
 ## Automated checks
 
