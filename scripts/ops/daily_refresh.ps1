@@ -93,6 +93,8 @@ $childArgs = @(Get-DailyRefreshChildTokens @childParameters)
 $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
 $child = $null
 $childJob = $null
+$repairChild = $null
+$repairJob = $null
 $childExitCode = $null
 $localMinute = ((Get-Date).Hour * 60) + (Get-Date).Minute
 if ($localMinute -ge 715 -or $localMinute -lt 30) {
@@ -132,8 +134,68 @@ try {
         $childJob.Dispose()
         $childJob = $null
         $child.WaitForExit()
-        $childExitCode = 75
-        Write-Output "STOPPED: daily refresh reached the 11:55 protected-window deadline"
+
+        # A hard Job teardown cannot execute the Python parent's finally block.
+        # Run the canonical dead-owner-correlated repair in a fresh contained
+        # child, then independently require a terminal durable status.  Exit 77
+        # makes a failed repair visible instead of disguising it as the expected
+        # protected-window result 75.
+        $repairStatusPath = if ($Stage -eq "evidence") {
+            Join-Path $RepoRoot "data\backtest\daily_refresh_evidence_status.json"
+        } else {
+            Join-Path $RepoRoot "data\backtest\daily_refresh_status.json"
+        }
+        $repairArgs = @(
+            "-m", "weather.operations.daily_refresh",
+            "repair-stale-locks",
+            "--stage", $Stage,
+            "--status-out", $repairStatusPath,
+            "--repo-root", $RepoRoot
+        )
+        $repairStatus = $null
+        $repairExitCode = $null
+        $repairError = ""
+        try {
+            $repairJob = New-WeatherKillOnCloseJob
+            $repairChild = Start-WeatherProcessInJob `
+                -Job $repairJob `
+                -FilePath $python `
+                -ArgumentString (ConvertTo-ScheduledTaskArgumentString -Tokens $repairArgs) `
+                -WorkingDirectory $RepoRoot
+            $repairChild.WaitForExit()
+            $repairExitCode = $repairChild.ExitCode
+            if (Test-Path -LiteralPath $repairStatusPath -PathType Leaf) {
+                $repairStatus = Get-Content -LiteralPath $repairStatusPath -Raw |
+                    ConvertFrom-Json
+            }
+        }
+        catch {
+            $repairError = [string]$_.Exception.Message
+        }
+        $repairCorrelated = (
+            $null -ne $repairStatus -and
+            [string]$repairStatus.owner_pid -eq [string]$child.Id
+        )
+        $repairTerminal = (
+            $null -ne $repairStatus -and
+            [bool]$repairStatus.terminal -and
+            [string]$repairStatus.status -ne "running"
+        )
+        if ($repairExitCode -eq 0 -and $repairCorrelated -and $repairTerminal) {
+            $childExitCode = 75
+            Write-Output (
+                "STOPPED: daily refresh reached the 11:55 protected-window " +
+                "deadline; durable status is $($repairStatus.status)"
+            )
+        } else {
+            $childExitCode = 77
+            Write-Output (
+                "FAILED: daily refresh stopped at the protected-window deadline " +
+                "but terminal-status repair did not verify " +
+                "(repair_exit=$repairExitCode correlated=$repairCorrelated " +
+                "terminal=$repairTerminal error=$repairError)"
+            )
+        }
     }
     else {
         $child.WaitForExit()
@@ -141,6 +203,8 @@ try {
     }
 }
 finally {
+    if ($repairJob) { $repairJob.Dispose() }
+    if ($repairChild) { $repairChild.Dispose() }
     if ($childJob) { $childJob.Dispose() }
     if ($child) { $child.Dispose() }
     Exit-WeatherHeavyWorkloadLease -Lease $workloadLease

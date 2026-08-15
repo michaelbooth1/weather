@@ -158,8 +158,13 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 }
 $python = (Resolve-Path -LiteralPath $python).Path
 $previousPythonPath = $env:PYTHONPATH
+$previousLiveSdkContractRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
 $previousLocation = (Get-Location).Path
 $env:PYTHONPATH = Join-Path $WorktreeRoot "src"
+# Optional live dependencies remain optional for ordinary developer tests, but
+# a production-host exact-tip suite must not silently skip a checked-in live
+# SDK contract test. Branches without that test are unaffected.
+$env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
 if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
 try {
@@ -256,5 +261,11 @@ try {
 finally {
     Set-Location -LiteralPath $previousLocation
     $env:PYTHONPATH = $previousPythonPath
+    if ($null -eq $previousLiveSdkContractRequirement) {
+        Remove-Item Env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = $previousLiveSdkContractRequirement
+    }
     Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
 }

@@ -101,6 +101,15 @@ def test_overnight_chain_audit_is_exact_read_only_and_fail_closed() -> None:
     assert "WeatherEveningEvidenceRefresh" in text
     assert "WeatherOneShotPush" in text
     assert "Disable-ScheduledTask -TaskName $AuditTaskName" in text
+    assert "checks = $script:checks.ToArray()" in text
+    assert "failures = $script:failures.ToArray()" in text
+    assert "@($genericObjectList)" in text
+    assert "complete = $Complete" in text
+    assert "ok = $Complete -and $script:failures.Count -eq 0" in text
+    assert "$initialResult = New-AuditResult -Complete $false" in text
+    assert text.index("$initialJson = Write-AuditResult") < text.index(
+        "if ($AuditTaskName)"
+    )
     for forbidden in (
         "Start-ScheduledTask",
         "Enable-ScheduledTask",

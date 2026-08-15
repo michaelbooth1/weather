@@ -1,100 +1,99 @@
 # State of play
 
-**Last rewritten: 2026-08-14 23:50 (same-PC execution is the approved deployment
-shape; the exact Stage 0/1 and execution-tape chain plus final audit are armed).**
-Read this first, then `ESTABLISHED_FINDINGS.md` and
-`RETRACTED_AND_FALSE_LEADS.md` for evidence.
+**Last rewritten: 2026-08-15 12:10 (daily deadline audited; unified client is
+the next software gate).** Read this first, then
+`ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` for evidence.
 
-> **REWRITTEN, never appended. Capped at ~90 lines.** This page answers what is
-> happening now. Findings and numbers belong in `ESTABLISHED_FINDINGS`; false
-> claims in `RETRACTED_AND_FALSE_LEADS`; invariants in `AGENT_CONTEXT`;
-> cross-host mechanics in `DELEGATION_CONTRACT`. Do not cite this page as
-> quantitative evidence. The production operations master is its sole
-> integration owner.
+> **REWRITTEN, never appended. Capped at ~90 lines.** This page says what is
+> happening now. Measurements belong in `ESTABLISHED_FINDINGS`; false claims in
+> `RETRACTED_AND_FALSE_LEADS`; invariants in `AGENT_CONTEXT`; cross-host mechanics
+> in `DELEGATION_CONTRACT`. Do not cite this page as quantitative evidence. The
+> production operations master owns integration truth.
 
 **Objectives:** protect capture continuity; make the **International
-Polymarket** market maker profitable after costs from spread plus documented
-maker rebates; get the weather model close enough to the market to control
-adverse selection and inventory. **We do not currently beat the market.**
+Polymarket** maker profitable after spread, adverse selection, inventory, fees,
+and rebates actually received; use the weather model as quote-centre and risk
+input only where evidence supports it. **We do not currently beat the market.**
 
 ## Closed decisions — do not relitigate without new evidence
 
-- **International Polymarket only. Never use Polymarket US.** The model is a
-  quote-centre and risk-control input, not assumed alpha. Profit must survive
-  spread, adverse selection, inventory, fees, and rebates actually received.
-- **This production PC is the intended live execution machine after physical
-  relocation.** Its historical Ontario/blocked response remains binding at that
-  location. A fresh official response matching the real location, explicit
-  authorization, exact reviewed code, credentials by reference, fixed-scope
-  wrapper, and every readiness/risk gate remain mandatory. The same-PC decision
-  removes a source-transfer step; it does not authorize an order.
-- The first real-money lifecycle test remains exactly one market, post-only,
-  no naked sells, and a finite non-raisable 100 USDC-equivalent cap. Existing
-  lower risk ceilings remain non-raisable.
-- **No alpha is allocated.** Decision 10 remains closed unused. The instrument,
-  observation-recovery, reshaping, old input, and historical edge-reproduction
-  paths are closed or unpowered. Do not rebuild them from dated correspondence.
-- Release #1 remains off the rebate-pilot critical path. Free weather sources
-  only; no paid provider.
-- Public execution capture and own-account lifecycle evidence answer different
-  questions. Public paths support counterfactual markouts. Authoritative user
-  events, open orders, positions, fees, and rebate receipts establish realized
-  lifecycle and economics.
-- The off-host mirror is operator-paused. Do not restart it until the operator
-  decides the project has shown enough value to justify the mirror.
+- **International Polymarket only. Never use Polymarket US.** Historical US
+  code, prose, artifacts, and baselines are not authorization.
+- **This production PC is the live execution machine after physical
+  relocation.** Fresh official eligibility for its real location, exact code,
+  external credential references, fixed-scope wrapper, and every readiness and
+  risk gate remain mandatory. The same-PC decision does not authorize an order.
+- The first live lifecycle remains exactly one market, post-only, no naked
+  sells, and a finite non-raisable 100 USDC-equivalent wallet cap. Existing
+  lower ceilings remain non-raisable.
+- **No alpha is allocated.** The model trails the market in the promotion
+  window. Do not convert forecast disagreement into presumed edge.
+- Free weather sources only; no paid provider. Release #1 is not the rebate
+  pilot's critical path.
+- Public execution rows support future received-time paths and markouts only.
+  Own-account events, open orders, positions, fees, rebates, and settlement
+  establish realized lifecycle and economics.
+- The off-host weather mirror is operator-paused. Do not restart it until the
+  operator decides the project has earned that cost.
+- A new International economics baseline requires explicit operator review and
+  acceptance. Never copy or auto-accept it to make drift green.
 
 ## Critical path
 
 | Work | Current state / next action |
 | --- | --- |
-| Capture continuity | Healthy and current-code-bound. Protect the graded window; the reset streak is rebuilding. |
-| International Stage 0/1 | Refreshed cumulative branch is clean, pushed, exact-tip task-bound, and roll-sensitive. Its bounded full suite runs at 00:30; its suite-gated quiet merge runs at 01:00. Either must refuse on identity, resource, receipt, merge, or recovery disagreement. |
-| Public execution tape | Continuous public-only supervision is integrated but intentionally Disabled after a Windows venv parent/child identity mismatch. Its exact repair is stacked behind Stage 0/1, with suite at 01:30, guarded merge at 02:00, and fail-closed adoption at 02:15. This never proves our fills, rebates, or P&L. |
-| Unified International client | The official unified-client upgrade and bodyless heartbeat contract are prepared on a separate roll-sensitive branch. Do not integrate it ahead of tonight's chain; combine it with the resulting master and reprove the exact combined tip. |
-| Bounded maker Stage 2 | Pre-stacked on the unified-client line with one-submit, BUY-only, post-only, no-naked-sell, and bounded-risk behavior. It is not integration- or live-ready until its parents land, the combined tip is reproved, and the fixed-scope relocated-host wrapper is reviewed. |
-| First live-money test | Preparation is authorized; exchange mutation is not an unattended next step. After relocation, fresh eligibility, wallet/bootstrap, user-event, position, heartbeat, cancel, paper-counterfactual, and explicit session gates must all pass. |
-| LAN dashboard | Deferred to tomorrow. This host has measured RAM headroom; the existing launcher is low priority and LAN-bind capable. Add a private-network-only firewall rule, then measure real per-view memory before making it recurring. |
+| Capture continuity | All core workers are current-code-bound and healthy. Protect the graded window and the rebuilding streak. |
+| International Stage 0/1 | Exact-tip suite, guarded merge, and production adoption passed. This proves software consistency, not live authority. |
+| Public execution tape | Recurring supervised capture is adopted, current, and connected. Retained gaps make today's full price path unusable; keep the healthy producer running and qualify future clean intervals. |
+| Unified International client | Official `polymarket-client==0.6.0` branch is prepared but behind current production. Refresh it onto master, install the exact live dependency, require its wheel-contract tests not to skip, then run an immutable full suite and quiet-window merge. |
+| Bounded maker Stage 2 | Stacked on the client line. Refresh only after the unified client lands, then reprove the new exact tip independently. |
+| Paper economics | Current ordinary maker preflight is countable but policy emits no quotes. The prepared paper-only market-harvest lane is the next way to measure quote availability, markouts, inventory, and modeled rebates without pretending the model has edge. |
+| First live-money test | After relocation: fresh eligibility, explicit International baseline acceptance, credential import by reference, doctor, Stage 0, both tiny Stage 1 cancellation modes, then a reviewed one-market Stage 2 session. No unattended mutation. |
+| Model evidence | Current scoring still blocks promotion. Relevant-season archive depth, not another speculative feature, is the main training constraint. |
 
-## Overnight host state
+## Host and workflow state
 
-- The six exact integration one-shots from 00:30 through 04:20 are armed. A
-  seventh read-only audit runs at 04:35, writes a dated host-local JSON receipt,
-  records failures, and never repairs them. Task Scheduler owns the full tips,
-  branches, receipts, and order—not prose.
-- `WeatherExecutionTapeSupervisor` stays **Disabled** until the fail-closed
-  adoption proves the exact merged source, managed child, status, writer lock,
-  and all three core capture workers.
-- `WeatherEveningEvidenceRefresh` stays **Disabled**. The wrapper-owned child
-  teardown defect remains disqualifying beside capture.
-- `WeatherTrainingWindow` is intentionally held Disabled tonight. Its 04:15
-  dead-man restore remains armed; a 04:20 one-shot re-enables the daily window.
-- Windows has a pending reboot. Active hours are 12:00-06:00 to protect both
-  grading and tonight's integration. Do not reboot before the chain completes;
-  later maintenance must prove S4U capture recovery and restore the interactive
-  session needed by `WeatherOneShotPush`.
-- Production `master` equals `origin/master`. The only tracked dirt is the two
-  expected generated location-config files; guarded merge owns their safe
-  pre-merge commit. `WeatherOneShotPush` has the canonical master action.
-- AC sleep and hibernation are disabled. No dashboard or heavyweight process is
-  running. Disk and memory have adequate current headroom, but every heavy
-  wrapper still needs its own admission and the shared OS-held lease.
+- Production `master` equals `origin/master`. Expected generated location config
+  and operating-reference changes remain user/runtime-owned and must be
+  preserved through integration.
+- The settlement chain reached its repository-owned hard deadline; child-tree
+  exit, lease release, and capture continuity passed. Its wrapper failed to
+  make the interrupted status terminal, so the canonical dead-owner repair was
+  run and selected the next verified resume step. A roll-free wrapper fix now
+  requires terminal repair after every deadline teardown and emits a distinct
+  failure result if that proof fails; integrate it after the graded window.
+- `WeatherExecutionTapeSupervisor` is enabled as S4U/Limited at low priority.
+  Do not restart it merely to reset historical gap counters.
+- `WeatherEveningEvidenceRefresh` stays **Disabled** pending a proven wrapper-
+  owned child-tree teardown. The weather mirror tasks stay Disabled.
+- `WeatherTrainingWindow` is enabled for its next bounded overnight window.
+- Windows still has a pending reboot. Do not reboot in the graded window; later
+  maintenance must prove S4U recovery and restore the interactive session used
+  by `WeatherOneShotPush`.
+- AC sleep is disabled and disk, memory, clock sync, Defender, and volume health
+  have current operating headroom. The LAN dashboard remains deferred and must
+  use a private-network-only rule when enabled.
+- The overnight chain audit failed before producing a receipt under Windows
+  PowerShell 5.1. A roll-free fix now uses explicit generic-list conversion,
+  writes an incomplete fail-closed receipt before self-disable, and fixes stale
+  clock, failed-one-shot, and daily-deadline status wording. Publish and rerun it
+  without weakening the audit's execution-tape failure.
+- The bounded production suite now forces any checked-in live-SDK contract test
+  to execute instead of silently skip. Ordinary developer tests may still omit
+  optional live dependencies.
 
 ## Do not chase these as new incidents
 
-- The two old International suite/bundle `0x1` results belong to superseded
-  failed tips. The bundle correctly produced no artifact.
-- The execution-tape supervisor's Disabled state is intentional until adoption.
-- A blocked promotion chain is expected before release and live evidence; do
-  not weaken gates to turn it green.
-- The status clock-age note uses the last Time-Service event and can lag the
-  live `w32tm` synchronization time. Verify the live source before alarming.
-- The status disk headline is a short-window trend, not an established burn
-  rate. Preserve raw evidence and use longer-window measurements.
+- Execution-tape `DEGRADED` is retained coverage loss, not a current disconnect.
+- A blocked promotion chain and zero ordinary quote permissions are honest
+  evidence, not reasons to weaken gates.
+- The accepted economics baseline is historical US data by design until an
+  explicit International acceptance; the current drift BLOCK is correct.
+- Disabled spent one-shots are terminal scheduler hygiene. Investigate their
+  result and receipt, not the Disabled state by itself.
 
 ## Update this file when
 
-Rewrite this page immediately after tonight's tasks produce real outcomes,
-after any operator decision or accepted handback changes the critical path, and
-after every merge/runtime adoption. Remove superseded state rather than adding
-another layer. Feature branches do not independently publish this page as
-current; the production operations master resolves it on the integration line.
+Rewrite after the settlement-chain teardown, every merge/runtime adoption,
+baseline decision, client/Stage 2 proof, or live-evidence milestone. Remove
+superseded state rather than layering another dated handoff.

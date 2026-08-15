@@ -1,4 +1,4 @@
-# 300. Current Exchange Economics And Rule-Drift Gate [PARTIAL 2026-08-14 - INTERNATIONAL PER-RUN SNAPSHOT BINDING AWAITS PROOF AND INTEGRATION]
+# 300. Current Exchange Economics And Rule-Drift Gate [COMPLETE 2026-08-15 - INTERNATIONAL PER-RUN SNAPSHOT BINDING INTEGRATED]
 
 Goal: keep Polymarket fee, rebate, reward, tick-size, minimum-order, and order
 semantics assumptions current for taker and maker paper evidence, promotion
@@ -82,15 +82,17 @@ bind historical quote legs to the newest daily condition/token snapshot.
 International condition and token identities roll by market date, so a current
 snapshot cannot truthfully supply the economics for an older run.
 
-- [ ] Atomically freeze the exact validated International economics snapshot in
+- [x] Atomically freeze the exact validated International economics snapshot in
   each maker run and content-bind its file hash, source hash, snapshot identity,
   quote-row identity, target date, and run-time freshness during scoring.
-- [ ] Keep legacy, missing, replaced, or tampered run captures unbound with zero
+- [x] Keep legacy, missing, replaced, or tampered run captures unbound with zero
   incentive economics; never substitute the current day's condition.
-- [ ] Pass an exact-tip full suite, integrate through the guarded workflow, and
+- [x] Pass an exact-tip full suite, integrate through the guarded workflow, and
   prove the daily scorer consumes the per-run captures before restoring
   `COMPLETE`.
 
-Focused repair tests pass on an isolated branch, but that is not production
-adoption or a full-suite verdict. The item remains `PARTIAL` until all three
-checks above are closed.
+The guarded overnight integration completed on 2026-08-15 after its immutable
+exact-tip suite passed. Production maker runs now freeze and validate their
+International economics capture; legacy or tampered captures fail closed. This
+closes item 300. Accepting the new International comparison baseline remains a
+separate, explicit operator action owned by item 309.

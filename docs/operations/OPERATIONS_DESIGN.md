@@ -282,11 +282,14 @@ the scheduled wrapper closes the only Job handle and tears down the tree.
 Failure to create, assign, or resume fails before daily-refresh work can begin.
 
 The same containment primitive backs `scripts/ops/bounded_worktree_test_suite.ps1`.
-That runner admits tests only from 00:30–12:00, against a registered clean
+That runner admits tests only from 00:30–09:00, against a registered clean
 worktree whose branch and `HEAD` equal an explicit commit, while all three
 capture workers are healthy and Windows commit is below the configured start
 ceiling. It rechecks capture and commit between size-bounded pytest chunks,
 writes a JUnit artifact per chunk, and owns each child in a kill-on-close Job.
+It also requires checked-in optional live-SDK contract tests to execute rather
+than silently skip; the exact pinned SDK must therefore be installed before a
+live-client branch can earn a production-host suite verdict.
 It never merges, pushes, checks out, registers a task, or writes production
 data; a full PASS is evidence for a separate reviewed merge, not the merge.
 

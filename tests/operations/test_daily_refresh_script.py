@@ -176,6 +176,14 @@ def test_daily_refresh_is_serialized_and_cannot_cross_the_graded_window():
     assert "$minute -ge 715 -or $minute -lt 30" in wrapper
     assert "Closing the kill-on-close Job" in wrapper
     assert "$childExitCode = 75" in wrapper
+    assert '"repair-stale-locks"' in wrapper
+    assert "$repairChild.WaitForExit()" in wrapper
+    assert "$repairExitCode -eq 0" in wrapper
+    assert "$repairCorrelated" in wrapper
+    assert "$repairTerminal" in wrapper
+    assert "$childExitCode = 77" in wrapper
+    assert wrapper.index("$childJob.Dispose()") < wrapper.index('"repair-stale-locks"')
+    assert wrapper.index('"repair-stale-locks"') < wrapper.index("$repairChild.WaitForExit()")
     assert "Exit-WeatherHeavyWorkloadLease" in wrapper
 
 

@@ -1,4 +1,4 @@
-# 326. Supervised Continuous Public Execution Tape [PARTIAL 2026-08-14 - INTEGRATED; WINDOWS LAUNCHER REPAIR AND ADOPTION PROOF OPEN]
+# 326. Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - REPAIR ADOPTED; CLEAN FORWARD SOAK OPEN]
 
 Goal: continuously retain the International public execution stream needed for
 counterfactual price paths without creating an unmanaged fourth process on the
@@ -42,7 +42,7 @@ Scope:
 - [x] Pass an immutable exact-tip full suite for the prepared branch.
 - [x] Integrate the initially roll-free supervisor while the optional producer
   was unarmed and cleanly stopped.
-- [ ] Land the exact Windows venv-launcher child adoption repair. The first real
+- [x] Land the exact Windows venv-launcher child adoption repair. The first real
   registration correctly failed its handshake because the status/lock owner
   was the launcher's direct base-interpreter child, then left the task disabled
   pending a fail-closed fix rather than accepting mismatched PIDs.
@@ -50,7 +50,7 @@ Scope:
   unless the reviewed merge, remote/local master, three core workers, task
   identity, and managed worker/status/lock evidence all agree, with official
   stop-and-disable cleanup after any post-enable disagreement.
-- [ ] Explicitly register and start the task off-window; prove exact action,
+- [x] Explicitly register and start the task off-window; prove exact action,
   S4U/Limited principal, low priority, one worker/lock owner, current runtime
   identity, and healthy coexistence with all three core capture workers.
 - [ ] Complete a forward soak long enough to observe rollover, reconnect/gap
@@ -62,3 +62,15 @@ stale-code adoption, every stop/restart is bound to the recorded process
 instance, its closure cannot disappear from roll decisions, and evidence loss
 is visible. Continuous public data must remain clearly separated from
 authoritative own-account lifecycle and economics evidence.
+
+## 2026-08-15 adoption disposition
+
+The Windows launcher-child repair passed its guarded exact-tip suite, merged,
+and was adopted through the post-merge guard. The recurring task is enabled as
+S4U/Limited at low priority, its managed worker, status, and lock identities
+agree, all configured International markets are connected, and all three core
+capture workers remain healthy. The retained tape also truthfully records
+earlier gaps, so the current day is not a complete price path. Do not restart
+the healthy producer merely to make a counter look cleaner. The forward-soak
+box remains open until rollover, reconnect/gap handling, storage growth,
+rotation, and alert behavior have been observed and recorded canonically.

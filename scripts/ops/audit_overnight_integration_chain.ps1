@@ -325,6 +325,45 @@ catch {
         $_.Exception.GetType().Name)
 }
 
+function New-AuditResult {
+    param([bool]$Complete = $true)
+    return [ordered]@{
+        schema_version = "overnight_integration_chain_audit_v1"
+        checked_at = (Get-Date).ToString("o")
+        complete = $Complete
+        ok = $Complete -and $script:failures.Count -eq 0
+        stage01_tip = $script:Stage01Tip
+        execution_tape_tip = $script:ExecutionTapeTip
+        audit_script_tip = $script:AuditScriptTip
+        audit_script_sha256 = $script:AuditScriptSha256
+        # Windows PowerShell 5.1 raises `Argument types do not match` for
+        # @($genericObjectList). ToArray is explicit and works for empty lists.
+        checks = $script:checks.ToArray()
+        failures = $script:failures.ToArray()
+    }
+}
+
+function Write-AuditResult {
+    param([Parameter(Mandatory = $true)]$Result)
+    $serialized = $Result | ConvertTo-Json -Depth 10
+    $parent = Split-Path -Parent $script:ReportPath
+    if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $temporary = "$($script:ReportPath).tmp"
+    [IO.File]::WriteAllText(
+        $temporary,
+        $serialized,
+        (New-Object Text.UTF8Encoding($false))
+    )
+    Move-Item -LiteralPath $temporary -Destination $script:ReportPath -Force
+    return $serialized
+}
+
+# Persist the evidence before the scheduler hygiene step. A failure to
+# serialize or write now leaves the task available for diagnosis instead of
+# self-disabling with no receipt, which was the 2026-08-15 failure mode.
+$initialResult = New-AuditResult -Complete $false
+$initialJson = Write-AuditResult -Result $initialResult
+
 if ($AuditTaskName) {
     try {
         Disable-ScheduledTask -TaskName $AuditTaskName | Out-Null
@@ -336,23 +375,8 @@ if ($AuditTaskName) {
     }
 }
 
-$result = [ordered]@{
-    schema_version = "overnight_integration_chain_audit_v1"
-    checked_at = (Get-Date).ToString("o")
-    ok = $failures.Count -eq 0
-    stage01_tip = $Stage01Tip
-    execution_tape_tip = $ExecutionTapeTip
-    audit_script_tip = $AuditScriptTip
-    audit_script_sha256 = $AuditScriptSha256
-    checks = @($checks)
-    failures = @($failures)
-}
-$json = $result | ConvertTo-Json -Depth 10
-$parent = Split-Path -Parent $ReportPath
-if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
-$temporary = "$ReportPath.tmp"
-[IO.File]::WriteAllText($temporary, $json, (New-Object Text.UTF8Encoding($false)))
-Move-Item -LiteralPath $temporary -Destination $ReportPath -Force
+$result = New-AuditResult
+$json = Write-AuditResult -Result $result
 Write-Output $json
 if ($result.ok) { exit 0 }
 exit 1

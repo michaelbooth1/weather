@@ -1,9 +1,14 @@
-# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-14 - INTERNATIONAL SNAPSHOT PIVOT AWAITS PROOF AND INTEGRATION]
+# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - INTERNATIONAL INTEGRATED; OPERATOR BASELINE ACCEPTANCE OPEN]
 
 Goal: produce and maintain a current, source-verified exchange-economics
 snapshot, with a tracked template, an accept-baseline mechanism, and a recurring
 refresh workflow, so the item-300 gate has real data to validate instead of
 failing closed.
+
+Current scope (2026-08-15): **International Polymarket only.** The US-specific
+design and completion text below is preserved as dated history, not current
+authorization or a valid baseline. The current disposition is the International
+reopening at the end of this file.
 
 Source: 2026-06-24 review of item 300. The item-300 gate framework is built -
 `weather.market.exchange_economics` validates a snapshot, the daily-refresh
@@ -105,13 +110,21 @@ International Polymarket only, and Polymarket US must never be used. Production
 has not yet integrated the isolated International snapshot implementation, so
 the item's current acceptance is not satisfied.
 
-- [ ] Integrate a source-verified `polymarket_global` snapshot whose per-market
+- [x] Integrate a source-verified `polymarket_global` snapshot whose per-market
   fee schedule, maker-rebate terms, tick size, minimum size, condition id, and
   token ids come from the official International surfaces.
 - [ ] Preserve explicit operator acceptance of a new economics baseline; drift
   detection must never accept a baseline automatically.
-- [ ] Prove the refreshed International workflow with an exact-tip full suite
+- [x] Prove the refreshed International workflow with an exact-tip full suite
   and the item-300 per-run binding repair before restoring `COMPLETE`.
 
 Legacy US implementation and tests are compatibility/history only. They do not
 authorize a US live probe, credential installation, or order mutation.
+
+Production currently publishes a current `polymarket_global` snapshot and the
+guarded combined-tip suite and per-run binding integration passed on
+2026-08-15. The accepted comparison baseline is deliberately still the
+historical US snapshot, so the drift report remains `BLOCK` with rescore
+required. Do not clear that blocker by copying or auto-accepting the current
+snapshot: an operator must review and explicitly accept the International
+baseline before this item can return to `COMPLETE`.

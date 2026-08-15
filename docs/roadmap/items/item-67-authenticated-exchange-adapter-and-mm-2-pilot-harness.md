@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-14 - COMBINED-TIP SUITE AND ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CLIENT UPGRADE, STAGE 2, AND LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -419,5 +419,24 @@ authority. Stage 0/1 must land first; Stage 2 must then merge current production
 and pass a fresh suite on that combined tree before eligible-host transfer. The
 two unchecked live-evidence bullets above remain open until a tiny real
 lifecycle and paid-vs-predicted settlement/rebate record are reconciled without
-weakening any gate or increasing any ceiling. Exact suite measurements live
-only in `docs/operations/ESTABLISHED_FINDINGS.md` §§8k and 8n.
+weakening any gate or increasing any ceiling.
+
+## 2026-08-15 current disposition
+
+Stage 0/1 passed its immutable combined-tip suite and is integrated on
+production. The earlier statement that execution would use a separate host is
+superseded: the same production PC will be physically relocated to a genuinely
+eligible location before any live mutation. This does not relax geoblock,
+location, credential, readiness, or operator-confirmation gates, and
+International Polymarket remains the only authorized platform.
+
+The official unified-client upgrade must be refreshed onto current production,
+pass a new exact-tip suite, and integrate first. Bounded Stage 2 must then be
+refreshed on that integrated client tree and independently prove its exact tip.
+Neither branch is live-ready merely because its software suite passes. The two
+unchecked live-evidence bullets remain open until the relocated host produces a
+tiny, bounded, fully reconciled lifecycle and actual paid-vs-predicted
+settlement/rebate evidence without raising any existing risk ceiling.
+
+Exact suite measurements are recorded only in
+`docs/operations/ESTABLISHED_FINDINGS.md` §§8k, 8n, and 8q.

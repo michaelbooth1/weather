@@ -2403,6 +2403,62 @@ slope converges upward or absolute free space approaches the monitor's fixed thr
 
 ---
 
+## 8q. Stage 0/1 and supervised public execution capture are now integrated and adopted
+
+**Guarded overnight integration measured 2026-08-15 00:30-02:15 local.** International Stage 0/1
+exact tip `a0546bc3fdeb68b9d0d14e47ab69ea4696536f5d` passed **18/18 chunks and 4,539/4,539
+tests** with zero failures, errors, or skips. The suite-gated quiet merge returned zero. Execution-
+tape launcher/adoption exact tip `e2ba7d6a95c5d395cc5aa40f399d84bce1217ada` then passed **18/18
+chunks and 4,544/4,544 tests** with zero failures, errors, or skips; its guarded merge also returned
+zero. Both exact tips are ancestors of production master
+`74c3b8d0576e0b6c8f2cfb55f467dc6ec591abae`, which equalled `origin/master` at audit.
+
+The adoption guard enabled the recurring S4U/Limited priority-7 task only after the managed child,
+status, writer lock, current loaded-source identity, and all **3** core capture workers agreed. Its
+receipt records worker and lock PID **18832**, `CONNECTED`, evidence-integrity `PASS`, and current
+runtime identity. A later physical scan at 11:35 local found all **12** configured markets
+connected, **4,294** retained trade observations, **0** parse rejections, **0** unrouted trades,
+and **0** seed errors.
+
+This does **not** establish a complete price path. The same scan retained **93** explicit gaps and
+**327.724586 seconds** dark, so `price_path_evidence_usable` correctly remains false and the
+supervisor state remains `DEGRADED`. Restarting the healthy producer cannot repair historical gaps
+and would create another one. Keep capture running and use only future clean intervals that pass
+their own path-coverage gate. Public rows still do not prove our fills, queue position, fees,
+rebates, inventory, P&L, or profit.
+
+---
+
+## 8r. The daily wrapper tears down on time, but must repair terminal status itself
+
+**Scheduled containment and repair measured 2026-08-15 09:30-12:00 local.** The settlement task
+started at **09:30:01** and reached its repository-owned **11:55** protected-window deadline with
+Task Scheduler result **0x4B (75)**. Its kill-on-close Job removed the recorded parent PID **5176**
+and current isolated child PID **9272**; neither process remained, the OS-held heavy-workload lease
+was inactive, and all **3/3** streak-critical capture workers remained `AboveNormal`. At 12:00 the
+streak monitor reported today `ON_TRACK`, **90** captures, and a **0.0-minute** maximum gap.
+
+The teardown preserved substantial useful work: the durable artifact held **23** step rows, of
+which **21** were `ok`, plus **15** isolated resource rows. One barrier row was `error` and the next
+scorecard row was `blocked`; these are model/evidence outcomes, not containment failures. However,
+the artifact incorrectly remained `status=running`, `terminal=false` after its owner died. Result
+0x4B therefore proved teardown but did not prove interruption-safe durable state.
+
+At **11:58:36** the repository's canonical `repair-stale-locks` command verified the recorded
+daily and long-job owner dead and correlated to the status, removed both stale locks, cleared the
+long-job state, and wrote `status=interrupted`, `terminal=true`. Its bounded resume selection was
+`live_variant_settlement_scorecard`, derived from the verified last completed step; no receipt was
+hand-edited and no tape or ledger was removed.
+
+The wrapper repair now launches that canonical command in a fresh kill-on-close Job after the
+original tree is gone, then independently requires exit zero, the original owner PID, and a
+non-running terminal status. Success retains expected result **75**; failed proof returns distinct
+result **77** so the scheduler cannot disguise missing durable repair as a normal deadline. Focused
+PowerShell-parser and repair-contract tests passed. This is code-side containment evidence only;
+integration and a subsequent scheduled deadline readback remain required.
+
+---
+
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
 Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed

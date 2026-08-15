@@ -1,4 +1,4 @@
-# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]
+# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-15 - DEADLINE TEARDOWN PROVED; AUTOMATIC TERMINAL REPAIR PENDING INTEGRATION]
 
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
@@ -287,6 +287,24 @@ instance and command at loaded/current identity `713692de26ea` /
 resume, task repair, loop control, or evidence rewrite was performed. This is
 the first of the two requested receipt inspections, but it contributes zero
 countable runs and no budget-kill lane; every soak checkbox remains open.
+
+## Current disposition
+
+The latest scheduled chain proved the wrapper-owned protected-window teardown:
+the delegated tree exited, the OS-held workload lease released, and capture
+remained current. It also exposed a narrower durability defect. Closing the Job
+Object necessarily prevents the Python parent from executing its final status
+write, and the wrapper returned its expected deadline result while the durable
+artifact still said `running`.
+
+The canonical `repair-stale-locks` command subsequently verified the correlated
+owner dead, removed only its stale locks/state, marked the artifact terminal and
+resumable, and selected the next verified step. The roll-free wrapper repair now
+runs that same canonical command in a fresh contained child after teardown,
+independently requires a correlated non-running terminal artifact, and emits a
+distinct failure result when repair cannot be proved. See
+`ESTABLISHED_FINDINGS.md` section 8r for measurements. Integration and the next
+scheduled readback remain open; do not mark the soak complete from this repair.
 
 Verification:
 
