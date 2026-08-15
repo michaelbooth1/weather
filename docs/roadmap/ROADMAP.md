@@ -351,7 +351,7 @@ infrastructure work remains.
 | 323 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-15 - CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING]](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | [Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
-| 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-14 - SUPERVISOR PREPARED; INTEGRATION, ADOPTION, AND SOAK OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-14 - INTEGRATED; WINDOWS LAUNCHER REPAIR AND ADOPTION PROOF OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
 
 ### Architecture And Maintainability
 

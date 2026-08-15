@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from weather.operations.execution_tape_supervisor import (
+    _handshake_worker_identity,
     _worker_command,
     _validate_managed_scope,
     ensure_decision,
     execution_tape_health,
     run_managed_capture,
+    start_managed_capture,
     wait_for_worker_handshake,
 )
 from weather.market.execution_tape_capture import DEFAULT_EVENT_METADATA
@@ -138,6 +141,7 @@ def test_worker_handshake_requires_matching_status_lock_and_process_instance() -
         "pid": 4321,
         "creation_time_token": "token",
         "expected_command": ["python", "-m", "worker"],
+        "verified_at_capture": True,
     }
     status = {
         "pid": 4321,
@@ -167,6 +171,7 @@ def test_worker_handshake_fails_immediately_when_child_exits() -> None:
         "pid": 4321,
         "creation_time_token": "token",
         "expected_command": ["python", "-m", "worker"],
+        "verified_at_capture": True,
     }
     result = wait_for_worker_handshake(
         pid=4321,
@@ -180,6 +185,205 @@ def test_worker_handshake_fails_immediately_when_child_exits() -> None:
 
     assert result["ready"] is False
     assert "exited" in result["reason"]
+
+
+def test_worker_handshake_adopts_exact_direct_child_of_windows_venv_launcher() -> None:
+    command = [r"C:\repo\venv\Scripts\pythonw.exe", "-m", "worker"]
+    launched = {
+        "pid": 4321,
+        "creation_time_token": "launcher-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    worker = {
+        "pid": 5432,
+        "creation_time_token": "worker-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    status = {
+        "pid": 5432,
+        "last_heartbeat": NOW.isoformat(),
+        "state": "CONNECTING",
+        "runtime_identity": {"source_fingerprint": "source"},
+        "managed_process": worker,
+    }
+    lock = {"exists": True, "pid": 5432, "managed_process": worker}
+    observation = {
+        "state": "running",
+        "pid": 5432,
+        "parent_pid": 4321,
+        "inspectable": True,
+        "creation_time_token": "worker-token",
+        "argv": command,
+    }
+
+    result = wait_for_worker_handshake(
+        pid=4321,
+        managed_process=launched,
+        status_reader=lambda: status,
+        lock_reader=lambda _path: lock,
+        pid_check=lambda _pid: True,
+        observe_fn=lambda _pid: observation,
+        monotonic_fn=lambda: 1.0,
+        sleep_fn=lambda _seconds: None,
+    )
+
+    assert result["ready"] is True
+    assert result["pid"] == 5432
+    assert result["launched_pid"] == 4321
+    assert result["managed_process"] == worker
+
+
+def test_worker_handshake_rejects_matching_process_from_unrelated_parent() -> None:
+    command = ["python", "-m", "worker"]
+    launched = {
+        "pid": 4321,
+        "creation_time_token": "launcher-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    worker = {
+        "pid": 5432,
+        "creation_time_token": "worker-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    status = {"pid": 5432, "managed_process": worker}
+    lock = {"exists": True, "pid": 5432, "managed_process": worker}
+
+    candidate = _handshake_worker_identity(
+        status,
+        lock,
+        launched_pid=4321,
+        launched_process=launched,
+        observe_fn=lambda _pid: {
+            "state": "running",
+            "pid": 5432,
+            "parent_pid": 9999,
+            "inspectable": True,
+            "creation_time_token": "worker-token",
+            "argv": command,
+        },
+    )
+
+    assert candidate is None
+
+
+def test_start_returns_the_worker_child_identity_not_the_venv_launcher() -> None:
+    options = {
+        "market": "all",
+        "event_metadata": str(DEFAULT_EVENT_METADATA),
+        "snapshots_root": str(DEFAULT_SNAPSHOTS_ROOT),
+    }
+    command = _worker_command(**options)
+    launched = {
+        "pid": 4321,
+        "creation_time_token": "launcher-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    worker = {
+        "pid": 5432,
+        "creation_time_token": "worker-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    with (
+        patch(
+            "weather.operations.execution_tape_supervisor._cleanup_writer_lock",
+            return_value={"removed": False},
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.rotate_sidecar_policy",
+            return_value={},
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.launch_detached",
+            return_value=SimpleNamespace(pid=4321),
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.capture_managed_process_identity",
+            return_value=launched,
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.wait_for_worker_handshake",
+            return_value={
+                "ready": True,
+                "pid": 5432,
+                "managed_process": worker,
+            },
+        ),
+        patch("weather.operations.execution_tape_supervisor.append_diagnostic"),
+    ):
+        result = start_managed_capture(**options)
+
+    assert result["started"] is True
+    assert result["pid"] == 5432
+    assert result["launched_pid"] == 4321
+    assert result["managed_process"] == worker
+    assert result["launched_process"] == launched
+
+
+def test_failed_handshake_terminates_exact_candidate_and_launcher() -> None:
+    options = {
+        "market": "all",
+        "event_metadata": str(DEFAULT_EVENT_METADATA),
+        "snapshots_root": str(DEFAULT_SNAPSHOTS_ROOT),
+    }
+    command = _worker_command(**options)
+    launched = {
+        "pid": 4321,
+        "creation_time_token": "launcher-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    worker = {
+        "pid": 5432,
+        "creation_time_token": "worker-token",
+        "expected_command": command,
+        "verified_at_capture": True,
+    }
+    with (
+        patch(
+            "weather.operations.execution_tape_supervisor._cleanup_writer_lock",
+            side_effect=[{"removed": False}, {"removed": True}],
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.rotate_sidecar_policy",
+            return_value={},
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.launch_detached",
+            return_value=SimpleNamespace(pid=4321),
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.capture_managed_process_identity",
+            return_value=launched,
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.wait_for_worker_handshake",
+            return_value={
+                "ready": False,
+                "reason": "handshake incomplete",
+                "candidate_managed_process": worker,
+            },
+        ),
+        patch(
+            "weather.operations.execution_tape_supervisor.terminate_managed_process",
+            side_effect=[
+                {"stopped": True, "exited": True, "reason": "worker exited"},
+                {"stopped": True, "exited": True, "reason": "launcher exited"},
+            ],
+        ) as terminate,
+        patch("weather.operations.execution_tape_supervisor.append_diagnostic"),
+    ):
+        result = start_managed_capture(**options)
+
+    assert result["started"] is False
+    assert result["pid"] == 5432
+    assert terminate.call_args_list[0].args == (worker, command)
+    assert terminate.call_args_list[1].args == (launched, command)
 
 
 def test_managed_worker_binds_process_identity_into_capture_status() -> None:
@@ -199,6 +403,7 @@ def test_managed_worker_binds_process_identity_into_capture_status() -> None:
         "pid": 4321,
         "creation_time_token": "test-token",
         "expected_command": _worker_command(**options),
+        "verified_at_capture": True,
     }
     identity = {"source_fingerprint": "source", "source_scope_files": ["capture.py"]}
     with (

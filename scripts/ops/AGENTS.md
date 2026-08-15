@@ -47,6 +47,10 @@ supervisor only after it is explicitly armed; it does not change three-worker
 streak grading. Keep all armed task names and `ensure` arguments aligned with
 `docs/operations/OPERATIONS_DESIGN.md`. An intentional stop must account for
 both the detached worker and the supervisor that can revive it.
+After a held producer's roll-sensitive repair, use
+`adopt_execution_tape_after_merge.ps1`; it binds adoption to the exact guarded
+merge, remote/local master agreement, core capture recovery, scheduler
+identity, and worker/status/lock proof, and tears back down on disagreement.
 
 Choose one retraining topology per host:
 
