@@ -332,9 +332,19 @@ if ($chainProductionReadiness) {
 # trading_evidence were each BLOCK inside $chain.summary. Reading step status alone says
 # "the chain is healthy" and is wrong -- surface the payload verdicts too.
 $chainBlocked = $null
-if ($chain -and $chain.summary) {
-    $blocked = @($chain.summary.PSObject.Properties |
-        Where-Object { $_.Value -and [string]$_.Value.status -eq "BLOCK" } |
+$chainSummary = $null
+if ($chain) {
+    $summaryProperty = $chain.PSObject.Properties["summary"]
+    if ($null -ne $summaryProperty) { $chainSummary = $summaryProperty.Value }
+}
+if ($chainSummary) {
+    $blocked = @($chainSummary.PSObject.Properties |
+        Where-Object {
+            $value = $_.Value
+            if ($null -eq $value) { return $false }
+            $statusProperty = $value.PSObject.Properties["status"]
+            return $null -ne $statusProperty -and [string]$statusProperty.Value -eq "BLOCK"
+        } |
         ForEach-Object { $_.Name })
     if ($blocked.Count -gt 0) { $chainBlocked = "{0} step(s) BLOCK in payload: {1}" -f $blocked.Count, ($blocked -join ", ") }
 }
