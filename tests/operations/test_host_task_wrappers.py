@@ -91,9 +91,11 @@ def test_overnight_chain_audit_is_exact_read_only_and_fail_closed() -> None:
     assert "AuditScriptSha256" in text
     assert "Get-FileHash -LiteralPath $PSCommandPath" in text
     assert '"refs/remotes/origin/$AuditScriptBranch"' in text
+    assert "Set-Location -LiteralPath $RepoRoot" in text
+    assert "production_python_imports" in text
+    assert "capture_recovery_check `\n        --repo-root $RepoRoot --json" in text
     assert "VERDICT: ALL CHUNKS PASSED" in text
     assert "merge-base --is-ancestor $tip master" in text
-    assert "capture_recovery_check --json" in text
     assert "runtime_identity_matches_current" in text
     assert ".execution_tape_status.json.writer.lock" in text
     assert "WeatherEveningEvidenceRefresh" in text

@@ -106,6 +106,7 @@ if ($AuditScriptSha256 -notmatch "^[0-9a-f]{64}$") {
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "repository Python interpreter is missing"
 }
+Set-Location -LiteralPath $RepoRoot
 
 $actualScriptHash = (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256).Hash.ToLowerInvariant()
 Add-Check "audit_script_hash" ($actualScriptHash -eq $AuditScriptSha256) (
@@ -128,6 +129,35 @@ try {
 }
 catch {
     Add-Check "audit_script_ref" $false ("inspection failed: {0}" -f
+        $_.Exception.GetType().Name)
+}
+
+try {
+    $modulePaths = @(& $python -c (
+        "import weather.operations.capture_recovery_check as c; " +
+        "import weather.operations.execution_tape_supervisor as e; " +
+        "print(c.__file__); print(e.__file__)"
+    ))
+    $moduleExit = $LASTEXITCODE
+    $expectedModulePaths = @(
+        (Join-Path $RepoRoot "src\weather\operations\capture_recovery_check.py"),
+        (Join-Path $RepoRoot "src\weather\operations\execution_tape_supervisor.py")
+    )
+    $modulePathOk = $moduleExit -eq 0 -and $modulePaths.Count -eq 2
+    if ($modulePathOk) {
+        for ($index = 0; $index -lt $expectedModulePaths.Count; $index++) {
+            $modulePathOk = $modulePathOk -and (
+                [IO.Path]::GetFullPath([string]$modulePaths[$index]) -ieq
+                [IO.Path]::GetFullPath($expectedModulePaths[$index])
+            )
+        }
+    }
+    Add-Check "production_python_imports" $modulePathOk (
+        "exit={0}; paths={1}" -f $moduleExit, ($modulePaths -join ";")
+    )
+}
+catch {
+    Add-Check "production_python_imports" $false ("inspection failed: {0}" -f
         $_.Exception.GetType().Name)
 }
 
@@ -186,7 +216,8 @@ catch {
 }
 
 try {
-    $captureText = (& $python -m weather.operations.capture_recovery_check --json) -join "`n"
+    $captureText = (& $python -m weather.operations.capture_recovery_check `
+        --repo-root $RepoRoot --json) -join "`n"
     $captureExit = $LASTEXITCODE
     $capture = $captureText | ConvertFrom-Json
     $captureOk = (
