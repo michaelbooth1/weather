@@ -2459,6 +2459,34 @@ integration and a subsequent scheduled deadline readback remain required.
 
 ---
 
+## 8s. The exact unified-client wheel contract passes without changing production
+
+**Published-wheel verification measured 2026-08-15 12:08-12:12 local.** Client branch
+`codex/polymarket-client-upgrade-20260814` was clean and pushed at exact tip
+`f52042e325be316742b0d8ee78d906218ec0f8e9`. A separate host-local venv under
+`C:/Users/micha/ops/venvs/polymarket-client-060` installed the published
+`polymarket-client==0.6.0` wheel and its dependencies; the production venv was unchanged. With the
+live-SDK contract requirement forced on, both target weather modules resolved inside the client
+worktree and the focused SDK, transport, credential, adapter, bootstrap, lifecycle, policy,
+readiness, and dependency-pin selection passed **191/191 tests plus 7/7 subtests**, with no SDK
+contract skip.
+
+The production venv still has no `polymarket-client`, `eth-account`, `httpx`, or `pydantic` package.
+Installing the live extra there will add those families and change shared dependency versions,
+including `websockets` from **16.0** to the SDK-compatible **15.0.1**. Repository runtime code uses
+the distinct `websocket-client` distribution for the public CLOB, execution-tape, and authoritative
+user-stream paths, so no direct `websockets` import was found; that static absence is not a runtime
+upgrade proof. Install only in an admitted heavy window, then require the real wheel test, the
+immutable full suite, and capture recovery before integration.
+
+The branch remains **16 commits behind** production and `ROLL-SENSITIVE` because its schema-registry
+extension closes over all **4** live collectors. The isolated focused pass does not qualify its old
+exact tip for merge, prove authenticated authority, submit or cancel an order, observe a fill, or
+establish rebates or profit. Merge current production into the topic only outside the protected
+window, reprove the new exact tip, and use the guarded quiet-window integration path.
+
+---
+
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
 Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
