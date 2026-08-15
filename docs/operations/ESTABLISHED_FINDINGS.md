@@ -2496,16 +2496,28 @@ its amount field `rebated_fees_usdc`, describes it as a **USDC** amount, and ret
 `asset_address`. Those statements are both current official evidence; the endpoint field name is
 not proof of the asset that actually reached the wallet.
 
+The official contracts page resolves the asset identity independently: it is the single source of
+truth for Polygon addresses and identifies the endpoint example address as the pUSD collateral
+proxy. The API's USDC wording is therefore an amount/denomination label, not permission to accept
+an arbitrary ERC-20 address. A completed rebate row must carry that exact current pUSD proxy and
+must still reconcile to the wallet balance delta.
+
 Production snapshot schema v0.2 preserved the program's pUSD term and required later payout-asset
 reconciliation, but it did not expose the conflicting API term as a material baseline field. The
 current International snapshot therefore must **not** be accepted as the operator baseline yet.
 Isolated branch `codex/rebate-asset-contract-20260815` at pushed tip
-`ad22cbc7827f94376e509fc7dfef0f20ef5bccb4` advances the snapshot to v0.3, records both terms and
-the conflict, requires the endpoint's `asset_address` and USDC amount semantics, and keeps wallet
-reconciliation mandatory. Baseline acceptance separately requires an explicit payout-asset-
-conflict acknowledgment and records it in the accepted receipt; collection cannot supply that
-acknowledgment. Its focused market/schema selection passed **30/30 tests**; the exact live
-Markdown endpoint also satisfied every new semantic check.
+`e1d0f09e11f67e58ab346257d1e2944dd6c939e0` advances the snapshot to v0.3, records both terms and
+the conflict, content-binds the contracts page and exact pUSD proxy, and keeps wallet reconciliation
+mandatory. Baseline acceptance separately requires an explicit payout-asset-conflict
+acknowledgment and records it in the accepted receipt; collection cannot supply that acknowledgment.
+Its focused market/schema selection passed **30/30 tests**; both exact live Markdown pages satisfied
+every new semantic check.
+
+Unified-client tip `f48332b85364047e0151970dc00261a0c3a8e362` independently makes the public
+rebate reader reject every other asset address and makes financial reconciliation block a
+non-pUSD row. With the real official **0.6.0** wheel forced, the changed adapter/report, run,
+readiness, dependency, SDK-contract, and import-architecture selection passed **130/130 tests plus
+2/2 subtests**. This is code evidence only; no wallet, rebate row, or balance was queried.
 
 The branch is `ROLL-SENSITIVE` only because its schema-registry edit closes over all **4** live
 capture closures. Fold it into the pending unified-client refresh rather than paying for a
