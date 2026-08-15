@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import os
 import sys
@@ -251,10 +252,10 @@ def _args(tmp, **overrides):
         "taker_champion_min_complete_label_days": 3,
         "taker_champion_min_settled_orders": 5,
         "skip_exchange_economics_rule_drift": False,
-        "exchange_economics_template": str(exchange_economics.DEFAULT_TEMPLATE),
         "exchange_economics_snapshot": str(root / "backtest" / "exchange_economics_snapshot.json"),
         "exchange_economics_accepted_snapshot": str(root / "backtest" / "exchange_economics_accepted_snapshot.json"),
-        "exchange_economics_platform": "polymarket_us",
+        "exchange_economics_platform": exchange_economics.DEFAULT_PLATFORM,
+        "event_metadata_config": str(root / "config" / "location_market_events.json"),
         "skip_taker_tail_casebook": False,
         "skip_taker_edge_permission_map": False,
         "taker_edge_permission_map_out": str(root / "backtest" / "taker_edge_permission_map.json"),
@@ -339,6 +340,22 @@ def _write_exchange_snapshot(path, *, target_date="2026-06-19", now="2026-06-20T
     return path
 
 
+def _collect_test_exchange_snapshot(**kwargs):
+    payload = exchange_economics.build_snapshot_payload(
+        target_date=kwargs["target_date"],
+        verified_at_utc=kwargs.get("now") or "2026-06-20T12:00:00+00:00",
+    )
+    path = Path(kwargs["snapshot_path"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return {
+        "status": "PASS",
+        "snapshot_path": str(path),
+        "target_date": kwargs["target_date"],
+        "payload": payload,
+    }
+
+
 def _write_order_tape(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -353,12 +370,37 @@ def _write_order_tape(path, rows):
 def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
     run = Path(root) / "mm_runs" / target_date / run_id
     run.mkdir(parents=True)
+    token_id = f"token-{run_id}"
+    captured_payload = exchange_economics.build_snapshot_payload(
+        target_date=target_date,
+        verified_at_utc=f"{target_date}T15:55:00+00:00",
+        token_ids=[token_id, f"other-{run_id}"],
+    )
+    captured_path = run / exchange_economics.RUN_CAPTURE_FILENAME
+    exchange_economics.write_json(captured_path, captured_payload)
+    captured_gate = exchange_economics.load_exchange_economics_gate(
+        captured_path,
+        target_date,
+        now=f"{target_date}T20:00:00+00:00",
+    )
+    captured_economics = {
+        "status": "CAPTURED",
+        "captured": True,
+        "path": str(captured_path),
+        "filename": exchange_economics.RUN_CAPTURE_FILENAME,
+        "snapshot_id": captured_gate["snapshot_id"],
+        "snapshot_hash": captured_gate["snapshot_hash"],
+        "source_hash": captured_gate["source_hash"],
+        "file_sha256": hashlib.sha256(captured_path.read_bytes()).hexdigest(),
+    }
     run_config = {
         "schema_version": "mm_run_v0.2",
         "run_id": run_id,
+        "created_at_utc": f"{target_date}T20:00:00+00:00",
         "mode": "paper-live-forward",
         "target_date": target_date,
         "policy_hash": f"policy-{run_id}",
+        "exchange_economics_capture": captured_economics,
     }
     (run / "run_config.json").write_text(json.dumps(run_config), encoding="utf-8")
     summary = {
@@ -383,7 +425,9 @@ def _write_active_mm_run(root, target_date="2026-06-19", run_id="mm-active"):
         "bin_kind": "eq",
         "bin_value": "80",
         "bin_value_hi": "81",
-        "clob_token_id": f"token-{run_id}",
+        "clob_token_id": token_id,
+        "exchange_economics_snapshot_id": captured_gate["snapshot_id"],
+        "exchange_economics_hash": captured_gate["snapshot_hash"],
         "fair_probability": "0.50",
         "market_mid": "0.50",
         "bid_price": "0.49",
@@ -3698,14 +3742,17 @@ class TestDailyRefresh(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
             current = _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
-            args.exchange_economics_template = str(current)
             accepted_payload = json.loads(current.read_text(encoding="utf-8"))
-            accepted_payload["market_rules"]["tick_size"] = 0.01
+            accepted_payload["market_rules"]["tick_size"] = 0.005
             accepted = Path(args.exchange_economics_accepted_snapshot)
             accepted.parent.mkdir(parents=True, exist_ok=True)
             accepted.write_text(json.dumps(accepted_payload), encoding="utf-8")
 
-            result = run_exchange_economics_rule_drift_step(args)
+            with patch(
+                "weather.operations.daily_refresh_trading_steps.exchange_economics.collect_and_publish_global_snapshot",
+                side_effect=_collect_test_exchange_snapshot,
+            ):
+                result = run_exchange_economics_rule_drift_step(args)
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
 
         self.assertEqual(result["status"], "BLOCK")
@@ -3717,12 +3764,15 @@ class TestDailyRefresh(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp, settled_analysis_target_date="2026-06-19", as_of="2026-06-20T12:00:00+00:00")
             current = _write_exchange_snapshot(Path(args.exchange_economics_snapshot))
-            args.exchange_economics_template = str(current)
             accepted = Path(args.exchange_economics_accepted_snapshot)
             accepted.parent.mkdir(parents=True, exist_ok=True)
             accepted.write_text(current.read_text(encoding="utf-8"), encoding="utf-8")
 
-            result = run_exchange_economics_rule_drift_step(args)
+            with patch(
+                "weather.operations.daily_refresh_trading_steps.exchange_economics.collect_and_publish_global_snapshot",
+                side_effect=_collect_test_exchange_snapshot,
+            ):
+                result = run_exchange_economics_rule_drift_step(args)
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
 
         self.assertEqual(result["status"], "PASS")
@@ -3738,25 +3788,54 @@ class TestDailyRefresh(unittest.TestCase):
                 target_date="2026-06-17",
                 now="2026-06-17T12:00:00+00:00",
             )
-            args.exchange_economics_template = str(stale)
             accepted = Path(args.exchange_economics_accepted_snapshot)
             accepted.parent.mkdir(parents=True, exist_ok=True)
             accepted.write_text(stale.read_text(encoding="utf-8"), encoding="utf-8")
 
-            result = run_exchange_economics_rule_drift_step(args)
+            with patch(
+                "weather.operations.daily_refresh_trading_steps.exchange_economics.collect_and_publish_global_snapshot",
+                side_effect=_collect_test_exchange_snapshot,
+            ):
+                result = run_exchange_economics_rule_drift_step(args)
             payload = json.loads(Path(result["json_out"]).read_text(encoding="utf-8"))
             refreshed_snapshot = json.loads(Path(args.exchange_economics_snapshot).read_text(encoding="utf-8"))
 
         self.assertEqual(result["status"], "PASS")
         self.assertEqual(result["snapshot_refresh_status"], "PASS")
-        # The proof is stamped for the wall-clock day (as_of 2026-06-20) so it
-        # covers BOTH the active-day consumers (MM preflight, taker at target
-        # 06-20) and the settled-analysis target (06-19) via >= coverage —
-        # stamping D-1 blocked MM every day (2026-07-11).
+        # Current API economics are stamped and validated for the operating
+        # day. They are not backfilled onto the settled-analysis target.
+        self.assertEqual(result["target_date"], "2026-06-20")
+        self.assertEqual(result["settled_analysis_target_date"], "2026-06-19")
         self.assertEqual(result["snapshot_refresh_target_date"], "2026-06-20")
         self.assertEqual(refreshed_snapshot["verified_for_target_date"], "2026-06-20")
         self.assertEqual(payload["current_gate"]["status"], "PASS")
         self.assertEqual(payload["current_gate"]["verified_for_target_date"], "2026-06-20")
+        self.assertEqual(payload["settled_analysis_target_date"], "2026-06-19")
+
+    def test_exchange_economics_refresh_uses_operating_date_not_utc_date(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                settled_analysis_target_date="2026-06-18",
+                as_of="2026-06-20T01:00:00+00:00",
+            )
+            current = _write_exchange_snapshot(
+                Path(args.exchange_economics_snapshot),
+                target_date="2026-06-19",
+                now="2026-06-20T01:00:00+00:00",
+            )
+            accepted = Path(args.exchange_economics_accepted_snapshot)
+            accepted.parent.mkdir(parents=True, exist_ok=True)
+            accepted.write_text(current.read_text(encoding="utf-8"), encoding="utf-8")
+
+            with patch(
+                "weather.operations.daily_refresh_trading_steps.exchange_economics.collect_and_publish_global_snapshot",
+                side_effect=_collect_test_exchange_snapshot,
+            ) as collect:
+                result = run_exchange_economics_rule_drift_step(args)
+
+        self.assertEqual(result["snapshot_refresh_target_date"], "2026-06-19")
+        self.assertEqual(collect.call_args.kwargs["target_date"], "2026-06-19")
 
     def test_model_market_disagreement_rehydration_step_writes_resolved_revision(self):
         target_date = "2026-06-21"

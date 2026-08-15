@@ -1,9 +1,4 @@
-"""Date/budget market-making run orchestrator.
-
-The pure policy module decides whether a single band should quote. This module
-owns operator concerns around target-date discovery, run folders, preflight
-gates, budget accounting, and fail-closed shadow/paper run artifacts.
-"""
+"""Target-date, preflight, budget-accounting, and artifact run orchestrator."""
 
 from __future__ import annotations
 
@@ -15,7 +10,6 @@ import argparse
 import csv
 import hashlib
 import json
-import math
 import time
 from collections import Counter
 from datetime import date, datetime, time as dt_time, timedelta, timezone
@@ -31,7 +25,6 @@ from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.mm_policy import (
     DEFAULT_OBSERVATION_STATUS,
     DEFAULT_KNOWN_EDGE_MAP,
-    DEFAULT_POLICY_CONFIG,
     DEFAULT_PROMOTION_REFRESH,
     DEFAULT_SNAPSHOTS_ROOT,
     POLICY_VERSION,
@@ -110,6 +103,7 @@ from weather.market.market_making_run_support import (  # noqa: E402
     write_csv,
     write_json,
 )
+from weather.market.market_making_live_pilot import build_run_policy_config
 from weather.market.live_forward_gate import build_live_forward_gate
 from weather.market.market_making_model_variants import (
     build_model_variant_quote_rows,
@@ -1306,6 +1300,7 @@ def build_run_once(
     release_summary_fields = worker_release_summary_fields(release_binding)
     quote_columns = worker_tape_columns(RUN_QUOTE_COLUMNS, release_binding)
     specs = selected_specs(markets)
+    policy_config = build_run_policy_config(mode, budget_usdc, len(specs), overrides=policy_config)
     evidence_timezone = getattr(getattr(specs[0], "tz", None), "key", None) if specs else None
     evidence_classification = classify_market_making_evidence(
         target,
@@ -1337,9 +1332,6 @@ def build_run_once(
             release_binding,
             label="maker model-variant quote-intent tape",
         )
-    policy_config = {**DEFAULT_POLICY_CONFIG, **(policy_config or {})}
-    policy_config["max_daily_loss"] = min(float(policy_config.get("max_daily_loss", budget_usdc)), float(budget_usdc))
-    policy_config.setdefault("quote_ttl_seconds", DEFAULT_QUOTE_TTL_SECONDS)
     policy_config, clob_recon_diag = config_with_clob_recon(policy_config)
 
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
@@ -1349,7 +1341,13 @@ def build_run_once(
     live_readiness = load_live_readiness(live_readiness_path)
     live_ready = bool(live_readiness.get("ok"))
     data_layer_live_gate = load_data_layer_live_gate(data_layer_audit_path, target, mode)
-    platform_verification_gate = load_platform_verification_gate(platform_verification_path, target, mode, now=now)
+    platform_verification_gate = load_platform_verification_gate(
+        platform_verification_path,
+        target,
+        mode,
+        now=now,
+        requested_budget_usdc=budget_usdc,
+    )
     exchange_economics_required = _uses_default_snapshot_root(snapshots_root) or exchange_economics_snapshot_path is not None
     exchange_economics_snapshot_path = exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT
     exchange_economics_gate = exchange_economics.load_exchange_economics_gate(
@@ -1360,6 +1358,9 @@ def build_run_once(
         required=exchange_economics_required,
     )
     exchange_economics_fields = exchange_economics.exchange_economics_artifact_fields(exchange_economics_gate)
+    exchange_economics_capture = exchange_economics.capture_run_snapshot(
+        exchange_economics_snapshot_path, run_folder, exchange_economics_gate
+    )
     event_metadata_state = _event_metadata_preflight_payload(
         event_metadata_validation_path,
         target,
@@ -1389,6 +1390,7 @@ def build_run_once(
     run_config["data_layer_live_gate"] = data_layer_live_gate
     run_config["platform_verification_gate"] = platform_verification_gate
     run_config["exchange_economics_gate"] = exchange_economics_gate
+    run_config["exchange_economics_capture"] = exchange_economics_capture
     run_config.update(exchange_economics_fields)
     run_config["event_metadata_validation"] = {
         key: value
@@ -1547,6 +1549,7 @@ def build_run_once(
         "data_layer_live_gate": data_layer_live_gate,
         "platform_verification_gate": platform_verification_gate,
         "exchange_economics_gate": exchange_economics_gate,
+        "exchange_economics_capture": exchange_economics_capture,
         **exchange_economics_fields,
         "event_metadata_validation": {
             key: value

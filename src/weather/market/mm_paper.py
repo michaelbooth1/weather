@@ -698,6 +698,44 @@ def build_reward_score_diagnostics(
     config = {**DEFAULT_CONFIG, **(config or {})}
     inputs = _reward_score_inputs(economics_snapshot, exchange_gate)
     formula = str(inputs.get("formula") or "")
+    if str(inputs.get("platform") or "") == exchange_economics.GLOBAL_PLATFORM:
+        no_quote_reason_counts = Counter(
+            row.get("reason_code") or "NO_QUOTE_UNKNOWN"
+            for row in quote_rows
+            if not quote_permission(row)
+        )
+        return {
+            "schema_version": "mm_reward_score_diagnostics_v0.2",
+            "status": "PASS_ZERO_ASSUMPTION" if exchange_gate.get("ok") else "WARN",
+            "score_basis": "liquidity_rewards_excluded_from_primary_pnl",
+            "exchange_economics_status": exchange_gate.get("status"),
+            "exchange_economics_snapshot_id": exchange_gate.get("snapshot_id"),
+            "platform": inputs.get("platform"),
+            "formula": formula,
+            "quote_rows": len(quote_rows),
+            "quote_permission_rows": sum(1 for row in quote_rows if quote_permission(row)),
+            "no_quote_rows": sum(1 for row in quote_rows if not quote_permission(row)),
+            "quoted_legs": len(legs),
+            "positive_score_legs": 0,
+            "zero_score_legs": len(legs),
+            "unscored_legs": 0,
+            "total_reward_score": 0.0,
+            "score_to_target_size_fraction": None,
+            "score_at_or_above_target_size": False,
+            "counterfactual_score_share": 0.0,
+            "counterfactual_reward_before_min_payout_usdc": 0.0,
+            "counterfactual_reward_usdc": 0.0,
+            "counterfactual_reward_status": "PRIMARY_ASSUMPTION_ZERO",
+            "actual_payout_evidence": False,
+            "does_not_change_pnl": True,
+            "payout_evidence_status": "NO_ACTUAL_PAYOUT_EVIDENCE",
+            "blocker_counts": {
+                "per_condition_reward_scoring_not_used_for_primary_pnl": len(legs),
+            },
+            "no_quote_reason_counts": dict(no_quote_reason_counts),
+            "score_attribution_top_groups": [],
+            "scored_legs": [],
+        }
     supported = (
         str(inputs.get("platform") or "") == "polymarket_us"
         and "discount_factor" in formula
@@ -2512,6 +2550,52 @@ def _build_paper_payload(
         exchange_economics_snapshot_path or exchange_economics.DEFAULT_SNAPSHOT,
         {},
     ) or {}
+    base_economics_coverage = exchange_economics.bind_legs_to_run_snapshots(
+        legs,
+        required=bool(exchange_gate.get("required")),
+        platform=exchange_economics_platform,
+    )
+    variant_economics_coverage = exchange_economics.bind_legs_to_run_snapshots(
+        model_variant_legs,
+        required=bool(exchange_gate.get("required")),
+        platform=exchange_economics_platform,
+    )
+    economics_leg_coverage = {
+        "required": bool(exchange_gate.get("required")),
+        "source_gate_ok": (
+            bool(base_economics_coverage.get("source_gate_ok"))
+            and bool(variant_economics_coverage.get("source_gate_ok"))
+        ),
+        "platform": economics_snapshot.get("platform"),
+        "leg_count": (
+            int(base_economics_coverage.get("leg_count") or 0)
+            + int(variant_economics_coverage.get("leg_count") or 0)
+        ),
+        "bound_leg_count": (
+            int(base_economics_coverage.get("bound_leg_count") or 0)
+            + int(variant_economics_coverage.get("bound_leg_count") or 0)
+        ),
+        "missing_leg_count": (
+            int(base_economics_coverage.get("missing_leg_count") or 0)
+            + int(variant_economics_coverage.get("missing_leg_count") or 0)
+        ),
+        "missing_token_ids": sorted(set(
+            list(base_economics_coverage.get("missing_token_ids") or [])
+            + list(variant_economics_coverage.get("missing_token_ids") or [])
+        ))[:50],
+        "run_receipts": (
+            list(base_economics_coverage.get("run_receipts") or [])
+            + list(variant_economics_coverage.get("run_receipts") or [])
+        ),
+    }
+    economics_leg_coverage["ok"] = (
+        economics_leg_coverage["source_gate_ok"]
+        and economics_leg_coverage["missing_leg_count"] == 0
+    )
+    exchange_gate = exchange_economics.gate_with_leg_coverage(
+        exchange_gate,
+        economics_leg_coverage,
+    )
     active_event_slugs = {leg.get("event_slug") for leg in legs if leg.get("event_slug")}
     if include_fill_simulation:
         clob_recon = load_or_build_clob_recon(
@@ -2738,6 +2822,7 @@ def _build_paper_payload(
         "exchange_economics_gate": exchange_gate,
         "exchange_economics_gate_status": exchange_gate.get("status"),
         "exchange_economics_gate_reason": exchange_gate.get("reason"),
+        "exchange_economics_leg_coverage": economics_leg_coverage,
         "paper_evidence_basis": exchange_gate.get("evidence_basis"),
         **exchange_fields,
         "per_market_live_forward_evidence": per_market_evidence_summary,
@@ -2795,6 +2880,7 @@ def _build_paper_payload(
         "casebook_path": str(casebook_path),
         "exchange_economics_snapshot_path": str(exchange_economics_snapshot_path) if exchange_economics_snapshot_path else None,
         "exchange_economics_gate": exchange_gate,
+        "exchange_economics_leg_coverage": economics_leg_coverage,
         **exchange_fields,
         "config": config,
         "summary": summary,

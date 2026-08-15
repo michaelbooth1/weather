@@ -46,7 +46,7 @@ quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
 fail-closed alongside the per-step isolation and physical-memory admission
 owned by Roadmap Item 324.
 
-For each run, a complete validated `mm_scoring_projection_v0.1` base/variant
+For each run, a complete validated `mm_scoring_projection_v0.2` base/variant
 pair is measured and passed to the streaming scorer; any missing, stale,
 malformed, or incompatible member makes that run use both canonical tapes.
 The receipt records projected versus canonical bytes and exact input bindings.

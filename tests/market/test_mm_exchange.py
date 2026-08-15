@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from weather.market.mm_exchange import (  # noqa: E402
     PolymarketGlobalHTTPAdapter,
@@ -16,9 +17,44 @@ from weather.market.mm_exchange import (  # noqa: E402
     lifecycle_events_from_user_events,
 )
 from weather.market.market_making_run_support import load_open_lifecycle_orders  # noqa: E402
+from weather.market.mm_official_adapter import (  # noqa: E402
+    OfficialPolymarketGlobalAdapter,
+    exact_current_positions_evidence,
+    fetch_current_positions,
+    fetch_current_maker_rebates,
+    normalize_official_user_event,
+    require_official_clob_version,
+)
+from weather.market.mm_geoblock import collect_official_geoblock_evidence  # noqa: E402
+from weather.market.mm_exchange_reports import confirmed_trade_set_sha256  # noqa: E402
 
 
 NOW = "2026-06-14T16:00:00+00:00"
+
+
+def geoblock_evidence(*, blocked=False, country="CH", region="ZH"):
+    class Response:
+        status = 200
+
+        def read(self, _limit):
+            return json.dumps({
+                "blocked": blocked,
+                "country": country,
+                "region": region,
+                "ip": "203.0.113.8",
+            }).encode("utf-8")
+
+        def close(self):
+            pass
+
+    return collect_official_geoblock_evidence(
+        opener=lambda _request, timeout: Response(),
+        proxy_detector=lambda: {},
+    )
+
+
+def eligible_geoblock():
+    return geoblock_evidence()
 
 
 def write_json(path, payload):
@@ -37,6 +73,30 @@ def append_jsonl(path, rows):
 def read_csv(path):
     with path.open("r", encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def official_stage1_gate(adapter, snapshot_character="b"):
+    return {
+        "required": True,
+        "ok": True,
+        "schema_version": "mm_platform_bootstrap_v0.1",
+        "status": "PASS",
+        "platform": "polymarket_global",
+        "settlement_unit": "pUSD",
+        "condition_id": adapter.condition_id,
+        "token_id": adapter.token_id,
+        "funder_address": adapter.maker_address,
+        "sdk_version": adapter.sdk_version,
+        "signature_type_id": 3,
+        "pilot_wallet_max_funding_usdc": 100.0,
+        "requested_budget_usdc": 100.0,
+        "account_snapshot_sha256": snapshot_character * 64,
+        "geoblock_country": "CH",
+        "geoblock_region": "ZH",
+        "geoblock_evidence_sha256": "e" * 64,
+        "checks": {"all_bootstrap_checks": True},
+        "missing": [],
+    }
 
 
 def write_csv(path, fieldnames, rows):
@@ -133,10 +193,731 @@ def write_run_folder(
 
 
 class TestMMExchange(unittest.TestCase):
+    def test_official_maker_trade_is_exact_scope_filtered_and_booked_only_when_confirmed(self):
+        maker_address = "0x" + "a" * 40
+        condition_id = "0x" + "b" * 64
+        token_id = "12345"
+        raw = {
+            "event_type": "trade",
+            "id": "trade-1",
+            "market": condition_id,
+            "asset_id": token_id,
+            "status": "MATCHED",
+            "trader_side": "MAKER",
+            "maker_address": "0x" + "e" * 40,
+            "transaction_hash": "",
+            "match_time": "1781452801",
+            "maker_orders": [
+                {
+                    "order_id": "other-order",
+                    "maker_address": "0x" + "c" * 40,
+                    "asset_id": token_id,
+                    "matched_amount": "9",
+                    "price": "0.49",
+                    "fee_rate_bps": "0",
+                    "side": "BUY",
+                },
+                {
+                    "order_id": "order-1",
+                    "maker_address": maker_address,
+                    "asset_id": token_id,
+                    "matched_amount": "2",
+                    "price": "0.49",
+                    "fee_rate_bps": "0",
+                    "side": "BUY",
+                },
+            ],
+        }
+
+        pending = normalize_official_user_event(
+            raw,
+            maker_address=maker_address,
+            condition_id=condition_id,
+            token_id=token_id,
+        )
+        confirmed = normalize_official_user_event(
+            {
+                **raw,
+                "status": "CONFIRMED",
+                "transaction_hash": "0x" + "d" * 64,
+            },
+            maker_address=maker_address,
+            condition_id=condition_id,
+            token_id=token_id,
+        )
+        events, fills = lifecycle_events_from_user_events(
+            pending + confirmed,
+            datetime.fromisoformat(NOW),
+            exchange_order_to_lifecycle={"order-1": "life-1"},
+        )
+
+        self.assertEqual(pending[0]["event_type"], "trade_pending")
+        self.assertEqual(pending[0]["order_id"], "order-1")
+        self.assertEqual(pending[0]["maker_address"], maker_address)
+        self.assertEqual(pending[0]["exchange_match_time"], "1781452801")
+        self.assertEqual([row["transition"] for row in events], ["fill_pending", "filled"])
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]["lifecycle_key"], "life-1")
+        self.assertEqual(fills[0]["liquidity_role"], "MAKER")
+        self.assertEqual(fills[0]["official_trade_status"], "CONFIRMED")
+        self.assertEqual(fills[0]["transaction_hash"], "0x" + "d" * 64)
+
+        class NormalizedReaderClient:
+            def get_open_orders(self):
+                return []
+
+        normalized_adapter = OfficialPolymarketGlobalAdapter(
+            NormalizedReaderClient(),
+            token_id=token_id,
+            user_event_reader=lambda: confirmed,
+            user_event_health_reader=lambda: {"state": "SUBSCRIPTION_PROVEN"},
+            position_reader=lambda: [],
+            maker_address=maker_address,
+            condition_id=condition_id,
+            authoritative_readers_verified=True,
+            sdk_version="1.1.0",
+        )
+        self.assertEqual(normalized_adapter.user_events(), confirmed)
+
+        canceled = normalize_official_user_event(
+            {
+                "event_type": "order",
+                "id": "order-1",
+                "market": condition_id,
+                "asset_id": token_id,
+                "type": "CANCELLATION",
+                "status": "CANCELED",
+                "maker_address": maker_address,
+            },
+            maker_address=maker_address,
+            condition_id=condition_id,
+            token_id=token_id,
+        )
+        self.assertEqual(canceled[0]["event_type"], "canceled")
+        self.assertEqual(canceled[0]["order_id"], "order-1")
+
+    def test_public_maker_rebate_reader_validates_exact_response_scope(self):
+        maker_address = "0x" + "a" * 40
+        condition_id = "0x" + "b" * 64
+        asset_address = "0x" + "c" * 40
+        captured = {}
+
+        class Response:
+            def read(self):
+                return json.dumps([{
+                    "date": "2026-08-13",
+                    "condition_id": condition_id,
+                    "asset_address": asset_address,
+                    "maker_address": maker_address,
+                    "rebated_fees_usdc": "1.237519",
+                }]).encode("utf-8")
+
+            def close(self):
+                captured["closed"] = True
+
+        def opener(request, timeout):
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            return Response()
+
+        rows = fetch_current_maker_rebates(
+            maker_address,
+            "2026-08-13",
+            opener=opener,
+        )
+
+        self.assertEqual(rows[0]["condition_id"], condition_id)
+        self.assertEqual(rows[0]["rebated_fees_usdc"], "1.237519")
+        self.assertIn("date=2026-08-13", captured["url"])
+        self.assertIn("maker_address=", captured["url"])
+        self.assertTrue(captured["closed"])
+
+        evidence = fetch_current_maker_rebates(
+            maker_address,
+            "2026-08-13",
+            opener=opener,
+            return_evidence=True,
+            now="2026-08-14T01:00:00+00:00",
+        )
+        self.assertEqual(evidence["query_scope"], "exact_maker_date")
+        self.assertEqual(evidence["queried_at_utc"], "2026-08-14T01:00:00+00:00")
+        self.assertEqual(len(evidence["response_sha256"]), 64)
+
+    def test_public_position_reader_binds_empty_result_to_exact_scope(self):
+        maker_address = "0x" + "a" * 40
+        condition_id = "0x" + "b" * 64
+        captured = {}
+
+        class Response:
+            status = 200
+
+            def read(self):
+                return b"[]"
+
+            def close(self):
+                captured["closed"] = True
+
+        def opener(request, timeout):
+            captured["url"] = request.full_url
+            captured["timeout"] = timeout
+            return Response()
+
+        evidence = fetch_current_positions(
+            maker_address,
+            condition_id,
+            opener=opener,
+        )
+
+        self.assertEqual(evidence["status"], "OBSERVED")
+        self.assertEqual(evidence["query_scope"], "exact_maker_condition")
+        self.assertEqual(evidence["rows"], [])
+        self.assertEqual(len(evidence["response_sha256"]), 64)
+        self.assertIn("user=0x", captured["url"])
+        self.assertIn("market=0x", captured["url"])
+        self.assertIn("limit=500", captured["url"])
+        self.assertIn("offset=0", captured["url"])
+        self.assertTrue(exact_current_positions_evidence(
+            evidence,
+            maker_address=maker_address,
+            condition_id=condition_id,
+            rows=[],
+        ))
+        evidence["request_url"] += "&limit=1"
+        self.assertFalse(exact_current_positions_evidence(
+            evidence,
+            maker_address=maker_address,
+            condition_id=condition_id,
+            rows=[],
+        ))
+        self.assertTrue(captured["closed"])
+
+    def test_official_global_adapter_is_pinned_and_reconciliation_complete_before_mutation(self):
+        class FakeClient:
+            def __init__(self):
+                self.calls = []
+                self.open_orders = []
+                self.heartbeat_counter = 0
+                self.signed_maker = "0x" + "a" * 40
+                self.signed_signer = None
+                self.signature_type = 3
+                self.book_asset_id = "token-80"
+                self.book_condition_id = "0x" + "b" * 64
+                self.next_order_response = {
+                    "success": True,
+                    "orderID": "order-1",
+                    "status": "live",
+                    "tradeIDs": [],
+                    "transactionsHashes": [],
+                }
+
+            def get_open_orders(self):
+                self.calls.append(("get_open_orders",))
+                return list(self.open_orders)
+
+            def get_address(self):
+                return "0x" + "d" * 40
+
+            def get_balance_allowance(self, *, params):
+                self.calls.append(("get_balance_allowance", params))
+                return {"balance": "100", "allowances": {"exchange": "100"}}
+
+            def get_current_rewards(self):
+                return [{"condition_id": "condition-1"}]
+
+            def get_fee_rate_bps(self, token_id):
+                return 50 if token_id == "token-80" else 0
+
+            def get_closed_only_mode(self):
+                return {"closed_only": False}
+
+            def get_order_book(self, token_id):
+                self.calls.append(("get_order_book", token_id))
+                return {
+                    "asset_id": self.book_asset_id,
+                    "market": self.book_condition_id,
+                    "min_order_size": "5",
+                    "tick_size": "0.01",
+                    "neg_risk": False,
+                    "bids": [{"price": "0.49", "size": "10"}],
+                    "asks": [{"price": "0.51", "size": "10"}],
+                }
+
+            def get_tick_size(self, token_id):
+                self.calls.append(("get_tick_size", token_id))
+                return "0.01"
+
+            def post_heartbeat(self, heartbeat_id):
+                self.calls.append(("post_heartbeat", heartbeat_id))
+                self.heartbeat_counter += 1
+                return {"heartbeat_id": f"hb-{self.heartbeat_counter}"}
+
+            def create_order(self, order, *, options):
+                self.calls.append(("create_order", order, options))
+                return {
+                    "signer": self.signed_signer or (
+                        self.signed_maker
+                        if self.signature_type == 3
+                        else self.get_address()
+                    ),
+                    "maker": self.signed_maker,
+                    "tokenId": order["token_id"],
+                    "signatureType": self.signature_type,
+                    "signature": "0x" + "f" * 130,
+                }
+
+            def post_order(self, signed_order, *, order_type, post_only):
+                self.calls.append(("post_order", signed_order, order_type, post_only))
+                return dict(self.next_order_response)
+
+            def get_order(self, order_id):
+                return {"id": order_id}
+
+            def cancel_order(self, payload):
+                self.calls.append(("cancel_order", payload))
+                return {"canceled": payload["orderID"]}
+
+            def cancel_all(self):
+                self.calls.append(("cancel_all",))
+                self.open_orders = []
+                return {"canceled": True}
+
+        with self.assertRaisesRegex(RuntimeError, "observed 1.0.0"):
+            require_official_clob_version("1.0.0")
+
+        client = FakeClient()
+        read_only = OfficialPolymarketGlobalAdapter(client, sdk_version="1.1.0")
+        self.assertFalse(read_only.supports_trading)
+        with self.assertRaisesRegex(RuntimeError, "verified authoritative user-event"):
+            read_only.place_order({"token_id": "token-80", "price": 0.49, "size": 5, "side": "BUY"})
+
+        raised_ceiling = OfficialPolymarketGlobalAdapter(
+            client,
+            sdk_version="1.1.0",
+            max_order_notional=100,
+        )
+        lowered_ceiling = OfficialPolymarketGlobalAdapter(
+            client,
+            sdk_version="1.1.0",
+            max_order_notional=2,
+        )
+        self.assertEqual(raised_ceiling.max_order_notional, Decimal("10"))
+        self.assertEqual(
+            raised_ceiling.diagnostics()["max_order_notional_ceiling"],
+            "10",
+        )
+        self.assertEqual(lowered_ceiling.max_order_notional, Decimal("2"))
+
+        unverified = OfficialPolymarketGlobalAdapter(
+            client,
+            user_event_reader=lambda: [],
+            position_reader=lambda: [],
+            sdk_version="1.1.0",
+        )
+        self.assertFalse(unverified.supports_trading)
+
+        clock = [100.0]
+
+        class FakeOrderType:
+            GTC = "GTC"
+
+        def make_adapter(bound_client):
+            return OfficialPolymarketGlobalAdapter(
+                bound_client,
+                token_id="token-80",
+                user_event_reader=lambda: [{"event_type": "order", "id": "order-1"}],
+                user_event_health_reader=lambda: {"state": "SUBSCRIPTION_PROVEN"},
+                position_reader=lambda: [{"asset": "token-80", "size": "5"}],
+                rebate_reader=lambda: [{
+                    "date": "2026-08-13",
+                    "condition_id": "0x" + "b" * 64,
+                    "asset_address": "0x" + "c" * 40,
+                    "maker_address": "0x" + "a" * 40,
+                    "rebated_fees_usdc": "1.25",
+                }],
+                rebate_date="2026-08-13",
+                maker_address="0x" + "a" * 40,
+                condition_id="0x" + "b" * 64,
+                rebate_payout_cycle_complete=True,
+                order_args_factory=lambda **kwargs: kwargs,
+                order_payload_factory=lambda **kwargs: kwargs,
+                order_type_factory=FakeOrderType,
+                order_options_factory=lambda **kwargs: kwargs,
+                collateral_balance_params={"asset_type": "COLLATERAL"},
+                sdk_version="1.1.0",
+                authoritative_readers_verified=True,
+                monotonic_clock=lambda: clock[0],
+                geoblock_checker=eligible_geoblock,
+            )
+
+        adapter = make_adapter(client)
+        self.assertTrue(adapter.supports_trading)
+        with self.assertRaisesRegex(RuntimeError, "acknowledged heartbeat"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.49,
+                "size": 5,
+                "side": "BUY",
+            })
+        self.assertEqual(adapter.heartbeat(), {"heartbeat_id": "hb-1"})
+        with self.assertRaisesRegex(RuntimeError, "fresh market-rules snapshot"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.49,
+                "size": 5,
+                "side": "BUY",
+            })
+        market_rules = adapter.refresh_market_rules()
+        self.assertEqual(market_rules["condition_id"], "0x" + "b" * 64)
+        self.assertEqual(market_rules["tick_size"], "0.01")
+        self.assertEqual(market_rules["best_ask"], "0.51")
+        preview = adapter.preview_signed_order(
+            {
+                "token_id": "token-80",
+                "price": 0.01,
+                "size": 5,
+                "side": "BUY",
+            },
+            expected_signature_type_id=3,
+        )
+        self.assertEqual(preview["status"], "VERIFIED_NON_POSTING_PREVIEW")
+        self.assertFalse(preview["signature_retained"])
+        self.assertNotIn("signature", preview)
+        self.assertEqual(preview["client_signer_address"], "0x" + "d" * 40)
+        self.assertEqual(preview["order_signer_address"], "0x" + "a" * 40)
+        self.assertEqual(len(preview["signed_order_sha256"]), 64)
+
+        missing_book_token_client = FakeClient()
+        missing_book_token_client.book_asset_id = ""
+        with self.assertRaisesRegex(RuntimeError, "order-book token differs"):
+            make_adapter(missing_book_token_client).refresh_market_rules()
+
+        wrong_book_condition_client = FakeClient()
+        wrong_book_condition_client.book_condition_id = "0x" + "c" * 64
+        with self.assertRaisesRegex(RuntimeError, "order-book condition differs"):
+            make_adapter(wrong_book_condition_client).refresh_market_rules()
+
+        safe_client = FakeClient()
+        safe_client.signature_type = 2
+        safe_adapter = make_adapter(safe_client)
+        safe_adapter.refresh_market_rules()
+        safe_preview = safe_adapter.preview_signed_order(
+            {
+                "token_id": "token-80",
+                "price": 0.01,
+                "size": 5,
+                "side": "BUY",
+            },
+            expected_signature_type_id=2,
+        )
+        self.assertEqual(safe_preview["client_signer_address"], "0x" + "d" * 40)
+        self.assertEqual(safe_preview["order_signer_address"], "0x" + "d" * 40)
+        self.assertEqual(safe_preview["maker_address"], "0x" + "a" * 40)
+
+        eoa_order_signer_client = FakeClient()
+        eoa_order_signer_client.signed_signer = eoa_order_signer_client.get_address()
+        eoa_order_signer_adapter = make_adapter(eoa_order_signer_client)
+        eoa_order_signer_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "order_signer_matches_wallet_topology",
+        ):
+            eoa_order_signer_adapter.preview_signed_order(
+                {
+                    "token_id": "token-80",
+                    "price": 0.01,
+                    "size": 5,
+                    "side": "BUY",
+                },
+                expected_signature_type_id=3,
+            )
+        valid_intent = {
+            "token_id": "token-80",
+            "price": 0.49,
+            "size": 5,
+            "side": "BUY",
+        }
+        blocked_adapter = make_adapter(FakeClient())
+        blocked_adapter.geoblock_checker = lambda: geoblock_evidence(
+            blocked=True,
+            country="CA",
+            region="ON",
+        )
+        with self.assertRaisesRegex(RuntimeError, "geoblock proof blocks order mutation"):
+            blocked_adapter.authorize_stage1_lifecycle(
+                official_stage1_gate(blocked_adapter)
+            )
+
+        oversized_budget_adapter = make_adapter(FakeClient())
+        oversized_budget_gate = official_stage1_gate(oversized_budget_adapter)
+        oversized_budget_gate["requested_budget_usdc"] = 100.01
+        with self.assertRaisesRegex(RuntimeError, "requested_budget"):
+            oversized_budget_adapter.authorize_stage1_lifecycle(
+                oversized_budget_gate
+            )
+
+        route_changed_adapter = make_adapter(FakeClient())
+        route_changed_adapter.heartbeat()
+        route_changed_adapter.refresh_market_rules()
+        route_capability = route_changed_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(route_changed_adapter, snapshot_character="f")
+        )
+        route_changed_adapter.geoblock_checker = lambda: geoblock_evidence(
+            blocked=True,
+            country="CA",
+            region="ON",
+        )
+        with self.assertRaisesRegex(RuntimeError, "geoblock proof blocks order mutation"):
+            route_changed_adapter.place_order(
+                valid_intent,
+                stage1_capability=route_capability,
+            )
+        self.assertTrue(route_changed_adapter.diagnostics()["stage1_capability_consumed"])
+        self.assertFalse(any(
+            call[0] == "post_order"
+            for call in route_changed_adapter.client.calls
+        ))
+
+        wrong_signer_client = FakeClient()
+        wrong_signer_client.signed_maker = "0x" + "e" * 40
+        wrong_signer_adapter = make_adapter(wrong_signer_client)
+        wrong_signer_adapter.heartbeat()
+        wrong_signer_adapter.refresh_market_rules()
+        wrong_signer_capability = wrong_signer_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(wrong_signer_adapter, snapshot_character="1")
+        )
+        with self.assertRaisesRegex(RuntimeError, "signed-order identity mismatch"):
+            wrong_signer_adapter.place_order(
+                valid_intent,
+                stage1_capability=wrong_signer_capability,
+            )
+        self.assertFalse(any(
+            call[0] == "post_order"
+            for call in wrong_signer_client.calls
+        ))
+
+        malformed_signature_client = FakeClient()
+        malformed_signature_client.signature_type = 2
+        original_create_order = malformed_signature_client.create_order
+
+        def create_malformed_order(order, *, options):
+            signed = original_create_order(order, options=options)
+            signed["signature"] = "present-but-not-an-eip-signature"
+            return signed
+
+        malformed_signature_client.create_order = create_malformed_order
+        malformed_signature_adapter = make_adapter(malformed_signature_client)
+        malformed_signature_adapter.refresh_market_rules()
+        with self.assertRaisesRegex(RuntimeError, "signature_valid"):
+            malformed_signature_adapter.preview_signed_order(
+                {
+                    "token_id": "token-80",
+                    "price": 0.01,
+                    "size": 5,
+                    "side": "BUY",
+                },
+                expected_signature_type_id=2,
+            )
+
+        malformed_heartbeat_client = FakeClient()
+        malformed_heartbeat_client.post_heartbeat = lambda _heartbeat_id: {
+            "heartbeat_id": 123,
+        }
+        with self.assertRaisesRegex(RuntimeError, "nonempty string heartbeat id"):
+            make_adapter(malformed_heartbeat_client).heartbeat()
+
+        repeated_heartbeat_client = FakeClient()
+        repeated_heartbeat_client.post_heartbeat = lambda _heartbeat_id: {
+            "heartbeat_id": "hb-static",
+        }
+        repeated_heartbeat_adapter = make_adapter(repeated_heartbeat_client)
+        repeated_heartbeat_adapter.heartbeat()
+        with self.assertRaisesRegex(RuntimeError, "nonempty string heartbeat id"):
+            repeated_heartbeat_adapter.heartbeat()
+
+        stopped_stream_client = FakeClient()
+        stopped_stream_adapter = make_adapter(stopped_stream_client)
+        stopped_stream_adapter.heartbeat()
+        stopped_stream_adapter.refresh_market_rules()
+        stopped_stream_capability = stopped_stream_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(stopped_stream_adapter, snapshot_character="2")
+        )
+        stopped_stream_adapter.user_event_health_reader = lambda: {"state": "FAILED"}
+        with self.assertRaisesRegex(RuntimeError, "user-event stream is not active"):
+            stopped_stream_adapter.place_order(
+                valid_intent,
+                stage1_capability=stopped_stream_capability,
+            )
+        self.assertFalse(any(
+            call[0] == "post_order"
+            for call in stopped_stream_client.calls
+        ))
+
+        with self.assertRaisesRegex(RuntimeError, "Stage 1 lifecycle capability"):
+            adapter.place_order(valid_intent)
+        capability = adapter.authorize_stage1_lifecycle(official_stage1_gate(adapter))
+        response = adapter.place_order(valid_intent, stage1_capability=capability)
+        self.assertTrue(response["success"])
+        post_call = next(call for call in client.calls if call[0] == "post_order")
+        self.assertEqual(post_call[2:], ("GTC", True))
+        create_calls = [call for call in client.calls if call[0] == "create_order"]
+        self.assertEqual(create_calls[-1][1]["token_id"], "token-80")
+
+        with self.assertRaisesRegex(RuntimeError, "below the current market minimum"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.49,
+                "size": 4.99,
+                "side": "BUY",
+            })
+        with self.assertRaisesRegex(RuntimeError, "current market tick size"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.495,
+                "size": 5,
+                "side": "BUY",
+            })
+        with self.assertRaisesRegex(RuntimeError, "adapter pilot cap"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.49,
+                "size": 21,
+                "side": "BUY",
+            })
+        with self.assertRaisesRegex(RuntimeError, "cross the fresh best ask"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.51,
+                "size": 5,
+                "side": "BUY",
+            })
+
+        with self.assertRaisesRegex(RuntimeError, "verified owned outcome inventory"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.51,
+                "size": 5,
+                "side": "SELL",
+            })
+        with self.assertRaisesRegex(RuntimeError, "exceeds authoritative owned"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.51,
+                "size": 5.01,
+                "side": "SELL",
+                "owned_inventory_verified": True,
+            })
+        with self.assertRaisesRegex(RuntimeError, "single allowed token"):
+            adapter.place_order({
+                "token_id": "different-token",
+                "price": 0.49,
+                "size": 5,
+                "side": "BUY",
+            })
+
+        unsafe_client = FakeClient()
+        unsafe_client.next_order_response = {
+            "success": True,
+            "orderID": "order-unsafe",
+            "status": "matched",
+            "tradeIDs": ["trade-1"],
+        }
+        unsafe_adapter = make_adapter(unsafe_client)
+        unsafe_adapter.heartbeat()
+        unsafe_adapter.refresh_market_rules()
+        unsafe_capability = unsafe_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(unsafe_adapter, snapshot_character="d")
+        )
+        with self.assertRaisesRegex(RuntimeError, "execution-free live order"):
+            unsafe_adapter.place_order(
+                valid_intent,
+                stage1_capability=unsafe_capability,
+            )
+        self.assertTrue(
+            unsafe_adapter.probe_evidence()["cancel_all_zero_open_orders_verified"]
+        )
+
+        malformed_success_client = FakeClient()
+        malformed_success_client.next_order_response["success"] = "false"
+        malformed_success_adapter = make_adapter(malformed_success_client)
+        malformed_success_adapter.heartbeat()
+        malformed_success_adapter.refresh_market_rules()
+        malformed_success_capability = (
+            malformed_success_adapter.authorize_stage1_lifecycle(
+                official_stage1_gate(
+                    malformed_success_adapter,
+                    snapshot_character="e",
+                )
+            )
+        )
+        with self.assertRaisesRegex(RuntimeError, "execution-free live order"):
+            malformed_success_adapter.place_order(
+                valid_intent,
+                stage1_capability=malformed_success_capability,
+            )
+        self.assertTrue(
+            malformed_success_adapter.probe_evidence()[
+                "cancel_all_zero_open_orders_verified"
+            ]
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "heartbeat id does not continue"):
+            adapter.heartbeat("stale-id")
+        self.assertEqual(adapter.heartbeat(), {"heartbeat_id": "hb-2"})
+        clock[0] += 8
+        with self.assertRaisesRegex(RuntimeError, "fresh heartbeat"):
+            adapter.place_order({
+                "token_id": "token-80",
+                "price": 0.49,
+                "size": 5,
+                "side": "BUY",
+            })
+
+        self.assertEqual(adapter.balances()["balance"], "100")
+        self.assertEqual(adapter.allowances(), {"exchange": "100"})
+        self.assertEqual(
+            sum(1 for call in client.calls if call[0] == "get_balance_allowance"),
+            1,
+        )
+        self.assertEqual(adapter.fees()["fee_rate_bps"], 50)
+        self.assertEqual(
+            adapter.rewards()["maker_rebate_evidence"]["rows"][0]["rebated_fees_usdc"],
+            "1.25",
+        )
+        adapter.cancel_all()
+        self.assertTrue(adapter.probe_evidence()["cancel_all_zero_open_orders_verified"])
+        self.assertTrue(adapter.diagnostics()["secret_values_redacted"])
+
     def test_fixture_reconciliation_appends_lifecycle_fills_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             run_folder = write_run_folder(root)
+            user_event = {
+                "event_type": "fill",
+                "generated_at_utc": "2026-06-14T16:00:30+00:00",
+                "lifecycle_key": "life-1",
+                "order_id": "ex-1",
+                "run_id": "exchange-run",
+                "market_id": "atlanta",
+                "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
+                "range_label": "80-81 F",
+                "maker_address": "0x" + "a" * 40,
+                "condition_id": "0x" + "b" * 64,
+                "clob_token_id": "token-80",
+                "side": "YES_BID",
+                "fill_price": 0.49,
+                "fill_size": 2.0,
+                "trade_id": "trade-1",
+                "transaction_hash": "0x" + "d" * 64,
+                "liquidity_role": "MAKER",
+                "fee_rate_bps": 500,
+                "official_trade_status": "CONFIRMED",
+                "markout_30m": 0.02,
+                "maker_rebate_estimate_usdc": 0.01,
+            }
+            _, expected_fills = lifecycle_events_from_user_events(
+                [user_event],
+                datetime.fromisoformat(NOW),
+            )
             fixture = write_json(root / "exchange_fixture.json", {
                 "open_orders": [{
                     "lifecycle_key": "life-1",
@@ -144,30 +925,80 @@ class TestMMExchange(unittest.TestCase):
                     "status": "live",
                     "remaining_size": 3.0,
                 }],
-                "user_events": [{
-                    "event_type": "fill",
-                    "generated_at_utc": "2026-06-14T16:00:30+00:00",
-                    "lifecycle_key": "life-1",
-                    "order_id": "ex-1",
-                    "run_id": "exchange-run",
-                    "market_id": "atlanta",
-                    "event_slug": "highest-temperature-in-atlanta-on-june-14-2026",
-                    "range_label": "80-81 F",
-                    "clob_token_id": "token-80",
-                    "side": "YES_BID",
-                    "fill_price": 0.49,
-                    "fill_size": 2.0,
-                    "markout_30m": 0.02,
-                }],
-                "balances": {"starting_cash_usdc": 25.0, "cash": 25.98},
+                "user_events": [user_event],
+                "balances": {
+                    "starting_cash_usdc": 25.0,
+                    "ending_cash_usdc": 26.0,
+                },
                 "allowances": {"pUSD": 25.0},
-                "positions": [{"token_id": "token-80", "size": 2.0}],
-                "rewards": {"maker_rebate_usdc": 0.01},
-                "fees": {"paid_usdc": 0.02},
+                "positions": [],
+                "position_evidence": {
+                    "status": "OBSERVED",
+                    "query_scope": "exact_maker_condition",
+                    "maker_address": "0x" + "a" * 40,
+                    "condition_id": "0x" + "b" * 64,
+                    "rows": [],
+                    "http_status": 200,
+                    "response_sha256": "f" * 64,
+                    "request_url": (
+                        "https://data-api.polymarket.com/positions?user=0x"
+                        + "a" * 40
+                        + "&market=0x"
+                        + "b" * 64
+                        + "&sizeThreshold=0&limit=500&offset=0"
+                    ),
+                },
+                "rewards": {
+                    "maker_rebate_evidence": {
+                        "status": "OBSERVED",
+                        "query_scope": "exact_maker_date",
+                        "http_status": 200,
+                        "response_sha256": "e" * 64,
+                        "request_url": (
+                            "https://clob.polymarket.com/rebates/current?"
+                            "date=2026-06-14&maker_address=0x" + "a" * 40
+                        ),
+                        "query_date": "2026-06-14",
+                        "queried_at_utc": "2026-06-15T01:00:00+00:00",
+                        "maker_address": "0x" + "a" * 40,
+                        "condition_id": "0x" + "b" * 64,
+                        "payout_cycle_complete": True,
+                        "rows": [{
+                            "date": "2026-06-14",
+                            "maker_address": "0x" + "a" * 40,
+                            "condition_id": "0x" + "b" * 64,
+                            "asset_address": "0x" + "c" * 40,
+                            "rebated_fees_usdc": 0.01,
+                        }],
+                    },
+                },
+                "fees": {
+                    "actual_fee_evidence": {
+                        "status": "OBSERVED",
+                        "coverage": "all_pilot_trades_and_exits",
+                        "includes_taker_and_flattening_fees": True,
+                        "calculation_basis": "confirmed_trade_events",
+                        "fee_formula": "shares_x_rate_x_price_x_one_minus_price",
+                        "maker_fees_zero": True,
+                        "precision_decimal_places": 5,
+                        "confirmed_trade_set_sha256": confirmed_trade_set_sha256(
+                            expected_fills
+                        ),
+                        "maker_address": "0x" + "a" * 40,
+                        "condition_id": "0x" + "b" * 64,
+                        "observed_fill_count": 1,
+                        "paid_usdc": 0.0,
+                    },
+                },
                 "redemption_status": {
                     "redeemed": True,
                     "redemption_usdc": 1.0,
                     "settlement_pnl_usdc": 0.99,
+                    "financial_identity": {
+                        "external_cash_flows_usdc": 0.0,
+                        "ending_positions_zero": True,
+                        "settlement_pnl_excludes_fees_and_incentives": True,
+                    },
                 },
                 "probe_evidence": {
                     "heartbeat_dead_man": {"passed": True, "detail": "throwaway order canceled by heartbeat lapse"},
@@ -245,7 +1076,7 @@ class TestMMExchange(unittest.TestCase):
         self.assertTrue(pilot_report["financial_reconciliation_complete"])
         self.assertAlmostEqual(
             pilot_report["financial_reconciliation"]["actual_total_pnl_after_fees_incentives_usdc"],
-            0.98,
+            1.0,
         )
         self.assertEqual(pilot_report["financial_reconciliation"]["missing_evidence"], [])
         self.assertTrue(pilot_report_exists)
@@ -258,6 +1089,20 @@ class TestMMExchange(unittest.TestCase):
         self.assertIn("## Live Readiness Notes", report_text)
         self.assertIn("private_user_stream_required", report_text)
         self.assertIn("latency_stopgap_reject_handling_required", report_text)
+
+    def test_global_heartbeat_uses_v1_endpoint(self):
+        plan = build_adapter_request_plan(
+            "polymarket_global",
+            "heartbeat",
+            metadata={"heartbeat_id": "hb-1"},
+            signer=lambda message: b"signed",
+            timestamp_ms="1234",
+        )
+
+        self.assertEqual(plan["method"], "POST")
+        self.assertEqual(plan["path"], "/v1/heartbeats")
+        self.assertEqual(plan["body"], {"heartbeat_id": "hb-1"})
+        self.assertTrue(plan["ready"])
 
     def test_polymarket_us_private_ws_events_map_to_lifecycle_rows(self):
         now = datetime.fromisoformat(NOW)
@@ -426,6 +1271,41 @@ class TestMMExchange(unittest.TestCase):
         self.assertNotIn("visible-id", text)
         self.assertNotIn("do-not-log", text)
         self.assertNotIn("vault://pm/us", text)
+
+    def test_global_credential_diagnostics_requires_references_not_secret_values(self):
+        references = {
+            "POLYMARKET_API_KEY_STORAGE_REF": "vault://pm/global/api-key",
+            "POLYMARKET_API_SECRET_STORAGE_REF": "vault://pm/global/api-secret",
+            "POLYMARKET_API_PASSPHRASE_STORAGE_REF": "vault://pm/global/passphrase",
+            "POLYMARKET_FUNDER_ADDRESS": "0x0000000000000000000000000000000000000001",
+            "POLYMARKET_PRIVATE_KEY_STORAGE_REF": "vault://pm/global/private-key",
+        }
+        referenced = credential_diagnostics("polymarket_global", env=references)
+        direct = credential_diagnostics(
+            "polymarket_global",
+            env={
+                **references,
+                "POLYMARKET_API_KEY": "do-not-log-key",
+                "POLYMARKET_API_SECRET": "do-not-log-secret",
+                "POLYMARKET_API_PASSPHRASE": "do-not-log-passphrase",
+                "POLYMARKET_PRIVATE_KEY": "do-not-log-private-key",
+            },
+        )
+        serialized = json.dumps({"referenced": referenced, "direct": direct}, sort_keys=True)
+
+        self.assertTrue(referenced["ok"])
+        self.assertFalse(direct["ok"])
+        self.assertEqual(
+            set(direct["forbidden_direct_secret_env_names_present"]),
+            {
+                "POLYMARKET_API_KEY",
+                "POLYMARKET_API_SECRET",
+                "POLYMARKET_API_PASSPHRASE",
+                "POLYMARKET_PRIVATE_KEY",
+            },
+        )
+        self.assertNotIn("vault://", serialized)
+        self.assertNotIn("do-not-log", serialized)
 
     def test_polymarket_us_request_plan_uses_signed_header_shape_without_secret_values(self):
         leg = {
@@ -632,7 +1512,7 @@ class TestMMExchange(unittest.TestCase):
 
         self.assertEqual(heartbeat["status"], "ok")
         self.assertTrue(posted["success"])
-        self.assertEqual(heartbeat_request["url"], "https://clob.polymarket.com/heartbeats")
+        self.assertEqual(heartbeat_request["url"], "https://clob.polymarket.com/v1/heartbeats")
         self.assertEqual(post_request["method"], "POST")
         self.assertEqual(post_request["url"], "https://clob.polymarket.com/order")
         self.assertEqual(post_request["headers"]["POLY_SIGNATURE"], "ZmFrZS1nbG9iYWwtc2lnbmF0dXJl")

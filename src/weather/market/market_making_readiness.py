@@ -144,10 +144,10 @@ ACTION_METADATA = {
         "category": "operator_controls",
         "safe_next_step": "create live_readiness.json only after wallet, allowance, heartbeat, user stream, and cancel-all proofs exist",
     },
-    "platform_verification_v0_2_passes": {
+    "platform_verification_v0_4_passes": {
         "priority": 91,
         "category": "platform_verification",
-        "safe_next_step": "refresh platform verification v0.2 with maker-only, private-stream, cancel-all, latency-stopgap, and secret-redaction proofs",
+        "safe_next_step": "refresh platform verification v0.4 with content-bound Stage 1 lifecycle, International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
     },
 }
 
@@ -1156,7 +1156,7 @@ def build_readiness_snapshot(
             remediation="create a live-readiness JSON only after wallet, allowance, heartbeat, user-stream, and cancel-all readiness are proven",
         ),
         _gate_with_details(
-            "platform_verification_v0_2_passes",
+            "platform_verification_v0_4_passes",
             platform_gate.get("ok"),
             "platform/account/API verification passes for the target date",
             "platform/account/API verification is missing, stale, or failing for the target date",
@@ -1166,7 +1166,7 @@ def build_readiness_snapshot(
                 "missing": platform_gate.get("missing") or [],
                 "reason": platform_gate.get("reason"),
             },
-            remediation="refresh mm_platform_verification_v0.2 with maker-only, private-stream, cancel-all, latency-stopgap, and secret-redaction proofs",
+            remediation="refresh mm_platform_verification_v0.4 with fresh official physical geoblock, International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
         ),
     ]
 

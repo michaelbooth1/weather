@@ -13,7 +13,7 @@ import statistics
 import tempfile
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug, resolve_outcome
@@ -711,6 +711,8 @@ def quote_legs(quote_rows, config):
             "bin_value": row.get("bin_value") or row.get("bin_value_c") or "",
             "bin_value_hi": row.get("bin_value_hi") or "",
             "clob_token_id": row.get("clob_token_id") or row.get("asset_id") or "",
+            "exchange_economics_snapshot_id": row.get("exchange_economics_snapshot_id") or "",
+            "exchange_economics_hash": row.get("exchange_economics_hash") or "",
             "quote_time": quote_time,
             "market_mid": market_mid,
             "book_spread": finite_float(row.get("book_spread")),
@@ -833,41 +835,16 @@ def reward_leg_score(price, size, mid, min_order_size, threshold):
 
 
 def attach_reward_estimates(legs, config):
-    by_quote = defaultdict(list)
+    # Liquidity rewards are excluded from the primary profitability claim.
+    # The former estimator mixed International Q-style scoring with US inputs
+    # and a fleet-wide competitor pool, so non-zero output was not venue-valid.
     for leg in legs:
-        by_quote[leg["quote_id"]].append(leg)
-    for quote_legs_ in by_quote.values():
-        row = quote_legs_[0]["quote_row"]
-        mid = quote_legs_[0].get("market_mid")
-        min_order = finite_float(row.get("min_order_size"), 0.0) or 0.0
-        threshold = float(config["reward_distance_threshold"])
-        campaign_pool = float(config["reward_campaign_pool_usdc"])
-        competitor_q = max(0.0, float(config["reward_competitor_q"]))
-        scores = {}
-        for leg in quote_legs_:
-            scores[leg["side"]] = reward_leg_score(
-                leg["quote_price"],
-                leg["quote_size"],
-                mid,
-                min_order,
-                threshold,
-            )
-        q_one = scores.get("YES_BID", 0.0)
-        q_two = scores.get("YES_ASK", 0.0)
-        c = max(1.0, float(config["reward_c"]))
-        q_min = max(min(q_one, q_two), max(q_one / c, q_two / c))
-        qualifying_size = max(0.0, q_min)
-        normalized_share = q_min / (q_min + competitor_q) if q_min > 0 else 0.0
-        estimate = campaign_pool * normalized_share
-        if estimate < float(config["reward_min_payout_usdc"]):
-            estimate = 0.0
-        total_size = sum(leg["quote_size"] for leg in quote_legs_) or 1.0
-        for leg in quote_legs_:
-            leg["reward_estimate_usdc"] = estimate * (leg["quote_size"] / total_size)
-            leg["reward_q_min"] = q_min
-            leg["reward_qualifying_size"] = qualifying_size
-            leg["reward_normalized_share"] = normalized_share
-            leg["reward_formula"] = "q_min=max(min(q_one,q_two),max(q_one/c,q_two/c)); normalized=q_min/(q_min+competition_q)"
+        leg["reward_estimate_usdc"] = 0.0
+        leg["reward_q_min"] = 0.0
+        leg["reward_qualifying_size"] = 0.0
+        leg["reward_normalized_share"] = 0.0
+        leg["reward_formula"] = "primary_pnl_liquidity_rewards_zero"
+        leg["reward_estimate_status"] = "EXCLUDED_UNTIL_PER_CONDITION_PAYOUT_RECONCILIATION"
 
 
 GENUINE_WS_EXECUTION_TYPE = "last_trade_price"
@@ -1934,8 +1911,24 @@ def casebook_for_fill(leg, fill_time, casebook_index):
     return {"case_id": "", "taxonomy": ""}
 
 
-def fee_equivalent(size, price, fee_rate):
-    return max(0.0, float(size)) * max(0.0, float(fee_rate)) * max(0.0, float(price)) * max(0.0, 1.0 - float(price))
+def fee_equivalent(size, price, fee_rate, precision_decimals=5):
+    """Return Polymarket's fee-curve value at documented fee precision."""
+
+    try:
+        size_value = Decimal(str(size))
+        fee_rate_value = Decimal(str(fee_rate))
+        price_value = Decimal(str(price))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError("fee-equivalent inputs must be numeric") from exc
+    if not all(value.is_finite() for value in (size_value, fee_rate_value, price_value)):
+        raise ValueError("fee-equivalent inputs must be finite")
+    size_value = max(Decimal("0"), size_value)
+    fee_rate_value = max(Decimal("0"), fee_rate_value)
+    price_value = max(Decimal("0"), min(Decimal("1"), price_value))
+    complement = max(Decimal("0"), Decimal("1") - price_value)
+    value = size_value * fee_rate_value * price_value * complement
+    quantum = Decimal("1").scaleb(-int(precision_decimals))
+    return float(value.quantize(quantum, rounding=ROUND_HALF_UP))
 
 
 def compute_fill_financials(leg, fill, mark_by_token, settlement, config):
@@ -1963,16 +1956,50 @@ def compute_fill_financials(leg, fill, mark_by_token, settlement, config):
         spread_capture = (mid - price) * size
     else:
         spread_capture = (price - mid) * size
-    maker_fee_equiv = fee_equivalent(size, price, config["maker_fee_rate"])
-    maker_rebate = maker_fee_equiv * float(config["maker_rebate_pool_share"])
-    flatten_fee = fee_equivalent(size, price, config["flattening_fee_rate"])
+    maker_rebate_fee_rate = finite_float(leg.get("maker_rebate_fee_rate"))
+    if maker_rebate_fee_rate is None:
+        maker_rebate_fee_rate = finite_float(
+            config.get("maker_rebate_fee_rate"),
+            finite_float(config.get("maker_fee_rate"), 0.0),
+        ) or 0.0
+    maker_rebate_pool_share = finite_float(leg.get("maker_rebate_pool_share"))
+    if maker_rebate_pool_share is None:
+        maker_rebate_pool_share = finite_float(config.get("maker_rebate_pool_share"), 0.0) or 0.0
+    flattening_fee_rate = finite_float(leg.get("flattening_fee_rate"))
+    if flattening_fee_rate is None:
+        flattening_fee_rate = finite_float(config.get("flattening_fee_rate"), 0.0) or 0.0
+    maker_fee_equiv = fee_equivalent(size, price, maker_rebate_fee_rate)
+    maker_rebate = maker_fee_equiv * maker_rebate_pool_share
+    # A theoretical fee-curve share is not a received rebate. International
+    # Polymarket pays daily in pUSD only after the account accrues at least $1,
+    # so paper fills cannot enter this estimate into acceptance P&L before the
+    # authenticated daily payout is reconciled.
+    maker_rebate_accepted = 0.0
+    maker_rebate_acceptance_status = (
+        "DIAGNOSTIC_ONLY_REQUIRES_DAILY_PUSD_RECONCILIATION"
+        if maker_rebate > 0.0
+        else "ZERO_THEORETICAL_REBATE"
+    )
+    maker_rebate_minimum_payout = finite_float(
+        leg.get("maker_rebate_minimum_accrued_payout_pusd")
+    )
+    flatten_fee = fee_equivalent(size, price, flattening_fee_rate)
     reward = float(leg.get("reward_estimate_usdc") or 0.0) * (size / max(leg["quote_size"], 1e-9))
+    reward_accepted = 0.0
+    reward_acceptance_status = (
+        "DIAGNOSTIC_ONLY_REQUIRES_ACTUAL_PAYOUT_RECONCILIATION"
+        if reward > 0.0
+        else "ZERO_PRIMARY_ASSUMPTION"
+    )
     if settlement_pnl is not None:
-        net = settlement_pnl + maker_rebate + reward - flatten_fee
+        estimated_net = settlement_pnl + maker_rebate + reward - flatten_fee
+        net = settlement_pnl + maker_rebate_accepted + reward_accepted - flatten_fee
     elif mark_30m is not None:
-        net = mark_30m * size + maker_rebate + reward - flatten_fee
+        estimated_net = mark_30m * size + maker_rebate + reward - flatten_fee
+        net = mark_30m * size + maker_rebate_accepted + reward_accepted - flatten_fee
     else:
-        net = maker_rebate + reward - flatten_fee
+        estimated_net = maker_rebate + reward - flatten_fee
+        net = maker_rebate_accepted + reward_accepted - flatten_fee
     return {
         "markouts": markouts,
         "settlement_outcome": outcome,
@@ -1982,8 +2009,14 @@ def compute_fill_financials(leg, fill, mark_by_token, settlement, config):
         "adverse_30m": adverse_30m,
         "maker_fee_equiv": maker_fee_equiv,
         "maker_rebate": maker_rebate,
+        "maker_rebate_accepted": maker_rebate_accepted,
+        "maker_rebate_acceptance_status": maker_rebate_acceptance_status,
+        "maker_rebate_minimum_payout": maker_rebate_minimum_payout,
         "reward": reward,
+        "reward_accepted": reward_accepted,
+        "reward_acceptance_status": reward_acceptance_status,
         "flatten_fee": flatten_fee,
+        "estimated_net": estimated_net,
         "net": net,
     }
 
@@ -2134,8 +2167,18 @@ def conservative_fill_row(
         "settlement_pnl_usdc": compact_float(financials["settlement_pnl"]),
         "maker_fee_equivalent_usdc": compact_float(financials["maker_fee_equiv"]),
         "maker_rebate_estimate_usdc": compact_float(financials["maker_rebate"]),
+        "maker_rebate_accepted_usdc": compact_float(financials["maker_rebate_accepted"]),
+        "maker_rebate_acceptance_status": financials["maker_rebate_acceptance_status"],
+        "maker_rebate_minimum_accrued_payout_pusd": compact_float(
+            financials["maker_rebate_minimum_payout"]
+        ),
         "liquidity_reward_estimate_usdc": compact_float(financials["reward"]),
+        "liquidity_reward_accepted_usdc": compact_float(financials["reward_accepted"]),
+        "reward_acceptance_status": financials["reward_acceptance_status"],
         "flattening_fee_estimate_usdc": compact_float(financials["flatten_fee"]),
+        "net_pnl_including_unreconciled_incentives_usdc": compact_float(
+            financials["estimated_net"]
+        ),
         "net_pnl_after_fees_incentives_usdc": compact_float(financials["net"]),
         "settlement_markout_per_share": compact_float(financials["settlement_markout"]),
         "settlement_outcome": compact_float(financials["settlement_outcome"]),
@@ -2401,8 +2444,13 @@ def summarize_pnl(fill_rows):
         "settlement_pnl_usdc": compact_float(sum_field(fill_rows, "settlement_pnl_usdc")),
         "maker_fee_equivalent_usdc": compact_float(sum_field(fill_rows, "maker_fee_equivalent_usdc")),
         "maker_rebate_estimate_usdc": compact_float(sum_field(fill_rows, "maker_rebate_estimate_usdc")),
+        "maker_rebate_accepted_usdc": compact_float(sum_field(fill_rows, "maker_rebate_accepted_usdc")),
         "liquidity_reward_estimate_usdc": compact_float(sum_field(fill_rows, "liquidity_reward_estimate_usdc")),
+        "liquidity_reward_accepted_usdc": compact_float(sum_field(fill_rows, "liquidity_reward_accepted_usdc")),
         "flattening_fee_estimate_usdc": compact_float(sum_field(fill_rows, "flattening_fee_estimate_usdc")),
+        "net_pnl_including_unreconciled_incentives_usdc": compact_float(
+            sum_field(fill_rows, "net_pnl_including_unreconciled_incentives_usdc")
+        ),
         "net_pnl_after_fees_incentives_usdc": compact_float(sum_field(fill_rows, "net_pnl_after_fees_incentives_usdc")),
     }
 

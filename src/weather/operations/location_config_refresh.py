@@ -370,6 +370,11 @@ def main(argv=None):
     parser.add_argument("--locations", default=str(DEFAULT_LOCATIONS))
     parser.add_argument("--event-metadata", default=str(DEFAULT_EVENT_METADATA))
     parser.add_argument("--events-json", default="", help="Optional fixture events JSON instead of live Gamma fetch.")
+    parser.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="Write only --event-metadata; leave the input location registry byte-for-byte unchanged.",
+    )
     args = parser.parse_args(argv)
     events = None
     if args.events_json:
@@ -380,7 +385,8 @@ def main(argv=None):
         event_metadata_path=args.event_metadata,
         events=events,
     )
-    write_json(args.locations, locations_payload)
+    if not args.metadata_only:
+        write_json(args.locations, locations_payload)
     write_json(args.event_metadata, event_payload)
     print(
         "Location config refresh: locations={locations} events={events}".format(

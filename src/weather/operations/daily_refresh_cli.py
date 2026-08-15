@@ -522,11 +522,6 @@ def build_run_parser(parser, dependencies=None):
     )
     parser.add_argument("--skip-exchange-economics-rule-drift", action="store_true")
     parser.add_argument(
-        "--exchange-economics-template",
-        default=str(exchange_economics.DEFAULT_TEMPLATE),
-        help="Tracked exchange-economics source template used to stamp target-date proof.",
-    )
-    parser.add_argument(
         "--exchange-economics-snapshot",
         default="",
         help="Current exchange economics snapshot; defaults to <backtest-root>/exchange_economics_snapshot.json.",
@@ -536,7 +531,12 @@ def build_run_parser(parser, dependencies=None):
         default="",
         help="Previously accepted exchange economics snapshot for material-drift comparison.",
     )
-    parser.add_argument("--exchange-economics-platform", default="polymarket_us")
+    parser.add_argument(
+        "--exchange-economics-platform",
+        default=exchange_economics.DEFAULT_PLATFORM,
+        choices=[exchange_economics.GLOBAL_PLATFORM],
+        help="Exchange venue for economics proof; International Polymarket only.",
+    )
     parser.add_argument("--skip-settlement-source-audit", action="store_true")
     parser.add_argument(
         "--fail-on-observed-floor-safety",

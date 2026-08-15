@@ -24,10 +24,15 @@ from weather.market.market_making_run import (
 from weather.market.live_forward_gate import build_live_forward_gate
 from weather.market.market_making_evidence import EVIDENCE_MODE_ACTIVE_DAY
 from weather.market.market_making_model_variants import build_model_variant_quote_rows
-from weather.market.market_making_preflight import build_preflight_remediation
+from weather.market.market_making_preflight import (
+    build_preflight_remediation,
+    platform_account_snapshot_sha256,
+    stage1_lifecycle_bundle_sha256,
+)
 from weather.market.market_making_run_support import preflight_book_audit, read_csv_rows
 from weather.market.market_making_run_support import classify_zero_trade_root_cause, preflight_market
 from weather.market.market_making_run_support import source_status_degradation_preflight
+from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import spec_for_id
 from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
@@ -36,6 +41,106 @@ from weather.runtime_identity import get_runtime_identity
 
 NOW = "2026-06-14T16:00:00+00:00"
 TARGET_DATE = "2026-06-14"
+
+
+def eligible_geoblock(now=NOW):
+    class Response:
+        status = 200
+
+        def read(self, _limit):
+            return json.dumps({
+                "blocked": False,
+                "country": "CH",
+                "region": "ZH",
+                "ip": "203.0.113.8",
+            }).encode("utf-8")
+
+        def close(self):
+            pass
+
+    return collect_official_geoblock_evidence(
+        opener=lambda _request, timeout: Response(),
+        proxy_detector=lambda: {},
+        now=now,
+    )
+
+
+def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
+    bootstrap_sha256 = "a" * 64
+
+    def result(mode, order_id):
+        return {
+            "schema_version": "mm_live_lifecycle_probe_v0.1",
+            "status": "PASS",
+            "completed_at_utc": NOW,
+            "platform": "polymarket_global",
+            "settlement_unit": "pUSD",
+            "cancellation_mode": mode,
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+            "bootstrap_sha256": bootstrap_sha256,
+            "condition_id": "0x" + "b" * 64,
+            "token_id": "12345",
+            "heartbeat_id_acknowledged": True,
+            "starting_zero_open_orders_verified": True,
+            "starting_zero_positions_verified": True,
+            "order_notional_usdc": 0.05,
+            "order_id": order_id,
+            "placement_status": "live",
+            "geoblock_country": "CH",
+            "geoblock_region": "ZH",
+            "capability_geoblock_evidence_sha256": "c" * 64,
+            "submission_geoblock_evidence_sha256": "d" * 64,
+            "open_order_observed": True,
+            "authoritative_user_event_observed": True,
+            "cancellation_observed": True,
+            "cancellation_elapsed_seconds": 0 if mode == "cancel_all" else 15,
+            "terminal_user_event_observed": True,
+            "no_trade_lifecycle_event_observed": True,
+            "cancel_response_present": mode == "cancel_all",
+            "zero_open_orders_verified": True,
+            "zero_positions_verified": True,
+            "secret_values_redacted": True,
+            "journal_path": f"stage1-{mode}.jsonl",
+            "journal_sha256": ("e" if mode == "cancel_all" else "f") * 64,
+        }
+
+    bundle = {
+        "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+        "status": "PASS",
+        "created_at_utc": NOW,
+        "platform": "polymarket_global",
+        "settlement_unit": "pUSD",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+        "bootstrap_sha256": bootstrap_sha256,
+        "condition_id": "0x" + "b" * 64,
+        "token_id": "12345",
+        "funder_address": "0x0000000000000000000000000000000000000001",
+        "requested_budget_usdc": requested_budget_usdc,
+        "geoblock_country": "CH",
+        "geoblock_region": "ZH",
+        "lifecycle_results": {
+            "cancel_all": result("cancel_all", "cancel-order"),
+            "dead_man": result("dead_man", "dead-man-order"),
+        },
+        "journal_evidence": {
+            "cancel_all": {"sha256": "e" * 64, "row_count": 12},
+            "dead_man": {"sha256": "f" * 64, "row_count": 12},
+        },
+        "derived_platform_evidence": {
+            "starting_open_orders_rest_verified": True,
+            "order_update_verified": True,
+            "fill_event_verified": False,
+            "no_fill_lifecycle_verified": True,
+            "final_state_reconciliation_verified": True,
+            "cancel_all_request_verified": True,
+            "cancel_all_zero_open_orders_verified": True,
+            "dead_man_automatic_cancel_verified": True,
+            "heartbeat_acknowledgment_verified": True,
+        },
+        "secret_values_redacted": True,
+    }
+    bundle["bundle_sha256"] = stage1_lifecycle_bundle_sha256(bundle)
+    return bundle
 
 
 def write_csv(path, fieldnames, rows):
@@ -576,24 +681,65 @@ def write_data_layer_audit(
     return path
 
 
-def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified_at=NOW, platform="polymarket_us"):
+def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified_at=NOW, platform="polymarket_global"):
     maker_only_field = "participateDontInitiate" if platform == "polymarket_us" else "postOnly"
+    account_snapshot = {
+        "balance_allowance_verified": True,
+        "collateral_balance_usdc": 25.0,
+        "collateral_allowance_usdc": 25.0,
+        "closed_only_mode_verified": True,
+        "closed_only": False,
+        "zero_open_orders_verified": True,
+        "open_order_count": 0,
+        "position_query_exact_scope_verified": True,
+        "zero_positions_verified": True,
+        "position_count": 0,
+        "source_response_sha256": "b" * 64,
+    }
+    account_snapshot["snapshot_sha256"] = platform_account_snapshot_sha256(
+        account_snapshot
+    )
+    lifecycle_bundle = synthetic_stage1_lifecycle_bundle()
     payload = {
-        "schema_version": "mm_platform_verification_v0.2",
+        "schema_version": "mm_platform_verification_v0.4",
+        "status": "PASS",
         "verified_at_utc": verified_at,
         "docs_checked_at_utc": verified_at,
         "verified_for_target_date": target_date,
         "platform": platform,
-        "account_jurisdiction": "US-test",
+        "international_platform_confirmed": platform == "polymarket_global",
+        "physical_location_matches_geoblock_confirmed": platform == "polymarket_global",
+        "geoblock_circumvention_absent_confirmed": platform == "polymarket_global",
+        "geographic_eligibility": eligible_geoblock(verified_at),
         "eligibility_verified": True,
-        "api_base_url": "https://example.polymarket.us",
-        "clob_host": "https://clob.example.polymarket.us",
+        "api_base_url": "https://polymarket.com",
+        "clob_host": "https://clob.polymarket.com",
+        "settlement_unit": "pUSD",
         "wallet_type": "deposit_wallet",
         "signature_type": "POLY_1271",
         "signature_type_id": 3,
         "funder_address": "0x0000000000000000000000000000000000000001",
+        "wallet_identity": {
+            "private_key_signer_address": "0x0000000000000000000000000000000000000002",
+            "order_signer_address": "0x0000000000000000000000000000000000000001",
+            "api_key_owner_address": "0x0000000000000000000000000000000000000002",
+            "consistency_verified": True,
+        },
+        "sdk_contract": {
+            "distribution": "py-clob-client-v2",
+            "version": "1.1.0",
+            "exact_version_verified": True,
+            "wallet_model_probe_verified": True,
+        },
         "allowances_verified": True,
         "balance_verified": True,
+        "collateral_balance_usdc": 25.0,
+        "collateral_allowance_usdc": 25.0,
+        "account_snapshot_sha256": account_snapshot["snapshot_sha256"],
+        "open_order_count": 0,
+        "account_snapshot": account_snapshot,
+        "stage1_lifecycle_bundle_sha256": lifecycle_bundle["bundle_sha256"],
+        "stage1_lifecycle_bundle": lifecycle_bundle,
         "fees_verified": True,
         "fee_model": {
             "theta": 0.05,
@@ -612,15 +758,26 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
         "user_websocket_verified": True,
         "private_user_stream": {
             "connection_verified": True,
-            "order_snapshot_verified": True,
+            "starting_open_orders_rest_verified": True,
             "order_update_verified": True,
-            "fill_event_verified": True,
+            "fill_event_verified": False,
+            "no_fill_lifecycle_verified": True,
             "final_state_reconciliation_verified": True,
         },
         "cancel_all_verified": True,
         "cancel_all": {
             "request_verified": True,
             "zero_open_orders_verified": True,
+        },
+        "dead_man_heartbeat": {
+            "endpoint": "/v1/heartbeats",
+            "endpoint_verified": True,
+            "initial_empty_id_verified": True,
+            "rotating_id_chain_verified": True,
+            "acknowledgment_verified": True,
+            "cadence_seconds": 5,
+            "stale_placement_disarm_verified": True,
+            "automatic_cancel_verified": True,
         },
         "latency_stopgap": {
             "order_reject_handling_verified": True,
@@ -647,7 +804,8 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
         },
         "source_urls": [
             "https://docs.polymarket.com/api-reference/authentication",
-            "https://docs.polymarket.us/fees",
+            "https://docs.polymarket.com/trading/fees",
+            "https://docs.polymarket.com/concepts/pusd",
         ],
     }
     if not ok:
@@ -658,6 +816,55 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
 
 
 class TestMarketMakingRun(unittest.TestCase):
+    def test_live_pilot_rejects_multi_market_and_budget_above_operator_cap(self):
+        with self.assertRaisesRegex(ValueError, "no more than 100.00 USDC"):
+            build_run_once(
+                TARGET_DATE,
+                100.01,
+                mode="live-pilot",
+                markets=["atlanta"],
+                now=NOW,
+            )
+
+        with self.assertRaisesRegex(ValueError, "budget must be finite"):
+            build_run_once(
+                TARGET_DATE,
+                float("nan"),
+                mode="live-pilot",
+                markets=["atlanta"],
+                now=NOW,
+            )
+
+        with self.assertRaisesRegex(ValueError, "exactly one market"):
+            build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="live-pilot",
+                markets=["atlanta", "austin"],
+                now=NOW,
+            )
+
+    def test_live_pilot_rejects_nonfinite_or_negative_policy_limits(self):
+        with self.assertRaisesRegex(ValueError, "max_event_notional must be finite"):
+            build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="live-pilot",
+                markets=["atlanta"],
+                now=NOW,
+                policy_config={"max_event_notional": float("nan")},
+            )
+
+        with self.assertRaisesRegex(ValueError, "quote_ttl_seconds must be finite"):
+            build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="live-pilot",
+                markets=["atlanta"],
+                now=NOW,
+                policy_config={"quote_ttl_seconds": -1},
+            )
+
     def test_run_loop_finalizes_last_tick_exactly_once(self):
         now = datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc)
         tick_payload = {
@@ -1106,11 +1313,17 @@ class TestMarketMakingRun(unittest.TestCase):
                 verified_at="2026-06-13T15:59:00+00:00",
             )
             wrong_date = write_platform_verification(root / "platform_wrong_date.json", target_date="2026-06-15")
+            no_fill = write_platform_verification(root / "platform_no_fill.json")
+            no_fill_payload = json.loads(no_fill.read_text(encoding="utf-8"))
+            no_fill_payload["private_user_stream"]["fill_event_verified"] = False
+            no_fill_payload["private_user_stream"]["no_fill_lifecycle_verified"] = True
+            no_fill.write_text(json.dumps(no_fill_payload), encoding="utf-8")
 
             good_gate = load_platform_verification_gate(good, TARGET_DATE, "live-pilot", now=NOW)
             bad_gate = load_platform_verification_gate(bad, TARGET_DATE, "live-pilot", now=NOW)
             stale_gate = load_platform_verification_gate(stale, TARGET_DATE, "live-pilot", now=NOW)
             wrong_date_gate = load_platform_verification_gate(wrong_date, TARGET_DATE, "live-pilot", now=NOW)
+            no_fill_gate = load_platform_verification_gate(no_fill, TARGET_DATE, "live-pilot", now=NOW)
 
         self.assertTrue(good_gate["ok"])
         self.assertFalse(bad_gate["ok"])
@@ -1120,7 +1333,60 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertIn("verified_at_recent", stale_gate["missing"])
         self.assertFalse(wrong_date_gate["ok"])
         self.assertIn("target_date_matches", wrong_date_gate["missing"])
+        self.assertTrue(no_fill_gate["ok"], no_fill_gate["missing"])
         self.assertFalse(load_platform_verification_gate(good, TARGET_DATE, "shadow", now=NOW)["required"])
+
+    def test_platform_verification_gate_binds_stage1_bundle_content_and_derivations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_platform_verification(Path(tmp) / "platform_stage1.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["stage1_lifecycle_bundle"]["lifecycle_results"]["dead_man"][
+                "order_id"
+            ] = "cancel-order"
+            payload["stage1_lifecycle_bundle"]["bundle_sha256"] = (
+                stage1_lifecycle_bundle_sha256(payload["stage1_lifecycle_bundle"])
+            )
+            payload["stage1_lifecycle_bundle_sha256"] = payload[
+                "stage1_lifecycle_bundle"
+            ]["bundle_sha256"]
+            payload["private_user_stream"]["fill_event_verified"] = True
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+                requested_budget_usdc=25,
+            )
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("stage1_probe_orders_are_distinct", gate["missing"])
+        self.assertIn(
+            "stage1_derived_evidence_matches_platform_fields",
+            gate["missing"],
+        )
+
+    def test_platform_verification_gate_rejects_non_pusd_settlement_unit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_platform_verification(Path(tmp) / "platform_unit.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["settlement_unit"] = "USDC.e"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+            )
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("settlement_unit_is_native_pusd", gate["missing"])
+        self.assertIn(
+            "stage1_lifecycle_bundle_settlement_unit_matches",
+            gate["missing"],
+        )
 
     def test_platform_verification_gate_rejects_legacy_api_lifecycle_proof(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1142,7 +1408,6 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertIn("maker_only_order_field_supported", gate["missing"])
         self.assertIn("private_user_stream_final_state_reconciliation_verified", gate["missing"])
         self.assertIn("cancel_all_zero_open_orders_verified", gate["missing"])
-        self.assertIn("latency_stopgap_order_reject_handling_verified", gate["missing"])
 
     def test_platform_verification_gate_requires_structured_live_api_proofs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1151,6 +1416,7 @@ class TestMarketMakingRun(unittest.TestCase):
             payload = json.loads(path.read_text(encoding="utf-8"))
             payload["maker_only_order_field_verified"] = False
             payload["private_user_stream"]["fill_event_verified"] = False
+            payload["private_user_stream"]["no_fill_lifecycle_verified"] = False
             payload["private_user_stream"]["final_state_reconciliation_verified"] = False
             payload["cancel_all"]["zero_open_orders_verified"] = False
             payload["latency_stopgap"]["book_refresh_before_retry_verified"] = False
@@ -1161,11 +1427,125 @@ class TestMarketMakingRun(unittest.TestCase):
 
         self.assertFalse(gate["ok"])
         self.assertIn("maker_only_order_field_verified", gate["missing"])
-        self.assertIn("private_user_stream_fill_event_verified", gate["missing"])
+        self.assertIn(
+            "private_user_stream_fill_or_no_fill_lifecycle_verified",
+            gate["missing"],
+        )
         self.assertIn("private_user_stream_final_state_reconciliation_verified", gate["missing"])
         self.assertIn("cancel_all_zero_open_orders_verified", gate["missing"])
-        self.assertIn("latency_stopgap_book_refresh_before_retry_verified", gate["missing"])
-        self.assertIn("latency_stopgap_cancel_exemption_verified", gate["missing"])
+
+    def test_platform_verification_gate_rejects_polymarket_us(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_platform_verification(
+                Path(tmp) / "platform_us.json",
+                platform="polymarket_us",
+            )
+            gate = load_platform_verification_gate(path, TARGET_DATE, "live-pilot", now=NOW)
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("platform_supported", gate["missing"])
+        self.assertIn("international_jurisdiction_verified", gate["missing"])
+
+    def test_platform_verification_gate_requires_consistent_wallet_and_heartbeat_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_platform_verification(Path(tmp) / "platform_identity.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["signature_type_id"] = 0
+            payload["wallet_identity"]["api_key_owner_address"] = "not-an-address"
+            payload["wallet_identity"]["consistency_verified"] = False
+            payload["dead_man_heartbeat"]["rotating_id_chain_verified"] = False
+            payload["dead_man_heartbeat"]["cadence_seconds"] = 5.01
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+            )
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("signature_type_consistent", gate["missing"])
+        self.assertIn("api_key_owner_address_valid", gate["missing"])
+        self.assertIn("wallet_identity_consistency_verified", gate["missing"])
+        self.assertIn("dead_man_heartbeat_rotating_id_chain_verified", gate["missing"])
+        self.assertIn("dead_man_heartbeat_cadence_verified", gate["missing"])
+
+    def test_platform_verification_gate_accepts_existing_gnosis_safe_topology(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_platform_verification(Path(tmp) / "platform_safe.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["wallet_type"] = "gnosis_safe"
+            payload["signature_type"] = "POLY_GNOSIS_SAFE"
+            payload["signature_type_id"] = 2
+            payload["wallet_identity"]["order_signer_address"] = (
+                payload["wallet_identity"]["private_key_signer_address"]
+            )
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+            )
+
+        self.assertTrue(gate["ok"], gate["missing"])
+
+    def test_platform_verification_gate_enforces_operator_and_wallet_budget_caps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = write_platform_verification(root / "platform.json")
+            within_cap = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+                requested_budget_usdc=25.0,
+            )
+            over_wallet_cap = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+                requested_budget_usdc=25.01,
+            )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["pilot_wallet_max_funding_usdc"] = 100.01
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            over_operator_cap = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+                requested_budget_usdc=25.0,
+            )
+
+        self.assertTrue(within_cap["ok"])
+        self.assertFalse(over_wallet_cap["ok"])
+        self.assertIn("requested_budget_within_pilot_wallet_cap", over_wallet_cap["missing"])
+        self.assertFalse(over_operator_cap["ok"])
+        self.assertIn("pilot_wallet_cap_within_operator_limit", over_operator_cap["missing"])
+
+    def test_platform_verification_gate_rejects_unbacked_or_overfunded_wallet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_platform_verification(Path(tmp) / "platform.json")
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload["collateral_balance_usdc"] = 25.01
+            payload["collateral_allowance_usdc"] = 0.0
+            path.write_text(json.dumps(payload), encoding="utf-8")
+
+            gate = load_platform_verification_gate(
+                path,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+                requested_budget_usdc=25.0,
+            )
+
+        self.assertFalse(gate["ok"])
+        self.assertIn("collateral_balance_within_wallet_cap", gate["missing"])
+        self.assertIn("collateral_allowance_backs_budget", gate["missing"])
 
     def test_platform_verification_gate_rejects_secret_material(self):
         with tempfile.TemporaryDirectory() as tmp:

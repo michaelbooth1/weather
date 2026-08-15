@@ -7,6 +7,7 @@ from weather.paths import data_path
 
 CLOB_BASE_URL = "https://clob.polymarket.com"
 CLOB_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+CLOB_USER_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/user"
 DEFAULT_BOOK_INTERVAL_SECONDS = 60.0
 DEFAULT_FAST_INTERVAL_SECONDS = 15.0
 DEFAULT_BATCH_SIZE = 100

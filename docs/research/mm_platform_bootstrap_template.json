@@ -1,0 +1,117 @@
+{
+  "schema_version": "mm_platform_bootstrap_v0.1",
+  "status": "TEMPLATE_FAIL_SAFE",
+  "verified_at_utc": null,
+  "verified_for_target_date": null,
+  "max_age_hours": 1,
+  "platform": "polymarket_global",
+  "international_platform_confirmed": false,
+  "physical_location_matches_geoblock_confirmed": false,
+  "geoblock_circumvention_absent_confirmed": false,
+  "geographic_eligibility": {
+    "schema_version": "polymarket_geoblock_v0.1",
+    "endpoint": "https://polymarket.com/api/geoblock",
+    "checked_at_utc": null,
+    "http_status": null,
+    "blocked": null,
+    "country": null,
+    "region": null,
+    "official_response_fields_sha256": null,
+    "requesting_ip_observed": false,
+    "requesting_ip_retained": false,
+    "proxy_configuration_absent": false,
+    "evidence_sha256": null
+  },
+  "api_base_url": "https://polymarket.com",
+  "clob_host": "https://clob.polymarket.com",
+  "settlement_unit": "pUSD",
+  "wallet_type": null,
+  "signature_type": null,
+  "signature_type_id": null,
+  "funder_address": null,
+  "wallet_identity": {
+    "private_key_signer_address": null,
+    "order_signer_address": null,
+    "api_key_owner_address": null,
+    "api_key_authentication_verified": false,
+    "signed_order_preview_verified": false,
+    "signed_order_preview_sha256": null,
+    "signed_order_preview_signature_retained": false,
+    "consistency_verified": false
+  },
+  "isolated_pilot_wallet": false,
+  "pilot_wallet_max_funding_usdc": null,
+  "sdk_contract": {
+    "distribution": "py-clob-client-v2",
+    "version": "1.1.0",
+    "exact_version_verified": false,
+    "stage0_identity_verified": false
+  },
+  "account_snapshot": {
+    "balance_allowance_verified": false,
+    "collateral_balance_usdc": null,
+    "collateral_allowance_usdc": null,
+    "snapshot_sha256": null,
+    "closed_only_mode_verified": false,
+    "closed_only": null,
+    "zero_open_orders_verified": false,
+    "open_order_count": null,
+    "position_query_exact_scope_verified": false,
+    "zero_positions_verified": false,
+    "position_count": null
+  },
+  "market_snapshot": {
+    "condition_id": null,
+    "token_id": null,
+    "book_verified": false,
+    "fee_eligibility_verified": false,
+    "min_order_size": null,
+    "tick_size": null,
+    "neg_risk": null
+  },
+  "user_stream": {
+    "account_wide_subscription_sent": false,
+    "server_pong_observed": false,
+    "transport_active_at_collection": false,
+    "transport_state_at_collection": null,
+    "journal_sha256_at_collection": null,
+    "transport_active": false,
+    "transport_state": null,
+    "transport_stopped_cleanly_after_collection": false,
+    "subscription_shape_sha256": null,
+    "journal_path": null,
+    "journal_sha256": null,
+    "journal_finalized_at_utc": null,
+    "heartbeat_seconds": 10,
+    "inbound_silence_seconds": 30
+  },
+  "dead_man_heartbeat": {
+    "endpoint": "/v1/heartbeats",
+    "endpoint_verified": false,
+    "initial_empty_id_verified": false,
+    "rotating_id_chain_verified": false,
+    "acknowledgment_verified": false,
+    "cadence_seconds": null
+  },
+  "cancel_all": {
+    "request_verified": false,
+    "zero_open_orders_verified": false
+  },
+  "secret_hygiene": {
+    "credentials_by_reference_verified": false,
+    "direct_secret_environment_absent_verified": false,
+    "diagnostic_redaction_verified": false
+  },
+  "source_urls": [
+    "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
+    "https://docs.polymarket.com/api-reference/authentication",
+    "https://docs.polymarket.com/trading/overview",
+    "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
+    "https://docs.polymarket.com/api-reference/wss/user",
+    "https://docs.polymarket.com/trading/orders/overview",
+    "https://docs.polymarket.com/trading/fees",
+    "https://docs.polymarket.com/programs/maker-rebates",
+    "https://docs.polymarket.com/concepts/pusd",
+    "https://docs.polymarket.com/api-reference/geoblock"
+  ]
+}

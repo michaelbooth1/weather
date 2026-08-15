@@ -511,6 +511,17 @@ RECENT_REGISTERED_SCHEMAS = (
         "Compact source-bound base and model-variant quote inputs for bounded maker-paper scoring.",
     ),
     SchemaSpec(
+        "mm_scoring_projection",
+        "mm_scoring_projection_v0.2",
+        "weather.market.mm_scoring_projection",
+        "active",
+        "Compact source-bound maker-paper inputs including per-run economics snapshot identity.",
+        supersedes=("mm_scoring_projection_v0.1",),
+        migration_notes=(
+            "Old projections fail exact header/version validation and fall back to canonical quote tapes.",
+        ),
+    ),
+    SchemaSpec(
         "mm_reward_score_diagnostics",
         "mm_reward_score_diagnostics_v0.2",
         "weather.market.mm_paper",
