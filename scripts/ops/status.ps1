@@ -298,8 +298,19 @@ try {
 # active_release_verification_failed). Reporting that as breakage is the same false-positive
 # trap as the old 0x2 exit code, so name what it actually means.
 $chainGate = $null
-if ($chain -and $chain.production_readiness) {
-    $pr = $chain.production_readiness
+$chainProductionReadiness = $null
+if ($chain) {
+    # status.ps1 is invoked from strict-mode operational wrappers as well as directly.
+    # production_readiness is optional on interrupted/pre-gate chain receipts; direct
+    # member access turns that valid absence into a terminating PropertyNotFoundException
+    # under the caller's inherited strict mode.
+    $productionReadinessProperty = $chain.PSObject.Properties["production_readiness"]
+    if ($null -ne $productionReadinessProperty) {
+        $chainProductionReadiness = $productionReadinessProperty.Value
+    }
+}
+if ($chainProductionReadiness) {
+    $pr = $chainProductionReadiness
     if ([string]$pr.status -eq "SKIPPED") {
         # A SKIPPED readiness gate carries `reason` + `pipeline_status`, NOT stage/
         # blocker_count/first_blocker. The generic format below therefore rendered it as

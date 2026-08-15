@@ -141,6 +141,13 @@ def test_temporary_training_hold_requires_an_exact_bounded_reenable() -> None:
     assert "automatic re-enable is armed" in text
 
 
+def test_optional_chain_readiness_is_safe_for_strict_mode_callers() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$chain.PSObject.Properties["production_readiness"]' in text
+    assert "if ($chain -and $chain.production_readiness)" not in text
+
+
 def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
