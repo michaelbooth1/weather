@@ -27,6 +27,8 @@ def test_stage_a_protected_window_teardown_is_an_expected_task_result():
     assert '"WeatherDailySettlementPromotionRefresh" = @("0x2", "0x4B")' in text
     assert "kill-on-close Job tore down the delegated child tree" in text
     assert "workload lease is the ownership signal" in text
+    assert '$chainTaskResult -eq "0x4B"' in text
+    assert "protected-window deadline; durable terminal status verified" in text
 
 
 def test_capture_alert_flags_only_the_current_local_capture_day():
@@ -161,11 +163,34 @@ def test_status_fails_closed_on_unsynchronized_windows_clock() -> None:
     assert "Id = 35, 37" in text
     assert 'Get-Service -Name W32Time' in text
     assert "$clockQueryExit = $LASTEXITCODE" in text
+    assert "Last Successful Sync Time:" in text
+    assert "[datetime]::TryParse" in text
+    assert "$clockLastSync = $liveSync" in text
     assert 'if ($clockQueryExit -ne 0 -or -not $sourceMatch.Success)' in text
     assert 'Leap Indicator:\\s*3' in text
     assert 'Source:\\s*Local CMOS Clock' in text
     assert "system clock is not synchronized" in text
     assert 'Write-Output ("  CLOCK     : {0}"' in text
+
+
+def test_failed_disabled_one_shot_reports_the_run_not_the_terminal_state() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$name spent one-shot FAILED $res" in text
+    assert "verify its artifact" in text
+    assert "(Get-Date).AddHours(-24)" in text
+
+
+def test_complete_overnight_audit_receipt_replaces_stale_verify_artifact_flag() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '"*audit_overnight_integration_chain.ps1*"' in text
+    assert "-ReportPath\\s+" in text
+    assert '"overnight_integration_chain_audit_v1"' in text
+    assert "$candidateAuditReceipt.complete -eq $true" in text
+    assert "$knownRetainedGapOnly" in text
+    assert "complete audit remains BLOCK only for retained execution-tape gaps" in text
+    assert "complete audit verdict is BLOCK" in text
 
 
 def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
