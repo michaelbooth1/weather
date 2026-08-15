@@ -23,6 +23,8 @@ param(
     [double]$StartCommitPercent = 64.0,
     [ValidateRange(1.0, 99.0)]
     [double]$AbortCommitPercent = 66.0,
+    [string]$AdditionalPythonPath = "",
+    [switch]$RequireLiveSdkContract,
     [switch]$PreflightOnly,
     [switch]$SmokeTest
 )
@@ -41,6 +43,23 @@ if ($StartCommitPercent -ge $AbortCommitPercent) {
 }
 if ($WorktreeRoot -eq $RepoRoot) {
     throw "bounded suite must use an isolated worktree, not production"
+}
+$additionalPythonRoots = @()
+if (-not [string]::IsNullOrWhiteSpace($AdditionalPythonPath)) {
+    $additionalPythonRoots = @(
+        $AdditionalPythonPath.Split([IO.Path]::PathSeparator) |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object {
+                (Resolve-Path -LiteralPath $_ -ErrorAction Stop).Path
+            }
+    )
+    if ($additionalPythonRoots.Count -eq 0 -or @(
+        $additionalPythonRoots | Where-Object {
+            -not (Test-Path -LiteralPath $_ -PathType Container)
+        }
+    ).Count -ne 0) {
+        throw "AdditionalPythonPath must contain only existing directories"
+    }
 }
 
 $contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
@@ -123,6 +142,7 @@ function Assert-HostAdmission {
 
 Write-SuiteLog "=== bounded worktree suite starting ==="
 Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
+Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent)"
 
 $localNow = Get-Date
 $localMinute = ($localNow.Hour * 60) + $localNow.Minute
@@ -158,8 +178,18 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 }
 $python = (Resolve-Path -LiteralPath $python).Path
 $previousPythonPath = $env:PYTHONPATH
+$previousLiveSdkRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
 $previousLocation = (Get-Location).Path
 $env:PYTHONPATH = Join-Path $WorktreeRoot "src"
+if ($additionalPythonRoots.Count -gt 0) {
+    $env:PYTHONPATH = @(
+        $env:PYTHONPATH
+        $additionalPythonRoots
+    ) -join [IO.Path]::PathSeparator
+}
+if ($RequireLiveSdkContract) {
+    $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"
+}
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
 if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
 try {
@@ -256,5 +286,6 @@ try {
 finally {
     Set-Location -LiteralPath $previousLocation
     $env:PYTHONPATH = $previousPythonPath
+    $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = $previousLiveSdkRequirement
     Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
 }
