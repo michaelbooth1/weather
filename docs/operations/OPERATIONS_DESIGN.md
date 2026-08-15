@@ -286,11 +286,18 @@ the scheduled wrapper closes the only Job handle and tears down the tree.
 Failure to create, assign, or resume fails before daily-refresh work can begin.
 
 The same containment primitive backs `scripts/ops/bounded_worktree_test_suite.ps1`.
-That runner admits tests only from 00:30–12:00, against a registered clean
+That runner admits tests only from 00:30-09:00, against a registered clean
 worktree whose branch and `HEAD` equal an explicit commit, while all three
 capture workers are healthy and Windows commit is below the configured start
 ceiling. It rechecks capture and commit between size-bounded pytest chunks,
 writes a JUnit artifact per chunk, and owns each child in a kill-on-close Job.
+When an exact branch contract needs a dependency deliberately absent from the
+production venv, the reviewed task may pass an existing read-only
+`AdditionalPythonPath` and `RequireLiveSdkContract`. The runner appends that
+target only after the exact worktree source path, forces the non-skippable SDK
+contract environment flag, records the dependency-root count, and restores the
+original process environment in `finally`; it never installs into or mutates
+the production venv.
 It never merges, pushes, checks out, registers a task, or writes production
 data; a full PASS is evidence for a separate reviewed merge, not the merge.
 

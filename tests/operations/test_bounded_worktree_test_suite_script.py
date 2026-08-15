@@ -21,6 +21,12 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "status --porcelain" in text
     assert "suite worktree is dirty" in text
     assert "$env:PYTHONPATH = Join-Path $WorktreeRoot \"src\"" in text
+    assert "AdditionalPythonPath" in text
+    assert "$additionalPythonRoots" in text
+    assert "[IO.Path]::PathSeparator" in text
+    assert "RequireLiveSdkContract" in text
+    assert '$env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"' in text
+    assert "$previousLiveSdkRequirement" in text
     assert "Set-Location -LiteralPath $WorktreeRoot" in text
     assert "Set-Location -LiteralPath $previousLocation" in text
     assert "Get-HealthyCaptureWorkerCount" in text
