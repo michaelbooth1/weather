@@ -79,9 +79,10 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 - The 2026-08-15 settlement is absent fleet-wide after the heavy restore was
   deferred. It needs one explicit safe-window backfill, but must not contend
   with tonight's critical parent suite or guarded merge.
-- A reboot remains pending. Do not reboot during grading; later maintenance
-  must prove unattended S4U recovery and restore the interactive session used
-  by `WeatherOneShotPush`.
+- A reboot remains pending. Overnight Windows Update active hours are already
+  sealed from 14:00 through 08:00; the 07:25 restore is armed. Do not reboot
+  during grading; later maintenance must prove unattended S4U recovery and
+  restore the interactive session used by `WeatherOneShotPush`.
 - Disabled spent one-shots are normal scheduler hygiene. Read their action,
   result, and durable receipt before calling them incidents.
 
