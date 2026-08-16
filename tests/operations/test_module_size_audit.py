@@ -48,11 +48,11 @@ def test_current_warning_modules_have_complete_ownership_metadata_and_no_orphans
     )
 
     warnings = [row for row in payload["largest_modules"] if row["status"] == "WARN"]
-    # 21 since 2026-08-09: -09-43a's feature routing pushed weather.model.model_features
-    # to 2,014 lines. Raising this number is only legitimate alongside a real ownership
+    # 22 since 2026-08-16: the market-harvest lane pushed weather.market.market_making_run
+    # to 2,073 lines. Raising this number is only legitimate alongside a real ownership
     # entry in module-ownership-map.md -- the point of the ratchet is that growth costs
     # documentation, so never bump it to make the suite green.
-    assert payload["warning_count"] == 21
+    assert payload["warning_count"] == 22
     assert len(warnings) == payload["warning_count"]
     assert all(row["owner"] and row["boundary"] and row["next_split"] for row in warnings)
     assert payload["governance_status"] == "PASS"

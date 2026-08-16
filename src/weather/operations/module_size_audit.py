@@ -143,6 +143,11 @@ OWNERSHIP_NOTES = {
         "boundary": "Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers.",
         "next_split": "WARN in the 2026-07-03 audit; tape ingestion, conservative fill accounting, queue simulation, and P&L scoring already live in mm_paper_scoring, so the next slice should move reward diagnostics, model-variant promotion gates, or fill-evidence completeness helpers out of the orchestration facade.",
     },
+    "src/weather/market/market_making_run.py": {
+        "owner": "market",
+        "boundary": "Target-date market-making orchestration, runtime and useful-work liveness gates, preflight diagnostics, run/report payload assembly, bounded paper-loop execution, and CLI dispatch.",
+        "next_split": "Newly WARN in the 2026-08-16 audit after the paper-only market-harvest lane. Extract runtime identity and useful-work liveness construction into a market-making liveness owner that does not import the orchestration facade; preserve gate names, blocker ordering, payload schemas, and the stable CLI.",
+    },
     "src/weather/market/mm_paper_scoring.py": {
         "owner": "market",
         "boundary": "Genuine-execution admission and provenance-preserving trade normalization/deduplication, active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries.",

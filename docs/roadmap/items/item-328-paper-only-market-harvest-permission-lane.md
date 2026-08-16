@@ -96,3 +96,14 @@ not a paper-lane failure and must not be bypassed; it leaves fresh safe-candidat
 selection open for a naturally qualifying market. Exact measurements and their
 claim boundary live only in `docs/operations/ESTABLISHED_FINDINGS.md` section
 8q. The immutable full suite and guarded integration remain open.
+
+## 2026-08-16 exact-suite disposition
+
+The first immutable exact-tip suite attempt failed closed on the large-module
+ownership ratchet after `weather.market.market_making_run` crossed the documented
+warning threshold. The remaining suite chunks passed, the guarded merge refused
+the failed result, and the downstream paper candidate correctly refused a parent
+that production had not integrated. The branch now records the market owner,
+current orchestration boundary, and a concrete liveness-extraction target. A new
+immutable exact-tip suite and guarded integration receipt remain required; no
+functional failure or safety gate has been waived.

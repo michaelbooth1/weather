@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-15 18:42 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-16 10:30 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -21,7 +21,7 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 | --- | --- |
 | Capture | Healthy and on track today. Protect the 12:00-18:00 graded window; do not run heavy work or merge roll-sensitive code there. |
 | Production software | International Stage 0/1 and continuous public execution capture are adopted. They prove software consistency and public observation, not order authority, fills, or profit. |
-| Cumulative live-test parent | `codex/live-test-parent-refresh-20260815` is refreshed on current master and contains the paper harvest lane, unified official client, and pUSD payout-asset contract. Focused tests and the isolated real-wheel SDK contract pass; immutable exact-tip full-suite proof and guarded integration remain open. |
+| Cumulative live-test parent | `codex/live-test-parent-refresh-20260815` is refreshed on current master and contains the paper harvest lane, unified official client, and pUSD payout-asset contract. The first exact-tip suite exposed only an undocumented large-module boundary; the merge and downstream paper task refused it correctly. The ownership remediation is on the branch, and a new immutable exact-tip suite plus guarded integration remain open. |
 | Paper proof | The one-market `market_harvest` route passed preflight, emitted two-sided paper permission and lifecycle intent, retained all ceilings, and emitted no live permission. Candidate-plan v0.2 safely selected nothing because the only proved books were outside its fixed midpoint interval. This is a route proof, not a safe candidate or profit result. |
 | Candidate boundary | Keep the existing midpoint, fee/rebate, book, paper-proof, expiry, and condition/token gates. Select again from a fresh paper tick when a market naturally qualifies; never weaken a gate to force a candidate. `run_stage1` revalidates the non-authorizing plan before credential resolution. |
 | Public execution tape | Supervised producer is current, connected, and integrity-valid. Retained gaps make the accumulated full price path unusable; keep collecting future clean intervals. Public rows never prove our fills or P&L. |
@@ -50,9 +50,9 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 
 ## Immediate execution order
 
-1. Finish the cumulative branch documentation and merge current roll-free
-   production monitor repairs into it. Preserve the audited paper proof as
-   evidence for its exact source tip; do not accept the economics baseline.
+1. Finish and verify the cumulative branch ownership-ratchet remediation.
+   Preserve the audited paper proof as evidence for its original exact source
+   tip; do not accept the economics baseline.
 2. Push only through `WeatherOneShotPush`, obtain
    `roll_verdict.ps1`, and run an immutable exact-tip full suite with the real
    pinned SDK contract. Never weaken or ignore a failure.
