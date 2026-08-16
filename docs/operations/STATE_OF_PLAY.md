@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-16 14:20 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-16 15:25 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -25,8 +25,9 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 | Paper proof | The one-market `market_harvest` route passed preflight, emitted two-sided paper permission and lifecycle intent, retained all ceilings, and emitted no live permission. Candidate-plan v0.2 safely selected nothing because the only proved books were outside its fixed midpoint interval. This is a route proof, not a safe candidate or profit result. |
 | Candidate boundary | Keep the existing midpoint, fee/rebate, book, paper-proof, expiry, and condition/token gates. The sealed 08-17 paper wrapper allows only the exact historical 08-15 settlement flag; current capture, RAM, exact ancestry, and every unexpected host flag still fail closed. `run_stage1` revalidates the non-authorizing plan before credential resolution. |
 | Public execution tape | Supervised producer is current, connected, and integrity-valid. Retained gaps make the accumulated full price path unusable; keep collecting future clean intervals. Public rows never prove our fills or P&L. |
-| Stage 2 | A profile-aware successor is prepared on the exact cumulative parent. It can consume an explicitly paper-only `market_harvest` proof without changing the ordinary promotion-gated model lane; the separate capability remains one-submit, BUY-only, post-only, non-raisable, and library-only. Focused tests pass, but parent integration, exact-tip real-SDK suite, and guarded Stage 2 integration remain open. |
-| First live-money test | After this PC is physically moved to a genuinely eligible location: rerun public metadata/economics/paper selection, import credentials by reference, pass doctor and Stage 0, perform the two tiny supervised Stage 1 cancellation probes, build verification, then run one bounded Stage 2 quote session. |
+| Stage 2 | A profile-aware successor is prepared on the exact cumulative parent. It can consume an explicitly paper-only `market_harvest` proof without changing the ordinary promotion-gated model lane; the separate capability remains one-submit, BUY-only, post-only, non-raisable, and library-only. Its exact-tip real-SDK suite and parent-dependent guarded integration are armed for tonight after the cumulative-parent merge. |
+| First live-money test | Target tomorrow after this PC is physically moved to a genuinely eligible location: rerun public metadata/economics/paper selection, install the pre-staged exact SDK, import credentials by reference, pass doctor and Stage 0, perform the two tiny supervised Stage 1 cancellation probes, build verification, then run one bounded Stage 2 quote session. |
+| Live preparation | The supplied credential source exists outside the repository with inheritance disabled and access restricted to the operator, Administrators, and SYSTEM; secret values remain unread. The complete exact `polymarket-client==0.6.0` offline wheel set is staged and dependency resolution passes without network access. Import and authentication still wait for physical eligibility. |
 | Model evidence | Promotion remains blocked. That is not the live-pilot critical path and must not be weakened to manufacture quote permission. |
 
 ## Closed decisions — do not relitigate without new evidence
@@ -60,9 +61,9 @@ is a quote-centre and risk-control input. **We do not beat the market.**
    SDK contract, then let its guarded merge consume that exact result. Never
    weaken or ignore a failure.
 3. Merge the roll-sensitive parent only through the guarded 01:00-04:00 path
-   and prove capture recovery/adoption. Then merge production into the prepared
-   Stage 2 successor, rerun its exact-tip real-SDK suite, and integrate it only
-   through a later guarded quiet window.
+   and prove capture recovery/adoption. The armed successor suite may then run;
+   its guarded merge must independently prove the exact parent is already in
+   production before integrating Stage 2 in the same quiet window.
 4. Obtain a new paper-bound candidate only when a current market passes the
    existing safe interval naturally. Before relocation, review a fixed-scope
    host-owned wrapper sealed to new output paths and that fresh plan. It must
