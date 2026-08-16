@@ -510,3 +510,32 @@ integration, candidate selection should be repeated from a fresh paper tick
 only when a market naturally satisfies the existing gates. See
 `docs/operations/ESTABLISHED_FINDINGS.md` section 8q for the sole quantitative
 record.
+
+## 2026-08-16 profile-aware Stage 2 successor
+
+Prepared `codex/live-stage2-profile-refresh-20260816` as an explicit stacked
+successor to cumulative live-test parent
+`1f4fb14611fe94781323d2b2da43f057a6f7241e`. The successor replays the
+library-only one-submit Stage 2 lifecycle onto the unified client and makes its
+source authority explicit. The ordinary `model` profile is unchanged and
+still requires its complete named preflight, promotion gate, live-pilot mode,
+and live permission. The new `market_harvest` profile accepts only a current
+paper-live-forward row whose live permission is false, shadow flag is true,
+intent is two-sided/post-only, probability source is market-mid/no-model, and
+reward and rebate assumptions are zero. It may omit only the three model
+preflight dependencies; all source, observation, CLOB, economics, platform,
+public-capture, account, lifecycle, and risk bindings remain fail closed.
+The canonical paper tape's 16-hex policy hash is validated as its actual
+contract. Its absent daily-loss field can produce zero prior loss only from the
+same content-bound Stage 1 no-fill/final-zero-state proof and verified zero open
+orders; it is not silently defaulted.
+
+The separate adapter capability permits exactly one backed BUY network submit,
+forces post-only signing, rechecks official physical eligibility at issue and
+submit, expires with the earliest bound artifact, and is disarmed by cancel-all.
+It retains the non-raisable 100 pUSD wallet, 25 pUSD daily/event, 10 pUSD
+band/order, and lower adapter/session ceilings. No generic live CLI, credential
+resolution, scheduled task, production write, merge, or live exchange request
+was added. The profile-focused Stage 2 tests pass; the exact stacked tip still
+requires the immutable real-SDK full suite after its parent integrates, then a
+guarded roll-sensitive merge before relocated-host use.

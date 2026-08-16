@@ -501,6 +501,15 @@ the authenticated event path.
 
 ### Stage 2: one-band maker quote
 
+Stage 2 is a library-only, profile-bound successor. It accepts exactly one of
+two source authorities: the ordinary `model` lane's current live-pilot quote,
+which still requires model promotion and live permission, or a current
+`market_harvest` paper quote with `live_trade_permission=false`, shadow mode,
+two-sided post-only intent, market-mid/no-model provenance, and zero assumed
+reward or rebate. The latter bypass exists only inside the separate one-submit
+Stage 2 envelope; it does not enable live mode in `market_making_run`, change
+the ordinary model lane, or turn the paper artifact into mutation authority.
+
 - Require a current passing `mm_platform_verification_v0.4`, including fresh
   official physical geoblock eligibility and the
   Stage 1 automatic heartbeat-lapse cancellation and cancel-all-to-zero proof.
@@ -510,11 +519,26 @@ the authenticated event path.
 - Select one central band whose current market spread, depth, fee eligibility,
   source freshness, book freshness, watcher freshness, and current-high trust
   gates pass.
-- Place one or two smallest-valid backed post-only orders for one TTL only.
+  A market-harvest source may omit only model rows, model freshness, and model
+  promotion; every non-model preflight, account, lifecycle, capture, economics,
+  and risk gate remains mandatory.
+- A retained source quote normally supplies current event, band, and daily-loss
+  exposure. Because the canonical paper tape has no daily-loss column, the first
+  market-harvest Stage 2 session may bind prior daily loss to zero only when the
+  complete Stage 1 artifact proves no fill, final zero state, and zero open
+  orders for the isolated pilot wallet. Missing either source value or that
+  exact proof blocks authorization.
+- Place exactly one smallest-valid backed post-only BUY for one TTL only. The
+  capability is single-use, permits no naked sell, cannot raise the 100 pUSD
+  wallet cap or any lower existing ceiling, and is disarmed by cancel-all.
 - A post-only cross rejection is a stop-and-refresh event, never permission to
   chase price.
 - Cancel at TTL, stale evidence, user-stream silence, heartbeat failure,
   reconciliation mismatch, unexpected fill state, risk limit, or operator stop.
+- Keep Stage 2 out of every generic CLI. The eligible-host fixed-scope wrapper
+  supplies an already-authenticated adapter and exact public artifacts in
+  memory; the module resolves no credentials and exposes no parameterized live
+  mutation command.
 
 ### Stage 3: evidence and settlement
 

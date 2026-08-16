@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-16 10:30 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-16 11:15 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -25,7 +25,7 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 | Paper proof | The one-market `market_harvest` route passed preflight, emitted two-sided paper permission and lifecycle intent, retained all ceilings, and emitted no live permission. Candidate-plan v0.2 safely selected nothing because the only proved books were outside its fixed midpoint interval. This is a route proof, not a safe candidate or profit result. |
 | Candidate boundary | Keep the existing midpoint, fee/rebate, book, paper-proof, expiry, and condition/token gates. Select again from a fresh paper tick when a market naturally qualifies; never weaken a gate to force a candidate. `run_stage1` revalidates the non-authorizing plan before credential resolution. |
 | Public execution tape | Supervised producer is current, connected, and integrity-valid. Retained gaps make the accumulated full price path unusable; keep collecting future clean intervals. Public rows never prove our fills or P&L. |
-| Stage 2 | Prepared only as a stacked successor. Refresh it on the integrated cumulative parent and require a new exact-tip suite; do not merge it into the parent early. |
+| Stage 2 | A profile-aware successor is prepared on the exact cumulative parent. It can consume an explicitly paper-only `market_harvest` proof without changing the ordinary promotion-gated model lane; the separate capability remains one-submit, BUY-only, post-only, non-raisable, and library-only. Focused tests pass, but parent integration, exact-tip real-SDK suite, and guarded Stage 2 integration remain open. |
 | First live-money test | After this PC is physically moved to a genuinely eligible location: rerun public metadata/economics/paper selection, import credentials by reference, pass doctor and Stage 0, perform the two tiny supervised Stage 1 cancellation probes, build verification, then run one bounded Stage 2 quote session. |
 | Model evidence | Promotion remains blocked. That is not the live-pilot critical path and must not be weakened to manufacture quote permission. |
 
@@ -56,8 +56,10 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 2. Push only through `WeatherOneShotPush`, obtain
    `roll_verdict.ps1`, and run an immutable exact-tip full suite with the real
    pinned SDK contract. Never weaken or ignore a failure.
-3. Merge the roll-sensitive parent only through the guarded 01:00-04:00 path,
-   prove capture recovery/adoption, then refresh Stage 2 on that production tip.
+3. Merge the roll-sensitive parent only through the guarded 01:00-04:00 path
+   and prove capture recovery/adoption. Then merge production into the prepared
+   Stage 2 successor, rerun its exact-tip real-SDK suite, and integrate it only
+   through a later guarded quiet window.
 4. Obtain a new paper-bound candidate only when a current market passes the
    existing safe interval naturally. Before relocation, review a fixed-scope
    host-owned wrapper sealed to new output paths and that fresh plan. It must

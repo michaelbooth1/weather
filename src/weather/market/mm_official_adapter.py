@@ -541,6 +541,26 @@ def _required_decimal(value, label):
     return number
 
 
+def _nonnegative_decimal(value, label):
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be numeric") from exc
+    if not number.is_finite() or number < 0:
+        raise ValueError(f"{label} must be finite and nonnegative")
+    return number
+
+
+def _required_utc_datetime(value, label):
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{label} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"{label} must include a timezone")
+    return parsed.astimezone(timezone.utc)
+
+
 def _value(payload, *names):
     for name in names:
         if isinstance(payload, dict):
@@ -616,6 +636,7 @@ class OfficialPolymarketGlobalAdapter:
         sdk_version=None,
         authoritative_readers_verified=False,
         monotonic_clock=None,
+        utc_clock=None,
         sleeper=None,
         heartbeat_max_age_seconds=7.5,
         market_rules_max_age_seconds=10.0,
@@ -640,6 +661,7 @@ class OfficialPolymarketGlobalAdapter:
         self.market_rule_reader = market_rule_reader
         self.authoritative_readers_verified = bool(authoritative_readers_verified)
         self.monotonic_clock = monotonic_clock or time.monotonic
+        self.utc_clock = utc_clock or (lambda: datetime.now(timezone.utc))
         self.sleeper = sleeper or time.sleep
         self.heartbeat_max_age_seconds = _required_number(
             heartbeat_max_age_seconds,
@@ -685,6 +707,14 @@ class OfficialPolymarketGlobalAdapter:
         self._stage1_geoblock_country = None
         self._stage1_geoblock_region = None
         self._stage1_signature_type_id = None
+        self._stage2_capability = None
+        self._stage2_capability_consumed = False
+        self._stage2_authorization_sha256 = None
+        self._stage2_geoblock_country = None
+        self._stage2_geoblock_region = None
+        self._stage2_signature_type_id = None
+        self._stage2_max_order_notional = None
+        self._stage2_expires_at_utc = None
         self._last_geoblock_gate = None
         self._probe = {
             "sdk_version_verified": True,
@@ -767,6 +797,302 @@ class OfficialPolymarketGlobalAdapter:
         })
         return self._stage1_capability
 
+    def authorize_stage2_maker_session(self, platform_gate, session_envelope):
+        """Issue one opaque BUY-only capability from profile-bound v0.4 evidence."""
+
+        gate = dict(platform_gate or {})
+        envelope = dict(session_envelope or {})
+        checks = gate.get("checks")
+        heartbeat = gate.get("dead_man_heartbeat") or {}
+        try:
+            budget = _required_decimal(
+                envelope.get("session_budget_pusd"),
+                "Stage 2 session budget",
+            )
+            order_cap = _required_decimal(
+                envelope.get("max_order_notional_pusd"),
+                "Stage 2 order cap",
+            )
+            event_cap = _required_decimal(
+                envelope.get("max_event_notional_pusd"),
+                "Stage 2 event cap",
+            )
+            daily_loss_cap = _required_decimal(
+                envelope.get("max_daily_loss_pusd"),
+                "Stage 2 daily-loss cap",
+            )
+            band_cap = _required_decimal(
+                envelope.get("max_band_notional_pusd"),
+                "Stage 2 band cap",
+            )
+            ttl = _required_decimal(
+                envelope.get("quote_ttl_seconds"),
+                "Stage 2 quote TTL",
+            )
+            verified_budget = _required_decimal(
+                gate.get("requested_budget_usdc"),
+                "verified pilot budget",
+            )
+            wallet_cap = _required_decimal(
+                gate.get("pilot_wallet_max_funding_usdc"),
+                "verified wallet cap",
+            )
+            verified_open_order_count = _nonnegative_decimal(
+                gate.get("open_order_count"),
+                "verified open-order count",
+            )
+            daily_loss_before = _nonnegative_decimal(
+                envelope.get("daily_loss_before_pusd"),
+                "Stage 2 daily loss before",
+            )
+            event_notional_before = _nonnegative_decimal(
+                envelope.get("event_notional_before_pusd"),
+                "Stage 2 event notional before",
+            )
+            band_notional_before = _nonnegative_decimal(
+                envelope.get("band_notional_before_pusd"),
+                "Stage 2 band notional before",
+            )
+            heartbeat_count = _required_decimal(
+                heartbeat.get("acknowledgment_count"),
+                "verified heartbeat acknowledgment count",
+            )
+            heartbeat_cadence = _required_decimal(
+                heartbeat.get("cadence_seconds"),
+                "verified heartbeat cadence",
+            )
+            quote_expires_at = _required_utc_datetime(
+                envelope.get("quote_expires_at_utc"),
+                "Stage 2 quote expiry",
+            )
+            paper_expires_at = _required_utc_datetime(
+                (envelope.get("paper_counterfactual") or {}).get(
+                    "expires_at_utc"
+                ),
+                "Stage 2 paper expiry",
+            )
+            capture_expires_at = _required_utc_datetime(
+                (envelope.get("public_execution_capture") or {}).get(
+                    "expires_at_utc"
+                ),
+                "Stage 2 capture expiry",
+            )
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("official adapter Stage 2 numeric binding failed") from exc
+        envelope_content = {
+            key: value
+            for key, value in envelope.items()
+            if key != "envelope_sha256"
+        }
+        paper_binding = envelope.get("paper_counterfactual") or {}
+        capture_binding = envelope.get("public_execution_capture") or {}
+        expires_at = min(quote_expires_at, paper_expires_at, capture_expires_at)
+        current_utc = self.utc_clock()
+        if current_utc.tzinfo is None:
+            current_utc = current_utc.replace(tzinfo=timezone.utc)
+        current_utc = current_utc.astimezone(timezone.utc)
+        binding = {
+            "supports_trading": self.supports_trading,
+            "required": gate.get("required") is True,
+            "ok": gate.get("ok") is True,
+            "schema": gate.get("schema_version") == "mm_platform_verification_v0.4",
+            "status_checks": (
+                isinstance(checks, dict)
+                and bool(checks)
+                and all(value is True for value in checks.values())
+            ),
+            "missing": gate.get("missing") == [],
+            "artifact": SHA256_RE.fullmatch(
+                str(gate.get("artifact_sha256") or "")
+            ) is not None,
+            "platform": gate.get("platform") == "polymarket_global",
+            "settlement_unit": gate.get("settlement_unit") == "pUSD",
+            "condition": str(gate.get("condition_id") or "").lower()
+            == str(self.condition_id or "").lower()
+            == str(envelope.get("condition_id") or "").lower(),
+            "token": str(gate.get("token_id") or "")
+            == str(self.token_id or "")
+            == str(envelope.get("token_id") or ""),
+            "maker": str(gate.get("funder_address") or "").lower()
+            == str(self.maker_address or "").lower()
+            == str(envelope.get("funder_address") or "").lower(),
+            "sdk": (
+                (gate.get("sdk_contract") or {}).get("distribution")
+                == OFFICIAL_CLOB_DISTRIBUTION
+                and (gate.get("sdk_contract") or {}).get("version")
+                == self.sdk_version
+                == OFFICIAL_CLOB_VERSION
+                and (gate.get("sdk_contract") or {}).get("exact_version_verified")
+                is True
+            ),
+            "stage1_bundle": SHA256_RE.fullmatch(
+                str(gate.get("stage1_lifecycle_bundle_sha256") or "")
+            ) is not None
+            and envelope.get("stage1_lifecycle_bundle_sha256")
+            == gate.get("stage1_lifecycle_bundle_sha256"),
+            "platform_artifact_binding": envelope.get(
+                "platform_verification_sha256"
+            ) == gate.get("artifact_sha256"),
+            "target": bool(str(gate.get("target_date") or ""))
+            and str(envelope.get("target_date") or "")
+            == str(gate.get("target_date") or ""),
+            "heartbeat": all((
+                heartbeat.get("endpoint") == "/heartbeats",
+                heartbeat.get("endpoint_verified") is True,
+                heartbeat.get("request_body_absent_verified") is True,
+                heartbeat.get("two_acknowledgments_verified") is True,
+                heartbeat_count >= Decimal("2"),
+                heartbeat.get("acknowledgment_verified") is True,
+                Decimal("0") < heartbeat_cadence <= Decimal("5"),
+                heartbeat.get("stale_placement_disarm_verified") is True,
+                heartbeat.get("automatic_cancel_verified") is True,
+            )),
+            "envelope_schema": (
+                envelope.get("schema_version")
+                == "mm_live_stage2_session_envelope_v0.2"
+            ),
+            "source_profile": envelope.get("source_permission_profile")
+            in {"model", "market_harvest"},
+            "source_authority": (
+                (
+                    envelope.get("source_permission_profile") == "model"
+                    and envelope.get("source_run_mode") == "live-pilot"
+                    and envelope.get("source_live_trade_permission") is True
+                    and envelope.get("source_shadow_mode") is False
+                )
+                or (
+                    envelope.get("source_permission_profile") == "market_harvest"
+                    and envelope.get("source_run_mode") == "paper-live-forward"
+                    and envelope.get("source_live_trade_permission") is False
+                    and envelope.get("source_shadow_mode") is True
+                )
+            ),
+            "profile_boundary": (
+                envelope.get("ordinary_model_lane_unchanged") is True
+                and (
+                    (
+                        envelope.get("source_permission_profile") == "model"
+                        and envelope.get("model_promotion_bypass_scope") == "none"
+                    )
+                    or (
+                        envelope.get("source_permission_profile") == "market_harvest"
+                        and envelope.get("model_promotion_bypass_scope")
+                        == "stage2_single_submit_from_market_harvest_paper_proof"
+                    )
+                )
+            ),
+            "envelope_hash": (
+                SHA256_RE.fullmatch(
+                    str(envelope.get("envelope_sha256") or "")
+                ) is not None
+                and envelope.get("envelope_sha256")
+                == _official_event_hash(envelope_content)
+            ),
+            "decision_hashes": all((
+                SHA256_RE.fullmatch(
+                    str(envelope.get("quote_decision_sha256") or "")
+                ) is not None,
+                SHA256_RE.fullmatch(
+                    str(envelope.get("market_preflight_sha256") or "")
+                ) is not None,
+            )),
+            "one_submit": envelope.get("max_network_submits") == 1,
+            "post_only": envelope.get("post_only_required") is True,
+            "buy_only": envelope.get("backed_buy_only") is True,
+            "naked_sell": envelope.get("naked_sell_forbidden") is True,
+            "non_raisable": envelope.get("risk_ceilings_non_raisable") is True,
+            "budget": (
+                budget <= verified_budget <= wallet_cap <= Decimal("100")
+            ),
+            "order_cap": (
+                order_cap <= self.max_order_notional <= Decimal("10")
+            ),
+            "daily_loss_cap": daily_loss_cap <= Decimal("25"),
+            "event_cap": event_cap <= Decimal("25"),
+            "band_cap": band_cap <= Decimal("10"),
+            "ttl": ttl <= Decimal("120"),
+            "daily_loss_before": daily_loss_before < daily_loss_cap,
+            "daily_loss_basis": (
+                envelope.get("daily_loss_before_basis") == "source_quote"
+                or (
+                    envelope.get("daily_loss_before_basis")
+                    == "verified_stage1_no_fill_isolated_wallet"
+                    and (checks or {}).get(
+                        "stage1_derived_evidence_matches_platform_fields"
+                    ) is True
+                    and verified_open_order_count == 0
+                )
+            ),
+            "event_before": event_notional_before < event_cap,
+            "band_before": band_notional_before < band_cap,
+            "paper_binding": all((
+                SHA256_RE.fullmatch(
+                    str(paper_binding.get("artifact_sha256") or "")
+                ) is not None,
+                SHA256_RE.fullmatch(
+                    str(paper_binding.get("quote_row_sha256") or "")
+                ) is not None,
+                paper_binding.get("source_permission_profile")
+                == envelope.get("source_permission_profile"),
+                bool(str(paper_binding.get("expires_at_utc") or "")),
+            )),
+            "capture_binding": all((
+                SHA256_RE.fullmatch(
+                    str(capture_binding.get("probe_receipt_sha256") or "")
+                ) is not None,
+                SHA256_RE.fullmatch(
+                    str(capture_binding.get("live_status_sha256") or "")
+                ) is not None,
+                SHA256_RE.fullmatch(
+                    str(capture_binding.get("market_day_status_sha256") or "")
+                ) is not None,
+                SHA256_RE.fullmatch(
+                    str(capture_binding.get("seed_sha256") or "")
+                ) is not None,
+                bool(str(capture_binding.get("expires_at_utc") or "")),
+            )),
+            "evidence_current": current_utc < expires_at,
+            "signature_type": gate.get("signature_type_id") in {2, 3},
+        }
+        missing = [name for name, valid in binding.items() if not valid]
+        if missing:
+            raise RuntimeError(
+                "official adapter Stage 2 authorization failed: " + ", ".join(missing)
+            )
+        if self._stage1_capability is not None or self._stage2_capability is not None:
+            raise RuntimeError("official adapter permits one authorization lane per instance")
+        current_geo = self._require_current_geo_eligibility(
+            expected_country=gate.get("geoblock_country"),
+            expected_region=gate.get("geoblock_region"),
+        )
+        self._stage2_capability = object()
+        self._stage2_capability_consumed = False
+        self._stage2_authorization_sha256 = _official_event_hash(envelope)
+        self._stage2_geoblock_country = current_geo["country"]
+        self._stage2_geoblock_region = current_geo["region"]
+        self._stage2_signature_type_id = int(gate.get("signature_type_id"))
+        self._stage2_max_order_notional = min(
+            order_cap,
+            budget,
+            daily_loss_cap - daily_loss_before,
+            event_cap - event_notional_before,
+            band_cap - band_notional_before,
+        )
+        self._stage2_expires_at_utc = expires_at
+        self._probe.update({
+            "stage2_capability_issued": True,
+            "stage2_capability_consumed": False,
+            "stage2_envelope_sha256": envelope["envelope_sha256"],
+            "stage2_geoblock_evidence_sha256": current_geo["evidence_sha256"],
+            "stage2_max_network_submits": 1,
+            "stage2_backed_buy_only": True,
+            "stage2_effective_order_notional_cap": str(
+                self._stage2_max_order_notional
+            ),
+        })
+        return self._stage2_capability
+
+
     def _require_current_geo_eligibility(self, *, expected_country=None, expected_region=None):
         """Fetch and validate current physical eligibility without retaining an IP."""
 
@@ -830,9 +1156,17 @@ class OfficialPolymarketGlobalAdapter:
             "read_only": not self.supports_trading,
             "stage1_capability_issued": self._stage1_capability is not None,
             "stage1_capability_consumed": self._stage1_capability_consumed,
+            "stage2_capability_issued": self._stage2_capability is not None,
+            "stage2_capability_consumed": self._stage2_capability_consumed,
             "order_submit_armed": bool(
-                self._stage1_capability is not None
-                and not self._stage1_capability_consumed
+                (
+                    self._stage1_capability is not None
+                    and not self._stage1_capability_consumed
+                )
+                or (
+                    self._stage2_capability is not None
+                    and not self._stage2_capability_consumed
+                )
             ),
             "geoblock_checked": self._last_geoblock_gate is not None,
             "geoblock_country": (
@@ -956,6 +1290,24 @@ class OfficialPolymarketGlobalAdapter:
         if not isinstance(payload, dict):
             return payload
         return payload.get("allowances") or {}
+
+    def refresh_collateral_evidence(self):
+        """Read and content-bind current authenticated collateral state."""
+
+        self._balance_allowance = None
+        payload = self._balance_allowance_snapshot()
+        if not isinstance(payload, dict):
+            raise RuntimeError("collateral balance/allowance response is not a mapping")
+        allowances = payload.get("allowances")
+        if payload.get("balance") in (None, "") or not isinstance(allowances, dict):
+            raise RuntimeError("collateral balance/allowance response is incomplete")
+        return {
+            "status": "OBSERVED",
+            "query_scope": "authenticated_collateral_balance_allowance",
+            "balance_atomic": payload.get("balance"),
+            "allowances_atomic": dict(allowances),
+            "response_sha256": _official_event_hash(payload),
+        }
 
     def positions(self):
         if self.position_reader is None:
@@ -1266,8 +1618,16 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError("heartbeat response did not acknowledge status ok")
         return response
 
-    def place_order(self, intent, *, stage1_capability=None):
+    def place_order(
+        self,
+        intent,
+        *,
+        stage1_capability=None,
+        stage2_capability=None,
+    ):
         self._require_order_placement()
+        if stage1_capability is not None and stage2_capability is not None:
+            raise RuntimeError("official CLOB submit cannot receive two capabilities")
         intent = dict(intent or {})
         token_id = str(intent.get("clob_token_id") or intent.get("token_id") or self.token_id or "").strip()
         if not token_id:
@@ -1293,13 +1653,22 @@ class OfficialPolymarketGlobalAdapter:
         if side == "SELL" and rules["best_bid"] is not None and price <= rules["best_bid"]:
             raise RuntimeError("post-only SELL would cross the fresh best bid")
         closed_only = self.closed_only_mode()
-        if closed_only is True or (
-            isinstance(closed_only, dict)
-            and bool_value(
-                closed_only.get("closed_only") or closed_only.get("closedOnly"),
+        if isinstance(closed_only, bool):
+            closed_only_enabled = closed_only
+        elif isinstance(closed_only, dict) and (
+            "closed_only" in closed_only or "closedOnly" in closed_only
+        ):
+            closed_only_enabled = bool_value(
+                closed_only.get("closed_only")
+                if "closed_only" in closed_only
+                else closed_only.get("closedOnly"),
                 False,
             )
-        ):
+        else:
+            raise RuntimeError(
+                "closed-only account check did not return an authoritative boolean"
+            )
+        if closed_only_enabled:
             raise RuntimeError("account is in closed-only mode")
         if side == "SELL":
             if not bool_value(intent.get("owned_inventory_verified"), False):
@@ -1323,19 +1692,54 @@ class OfficialPolymarketGlobalAdapter:
                     owned += position_size
             if owned < size:
                 raise RuntimeError("SELL size exceeds authoritative owned outcome inventory")
-        if (
-            self._stage1_capability is None
-            or stage1_capability is not self._stage1_capability
-            or self._stage1_capability_consumed
-        ):
+        stage1_authorized = bool(
+            self._stage1_capability is not None
+            and stage1_capability is self._stage1_capability
+            and not self._stage1_capability_consumed
+        )
+        stage2_authorized = bool(
+            self._stage2_capability is not None
+            and stage2_capability is self._stage2_capability
+            and not self._stage2_capability_consumed
+        )
+        if not stage1_authorized and not stage2_authorized:
+            if self._stage2_capability is None and stage2_capability is None:
+                raise RuntimeError(
+                    "official CLOB submit requires the unconsumed Stage 1 lifecycle capability"
+                )
             raise RuntimeError(
-                "official CLOB submit requires the unconsumed Stage 1 lifecycle capability"
+                "official CLOB submit requires one unconsumed authorized capability"
             )
-        self._stage1_capability_consumed = True
-        self._probe["stage1_capability_consumed"] = True
+        if stage1_authorized and stage2_authorized:
+            raise RuntimeError("official CLOB submit cannot use two authorization lanes")
+        if stage2_authorized:
+            if side != "BUY":
+                raise RuntimeError("Stage 2 capability permits backed BUY orders only")
+            current_utc = self.utc_clock()
+            if current_utc.tzinfo is None:
+                current_utc = current_utc.replace(tzinfo=timezone.utc)
+            current_utc = current_utc.astimezone(timezone.utc)
+            if (
+                self._stage2_expires_at_utc is None
+                or current_utc >= self._stage2_expires_at_utc
+            ):
+                raise RuntimeError("Stage 2 evidence expired before official submit")
+            if price * size > self._stage2_max_order_notional:
+                raise RuntimeError("order notional exceeds the frozen Stage 2 cap")
+            self._stage2_capability_consumed = True
+            self._probe["stage2_capability_consumed"] = True
+            expected_country = self._stage2_geoblock_country
+            expected_region = self._stage2_geoblock_region
+            expected_signature_type_id = self._stage2_signature_type_id
+        else:
+            self._stage1_capability_consumed = True
+            self._probe["stage1_capability_consumed"] = True
+            expected_country = self._stage1_geoblock_country
+            expected_region = self._stage1_geoblock_region
+            expected_signature_type_id = self._stage1_signature_type_id
         self._require_current_geo_eligibility(
-            expected_country=self._stage1_geoblock_country,
-            expected_region=self._stage1_geoblock_region,
+            expected_country=expected_country,
+            expected_region=expected_region,
         )
         expiration = int(intent.get("expiration") or 0)
         # Do not use place_limit_order. The unified client convenience method
@@ -1352,7 +1756,7 @@ class OfficialPolymarketGlobalAdapter:
         signed_proof = self._signed_order_identity_proof(
             signed_order,
             token_id=token_id,
-            expected_signature_type_id=self._stage1_signature_type_id,
+            expected_signature_type_id=expected_signature_type_id,
         )
         self._probe["submitted_signed_order_sha256"] = signed_proof[
             "signed_order_sha256"
@@ -1387,6 +1791,7 @@ class OfficialPolymarketGlobalAdapter:
             )
         return _plain_sdk_value(response)
 
+
     def get_order(self, order_id):
         return _plain_sdk_value(self.client.get_order(order_id=str(order_id)))
 
@@ -1407,6 +1812,14 @@ class OfficialPolymarketGlobalAdapter:
         self._probe["cancel_all_remaining_open_order_count"] = len(remaining)
         self._probe["heartbeat_acknowledged"] = False
         self._last_heartbeat_monotonic = None
+        if self._stage1_capability is not None and not self._stage1_capability_consumed:
+            self._stage1_capability_consumed = True
+            self._probe["stage1_capability_consumed"] = True
+            self._probe["stage1_capability_disarmed_by_cancel_all"] = True
+        if self._stage2_capability is not None and not self._stage2_capability_consumed:
+            self._stage2_capability_consumed = True
+            self._probe["stage2_capability_consumed"] = True
+            self._probe["stage2_capability_disarmed_by_cancel_all"] = True
         if remaining:
             raise RuntimeError("cancel-all did not converge to zero open orders")
         return _plain_sdk_value(response)
