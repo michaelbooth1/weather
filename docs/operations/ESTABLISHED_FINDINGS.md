@@ -2421,6 +2421,33 @@ endpoint; no interval or P&L claim is available.
 
 ---
 
+## 8r. The Windows child-resource sampler retained fresh ctypes pointer types on every sample
+
+**Measured 2026-08-16 10:29-10:38 local.** The healthy production snapshot
+parent had run **2,866 iterations** since 2026-08-15 01:00 and held **5,864
+MiB private / 4,808 MiB working set**, while its handle and thread counts
+remained bounded and its latest iteration was clean. The other two core parents
+from the same adoption held **709-736 MiB private**, which made the snapshot
+parent the host's dominant memory consumer and reduced free physical memory to
+about **3.6 GiB**.
+
+The hot Windows sampler in `weather.operations.long_job_guard` declared two
+new `ctypes.Structure` classes and their pointer prototypes on every resource
+sample. CPython retains pointer classes in its process-wide cache. A disposable
+**2,000-call** reproduction against the current process grew that cache from
+**3 to 4,020 entries** (**+4,017**) after garbage collection. Moving the ABI
+types and function prototypes to module scope made the same warmed repeated
+sampler path hold the cache size constant in the regression test.
+
+This establishes a real unbounded parent-retention mechanism and justifies the
+fix. It does **not** attribute every byte in the live parent to that mechanism,
+nor does a one-time restart prove the repair. Closure requires the exact-tip
+suite, guarded production adoption, and a fresh-parent memory slope over real
+capture iterations. Until then, the post-grade restart is only an operational
+headroom mitigation.
+
+---
+
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
 
 Measured 2026-08-06. **Read the whole entry; an earlier same-day version of it overclaimed
