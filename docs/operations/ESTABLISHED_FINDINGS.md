@@ -2464,6 +2464,22 @@ suite, guarded production adoption, and a fresh-parent memory slope over real
 capture iterations. Until then, the post-grade restart is only an operational
 headroom mitigation.
 
+**Follow-up live consequence, measured 2026-08-16 12:09-12:24 local.** The
+grader-facing Toronto wide-capture timestamps were **902.439 seconds** apart,
+exceeding the **900-second** limit by **2.439 seconds**. During the overdue
+interval, capture diagnostics repeatedly refused the Toronto child on physical-
+memory admission: at 12:17:55, for example, **3,436,453,888 bytes** were
+available against **3,489,660,928 bytes** required for one worker. The capture
+finally admitted at 12:23:55 and the loop remained live, but the threshold
+breach makes the 2026-08-16 day `AT_RISK`; later captures cannot erase it.
+
+This is the live-timing evidence that section 8r previously lacked. It binds
+the operational gap to insufficient child headroom while the unrepaired parent
+was the host's dominant memory consumer; it still does not prove that the type-
+cache defect explains every retained byte. The sealed 18:10 restart remains a
+one-time headroom mitigation. Durable closure still requires guarded adoption
+of the repair and a fresh-parent slope over real iterations.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

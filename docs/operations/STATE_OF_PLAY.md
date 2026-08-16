@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-16 12:30 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-16 12:40 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -19,9 +19,9 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 
 | Area | State / next action |
 | --- | --- |
-| Capture | Healthy and on track today. Protect the 12:00-18:00 graded window; do not run heavy work or merge roll-sensitive code there. |
+| Capture | Loops are live, but today's Toronto window is `AT_RISK` after a confirmed threshold breach caused by insufficient physical-memory admission. The day cannot be repaired. Protect the rest of the window; the sealed snapshot-parent restart is armed for 18:10. |
 | Production software | International Stage 0/1 and continuous public execution capture are adopted. They prove software consistency and public observation, not order authority, fills, or profit. |
-| Cumulative live-test parent | `codex/live-test-parent-refresh-20260815` is refreshed on current master and contains the paper harvest lane, unified official client, pUSD payout-asset contract, ownership-ratchet remediation, and the bounded Windows sampler type-cache repair found during the host audit. A new immutable exact-tip suite plus guarded integration remain open. |
+| Cumulative live-test parent | `codex/live-test-parent-refresh-20260815` contains the paper harvest lane, unified official client, pUSD payout-asset contract, ownership-ratchet remediation, and the bounded Windows sampler type-cache repair. The old-tip suite exposed the ownership ratchet and merge correctly refused; a current exact-tip suite and guarded integration are armed for tonight. |
 | Paper proof | The one-market `market_harvest` route passed preflight, emitted two-sided paper permission and lifecycle intent, retained all ceilings, and emitted no live permission. Candidate-plan v0.2 safely selected nothing because the only proved books were outside its fixed midpoint interval. This is a route proof, not a safe candidate or profit result. |
 | Candidate boundary | Keep the existing midpoint, fee/rebate, book, paper-proof, expiry, and condition/token gates. Select again from a fresh paper tick when a market naturally qualifies; never weaken a gate to force a candidate. `run_stage1` revalidates the non-authorizing plan before credential resolution. |
 | Public execution tape | Supervised producer is current, connected, and integrity-valid. Retained gaps make the accumulated full price path unusable; keep collecting future clean intervals. Public rows never prove our fills or P&L. |
@@ -53,12 +53,12 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 
 ## Immediate execution order
 
-1. Finish and verify the cumulative branch ownership-ratchet remediation.
-   Preserve the audited paper proof as evidence for its original exact source
-   tip; do not accept the economics baseline.
-2. Push only through `WeatherOneShotPush`, obtain
-   `roll_verdict.ps1`, and run an immutable exact-tip full suite with the real
-   pinned SDK contract. Never weaken or ignore a failure.
+1. Run no heavy work and merge no roll-sensitive branch before 18:00. Let the
+   sealed post-grade restart reclaim snapshot-parent memory and audit its
+   receipt; do not infer repair closure from a one-time restart.
+2. Let tonight's immutable current-tip parent suite exercise the real pinned
+   SDK contract, then let its guarded merge consume that exact result. Never
+   weaken or ignore a failure.
 3. Merge the roll-sensitive parent only through the guarded 01:00-04:00 path
    and prove capture recovery/adoption. Then merge production into the prepared
    Stage 2 successor, rerun its exact-tip real-SDK suite, and integrate it only
@@ -76,6 +76,9 @@ is a quote-centre and risk-control input. **We do not beat the market.**
   merely to erase historical gap counters.
 - `WeatherEveningEvidenceRefresh` stays Disabled pending wrapper-owned
   child-tree teardown proof. The weather mirror remains operator-paused.
+- The 2026-08-15 settlement is absent fleet-wide after the heavy restore was
+  deferred. It needs one explicit safe-window backfill, but must not contend
+  with tonight's critical parent suite or guarded merge.
 - A reboot remains pending. Do not reboot during grading; later maintenance
   must prove unattended S4U recovery and restore the interactive session used
   by `WeatherOneShotPush`.
