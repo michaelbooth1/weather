@@ -126,7 +126,7 @@ never changed. A production parent is rejected because its candidate-scoring
 qualification cannot be reused after changing the base distributions.
 
 Adding the code step does not register or edit a Windows scheduled task. Until
-the seven bindings and both external repairs are ready, merging this change
+the eight bindings and both external repairs are ready, merging this change
 would make the existing argument-free nightly action stop at the new fail-closed
 step; coordinate registration/adoption separately.
 

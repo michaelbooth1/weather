@@ -1268,6 +1268,16 @@ production output. `-09-43a`'s 840/840 exact-vs-recorded control does that, on t
 `nine_empty_base_features_09_to_14` still requires 9 fields to be found dead and only `wind_group`
 still is. Narrowing it **records** the repair; that is not weakening it. Owed, and it needs an owner.
 
+### FOLLOW-UP 2026-08-09 — the parity fixture was narrowed and the proof gate now passes
+
+Commit `669ad6bb9c54bb590326a087d3a9031fa294cbaa` completed the owed contract
+update. The known-defects fixture now names only `wind_group`, proof mode exits
+successfully, and regression tests independently null every repaired field and
+require the parity proof to fail. The two paragraphs immediately above are the
+historical pre-fix state, not a current blocker. This closes the fixture drift;
+it does not change the precise null on model skill or make the remaining
+source-limited features informative.
+
 **This invalidates the baseline, not the findings.** Everything in §1, §2, §4d and the
 centre-displacement work was measured on the blind model. Re-measure before re-citing.
 
@@ -2418,6 +2428,70 @@ and remote tip, Scheduler start/completion records, economics and candidate hash
 tape hashes, risk ceilings, zero live permission, and the safe refusal. No baseline was accepted and
 no secret or live-mutation path was used. This is a single operational proof, not a powered economic
 endpoint; no interval or P&L claim is available.
+
+---
+
+## 8r. Core-model structure and lineage audit — 2026-08-15
+
+This was a static production-host audit plus a light deserialization of the
+current Toronto HGB bundle. It did not run a retrain or make a performance
+claim.
+
+**The incumbent's apparent feature breadth is not its learned information
+breadth.** `artifacts/models/hgb/feature_model_hgb.pkl` stores 29 selected
+features for each 07:00–20:00 estimator under feature schema
+`toronto_feature_store_v0.4`, while the live extractor reports schema
+`toronto_feature_store_v1.16`. Stored-name selection keeps serving compatible,
+but fields added outside the stored order are not adopted by that artifact.
+The bundle has no top-level target-date population, corpus/request hashes,
+dependency versions, fit receipt, or training-feature policy.
+
+Tree inspection showed `forecast_disagreement` is unused by every hourly HGB.
+`forecast_source_count` appears only at 07:00–09:00, and every split threshold
+is 0.5. In this artifact that field is an availability branch, not a learned
+measure of multi-source consensus strength. Historical record construction
+also defaulted source count to one when a forecast existed and left
+disagreement missing. Describing the incumbent as learning forecast consensus
+therefore overstates the fitted mechanism.
+
+**Serving has two different forecast-ensemble contexts.**
+`extract_live_features()` passes `open_meteo_global_models` to
+`forecast_ensemble_metrics()`. `_estimate_distribution_result()` calls the
+same helper for its later distribution context without that payload. A single
+build can consequently record a feature-row forecast high/source state that
+differs from the later distribution-stage forecast context. This is not proved
+wrong, but it is an undocumented semantic distinction that must be explicit in
+the model BOM and replay tests.
+
+**The supported first retrain is a correctness baseline, not a new-information
+candidate.** It fixes the population, PIT forecast binding, fold-local
+imputation, candidate-only writes, contiguous support, and fleet-atomic release
+construction. It deliberately freezes the parent's 29-feature order and HGB
+parameters, so it cannot add or test the newly staged Previous Runs fields. It
+refits per-market HGB/LR and exact-distribution calibration while copying the
+remaining verified parent components. Late-day continuation, settlement lag,
+afternoon residual centering, family gates, and other copied postprocessors
+were not jointly refitted against the new base; their retention needs matched
+outer-date stage attribution.
+
+**The built process-identity v0.2 fix is not safe to merge as written.** Commit
+`4050f1ee6551cc0a5806941b6b5f20ed766dbc95` hashes raw
+`marshal.dumps(code)`. Compiling identical source with
+`C:\worktree-a\same.py` and `C:\worktree-b\same.py` produces different bytes
+and SHA-256 values because `code.co_filename` is embedded recursively. The
+tests mutate module `__file__` and `__cached__`, not the code object's filename,
+so they do not prove the claimed worktree-path independence. Its constant
+collector includes primitives and flat tuple/frozenset values but omits
+behavior-bearing mappings, lists, and sets. Artifact identities are still read
+from disk at capture time rather than bound to the objects deserialized by the
+process, leaving the stale-loaded-artifact case open.
+
+**Disposition:** do not merge v0.2 unchanged. Establish the retrained base as a
+PIT/seasonal correctness control, generate a complete model bill of materials,
+repair loaded code/artifact identity, qualify inherited stages on identical
+outer dates, then test a simple regularized residual/ordinal challenger that
+uses genuinely new issue-qualified forecast information. Roadmap item 329 owns
+that bounded program; item 321 remains the parent release/promotion authority.
 
 ---
 

@@ -121,6 +121,10 @@ Use the storage-class contract and a reviewed cleanup manifest.
 
 ## Evaluation And Research Operations
 
+- [Weather Model System](MODEL_SYSTEM.md) maps served inputs, distribution
+  stages, artifact/runtime identity, supported training lanes, and the model
+  evaluation contract. It owns structure; measured results remain in
+  `ESTABLISHED_FINDINGS.md`.
 - [Point-In-Time Evaluation Runbook](POINT_IN_TIME_EVALUATION.md) defines the
   evidence key, materialization, production preselection and qualification,
   folds, and locked evaluation workflow.

@@ -27,7 +27,7 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 | Public execution tape | Supervised producer is current, connected, and integrity-valid. Retained gaps make the accumulated full price path unusable; keep collecting future clean intervals. Public rows never prove our fills or P&L. |
 | Stage 2 | Prepared only as a stacked successor. Refresh it on the integrated cumulative parent and require a new exact-tip suite; do not merge it into the parent early. |
 | First live-money test | After this PC is physically moved to a genuinely eligible location: rerun public metadata/economics/paper selection, import credentials by reference, pass doctor and Stage 0, perform the two tiny supervised Stage 1 cancellation probes, build verification, then run one bounded Stage 2 quote session. |
-| Model evidence | Promotion remains blocked. That is not the live-pilot critical path and must not be weakened to manufacture quote permission. |
+| Model evidence | Promotion remains blocked. The supported base retrain is a PIT/seasonal correctness baseline: it freezes the parent feature order and does not test staged new forecast fields. Item 329 owns loaded identity, matched-stack qualification, and the new-information challenger. None is the live-pilot critical path, and no gate may be weakened to manufacture quote permission. |
 
 ## Closed decisions — do not relitigate without new evidence
 

@@ -31,8 +31,11 @@ identifies large compatibility facades and their extraction owners.
 ```text
 market registry + location/event config
   -> Polymarket event and weather/source adapters
-  -> TorontoHighTempModel (legacy name; multi-market implementation)
-  -> SourceBundle -> DistributionResult -> ModelBuildResult
+  -> SourceBundle at target date and effective cutoff
+  -> live feature extraction
+  -> per-market base estimator + target-date prior
+  -> ordered transforms, constraints, and exact-bin calibration
+  -> DistributionResult -> ModelBuildResult
   -> SnapshotStore local append-only tapes
   -> settlement ledger and market-day finalization
   -> frozen-tape backtest and captured-input replay
@@ -40,6 +43,11 @@ market registry + location/event config
   -> candidate artifact -> immutable verified release
   -> process-bound serving bundle
 ```
+
+`TorontoHighTempModel` is the legacy public name for the multi-market serving
+implementation. [Weather Model System](operations/MODEL_SYSTEM.md) owns the
+detailed input, stage, artifact-identity, training-lane, and evaluation map.
+This architecture page owns only the system-level flow and package boundaries.
 
 The CLOB capture loop is intentionally separate from the slower weather/model
 snapshot loop. The observation-trigger loop can request recomputation when
@@ -83,6 +91,10 @@ daily-roll liveness classification.
 - Schemas: `weather.schema_registry` and producer/consumer tests.
 - Serving state: the verified active-release pointer and complete immutable
   release graph. Candidate artifacts are never active merely because they exist.
+- Model structure and training authority: the
+  [Weather Model System](operations/MODEL_SYSTEM.md) and its linked executable
+  runbooks. Scores and dated structural findings live only in established
+  findings.
 - Active work: numbered roadmap items and the generated active backlog.
 
 ## Invariants that cross owners

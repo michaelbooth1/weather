@@ -40,7 +40,11 @@ The owner delegated this call to the operations agent, to be made on the project
 value of the data. **The first retrain trains on 2021, 2022, 2023, 2024 and 2025.** Not 2018–2020.
 
 For the `2026-07-31`-aligned slice (±7 days, local cutoff hours 07–20, 12 live markets) that is
-**75 dates and 1,050 cells per market, 12,600 fleet cells.**
+**nominally 75 dates and 1,050 cells per market, 12,600 fleet cells before
+exclusions.** The supported plan then intersects the code-owned,
+reason-bearing station-day exclusion registry. The one applicable exclusion
+makes the effective plan 12,586 cells; source or candidate manifests may prove
+that fixed matrix but may not resize it.
 
 ### Why
 
