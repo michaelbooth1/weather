@@ -19,6 +19,24 @@ starts from what we know instead of re-deriving it.
 
 ---
 
+## Current strategy supersession — operator decision, 2026-08-13 and reaffirmed 2026-08-16
+
+The **current critical path** is the bounded, International-only,
+market-centred maker lifecycle and its own-account economics evidence. The
+forecast programme remains useful research, but model promotion and a forecast
+win are **not prerequisites** for the approved market-harvest plumbing probe.
+`STATE_OF_PLAY.md` owns the current execution order.
+
+Sections 0b and 0c below remain the measured history and governing method for
+forecast-improvement claims. Their statements that the maker is downstream of
+forecast improvement are **superseded as project sequencing** by the newer
+operator decision. This changes priority, not evidence: the model still does
+not beat the market, market-centred quoting does not prove profit, promotion
+must remain blocked, and only authoritative account events plus reconciled
+fees, rebates, positions, settlement, and costs can establish live economics.
+
+---
+
 ## 0. Objectives, in priority order
 
 1. **Keep settled, promotion-countable days accruing.** **REFRAMED 2026-08-10 — see §0d.** The old

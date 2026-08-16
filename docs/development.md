@@ -46,6 +46,37 @@ specific.
 Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor.
 
+## Evidence truth ladder
+
+Passing tests establish software behavior at the level they exercise; they do
+not establish that an external venue, provider, operating system, model, or
+economic strategy behaves the same way. State the highest evidence rung a
+claim has actually cleared:
+
+1. **Pure invariant:** deterministic unit tests over local values and synthetic
+   fixtures.
+2. **Sequence invariant:** property, state-machine, fault-injection, or recovery
+   tests over multiple events and failure orderings.
+3. **Dependency contract:** the real pinned SDK or operating-system interface,
+   exercised without credentials, network mutation, or live capital.
+4. **Captured-input replay:** hash-bound real payloads or retained tapes replayed
+   through the exact consumer, with provenance and known gaps preserved.
+5. **Bounded live evidence:** an explicitly authorized run whose external
+   responses and authoritative outcomes are retained and reconciled.
+
+Use precise handoff language: a green suite proves software consistency, not
+order acceptance, fills, queue position, fees, rebates, P&L, profitability, or
+model edge. Synthetic producer and consumer fixtures can share the same wrong
+assumption, so external-contract work should add redacted, hash-bound captured
+fixtures after the first legitimate observation. A higher rung supplements the
+lower ones; it does not replace deterministic safety tests.
+
+For live-exchange changes, keep a requirement-to-evidence matrix covering at
+least ambiguous submit responses, partial-fill/cancel races, duplicate and
+out-of-order user events, reconnects, stale authoritative readers, crash
+recovery, and delayed fee/rebate evidence. Missing live outcomes remain
+`UNPROVED`; they are never inferred from test count.
+
 ## Stateful command boundaries
 
 The following categories require inspection before execution because they can
@@ -81,8 +112,11 @@ Exact gates evolve and belong to the release/runbook code, not copied prose.
 - No secrets, machine-specific paths, ignored runtime files, or unrelated user
   changes entered the diff.
 - Documentation links and knowledge contracts pass the agent-doc audit.
+- External-behavior claims identify the highest evidence-truth rung reached and
+  do not present software consistency as live or economic proof.
 
 ## Update this file when
 
-Update when baseline checks, test ownership, CI platforms, stateful command
-boundaries, or the repository-wide definition of done changes.
+Update when baseline checks, test ownership, evidence-truth levels, CI
+platforms, stateful command boundaries, or the repository-wide definition of
+done changes.

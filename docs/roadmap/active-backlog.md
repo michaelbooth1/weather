@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-16T15:17:55.117127+00:00
+Generated: 2026-08-16T16:30:02.108534+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 322 |
-| Active items | 34 |
-| OPEN | 4 |
+| Items | 323 |
+| Active items | 35 |
+| OPEN | 5 |
 | PARTIAL | 30 |
 | COMPLETE | 288 |
-| ROADMAP rows | 322 |
-| ROADMAP primary rows | 322 |
-| Metadata manifest rows | 322 |
+| ROADMAP rows | 323 |
+| ROADMAP primary rows | 323 |
+| Metadata manifest rows | 323 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -59,6 +59,7 @@ Status: `OK`
 | 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-15 | ONE-MARKET PAPER ROUTE PROVED; EXACT SUITE AND INTEGRATION OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
+| 329 | OPEN | 2026-08-16 | APPROVED; PRE-PROBE PREPARATION ONLY | [Live Maker Event Ledger And Architecture Hardening](items/item-329-live-maker-event-ledger-and-architecture-hardening.md) |
 
 ## Lint Issues
 

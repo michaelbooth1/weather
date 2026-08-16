@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-16 11:15 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-16 12:30 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -47,6 +47,9 @@ is a quote-centre and risk-control input. **We do not beat the market.**
   asset and current International rules must be explicit and content-bound.
 - Credential import and authentication wait for physical eligibility. Never
   expose secret values through a CLI, environment value, log, or artifact.
+- The post-probe architecture and test hardening in roadmap item 329 is
+  approved. It must not delay the first bounded probe unless a concrete
+  pre-probe safety gap is demonstrated; redesign follows observed event shapes.
 
 ## Immediate execution order
 

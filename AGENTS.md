@@ -118,7 +118,9 @@ Start with focused tests for the owner package, then expand verification in
 proportion to risk. Network collectors, scheduled-task registration, artifact
 manifest generation, promotion, and cleanup are stateful; inspect help and the
 relevant runbook before running them. See [development.md](docs/development.md)
-for the test matrix and definition of done. Follow the
+for the test matrix, evidence truth ladder, and definition of done. A green
+suite proves software consistency at its exercised boundary, not live exchange
+behavior or economics. Follow the
 [Git workflow SOP](docs/git-workflow.md) for branch/worktree isolation,
 staging, commits, pull requests, integration, and cleanup.
 
