@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-16 12:40 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-16 14:20 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -19,7 +19,7 @@ is a quote-centre and risk-control input. **We do not beat the market.**
 
 | Area | State / next action |
 | --- | --- |
-| Capture | Loops are live, but today's Toronto window is `AT_RISK` after a confirmed threshold breach caused by insufficient physical-memory admission. The day cannot be repaired. Protect the rest of the window; the sealed snapshot-parent restart is armed for 18:10. |
+| Capture | Loops are live, but today's Toronto window is `AT_RISK` after a confirmed threshold breach caused by insufficient physical-memory admission. The day cannot be repaired. Protect the rest of the window; the sealed 18:10 snapshot-parent restart must prove a new PID and writer lock, fresh heartbeat, an advancing Toronto capture timestamp, reclaimed memory, and process priority before its receipt can pass. |
 | Production software | International Stage 0/1 and continuous public execution capture are adopted. They prove software consistency and public observation, not order authority, fills, or profit. |
 | Cumulative live-test parent | `codex/live-test-parent-refresh-20260815` contains the paper harvest lane, unified official client, pUSD payout-asset contract, ownership-ratchet remediation, and the bounded Windows sampler type-cache repair. The old-tip suite exposed the ownership ratchet and merge correctly refused; a current exact-tip suite and guarded integration are armed for tonight. |
 | Paper proof | The one-market `market_harvest` route passed preflight, emitted two-sided paper permission and lifecycle intent, retained all ceilings, and emitted no live permission. Candidate-plan v0.2 safely selected nothing because the only proved books were outside its fixed midpoint interval. This is a route proof, not a safe candidate or profit result. |
