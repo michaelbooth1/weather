@@ -354,7 +354,7 @@ infrastructure work remains.
 | 325 | [Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | [Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - ONE-MARKET PAPER ROUTE PROVED; EXACT SUITE AND INTEGRATION OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |
-| 329 | [Model Bill Of Materials, Loaded Identity, And PIT Challenger [OPEN 2026-08-15 - STRUCTURAL AUDIT RECORDED; IMPLEMENTATION DEFERRED]](items/item-329-model-bom-loaded-identity-and-pit-challenger.md) |
+| 329 | [Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-08-15 - LOADED IDENTITY V0.3 FOCUSED-GREEN; BOM, RETRAIN, AND CHALLENGER OPEN]](items/item-329-model-bom-loaded-identity-and-pit-challenger.md) |
 
 ### Architecture And Maintainability
 

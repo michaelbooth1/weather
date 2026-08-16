@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import math
@@ -64,8 +65,20 @@ class FeatureModelMixin:
         if path.exists():
             try:
                 import pickle
-                with path.open("rb") as f:
-                    return pickle.load(f)
+                raw = path.read_bytes()
+                payload = pickle.loads(raw)
+                try:
+                    sources = getattr(self, "_loaded_artifact_source_hashes", None)
+                    if not isinstance(sources, dict):
+                        sources = {}
+                        self._loaded_artifact_source_hashes = sources
+                    sources["feature_hgb"] = {
+                        "sha256": hashlib.sha256(raw).hexdigest(),
+                        "size": len(raw),
+                    }
+                except Exception:  # identity metadata must never block serving
+                    logger.debug("Unable to retain loaded HGBC source identity", exc_info=True)
+                return payload
             except Exception as e:
                 logger.warning("Error loading HGBC pickle: %s", e)
         return None

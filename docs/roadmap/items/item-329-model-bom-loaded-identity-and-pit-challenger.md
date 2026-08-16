@@ -1,4 +1,4 @@
-# 329. Model Bill Of Materials, Loaded Identity, And PIT Challenger [OPEN 2026-08-15 - STRUCTURAL AUDIT RECORDED; IMPLEMENTATION DEFERRED]
+# 329. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-08-15 - LOADED IDENTITY V0.3 FOCUSED-GREEN; BOM, RETRAIN, AND CHALLENGER OPEN]
 
 Goal: make the served model graph reproducible from the bytes actually loaded
 by a process, establish the supported base retrain as a correctness baseline,
@@ -40,21 +40,32 @@ reopen their completed mechanisms or grant trading permission.
 
 ## Phase B — Loaded-process identity repair
 
-- [ ] Replace raw `marshal.dumps(code)` identity with a stable recursive code
+- [x] Replace raw `marshal.dumps(code)` identity with a stable recursive code
   representation that removes path-only fields such as `co_filename` while
   retaining behavior-bearing bytecode, names, defaults, closures, and nested
   constants.
-- [ ] Canonically bind behavior-bearing nested module constants, including
+- [x] Canonically bind behavior-bearing nested module constants, including
   mappings and sequences, without admitting mutable runtime caches or fitted
   objects into the code hash.
-- [ ] Bind estimators and postprocessors to the bytes or canonical state
+- [x] Bind estimators and postprocessors to the bytes or canonical state
   actually deserialized by the process, not the files visible on disk at later
   snapshot time.
-- [ ] Prove identical loaded behavior hashes equally across worktree paths;
+- [x] Prove identical loaded behavior hashes equally across worktree paths;
   prove a code/constant mutation changes identity; and prove post-load disk
   mutation cannot relabel the already-loaded process.
-- [ ] Supersede rather than merge unmodified commit
+- [x] Supersede rather than merge unmodified commit
   `4050f1ee6551cc0a5806941b6b5f20ed766dbc95`.
+
+Implementation evidence: the isolated v0.3 successor normalizes nested code
+filenames, binds function defaults/closures and canonical nested constants,
+expands the serving-code graph to the actual runtime owners, hashes loaded
+estimator/postprocessor state plus Python/numpy/scipy/sklearn identity, and
+leaves import-time/disk hashes as unhashed diagnostics. Adversarial tests cover
+cross-worktree compilation, constant/default changes, mapping order, late
+imports, loaded-artifact replacement, and post-load disk mutation. The real
+Toronto HGB graph fingerprints deterministically with a cached steady-state
+path. The branch is roll-sensitive and remains unmerged pending a later exact
+suite and quiet-window adoption.
 
 ## Phase C — Correctness baseline and matched-stack qualification
 

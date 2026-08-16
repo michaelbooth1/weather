@@ -2493,6 +2493,34 @@ outer dates, then test a simple regularized residual/ordinal challenger that
 uses genuinely new issue-qualified forecast information. Roadmap item 329 owns
 that bounded program; item 321 remains the parent release/promotion authority.
 
+### FOLLOW-UP 2026-08-15 — process identity v0.3 is built and focused-green, not adopted
+
+The v0.3 successor fixes all three structural defects above. Its authoritative
+`identity_hash` contains path-normalized loaded code, function
+defaults/closures, canonical nested behavior constants, loaded
+estimator/postprocessor state, and the Python/numpy/scipy/scikit-learn runtime
+contract. Import-time code and capture-time artifact file hashes remain visible
+diagnostics but no longer relabel an unchanged process. The serving code graph
+was also corrected: it now binds 24 actual runtime owners instead of retaining
+four unloaded calibration-training modules while omitting distribution signal,
+constant, runtime-calibration, model-construction, unit, and feature-helper
+owners.
+
+The adversarial identity/replay/schema/release surface passed **74 tests**; the
+complete model-owner suite separately passed **417 tests and 666 subtests**.
+The collection-owner suite passed **178 tests and 5 subtests**. On the real
+Toronto HGB graph, the first full process identity took **0.064 s**; the cached
+second call took **0.026 s**. All **24 / 24** serving-code modules were loaded
+and bound. The witness bound the exact SHA-256 of the **27.88 MiB** HGB bytes
+actually deserialized, with no failed component. Two independent loads produced
+the same loaded-artifact identity. These timings are an isolated host check,
+not a long-run capture-cost distribution.
+
+This does not repair historical snapshots and does not make v0.3 production
+state. The branch is roll-sensitive, remains unmerged, and still needs an exact
+suite plus quiet-window adoption. V0.1, v0.2, and v0.3 identities must never be
+pooled.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

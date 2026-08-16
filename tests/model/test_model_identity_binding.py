@@ -10,8 +10,11 @@ These tests pin the three properties that fix must have, phrased as the failure
 each one prevents.
 """
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from weather.model import model_identity as mi
 
@@ -30,6 +33,18 @@ class LoadedCodeFingerprintTests(unittest.TestCase):
                 0,
                 f"{name} fingerprinted to nothing at all",
             )
+
+    def test_distribution_mro_owners_are_identity_bound(self):
+        from weather.model.toronto_model import TorontoHighTempModel
+
+        tracked = {mi._module_name_for(path) for path in mi.DISTRIBUTION_CODE_FILES}
+        required = {
+            cls.__module__
+            for cls in TorontoHighTempModel.__mro__
+            if cls.__module__.startswith("weather.model.")
+            and cls.__module__ != "weather.model.model_presentation"
+        }
+        self.assertEqual(required - tracked, set())
 
     def test_fingerprint_is_deterministic(self):
         name = mi._module_name_for(mi.DISTRIBUTION_CODE_FILES[0])
@@ -56,6 +71,35 @@ class LoadedCodeFingerprintTests(unittest.TestCase):
             self.assertEqual(before, mi.loaded_code_fingerprint(name)["sha256"])
         finally:
             module.__file__ = original
+
+    def test_compiled_filename_is_normalized_recursively(self):
+        """Raw marshal bytes retain co_filename in nested code objects."""
+        source = """
+SETTINGS = {"ttl": [5, 10], "markets": {"toronto", "denver"}}
+def outer(value=SETTINGS["ttl"][0]):
+    def inner(delta=1):
+        return value + delta
+    return inner()
+"""
+        first = _source_fingerprint(source, r"C:\\worktree-a\\same.py")
+        second = _source_fingerprint(source, r"D:\\worktree-b\\same.py")
+        self.assertEqual(first, second)
+
+    def test_function_defaults_are_bound(self):
+        first = _source_fingerprint("def score(value=1):\n    return value\n", "a.py")
+        second = _source_fingerprint("def score(value=2):\n    return value\n", "a.py")
+        self.assertNotEqual(first, second)
+
+    def test_nested_constant_change_is_visible_and_mapping_order_is_stable(self):
+        first = _source_fingerprint('SETTINGS = {"ttl": [5, 10], "enabled": True}\n', "a.py")
+        reordered = _source_fingerprint(
+            'SETTINGS = {"enabled": True, "ttl": [5, 10]}\n', "b.py"
+        )
+        changed = _source_fingerprint(
+            'SETTINGS = {"enabled": True, "ttl": [5, 11]}\n', "c.py"
+        )
+        self.assertEqual(first, reordered)
+        self.assertNotEqual(first, changed)
 
     def test_module_level_constant_change_is_visible(self):
         """model_constants.py defines no functions.
@@ -87,12 +131,11 @@ class LoadedCodeFingerprintTests(unittest.TestCase):
         self.assertIsNone(fingerprint["sha256"])
 
     def test_a_module_that_imports_late_is_still_picked_up(self):
-        """Four of the eleven modules import lazily.
+        """Lazy imports must not be frozen as permanently absent.
 
-        At the first capture only seven are in ``sys.modules``. Caching the whole
-        set on the first call would freeze the other four as "never loaded" for
-        the life of the process, quietly weakening the fingerprint to seven
-        modules while still reporting a hash.
+        Caching the whole set on the first call would freeze any missing module
+        as "never loaded" for the life of the process while still reporting a
+        confident hash.
         """
         name = mi._module_name_for(mi.DISTRIBUTION_CODE_FILES[0])
         __import__(name)
@@ -156,7 +199,7 @@ class ImportTimeBindingTests(unittest.TestCase):
         identity_after = mi.model_replay_identity(_StubModel())
 
         self.assertNotEqual(identity_before["code_hash"], identity_after["code_hash"])
-        self.assertNotEqual(identity_before["identity_hash"], identity_after["identity_hash"])
+        self.assertEqual(identity_before["identity_hash"], identity_after["identity_hash"])
         self.assertFalse(identity_before["runtime_binding"]["code_disk_drift"])
         self.assertTrue(identity_after["runtime_binding"]["code_disk_drift"])
         self.assertEqual(
@@ -176,6 +219,8 @@ class ImportTimeBindingTests(unittest.TestCase):
         self.assertIn("disk_code_hash", binding)
         self.assertNotIn("disk_code_hash", _hashed_payload_keys(identity))
         self.assertNotIn("code_disk_drift", _hashed_payload_keys(identity))
+        self.assertNotIn("code_hash", _hashed_payload_keys(identity))
+        self.assertNotIn("artifact_hash", _hashed_payload_keys(identity))
 
     def test_live_fallback_when_the_import_snapshot_failed(self):
         mi._IMPORT_TIME_CODE_FILES = None
@@ -185,8 +230,114 @@ class ImportTimeBindingTests(unittest.TestCase):
 
     def test_schema_version_is_declared(self):
         identity = mi.model_replay_identity(_StubModel())
-        self.assertEqual(identity["schema_version"], "weather_model_replay_identity_v0.2")
+        self.assertEqual(identity["schema_version"], "weather_model_replay_identity_v0.3")
         self.assertEqual(identity["schema_version"], mi.IDENTITY_SCHEMA_VERSION)
+        self.assertEqual(
+            identity["runtime_dependency_hash"],
+            identity["runtime_binding"]["runtime_dependencies"]["runtime_dependency_hash"],
+        )
+
+
+class LoadedArtifactBindingTests(unittest.TestCase):
+    def test_loaded_artifact_replacement_changes_process_identity(self):
+        model = _ArtifactModel()
+        before = mi.model_replay_identity(model)
+        model.calibrated_weights = {"hours": {"7": {"weight": 0.7}}}
+        after = mi.model_replay_identity(model)
+        self.assertNotEqual(before["loaded_artifact_hash"], after["loaded_artifact_hash"])
+        self.assertNotEqual(before["identity_hash"], after["identity_hash"])
+
+    def test_post_load_disk_mutation_cannot_relabel_the_process(self):
+        model = _ArtifactModel()
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+
+            def resolved(name):
+                return root / name
+
+            for template in mi.DISTRIBUTION_ARTIFACT_TEMPLATES:
+                path = resolved(template.format(suffix=""))
+                path.write_bytes(b"before")
+            with mock.patch.object(mi, "resolve_artifact_path", side_effect=resolved):
+                before = mi.model_replay_identity(model)
+                resolved("calibrated_weights.json").write_bytes(b"after")
+                after = mi.model_replay_identity(model)
+
+        self.assertNotEqual(before["artifact_hash"], after["artifact_hash"])
+        self.assertEqual(before["loaded_artifact_hash"], after["loaded_artifact_hash"])
+        self.assertEqual(before["identity_hash"], after["identity_hash"])
+
+    def test_equivalent_mapping_order_has_same_loaded_artifact_hash(self):
+        first = _ArtifactModel()
+        second = _ArtifactModel()
+        first.calibrated_weights = {"hours": {"7": 0.7}, "enabled": True}
+        second.calibrated_weights = {"enabled": True, "hours": {"7": 0.7}}
+        self.assertEqual(
+            mi.loaded_artifact_identity(first)["loaded_artifact_hash"],
+            mi.loaded_artifact_identity(second)["loaded_artifact_hash"],
+        )
+
+    def test_exact_loaded_source_hash_binds_unsupported_estimator_state(self):
+        first = _ArtifactModel()
+        second = _ArtifactModel()
+        first._feature_model_hgb = object()
+        second._feature_model_hgb = object()
+        source = {"sha256": "a" * 64, "size": 123}
+        first._loaded_artifact_source_hashes = {"feature_hgb": source}
+        second._loaded_artifact_source_hashes = {"feature_hgb": source}
+        first_identity = mi.loaded_artifact_identity(first)
+        second_identity = mi.loaded_artifact_identity(second)
+        self.assertEqual(
+            first_identity["loaded_artifact_hash"],
+            second_identity["loaded_artifact_hash"],
+        )
+        hgb = next(
+            row for row in first_identity["components"] if row["role"] == "feature_hgb"
+        )
+        self.assertEqual(hgb["encoding"], "loaded-source-sha256-1")
+        self.assertEqual(hgb["sha256"], "a" * 64)
+
+    def test_source_binding_change_invalidates_cached_identity(self):
+        model = _ArtifactModel()
+        model._feature_model_hgb = object()
+        model._loaded_artifact_source_hashes = {
+            "feature_hgb": {"sha256": "a" * 64, "size": 123}
+        }
+        before = mi.loaded_artifact_identity(model)
+        model._loaded_artifact_source_hashes["feature_hgb"] = {
+            "sha256": "b" * 64,
+            "size": 124,
+        }
+        after = mi.loaded_artifact_identity(model)
+        self.assertNotEqual(before["loaded_artifact_hash"], after["loaded_artifact_hash"])
+
+    def test_unsupported_unbound_state_degrades_visibly(self):
+        model = _ArtifactModel()
+        model._feature_model_hgb = object()
+        identity = mi.loaded_artifact_identity(model)
+        self.assertIn("feature_hgb", identity["components_failed"])
+
+    def test_verified_release_hash_binds_materialized_estimator(self):
+        model = _ArtifactModel()
+        model._feature_model_hgb = object()
+        model.serving_bundle = types.SimpleNamespace(
+            base_model_graph={
+                "markets": {
+                    "toronto": {
+                        "components": {
+                            "feature_hgb": {"sha256": "b" * 64},
+                        }
+                    }
+                },
+                "shared_components": {},
+            }
+        )
+        identity = mi.loaded_artifact_identity(model)
+        hgb = next(
+            row for row in identity["components"] if row["role"] == "feature_hgb"
+        )
+        self.assertEqual(hgb["encoding"], "loaded-source-sha256-1")
+        self.assertEqual(hgb["sha256"], "b" * 64)
 
 
 def _hashed_payload_keys(identity):
@@ -196,10 +347,26 @@ def _hashed_payload_keys(identity):
         "model_version",
         "market_id",
         "active_model_kind",
-        "code_hash",
-        "artifact_hash",
         "loaded_code_hash",
+        "loaded_artifact_hash",
+        "runtime_dependency_hash",
     }
+
+
+def _source_fingerprint(source, filename):
+    name = "weather.model._identity_test_module"
+    module = types.ModuleType(name)
+    module.__file__ = filename
+    exec(compile(source, filename, "exec"), module.__dict__)
+    original = sys.modules.get(name)
+    try:
+        sys.modules[name] = module
+        return mi.loaded_code_fingerprint(name)["sha256"]
+    finally:
+        if original is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = original
 
 
 class _StubSpec:
@@ -215,6 +382,19 @@ class _StubModel:
 
     def get_model_version_string(self):
         return "v0.5.10"
+
+
+class _ArtifactModel(_StubModel):
+    def __init__(self):
+        self.calibrated_weights = {"hours": {"7": {"weight": 0.5}}}
+        self._feature_model_coefs = {"7": {"coefs": [1.0, 2.0]}}
+        self._feature_model_hgb = {"7": {"classes": [20, 21]}}
+        self._late_day_model_coefs = {"17": {"coefs": [0.2]}}
+        self.probability_calibration = {"hours": {"7": {"scale": 1.0}}}
+        self.forecast_error_model = {"sources": {"open_meteo": {"mae": 1.0}}}
+        self.settlement_lag_model = {"hours": {"17": {"rate": 0.2}}}
+        self.afternoon_residual_centering = {"hours": {"14": {"shift": 0.1}}}
+        self.family_secondary_artifacts = {"markets": {}}
 
 
 if __name__ == "__main__":

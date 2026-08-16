@@ -99,9 +99,12 @@ A countable serving identity must bind all of the following:
 Hashing files from disk at snapshot time is insufficient: a long-lived process
 may still hold older code or deserialized objects. Hashing raw Python code
 objects is also insufficient unless path-bearing fields such as
-`code.co_filename` are normalized recursively. The unmerged process-identity
-v0.2 implementation does not yet meet this contract and must not be merged as
-built. Roadmap item 329 owns the repair.
+`code.co_filename` are normalized recursively. Identity schema v0.3 binds the
+normalized loaded code, nested behavior constants, loaded artifact state, and
+runtime dependency versions; import-time and current-disk hashes are diagnostic
+only. Historical v0.1/v0.2 identities are not comparable to v0.3. Never merge
+the superseded v0.2 implementation as built. Roadmap item 329 owns adoption and
+the remaining model bill of materials.
 
 Historical served replay is impossible when the exact served bytes and inputs
 were not retained. In that case, label evidence honestly as a paired comparison

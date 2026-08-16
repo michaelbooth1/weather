@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-16T00:47:32.871701+00:00
+Generated: 2026-08-16T01:23:32.954715+00:00
 Status: `OK`
 
 ## Summary
@@ -13,8 +13,8 @@ Status: `OK`
 | :--- | :--- |
 | Items | 323 |
 | Active items | 35 |
-| OPEN | 5 |
-| PARTIAL | 30 |
+| OPEN | 4 |
+| PARTIAL | 31 |
 | COMPLETE | 288 |
 | ROADMAP rows | 323 |
 | ROADMAP primary rows | 323 |
@@ -59,7 +59,7 @@ Status: `OK`
 | 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-15 | ONE-MARKET PAPER ROUTE PROVED; EXACT SUITE AND INTEGRATION OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
-| 329 | OPEN | 2026-08-15 | STRUCTURAL AUDIT RECORDED; IMPLEMENTATION DEFERRED | [Model Bill Of Materials, Loaded Identity, And PIT Challenger](items/item-329-model-bom-loaded-identity-and-pit-challenger.md) |
+| 329 | PARTIAL | 2026-08-15 | LOADED IDENTITY V0.3 FOCUSED-GREEN; BOM, RETRAIN, AND CHALLENGER OPEN | [Model Bill Of Materials, Loaded Identity, And PIT Challenger](items/item-329-model-bom-loaded-identity-and-pit-challenger.md) |
 
 ## Lint Issues
 
