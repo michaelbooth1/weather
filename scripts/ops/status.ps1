@@ -93,6 +93,67 @@ foreach ($label in $portableCaps.Keys) {
     }
     catch { }
 }
+$captureRuntimeState = [ordered]@{}
+foreach ($label in $portableCaps.Keys) {
+    $runtimeState = [ordered]@{
+        status_path = [string]$portableCaps[$label].Status
+        parsed = $false
+        consecutive_errors = $null
+        last_error_present = $null
+        last_clean_iteration = $null
+        last_clean_age_seconds = $null
+    }
+    try {
+        $runtimeStatus = Get-Content -LiteralPath (
+            Join-Path $captureRoot $portableCaps[$label].Status
+        ) -Raw | ConvertFrom-Json
+        $runtimeState.parsed = $true
+        $errorsProperty = $runtimeStatus.PSObject.Properties["consecutive_errors"]
+        if ($null -ne $errorsProperty -and $null -ne $errorsProperty.Value) {
+            $runtimeState.consecutive_errors = [int]$errorsProperty.Value
+        }
+        $errorProperty = $runtimeStatus.PSObject.Properties["last_error"]
+        if ($null -ne $errorProperty) {
+            $runtimeState.last_error_present = -not [string]::IsNullOrWhiteSpace(
+                [string]$errorProperty.Value
+            )
+        }
+        $cleanIterationProperty = $runtimeStatus.PSObject.Properties["last_clean_iteration"]
+        if ($null -ne $cleanIterationProperty) {
+            $runtimeState.last_clean_iteration = $cleanIterationProperty.Value
+        }
+        $cleanAtProperty = $runtimeStatus.PSObject.Properties["last_clean_iteration_at"]
+        if ($null -ne $cleanAtProperty -and $cleanAtProperty.Value) {
+            try {
+                $runtimeState.last_clean_age_seconds = [math]::Round(
+                    ((Get-Date) - [datetime]$cleanAtProperty.Value).TotalSeconds,
+                    1
+                )
+            }
+            catch { }
+        }
+        if ($null -ne $runtimeState.consecutive_errors) {
+            if ([int]$runtimeState.consecutive_errors -ge 3) {
+                $flags.Add(
+                    "capture loop ERRORING: $label has $($runtimeState.consecutive_errors) consecutive errors"
+                )
+            }
+            elseif ([int]$runtimeState.consecutive_errors -gt 0) {
+                $warns.Add(
+                    "$label has $($runtimeState.consecutive_errors) consecutive capture error(s); " +
+                    "process/heartbeat liveness alone is not a clean iteration"
+                )
+            }
+        }
+    }
+    catch {
+        # Optional runtime-health fields supplement, rather than replace, the
+        # process/lock/heartbeat liveness contract above. Sparse schemas are
+        # valid; an unreadable file remains visible without inventing failure.
+        $warns.Add("$label runtime error state could not be read")
+    }
+    $captureRuntimeState[$label] = [PSCustomObject]$runtimeState
+}
 foreach ($c in $caps.Keys) {
     if ($capState[$c].Count -eq 0) {
         $flags.Add("capture loop DOWN: $c")   # a dead capture loop is streak-critical
@@ -1226,7 +1287,8 @@ if ($Json) {
             today = $todayStr; lock = $streak.projected_lock_date_if_all_clean;
             settled = $streak.most_recent_settled
         }
-        capture  = $capState; execution_tape = $executionTapeState
+        capture  = $capState; capture_runtime = $captureRuntimeState
+        execution_tape = $executionTapeState
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
         clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })

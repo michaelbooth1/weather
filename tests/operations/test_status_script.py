@@ -177,6 +177,19 @@ def test_status_snapshot_fallback_matches_the_twelve_minute_capture_contract() -
     assert '"observation_trigger"   = @{ Status = "observation_trigger_status.json"; Lock = ".observation_trigger_status.json.writer.lock"; MaxAge = 180.0 }' in text
 
 
+def test_status_surfaces_optional_capture_error_state_without_assuming_one_schema() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$runtimeStatus.PSObject.Properties["consecutive_errors"]' in text
+    assert '$runtimeStatus.PSObject.Properties["last_error"]' in text
+    assert '$runtimeStatus.PSObject.Properties["last_clean_iteration"]' in text
+    assert '$runtimeStatus.PSObject.Properties["last_clean_iteration_at"]' in text
+    assert "capture loop ERRORING" in text
+    assert "process/heartbeat liveness alone is not a clean iteration" in text
+    assert "capture_runtime = $captureRuntimeState" in text
+    assert "current_runtime_identity" not in text
+
+
 def test_status_fails_closed_on_unsynchronized_windows_clock() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
