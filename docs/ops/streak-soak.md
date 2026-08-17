@@ -89,7 +89,7 @@ far-future re-enable therefore restores the ordinary `unexpectedly DISABLED` fla
 It also answers the questions that previously required a manual dig:
 
 - **authoritative bounded-wake results** — for hash-bound
-  `live-overnight-audits-*` Codex one-shots, the durable receipt outranks Task
+  `live-overnight-audits-*` and `live-night-salvage-*` Codex one-shots, the durable receipt outranks Task
   Scheduler's terminal code. Status verifies the action-bound runner hash,
   task/wake identity, run-time correlation, safety fields, and the exact PASS
   classification. A missing, malformed, mismatched, or explicit `FAIL` receipt

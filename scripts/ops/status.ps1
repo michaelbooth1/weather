@@ -564,12 +564,13 @@ function Get-WeatherCodexWakeReceiptState {
         receipt_present = $false
         valid = $false
         status = $null
+        schema_version = $null
         classification = $null
         detail = $null
     }
     $runnerMatch = [regex]::Match(
         $ActionArguments,
-        "(?i)'([^']*\\live-overnight-audits-[^']*\\runner\.ps1)'"
+        "(?i)'([^']*\\live-(?:overnight-audits|night-salvage)-[^']*\\runner\.ps1)'"
     )
     $wakeMatch = [regex]::Match($ActionArguments, "(?i)-Wake\s+'([^']+)'(?:\s|;)")
     $hashMatch = [regex]::Match($ActionArguments, "(?i)-ne\s+'([0-9a-f]{64})'")
@@ -621,8 +622,13 @@ function Get-WeatherCodexWakeReceiptState {
         }
     }
     $state.status = [string]$receipt.status
+    $state.schema_version = [string]$receipt.schema_version
     $state.classification = [string]$receipt.classification
-    if ([string]$receipt.schema_version -ne "live_overnight_codex_wake_receipt_v0.2" -or
+    $supportedSchemas = @(
+        "live_overnight_codex_wake_receipt_v0.2",
+        "live_night_salvage_wake_receipt_v0.1"
+    )
+    if ($supportedSchemas -notcontains [string]$receipt.schema_version -or
         [string]$receipt.task_name -ne $TaskName -or
         [string]$receipt.wake -ne $state.wake) {
         $state.detail = "authoritative wake receipt identity does not match the task action"
@@ -660,7 +666,8 @@ function Get-WeatherCodexWakeReceiptState {
     }
 
     $passContract = $false
-    if ($state.wake -eq "smoke") {
+    if ($state.schema_version -eq "live_overnight_codex_wake_receipt_v0.2" -and
+        $state.wake -eq "smoke") {
         $passContract = (
             $state.classification -eq "authenticated_spawn_smoke" -and
             $null -ne $receipt.agent_exit_code -and
@@ -669,7 +676,8 @@ function Get-WeatherCodexWakeReceiptState {
             [string]$receipt.agent_output_sha256
         )
     }
-    elseif ($state.wake -eq "0215") {
+    elseif ($state.schema_version -eq "live_overnight_codex_wake_receipt_v0.2" -and
+        $state.wake -eq "0215") {
         if ($state.classification -eq "integration_already_complete") {
             $passContract = [bool]$receipt.integration_complete_after
         }
@@ -682,6 +690,38 @@ function Get-WeatherCodexWakeReceiptState {
                 [string]$receipt.agent_output_sha256
             )
         }
+    }
+    elseif ($state.schema_version -eq "live_night_salvage_wake_receipt_v0.1" -and
+        $state.wake -eq "preflight") {
+        if ($state.classification -eq "preintegration_ready_no_agent") {
+            $passContract = (
+                [bool]$receipt.preflight_ready_after -and
+                $null -ne $receipt.commit_percent_after -and
+                [double]$receipt.commit_percent_after -lt 60 -and
+                $null -eq $receipt.agent_pid
+            )
+        }
+        elseif ($state.classification -eq "preintegration_recovered_by_codex") {
+            $passContract = (
+                [bool]$receipt.preflight_ready_after -and
+                $null -ne $receipt.commit_percent_after -and
+                [double]$receipt.commit_percent_after -lt 60 -and
+                $null -ne $receipt.agent_exit_code -and
+                [int]$receipt.agent_exit_code -eq 0 -and
+                -not [bool]$receipt.agent_timed_out -and
+                [string]$receipt.agent_output_sha256
+            )
+        }
+    }
+    elseif ($state.schema_version -eq "live_night_salvage_wake_receipt_v0.1" -and
+        $state.wake -eq "morning") {
+        $passContract = (
+            $state.classification -eq "morning_closeout_completed" -and
+            $null -ne $receipt.agent_exit_code -and
+            [int]$receipt.agent_exit_code -eq 0 -and
+            -not [bool]$receipt.agent_timed_out -and
+            [string]$receipt.agent_output_sha256
+        )
     }
     if (-not $passContract) {
         $state.detail = "PASS wake receipt does not satisfy its classification contract"
@@ -1309,7 +1349,8 @@ if ($Json) {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path
                     runner_sha256 = $_.runner_sha256; receipt_path = $_.receipt_path
                     receipt_present = $_.receipt_present; valid = $_.valid
-                    status = $_.status; classification = $_.classification; detail = $_.detail
+                    status = $_.status; schema_version = $_.schema_version
+                    classification = $_.classification; detail = $_.detail
                 }
             })
         upcoming = @($upcoming | Sort-Object at | ForEach-Object {

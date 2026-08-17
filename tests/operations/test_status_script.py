@@ -232,7 +232,8 @@ def test_codex_wake_receipt_is_authoritative_over_scheduler_result() -> None:
 
     assert "function Get-WeatherCodexWakeReceiptState" in text
     assert '"live_overnight_codex_wake_receipt_v0.2"' in text
-    assert "live-overnight-audits-" in text
+    assert '"live_night_salvage_wake_receipt_v0.1"' in text
+    assert "overnight-audits|night-salvage" in text
     assert "Get-FileHash -LiteralPath $state.runner_path -Algorithm SHA256" in text
     assert "$propagatesChildExit" in text
     assert "LASTEXITCODE" in text
@@ -242,6 +243,10 @@ def test_codex_wake_receipt_is_authoritative_over_scheduler_result() -> None:
     assert 'authenticated_spawn_smoke' in text
     assert 'integration_already_complete' in text
     assert 'integration_recovered_by_bounded_codex' in text
+    assert 'preintegration_ready_no_agent' in text
+    assert 'preintegration_recovered_by_codex' in text
+    assert 'morning_closeout_completed' in text
+    assert '[double]$receipt.commit_percent_after -lt 60' in text
     assert "completed without its authoritative wake receipt" in text
     assert "authoritative wake receipt is invalid" in text
     assert "authoritative wake receipt is FAIL" in text
