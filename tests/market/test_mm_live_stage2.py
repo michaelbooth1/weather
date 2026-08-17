@@ -1,3 +1,4 @@
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -6,8 +7,13 @@ from urllib.parse import urlencode
 import pytest
 
 from weather.market.mm_geoblock import collect_official_geoblock_evidence
+from weather.market.mm_live_candidate_cli import (
+    SCHEMA_VERSION as CANDIDATE_SCHEMA_VERSION,
+    candidate_plan_sha256,
+)
 from weather.market.mm_live_stage2 import (
     CONFIRMATION,
+    build_stage2_paper_counterfactual_artifact,
     build_stage2_session_envelope,
     execute_stage2_maker_session,
 )
@@ -238,6 +244,90 @@ def market_harvest_counterfactual(**updates):
         "artifact_recorded_at_utc": NOW.isoformat(),
         "quote_row": row,
     }
+    return json.dumps(payload, sort_keys=True).encode("utf-8")
+
+
+def market_harvest_candidate_plan(row=None, *, constrained=True):
+    row = dict(row or market_harvest_quote_decision())
+    generated = datetime.fromisoformat(
+        str(row["generated_at_utc"]).replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
+    ttl = Decimal(str(row["quote_ttl_seconds"]))
+    expires = generated + timedelta(seconds=float(ttl))
+    expected_scope = {
+        "condition_id": CONDITION if constrained else None,
+        "token_id": TOKEN if constrained else None,
+    }
+    payload = {
+        "schema_version": CANDIDATE_SCHEMA_VERSION,
+        "status": "PASS",
+        "created_at_utc": generated.isoformat(),
+        "expires_at_utc": expires.isoformat(),
+        "target_date": row["target_date"],
+        "platform": "polymarket_global",
+        "settlement_unit": "pUSD",
+        "economics_gate_ok": True,
+        "exchange_economics_snapshot_id": "xecon-test",
+        "exchange_economics_sha256": "a" * 64,
+        "selection_is_trading_authorization": False,
+        "selection_policy": {
+            "expected_bootstrap_scope": expected_scope,
+        },
+        "paper_quote_evidence": {
+            "run_config_sha256": "d" * 64,
+            "quote_intents_sha256": "e" * 64,
+            "quote_intents_row_count": 1,
+            "run_id": "paper-run-1",
+            "market_id": row["market_id"],
+        },
+        "selected": {
+            "location_id": row["market_id"],
+            "condition_id": CONDITION,
+            "token_id": TOKEN,
+            "best_bid": 0.49,
+            "best_ask": 0.53,
+            "spread": 0.04,
+            "tick_size": 0.01,
+            "order_min_size": 5.0,
+            "stage1_intent": {
+                "side": "BUY",
+                "price": 0.01,
+                "size": 5.0,
+                "notional_pusd": 0.05,
+                "post_only": True,
+            },
+            "paper_quote_proof": {
+                "run_id": "paper-run-1",
+                "market_id": row["market_id"],
+                "condition_id": CONDITION,
+                "token_id": TOKEN,
+                "exchange_economics_snapshot_id": "xecon-test",
+                "exchange_economics_hash": "a" * 64,
+                "policy_hash": row["policy_hash"],
+                "generated_at_utc": generated.isoformat(),
+                "expires_at_utc": expires.isoformat(),
+                "quote_ttl_seconds": float(ttl),
+                "bid_price": row["bid_price"],
+                "bid_size": row["bid_size"],
+                "ask_price": row["ask_price"],
+                "ask_size": row["ask_size"],
+                "quote_risk_pusd": row["quote_risk_usdc"],
+                "quote_permission": True,
+                "live_trade_permission": False,
+                "two_sided_post_only_intent": True,
+                "reward_and_rebate_assumed_zero": True,
+                "quote_row_sha256": hashlib.sha256(
+                    json.dumps(
+                        row,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        default=str,
+                    ).encode("utf-8")
+                ).hexdigest(),
+            },
+        },
+    }
+    payload["plan_sha256"] = candidate_plan_sha256(payload)
     return json.dumps(payload, sort_keys=True).encode("utf-8")
 
 
@@ -501,14 +591,16 @@ class FakeAdapter:
 
 
 def test_stage2_accepts_only_profile_bound_market_harvest_paper_proof():
+    row = market_harvest_quote_decision()
     envelope = build_stage2_session_envelope(
         FakeAdapter(),
         platform_gate(),
-        market_harvest_quote_decision(),
+        row,
         market_harvest_preflight(),
         market_harvest_counterfactual(),
         public_capture_evidence(),
         session_budget_pusd=25,
+        candidate_plan=market_harvest_candidate_plan(row),
         now=NOW,
     )
 
@@ -541,6 +633,7 @@ def test_stage2_accepts_the_actual_market_harvest_tape_shape():
         artifact,
         public_capture_evidence(),
         session_budget_pusd=25,
+        candidate_plan=market_harvest_candidate_plan(row),
         now=NOW,
     )
 
@@ -563,21 +656,24 @@ def test_stage2_accepts_the_actual_market_harvest_tape_shape():
     ],
 )
 def test_stage2_rejects_mutated_market_harvest_authority(quote_updates, error):
+    row = market_harvest_quote_decision(**quote_updates)
     with pytest.raises(RuntimeError, match=error):
         build_stage2_session_envelope(
             FakeAdapter(),
             platform_gate(),
-            market_harvest_quote_decision(**quote_updates),
+            row,
             market_harvest_preflight(),
             market_harvest_counterfactual(**quote_updates),
             public_capture_evidence(),
             session_budget_pusd=25,
+            candidate_plan=market_harvest_candidate_plan(row),
             now=NOW,
         )
 
 
 def test_stage2_market_harvest_retains_every_non_model_preflight_gate():
     preflight = market_harvest_preflight()
+    row = market_harvest_quote_decision()
     preflight["gates"] = [
         gate for gate in preflight["gates"]
         if gate["name"] != "source_status_fresh"
@@ -586,13 +682,72 @@ def test_stage2_market_harvest_retains_every_non_model_preflight_gate():
         build_stage2_session_envelope(
             FakeAdapter(),
             platform_gate(),
-            market_harvest_quote_decision(),
+            row,
             preflight,
+            market_harvest_counterfactual(),
+            public_capture_evidence(),
+            session_budget_pusd=25,
+            candidate_plan=market_harvest_candidate_plan(row),
+            now=NOW,
+        )
+
+
+def test_stage2_market_harvest_requires_a_fresh_constrained_candidate_plan():
+    row = market_harvest_quote_decision()
+    with pytest.raises(RuntimeError, match="retained JSON artifact bytes"):
+        build_stage2_session_envelope(
+            FakeAdapter(),
+            platform_gate(),
+            row,
+            market_harvest_preflight(),
             market_harvest_counterfactual(),
             public_capture_evidence(),
             session_budget_pusd=25,
             now=NOW,
         )
+
+    with pytest.raises(RuntimeError, match="constrained_scope"):
+        build_stage2_session_envelope(
+            FakeAdapter(),
+            platform_gate(),
+            row,
+            market_harvest_preflight(),
+            market_harvest_counterfactual(),
+            public_capture_evidence(),
+            session_budget_pusd=25,
+            candidate_plan=market_harvest_candidate_plan(row, constrained=False),
+            now=NOW,
+        )
+
+
+def test_stage2_counterfactual_builder_freezes_the_exact_candidate_row():
+    row = market_harvest_quote_decision()
+    candidate = market_harvest_candidate_plan(row)
+
+    artifact = build_stage2_paper_counterfactual_artifact(
+        row,
+        candidate_plan=candidate,
+        now=NOW,
+    )
+    payload = json.loads(artifact.decode("utf-8"))
+
+    assert payload["schema_version"] == "mm_live_stage2_paper_counterfactual_v0.2"
+    assert payload["quote_row"] == row
+    envelope = build_stage2_session_envelope(
+        FakeAdapter(),
+        platform_gate(),
+        row,
+        market_harvest_preflight(),
+        artifact,
+        public_capture_evidence(),
+        session_budget_pusd=25,
+        candidate_plan=candidate,
+        now=NOW,
+    )
+    assert envelope["candidate_plan"]["required"] is True
+    assert envelope["candidate_plan"]["paper_quote_row_sha256"] == (
+        envelope["quote_decision_sha256"]
+    )
 
 
 def test_stage2_ordinary_model_lane_still_requires_promotion_gate():

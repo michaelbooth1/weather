@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import time
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -26,6 +27,7 @@ from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_VERSION,
     exact_current_positions_evidence,
 )
+from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate_bytes
 from weather.market.mm_policy import bool_value
 
 
@@ -601,6 +603,88 @@ def _paper_counterfactual_binding(
     }
 
 
+def _candidate_plan_binding(source_row, evidence, *, current, source_profile):
+    if source_profile == "model":
+        if evidence not in (None, b"", bytearray()):
+            raise RuntimeError(
+                "Stage 2 model source must not carry market-harvest candidate authority"
+            )
+        return {
+            "required": False,
+            "source_permission_profile": "model",
+        }
+
+    raw_artifact, _payload = _json_object_bytes(
+        evidence,
+        "Stage 2 constrained candidate plan",
+    )
+    gate = load_stage1_candidate_gate_bytes(
+        raw_artifact,
+        source_row.get("target_date"),
+        expected_condition_id=source_row.get("condition_id"),
+        expected_token_id=source_row.get("clob_token_id"),
+        now=current,
+    )
+    source_row_sha256 = _canonical_hash(source_row)
+    if source_row_sha256 != gate.get("paper_quote_row_sha256"):
+        raise RuntimeError(
+            "Stage 2 source quote is not the exact row selected by the candidate plan"
+        )
+    return {
+        "required": True,
+        "source_permission_profile": "market_harvest",
+        "artifact_sha256": hashlib.sha256(raw_artifact).hexdigest(),
+        "semantic_plan_sha256": gate["semantic_plan_sha256"],
+        "condition_id": gate["condition_id"],
+        "token_id": gate["token_id"],
+        "expires_at_utc": gate["expires_at_utc"],
+        "paper_quote_expires_at_utc": gate["paper_quote_expires_at_utc"],
+        "paper_run_config_sha256": gate["paper_run_config_sha256"],
+        "paper_quote_intents_sha256": gate["paper_quote_intents_sha256"],
+        "paper_quote_row_sha256": gate["paper_quote_row_sha256"],
+    }
+
+
+def build_stage2_paper_counterfactual_artifact(
+    quote_decision,
+    *,
+    candidate_plan=None,
+    now=None,
+):
+    """Freeze exact current quote bytes after validating candidate authority."""
+
+    row = deepcopy(dict(quote_decision or {}))
+    source_profile = _source_permission_profile(row)
+    current = now or _utc_now()
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    current = current.astimezone(timezone.utc)
+    _candidate_plan_binding(
+        row,
+        candidate_plan,
+        current=current,
+        source_profile=source_profile,
+    )
+    payload = {
+        "schema_version": PAPER_COUNTERFACTUAL_SCHEMA_VERSION,
+        "artifact_recorded_at_utc": current.isoformat(),
+        "quote_row": row,
+    }
+    raw = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    _paper_counterfactual_binding(
+        row,
+        raw,
+        current=current,
+        source_profile=source_profile,
+    )
+    return raw
+
+
 def _public_capture_binding(live_row, evidence, *, current):
     payload = dict(evidence or {})
     receipt_raw, receipt = _json_object_bytes(
@@ -731,6 +815,7 @@ def build_stage2_session_envelope(
     public_capture_evidence,
     *,
     session_budget_pusd,
+    candidate_plan=None,
     now=None,
 ):
     """Validate one profile-bound quote and freeze the non-raisable envelope."""
@@ -751,6 +836,12 @@ def build_stage2_session_envelope(
     if current.tzinfo is None:
         current = current.replace(tzinfo=timezone.utc)
     current = current.astimezone(timezone.utc)
+    candidate_binding = _candidate_plan_binding(
+        row,
+        candidate_plan,
+        current=current,
+        source_profile=source_profile,
+    )
     paper_binding = _paper_counterfactual_binding(
         row,
         paper_counterfactual,
@@ -975,6 +1066,7 @@ def build_stage2_session_envelope(
         ),
         "quote_decision_sha256": _canonical_hash(row),
         "market_preflight_sha256": _canonical_hash(preflight),
+        "candidate_plan": candidate_binding,
         "paper_counterfactual": paper_binding,
         "public_execution_capture": capture_binding,
         "secret_values_redacted": True,
@@ -1068,6 +1160,7 @@ def execute_stage2_maker_session(
     *,
     confirmation,
     session_budget_pusd,
+    candidate_plan=None,
     journal_path,
     monotonic_clock=None,
     wall_clock=None,
@@ -1106,6 +1199,7 @@ def execute_stage2_maker_session(
         paper_counterfactual,
         public_capture_evidence,
         session_budget_pusd=session_budget_pusd,
+        candidate_plan=candidate_plan,
         now=current_time(),
     )
     journal = Stage2Journal(journal_path)
@@ -1120,6 +1214,9 @@ def execute_stage2_maker_session(
         post_only_required=True,
         backed_buy_only=True,
         confirmation_matched=True,
+        candidate_plan_sha256=envelope["candidate_plan"].get(
+            "artifact_sha256"
+        ),
         paper_counterfactual_sha256=envelope["paper_counterfactual"][
             "quote_row_sha256"
         ],

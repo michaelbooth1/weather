@@ -133,6 +133,12 @@ All must be current for the target date and selected market:
    The resulting plan remains non-authorizing; Stage 0, physical eligibility,
    account state, current market rules, the literal confirmation, and the
    one-submit adapter capability remain independent mutation gates.
+   An unconstrained discovery plan is not a Stage 1 artifact. After discovery,
+   rerun the selector to a new path with both `--expected-condition-id` and
+   `--expected-token-id` set to the selected scope. Stage 1 and the
+   market-harvest Stage 2 envelope both require those retained constrained-plan
+   bytes while they remain current; neither may infer authority from the
+   discovery result.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
 9. The submitting host is physically eligible. This production PC cannot
    satisfy the prerequisite while its current evidence is Ontario/blocked; it
@@ -209,7 +215,11 @@ bootstrap artifact. Version v0.4 embeds the bundle and its SHA-256, rechecks
 the two probe identities and budgets, and requires its flattened private-stream,
 cancel-all, and heartbeat claims to match the bundle's derived facts. The
 fail-closed `weather.market.mm_live_pilot_cli` preparation surface exposes only
-identity preparation, the keyless doctor, and offline bundle construction.
+identity preparation, the keyless doctor, offline bundle construction, and
+offline `platform` normalization. The latter consumes a fresh post-Stage-1
+bootstrap, the journal-derived lifecycle bundle, and the current exact-market
+economics snapshot, then requires the constructed v0.4 artifact to pass the
+canonical loader before returning PASS.
 Exchange-mutating Stage 0 and Stage 1 remain library boundaries for a separately
 reviewed, host-owned eligible-machine wrapper; the generic CLI cannot invoke
 them. Those library boundaries wire the prepared bootstrap collector and
@@ -519,6 +529,11 @@ the ordinary model lane, or turn the paper artifact into mutation authority.
 - Select one central band whose current market spread, depth, fee eligibility,
   source freshness, book freshness, watcher freshness, and current-high trust
   gates pass.
+  For the `market_harvest` path, bind the exact quote row to the fresh
+  constrained candidate-plan bytes and retain both the artifact SHA-256 and
+  semantic plan SHA-256 in the envelope. The canonical counterfactual builder
+  freezes that same row; a missing, expired, unconstrained, or row-mismatched
+  candidate blocks before a submit capability is used.
   A market-harvest source may omit only model rows, model freshness, and model
   promotion; every non-model preflight, account, lifecycle, capture, economics,
   and risk gate remains mandatory.

@@ -503,15 +503,17 @@ def select_live_pilot_candidate(
     return base
 
 
-def load_stage1_candidate_gate(
-    plan_path,
+def load_stage1_candidate_gate_bytes(
+    raw,
     target_date,
     *,
     expected_condition_id,
     expected_token_id,
     now=None,
 ):
-    raw = Path(plan_path).read_bytes()
+    if not isinstance(raw, (bytes, bytearray)):
+        raise RuntimeError("Stage 1 candidate plan must be retained artifact bytes")
+    raw = bytes(raw)
     try:
         payload = json.loads(raw.decode("utf-8-sig"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -661,6 +663,25 @@ def load_stage1_candidate_gate(
         "paper_quote_intents_sha256": evidence["quote_intents_sha256"],
         "paper_quote_row_sha256": paper["quote_row_sha256"],
     }
+
+
+def load_stage1_candidate_gate(
+    plan_path,
+    target_date,
+    *,
+    expected_condition_id,
+    expected_token_id,
+    now=None,
+):
+    """Validate a retained candidate path through the canonical byte gate."""
+
+    return load_stage1_candidate_gate_bytes(
+        Path(plan_path).read_bytes(),
+        target_date,
+        expected_condition_id=expected_condition_id,
+        expected_token_id=expected_token_id,
+        now=now,
+    )
 
 
 def build_parser():
