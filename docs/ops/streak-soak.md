@@ -95,6 +95,13 @@ It also answers the questions that previously required a manual dig:
   classification. A missing, malformed, mismatched, or explicit `FAIL` receipt
   is a FLAG even when a self-disarming task displays `0x0`;
 
+- **capture iteration health** — status reads `consecutive_errors`,
+  `last_error`, and the snapshot loop's clean-iteration fields through optional
+  property lookup. One or two consecutive errors are a warning; three or more
+  match the workers' own `ERRORING` threshold and become a FLAG. These fields
+  supplement process/lock/heartbeat liveness and do not assume that every
+  supervisor artifact shares one schema;
+
 - **which** chain step failed and why (`failing step -> maker_paper_score ->
   maker_paper_input_budget_exceeded`), instead of a bare `error`, and whether a run is
   in flight right now (the stored `terminal` flag goes stale the moment a resume starts);
