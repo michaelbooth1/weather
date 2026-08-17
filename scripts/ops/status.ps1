@@ -486,6 +486,151 @@ function Test-WeatherOneShotTrigger {
     return $null -eq $intervalProperty -or -not $intervalProperty.Value
 }
 
+function Get-WeatherCodexWakeReceiptState {
+    param(
+        [string]$TaskName,
+        [string]$ActionArguments,
+        [object]$TaskInfo
+    )
+
+    $state = [ordered]@{
+        task_name = $TaskName
+        recognized = $false
+        runner_path = $null
+        runner_sha256 = $null
+        wake = $null
+        receipt_path = $null
+        receipt_present = $false
+        valid = $false
+        status = $null
+        classification = $null
+        detail = $null
+    }
+    $runnerMatch = [regex]::Match(
+        $ActionArguments,
+        "(?i)'([^']*\\live-overnight-audits-[^']*\\runner\.ps1)'"
+    )
+    $wakeMatch = [regex]::Match($ActionArguments, "(?i)-Wake\s+'([^']+)'(?:\s|;)")
+    $hashMatch = [regex]::Match($ActionArguments, "(?i)-ne\s+'([0-9a-f]{64})'")
+    $propagatesChildExit = (
+        $ActionArguments -match '\$code\s*=\s*\[int\]\$LASTEXITCODE' -and
+        $ActionArguments -match 'if\s*\(\$code\s*-ne\s*0\)\s*\{\s*exit\s+\$code\s*\}'
+    )
+    if (-not $runnerMatch.Success -or -not $wakeMatch.Success -or
+        -not $hashMatch.Success -or -not $propagatesChildExit) {
+        return [PSCustomObject]$state
+    }
+
+    $state.recognized = $true
+    $state.runner_path = $runnerMatch.Groups[1].Value
+    $state.wake = $wakeMatch.Groups[1].Value
+    $state.runner_sha256 = $hashMatch.Groups[1].Value.ToUpperInvariant()
+    $state.receipt_path = Join-Path (Split-Path -Parent $state.runner_path) (
+        "receipts\{0}.json" -f $state.wake
+    )
+    if (-not (Test-Path -LiteralPath $state.runner_path -PathType Leaf)) {
+        $state.detail = "bound runner is absent"
+        return [PSCustomObject]$state
+    }
+    $actualRunnerHash = (Get-FileHash -LiteralPath $state.runner_path -Algorithm SHA256).Hash
+    if ($actualRunnerHash -ne $state.runner_sha256) {
+        $state.detail = "bound runner hash does not match its task action"
+        return [PSCustomObject]$state
+    }
+    if (-not (Test-Path -LiteralPath $state.receipt_path -PathType Leaf)) {
+        $state.detail = "authoritative wake receipt is absent"
+        return [PSCustomObject]$state
+    }
+    $state.receipt_present = $true
+
+    try { $receipt = Get-Content -LiteralPath $state.receipt_path -Raw | ConvertFrom-Json }
+    catch {
+        $state.detail = "authoritative wake receipt is unreadable"
+        return [PSCustomObject]$state
+    }
+    $requiredFields = @(
+        "schema_version", "wake", "task_name", "started_at_local", "finished_at_local",
+        "status", "classification", "detail", "secret_values_read",
+        "live_mutation_attempted_by_wrapper"
+    )
+    foreach ($field in $requiredFields) {
+        if ($null -eq $receipt.PSObject.Properties[$field]) {
+            $state.detail = "authoritative wake receipt is missing $field"
+            return [PSCustomObject]$state
+        }
+    }
+    $state.status = [string]$receipt.status
+    $state.classification = [string]$receipt.classification
+    if ([string]$receipt.schema_version -ne "live_overnight_codex_wake_receipt_v0.2" -or
+        [string]$receipt.task_name -ne $TaskName -or
+        [string]$receipt.wake -ne $state.wake) {
+        $state.detail = "authoritative wake receipt identity does not match the task action"
+        return [PSCustomObject]$state
+    }
+    try {
+        $receiptStarted = [DateTimeOffset]::Parse([string]$receipt.started_at_local)
+        $receiptFinished = [DateTimeOffset]::Parse([string]$receipt.finished_at_local)
+    }
+    catch {
+        $state.detail = "authoritative wake receipt timestamps are invalid"
+        return [PSCustomObject]$state
+    }
+    if ($receiptFinished -lt $receiptStarted -or
+        [math]::Abs(($receiptStarted.LocalDateTime - [datetime]$TaskInfo.LastRunTime).TotalMinutes) -gt 5) {
+        $state.detail = "authoritative wake receipt does not correlate to the scheduled run"
+        return [PSCustomObject]$state
+    }
+    if ([bool]$receipt.secret_values_read -or [bool]$receipt.live_mutation_attempted_by_wrapper) {
+        $state.detail = "authoritative wake receipt reports a forbidden action"
+        return [PSCustomObject]$state
+    }
+    if ($state.status -eq "FAIL") {
+        if ($state.classification -ne "refused_or_failed") {
+            $state.detail = "failed wake receipt has an unexpected classification"
+            return [PSCustomObject]$state
+        }
+        $state.valid = $true
+        $state.detail = [string]$receipt.detail
+        return [PSCustomObject]$state
+    }
+    if ($state.status -ne "PASS") {
+        $state.detail = "authoritative wake receipt status is neither PASS nor FAIL"
+        return [PSCustomObject]$state
+    }
+
+    $passContract = $false
+    if ($state.wake -eq "smoke") {
+        $passContract = (
+            $state.classification -eq "authenticated_spawn_smoke" -and
+            $null -ne $receipt.agent_exit_code -and
+            [int]$receipt.agent_exit_code -eq 0 -and
+            -not [bool]$receipt.agent_timed_out -and
+            [string]$receipt.agent_output_sha256
+        )
+    }
+    elseif ($state.wake -eq "0215") {
+        if ($state.classification -eq "integration_already_complete") {
+            $passContract = [bool]$receipt.integration_complete_after
+        }
+        elseif ($state.classification -eq "integration_recovered_by_bounded_codex") {
+            $passContract = (
+                [bool]$receipt.integration_complete_after -and
+                $null -ne $receipt.agent_exit_code -and
+                [int]$receipt.agent_exit_code -eq 0 -and
+                -not [bool]$receipt.agent_timed_out -and
+                [string]$receipt.agent_output_sha256
+            )
+        }
+    }
+    if (-not $passContract) {
+        $state.detail = "PASS wake receipt does not satisfy its classification contract"
+        return [PSCustomObject]$state
+    }
+    $state.valid = $true
+    $state.detail = [string]$receipt.detail
+    return [PSCustomObject]$state
+}
+
 # Tasks that exit non-zero BY DESIGN pre-release, and tasks intentionally disabled.
 $expNonZero = @{
     # 0x4B = the repository-owned wrapper reached/refused the 11:55 protected-window
@@ -583,6 +728,7 @@ $armedQuietMerges = New-Object System.Collections.Generic.List[psobject]
 # generic List[object] on this host. The -Json path only survives it because a pipeline
 # enumerates the list first, which is luck rather than design.
 $upcoming = New-Object System.Collections.Generic.List[psobject]
+$overnightWakeState = New-Object System.Collections.Generic.List[psobject]
 Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Object {
     $taskCount++
     $ti = $_ | Get-ScheduledTaskInfo
@@ -608,6 +754,9 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
+    $wakeReceiptState = Get-WeatherCodexWakeReceiptState `
+        -TaskName $name -ActionArguments $actionArguments -TaskInfo $ti
+    if ($wakeReceiptState.recognized) { $overnightWakeState.Add($wakeReceiptState) }
     $completeAuditReceipt = $null
     $auditReportPath = $null
     if (
@@ -699,6 +848,36 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                 $flags.Add("$name is armed for $($ti.NextRunTime), inside the 12:00-18:00 graded window")
             }
         }
+    }
+    $completedWake = (
+        $wakeReceiptState.recognized -and $oneShot -and -not $ti.NextRunTime -and
+        $ti.LastRunTime -and $st -ne "Running"
+    )
+    if ($completedWake) {
+        if (-not $wakeReceiptState.receipt_present) {
+            $flags.Add(
+                "$name completed without its authoritative wake receipt; $($wakeReceiptState.detail)"
+            )
+        }
+        elseif (-not $wakeReceiptState.valid) {
+            $flags.Add(
+                "$name authoritative wake receipt is invalid: $($wakeReceiptState.detail); " +
+                "review $($wakeReceiptState.receipt_path)"
+            )
+        }
+        elseif ($wakeReceiptState.status -eq "FAIL") {
+            $flags.Add(
+                "$name authoritative wake receipt is FAIL: $($wakeReceiptState.detail); " +
+                "review $($wakeReceiptState.receipt_path)"
+            )
+        }
+        else {
+            $warns.Add(
+                "$name authoritative wake receipt is PASS " +
+                "($($wakeReceiptState.classification)); $($wakeReceiptState.receipt_path)"
+            )
+        }
+        return
     }
     if ($st -eq "Disabled") {
         # A one-shot that FIRED, SUCCEEDED and then disabled itself is completed work, not an
@@ -1064,6 +1243,13 @@ if ($Json) {
         }
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }) }
+        overnight_wakes = @($overnightWakeState | ForEach-Object {
+                @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path
+                    runner_sha256 = $_.runner_sha256; receipt_path = $_.receipt_path
+                    receipt_present = $_.receipt_present; valid = $_.valid
+                    status = $_.status; classification = $_.classification; detail = $_.detail
+                }
+            })
         upcoming = @($upcoming | Sort-Object at | ForEach-Object {
                 @{ name = $_.name; at = $_.at.ToString("yyyy-MM-dd HH:mm"); in_hours = $_.in_hours }
             })

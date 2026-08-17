@@ -88,6 +88,13 @@ far-future re-enable therefore restores the ordinary `unexpectedly DISABLED` fla
 
 It also answers the questions that previously required a manual dig:
 
+- **authoritative bounded-wake results** — for hash-bound
+  `live-overnight-audits-*` Codex one-shots, the durable receipt outranks Task
+  Scheduler's terminal code. Status verifies the action-bound runner hash,
+  task/wake identity, run-time correlation, safety fields, and the exact PASS
+  classification. A missing, malformed, mismatched, or explicit `FAIL` receipt
+  is a FLAG even when a self-disarming task displays `0x0`;
+
 - **which** chain step failed and why (`failing step -> maker_paper_score ->
   maker_paper_input_budget_exceeded`), instead of a bare `error`, and whether a run is
   in flight right now (the stored `terminal` flag goes stale the moment a resume starts);

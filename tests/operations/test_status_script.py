@@ -214,6 +214,28 @@ def test_complete_overnight_audit_receipt_replaces_stale_verify_artifact_flag() 
     assert "complete audit verdict is BLOCK" in text
 
 
+def test_codex_wake_receipt_is_authoritative_over_scheduler_result() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "function Get-WeatherCodexWakeReceiptState" in text
+    assert '"live_overnight_codex_wake_receipt_v0.2"' in text
+    assert "live-overnight-audits-" in text
+    assert "Get-FileHash -LiteralPath $state.runner_path -Algorithm SHA256" in text
+    assert "$propagatesChildExit" in text
+    assert "LASTEXITCODE" in text
+    assert "receiptStarted.LocalDateTime" in text
+    assert 'secret_values_read' in text
+    assert 'live_mutation_attempted_by_wrapper' in text
+    assert 'authenticated_spawn_smoke' in text
+    assert 'integration_already_complete' in text
+    assert 'integration_recovered_by_bounded_codex' in text
+    assert "completed without its authoritative wake receipt" in text
+    assert "authoritative wake receipt is invalid" in text
+    assert "authoritative wake receipt is FAIL" in text
+    assert "authoritative wake receipt is PASS" in text
+    assert "overnight_wakes =" in text
+
+
 def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
