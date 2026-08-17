@@ -63,6 +63,16 @@ def test_training_window_carries_exact_delegated_scheduler_contract():
     assert '"--producer-sla-seconds", ([string]$producerSlaSeconds)' in window
 
 
+def test_training_registration_is_opt_in_but_keeps_restore_armed():
+    registration = REGISTER.read_text(encoding="utf-8-sig")
+
+    assert "[switch]$EnableWindow" in registration
+    assert "if (-not $EnableWindow)" in registration
+    assert "Disable-ScheduledTask -TaskName $WindowTaskName" in registration
+    assert "Disable-ScheduledTask -TaskName $RestoreTaskName" not in registration
+    assert "re-register with -EnableWindow" in registration
+
+
 def test_training_window_refuses_hardcoded_staged_source_without_matching_receipt():
     window = SCRIPT.read_text(encoding="utf-8-sig")
 

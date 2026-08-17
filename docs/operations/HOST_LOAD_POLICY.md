@@ -133,14 +133,17 @@ explicitly non-countable: both steps still ran in-process, the watchdog reached
 at least 5,792,079,872 private bytes and 4,118,310,912 working-set bytes, and
 available physical RAM fell to 617 MiB before an emergency manual task stop.
 
-### The training window (adopted 2026-07-12)
+### The training reservation (adopted 2026-07-12; made opt-in 2026-08-17)
 
 The capture-resource admission gate refuses heavy work while capture loops are
-active, and a single host cannot both capture 24/7 and train. Until the model
-earns a second machine, the learning loop runs inside a bounded nightly
-maintenance window:
+active, and a single host cannot both capture 24/7 and train. Training therefore
+uses a bounded maintenance reservation, but it is not entitled to interrupt
+capture every night. Registering the tasks leaves the destructive window held
+unless `-EnableWindow` is explicit. Enable it only for a reviewed night with
+runnable training inputs and no higher-value capture, integration, or evidence
+reservation:
 
-- **`WeatherTrainingWindow` (01:00 daily)**: preflight (skip unless commit
+- **`WeatherTrainingWindow` (01:00 when explicitly enabled)**: preflight (skip unless commit
   < 70% and disk free > 60 GB) → disable the three capture supervisors and
   stop the loops → run `nightly_retrain` with a 3-hour hard cap → restore
   capture in a `finally` block. The window must confirm all three workers are
@@ -166,6 +169,11 @@ day** for item-321 Phase 2 proofs. Clean-day streaks are collected on nights
 the window skips, or after a second host removes this trade-off. On
 warm-cache nights the retrain should finish well before the 03:00–05:00
 predawn frontier; the 3-hour cap bounds the worst case to ~04:05.
+
+Do not enable the reservation merely to re-prove a stable blocker. Keep it held
+until the blocking input contract changes or a reviewed preflight can prove
+useful work before capture is stopped. The independent
+`WeatherTrainingWindowRestore` task stays enabled while the reservation is held.
 
 ## Rules
 

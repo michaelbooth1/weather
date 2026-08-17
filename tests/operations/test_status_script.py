@@ -132,7 +132,7 @@ def test_legacy_unbound_merge_drivers_are_intentionally_held() -> None:
     assert '$st -ne "Disabled"' in text
 
 
-def test_temporary_training_hold_requires_an_exact_bounded_reenable() -> None:
+def test_training_hold_is_default_and_reenable_warning_requires_exact_bounded_action() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
     assert 'Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*"' in text
@@ -144,7 +144,8 @@ def test_temporary_training_hold_requires_an_exact_bounded_reenable() -> None:
     assert "Enable-ScheduledTask -TaskName 'WeatherTrainingWindow'" in text
     assert "Disable-ScheduledTask -TaskName '$([string]$candidate.TaskName)'" in text
     assert '[string]$candidateAction.Arguments -cne $expectedArguments' in text
-    assert '$expDisabled += "WeatherTrainingWindow"' in text
+    assert '"WeatherTrainingWindow"' in text
+    assert "held DISABLED by the opt-in maintenance policy" in text
     assert "automatic re-enable is armed" in text
 
 

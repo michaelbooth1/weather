@@ -62,6 +62,26 @@ function Save-Report($ok, $stage, $detail) {
     catch {}
 }
 
+# A scheduled caller may redirect this script's complete output to a task log.
+# In Windows PowerShell 5.1 that turns native stderr into PowerShell error records;
+# with the script-wide Stop preference, a harmless git warning can terminate the
+# wrapper before we inspect git's actual exit code. Scope Continue to the native
+# call, then restore Stop immediately. This does not hide a git failure: callers
+# must still check the returned process exit code.
+function Invoke-GitAllowingNativeStderr {
+    param([Parameter(Mandatory = $true)][scriptblock]$Action)
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & $Action
+        return $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+}
+
 $ExpectedTip = $ExpectedTip.Trim().ToLowerInvariant()
 if ($ExpectedTip -and $ExpectedTip -notmatch '^[0-9a-f]{40}$') {
     Fail "ExpectedTip must be a full 40-character hexadecimal commit SHA"
@@ -154,9 +174,12 @@ if ($head -ne $originMaster) { Fail "local master ($head) != origin/master ($ori
 
 if ($dirtyTracked.Count -gt 0 -and -not $DryRun) {
     Note "committing $($dirtyTracked.Count) fleet-generated drift file(s) so the merge starts clean"
-    & git add -- $autoRefreshed
-    & git commit -m "ops: preserve fleet-generated drift (pre-merge, automated)" | Out-Null
-    if ($LASTEXITCODE -ne 0) { Fail "failed to commit fleet-generated drift" }
+    $gitAddExit = Invoke-GitAllowingNativeStderr { & git add -- $autoRefreshed }
+    if ($gitAddExit -ne 0) { Fail "failed to stage fleet-generated drift (git exit $gitAddExit)" }
+    $gitCommitExit = Invoke-GitAllowingNativeStderr {
+        & git commit -m "ops: preserve fleet-generated drift (pre-merge, automated)" | Out-Null
+    }
+    if ($gitCommitExit -ne 0) { Fail "failed to commit fleet-generated drift (git exit $gitCommitExit)" }
 }
 # Take the rollback point AFTER the drift commit: resetting to origin/master would throw the
 # drift away, and a rollback must undo only the merge.

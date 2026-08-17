@@ -524,14 +524,18 @@ $expDisabled = @(
     "WeatherMergeQueueDriver", "WeatherMergeSensitiveDriver", "WeatherSuite0969a",
     # This operator hold remains visible through a dedicated warning below. Keeping it in
     # the generic anomaly path as well called the same deliberate state "unexpected".
-    "WeatherEveningEvidenceRefresh"
+    "WeatherEveningEvidenceRefresh",
+    # The single-host training reservation is opt-in because it deliberately stops all
+    # capture. Its independent 04:15 restore task remains enabled while this task is held.
+    "WeatherTrainingWindow"
 )
-# A temporary training hold is expected only while one exact, enabled, self-disabling
-# re-enable action is visibly armed for the next integration night. The old 12-hour
-# horizon contradicted a task legitimately armed the prior morning for 04:20 the next day.
-# Thirty hours covers that operating cadence without letting an abandoned far-future task
-# silence the recurring-window alarm. Action, trigger, identity, and time are all checked:
-# a similarly named task or an action with extra commands cannot suppress the FLAG.
+# The training reservation is expected disabled by default. An integration night can still
+# carry one exact, enabled, self-disabling re-enable action; recognize that separately so the
+# warning describes the temporary plan rather than the standing hold. The old 12-hour horizon
+# missed tasks legitimately armed the prior morning for 04:20 the next day. Thirty hours covers
+# that cadence without trusting an abandoned far-future task. Action, trigger, identity, and time
+# are all checked: a similarly named task or an action with extra commands cannot change the
+# classification.
 $trainingReenableNow = Get-Date
 $trainingReenableDeadline = $trainingReenableNow.AddHours(30)
 $trainingReenable = @(Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable*" -ErrorAction SilentlyContinue |
@@ -559,8 +563,13 @@ $trainingReenable = @(Get-ScheduledTask -TaskName "WeatherTrainingWindowReenable
             $info.NextRunTime -le $trainingReenableDeadline
     })
 if ($trainingReenable.Count -gt 0) {
-    $expDisabled += "WeatherTrainingWindow"
     $warns.Add("WeatherTrainingWindow is intentionally held for tonight; an automatic re-enable is armed")
+}
+else {
+    $trainingWindowTask = Get-ScheduledTask -TaskName "WeatherTrainingWindow" -ErrorAction SilentlyContinue
+    if ($trainingWindowTask -and [string]$trainingWindowTask.State -eq "Disabled") {
+        $warns.Add("WeatherTrainingWindow is held DISABLED by the opt-in maintenance policy; enable only for a reviewed runnable training night")
+    }
 }
 $taskCount = 0
 $interactiveTasks = 0
