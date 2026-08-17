@@ -45,6 +45,23 @@ def test_quiet_merge_accepts_only_the_three_fleet_generated_drift_paths() -> Non
     assert 'git commit -m "ops: preserve fleet-generated drift' in script
 
 
+def test_generated_drift_commit_survives_outer_task_log_redirection() -> None:
+    script = _script_text()
+
+    helper = script.index("function Invoke-GitAllowingNativeStderr")
+    stage = script.index(
+        "$gitAddExit = Invoke-GitAllowingNativeStderr { & git add -- $autoRefreshed }"
+    )
+    commit = script.index("$gitCommitExit = Invoke-GitAllowingNativeStderr")
+    merge = script.index("& git merge --no-ff $mergeTarget")
+
+    assert '$ErrorActionPreference = "Continue"' in script[helper:stage]
+    assert "$ErrorActionPreference = $previousErrorActionPreference" in script[helper:stage]
+    assert "failed to stage fleet-generated drift (git exit $gitAddExit)" in script
+    assert "failed to commit fleet-generated drift (git exit $gitCommitExit)" in script
+    assert helper < stage < commit < merge
+
+
 def test_quiet_merge_records_expected_and_resolved_tip() -> None:
     script = _script_text()
 
