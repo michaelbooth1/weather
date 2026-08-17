@@ -1,6 +1,6 @@
 # Registers the nightly single-host training window plus its dead-man restore.
 #
-# WeatherTrainingWindow        01:00 daily: stop capture -> nightly retrain -> restore
+# WeatherTrainingWindow        01:00 daily: opt-in stop capture -> nightly retrain -> restore
 # WeatherTrainingWindowRestore 04:15 daily: unconditional idempotent capture restore
 #
 # Run from the repo root:  .\scripts\ops\register_training_window.ps1
@@ -12,7 +12,8 @@ param(
     [string]$RestoreTaskName = "WeatherTrainingWindowRestore",
     [string]$WindowAt = "01:00",
     [string]$RestoreAt = "04:15",
-    [string]$PowerShellExecutable = "powershell.exe"
+    [string]$PowerShellExecutable = "powershell.exe",
+    [switch]$EnableWindow
 )
 
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
@@ -65,8 +66,11 @@ Register-ScheduledTask `
     -Trigger $windowTrigger `
     -Settings $windowSettings `
     -Principal $principal `
-    -Description "Single-host training window: stops capture loops, runs nightly retrain (3h cap), restores capture. Skips on unhealthy commit/disk." `
+    -Description "Opt-in single-host training reservation: stops capture loops, runs nightly retrain (3h cap), restores capture. Registration leaves it disabled unless -EnableWindow is explicit." `
     -Force | Out-Null
+if (-not $EnableWindow) {
+    Disable-ScheduledTask -TaskName $WindowTaskName | Out-Null
+}
 
 $restoreActionTokens = @(Get-TrainingWindowTaskActionTokens `
     -RepoRoot $RepoRoot `
@@ -102,4 +106,10 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host "Registered '$WindowTaskName' daily at $WindowAt and '$RestoreTaskName' daily at $RestoreAt."
+if ($EnableWindow) {
+    Write-Host "Training reservation is ENABLED by explicit -EnableWindow authority."
+}
+else {
+    Write-Host "Training reservation is held DISABLED; re-register with -EnableWindow only for a reviewed runnable training night."
+}
 Write-Host "The window action carries the exact delegated-child scheduler provenance contract."
