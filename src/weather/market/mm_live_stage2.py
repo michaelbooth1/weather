@@ -742,9 +742,25 @@ def _public_capture_binding(live_row, evidence, *, current):
         and str(row.get("evidence_interpretation") or "")
         in {"TRADES_CONTINUOUSLY_CONNECTED", "NO_TRADES_CONNECTED_QUIET"}
     ]
+    bounded_probe = (
+        receipt.get("schema_version") == "execution_tape_bounded_probe_v0.2"
+        and receipt.get("producer_mode") in {None, "bounded_child"}
+    )
+    continuous_observation = all((
+        receipt.get("schema_version")
+        == "execution_tape_continuous_observation_v0.1",
+        receipt.get("producer_mode") == "observed_existing_continuous",
+        receipt.get("existing_producer_unchanged") is True,
+        int(receipt.get("new_gap_count") or 0) == 0,
+        int(receipt.get("baseline_pid") or 0) > 0,
+        int(receipt.get("final_pid") or 0)
+        == int(receipt.get("baseline_pid") or 0),
+        bool(str(receipt.get("baseline_session_id") or "")),
+        str(receipt.get("final_session_id") or "")
+        == str(receipt.get("baseline_session_id") or ""),
+    ))
     checks = {
-        "probe_schema": receipt.get("schema_version")
-        == "execution_tape_bounded_probe_v0.2",
+        "probe_schema": bounded_probe or continuous_observation,
         "probe_pass": receipt.get("ok") is True and receipt.get("stage") == "proved",
         "probe_commit": _is_git_sha(receipt.get("repo_head"))
         and _is_git_sha(receipt.get("required_ancestor")),
@@ -790,6 +806,9 @@ def _public_capture_binding(live_row, evidence, *, current):
         )
     return {
         "probe_receipt_sha256": hashlib.sha256(receipt_raw).hexdigest(),
+        "probe_schema_version": str(receipt.get("schema_version")),
+        "probe_producer_mode": str(receipt.get("producer_mode") or "bounded_child"),
+        "probe_new_gap_count": int(receipt.get("new_gap_count") or 0),
         "probe_repo_head": str(receipt.get("repo_head")).lower(),
         "live_status_sha256": hashlib.sha256(status_raw).hexdigest(),
         "market_day_status_sha256": hashlib.sha256(

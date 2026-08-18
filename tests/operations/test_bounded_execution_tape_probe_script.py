@@ -38,7 +38,7 @@ def test_probe_requires_new_rows_connected_seed_set_and_clean_integrity() -> Non
     assert "$activeRows.Count -ne $expectedCount" in script
     assert '[string]$row.connection_state -ne "CONNECTED"' in script
     assert "connected_seed_set_proved" in script
-    assert "evidence_integrity" not in script
+    assert '[string]$status.evidence_integrity -ne "PASS"' in script
     assert "bounded capture produced no new execution observations" in script
     assert 'foreach ($name in @("parse_rejections", "unrouted_trades", "ambiguous_routes"))' in script
 
@@ -49,6 +49,18 @@ def test_probe_requires_clean_stop_and_capture_survival() -> None:
     assert '[string]$final.state -ne "STOPPED"' in script
     assert "capture worker health degraded during probe" in script
     assert "snapshot heartbeat did not advance during probe" in script
+
+
+def test_probe_can_observe_the_existing_single_writer_without_starting_a_child() -> None:
+    script = _text()
+
+    assert "[switch]$ObserveExistingProducer" in script
+    assert '"execution_tape_continuous_observation_v0.1"' in script
+    assert '"observed_existing_continuous"' in script
+    assert "existing_producer_unchanged" in script
+    assert "continuous producer recorded a new coverage gap during observation" in script
+    assert '[string]$status.evidence_integrity -ne "PASS"' in script
+    assert "continuous execution-tape producer is already running; use -ObserveExistingProducer" in script
 
 
 def test_probe_persists_latest_and_append_only_history() -> None:

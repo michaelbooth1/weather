@@ -132,6 +132,15 @@ stopped optional producer cannot make unrelated merge verdicts undecidable.
 `status.ps1` treats process/lock/identity loss and evidence-integrity loss as
 actionable, but does not relabel it as one of the three streak workers.
 
+The first-adoption bounded probe may launch its own kill-on-close producer only
+while no continuous writer is active. After adoption,
+`bounded_execution_tape_probe.ps1 -ObserveExistingProducer` binds and observes
+the existing PID and coordinator session instead. It requires new routed
+execution observations, no new connection gap or integrity counter, and
+survival of all three core capture workers while leaving the single writer
+running. Child-launch mode refuses when it detects the healthy continuous
+producer; a writer-lock collision is not an accepted proof path.
+
 Each active location market-day writes bounded 64 MiB append-only parts under
 `data/snapshots/<event>/execution_tape/`: `trades`, repeated-identity annotations,
 connection `gaps`, and subscription `seeds`. The current public market-channel

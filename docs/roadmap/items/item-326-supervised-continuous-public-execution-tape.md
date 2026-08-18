@@ -72,3 +72,12 @@ recorded process and lock owner. Historical coverage gaps remain explicit and
 make the accumulated full path unusable; that is retained evidence loss, not a
 current disconnect. Keep the healthy producer running and qualify future clean
 intervals. The forward-soak checkbox stays open.
+
+The bounded first-adoption probe originally launched its own producer. That is
+invalid after adoption because the continuous supervisor owns the single
+writer. The prepared follow-up adds an observation mode that binds the
+existing process/session for a bounded interval, requires new executions with
+no new gap or integrity counter, and refuses duplicate launch. This proof is a
+Stage 2 prerequisite after its exact-tip suite and integration; it does not
+make the historical full path usable or convert public trades into own-account
+fill evidence.

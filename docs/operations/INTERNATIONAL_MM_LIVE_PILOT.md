@@ -526,6 +526,14 @@ the ordinary model lane, or turn the paper artifact into mutation authority.
   The full gate repeats the numeric balance, allowance, actual-wallet-cap,
   zero-open-order-count, and account-snapshot-hash checks; Stage 0 booleans are
   not carried forward as financial proof.
+- Bind a same-day public-capture proof without creating a second writer. Once
+  the continuous supervisor is armed, run
+  `bounded_execution_tape_probe.ps1 -ObserveExistingProducer`; it observes the
+  existing PID and coordinator session, requires new routed executions with no
+  new gap or integrity counter, and proves all three core capture workers
+  survived. The original child-launch mode refuses while the continuous
+  producer is alive. Stage 2 accepts neither an expired first-adoption probe nor
+  a hand-authored health assertion.
 - Select one central band whose current market spread, depth, fee eligibility,
   source freshness, book freshness, watcher freshness, and current-high trust
   gates pass.

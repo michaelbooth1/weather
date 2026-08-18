@@ -331,16 +331,30 @@ def market_harvest_candidate_plan(row=None, *, constrained=True):
     return json.dumps(payload, sort_keys=True).encode("utf-8")
 
 
-def public_capture_evidence(*, observed=NOW):
+def public_capture_evidence(*, observed=NOW, continuous=False):
     payload = {
         "probe_receipt": {
-            "schema_version": "execution_tape_bounded_probe_v0.2",
+            "schema_version": (
+                "execution_tape_continuous_observation_v0.1"
+                if continuous else "execution_tape_bounded_probe_v0.2"
+            ),
+            "producer_mode": (
+                "observed_existing_continuous" if continuous else "bounded_child"
+            ),
             "ok": True,
             "stage": "proved",
             "repo_head": "2" * 40,
             "required_ancestor": "3" * 40,
             "connected_seed_set_proved": True,
             "new_trade_observations": 1,
+            "baseline_gap_count": 4,
+            "final_gap_count": 4,
+            "new_gap_count": 0,
+            "baseline_pid": 1234,
+            "final_pid": 1234,
+            "baseline_session_id": "continuous-session-1",
+            "final_session_id": "continuous-session-1",
+            "existing_producer_unchanged": continuous,
             "baseline_integrity_counters": {
                 "parse_rejections": 0,
                 "unrouted_trades": 0,
@@ -402,6 +416,52 @@ def public_capture_evidence(*, observed=NOW):
             sort_keys=True,
         ).encode("utf-8"),
     }
+
+
+def test_stage2_accepts_observation_of_existing_continuous_execution_producer():
+    row = market_harvest_quote_decision()
+    envelope = build_stage2_session_envelope(
+        FakeAdapter(),
+        platform_gate(),
+        row,
+        market_harvest_preflight(),
+        market_harvest_counterfactual(),
+        public_capture_evidence(continuous=True),
+        session_budget_pusd=25,
+        candidate_plan=market_harvest_candidate_plan(row),
+        now=NOW,
+    )
+
+    assert envelope["public_execution_capture"]["probe_receipt_sha256"]
+    assert envelope["public_execution_capture"]["probe_schema_version"] == (
+        "execution_tape_continuous_observation_v0.1"
+    )
+    assert envelope["public_execution_capture"]["probe_producer_mode"] == (
+        "observed_existing_continuous"
+    )
+    assert envelope["public_execution_capture"]["probe_new_gap_count"] == 0
+
+
+def test_stage2_rejects_continuous_observation_with_a_new_gap():
+    row = market_harvest_quote_decision()
+    evidence = public_capture_evidence(continuous=True)
+    receipt = json.loads(evidence["probe_receipt_bytes"])
+    receipt["final_gap_count"] = 5
+    receipt["new_gap_count"] = 1
+    evidence["probe_receipt_bytes"] = json.dumps(receipt).encode("utf-8")
+
+    with pytest.raises(RuntimeError, match="probe_schema"):
+        build_stage2_session_envelope(
+            FakeAdapter(),
+            platform_gate(),
+            row,
+            market_harvest_preflight(),
+            market_harvest_counterfactual(),
+            evidence,
+            session_budget_pusd=25,
+            candidate_plan=market_harvest_candidate_plan(row),
+            now=NOW,
+        )
 
 
 def position_evidence(rows):
