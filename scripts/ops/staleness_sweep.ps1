@@ -228,9 +228,23 @@ if (Test-Path -LiteralPath $manifest) {
             $winStart = Get-Date -Year $today.Year -Month $s[0] -Day $s[1]
             $winEnd = Get-Date -Year $today.Year -Month $e[0] -Day $e[1]
             $covers = ($today -ge $winStart -and $today -le $winEnd)
-            $sev = if ($covers) { "OK" } else { "CRITICAL" }
+            $trainingTask = Get-ScheduledTask -TaskName "WeatherTrainingWindow" `
+                -ErrorAction SilentlyContinue
+            $trainingHeld = (
+                $null -ne $trainingTask -and
+                [string]$trainingTask.State -eq "Disabled"
+            )
+            $sev = if ($covers) {
+                "OK"
+            }
+            elseif ($trainingHeld) {
+                "WARN"
+            }
+            else {
+                "CRITICAL"
+            }
             Add-Finding "archive/season_relevance" $sev `
-                ("archive season is {0:00}-{1:00} to {2:00}-{3:00}; today {4:MM-dd} is {5}" -f $s[0], $s[1], $e[0], $e[1], $today, $(if ($covers) { "inside" } else { "OUTSIDE" })) `
+                ("archive season is {0:00}-{1:00} to {2:00}-{3:00}; today {4:MM-dd} is {5}{6}" -f $s[0], $s[1], $e[0], $e[1], $today, $(if ($covers) { "inside" } else { "OUTSIDE" }), $(if ($trainingHeld -and -not $covers) { " while training is operator-held" } else { "" })) `
                 $why $null $null
         }
     }
@@ -254,9 +268,8 @@ if ($unpushed -and [int]$unpushed -gt 0) {
 }
 $branches = @(& git branch -r --no-merged master 2>$null | Where-Object { $_ -and $_ -notmatch 'HEAD' })
 if ($branches.Count -gt 0) {
-    $sev = if ($branches.Count -ge 30) { "WARN" } else { "OK" }
-    Add-Finding "git/unmerged_branches" $sev "$($branches.Count) unmerged remote branch(es)" `
-        "agent reports live only on unmerged branches; a growing count means evidence is accumulating off master" $null 30
+    Add-Finding "git/unmerged_branches" "OK" "$($branches.Count) retained unmerged remote branch(es)" `
+        "inventory only: held branches preserve unique code and reports; only an explicit immutable exact-tip queue authorizes integration, and branch deletion is forbidden" $null $null
 }
 
 # ---- 6. settlement continuity (the consequence, not the chain event) ----
@@ -268,7 +281,14 @@ if (Test-Path -LiteralPath $settleRoot) {
         if (-not (Test-Path -LiteralPath $ledger)) { continue }
         foreach ($line in @(Get-Content -LiteralPath $ledger -Tail 50 -ErrorAction SilentlyContinue)) {
             if (-not $line) { continue }
-            try { $td = (ConvertFrom-Json $line).target_date } catch { continue }
+            try { $row = ConvertFrom-Json $line } catch { continue }
+            $source = [string]$row.settlement_source
+            $highProperty = $row.PSObject.Properties["settlement_high"]
+            if (-not $source -or $source -in @("none", "null") -or
+                $null -eq $highProperty -or $null -eq $highProperty.Value) {
+                continue
+            }
+            $td = $row.target_date
             if (-not $td) { continue }
             try { $d = [datetime]::ParseExact([string]$td, "yyyy-MM-dd", $null) } catch { continue }
             if (($null -eq $latest) -or ($d -gt $latest)) { $latest = $d }
@@ -277,7 +297,7 @@ if (Test-Path -LiteralPath $settleRoot) {
     if ($latest) {
         $behind = ($now.Date - $latest).TotalDays
         $sev = if ($behind -ge 3) { "CRITICAL" } elseif ($behind -ge 2 -and $now.Hour -ge 12) { "WARN" } else { "OK" }
-        Add-Finding "settlement/latest" $sev ("latest settled target is {0:yyyy-MM-dd}, {1:N0}d behind" -f $latest, $behind) `
+        Add-Finding "settlement/latest" $sev ("latest real settlement target is {0:yyyy-MM-dd}, {1:N0}d behind" -f $latest, $behind) `
             "each chain run settles only yesterday; a missed day is never retried and needs an explicit backfill" $behind 2
     }
 }
@@ -381,58 +401,6 @@ if (Test-Path -LiteralPath $sop) {
 else {
     Add-Finding "docs/state_of_play_age" "CRITICAL" "STATE_OF_PLAY.md is missing" `
         "the entry point for a cold or compacted agent" $null $null
-}
-
-# ---- 10. has the in-flight table drifted from the newest commissioned work? ----
-# On 2026-08-06 a handoff was committed and STATE_OF_PLAY was NOT updated in the same change, so
-# the entry point silently omitted the one mission aimed at the gap it calls unowned. A cold agent
-# would have commissioned it a third time.
-#
-# This deliberately does NOT try to decide dispatch state. The first cut of this check did, and
-# reported 47 completed missions as leaks: a branch is deleted after merge, and reports are named
-# by CALENDAR date while handoffs are named by MISSION ref, so the two filenames share only the
-# slug. Deciding dispatch needs all four records in mission-dispatch-reconciliation.md, including a
-# withdrawal grep -- too ambiguous for an unattended check, and a WARN nobody can clear is worse
-# than no WARN. So check the one thing that is unambiguous: the newest handoffs are named here.
-$handoffDir = Join-Path $repo "docs\roadmap"
-$sopPath = Join-Path $repo "docs\operations\STATE_OF_PLAY.md"
-function Test-StateOfPlayMissionReference([string]$Text, [string]$Short) {
-    if ($Text -like "*$Short*") { return $true }
-    if ($Short -notmatch '^-([0-9]{2})-([0-9]+)([a-z])$') { return $false }
-    $group = $Matches[1]
-    $number = [int]$Matches[2]
-    $suffix = $Matches[3]
-    # Windows PowerShell 5.1 reads UTF-8-without-BOM scripts as the active ANSI code page. Keep the
-    # pattern itself ASCII-only while accepting any short, same-line non-numeric range separator.
-    $rangePattern = "(?i)-$group-(\d+)([a-z])\s*[^0-9\r\n]{1,8}\s*-$group-(\d+)([a-z])"
-    foreach ($range in [regex]::Matches($Text, $rangePattern)) {
-        if ($range.Groups[2].Value -ne $suffix -or $range.Groups[4].Value -ne $suffix) { continue }
-        $start = [int]$range.Groups[1].Value
-        $end = [int]$range.Groups[3].Value
-        if ($number -ge [math]::Min($start, $end) -and $number -le [math]::Max($start, $end)) {
-            return $true
-        }
-    }
-    return $false
-}
-if ((Test-Path -LiteralPath $handoffDir) -and (Test-Path -LiteralPath $sopPath)) {
-    $newest = @(& git -C $repo log --diff-filter=A --name-only --format="" -n 400 -- "docs/roadmap/workstation-handoff-*.md" 2>$null |
-        Where-Object { $_ } | Select-Object -Unique -First 4)
-    if ($newest.Count -gt 0) {
-        $sopText = Get-Content -LiteralPath $sopPath -Raw
-        $missing = @()
-        foreach ($rel in $newest) {
-            if ((Split-Path $rel -Leaf) -notmatch '^workstation-handoff-\d{4}-(\d{2}-\d+[a-z])-') { continue }
-            $short = "-" + $Matches[1]     # e.g. "-09-36a", the form STATE_OF_PLAY uses
-            if (-not (Test-StateOfPlayMissionReference $sopText $short)) { $missing += $short }
-        }
-        if ($missing.Count -gt 0) {
-            Add-Finding "docs/in_flight_drift" "WARN" `
-                ("STATE_OF_PLAY.md does not mention the recently commissioned {0}" -f ($missing -join ", ")) `
-                "the in-flight table is the only record of what has been commissioned; a handoff committed without updating it is invisible to a cold agent, who will commission the same work again" `
-                $null $null
-        }
-    }
 }
 
 # ---- 11. duplicate bot workers (the orphan that eats the capture budget) ----

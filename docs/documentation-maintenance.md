@@ -64,6 +64,32 @@ review canonical documents against code/config, look for copied dates and
 metrics, confirm that runbooks match CLI help/script parameters, and sample
 scoped `AGENTS.md` files for redundant or contradictory rules.
 
+## Integration documentation transaction
+
+A staged branch may carry the documentation for its proposed behavior, but
+those bytes are not production truth until the exact branch is integrated.
+After a successful guarded integration, finish one documentation transaction
+before starting unrelated work:
+
+1. Rewrite `docs/operations/STATE_OF_PLAY.md` from the integrated Git ancestry,
+   durable suite/merge receipts, live worker evidence, and current blockers.
+   Remove superseded claims; never describe the next hoped-for state.
+2. Update every numbered roadmap item whose acceptance or next evidence
+   changed, then regenerate `docs/roadmap/active-backlog.md`.
+3. Update `ESTABLISHED_FINDINGS.md` only for reproduced measurements and move
+   invalidated claims to `RETRACTED_AND_FALSE_LEADS.md`. Strategy ordering must
+   match the operator's current decision, not an older research programme.
+4. Reconcile changed task names, wrappers, receipt schemas, CLI surfaces, and
+   evidence boundaries with their owning runbooks and operations design.
+5. Run the roadmap lint, focused documentation tests, `git diff --check`, and
+   `weather.operations.agent_docs_audit`; commit and publish the roll-free
+   documentation through the approved push path.
+
+If integration fails, do not pre-write the successful state. Preserve the
+failed receipts, leave future behavior on its branch, and report the current
+blocker through dynamic status and the bounded recovery handoff. A later
+morning closeout owns the transaction once the integration is real.
+
 ## Freshness policy
 
 - Canonical documents use `Update when` triggers instead of ceremonial

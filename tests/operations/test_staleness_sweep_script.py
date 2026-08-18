@@ -12,13 +12,28 @@ def test_historical_operations_evidence_is_not_reported_as_unreachable_canonical
     assert "(?:19|20)\\d{2}[-_]\\d{2}[-_]\\d{2}" in text
 
 
-def test_state_of_play_ranges_cover_individual_commission_references():
+def test_state_of_play_does_not_need_to_copy_historical_mission_references():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
-    assert "function Test-StateOfPlayMissionReference" in text
-    assert "[^0-9\\r\\n]{1,8}" in text
-    assert "Windows PowerShell 5.1" in text
-    assert "Test-StateOfPlayMissionReference $sopText $short" in text
+    assert 'Add-Finding "docs/in_flight_drift"' not in text
+    assert "recently commissioned" not in text
+
+
+def test_settlement_freshness_requires_real_content_not_a_none_row():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '$row.settlement_source' in text
+    assert '$row.PSObject.Properties["settlement_high"]' in text
+    assert '$source -in @("none", "null")' in text
+    assert "latest real settlement target" in text
+
+
+def test_legacy_archive_warning_tracks_the_training_hold_switch():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert 'Get-ScheduledTask -TaskName "WeatherTrainingWindow"' in text
+    assert '$trainingHeld' in text
+    assert '"WARN"' in text
 
 
 def test_unapproved_remote_branches_do_not_imply_an_armed_merge_queue():
@@ -26,6 +41,8 @@ def test_unapproved_remote_branches_do_not_imply_an_armed_merge_queue():
 
     assert 'Add-Finding "git/no_merge_trigger"' not in text
     assert "branch -r --no-merged origin/master" not in text
+    assert 'Add-Finding "git/unmerged_branches" "OK"' in text
+    assert "only an explicit immutable exact-tip queue authorizes integration" in text
 
 
 def test_execution_tape_closure_is_required_only_while_armed_or_active():

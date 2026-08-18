@@ -296,6 +296,13 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
 the merge within its bounded wait. The merge and recovery proof succeeded, but publication did
 not; the quiet wrapper never attempts an interactive or S4U `git push` itself.
 
+After the final guarded merge is pushed, the next bounded morning closeout must
+complete the documentation transaction in `docs/documentation-maintenance.md`:
+rewrite `STATE_OF_PLAY.md`, update the owning roadmap items and evidence canon,
+regenerate/lint the active backlog, and run the agent-docs audit. Branch-staged
+documentation is proposed state before integration and current truth only
+after the exact commit is in production history.
+
 ### Bounded execution-tape proof
 
 After a reviewed execution-tape producer lands, use
