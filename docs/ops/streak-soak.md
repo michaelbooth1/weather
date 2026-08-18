@@ -95,6 +95,14 @@ It also answers the questions that previously required a manual dig:
   classification. A missing, malformed, mismatched, or explicit `FAIL` receipt
   is a FLAG even when a self-disarming task displays `0x0`;
 
+  Preserved receipts are never rewritten when a runner later proves to have
+  misclassified a completed Codex process. An optional adjacent
+  `<wake>.correction.json` may supersede only that classification. Status
+  accepts it only when it binds the original receipt hash and completed-agent
+  handoff hash, the agent exited zero without timing out, the safety fields are
+  clean, and the correction uses the narrow reviewed classification contract.
+  The original receipt remains the immutable historical artifact;
+
   A non-self-disarming one-time task can remain `Ready` and enabled after it
   runs while `NextRunTime` is blank. That is a spent task, not an armed retry;
   use its result plus the durable log or receipt to classify the run.

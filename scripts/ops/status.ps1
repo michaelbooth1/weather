@@ -562,6 +562,8 @@ function Get-WeatherCodexWakeReceiptState {
         wake = $null
         receipt_path = $null
         receipt_present = $false
+        correction_path = $null
+        correction_applied = $false
         valid = $false
         status = $null
         schema_version = $null
@@ -589,6 +591,9 @@ function Get-WeatherCodexWakeReceiptState {
     $state.runner_sha256 = $hashMatch.Groups[1].Value.ToUpperInvariant()
     $state.receipt_path = Join-Path (Split-Path -Parent $state.runner_path) (
         "receipts\{0}.json" -f $state.wake
+    )
+    $state.correction_path = Join-Path (Split-Path -Parent $state.runner_path) (
+        "receipts\{0}.correction.json" -f $state.wake
     )
     if (-not (Test-Path -LiteralPath $state.runner_path -PathType Leaf)) {
         $state.detail = "bound runner is absent"
@@ -651,6 +656,65 @@ function Get-WeatherCodexWakeReceiptState {
         $state.detail = "authoritative wake receipt reports a forbidden action"
         return [PSCustomObject]$state
     }
+    $correction = $null
+    if ($state.status -eq "FAIL" -and
+        (Test-Path -LiteralPath $state.correction_path -PathType Leaf)) {
+        try { $correction = Get-Content -LiteralPath $state.correction_path -Raw | ConvertFrom-Json }
+        catch {
+            $state.detail = "wake receipt correction is unreadable"
+            return [PSCustomObject]$state
+        }
+        $correctionFields = @(
+            "schema_version", "task_name", "wake", "created_at_local",
+            "original_receipt_sha256", "last_message_sha256", "corrected_status",
+            "corrected_classification", "detail"
+        )
+        foreach ($field in $correctionFields) {
+            if ($null -eq $correction.PSObject.Properties[$field]) {
+                $state.detail = "wake receipt correction is missing $field"
+                return [PSCustomObject]$state
+            }
+        }
+        try { $correctionCreated = [DateTimeOffset]::Parse([string]$correction.created_at_local) }
+        catch {
+            $state.detail = "wake receipt correction timestamp is invalid"
+            return [PSCustomObject]$state
+        }
+        $receiptHash = (Get-FileHash -LiteralPath $state.receipt_path -Algorithm SHA256).Hash
+        $lastMessageProperty = $receipt.PSObject.Properties["last_message_path"]
+        $lastMessagePath = if ($null -ne $lastMessageProperty) {
+            [string]$lastMessageProperty.Value
+        }
+        else { "" }
+        if (-not $lastMessagePath -or
+            -not (Test-Path -LiteralPath $lastMessagePath -PathType Leaf)) {
+            $state.detail = "wake receipt correction cannot bind the completed agent handoff"
+            return [PSCustomObject]$state
+        }
+        $lastMessageHash = (Get-FileHash -LiteralPath $lastMessagePath -Algorithm SHA256).Hash
+        $correctionValid = @(
+            [string]$correction.schema_version -eq "live_wake_receipt_correction_v0.1"
+            [string]$correction.task_name -eq $TaskName
+            [string]$correction.wake -eq $state.wake
+            [string]$correction.original_receipt_sha256 -eq $receiptHash
+            [string]$correction.last_message_sha256 -eq $lastMessageHash
+            [string]$correction.corrected_status -eq "PASS"
+            [string]$correction.corrected_classification -eq "bounded_codex_completed_without_integration"
+            $correctionCreated -ge $receiptFinished
+            $null -ne $receipt.agent_exit_code
+            [int]$receipt.agent_exit_code -eq 0
+            -not [bool]$receipt.agent_timed_out
+            [string]$receipt.agent_output_sha256
+        ) -notcontains $false
+        if (-not $correctionValid) {
+            $state.detail = "wake receipt correction does not satisfy its evidence contract"
+            return [PSCustomObject]$state
+        }
+        $state.status = [string]$correction.corrected_status
+        $state.classification = [string]$correction.corrected_classification
+        $state.detail = [string]$correction.detail
+        $state.correction_applied = $true
+    }
     if ($state.status -eq "FAIL") {
         if ($state.classification -ne "refused_or_failed") {
             $state.detail = "failed wake receipt has an unexpected classification"
@@ -678,7 +742,16 @@ function Get-WeatherCodexWakeReceiptState {
     }
     elseif ($state.schema_version -eq "live_overnight_codex_wake_receipt_v0.2" -and
         $state.wake -eq "0215") {
-        if ($state.classification -eq "integration_already_complete") {
+        if ($state.classification -eq "bounded_codex_completed_without_integration") {
+            $passContract = (
+                $state.correction_applied -and
+                $null -ne $receipt.agent_exit_code -and
+                [int]$receipt.agent_exit_code -eq 0 -and
+                -not [bool]$receipt.agent_timed_out -and
+                [string]$receipt.agent_output_sha256
+            )
+        }
+        elseif ($state.classification -eq "integration_already_complete") {
             $passContract = [bool]$receipt.integration_complete_after
         }
         elseif ($state.classification -eq "integration_recovered_by_bounded_codex") {
@@ -728,7 +801,9 @@ function Get-WeatherCodexWakeReceiptState {
         return [PSCustomObject]$state
     }
     $state.valid = $true
-    $state.detail = [string]$receipt.detail
+    if (-not $state.correction_applied) {
+        $state.detail = [string]$receipt.detail
+    }
     return [PSCustomObject]$state
 }
 
@@ -1349,6 +1424,8 @@ if ($Json) {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path
                     runner_sha256 = $_.runner_sha256; receipt_path = $_.receipt_path
                     receipt_present = $_.receipt_present; valid = $_.valid
+                    correction_path = $_.correction_path
+                    correction_applied = $_.correction_applied
                     status = $_.status; schema_version = $_.schema_version
                     classification = $_.classification; detail = $_.detail
                 }

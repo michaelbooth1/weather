@@ -246,6 +246,12 @@ def test_codex_wake_receipt_is_authoritative_over_scheduler_result() -> None:
     assert 'preintegration_ready_no_agent' in text
     assert 'preintegration_recovered_by_codex' in text
     assert 'morning_closeout_completed' in text
+    assert 'live_wake_receipt_correction_v0.1' in text
+    assert 'bounded_codex_completed_without_integration' in text
+    assert 'original_receipt_sha256' in text
+    assert 'last_message_sha256' in text
+    assert '$correctionCreated -ge $receiptFinished' in text
+    assert 'correction_applied' in text
     assert '[double]$receipt.commit_percent_after -lt 60' in text
     assert "completed without its authoritative wake receipt" in text
     assert "authoritative wake receipt is invalid" in text
