@@ -95,6 +95,10 @@ It also answers the questions that previously required a manual dig:
   classification. A missing, malformed, mismatched, or explicit `FAIL` receipt
   is a FLAG even when a self-disarming task displays `0x0`;
 
+  A non-self-disarming one-time task can remain `Ready` and enabled after it
+  runs while `NextRunTime` is blank. That is a spent task, not an armed retry;
+  use its result plus the durable log or receipt to classify the run.
+
 - **capture iteration health** — status reads `consecutive_errors`,
   `last_error`, and the snapshot loop's clean-iteration fields through optional
   property lookup. One or two consecutive errors are a warning; three or more
@@ -105,11 +109,13 @@ It also answers the questions that previously required a manual dig:
 - **which** chain step failed and why (`failing step -> maker_paper_score ->
   maker_paper_input_budget_exceeded`), instead of a bare `error`, and whether a run is
   in flight right now (the stored `terminal` flag goes stale the moment a resume starts);
-- **unattended resilience** — a pending reboot combined with logon-dependent tasks and
-  no auto-logon is a FLAG, because almost every `Weather*` task is
-  `LogonType=Interactive` and therefore does not run at all after a reboot with nobody
-  logged in. That failure mode also silences the monitoring itself, so it has to be
-  surfaced continuously rather than alerted on;
+- **unattended resilience** — capture-critical tasks are S4U and the boot
+  recovery task is S4U, so a pending reboot alone is a warning about a brief
+  capture gap rather than a fleet-down claim. Status counts only enabled,
+  non-spent Interactive tasks with scheduled work as reboot exposure; the
+  deliberately Interactive on-demand push and mirror one-shots are excluded
+  because the credential vault is unavailable under S4U. A pending reboot plus
+  any remaining counted task and no auto-logon is a FLAG;
 - **off-host mirror** freshness/success (nothing else watches it, and it is the only
   copy of `data\` that is not on this disk);
 - a **capture alert raised on the current local capture day** is promoted to a FLAG — alerts are appended
