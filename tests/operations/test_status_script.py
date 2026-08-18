@@ -260,6 +260,17 @@ def test_codex_wake_receipt_is_authoritative_over_scheduler_result() -> None:
     assert "overnight_wakes =" in text
 
 
+def test_disk_alarm_distinguishes_a_short_burst_from_multi_day_burn() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$cut48 = (Get-Date).AddHours(-48)" in text
+    assert "$diskDelta48" in text
+    assert "$diskDaysLeft48" in text
+    assert "disk 24h burst is" in text
+    assert "keep tiering armed and treat the short window as a burst" in text
+    assert "delta_48h_gb_per_day" in text
+
+
 def test_status_monitors_execution_tape_only_after_it_is_armed() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

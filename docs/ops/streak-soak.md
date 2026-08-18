@@ -148,7 +148,11 @@ digest could not answer:
 - **disk trend** — free space is point-in-time and says nothing about how long we have.
   A sample trail in `data/alerts/disk_free_trail.jsonl` gives a 24h burn rate and an
   estimated days-left. It samples `Get-PSDrive` only: a monitor must **never** recursively
-  walk `data\`, which has starved capture before.
+  walk `data\`, which has starved capture before. Because the 05:00/06:00 tiering jobs
+  reclaim one large daily batch, the 24-hour rate can temporarily describe intraday raw
+  buildup rather than net retention. Status keeps that conservative number but demotes it
+  to a warning when an available 48-hour window still shows at least 21 days of headroom;
+  a short horizon on both windows remains a FLAG, and both tiering tasks must stay armed.
 
 Alert lines also carry their age, since a two-day-old `AT_RISK` was rendering as a current
 alarm.

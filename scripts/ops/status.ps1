@@ -247,16 +247,21 @@ catch { $flags.Add("heavy-workload lease state could not be read") }
 # starved capture before (see the codex-scan hazard) and must never run from a monitor.
 $diskDelta = $null
 $diskDaysLeft = $null
+$diskDelta48 = $null
+$diskDaysLeft48 = $null
 try {
     $trail = Join-Path $repo "data\alerts\disk_free_trail.jsonl"
     $old = @()
     if (Test-Path $trail) { $old = @(Get-Content $trail -Tail 400 | Where-Object { $_ }) }
     $cut = (Get-Date).AddHours(-24)
+    $cut48 = (Get-Date).AddHours(-48)
     $ref = $null
+    $ref48 = $null
     foreach ($line in $old) {
         try {
             $s = $line | ConvertFrom-Json
             if ([datetime]$s.ts -le $cut) { $ref = $s }   # newest sample at least 24h old
+            if ([datetime]$s.ts -le $cut48) { $ref48 = $s }
         }
         catch {}
     }
@@ -267,12 +272,32 @@ try {
             if ($diskDelta -lt 0) { $diskDaysLeft = [math]::Round($freeDiskGB / [math]::Abs($diskDelta), 0) }
         }
     }
+    if ($ref48) {
+        $hrs48 = ((Get-Date) - [datetime]$ref48.ts).TotalHours
+        if ($hrs48 -gt 0) {
+            $diskDelta48 = [math]::Round((($freeDiskGB - $ref48.free_gb) / $hrs48) * 24, 1)
+            if ($diskDelta48 -lt 0) {
+                $diskDaysLeft48 = [math]::Round(
+                    $freeDiskGB / [math]::Abs($diskDelta48), 0
+                )
+            }
+        }
+    }
     $new = @($old) + @(([ordered]@{ ts = (Get-Date).ToString("o"); free_gb = $freeDiskGB } | ConvertTo-Json -Compress))
     Set-Content -Path $trail -Value ($new | Select-Object -Last 400) -Encoding utf8
 }
 catch {}
 if ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) {
-    $flags.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days of headroom left")
+    if ($null -ne $diskDaysLeft48 -and $diskDaysLeft48 -ge 21) {
+        $warns.Add(
+            "disk 24h burst is $([math]::Abs($diskDelta)) GB/day (~$diskDaysLeft d), " +
+            "but the 48h net is $([math]::Abs($diskDelta48)) GB/day (~$diskDaysLeft48 d); " +
+            "keep tiering armed and treat the short window as a burst"
+        )
+    }
+    else {
+        $flags.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days of headroom left")
+    }
 }
 elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
     $warns.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days left")
@@ -1405,7 +1430,8 @@ if ($Json) {
         capture  = $capState; capture_runtime = $captureRuntimeState
         execution_tape = $executionTapeState
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
-        disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft }
+        disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
+            delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48 }
         clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })
             synchronized = $clockSynchronized; source = $clockSource; sync_age_hours = $clockSyncAgeH
             last_sync = $(if ($clockLastSync) { $clockLastSync.ToString("o") } else { $null })
@@ -1457,6 +1483,9 @@ elseif (-not $executionTapeState.process_healthy) { "ARMED / UNHEALTHY" }
 else { "{0}, price-path usable={1}" -f $executionTapeState.capture_state, $executionTapeState.price_path_usable }
 Write-Output ("  EXEC TAPE : {0}" -f $executionTapeSummary)
 $diskTrend = if ($null -eq $diskDelta) { "" }
+elseif ($diskDelta -lt 0 -and $null -ne $diskDelta48) {
+    "  (24h {0} GB/day, 48h {1} GB/day)" -f $diskDelta, $diskDelta48
+}
 elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
 else { "  (+{0} GB/day)" -f $diskDelta }
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free{3}" -f $freeRamGB, $totRamGB, $freeDiskGB, $diskTrend)
