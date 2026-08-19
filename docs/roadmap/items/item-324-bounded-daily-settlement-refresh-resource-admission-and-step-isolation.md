@@ -1,4 +1,4 @@
-# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]
+# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-19 - BOUNDED SETTLEMENT SLICE AND PID-IDENTITY REPAIR PREPARED; PRODUCTION PROOF OPEN]
 
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
@@ -300,3 +300,29 @@ Verification:
 - `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint`.
 
 Related: items 95, 171, 205, 260, 285, 298, 321, 322.
+
+## 2026-08-19 backfill-containment repair
+
+The August 16 recovery established the defect with real timings: settlement
+restore and finalization completed, but the generic resume continued through
+unrelated scoring and storage work until its hard teardown. Cleanup did not
+run, stale locks remained, and August 17 refused on file existence. Windows
+then reused the recorded PID for an unrelated process, proving PID liveness is
+not lock ownership.
+
+- [x] Add an inclusive `--stop-after-step` daily-refresh contract and require
+  every selected step to finish `ok`.
+- [x] Make one-date backfill stop normally after
+  `market_day_labels_finalize`, suppress downstream publication/readiness, and
+  verify finite real settlement values across every market ledger.
+- [x] Bind daily-refresh and long-job locks/state to PID plus process creation
+  identity, fail closed on unreadable identity, and protect replacement locks
+  during release.
+- [x] Give direct recovery and tiering launches kill-on-close child-tree
+  containment, bounded runtimes, atomic latest status, and append-only history.
+- [ ] Pass the combined immutable full suite and guarded production adoption.
+- [ ] Recover August 17 through the new bounded path and prove normal lock
+  release, 12/12 real settlement, current capture, and no downstream work.
+
+The implementation is prepared on an isolated branch. It is not production
+proof and must not be used to relabel the failed August 19 wrapper receipt.

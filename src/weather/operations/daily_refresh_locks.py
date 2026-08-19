@@ -16,7 +16,9 @@ from weather.reporting.data_quality.artifact_disk_budget import DEFAULT_ROW_EXPO
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
-    process_is_running,
+    LOCK_OWNER_IDENTITY_FIELD,
+    current_process_identity,
+    lock_owner_status,
 )
 from weather.schema_registry import schema_version
 from weather.time import utc_now as shared_utc_now
@@ -151,11 +153,17 @@ def lock_diagnostic(path, *, kind):
     owner_running = None
     stale = False
     stale_reason = ""
+    owner_identity_match = None
+    legacy_lock = False
+    owner_observation = {}
     if exists and read_status == "ok" and pid not in (None, ""):
-        owner_running = process_is_running(pid)
-        if owner_running is False:
-            stale = True
-            stale_reason = "dead_pid"
+        owner = lock_owner_status(payload)
+        owner_running = owner.get("running")
+        stale = bool(owner.get("stale"))
+        stale_reason = str(owner.get("stale_reason") or "")
+        owner_identity_match = owner.get("identity_match")
+        legacy_lock = bool(owner.get("legacy_lock"))
+        owner_observation = owner.get("observation") or {}
     elif exists and read_status != "ok":
         stale_reason = "owner_unknown"
     return {
@@ -165,6 +173,9 @@ def lock_diagnostic(path, *, kind):
         "read_status": read_status,
         "pid": pid,
         "owner_running": owner_running,
+        "owner_identity_match": owner_identity_match,
+        "owner_observation": owner_observation,
+        "legacy_lock": legacy_lock,
         "stale": stale,
         "stale_reason": stale_reason,
         "payload": payload if exists else {},
@@ -193,9 +204,18 @@ def long_job_state_diagnostic(path):
     pid = payload.get("pid") if isinstance(payload, dict) else None
     owner_running = None
     stale = False
+    stale_reason = ""
+    owner_identity_match = None
+    legacy_lock = False
+    owner_observation = {}
     if exists and read_status == "ok" and active and pid not in (None, ""):
-        owner_running = process_is_running(pid)
-        stale = owner_running is False
+        owner = lock_owner_status(payload)
+        owner_running = owner.get("running")
+        stale = bool(owner.get("stale"))
+        stale_reason = str(owner.get("stale_reason") or "")
+        owner_identity_match = owner.get("identity_match")
+        legacy_lock = bool(owner.get("legacy_lock"))
+        owner_observation = owner.get("observation") or {}
     return {
         "kind": "long_job_guard_status",
         "path": str(path),
@@ -205,8 +225,11 @@ def long_job_state_diagnostic(path):
         "status": payload.get("status") if isinstance(payload, dict) else None,
         "pid": pid,
         "owner_running": owner_running,
+        "owner_identity_match": owner_identity_match,
+        "owner_observation": owner_observation,
+        "legacy_lock": legacy_lock,
         "stale": stale,
-        "stale_reason": "dead_pid" if stale else "",
+        "stale_reason": stale_reason,
         "payload": payload if exists else {},
     }
 
@@ -222,7 +245,7 @@ def clear_stale_long_job_state(path):
         "active": False,
         "updated_at_utc": utc_iso(),
         "stale_cleared_at_utc": utc_iso(),
-        "stale_reason": "dead_pid",
+        "stale_reason": diagnostic.get("stale_reason") or "owner_not_active",
     })
     write_json(path, payload)
     diagnostic["cleared"] = True
@@ -334,6 +357,7 @@ def acquire_lock(path, force=False, audit=None):
     payload = {
         "pid": os.getpid(),
         "created_at_utc": utc_iso(),
+        LOCK_OWNER_IDENTITY_FIELD: current_process_identity(),
     }
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, sort_keys=True)
@@ -344,6 +368,16 @@ def acquire_lock(path, force=False, audit=None):
 def release_lock(path):
     if not path:
         return
+    payload, read_status = _read_lock_payload(path)
+    if read_status != "ok" or payload.get("pid") != os.getpid():
+        return
+    stored = payload.get(LOCK_OWNER_IDENTITY_FIELD)
+    if isinstance(stored, dict):
+        current = current_process_identity()
+        expected_token = stored.get("creation_time_token")
+        current_token = current.get("creation_time_token")
+        if expected_token and expected_token != current_token:
+            return
     try:
         Path(path).unlink()
     except FileNotFoundError:

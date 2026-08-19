@@ -301,6 +301,23 @@ the production venv.
 It never merges, pushes, checks out, registers a task, or writes production
 data; a full PASS is evidence for a separate reviewed merge, not the merge.
 
+One-date settlement recovery uses the same containment and lock contracts but
+adds an inclusive execution boundary:
+`daily_refresh run --resume-from-step public_wu_settlement_restore
+--stop-after-step market_day_labels_finalize`. A bounded run must report both
+boundary steps and every selected intermediate step as `ok`; it exits normally
+so Python `finally` blocks release daily-refresh and long-job locks. It does not
+run readiness, publish stage manifests, trigger Stage B, update the daily
+progress ledger, or continue into scoring/tiering work. The wrapper verifies
+real finite settlement values in every market ledger after the child exits.
+
+Daily-refresh and long-job lock payloads bind PID plus OS process creation
+identity and image. Exact creation-token mismatch proves PID reuse; unreadable
+identity fails closed. Legacy PID-only locks are considered stale only when
+the current process was created after the lock or its image cannot be a Python
+owner. Release also rechecks identity so an old process cannot unlink a
+replacement instance's lock.
+
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This
 keeps shared pre-promotion producers available to learning without allowing
@@ -325,6 +342,13 @@ to their canonical adapter gates.
 Heavy-work capture admission and captured-input parity may defer the affected
 heavy step, but lightweight learning continues. Physical-resource deferrals
 and isolated-child orchestration failures remain global hard stops.
+
+The independent CLOB projection and raw-tape tiering wrappers also own their
+Python child trees through `KILL_ON_JOB_CLOSE`, enforce bounded runtimes, write
+their latest status atomically, and append every outcome to JSONL history.
+`SKIPPED_WORKLOAD_LEASE_BUSY` remains a safe non-run, not successful reclaim;
+`status.ps1` reads the durable status and surfaces the skip beside disk slope
+even when Task Scheduler reports zero.
 
 Before the settled-day analysis barrier, the read-only
 `observed_floor_safety_monitor` joins captured `observed_floor_bucket` values
