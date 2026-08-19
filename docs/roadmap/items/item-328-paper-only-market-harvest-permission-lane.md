@@ -1,4 +1,4 @@
-# 328. Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - ONE-MARKET PAPER ROUTE PROVED; EXACT SUITE AND INTEGRATION OPEN]
+# 328. Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]
 
 Goal: make the approved market-centered rebate experiment reachable without
 misrepresenting model promotion or manufacturing model edge.
@@ -49,8 +49,8 @@ Scope:
   minimum order size or when prices cannot remain on the current tick grid.
 - [x] Pass focused policy and orchestrator tests with model rows absent,
   promotion BLOCK, a known-edge `no_quote` record, and attempted ceiling raises.
-- [ ] Pass the immutable exact-tip full suite on the refreshed parent.
-- [ ] Integrate through the guarded roll-sensitive path and adopt the new code
+- [x] Pass the immutable exact-tip full suite on the refreshed parent.
+- [x] Integrate through the guarded roll-sensitive path and adopt the new code
   without disrupting capture.
 - [x] Run one active-day, one-market `paper-live-forward` tick and prove nonzero
   quote permission, two-sided post-only intent, zero live permission, exact
@@ -107,3 +107,13 @@ that production had not integrated. The branch now records the market owner,
 current orchestration boundary, and a concrete liveness-extraction target. A new
 immutable exact-tip suite and guarded integration receipt remain required; no
 functional failure or safety gate has been waived.
+
+## 2026-08-19 integration disposition
+
+The corrected cumulative parent passed 18/18 chunks and 4,489 tests, merged as
+`3c326ac1c03b415877da33dc254b39d32f576de4`, and recovered all three core
+capture workers. The route is now production software. The overnight candidate
+task performed no paper/economics work because its separately reviewed Stage 2
+ancestor was absent; that dependency refusal is not a route regression and
+does not create a candidate. Fresh one-market paper proof and naturally
+qualifying candidate selection remain required before relocation.

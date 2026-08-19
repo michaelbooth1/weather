@@ -270,6 +270,28 @@ number staying is an incident.
 `[RESTORE]` lines follow the `[STOP]` lines in `data\logs\training_window.log` — that is the only
 part that can cost a streak day. If capture was restored, exit 2 is a healthy run.
 
+### "A live PID proves it still owns an old lock" — FALSE UNDER PID REUSE
+
+On 2026-08-19 a killed daily-refresh process left locks naming PID `3212`. Hours later Windows
+reused `3212` for an unrelated Codex `node_repl.exe`. PID-only liveness therefore classified dead
+lock metadata as active and would have blocked the next Stage-A run. Lock ownership needs a process
+creation token/image identity as well as PID. Never kill the current process merely because an old
+lock names its reused PID.
+
+### "Setting PYTHONPATH makes a worktree import authoritative" — FALSE FROM ANOTHER CWD
+
+The fixed-scope wrapper set the successor worktree on `PYTHONPATH` but invoked `python -c` from the
+production checkout. Python's current-directory entry selected production's root `weather`
+bootstrap first, so successor-only modules were absent. Execute with the exact worktree as the
+working directory and print module `__file__`; an environment variable alone is not proof.
+
+### "Tiering task 0x0 means disk was reclaimed" — FALSE
+
+Both 2026-08-19 tiering tasks returned Scheduler zero while their durable task statuses were
+`SKIPPED_WORKLOAD_LEASE_BUSY`. The wrappers deliberately make a busy-lease skip nonfatal. Read the
+status artifact and measured free-space trail; Scheduler zero proves only that the wrapper handled
+the collision as designed.
+
 ---
 
 ## 4. Backlog and branch traps
