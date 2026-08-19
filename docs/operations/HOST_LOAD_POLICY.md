@@ -5,9 +5,10 @@ Owner: operations. This host is dedicated to the weather platform; the policy
 spreads load across the 24-hour day so capture — the one workload that cannot
 be rescheduled — is never starved.
 
-> **For the current numbers, read [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md).** It is
-> generated — governing constants are imported at render time and the timetable is read from the
-> live scheduler, so it cannot drift. **This file owns the *policy*; that file owns the *facts*.**
+> **For the current governing numbers, read
+> [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md).** It is generated from repository-owned
+> constants. For the live timetable read `data/alerts/OPERATING_SCHEDULE.md` and Task Scheduler.
+> **This file owns the *policy*; generated outputs own measured facts.**
 > On 2026-08-08 the capacity figures below were three times wrong and the 24-hour map listed a
 > window as "steady-state capture only" that by then held nine scheduled jobs. A stale operations
 > document is worse than a missing one, because it gets believed.
@@ -26,9 +27,9 @@ growth trend; use it. Retained because the *ratios* explain why the policy exist
 
 ## The 24-hour map (America/Toronto)
 
-**Load classes are policy and live here. What actually runs in each window is generated** — see
-the daily timetable in [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md), which reads the live
-scheduler rather than describing it from memory.
+**Load classes are policy and live here. What actually runs in each window is host state** — see
+`data/alerts/OPERATING_SCHEDULE.md` and verify current Task Scheduler state rather than relying on
+a committed timetable.
 
 | Window | Load class |
 | --- | --- |

@@ -85,6 +85,30 @@ before starting unrelated work:
    `weather.operations.agent_docs_audit`; commit and publish the roll-free
    documentation through the approved push path.
 
+The guarded merge records each exact merge commit in
+`data/alerts/documentation_transaction_pending.json` before publication.
+Multiple commits in one reviewed overnight stack accumulate under one pending
+hash. `status.ps1` warns until the local 09:00 deadline and flags after it; a
+Task Scheduler result cannot clear the debt.
+
+After the documentation commit is published and local `master` equals
+`origin/master`, prepare an ignored completion manifest with schema
+`documentation_transaction_completion_manifest_v0.1`. It must bind the current
+pending SHA-256, list the pending integration tips in order, identify the exact
+documentation tip, list all canonical documents reviewed, cite at least one
+durable evidence path, and summarize the reconciliation. Complete it with:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.documentation_transaction `
+    --repo-root . complete --manifest data\alerts\documentation-completion.json
+```
+
+The command independently verifies Git ancestry and local/remote equality,
+requires `STATE_OF_PLAY.md` and `active-backlog.md` to change after the final
+integration, runs generated-backlog parity, agent-docs audit, focused docs
+tests, and `git diff --check`, then writes an immutable hash-bound receipt.
+The pending file is retained; only a matching PASS receipt makes it complete.
+
 If integration fails, do not pre-write the successful state. Preserve the
 failed receipts, leave future behavior on its branch, and report the current
 blocker through dynamic status and the bounded recovery handoff. A later
@@ -96,6 +120,8 @@ morning closeout owns the transaction once the integration is real.
   `Last updated` dates.
 - Generated documents include generator metadata and should be reproduced, not
   hand-edited.
+- Dynamic host inventories belong under ignored `data/`; a tracked generated
+  document must depend only on repository-owned inputs.
 - Dated documents retain historical facts and commands. Add a visible historical
   banner when their placement could make them look current.
 - Dynamic reports stay under ignored `data/` unless explicitly promoted as a

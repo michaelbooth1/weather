@@ -242,11 +242,11 @@ the 31 until you have traced a single instance end to end.
 | Heavy-step defer | Defers on `live_capture_loop_active` with `active_window_source: fail_closed_live_default` and both window hours `null`. **Worth a trace** — capture is always "healthy" by design here |
 | Known-failing tests | `test_source_tree_strict_audit`, `test_tracked_artifact_manifests`, `test_afternoon_residual_centering`. Pre-existing, out of scope |
 
-The working tree normally carries three fleet-generated modified files
-(`config/location_market_events.json`, `config/locations.json`,
-`docs/operations/OPERATING_REFERENCE.md`). Routine churn — leave them uncommitted. The guarded
-quiet-window merge is the sole cleanup exception: after its immutable-tip guard passes, it
-commits exactly those three paths so its rollback point cannot discard generated state.
+The working tree normally carries two fleet-generated modified files
+(`config/location_market_events.json` and `config/locations.json`). Routine churn — leave them
+uncommitted. The guarded quiet-window merge is the sole cleanup exception: after its immutable-tip
+guard passes, it commits exactly those two paths so its rollback point cannot discard generated
+state. The live scheduler inventory belongs under ignored `data/alerts/OPERATING_SCHEDULE.md`.
 
 ---
 

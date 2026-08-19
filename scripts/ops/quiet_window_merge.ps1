@@ -129,16 +129,14 @@ if (Test-Path (Join-Path $repo ".git\MERGE_HEAD")) {
     Fail "a merge is already in progress (.git/MERGE_HEAD exists) - resolve or abort it first; see data/alerts/boot_events.jsonl for an interrupted-merge record"
 }
 # WeatherLocationConfigRefresh rewrites the two config files every 6 hours, including once
-# just before this window. The countability pass also regenerates OPERATING_REFERENCE.md from
-# live scheduled-task state. Refusing either class of generated drift would make this tool
-# abort on an otherwise normal production tree. The guard exists so a rollback cannot destroy
-# WORK; these three files are fleet-regenerated state, not authored work. Commit them rather
-# than ignore them, which both cleans the tree and preserves the drift, and only then take the
+# just before this window. Refusing that generated drift would make this tool abort on an
+# otherwise normal production tree. The guard exists so a rollback cannot destroy WORK;
+# these two files are fleet-regenerated state, not authored work. Commit them rather than
+# ignore them, which both cleans the tree and preserves the drift, and only then take the
 # rollback point. Keep this list exact: no other dirty tracked path may pass automatically.
 $autoRefreshed = @(
     "config/locations.json",
-    "config/location_market_events.json",
-    "docs/operations/OPERATING_REFERENCE.md"
+    "config/location_market_events.json"
 )
 $dirtyTracked = @(& git status --porcelain | Where-Object { $_ -and $_ -notmatch '^\?\?' })
 $unexpected = @($dirtyTracked | Where-Object {
@@ -308,6 +306,27 @@ if (-not $ok) {
     Save-Report -ok $false -stage "rolled_back" -detail ($why -join "; ")
     exit 2
 }
+
+# ---- bind the post-integration documentation transaction before publication ----
+# The documentation closeout cannot truthfully finish until the exact merge and live recovery
+# exist. Record that debt now, before publication, so a missing morning closeout is visible in
+# status and a later transaction can cover the exact pending-state hash. Stacked overnight
+# merges append to the same bounded transaction.
+$documentationArgs = @(
+    "-m", "weather.operations.documentation_transaction",
+    "--repo-root", $repo,
+    "begin",
+    "--integration-tip", $mergeCommit,
+    "--branch", $Branch
+)
+if ($ExpectedTip) { $documentationArgs += @("--expected-tip", $ExpectedTip) }
+$documentationOutput = & $py @documentationArgs
+if ($LASTEXITCODE -ne 0) {
+    Note "documentation transaction could not be recorded: $($documentationOutput -join ' ')"
+    Save-Report -ok $true -stage "merged_unpushed" -detail "documentation transaction begin failed for $mergeCommit"
+    exit 3
+}
+Note "documentation transaction recorded for $mergeCommit"
 
 # ---- only now publish, through the credential-bearing scheduled task ----
 # Interactive git push is forbidden on this host. The scheduled task owns the credential

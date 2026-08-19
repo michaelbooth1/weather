@@ -31,7 +31,7 @@ def test_exact_tip_guard_precedes_any_automatic_commit_or_merge() -> None:
     assert guard < automatic_commit < merge
 
 
-def test_quiet_merge_accepts_only_the_three_fleet_generated_drift_paths() -> None:
+def test_quiet_merge_accepts_only_the_two_fleet_generated_config_paths() -> None:
     script = _script_text()
 
     match = re.search(r"\$autoRefreshed = @\((.*?)\)\n\$dirtyTracked", script, re.DOTALL)
@@ -39,7 +39,6 @@ def test_quiet_merge_accepts_only_the_three_fleet_generated_drift_paths() -> Non
     assert re.findall(r'"([^"]+)"', match.group(1)) == [
         "config/locations.json",
         "config/location_market_events.json",
-        "docs/operations/OPERATING_REFERENCE.md",
     ]
     assert "fleet-generated drift set" in script
     assert 'git commit -m "ops: preserve fleet-generated drift' in script
@@ -88,6 +87,17 @@ def test_publish_uses_only_the_credential_bearing_scheduled_task() -> None:
     script = _script_text()
 
     assert "Start-ScheduledTask -TaskName WeatherOneShotPush" in script
+
+
+def test_documentation_transaction_is_bound_before_publication() -> None:
+    script = _script_text()
+
+    begin = script.index('"-m", "weather.operations.documentation_transaction"')
+    push = script.index("Start-ScheduledTask -TaskName WeatherOneShotPush")
+    assert begin < push
+    assert '"--integration-tip", $mergeCommit' in script
+    assert '"--branch", $Branch' in script
+    assert 'Save-Report -ok $true -stage "merged_unpushed"' in script
     assert "& git push" not in script.lower()
     assert "git rev-parse origin/master" in script
 

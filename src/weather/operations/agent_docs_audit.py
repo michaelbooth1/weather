@@ -11,6 +11,7 @@ import argparse
 import ast
 import os
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -110,8 +111,52 @@ LEGACY_COMMAND_PATTERNS = (
 
 
 def _markdown_files(repo_root: Path) -> list[Path]:
+    """Return repository-owned Markdown, excluding ignored sibling worktrees.
+
+    Production keeps isolated worktrees below ``.claude/worktrees``. Walking the
+    filesystem counted and audited every stale checkout as though it belonged to
+    the active tree (18 agent files became 54). Git's cached-plus-untracked view
+    is the correct ownership boundary and still includes a new document before it
+    is staged. A filesystem fallback keeps temporary non-Git test repositories
+    supported.
+    """
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "*.md",
+            ],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        completed = None
+    if completed is not None and completed.returncode == 0:
+        root = repo_root.resolve()
+        paths: list[Path] = []
+        for raw in completed.stdout.split(b"\0"):
+            if not raw:
+                continue
+            path = (root / os.fsdecode(raw)).resolve()
+            try:
+                path.relative_to(root)
+            except ValueError:
+                continue
+            if path.is_file():
+                paths.append(path)
+        return sorted(set(paths))
+
     ignored_dirs = {
         ".git",
+        ".claude",
         ".pytest_cache",
         ".ruff_cache",
         "__pycache__",

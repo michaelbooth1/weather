@@ -21,6 +21,7 @@ From the repository root on Windows:
 .\venv\Scripts\python.exe -m pytest -q
 .\venv\Scripts\python.exe -m compileall -q app src tests
 .\venv\Scripts\python.exe -m weather.operations.agent_docs_audit
+.\venv\Scripts\python.exe -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
 ```
 
 `pytest.ini` collects only `tests/` and exposes `src/`. The editable install is
@@ -42,6 +43,7 @@ specific.
 | Reports, gates, roadmap | matching `tests/reporting`; verify fail-closed evidence behavior |
 | Package/import/path changes | `tests/operations/test_import_architecture.py` |
 | Canonical docs/agent files | `python -m weather.operations.agent_docs_audit` |
+| Roadmap item/index or generated backlog | roadmap lint plus `roadmap_backlog --fail-on-lint --check` after regeneration |
 
 Run the full suite for cross-owner changes, release/evidence contracts, shared
 utilities, or before handing off a broad refactor.

@@ -1,4 +1,9 @@
+import subprocess
+from pathlib import Path
+
 from weather.operations.agent_docs_audit import (
+    _agent_files,
+    _markdown_files,
     audit_repo,
     broken_local_links,
     legacy_command_matches,
@@ -7,6 +12,25 @@ from weather.operations.agent_docs_audit import (
 
 def test_agent_docs_audit_passes_repository_contracts():
     assert audit_repo() == []
+
+
+def test_repository_markdown_scope_excludes_ignored_sibling_worktrees():
+    root = Path.cwd()
+    markdown = _markdown_files(root)
+    agents = _agent_files(root)
+    listed = subprocess.run(
+        [
+            "git", "ls-files", "-z", "--cached", "--others",
+            "--exclude-standard", "--", "*.md",
+        ],
+        capture_output=True,
+        check=True,
+    ).stdout.split(b"\0")
+    expected = {root / path.decode() for path in listed if path}
+
+    assert set(markdown) == expected
+    assert len(agents) == sum(path.name == "AGENTS.md" for path in expected)
+    assert all(".claude/worktrees" not in path.as_posix() for path in markdown)
 
 
 def test_broken_local_links_reports_missing_target(tmp_path):

@@ -33,12 +33,14 @@ $json = Join-Path $outDir 'mm_countability.json'
 $code = $LASTEXITCODE
 if ($code -ne 0) { throw "post-mortem exited $code" }
 
-# Refresh the generated operating reference in the same pass. It is cheap (imports a few
-# modules and reads the scheduler) and keeping it current is the whole point of generating it.
-# Never fail the countability report because the reference could not render.
+# Refresh the durable generated constants and the separate live scheduler view in the same
+# pass. The latter belongs under ignored runtime state: committing a changing host timetable
+# made the canonical document stale and dirtied the production tree every day.
+# Never fail the countability report because either reference could not render.
 try {
     & $python -m weather.operations.operating_reference `
-        --out (Join-Path $RepoRoot 'docs\operations\OPERATING_REFERENCE.md') | Out-Null
+        --out (Join-Path $RepoRoot 'docs\operations\OPERATING_REFERENCE.md') `
+        --schedule-out (Join-Path $outDir 'OPERATING_SCHEDULE.md') | Out-Null
 } catch {
     Write-Warning "operating reference refresh failed: $($_.Exception.Message)"
 }

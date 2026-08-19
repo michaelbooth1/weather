@@ -65,6 +65,13 @@ After changing roadmap items or the index, regenerate and lint the backlog:
 .\venv\Scripts\python.exe -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint
 ```
 
+When no roadmap change is intended, verify that the committed generated view
+still matches its sources without rewriting it:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+```
+
 Run the focused tests:
 
 ```powershell

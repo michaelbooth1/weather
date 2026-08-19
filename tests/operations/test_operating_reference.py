@@ -52,9 +52,7 @@ def test_the_graded_window_agrees_with_the_settlement_coverage_window():
 
 
 def test_render_includes_windows_constants_and_the_regeneration_command():
-    markdown = operating_reference.render_markdown(
-        operating_reference.collect_constants(), schedule=[]
-    )
+    markdown = operating_reference.render_markdown(operating_reference.collect_constants())
 
     assert "Generated — do not hand-edit" in markdown
     assert "weather.operations.operating_reference" in markdown
@@ -64,25 +62,23 @@ def test_render_includes_windows_constants_and_the_regeneration_command():
     assert "01:00-04:00 local" in markdown
 
 
-def test_render_degrades_without_a_schedule_instead_of_failing():
-    markdown = operating_reference.render_markdown(
-        operating_reference.collect_constants(), schedule=[]
-    )
+def test_tracked_reference_points_to_runtime_schedule_without_embedding_it():
+    markdown = operating_reference.render_markdown(operating_reference.collect_constants())
 
-    assert "Not available" in markdown
+    assert "data/alerts/OPERATING_SCHEDULE.md" in markdown
+    assert "WeatherAlpha" not in markdown
 
 
-def test_render_lists_every_scheduled_trigger_given_one():
+def test_runtime_schedule_lists_every_scheduled_trigger_given_one():
     schedule = [
         {"name": "WeatherAlpha", "at": "01:20"},
         {"name": "WeatherBeta", "at": "08:10"},
     ]
 
-    markdown = operating_reference.render_markdown(
-        operating_reference.collect_constants(), schedule=schedule
-    )
+    markdown = operating_reference.render_schedule_markdown(schedule)
 
     assert "WeatherAlpha" in markdown
     assert "01:20" in markdown
     assert "WeatherBeta" in markdown
-    assert "will not fire again" in markdown
+    assert "Generated runtime state" in markdown
+    assert "receipt" in markdown

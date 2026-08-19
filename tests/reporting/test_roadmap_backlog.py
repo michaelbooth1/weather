@@ -5,6 +5,7 @@ from pathlib import Path
 from weather.reporting.roadmap.roadmap_backlog import (
     SCHEMA_VERSION,
     build_payload,
+    markdown_parity_diff,
     summarize_roadmap_status,
     parse_item,
     write_json,
@@ -271,11 +272,33 @@ class RoadmapBacklogTests(unittest.TestCase):
         self.assertIn("# Active Roadmap Backlog", report_text)
         self.assertIn("Demo Item 1", report_text)
 
+    def test_generated_report_parity_ignores_only_generation_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            items = root / "items"
+            items.mkdir()
+            _item(items / "item-001-open.md", 1, "OPEN")
+            payload = build_payload(root, generated_at_utc="2026-06-21T00:00:00+00:00")
+            report = root / "active-backlog.md"
+            write_markdown(report, payload)
+
+            later = dict(payload, generated_at_utc="2026-08-18T00:00:00+00:00")
+            self.assertEqual(markdown_parity_diff(report, later), [])
+
+            report.write_text(
+                report.read_text(encoding="utf-8").replace("Demo Item 1", "Stale Item"),
+                encoding="utf-8",
+            )
+            self.assertNotEqual(markdown_parity_diff(report, later), [])
+
     def test_current_active_roadmap_items_pass_required_lint(self):
         payload = build_payload("docs/roadmap", generated_at_utc="2026-06-21T00:00:00+00:00")
 
         self.assertEqual(payload["status"], "OK")
         self.assertEqual(payload["lint_issues"], [])
+        self.assertEqual(
+            markdown_parity_diff("docs/roadmap/active-backlog.md", payload), []
+        )
 
 
 if __name__ == "__main__":

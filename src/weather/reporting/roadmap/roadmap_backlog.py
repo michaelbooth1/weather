@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import re
 from collections import Counter
@@ -440,8 +441,7 @@ def _item_link(item: dict[str, Any]) -> str:
     return f"[{item.get('title')}]({path})"
 
 
-def write_markdown(path: str | Path, payload: dict[str, Any]) -> Path:
-    path = Path(path)
+def render_markdown(payload: dict[str, Any]) -> str:
     summary = payload.get("summary") or {}
     lines = [
         "# Active Roadmap Backlog",
@@ -506,9 +506,39 @@ def write_markdown(path: str | Path, payload: dict[str, Any]) -> Path:
         ))
     else:
         lines.append("- none")
+    return "\n".join(lines) + "\n"
+
+
+def write_markdown(path: str | Path, payload: dict[str, Any]) -> Path:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text(render_markdown(payload), encoding="utf-8")
     return path
+
+
+def markdown_parity_diff(path: str | Path, payload: dict[str, Any]) -> list[str]:
+    """Return a useful diff while ignoring the intentionally volatile render time."""
+
+    path = Path(path)
+    if not path.is_file():
+        return [f"missing generated roadmap report: {path}"]
+
+    def normalized(text: str) -> list[str]:
+        return [
+            "Generated: <normalized>\n" if line.startswith("Generated: ") else line
+            for line in text.splitlines(keepends=True)
+        ]
+
+    current = normalized(path.read_text(encoding="utf-8-sig"))
+    expected = normalized(render_markdown(payload))
+    return list(
+        difflib.unified_diff(
+            current,
+            expected,
+            fromfile=str(path),
+            tofile="freshly generated roadmap backlog",
+        )
+    )
 
 
 def main(argv: list[str] | None = None) -> dict[str, Any]:
@@ -517,16 +547,31 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--json-out", default=str(DEFAULT_JSON_OUT))
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     parser.add_argument("--fail-on-lint", action="store_true")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the committed Markdown matches current item/index sources without writing",
+    )
     args = parser.parse_args(argv)
 
     payload = build_payload(args.roadmap_root)
+    if args.fail_on_lint and payload["status"] != "OK":
+        print(f"Roadmap backlog: {payload['status']}")
+        raise SystemExit(1)
+    if args.check:
+        differences = markdown_parity_diff(args.report_out, payload)
+        if differences:
+            print("Roadmap backlog: STALE")
+            print("".join(differences[:80]), end="")
+            raise SystemExit(2)
+        print("Roadmap backlog: OK (generated report matches sources)")
+        return payload
+
     json_path = write_json(args.json_out, payload)
     report_path = write_markdown(args.report_out, payload)
     print(f"Roadmap backlog: {payload['status']}")
     print(f"JSON written to {json_path}")
     print(f"Report written to {report_path}")
-    if args.fail_on_lint and payload["status"] != "OK":
-        raise SystemExit(1)
     return payload
 
 

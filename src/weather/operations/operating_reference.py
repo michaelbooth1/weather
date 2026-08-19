@@ -1,20 +1,20 @@
 """Generate the operating reference: the numbers and windows that govern this host.
 
-**Why this is generated and not written by hand.** The facts an operator needs at
-3am — when does the streak window open, what counts as a complete day, what is
-already scheduled at 05:00 — live in three different places: Python constants,
-PowerShell guards, and the live Windows scheduler. Nothing joined them, so the
-question got answered by grepping source, and the one document that did carry a
-24-hour map drifted until its disk figure was three times wrong.
+**Why this is generated and not written by hand.** The durable facts an operator
+needs at 3am — when does the streak window open and what counts as a complete day
+— live in Python constants and PowerShell guards. The live Windows scheduler is
+host state, not repository truth, so it is rendered separately below ``data/``.
 
 A stale operations document is worse than a missing one because it gets believed.
-So this projects the live values instead of copying them: constants are **imported**,
-never scraped, and the schedule is read from the scheduler at render time. If a
-constant is renamed or deleted this fails loudly rather than printing a stale number.
+So this projects constants instead of copying them: they are **imported**, never
+scraped. If a constant is renamed or deleted this fails loudly rather than printing
+a stale number.
 
 Run it with::
 
-    python -m weather.operations.operating_reference --out docs/operations/OPERATING_REFERENCE.md
+    python -m weather.operations.operating_reference \
+        --out docs/operations/OPERATING_REFERENCE.md \
+        --schedule-out data/alerts/OPERATING_SCHEDULE.md
 
 Add a row to ``GOVERNING_CONSTANTS`` when a constant starts governing an operator
 decision. The bar is: *would someone have to read source to answer a 3am question?*
@@ -228,7 +228,7 @@ def collect_schedule():
     return sorted(rows, key=lambda row: (row["at"], row["name"]))
 
 
-def render_markdown(constants, schedule):
+def render_markdown(constants):
     """Render the operating reference.
 
     Deterministic: the same inputs always produce the same bytes, so a diff after
@@ -240,8 +240,9 @@ def render_markdown(constants, schedule):
         "**Generated — do not hand-edit.** Regenerate with:",
         "",
         "```powershell",
-        ".\\venv\\Scripts\\python.exe -m weather.operations.operating_reference \\",
-        "    --out docs/operations/OPERATING_REFERENCE.md",
+        ".\\venv\\Scripts\\python.exe -m weather.operations.operating_reference `",
+        "    --out docs/operations/OPERATING_REFERENCE.md `",
+        "    --schedule-out data/alerts/OPERATING_SCHEDULE.md",
         "```",
         "",
         "**Deterministic on purpose — no timestamp is embedded.** For freshness use",
@@ -250,10 +251,9 @@ def render_markdown(constants, schedule):
         "build's clean-tree gate. Because this output is stable, the daily refresh doubles as a",
         "**drift detector: if regenerating produces a diff, something real changed.**",
         "",
-        "This exists because the facts needed to answer an operational question live in three",
-        "places — Python constants, PowerShell guards, and the live scheduler — and nothing",
-        "joined them. Constants below are **imported at render time**, never copied, so they",
-        "cannot drift. A renamed or deleted constant fails this generator loudly.",
+        "This exists because durable operational facts live in Python constants and",
+        "PowerShell guards. Constants below are **imported at render time**, never copied,",
+        "so they cannot drift. A renamed or deleted constant fails this generator loudly.",
         "",
         "## Protected windows",
         "",
@@ -292,25 +292,13 @@ def render_markdown(constants, schedule):
             f"{row['meaning']} | {row['matters_because']} |"
         )
 
-    lines += ["", "## Daily timetable", ""]
-    if schedule:
-        lines += [
-            "Every `Weather*` scheduled task with a time trigger, read from the live host.",
-            "**One-shot tasks with past dates appear here but will not fire again** — check",
-            "`Get-ScheduledTaskInfo` before assuming a slot is occupied.",
-            "",
-            "| Local time | Task |",
-            "| --- | --- |",
-        ]
-        for row in schedule:
-            lines.append(f"| `{row['at']}` | `{row['name']}` |")
-    else:
-        lines += [
-            "_Not available: the scheduler was unreadable, or this was generated off the",
-            "production host. Regenerate on the capture host to populate it._",
-        ]
-
     lines += [
+        "",
+        "## Live timetable",
+        "",
+        "The scheduler is dynamic host state and is deliberately not committed here. Read",
+        "`data/alerts/OPERATING_SCHEDULE.md` on the production host or query Task Scheduler",
+        "directly. The countability refresh regenerates that ignored report.",
         "",
         "## Update this file when",
         "",
@@ -323,19 +311,37 @@ def render_markdown(constants, schedule):
     return "\n".join(lines)
 
 
+def render_schedule_markdown(schedule):
+    """Render the host-local scheduler view without presenting it as Git truth."""
+
+    lines = [
+        "# Live operating schedule",
+        "",
+        "**Generated runtime state — do not commit or hand-edit.** This report reflects the",
+        "scheduler at render time. Check task state, trigger date, action, result, and durable",
+        "receipt before treating an entry as runnable or successful.",
+        "",
+    ]
+    if schedule:
+        lines += ["| Local time | Task |", "| --- | --- |"]
+        lines.extend(f"| `{row['at']}` | `{row['name']}` |" for row in schedule)
+    else:
+        lines.append("_Scheduler unreadable or this report was rendered off Windows._")
+    return "\n".join(lines) + "\n"
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Generate the operating reference.")
     parser.add_argument("--out", default=None, help="write Markdown here; otherwise print")
     parser.add_argument(
-        "--no-schedule",
-        action="store_true",
-        help="skip reading the live scheduler",
+        "--schedule-out",
+        default=None,
+        help="write the live host timetable separately under ignored runtime state",
     )
     args = parser.parse_args(argv)
 
     constants = collect_constants()
-    schedule = [] if args.no_schedule else collect_schedule()
-    markdown = render_markdown(constants, schedule)
+    markdown = render_markdown(constants)
 
     if args.out:
         out = Path(args.out)
@@ -343,9 +349,17 @@ def main(argv=None):
         # Explicit LF: this file is committed, and platform-native CRLF would make every
         # regeneration look like a diff even when nothing changed.
         out.write_text(markdown, encoding="utf-8", newline="\n")
-        print(f"wrote {out} ({len(constants)} constants, {len(schedule)} scheduled triggers)")
+        print(f"wrote {out} ({len(constants)} constants)")
     else:
         print(markdown)
+    if args.schedule_out:
+        schedule = collect_schedule()
+        schedule_out = Path(args.schedule_out)
+        schedule_out.parent.mkdir(parents=True, exist_ok=True)
+        schedule_out.write_text(
+            render_schedule_markdown(schedule), encoding="utf-8", newline="\n"
+        )
+        print(f"wrote {schedule_out} ({len(schedule)} scheduled triggers)")
     return 0
 
 

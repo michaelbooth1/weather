@@ -10,6 +10,7 @@ Follow the [Git workflow SOP](../docs/git-workflow.md).
 - [ ] Focused tests for the changed owner passed.
 - [ ] `python -m compileall -q app src tests` passed, or is not applicable.
 - [ ] `python -m weather.operations.agent_docs_audit` passed.
+- [ ] `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check` passed, or the roadmap was intentionally regenerated.
 - [ ] Stateful, networked, live, or generated commands used in this change are listed below.
 
 Commands and results:

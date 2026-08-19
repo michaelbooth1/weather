@@ -117,6 +117,19 @@ def test_status_flags_unproven_rollback_recovery_separately() -> None:
     assert '$qw.stage -eq "rolled_back"' in text
 
 
+def test_documentation_transaction_warns_before_deadline_and_flags_after_it() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "weather.operations.documentation_transaction" in text
+    assert 'state -eq "INVALID"' in text
+    assert 'state -eq "PENDING"' in text
+    assert "DOCUMENTATION TRANSACTION DUE" in text
+    assert "if ([bool]$documentationTransaction.overdue)" in text
+    assert "$flags.Add($detail)" in text
+    assert "$warns.Add($detail)" in text
+    assert "documentation = $documentationTransaction" in text
+
+
 def test_settlement_scan_seeks_from_end_instead_of_rescanning_each_ledger():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

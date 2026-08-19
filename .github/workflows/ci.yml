@@ -43,5 +43,8 @@ jobs:
       - name: Validate Agent Knowledge Contracts
         run: python -m weather.operations.agent_docs_audit
 
+      - name: Validate Generated Roadmap Is Current
+        run: python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+
       - name: Run Test Suite
         run: python -m pytest -q

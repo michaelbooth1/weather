@@ -3,8 +3,9 @@
 **Generated — do not hand-edit.** Regenerate with:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.operations.operating_reference \
-    --out docs/operations/OPERATING_REFERENCE.md
+.\venv\Scripts\python.exe -m weather.operations.operating_reference `
+    --out docs/operations/OPERATING_REFERENCE.md `
+    --schedule-out data/alerts/OPERATING_SCHEDULE.md
 ```
 
 **Deterministic on purpose — no timestamp is embedded.** For freshness use
@@ -13,10 +14,9 @@ its own render time would dirty the tree on every refresh, which blocks the rele
 build's clean-tree gate. Because this output is stable, the daily refresh doubles as a
 **drift detector: if regenerating produces a diff, something real changed.**
 
-This exists because the facts needed to answer an operational question live in three
-places — Python constants, PowerShell guards, and the live scheduler — and nothing
-joined them. Constants below are **imported at render time**, never copied, so they
-cannot drift. A renamed or deleted constant fails this generator loudly.
+This exists because durable operational facts live in Python constants and
+PowerShell guards. Constants below are **imported at render time**, never copied,
+so they cannot drift. A renamed or deleted constant fails this generator loudly.
 
 ## Protected windows
 
@@ -49,100 +49,11 @@ and no single constant expresses it, so it cannot be found by grepping.
 | **`POOLED_PIT_MAX_LATEST_TARGET_AGE_DAYS`**<br/>`weather.calibration.pooled_training` line 54 | `7` | Maximum age, in days, of the selection universe's latest target date when a production point-in-time lock is taken. | THE CAPTURE STREAK HAS A SHELF LIFE AND THIS IS IT. A banked run of contiguous complete days stops being usable for a production PIT lock once its LATEST day is older than this. So a stalled settlement chain does not merely delay the retrain — it ages out evidence already earned. Found 2026-08-09; it was written nowhere and the relationship to the settlement backlog is invisible from either number alone. |
 | **`MATERIAL_COVERAGE_WINDOW`**<br/>`weather.backtesting.settlement_ledger` line 45 | `12:00-18:00 local` | Human-readable coverage window for material capture. | Should agree with the afternoon window above; disagreement is a defect. |
 
-## Daily timetable
+## Live timetable
 
-Every `Weather*` scheduled task with a time trigger, read from the live host.
-**One-shot tasks with past dates appear here but will not fire again** — check
-`Get-ScheduledTaskInfo` before assuming a slot is occupied.
-
-| Local time | Task |
-| --- | --- |
-| `00:00` | `WeatherCapturePriorityGuard` |
-| `00:00` | `WeatherLocationConfigRefresh` |
-| `00:00` | `WeatherMemoryCommitGuard` |
-| `00:05` | `WeatherHostHealthWatchdog` |
-| `00:05` | `WeatherTakerBotDailyRoll` |
-| `00:30` | `WeatherCodexOvernightSmoke0817` |
-| `00:30` | `WeatherInternationalLiveProbeRefreshSuite0815` |
-| `00:30` | `WeatherLogRotationSuite0814` |
-| `00:35` | `WeatherLiveTestParentFullSuite0816` |
-| `00:35` | `WeatherLiveTestParentFullSuite0817` |
-| `01:00` | `WeatherQuietWindowInternationalLiveProbeRefresh0815` |
-| `01:00` | `WeatherQuietWindowLogRotation0814` |
-| `01:00` | `WeatherTrainingWindow` |
-| `01:15` | `WeatherAgentQuiet0805` |
-| `01:15` | `WeatherAgentQuietWindow` |
-| `01:15` | `WeatherLiveTestParentSuiteGatedMerge0816` |
-| `01:15` | `WeatherLiveTestParentSuiteGatedMerge0817` |
-| `01:15` | `WeatherQuietWindowMerge` |
-| `01:20` | `WeatherMergeSensitiveDriver` |
-| `01:30` | `WeatherChainRecovery20260807` |
-| `01:30` | `WeatherExecutionTapeLauncherSuite0815` |
-| `01:30` | `WeatherLiveArchitectureFullSuite0817` |
-| `01:30` | `WeatherQuietWindowExecutionTape0814` |
-| `01:50` | `WeatherQuietWindowMerge2` |
-| `02:00` | `WeatherAgentOvernight0200` |
-| `02:00` | `WeatherLiveArchitectureSuiteGatedMerge0817` |
-| `02:00` | `WeatherQuietWindowExecutionTapeLauncher0815` |
-| `02:00` | `WeatherSettlementBackfill20260806` |
-| `02:00` | `WeatherSettlementBackfill20260808` |
-| `02:15` | `WeatherExecutionTapeAdoption0815` |
-| `02:25` | `WeatherCodexOvernightAudit0225` |
-| `02:25` | `WeatherExecutionTapeBoundedProbe0814` |
-| `02:25` | `WeatherQuietWindowMerge3` |
-| `03:00` | `WeatherAgentPostMerge0805` |
-| `03:30` | `WeatherTrainingWindowReenable0814` |
-| `04:05` | `WeatherCodexOvernightAudit0405` |
-| `04:15` | `WeatherTrainingWindowRestore` |
-| `04:20` | `WeatherTrainingWindowReenable0815` |
-| `04:20` | `WeatherTrainingWindowReenable0816` |
-| `04:20` | `WeatherTrainingWindowReenable0817` |
-| `04:30` | `WeatherDataMirror` |
-| `04:30` | `WeatherInternationalLiveProbeSuite0814` |
-| `04:35` | `WeatherOvernightChainAudit0815` |
-| `05:00` | `WeatherClobTiering` |
-| `05:00` | `WeatherInternationalEconomicsRepairSuite0814` |
-| `05:15` | `WeatherMergeQueueDriver` |
-| `05:30` | `WeatherSettlementBackfill20260805` |
-| `05:31` | `WeatherInternationalLiveProbeRefreshSuite0814` |
-| `06:00` | `WeatherAgentOvernight0600` |
-| `06:00` | `WeatherAgentOvernight0811a` |
-| `06:00` | `WeatherClobRawTapeTiering` |
-| `06:00` | `WeatherLocationConfigRefresh` |
-| `06:30` | `WeatherNightlyRetrainValidatePromote` |
-| `06:45` | `WeatherSupervisorGapBoundSuite0814` |
-| `06:50` | `WeatherExchangeEconomicsSnapshotRefresh` |
-| `07:00` | `WeatherMirrorRestoreVerify` |
-| `07:01` | `WeatherLiveTestCandidatePaper0816` |
-| `07:01` | `WeatherLiveTestCandidatePaper0817` |
-| `07:05` | `WeatherMarketMakingDailyRoll` |
-| `07:25` | `WeatherActiveHoursRestore0816` |
-| `07:25` | `WeatherActiveHoursRestore0817` |
-| `07:39` | `WeatherExecutionTapeSupervisorSuite0814` |
-| `07:50` | `WeatherExecutionTapeSupervisor` |
-| `08:00` | `WeatherAgentMorning0805` |
-| `08:10` | `WeatherStalenessSweep` |
-| `08:15` | `WeatherMmCountabilityReport` |
-| `08:40` | `WeatherInternationalLiveProbeBundle0814` |
-| `09:30` | `WeatherDailySettlementPromotionRefresh` |
-| `09:43` | `WeatherMarketMakingDailyRollSupervisor` |
-| `09:43` | `WeatherTakerBotDailyRollSupervisor` |
-| `10:04` | `WeatherModelMarketDisagreementAnalysis` |
-| `10:30` | `WeatherAgentOvernight1030` |
-| `12:00` | `WeatherLocationConfigRefresh` |
-| `12:00` | `WeatherStreakCaptureMonitor` |
-| `14:00` | `WeatherEveningEvidenceRefresh` |
-| `17:00` | `WeatherEveningEvidenceRefresh` |
-| `18:00` | `WeatherLocationConfigRefresh` |
-| `18:05` | `WeatherActiveHoursProtect0817` |
-| `18:10` | `WeatherSnapshotMemoryRestart0816` |
-| `18:15` | `WeatherChainRecovery20260727` |
-| `18:15` | `WeatherExecTapePilot` |
-| `18:15` | `WeatherOneShotMirror` |
-| `20:30` | `WeatherSuite0969a` |
-| `23:36` | `WeatherClobBookLoopSupervisor` |
-| `23:36` | `WeatherObservationTriggerSupervisor` |
-| `23:36` | `WeatherSnapshotLoopSupervisor` |
+The scheduler is dynamic host state and is deliberately not committed here. Read
+`data/alerts/OPERATING_SCHEDULE.md` on the production host or query Task Scheduler
+directly. The countability refresh regenerates that ignored report.
 
 ## Update this file when
 

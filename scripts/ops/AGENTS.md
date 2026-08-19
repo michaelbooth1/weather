@@ -25,6 +25,10 @@ These instructions apply to `scripts/ops/`.
   `suite_gated_quiet_merge.ps1`. Bind its task action, log, branch, and full tip;
   a task exit code without the correlated exact full-suite verdict is not merge
   evidence.
+- `quiet_window_merge.ps1` must record the exact local merge through
+  `weather.operations.documentation_transaction` after capture recovery and
+  before publication. Failure leaves the merge unpushed; stacked overnight
+  integrations share one pending closeout due by 09:00.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.

@@ -1354,6 +1354,34 @@ if (Test-Path $wdf) {
 if ($null -eq $wd) { $flags.Add("health watchdog has never reported - overnight alerting is NOT running") }
 elseif ($wdAgeMin -gt 45) { $flags.Add("health watchdog stale by ${wdAgeMin} min (runs every 15) - overnight alerting may be dead") }
 
+# ---- post-integration documentation transaction ----
+$documentationTransaction = $null
+try {
+    $documentationRaw = & $py -m weather.operations.documentation_transaction `
+        --repo-root $repo status
+    if ($LASTEXITCODE -eq 0 -and $documentationRaw) {
+        $documentationTransaction = $documentationRaw | ConvertFrom-Json
+    }
+}
+catch {}
+if ($null -eq $documentationTransaction) {
+    $flags.Add("documentation transaction state is unreadable")
+}
+elseif (-not [bool]$documentationTransaction.valid -or
+    [string]$documentationTransaction.state -eq "INVALID") {
+    $flags.Add("documentation transaction state is invalid: $($documentationTransaction.detail)")
+}
+elseif ([string]$documentationTransaction.state -eq "PENDING") {
+    $detail = (
+        "DOCUMENTATION TRANSACTION DUE: {0} integration(s), deadline {1}, pending {2}" -f
+        $documentationTransaction.integration_count,
+        $documentationTransaction.due_at_local,
+        $documentationTransaction.pending_sha256
+    )
+    if ([bool]$documentationTransaction.overdue) { $flags.Add($detail) }
+    else { $warns.Add($detail) }
+}
+
 # ---- last guarded quiet-window merge ----
 # Merges happen at 01:30 while I am not watching; the outcome must be waiting in the morning.
 $qw = $null
@@ -1446,6 +1474,7 @@ if ($Json) {
         }
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }) }
+        documentation = $documentationTransaction
         overnight_wakes = @($overnightWakeState | ForEach-Object {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path
                     runner_sha256 = $_.runner_sha256; receipt_path = $_.receipt_path
@@ -1531,6 +1560,12 @@ Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f 
 $wdStr = if ($null -eq $wd) { "NEVER REPORTED" } else { "{0}, {1} min ago" -f ([string]$wd.verdict), $wdAgeMin }
 $qwStr = if ($null -eq $qw) { "none" } else { "{0} ({1:yyyy-MM-dd HH:mm})" -f $qw.stage, ([datetime]$qw.ts) }
 Write-Output ("  WATCHDOG  : {0}    |  last merge attempt: {1}" -f $wdStr, $qwStr)
+$documentationStr = if ($null -eq $documentationTransaction) { "UNREADABLE" }
+else {
+    "{0}{1}" -f $documentationTransaction.state,
+        $(if ($documentationTransaction.due_at_local) { " (due $($documentationTransaction.due_at_local))" } else { "" })
+}
+Write-Output ("  DOCS      : {0}" -f $documentationStr)
 Write-Output ("  ALERTS    : last {0}" -f $alertStr)
 if ($upcoming.Count -gt 0) {
     Write-Output "  ARMED     : (scheduled, not yet run)"
