@@ -143,6 +143,12 @@ All must be current for the target date and selected market:
    The resulting plan remains non-authorizing; Stage 0, physical eligibility,
    account state, current market rules, the literal confirmation, and the
    one-submit adapter capability remain independent mutation gates.
+   An unconstrained discovery plan is not a Stage 1 artifact. After discovery,
+   rerun the selector to a new path with both `--expected-condition-id` and
+   `--expected-token-id` set to the selected scope. Stage 1 and the
+   market-harvest Stage 2 envelope both require those retained constrained-plan
+   bytes while they remain current; neither may infer authority from the
+   discovery result.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
 9. The submitting host is physically eligible. This production PC cannot
    satisfy the prerequisite while its current evidence is Ontario/blocked; it
@@ -219,7 +225,11 @@ bootstrap artifact. Version v0.4 embeds the bundle and its SHA-256, rechecks
 the two probe identities and budgets, and requires its flattened private-stream,
 cancel-all, and heartbeat claims to match the bundle's derived facts. The
 fail-closed `weather.market.mm_live_pilot_cli` preparation surface exposes only
-identity preparation, the keyless doctor, and offline bundle construction.
+identity preparation, the keyless doctor, offline bundle construction, and
+offline `platform` normalization. The latter consumes a fresh post-Stage-1
+bootstrap, the journal-derived lifecycle bundle, and the current exact-market
+economics snapshot, then requires the constructed v0.4 artifact to pass the
+canonical loader before returning PASS.
 Exchange-mutating Stage 0 and Stage 1 remain library boundaries for a separately
 reviewed, host-owned eligible-machine wrapper; the generic CLI cannot invoke
 them. Those library boundaries wire the prepared bootstrap collector and
@@ -511,20 +521,57 @@ the authenticated event path.
 
 ### Stage 2: one-band maker quote
 
+Stage 2 is a library-only, profile-bound successor. It accepts exactly one of
+two source authorities: the ordinary `model` lane's current live-pilot quote,
+which still requires model promotion and live permission, or a current
+`market_harvest` paper quote with `live_trade_permission=false`, shadow mode,
+two-sided post-only intent, market-mid/no-model provenance, and zero assumed
+reward or rebate. The latter bypass exists only inside the separate one-submit
+Stage 2 envelope; it does not enable live mode in `market_making_run`, change
+the ordinary model lane, or turn the paper artifact into mutation authority.
+
 - Require a current passing `mm_platform_verification_v0.4`, including fresh
   official physical geoblock eligibility and the
   Stage 1 automatic heartbeat-lapse cancellation and cancel-all-to-zero proof.
   The full gate repeats the numeric balance, allowance, actual-wallet-cap,
   zero-open-order-count, and account-snapshot-hash checks; Stage 0 booleans are
   not carried forward as financial proof.
+- Bind a same-day public-capture proof without creating a second writer. Once
+  the continuous supervisor is armed, run
+  `bounded_execution_tape_probe.ps1 -ObserveExistingProducer`; it observes the
+  existing PID and coordinator session, requires new routed executions with no
+  new gap or integrity counter, and proves all three core capture workers
+  survived. The original child-launch mode refuses while the continuous
+  producer is alive. Stage 2 accepts neither an expired first-adoption probe nor
+  a hand-authored health assertion.
 - Select one central band whose current market spread, depth, fee eligibility,
   source freshness, book freshness, watcher freshness, and current-high trust
   gates pass.
-- Place one or two smallest-valid backed post-only orders for one TTL only.
+  For the `market_harvest` path, bind the exact quote row to the fresh
+  constrained candidate-plan bytes and retain both the artifact SHA-256 and
+  semantic plan SHA-256 in the envelope. The canonical counterfactual builder
+  freezes that same row; a missing, expired, unconstrained, or row-mismatched
+  candidate blocks before a submit capability is used.
+  A market-harvest source may omit only model rows, model freshness, and model
+  promotion; every non-model preflight, account, lifecycle, capture, economics,
+  and risk gate remains mandatory.
+- A retained source quote normally supplies current event, band, and daily-loss
+  exposure. Because the canonical paper tape has no daily-loss column, the first
+  market-harvest Stage 2 session may bind prior daily loss to zero only when the
+  complete Stage 1 artifact proves no fill, final zero state, and zero open
+  orders for the isolated pilot wallet. Missing either source value or that
+  exact proof blocks authorization.
+- Place exactly one smallest-valid backed post-only BUY for one TTL only. The
+  capability is single-use, permits no naked sell, cannot raise the 100 pUSD
+  wallet cap or any lower existing ceiling, and is disarmed by cancel-all.
 - A post-only cross rejection is a stop-and-refresh event, never permission to
   chase price.
 - Cancel at TTL, stale evidence, user-stream silence, heartbeat failure,
   reconciliation mismatch, unexpected fill state, risk limit, or operator stop.
+- Keep Stage 2 out of every generic CLI. The eligible-host fixed-scope wrapper
+  supplies an already-authenticated adapter and exact public artifacts in
+  memory; the module resolves no credentials and exposes no parameterized live
+  mutation command.
 
 ### Stage 3: evidence and settlement
 

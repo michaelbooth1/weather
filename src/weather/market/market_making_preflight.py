@@ -326,8 +326,9 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
     if not path.exists():
         return {"required": True, "ok": False, "path": str(path), "reason": "platform-verification artifact missing"}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
+        raw_artifact = path.read_bytes()
+        payload = json.loads(raw_artifact.decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return {"required": True, "ok": False, "path": str(path), "reason": f"invalid platform-verification JSON: {exc}"}
 
     now = utc_now(now)
@@ -727,6 +728,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         "required": True,
         "ok": not missing,
         "path": str(path),
+        "artifact_sha256": hashlib.sha256(raw_artifact).hexdigest(),
         "schema_version": payload.get("schema_version"),
         "target_date": target_text,
         "verified_for_target_date": evidence_target,
@@ -741,6 +743,9 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         "wallet_type": payload.get("wallet_type"),
         "signature_type": payload.get("signature_type"),
         "signature_type_id": payload.get("signature_type_id"),
+        "funder_address": payload.get("funder_address"),
+        "condition_id": lifecycle_bundle.get("condition_id"),
+        "token_id": lifecycle_bundle.get("token_id"),
         "international_platform_confirmed": payload.get("international_platform_confirmed"),
         "api_base_url": payload.get("api_base_url"),
         "clob_host": payload.get("clob_host"),

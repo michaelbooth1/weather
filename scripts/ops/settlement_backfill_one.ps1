@@ -56,10 +56,12 @@ if (-not $validTarget) {
     throw "TargetDate must be a real calendar date in yyyy-MM-dd form"
 }
 
-$stamp = (Get-Date).ToString('yyyyMMddTHHmmss')
+$stamp = "$(Get-Date -Format 'yyyyMMddTHHmmssfff')-$PID"
 $logDir = Join-Path $RepoRoot 'data\alerts'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
 $resultPath = Join-Path $logDir "settlement_backfill_$TargetDate.json"
+$registryOut = Join-Path $logDir "settlement_backfill_market_registry_$TargetDate-$stamp.json"
+$registryErr = Join-Path $logDir "settlement_backfill_market_registry_$TargetDate-$stamp.err"
 
 function Emit($state, $detail, $extra) {
     $payload = [ordered]@{
@@ -80,6 +82,68 @@ if (-not (Select-String -Path $lifetime -Pattern 'no_unexplained_capture_failure
     Emit 'REFUSED' 'benign-capture-race fix is not on disk; the resume would die at step 4 exactly as the daily chain does' $null
     exit 2
 }
+
+# --- Guard 2: discover the exact fleet from the canonical current-repo registry --
+# Runtime settlement directories are evidence locations, not market authority. A
+# missing directory must become an explicit missing-ledger failure rather than
+# silently shrinking the denominator.
+$python = Join-Path $RepoRoot 'venv\Scripts\python.exe'
+if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+    Emit 'REFUSED' "project interpreter is absent at $python" @{
+        market_registry_discovery = $registryOut
+    }
+    exit 2
+}
+$registryCode = "import json,weather.market.market_registry as m;print(json.dumps({'schema_version':'settlement_backfill_market_registry_discovery_v0.1','module_file':m.__file__,'market_ids':sorted(s.id for s in m.all_specs())}))"
+$registryProcess = Start-Process -FilePath $python `
+    -ArgumentList @('-c', $registryCode) `
+    -WorkingDirectory $RepoRoot `
+    -NoNewWindow -PassThru -Wait `
+    -RedirectStandardOutput $registryOut `
+    -RedirectStandardError $registryErr
+if ($registryProcess.ExitCode -ne 0) {
+    Emit 'REFUSED' "authoritative market-registry discovery exited $($registryProcess.ExitCode)" @{
+        market_registry_discovery = $registryOut
+        market_registry_error = $registryErr
+    }
+    exit 2
+}
+try {
+    $registry = Get-Content -LiteralPath $registryOut -Raw | ConvertFrom-Json
+    $observedModule = (Resolve-Path -LiteralPath ([string]$registry.module_file) -ErrorAction Stop).Path
+    $expectedModule = (Resolve-Path -LiteralPath (Join-Path $RepoRoot 'src\weather\market\market_registry.py') -ErrorAction Stop).Path
+    $rawMarketIds = @($registry.market_ids)
+    $expectedMarketIds = @(
+        $rawMarketIds |
+            ForEach-Object { ([string]$_).Trim() } |
+            Sort-Object
+    )
+    $uniqueMarketIds = @($expectedMarketIds | Sort-Object -Unique)
+    $registryValid = (
+        $registry.schema_version -eq 'settlement_backfill_market_registry_discovery_v0.1' -and
+        $observedModule -eq $expectedModule -and
+        $expectedMarketIds.Count -gt 0 -and
+        $uniqueMarketIds.Count -eq $expectedMarketIds.Count -and
+        @($expectedMarketIds | Where-Object { $_ -notmatch '^[a-z0-9][a-z0-9-]*$' }).Count -eq 0
+    )
+}
+catch {
+    $registryValid = $false
+    $expectedMarketIds = @()
+}
+if (-not $registryValid) {
+    Emit 'REFUSED' 'authoritative market-registry discovery was empty, invalid, duplicated, or imported from another checkout' @{
+        market_registry_discovery = $registryOut
+        expected_market_ids = $expectedMarketIds
+        expected_market_count = $expectedMarketIds.Count
+    }
+    exit 2
+}
+$missingLedgerMarketsBefore = @(
+    $expectedMarketIds | Where-Object {
+        -not (Test-Path -LiteralPath (Join-Path $RepoRoot "data\settlements\$_\ledger.jsonl") -PathType Leaf)
+    }
+)
 
 function Get-SharedLineCount {
     param([string]$Path)
@@ -122,6 +186,10 @@ $chainExit = $LASTEXITCODE
 if ($chainExit -ne 0) {
     Emit 'CHAIN_FAILED' "chain_recovery_run exited $chainExit; do NOT start the next date" @{
         chain_exit_code = $chainExit
+        expected_market_ids = $expectedMarketIds
+        expected_market_count = $expectedMarketIds.Count
+        missing_ledger_markets = $missingLedgerMarketsBefore
+        market_registry_discovery = $registryOut
     }
     exit 1
 }
@@ -172,7 +240,7 @@ function Test-RowSettled {
     param($Row)
     if ($null -eq $Row) { return $false }
     $source = "$($Row.settlement_source)".Trim().ToLowerInvariant()
-    if ($source -eq '' -or $source -eq 'none' -or $source -eq 'null') { return $false }
+    if ($source -ne 'daily_summary') { return $false }
     $settlementHigh = 0.0
     $parsed = [double]::TryParse(
         "$($Row.settlement_high)",
@@ -189,15 +257,22 @@ function Test-RowSettled {
 
 $ledgerAfter = Get-SharedLineCount -Path $ledger
 $ledgerGrew = $ledgerAfter -gt $ledgerBefore
+$missingLedgerMarkets = @(
+    $expectedMarketIds | Where-Object {
+        -not (Test-Path -LiteralPath (Join-Path $RepoRoot "data\settlements\$_\ledger.jsonl") -PathType Leaf)
+    }
+)
 
 $settledMarkets = @()
 $unsettledMarkets = @()
-foreach ($marketDir in Get-ChildItem -Path (Join-Path $RepoRoot 'data\settlements') -Directory) {
-    $row = Get-TargetRow -LedgerPath (Join-Path $marketDir.FullName 'ledger.jsonl') -Date $TargetDate
-    if (Test-RowSettled -Row $row) { $settledMarkets += $marketDir.Name }
-    else { $unsettledMarkets += $marketDir.Name }
+foreach ($marketId in $expectedMarketIds) {
+    $row = Get-TargetRow `
+        -LedgerPath (Join-Path $RepoRoot "data\settlements\$marketId\ledger.jsonl") `
+        -Date $TargetDate
+    if (Test-RowSettled -Row $row) { $settledMarkets += $marketId }
+    else { $unsettledMarkets += $marketId }
 }
-$marketTotal = $settledMarkets.Count + $unsettledMarkets.Count
+$marketTotal = $expectedMarketIds.Count
 $datePresent = $null -ne (Get-TargetRow -LedgerPath $ledger -Date $TargetDate)
 
 $extra = @{
@@ -208,13 +283,18 @@ $extra = @{
     markets_settled    = $settledMarkets.Count
     markets_total      = $marketTotal
     markets_unsettled  = $unsettledMarkets
+    expected_market_ids = $expectedMarketIds
+    expected_market_count = $expectedMarketIds.Count
+    missing_ledger_markets = $missingLedgerMarkets
+    missing_ledger_markets_before = $missingLedgerMarketsBefore
+    market_registry_discovery = $registryOut
     # Kept ONLY to show that the old signal is worthless on its own: it is true for
     # every unsettled date too. Never branch on it.
     target_date_present_substring = $datePresent
 }
 
 if ($settledMarkets.Count -eq 0) {
-    Emit 'SILENT_NOOP' "chain exited 0 but $TargetDate has a real settlement_source in 0 of $marketTotal market ledgers; the ledger grew by $($ledgerAfter - $ledgerBefore) row(s). Either the heavy step was deferred (check the run's admission blockers for host_commit_above_limit) or this is the treated_as_source_unavailable trap -- re-run with -Refetch when host commit is under 70%." $extra
+    Emit 'SILENT_NOOP' "chain exited 0 but $TargetDate has authoritative daily_summary settlement in 0 of $marketTotal market ledgers; the ledger grew by $($ledgerAfter - $ledgerBefore) row(s). Either the heavy step was deferred (check the run's admission blockers for host_commit_above_limit) or this is the treated_as_source_unavailable trap -- re-run with -Refetch when host commit is under 70%." $extra
     exit 1
 }
 if ($settledMarkets.Count -lt $marketTotal) {
@@ -222,5 +302,5 @@ if ($settledMarkets.Count -lt $marketTotal) {
     exit 1
 }
 
-Emit 'SETTLED' "$($settledMarkets.Count) of $marketTotal markets carry a real settlement_source for $TargetDate; ledger grew by $($ledgerAfter - $ledgerBefore) row(s). Re-run streak.ps1 and confirm Toronto did not regrade before starting the next date." $extra
+Emit 'SETTLED' "$($settledMarkets.Count) of $marketTotal markets carry authoritative daily_summary settlement for $TargetDate; ledger grew by $($ledgerAfter - $ledgerBefore) row(s). Re-run streak.ps1 and confirm Toronto did not regrade before starting the next date." $extra
 exit 0

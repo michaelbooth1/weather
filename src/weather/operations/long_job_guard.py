@@ -18,9 +18,12 @@ from weather.operations.windows_process_lifetime import (
 from weather.operations.windows_process_metrics import windows_process_memory_metrics
 from weather.operations.process_lock_identity import (
     LOCK_OWNER_IDENTITY_FIELD,
+    LockPathTransactionBusy,
     current_process_identity as _current_process_identity,
+    lock_path_transaction,
     lock_owner_status as _lock_owner_status,
     observe_process_identity,
+    remove_lock_payload_if_current,
 )
 from weather.paths import data_path
 from weather.schema_registry import schema_version
@@ -253,6 +256,22 @@ def _read_lock_detail(path):
 
 
 def acquire_long_job_lock(path, job_name, force=False, audit=None):
+    try:
+        with lock_path_transaction(path):
+            return _acquire_long_job_lock_transaction(
+                path,
+                job_name,
+                force=force,
+                audit=audit,
+            )
+    except LockPathTransactionBusy as exc:
+        if isinstance(audit, dict):
+            audit["acquired"] = False
+            audit["transaction_busy"] = True
+        raise LongJobBusy(f"long-job lock pathname transaction busy: {path}") from exc
+
+
+def _acquire_long_job_lock_transaction(path, job_name, force=False, audit=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     audit = audit if isinstance(audit, dict) else {}
@@ -284,11 +303,14 @@ def acquire_long_job_lock(path, job_name, force=False, audit=None):
             audit["stale_lock_detected_count"] += 1
             audit["stale_lock_reason"] = owner.get("stale_reason")
             audit["stale_lock_owner_observation"] = owner.get("observation")
-            try:
-                path.unlink()
+            removal = remove_lock_payload_if_current(path, detail)
+            if removal.get("removed"):
                 audit["stale_lock_repair_count"] += 1
-            except FileNotFoundError:
-                pass
+            else:
+                detail = _read_lock_detail(path)
+                raise LongJobBusy(
+                    f"long-job lock instance changed during stale repair: {detail}"
+                ) from exc
             try:
                 fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
@@ -305,20 +327,21 @@ def acquire_long_job_lock(path, job_name, force=False, audit=None):
 def release_long_job_lock(path):
     if not path:
         return
-    detail = _read_lock_detail(Path(path))
-    if detail.get("pid") != os.getpid():
-        return
-    stored = detail.get(LOCK_OWNER_IDENTITY_FIELD)
-    if isinstance(stored, dict):
-        current = current_process_identity()
-        expected_token = stored.get("creation_time_token")
-        current_token = current.get("creation_time_token")
-        if expected_token and expected_token != current_token:
-            return
     try:
-        Path(path).unlink()
-    except FileNotFoundError:
-        pass
+        with lock_path_transaction(path):
+            detail = _read_lock_detail(Path(path))
+            if detail.get("pid") != os.getpid():
+                return
+            stored = detail.get(LOCK_OWNER_IDENTITY_FIELD)
+            if isinstance(stored, dict):
+                current = current_process_identity()
+                expected_token = stored.get("creation_time_token")
+                current_token = current.get("creation_time_token")
+                if expected_token and expected_token != current_token:
+                    return
+            remove_lock_payload_if_current(path, detail)
+    except LockPathTransactionBusy:
+        return
 
 
 def _lower_memory_priority(priority):

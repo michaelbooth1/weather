@@ -314,10 +314,12 @@ not lock ownership.
   every selected step to finish `ok`.
 - [x] Make one-date backfill stop normally after
   `market_day_labels_finalize`, suppress downstream publication/readiness, and
-  verify finite real settlement values across every market ledger.
+  verify finite authoritative `daily_summary` settlement across the exact
+  current-checkout market-registry fleet, including missing ledger paths.
 - [x] Bind daily-refresh and long-job locks/state to PID plus process creation
-  identity, fail closed on unreadable identity, and protect replacement locks
-  during release.
+  identity, fail closed on unreadable identity, serialize pathname mutation
+  through OS-backed transaction sidecars, revalidate exact payloads before
+  deletion, and redact command lines from persisted lock diagnostics.
 - [x] Give direct recovery and tiering launches kill-on-close child-tree
   containment, bounded runtimes, atomic latest status, and append-only history.
 - [ ] Pass the combined immutable full suite and guarded production adoption.

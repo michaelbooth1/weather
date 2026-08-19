@@ -33,6 +33,9 @@ from weather.market.market_making_run_support import preflight_book_audit, read_
 from weather.market.market_making_run_support import classify_zero_trade_root_cause, preflight_market
 from weather.market.market_making_run_support import source_status_degradation_preflight
 from weather.market.mm_geoblock import collect_official_geoblock_evidence
+from weather.market.mm_live_platform_verification import (
+    build_platform_verification_payload,
+)
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import spec_for_id
 from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
@@ -1327,6 +1330,13 @@ class TestMarketMakingRun(unittest.TestCase):
             no_fill_gate = load_platform_verification_gate(no_fill, TARGET_DATE, "live-pilot", now=NOW)
 
         self.assertTrue(good_gate["ok"])
+        self.assertEqual(good_gate["condition_id"], "0x" + "b" * 64)
+        self.assertEqual(good_gate["token_id"], "12345")
+        self.assertEqual(
+            good_gate["funder_address"],
+            "0x0000000000000000000000000000000000000001",
+        )
+        self.assertEqual(len(good_gate["artifact_sha256"]), 64)
         self.assertFalse(bad_gate["ok"])
         self.assertIn("eligibility_verified", bad_gate["missing"])
         self.assertIn("fees_verified", bad_gate["missing"])
@@ -1336,6 +1346,95 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertIn("target_date_matches", wrong_date_gate["missing"])
         self.assertTrue(no_fill_gate["ok"], no_fill_gate["missing"])
         self.assertFalse(load_platform_verification_gate(good, TARGET_DATE, "shadow", now=NOW)["required"])
+
+    def test_platform_verification_builder_normalizes_fresh_stage0_and_stage1_proof(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture_path = write_platform_verification(root / "fixture.json")
+            fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+            bundle = fixture["stage1_lifecycle_bundle"]
+            bundle_path = root / "bundle.json"
+            bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+            bootstrap = {
+                "verified_at_utc": NOW,
+                "physical_location_matches_geoblock_confirmed": True,
+                "geoblock_circumvention_absent_confirmed": True,
+                "geographic_eligibility": fixture["geographic_eligibility"],
+                "wallet_type": fixture["wallet_type"],
+                "signature_type": fixture["signature_type"],
+                "signature_type_id": fixture["signature_type_id"],
+                "funder_address": fixture["funder_address"],
+                "wallet_identity": {
+                    **fixture["wallet_identity"],
+                    "signed_order_preview_verified": True,
+                },
+                "sdk_contract": fixture["sdk_contract"],
+                "account_snapshot": fixture["account_snapshot"],
+                "dead_man_heartbeat": {
+                    key: value
+                    for key, value in fixture["dead_man_heartbeat"].items()
+                    if key
+                    not in {
+                        "stale_placement_disarm_verified",
+                        "automatic_cancel_verified",
+                    }
+                },
+                "isolated_pilot_wallet": True,
+                "pilot_wallet_max_funding_usdc": 25.0,
+                "source_urls": fixture["source_urls"],
+            }
+            bootstrap_path = root / "post-stage1-bootstrap.json"
+            bootstrap_path.write_text(json.dumps(bootstrap), encoding="utf-8")
+            economics = {
+                "verified_at_utc": NOW,
+                "source_urls": fixture["source_urls"],
+                "markets": [{
+                    "condition_id": bundle["condition_id"],
+                    "token_ids": [bundle["token_id"]],
+                    "fees_enabled": True,
+                    "fee_schedule": {"rate": 0.05, "rebate_rate": 0.25},
+                }],
+            }
+            economics_path = root / "economics.json"
+            economics_path.write_text(json.dumps(economics), encoding="utf-8")
+            bootstrap_gate = {
+                "ok": True,
+                "missing": [],
+                "geoblock_country": "CH",
+                "geoblock_region": "ZH",
+            }
+            economics_gate = {"ok": True, "missing": []}
+            with patch(
+                "weather.market.mm_live_platform_verification.load_platform_bootstrap_gate",
+                return_value=bootstrap_gate,
+            ), patch(
+                "weather.market.mm_live_platform_verification.load_exchange_economics_gate",
+                return_value=economics_gate,
+            ):
+                payload = build_platform_verification_payload(
+                    bootstrap_path,
+                    bundle_path,
+                    economics_path,
+                    target_date=TARGET_DATE,
+                    condition_id=bundle["condition_id"],
+                    token_id=bundle["token_id"],
+                    requested_budget_pusd=25,
+                    now=NOW,
+                )
+            output = root / "platform.json"
+            output.write_text(json.dumps(payload), encoding="utf-8")
+            gate = load_platform_verification_gate(
+                output,
+                TARGET_DATE,
+                "live-pilot",
+                now=NOW,
+                requested_budget_usdc=25,
+            )
+
+        self.assertTrue(gate["ok"], gate["missing"])
+        self.assertEqual(gate["condition_id"], bundle["condition_id"])
+        self.assertEqual(gate["token_id"], bundle["token_id"])
+        self.assertEqual(len(gate["artifact_sha256"]), 64)
 
     def test_platform_verification_gate_binds_stage1_bundle_content_and_derivations(self):
         with tempfile.TemporaryDirectory() as tmp:

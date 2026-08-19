@@ -1715,6 +1715,77 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(payload["config"]["stage_gate"]["status"], "RUN")
         self.assertEqual(manifest["source_stage_a_binding"], "stage-a-repaired")
 
+    def test_bounded_evidence_resume_refuses_stage_binding_restart(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            status_path = root / "bounded_status.json"
+            stage_a_manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "daily_refresh_stage_manifest_v0.1",
+                        "run_id": "stage-a-current",
+                        "stage": "settlement",
+                        "status": "COMPLETED",
+                        "target_date": "2026-07-07",
+                        "barrier": {
+                            "status": "PASS",
+                            "target_date": "2026-07-07",
+                        },
+                        "steps": _stage_a_promotion_receipts("2026-07-07"),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "config": {
+                            "settled_analysis_target_date": "2026-07-07",
+                            "stage_gate": {
+                                "stage_a_binding": "stage-a-before-repair"
+                            },
+                        },
+                        "steps": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(root / "stage_b.json"),
+                status_out=str(status_path),
+                settled_analysis_target_date="2026-07-07",
+                resume_from_step="daily_learning",
+                stop_after_step="daily_flow_analysis",
+            )
+            with self.assertRaisesRegex(
+                ValueError,
+                "bounded recovery refuses a stage-binding restart",
+            ):
+                run_daily_refresh(
+                    args,
+                    runners=[
+                        (
+                            "daily_learning",
+                            lambda _args: calls.append("daily_learning")
+                            or {"status": "ACTIONABLE"},
+                        ),
+                        (
+                            "daily_flow_analysis",
+                            lambda _args: calls.append("daily_flow_analysis")
+                            or {"status": "PASS"},
+                        ),
+                    ],
+                )
+
+        self.assertEqual(calls, [])
+
     def test_completed_stage_b_fallback_preserves_completed_artifacts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "backtest"
@@ -1864,7 +1935,13 @@ class TestDailyRefresh(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "backtest" / "daily_refresh.lock"
             path.parent.mkdir(parents=True)
-            path.write_text(json.dumps({"pid": os.getpid(), "created_at_utc": "2026-06-20T00:00:00+00:00"}), encoding="utf-8")
+            path.write_text(
+                json.dumps({
+                    "pid": os.getpid(),
+                    "created_at_utc": datetime.now(timezone.utc).isoformat(),
+                }),
+                encoding="utf-8",
+            )
 
             acquired = acquire_lock(path)
             payload = json.loads(path.read_text(encoding="utf-8"))

@@ -132,6 +132,15 @@ stopped optional producer cannot make unrelated merge verdicts undecidable.
 `status.ps1` treats process/lock/identity loss and evidence-integrity loss as
 actionable, but does not relabel it as one of the three streak workers.
 
+The first-adoption bounded probe may launch its own kill-on-close producer only
+while no continuous writer is active. After adoption,
+`bounded_execution_tape_probe.ps1 -ObserveExistingProducer` binds and observes
+the existing PID and coordinator session instead. It requires new routed
+execution observations, no new connection gap or integrity counter, and
+survival of all three core capture workers while leaving the single writer
+running. Child-launch mode refuses when it detects the healthy continuous
+producer; a writer-lock collision is not an accepted proof path.
+
 Each active location market-day writes bounded 64 MiB append-only parts under
 `data/snapshots/<event>/execution_tape/`: `trades`, repeated-identity annotations,
 connection `gaps`, and subscription `seeds`. The current public market-channel
@@ -308,15 +317,22 @@ adds an inclusive execution boundary:
 boundary steps and every selected intermediate step as `ok`; it exits normally
 so Python `finally` blocks release daily-refresh and long-job locks. It does not
 run readiness, publish stage manifests, trigger Stage B, update the daily
-progress ledger, or continue into scoring/tiering work. The wrapper verifies
-real finite settlement values in every market ledger after the child exits.
+progress ledger, or continue into scoring/tiering work. The wrapper imports the
+authoritative current-checkout market registry, refuses empty/duplicate or
+cross-checkout discovery, and requires finite `daily_summary` settlement in
+every expected market ledger after the child exits; missing directories cannot
+shrink the denominator.
 
 Daily-refresh and long-job lock payloads bind PID plus OS process creation
 identity and image. Exact creation-token mismatch proves PID reuse; unreadable
 identity fails closed. Legacy PID-only locks are considered stale only when
 the current process was created after the lock or its image cannot be a Python
-owner. Release also rechecks identity so an old process cannot unlink a
-replacement instance's lock.
+owner. Every compliant acquire, repair, and release serializes pathname changes
+through an OS byte lock in an ignored `.<lock-name>.transaction.lock` sidecar,
+then re-reads the exact JSON payload before deletion. This prevents a stale
+cleaner or old owner from unlinking a replacement instance. Lock diagnostics
+persist only PID, state, image, creation identity/time, and bounded reason—not
+the observed process command line or argument vector.
 
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This

@@ -18,6 +18,7 @@ param(
     [double]$AbortCommitPercent = 66.0,
     [ValidateRange(32, 1024)]
     [int]$MaxWorkingSetMB = 256,
+    [switch]$ObserveExistingProducer,
     [string]$ReportPath = "",
     [string]$HistoryPath = ""
 )
@@ -140,7 +141,12 @@ function Write-ProbeRecord {
 }
 
 $record = [ordered]@{
-    schema_version = "execution_tape_bounded_probe_v0.2"
+    schema_version = $(if ($ObserveExistingProducer) {
+        "execution_tape_continuous_observation_v0.1"
+    } else { "execution_tape_bounded_probe_v0.2" })
+    producer_mode = $(if ($ObserveExistingProducer) {
+        "observed_existing_continuous"
+    } else { "bounded_child" })
     started_at = (Get-Date).ToString("o")
     finished_at = $null
     ok = $false
@@ -157,6 +163,14 @@ $record = [ordered]@{
     baseline_trades = 0
     final_trades = 0
     new_trade_observations = 0
+    baseline_gap_count = 0
+    final_gap_count = 0
+    new_gap_count = 0
+    baseline_pid = $null
+    final_pid = $null
+    baseline_session_id = $null
+    final_session_id = $null
+    existing_producer_unchanged = $false
     baseline_integrity_counters = $null
     final_integrity_counters = $null
     capture_workers_before = 0
@@ -212,8 +226,12 @@ try {
 
     $baseline = Read-ExecutionStatus
     $baselineSession = if ($null -ne $baseline) { [string]$baseline.coordinator_session_id } else { "" }
+    $baselinePid = if ($null -ne $baseline) { [int]$baseline.pid } else { 0 }
     $baselineTrades = if ($null -ne $baseline -and $null -ne $baseline.last_counted) {
         [int64]$baseline.last_counted.trades_written
+    } else { [int64]0 }
+    $baselineGaps = if ($null -ne $baseline -and $null -ne $baseline.last_counted) {
+        [int64]$baseline.last_counted.gap_count
     } else { [int64]0 }
     $baselineIntegrity = [ordered]@{
         parse_rejections = Get-StatusCounter $baseline "parse_rejections"
@@ -221,55 +239,97 @@ try {
         ambiguous_routes = Get-StatusCounter $baseline "ambiguous_routes"
     }
     $record.baseline_trades = $baselineTrades
+    $record.baseline_gap_count = $baselineGaps
+    $record.baseline_pid = $baselinePid
+    $record.baseline_session_id = $baselineSession
     $record.baseline_integrity_counters = $baselineIntegrity
-
-    $env:PYTHONPATH = Join-Path $RepoRoot "src"
-    $env:PYTHONUTF8 = "1"
-    $pythonCode = "import threading; from weather.market.execution_tape_capture import run_live_capture; stop=threading.Event(); timer=threading.Timer($DurationSeconds, stop.set); timer.daemon=True; timer.start(); run_live_capture(shutdown_event=stop)"
-    $argumentString = "-c `"$pythonCode`""
-    $job = New-WeatherKillOnCloseJob
-    $child = Start-WeatherProcessInJob -Job $job -FilePath $python `
-        -ArgumentString $argumentString -WorkingDirectory $RepoRoot
-    $record.stage = "capture"
-
-    while (-not $child.HasExited) {
-        $child.Refresh()
-        $workingSetMB = [math]::Round($child.WorkingSet64 / 1MB, 2)
-        if ($workingSetMB -gt [double]$record.peak_working_set_mb) {
-            $record.peak_working_set_mb = $workingSetMB
-        }
-        $commit = Get-CommitPercent
-        if ($commit -gt [double]$record.peak_commit_percent) {
-            $record.peak_commit_percent = $commit
-        }
-        if ($workingSetMB -gt $MaxWorkingSetMB) {
-            throw "execution-tape child working set $workingSetMB MB exceeds $MaxWorkingSetMB MB"
-        }
-        if ($commit -gt $AbortCommitPercent) {
-            throw "host commit $commit% exceeds abort ceiling $AbortCommitPercent%"
-        }
-
-        $status = Read-ExecutionStatus
-        if (
-            $null -ne $status -and
-            [string]$status.coordinator_session_id -ne $baselineSession -and
-            (Test-ConnectedSeedSet $status)
-        ) {
-            if (-not [bool]$record.connected_seed_set_proved) {
-                $record.connected_seed_set_proved = $true
-                $record.connected_seed_set_proved_at = (Get-Date).ToString("o")
-            }
-        }
-        Start-Sleep -Seconds 2
+    if (-not $ObserveExistingProducer -and $baselinePid -gt 0 -and
+        [string]$baseline.state -eq "CONNECTED" -and
+        $null -ne (Get-Process -Id $baselinePid -ErrorAction SilentlyContinue)) {
+        throw "continuous execution-tape producer is already running; use -ObserveExistingProducer"
     }
 
-    $child.WaitForExit()
-    $record.child_exit_code = $child.ExitCode
-    if ($child.ExitCode -ne 0) { throw "execution-tape child exited $($child.ExitCode)" }
+    $final = $null
+    if ($ObserveExistingProducer) {
+        if ($null -eq $baseline -or $baselinePid -le 0 -or
+            -not $baselineSession -or [string]$baseline.state -ne "CONNECTED" -or
+            [string]$baseline.evidence_integrity -ne "PASS" -or
+            -not (Test-ConnectedSeedSet $baseline)) {
+            throw "existing execution-tape producer is not healthy and connected"
+        }
+        $record.stage = "observe_existing"
+        $record.connected_seed_set_proved = $true
+        $record.connected_seed_set_proved_at = (Get-Date).ToString("o")
+        $observationDeadline = (Get-Date).AddSeconds($DurationSeconds)
+        while ((Get-Date) -lt $observationDeadline) {
+            Start-Sleep -Seconds 2
+            $status = Read-ExecutionStatus
+            if ($null -eq $status -or [int]$status.pid -ne $baselinePid -or
+                [string]$status.coordinator_session_id -ne $baselineSession -or
+                [string]$status.state -ne "CONNECTED" -or
+                [string]$status.evidence_integrity -ne "PASS" -or
+                -not (Test-ConnectedSeedSet $status)) {
+                throw "existing execution-tape producer changed or degraded during observation"
+            }
+            $commit = Get-CommitPercent
+            if ($commit -gt [double]$record.peak_commit_percent) {
+                $record.peak_commit_percent = $commit
+            }
+            if ($commit -gt $AbortCommitPercent) {
+                throw "host commit $commit% exceeds abort ceiling $AbortCommitPercent%"
+            }
+        }
+        $final = Read-ExecutionStatus
+    }
+    else {
+        $env:PYTHONPATH = Join-Path $RepoRoot "src"
+        $env:PYTHONUTF8 = "1"
+        $pythonCode = "import threading; from weather.market.execution_tape_capture import run_live_capture; stop=threading.Event(); timer=threading.Timer($DurationSeconds, stop.set); timer.daemon=True; timer.start(); run_live_capture(shutdown_event=stop)"
+        $argumentString = "-c `"$pythonCode`""
+        $job = New-WeatherKillOnCloseJob
+        $child = Start-WeatherProcessInJob -Job $job -FilePath $python `
+            -ArgumentString $argumentString -WorkingDirectory $RepoRoot
+        $record.stage = "capture"
 
-    $final = Read-ExecutionStatus
+        while (-not $child.HasExited) {
+            $child.Refresh()
+            $workingSetMB = [math]::Round($child.WorkingSet64 / 1MB, 2)
+            if ($workingSetMB -gt [double]$record.peak_working_set_mb) {
+                $record.peak_working_set_mb = $workingSetMB
+            }
+            $commit = Get-CommitPercent
+            if ($commit -gt [double]$record.peak_commit_percent) {
+                $record.peak_commit_percent = $commit
+            }
+            if ($workingSetMB -gt $MaxWorkingSetMB) {
+                throw "execution-tape child working set $workingSetMB MB exceeds $MaxWorkingSetMB MB"
+            }
+            if ($commit -gt $AbortCommitPercent) {
+                throw "host commit $commit% exceeds abort ceiling $AbortCommitPercent%"
+            }
+
+            $status = Read-ExecutionStatus
+            if (
+                $null -ne $status -and
+                [string]$status.coordinator_session_id -ne $baselineSession -and
+                (Test-ConnectedSeedSet $status)
+            ) {
+                if (-not [bool]$record.connected_seed_set_proved) {
+                    $record.connected_seed_set_proved = $true
+                    $record.connected_seed_set_proved_at = (Get-Date).ToString("o")
+                }
+            }
+            Start-Sleep -Seconds 2
+        }
+
+        $child.WaitForExit()
+        $record.child_exit_code = $child.ExitCode
+        if ($child.ExitCode -ne 0) { throw "execution-tape child exited $($child.ExitCode)" }
+        $final = Read-ExecutionStatus
+    }
     if ($null -eq $final) { throw "execution-tape final status is unavailable" }
     $finalTrades = [int64]$final.last_counted.trades_written
+    $finalGaps = [int64]$final.last_counted.gap_count
     $finalIntegrity = [ordered]@{
         parse_rejections = Get-StatusCounter $final "parse_rejections"
         unrouted_trades = Get-StatusCounter $final "unrouted_trades"
@@ -277,15 +337,35 @@ try {
     }
     $record.final_trades = $finalTrades
     $record.new_trade_observations = $finalTrades - $baselineTrades
+    $record.final_gap_count = $finalGaps
+    $record.new_gap_count = $finalGaps - $baselineGaps
+    $record.final_pid = [int]$final.pid
+    $record.final_session_id = [string]$final.coordinator_session_id
     $record.final_integrity_counters = $finalIntegrity
     if (-not [bool]$record.connected_seed_set_proved) {
         throw "the complete active seed set was never observed connected"
     }
-    if ([string]$final.state -ne "STOPPED" -or -not $final.capture_stopped_at_utc) {
+    if ($ObserveExistingProducer) {
+        $record.existing_producer_unchanged = (
+            [string]$final.state -eq "CONNECTED" -and
+            [string]$final.evidence_integrity -eq "PASS" -and
+            [int]$final.pid -eq $baselinePid -and
+            [string]$final.coordinator_session_id -eq $baselineSession
+        )
+        if (-not $record.existing_producer_unchanged) {
+            throw "continuous producer did not remain the same healthy process and session"
+        }
+        if ([int64]$record.new_gap_count -ne 0) {
+            throw "continuous producer recorded a new coverage gap during observation"
+        }
+    }
+    elseif ([string]$final.state -ne "STOPPED" -or -not $final.capture_stopped_at_utc) {
         throw "capture did not stop cleanly with a durable STOPPED status"
     }
     if ([int64]$record.new_trade_observations -lt 1) {
-        throw "bounded capture produced no new execution observations"
+        throw $(if ($ObserveExistingProducer) {
+            "continuous observation produced no new execution observations"
+        } else { "bounded capture produced no new execution observations" })
     }
     foreach ($name in @("parse_rejections", "unrouted_trades", "ambiguous_routes")) {
         if ([int64]$finalIntegrity[$name] -ne [int64]$baselineIntegrity[$name]) {
@@ -304,7 +384,11 @@ try {
 
     $record.ok = $true
     $record.stage = "proved"
-    $record.detail = "new routed execution observations from a connected seed set with no new integrity errors"
+    $record.detail = $(if ($ObserveExistingProducer) {
+        "existing continuous producer stayed connected without a new gap or integrity error and wrote new routed execution observations"
+    } else {
+        "new routed execution observations from a connected seed set with no new integrity errors"
+    })
 }
 catch {
     $record.ok = $false

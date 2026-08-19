@@ -226,6 +226,7 @@ from weather.operations.daily_refresh_bounded import (
     bounded_trigger_skip,
     bounded_planned_steps,
     build_bounded_recovery_receipt,
+    enforce_bounded_resume_binding,
     select_bounded_runners,
 )
 from weather.operations.daily_refresh_cli_dependencies import build_cli_dependencies
@@ -1371,7 +1372,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             requested_target=requested_target,
             current_stage_a_binding=current_stage_a_binding,
         )
-        if carry["restart_from_stage_start"]:
+        if enforce_bounded_resume_binding(carry, stop_after):
             runners = list(bounded_stage_runners)
             payload["config"]["resume_restarted_from_stage_start"] = True
         payload["steps"] = carry["steps"]

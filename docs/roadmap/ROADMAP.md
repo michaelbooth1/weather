@@ -359,6 +359,7 @@ infrastructure work remains.
 
 | Item | File |
 | ---: | --- |
+| 329 | [Live Maker Event Ledger And Architecture Hardening [OPEN 2026-08-16 - APPROVED; PRE-PROBE PREPARATION ONLY]](items/item-329-live-maker-event-ledger-and-architecture-hardening.md) |
 | 87 | [Canonical CLI And Import Surface Retirement [COMPLETE 2026-06-16 - CANONICAL PACKAGE SURFACE LIVE]](items/item-87-canonical-cli-and-import-surface-retirement.md) |
 | 88 | [Shared Scoring, Formatting, And Backtest Utility Split [COMPLETE 2026-06-16 - SHARED HELPER MODULES LIVE]](items/item-88-shared-scoring-formatting-and-backtest-utility-split.md) |
 | 89 | [Explicit Model Build Contract And Source Adapter Boundary [COMPLETE 2026-06-16 - EXPLICIT BUILD CONTRACTS LIVE]](items/item-89-explicit-model-build-contract-and-source-adapter-boundary.md) |

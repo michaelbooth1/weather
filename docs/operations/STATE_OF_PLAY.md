@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-19 10:07 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-19 10:20 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -22,13 +22,13 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Capture | Healthy and on track today. All three core workers are current and error-free; the supervised execution tape is connected and integrity-valid. Preserve the 12:00-18:00 graded window. |
 | Cumulative parent | Exact tip `1f4fb14611fe94781323d2b2da43f057a6f7241e` passed 18/18 chunks and 4,489 tests, then integrated as merge `3c326ac1c03b415877da33dc254b39d32f576de4`. Capture recovered and `WeatherOneShotPush` published it. |
 | Production capability | The paper harvest route, unified official client, pUSD contract, and keyless Stage 0/1 software are in production. This proves software consistency, not order authority, credentials, a fill, rebate, or profit. |
-| Fixed-scope successor | Original tip `0df52a9c13dd4b5f2a541b5e0d0c898d945c2b83` is not integrated. Its host focused wrapper imported from production rather than its exact worktree; the full suite and merge correctly refused. A correct-worktree diagnostic passed 73/73, but a fresh cumulative exact-tip full suite remains mandatory. |
+| Fixed-scope successor | Original tip `0df52a9c13dd4b5f2a541b5e0d0c898d945c2b83` was not integrated overnight. Its prepared delta is a library-only, profile-bound path permitting at most one backed post-only BUY; ordinary model permission is unchanged and platform, account, lifecycle, economics, and risk bindings remain fail-closed. It is being preserved in one cumulative isolated branch. A correct-worktree diagnostic passed 73/73, but no immutable full-suite proof exists. |
 | Candidate | The August 19 candidate refused before economics or paper work because the required successor was absent. No current condition/token was selected and candidate selection remains non-authorizing. |
 | Public execution tape | Producer PID/lock/identity are current, `CONNECTED`, and integrity `PASS`. Historical gaps keep the accumulated full path unusable. The planned continuous-observation task was downstream of the absent successor and produced no receipt. |
-| Settlement | August 16 and August 18 carry real 12/12 settlement. August 17 remains the sole recent hole and will not self-heal. The August 16 recovery continued into unrelated chain work, hit bounded teardown, and left stale locks; the August 17 wrapper then refused on file existence. |
-| Host hardening | A new isolated branch adds clean stop-after-finalize recovery, PID-creation lock identity, contained/observable tiering, and honest status. It is not production until a fresh immutable suite and guarded merge pass. |
+| Settlement | August 16 and August 18 carry real 12/12 settlement. August 17 remains the sole recent hole and will not self-heal. The August 16 recovery continued into unrelated work, hit bounded teardown, and left stale locks; the August 17 wrapper then refused on file existence. |
+| Host hardening | The cumulative branch prepares clean stop-after-finalize recovery, PID-creation lock identity, contained/observable tiering, and honest status. None is production until a fresh immutable suite and guarded merge pass. |
 | Disk | The 24 h and 48 h slopes are both adverse. Scheduled projection and raw-tape tiering returned Scheduler zero but durably recorded `SKIPPED_WORKLOAD_LEASE_BUSY`; retry them in the next serialized heavy window. |
-| Documentation | The parent integration transaction is overdue until this rewrite, owning roadmap updates, publication, and its hash-bound completion receipt all land. A failed later successor does not erase the successful parent merge. |
+| Documentation | The parent integration transaction is complete and published at `a76ec7b5599d499011054f98e43564ad0563a58f`, with a hash-bound completion receipt. The cumulative successor will create a new obligation only after it integrates. |
 
 ## Closed decisions — do not relitigate without new evidence
 
@@ -51,15 +51,16 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Immediate execution order
 
-1. Close and publish the parent documentation transaction from actual receipts.
-2. Freeze one cumulative branch containing current production, the original
-   successor, and the lock/backfill/tiering/recovery hardening. Run focused
-   checks plus a fresh exact-tip full suite.
-3. Merge that roll-sensitive cumulative tip only during 01:00-04:00, prove all
+1. Freeze the one cumulative branch containing current production, the original
+   successor, and lock/backfill/tiering/status hardening. Run light focused
+   checks now and a fresh exact-tip full suite in tonight's admitted window.
+2. Merge that roll-sensitive cumulative tip only during 01:00-04:00, prove all
    capture workers recovered, and publish only through `WeatherOneShotPush`.
-4. Observe the adopted execution producer without a second writer; recover
+3. Observe the adopted execution producer without a second writer; recover
    August 17 through the stop-after-finalize path; require explicit PASS
    receipts for both before another paper candidate.
+4. Retry both tiering jobs in non-overlapping admitted windows and classify
+   their durable outcomes rather than Scheduler zero.
 5. After physical relocation, rerun public metadata/economics/candidate and the
    full eligible-host Stage 0/1 sequence before considering bounded Stage 2.
 

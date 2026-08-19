@@ -70,6 +70,8 @@ $log = Join-Path $logDir "recovery-$stamp.log"
 $errLog = Join-Path $logDir "recovery-$stamp.err"
 $repairLog = Join-Path $logDir "lock-repair-$stamp.json"
 $repairErrLog = Join-Path $logDir "lock-repair-$stamp.err"
+$postRepairLog = Join-Path $logDir "post-lock-repair-$stamp.json"
+$postRepairErrLog = Join-Path $logDir "post-lock-repair-$stamp.err"
 $refreshStatus = if ($StopAfter) {
     Join-Path $logDir "refresh-$stamp.json"
 } else {
@@ -96,8 +98,14 @@ function Write-Status($state, $detail, $exit) {
         log          = $log
         error_log    = $errLog
         lock_repair  = $repairLog
+        post_lock_repair = $postRepairLog
         refresh_status = $refreshStatus
         refresh_report = $refreshReport
+        hard_stop_local = if ($script:hardStopLocal) { $script:hardStopLocal.ToString("o") } else { $null }
+        child_exit_code = $script:childExitCode
+        lock_release_verified = [bool]$script:lockReleaseVerified
+        post_lock_cleanup_status = $script:postLockCleanupStatus
+        post_lock_cleanup_detail = $script:postLockCleanupDetail
         workload_lease_mode = $script:workloadLeaseMode
         workload_lease_owner_pid = $script:workloadLeaseOwnerPid
     }
@@ -107,6 +115,11 @@ function Write-Status($state, $detail, $exit) {
 $script:startedAt = (Get-Date).ToString("o")
 $script:workloadLeaseMode = "none"
 $script:workloadLeaseOwnerPid = $null
+$script:hardStopLocal = $null
+$script:childExitCode = $null
+$script:lockReleaseVerified = $false
+$script:postLockCleanupStatus = "NOT_RUN"
+$script:postLockCleanupDetail = ""
 $admissionScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
 $jobScript = Join-Path $repo "scripts\ops\windows_kill_on_close_job.ps1"
 $tokenScript = Join-Path $repo "scripts\ops\training_window_contract.ps1"
@@ -126,6 +139,7 @@ if ($policyWindow -ne "agent_heavy") {
     Write-Host "REFUSED: $msg"
     exit 2
 }
+$script:hardStopLocal = (Get-Date).Date.AddHours(9)
 
 $python = Join-Path $repo "venv\Scripts\python.exe"
 if (-not (Test-Path $python)) { Write-Status "ERROR" "python not found at $python" 1; exit 1 }
@@ -152,7 +166,8 @@ function Invoke-ContainedDailyRefreshPython {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$StandardOutputPath,
-        [Parameter(Mandatory = $true)][string]$StandardErrorPath
+        [Parameter(Mandatory = $true)][string]$StandardErrorPath,
+        [Parameter(Mandatory = $true)][datetime]$HardStopLocal
     )
     # The assigned Python process redirects itself before runpy enters the
     # module. It is created suspended, assigned to a KILL_ON_JOB_CLOSE Job,
@@ -169,6 +184,24 @@ function Invoke-ContainedDailyRefreshPython {
             -FilePath $python `
             -ArgumentString $argumentString `
             -WorkingDirectory $repo
+        while ($true) {
+            $process.Refresh()
+            if ($process.HasExited) { break }
+            $remainingMilliseconds = [math]::Floor(
+                ($HardStopLocal - (Get-Date)).TotalMilliseconds
+            )
+            if ($remainingMilliseconds -le 0) {
+                $job.Dispose()
+                $job = $null
+                $process.WaitForExit()
+                return 75
+            }
+            $waitMilliseconds = [int][math]::Max(
+                1,
+                [math]::Min(250, $remainingMilliseconds)
+            )
+            [void]$process.WaitForExit($waitMilliseconds)
+        }
         $process.WaitForExit()
         return [int]$process.ExitCode
     }
@@ -235,7 +268,8 @@ $repairArgs = @(
 $repairExit = Invoke-ContainedDailyRefreshPython `
     -Arguments $repairArgs `
     -StandardOutputPath $repairLog `
-    -StandardErrorPath $repairErrLog
+    -StandardErrorPath $repairErrLog `
+    -HardStopLocal $script:hardStopLocal
 if ($repairExit -ne 0) {
     $detail = "canonical stale-lock repair failed with exit $repairExit; refusing recovery run"
     Write-Status "ERROR" $detail 1
@@ -294,7 +328,77 @@ Write-Host "log: $log"
 $exit = Invoke-ContainedDailyRefreshPython `
     -Arguments $chainArgs `
     -StandardOutputPath $log `
-    -StandardErrorPath $errLog
+    -StandardErrorPath $errLog `
+    -HardStopLocal $script:hardStopLocal
+$script:childExitCode = $exit
+
+# After any normal child exit, re-run canonical ownership-aware cleanup while
+# time remains. Preserve an original nonzero outcome, but require both lock
+# paths absent before success. Exit 75 already means the Job was torn down at
+# the absolute deadline, so cleanup is explicitly deferred to the next preflight.
+if ($exit -ne 75 -and (Get-Date) -lt $script:hardStopLocal) {
+    $postRepairArgs = @(
+        "repair-stale-locks",
+        "--backtest-root", $backtestRoot,
+        "--snapshots-root", (Join-Path $repo "data\snapshots"),
+        "--status-out", $refreshStatus,
+        "--report-out", $refreshReport,
+        "--lock-path", (Join-Path $backtestRoot "daily_refresh.lock"),
+        "--long-job-lock", (Join-Path $backtestRoot "long_job_guard.lock"),
+        "--long-job-state", (Join-Path $backtestRoot "long_job_guard_status.json"),
+        "--settled-analysis-target-date", $TargetDate,
+        "--resume-from-step", $ResumeFrom
+    )
+    $postRepairExit = Invoke-ContainedDailyRefreshPython `
+        -Arguments $postRepairArgs `
+        -StandardOutputPath $postRepairLog `
+        -StandardErrorPath $postRepairErrLog `
+        -HardStopLocal $script:hardStopLocal
+    if ($postRepairExit -eq 0) {
+        try {
+            $postRepair = Get-Content -Raw -Path $postRepairLog | ConvertFrom-Json
+        }
+        catch { $postRepair = $null }
+        if ($null -ne $postRepair) {
+            $postLockBlockers = @(
+                @($postRepair.daily_refresh_lock, $postRepair.long_job_lock) |
+                    Where-Object { $_.exists -and -not $_.removed }
+            )
+            $dailyLockPath = Join-Path $backtestRoot "daily_refresh.lock"
+            $longJobLockPath = Join-Path $backtestRoot "long_job_guard.lock"
+            $postStateBlocked = (
+                $postRepair.long_job_state.active -and
+                -not $postRepair.long_job_state.stale -and
+                -not $postRepair.long_job_state.cleared
+            )
+            $script:lockReleaseVerified = (
+                $postLockBlockers.Count -eq 0 -and
+                -not (Test-Path -LiteralPath $dailyLockPath) -and
+                -not (Test-Path -LiteralPath $longJobLockPath) -and
+                -not $postStateBlocked
+            )
+        }
+    }
+    if ($script:lockReleaseVerified) {
+        $script:postLockCleanupStatus = "PASS"
+        $script:postLockCleanupDetail = "canonical cleanup completed and both lock paths are absent"
+    }
+    elseif ($postRepairExit -eq 75) {
+        $script:postLockCleanupStatus = "SKIPPED_HARD_DEADLINE"
+        $script:postLockCleanupDetail = "09:00 hard stop reached during post-child cleanup"
+        if ($exit -eq 0) { $exit = 75 }
+    }
+    else {
+        $script:postLockCleanupStatus = "FAIL"
+        $script:postLockCleanupDetail = "canonical cleanup or physical lock-absence verification failed"
+        if ($exit -eq 0) { $exit = 1 }
+    }
+}
+else {
+    $script:postLockCleanupStatus = "SKIPPED_HARD_DEADLINE"
+    $script:postLockCleanupDetail = "child reached, or returned after, the 09:00 hard stop"
+    if ($exit -eq 0) { $exit = 75 }
+}
 
 if ($StopAfter -and $exit -eq 0) {
     try {
