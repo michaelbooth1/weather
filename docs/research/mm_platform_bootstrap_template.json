@@ -1,5 +1,5 @@
 {
-  "schema_version": "mm_platform_bootstrap_v0.1",
+  "schema_version": "mm_platform_bootstrap_v0.2",
   "status": "TEMPLATE_FAIL_SAFE",
   "verified_at_utc": null,
   "verified_for_target_date": null,
@@ -42,8 +42,8 @@
   "isolated_pilot_wallet": false,
   "pilot_wallet_max_funding_usdc": null,
   "sdk_contract": {
-    "distribution": "py-clob-client-v2",
-    "version": "1.1.0",
+    "distribution": "polymarket-client",
+    "version": "0.6.0",
     "exact_version_verified": false,
     "stage0_identity_verified": false
   },
@@ -86,10 +86,12 @@
     "inbound_silence_seconds": 30
   },
   "dead_man_heartbeat": {
-    "endpoint": "/v1/heartbeats",
+    "endpoint": "/heartbeats",
     "endpoint_verified": false,
-    "initial_empty_id_verified": false,
-    "rotating_id_chain_verified": false,
+    "request_body_absent_verified": false,
+    "two_acknowledgments_verified": false,
+    "acknowledgment_count": null,
+    "heartbeat_acknowledgments_sha256": null,
     "acknowledgment_verified": false,
     "cadence_seconds": null
   },
@@ -103,13 +105,16 @@
     "diagnostic_redaction_verified": false
   },
   "source_urls": [
-    "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
+    "https://github.com/Polymarket/py-sdk/tree/c8fb84bb51e60f790239056be7be0f5cc337d2e0",
+    "https://docs.polymarket.com/getting-started/migrate-from-previous-sdks",
+    "https://docs.polymarket.com/api-reference/trade/send-heartbeat",
     "https://docs.polymarket.com/api-reference/authentication",
     "https://docs.polymarket.com/trading/overview",
     "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
     "https://docs.polymarket.com/api-reference/wss/user",
     "https://docs.polymarket.com/trading/orders/overview",
     "https://docs.polymarket.com/trading/fees",
+    "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
     "https://docs.polymarket.com/programs/maker-rebates",
     "https://docs.polymarket.com/concepts/pusd",
     "https://docs.polymarket.com/api-reference/geoblock"

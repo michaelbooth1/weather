@@ -44,12 +44,15 @@ STALE_EVIDENCE_BASIS = "paper_stale_exchange_economics"
 GLOBAL_PLATFORM = "polymarket_global"
 GAMMA_EVENT_BY_SLUG_URL = "https://gamma-api.polymarket.com/events/slug/{slug}"
 CLOB_CURRENT_REWARDS_URL = "https://clob.polymarket.com/rewards/markets/current"
+PUSD_COLLATERAL_PROXY_ADDRESS = "0xc011a7e12a19f7b1f670d46f03b03f3342e82dfb"
+PUSD_CONTRACTS_URL = "https://docs.polymarket.com/resources/contracts"
 GLOBAL_SOURCE_URLS = (
     "https://docs.polymarket.com/trading/fees",
     "https://docs.polymarket.com/programs/maker-rebates",
     "https://docs.polymarket.com/programs/liquidity-rewards",
     "https://docs.polymarket.com/api-reference/rewards/get-current-active-rewards-configurations",
     "https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker",
+    PUSD_CONTRACTS_URL,
 )
 GLOBAL_SOURCE_MARKDOWN_URLS = {
     url: f"{url}.md"
@@ -276,8 +279,22 @@ def _rule_document_semantic_checks(canonical_url, source_text):
             "request_scope": all(("maker_address" in text, "yyyy-mm-dd" in text)),
             "response_scope": all((
                 "condition_id" in text,
+                "asset_address" in text,
                 "maker_address" in text,
                 "rebated_fees_usdc" in text,
+            )),
+            "response_unit_usdc": (
+                "usdc amount rebated" in text
+                or "rebated fee amount in usdc" in text
+            ),
+        }
+    if canonical_url.endswith("/resources/contracts"):
+        return {
+            "polygon_mainnet": "chain id: 137" in text,
+            "pusd_collateral_proxy": all((
+                "pusd" in text,
+                "collateraltoken (proxy)" in text,
+                PUSD_COLLATERAL_PROXY_ADDRESS in text,
             )),
         }
     return {"recognized_rule_document": False}
@@ -573,6 +590,14 @@ def collect_global_snapshot_payload(
             "maker_rebate_rate": rebate_rate,
             "credited_when": "daily_after_eligible_resting_liquidity_executes",
             "documented_payout_asset": "pUSD",
+            "program_documented_payout_asset": "pUSD",
+            "reconciliation_api_amount_field": "rebated_fees_usdc",
+            "reconciliation_api_documented_amount_unit": "USDC",
+            "documentation_asset_terms_conflict": True,
+            "actual_payout_asset_status": "wallet_reconciliation_required",
+            "documented_payout_asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
+            "payout_asset_address_source": PUSD_CONTRACTS_URL,
+            "requires_returned_asset_address_match": True,
             "minimum_accrued_payout_pusd": 1.0,
             "payout_cadence": "daily",
             "calculation_scope": "per_market",
@@ -938,6 +963,19 @@ def _global_market_economics_checks(payload):
         ),
         "global_rebate_payout_asset_reconciliation_required": (
             maker_rebate.get("documented_payout_asset") == "pUSD"
+            and maker_rebate.get("program_documented_payout_asset") == "pUSD"
+            and maker_rebate.get("reconciliation_api_amount_field")
+            == "rebated_fees_usdc"
+            and maker_rebate.get("reconciliation_api_documented_amount_unit")
+            == "USDC"
+            and maker_rebate.get("documentation_asset_terms_conflict") is True
+            and maker_rebate.get("actual_payout_asset_status")
+            == "wallet_reconciliation_required"
+            and maker_rebate.get("documented_payout_asset_address")
+            == PUSD_COLLATERAL_PROXY_ADDRESS
+            and maker_rebate.get("payout_asset_address_source")
+            == PUSD_CONTRACTS_URL
+            and maker_rebate.get("requires_returned_asset_address_match") is True
             and maker_rebate.get("requires_payout_asset_reconciliation") is True
             and maker_rebate.get("actual_reconciliation_endpoint")
             == "https://clob.polymarket.com/rebates/current"
@@ -1447,6 +1485,7 @@ def accept_snapshot_baseline(
     platform=DEFAULT_PLATFORM,
     now=None,
     max_age_hours=None,
+    acknowledge_payout_asset_conflict=False,
 ):
     gate = load_exchange_economics_gate(
         snapshot_path,
@@ -1460,6 +1499,15 @@ def accept_snapshot_baseline(
     payload = _load_json(snapshot_path)
     if payload is None:
         raise ValueError(f"invalid exchange-economics snapshot JSON: {snapshot_path}")
+    payout_terms_conflict = (
+        (payload.get("maker_rebate") or {}).get("documentation_asset_terms_conflict")
+        is True
+    )
+    if payout_terms_conflict and acknowledge_payout_asset_conflict is not True:
+        raise ValueError(
+            "explicit payout-asset conflict acknowledgement is required before "
+            "accepting the International economics baseline"
+        )
     accepted_payload = deepcopy(payload)
     accepted_payload["accepted_at_utc"] = utc_now(now).isoformat()
     accepted_payload["accepted_from_snapshot_path"] = str(snapshot_path)
@@ -1471,6 +1519,9 @@ def accept_snapshot_baseline(
         "source_hash": gate.get("source_hash"),
         "verified_at_utc": gate.get("verified_at_utc"),
         "verified_for_target_date": gate.get("verified_for_target_date"),
+        "payout_asset_conflict_acknowledged": bool(
+            acknowledge_payout_asset_conflict
+        ),
     }
     accepted_out = write_json(accepted_snapshot_path, accepted_payload)
     drift = build_drift_report(
@@ -1598,6 +1649,14 @@ def build_snapshot_payload(
             "pool_share": maker_rebate_pool_share,
             "maker_rebate_rate": maker_rebate_pool_share,
             "documented_payout_asset": "pUSD",
+            "program_documented_payout_asset": "pUSD",
+            "reconciliation_api_amount_field": "rebated_fees_usdc",
+            "reconciliation_api_documented_amount_unit": "USDC",
+            "documentation_asset_terms_conflict": True,
+            "actual_payout_asset_status": "wallet_reconciliation_required",
+            "documented_payout_asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
+            "payout_asset_address_source": PUSD_CONTRACTS_URL,
+            "requires_returned_asset_address_match": True,
             "minimum_accrued_payout_pusd": 1.0,
             "payout_cadence": "daily",
             "calculation_scope": "per_market",
@@ -1685,6 +1744,11 @@ def main(argv=None):
     publish.add_argument("--now", default=None)
     publish.add_argument("--max-age-hours", type=float, default=None)
     publish.add_argument("--accept", action="store_true", help="Also promote the published snapshot to the accepted baseline.")
+    publish.add_argument(
+        "--acknowledge-payout-asset-conflict",
+        action="store_true",
+        help="Acknowledge the official pUSD/USDC payout-amount terminology conflict before baseline acceptance.",
+    )
     publish.add_argument("--accepted-snapshot", default=str(DEFAULT_ACCEPTED_SNAPSHOT))
     publish.add_argument("--json-out", default=str(DEFAULT_DRIFT_REPORT))
 
@@ -1696,6 +1760,11 @@ def main(argv=None):
     accept.add_argument("--now", default=None)
     accept.add_argument("--max-age-hours", type=float, default=None)
     accept.add_argument("--json-out", default=str(DEFAULT_DRIFT_REPORT))
+    accept.add_argument(
+        "--acknowledge-payout-asset-conflict",
+        action="store_true",
+        help="Acknowledge the official pUSD/USDC payout-amount terminology conflict before baseline acceptance.",
+    )
 
     drift = sub.add_parser("drift", help="Validate current snapshot and compare it to the accepted baseline.")
     _add_drift_args(drift)
@@ -1732,6 +1801,9 @@ def main(argv=None):
                 platform=args.platform,
                 now=args.now,
                 max_age_hours=args.max_age_hours,
+                acknowledge_payout_asset_conflict=(
+                    args.acknowledge_payout_asset_conflict
+                ),
             )
             print(f"Accepted baseline: {payload['acceptance']['status']} -> {payload['acceptance']['accepted_snapshot_path']}")
         return payload
@@ -1744,6 +1816,9 @@ def main(argv=None):
             platform=args.platform,
             now=args.now,
             max_age_hours=args.max_age_hours,
+            acknowledge_payout_asset_conflict=(
+                args.acknowledge_payout_asset_conflict
+            ),
         )
         print(f"Accepted baseline: {payload['status']} -> {payload['accepted_snapshot_path']}")
         return payload

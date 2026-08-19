@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-07-27
+Last updated: 2026-08-16
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,11 +8,12 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 21 modules.
+- Current warning count: 22 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
-  `weather.collection.snapshot_store`, `weather.market.mm_paper`,
+  `weather.collection.snapshot_store`, `weather.market.market_making_run`,
+  `weather.market.mm_paper`,
   `weather.market.mm_paper_scoring`,
   `weather.calibration.residual_distribution_v1`,
   `weather.calibration.pooled_candidate_replay`, `weather.model.model_sources`,
@@ -62,6 +63,7 @@ Current module-size audit status:
 | `weather.collection.snapshot_tracker` | Collection | Snapshot capture orchestration, isolated fleet execution, managed-loop lifecycle, status reporting, and CLI dispatch. | WARN in the 2026-07-15 audit. Extract managed-loop status rendering and fleet-health aggregation behind the stable CLI while preserving worker isolation, writer-lock, and supervisor contracts. |
 | `weather.reporting.daily.daily_learning` | Reporting | Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers. Input readers, input gates, experiment queue builders, and scorecard assembly live in `weather.reporting.daily.daily_learning_scorecard`; report rendering lives in `weather.reporting.daily.daily_learning_render`. | Below the 2,000-line warning threshold in the 2026-07-12 audit; retain the documented next split if growth resumes. |
 | `weather.reporting.daily.daily_learning_scorecard` | Reporting | Daily-learning artifact readers, input freshness/coverage/consistency gates, experiment queue item builders, label countability, calibration monitoring, and scorecard assembly. | Owner module for item 318; must not import the `daily_learning` facade. |
+| `weather.market.market_making_run` | Market | Target-date market-making orchestration, runtime and useful-work liveness gates, preflight diagnostics, run/report payload assembly, bounded paper-loop execution, and CLI dispatch. | Newly WARN in the 2026-08-16 audit after the paper-only market-harvest lane. Extract runtime identity and useful-work liveness construction into a market-making liveness owner that does not import the orchestration facade; preserve gate names, blocker ordering, payload schemas, and the stable CLI. |
 | `weather.market.mm_paper` | Market | Market-making paper orchestration, report/evidence export, model-variant promotion summaries, and compatibility exports for scoring helpers. Tape ingestion, conservative fill accounting, queue simulation, and P&L scoring live in `weather.market.mm_paper_scoring`; bounded run-row retention lives in `weather.market.mm_paper_aggregation`. | WARN in the 2026-07-03 audit. Next split should move reward diagnostics, model-variant promotion gates, or fill-evidence completeness helpers out of the orchestration facade. |
 | `weather.market.mm_paper_aggregation` | Market | One-run-at-a-time quote/variant folding, SQLite row/leg/output spools, exact quote-to-leg membership views, and disk-backed queue ordering for maker-paper scoring. | Bounded owner module added 2026-07-16; must not import the `mm_paper` facade. |
 | `weather.market.mm_paper_scoring` | Market | Genuine-execution admission and provenance-preserving trade normalization/deduplication, active-day paper score freshness, quote/trade/book/mark tape readers, conservative fill simulation, queue companion scoring, and P&L summaries. | WARN after the 2026-07-27 execution-evidence growth. Extract execution-evidence parsing, normalization, identity, and cross-source deduplication into a dedicated owner module that does not import the `mm_paper` facade; keep side-aware fill and P&L scoring in `mm_paper_scoring`. |

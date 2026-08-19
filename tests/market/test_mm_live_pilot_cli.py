@@ -1,11 +1,13 @@
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from weather.market import mm_live_pilot_cli as cli
+from weather.market import mm_live_candidate_cli as candidate_cli
 from weather.market.mm_credentials import STAGE0_AUTHORIZATION
 from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.mm_live_lifecycle_probe import CONFIRMATION as STAGE1_CONFIRMATION
@@ -89,12 +91,20 @@ class FakeAdapter:
         }
 
 
+class FakeClient:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
 def context(tmp_path, name="context-stream.jsonl"):
     stream = FakeStream(tmp_path / name)
     adapter = FakeAdapter()
     return cli.LivePilotContext(
         credentials=object(),
-        client=object(),
+        client=FakeClient(),
         user_stream=stream,
         adapter=adapter,
     )
@@ -122,9 +132,84 @@ def args(tmp_path, command):
     else:
         bootstrap = tmp_path / "bootstrap-input.json"
         bootstrap.write_text("{}", encoding="utf-8")
+        candidate = tmp_path / "stage1-candidate.json"
+        current = datetime.now(timezone.utc)
+        paper_generated = current - timedelta(seconds=2)
+        created = current - timedelta(seconds=1)
+        paper_expires = paper_generated + timedelta(seconds=120)
+        candidate_payload = {
+            "schema_version": candidate_cli.SCHEMA_VERSION,
+            "status": "PASS",
+            "created_at_utc": created.isoformat(),
+            "expires_at_utc": paper_expires.isoformat(),
+            "target_date": "2026-08-14",
+            "platform": "polymarket_global",
+            "settlement_unit": "pUSD",
+            "economics_gate_ok": True,
+            "exchange_economics_snapshot_id": "xecon-test",
+            "exchange_economics_sha256": "economics-hash",
+            "selection_is_trading_authorization": False,
+            "selection_policy": {
+                "expected_bootstrap_scope": {
+                    "condition_id": CONDITION_ID,
+                    "token_id": TOKEN_ID,
+                },
+            },
+            "paper_quote_evidence": {
+                "run_config_sha256": "d" * 64,
+                "quote_intents_sha256": "e" * 64,
+                "quote_intents_row_count": 1,
+                "run_id": "paper-run-1",
+                "market_id": "toronto",
+            },
+            "selected": {
+                "location_id": "toronto",
+                "condition_id": CONDITION_ID,
+                "token_id": TOKEN_ID,
+                "best_bid": 0.49,
+                "best_ask": 0.50,
+                "spread": 0.01,
+                "tick_size": 0.01,
+                "order_min_size": 5.0,
+                "stage1_intent": {
+                    "side": "BUY",
+                    "price": 0.01,
+                    "size": 5.0,
+                    "notional_pusd": 0.05,
+                    "post_only": True,
+                },
+                "paper_quote_proof": {
+                    "run_id": "paper-run-1",
+                    "market_id": "toronto",
+                    "condition_id": CONDITION_ID,
+                    "token_id": TOKEN_ID,
+                    "exchange_economics_snapshot_id": "xecon-test",
+                    "exchange_economics_hash": "economics-hash",
+                    "policy_hash": "paper-policy-hash",
+                    "generated_at_utc": paper_generated.isoformat(),
+                    "expires_at_utc": paper_expires.isoformat(),
+                    "quote_ttl_seconds": 120,
+                    "bid_price": 0.48,
+                    "bid_size": 5.0,
+                    "ask_price": 0.51,
+                    "ask_size": 5.0,
+                    "quote_risk_pusd": 5.0,
+                    "quote_permission": True,
+                    "live_trade_permission": False,
+                    "two_sided_post_only_intent": True,
+                    "reward_and_rebate_assumed_zero": True,
+                    "quote_row_sha256": "f" * 64,
+                },
+            },
+        }
+        candidate_payload["plan_sha256"] = candidate_cli.candidate_plan_sha256(
+            candidate_payload
+        )
+        candidate.write_text(json.dumps(candidate_payload), encoding="utf-8")
         common.update(
             confirmation=STAGE1_CONFIRMATION,
             bootstrap=str(bootstrap),
+            candidate_plan=str(candidate),
             cancellation_mode="cancel_all",
             lifecycle_journal=str(tmp_path / "lifecycle.jsonl"),
             result_out=str(tmp_path / "stage1-result.json"),
@@ -303,7 +388,7 @@ def test_keyless_doctor_passes_without_resolving_credential_targets(tmp_path):
     receipt = cli.run_doctor(
         command_args,
         env=env,
-        sdk_version_getter=lambda: "1.1.0",
+        sdk_version_getter=lambda: "0.6.0",
         platform_name="nt",
     )
 
@@ -349,7 +434,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
         context_builder=lambda *_args, **_kwargs: live_context,
         stream_waiter=lambda stream, **_kwargs: stream.start(),
         bootstrap_collector=lambda _adapter, stream, *_args, **_kwargs: {
-            "schema_version": "mm_platform_bootstrap_v0.1",
+            "schema_version": "mm_platform_bootstrap_v0.2",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -403,7 +488,12 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
     assert seen["kwargs"]["cancellation_mode"] == "cancel_all"
     assert live_context.adapter.cancel_calls == 1
     assert live_context.user_stream.stopped
-    assert json.loads(open(command_args.result_out, encoding="utf-8").read())["status"] == "PASS"
+    saved_result = json.loads(open(command_args.result_out, encoding="utf-8").read())
+    assert saved_result["status"] == "PASS"
+    assert len(saved_result["candidate_plan_sha256"]) == 64
+    assert saved_result["paper_run_config_sha256"] == "d" * 64
+    assert saved_result["paper_quote_intents_sha256"] == "e" * 64
+    assert saved_result["paper_quote_row_sha256"] == "f" * 64
 
 
 def test_stage1_failure_receipt_never_serializes_raw_exception_text(tmp_path):
@@ -427,6 +517,34 @@ def test_stage1_failure_receipt_never_serializes_raw_exception_text(tmp_path):
     assert receipt["exception_type"] == "RuntimeError"
     assert "TOP-SECRET-SDK-TEXT" not in raw
     assert live_context.adapter.cancel_calls == 1
+
+
+def test_stage1_rejects_candidate_gate_before_credentials_or_mutation(tmp_path):
+    command_args = args(tmp_path, "stage1")
+    context_called = False
+
+    def build(*_args, **_kwargs):
+        nonlocal context_called
+        context_called = True
+        return context(tmp_path)
+
+    with pytest.raises(RuntimeError, match="paper proof missing"):
+        cli.run_stage1(
+            command_args,
+            context_builder=build,
+            candidate_loader=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                RuntimeError("paper proof missing")
+            ),
+            bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
+        )
+
+    assert context_called is False
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["status"] == "FAIL"
+    assert receipt["exception_type"] == "RuntimeError"
+    assert "paper proof missing" not in Path(command_args.receipt_out).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_stage1_result_write_failure_still_emits_fail_receipt(
@@ -573,7 +691,16 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
         captured["position_scope"] = (maker, condition)
         return {"rows": []}
 
-    client = object()
+    client = SimpleNamespace(signer="0x" + "c" * 40)
+
+    def heartbeat_sender_factory(**kwargs):
+        captured["heartbeat_sender"] = kwargs
+        return "heartbeat-sender"
+
+    def market_rule_fetcher(token):
+        captured["market_rule_token"] = token
+        return {"token_id": token}
+
     result = cli.build_live_pilot_context(
         {"identity": "public"},
         token_id=TOKEN_ID,
@@ -584,6 +711,8 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
         user_stream_factory=StreamFactory,
         adapter_factory=AdapterFactory,
         position_fetcher=position_fetcher,
+        heartbeat_sender_factory=heartbeat_sender_factory,
+        market_rule_fetcher=market_rule_fetcher,
     )
 
     assert repr(result) == (
@@ -591,9 +720,49 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
     )
     assert captured["adapter"]["authoritative_readers_verified"] is True
     assert captured["adapter"]["max_order_notional"] == 10.0
+    assert captured["adapter"]["heartbeat_sender"] == "heartbeat-sender"
+    assert captured["heartbeat_sender"]["signer_address"] == client.signer
+    assert captured["heartbeat_sender"]["api_secret"] == "api-secret"
     assert captured["stream"]["journal_path"] == tmp_path / "stream.jsonl"
     captured["adapter"]["position_reader"]()
     assert captured["position_scope"] == (ADDRESS, CONDITION_ID)
+    captured["adapter"]["market_rule_reader"]()
+    assert captured["market_rule_token"] == TOKEN_ID
+
+
+def test_context_closes_the_unified_client_when_wiring_fails(tmp_path):
+    class Credentials:
+        api_key = "key-secret"
+        api_secret = "api-secret"
+        api_passphrase = "pass-secret"
+        funder = ADDRESS
+
+    class Client(FakeClient):
+        signer = "0x" + "c" * 40
+
+    class Adapter:
+        def __init__(self, _client, **_kwargs):
+            pass
+
+        def diagnostics(self):
+            return {"supports_trading": False}
+
+    client = Client()
+    with pytest.raises(RuntimeError, match="authoritative reader boundary"):
+        cli.build_live_pilot_context(
+            {"identity": "public"},
+            token_id=TOKEN_ID,
+            condition_id=CONDITION_ID,
+            user_stream_journal=tmp_path / "failed-stream.jsonl",
+            credential_loader=lambda _env: Credentials(),
+            client_builder=lambda credentials, identity: client,
+            user_stream_factory=lambda **kwargs: FakeStream(kwargs["journal_path"]),
+            adapter_factory=Adapter,
+            heartbeat_sender_factory=lambda **_kwargs: object(),
+            market_rule_fetcher=lambda token: {"token_id": token},
+        )
+
+    assert client.closed is True
 
 
 @pytest.mark.parametrize("command", ["stage0", "stage1"])

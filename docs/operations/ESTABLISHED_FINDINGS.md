@@ -2392,6 +2392,60 @@ off-host mirror is operator-paused and new capture remains single-disk evidence.
 the proof burst ages out of both the short and 24-hour windows; investigate if the multi-window
 slope converges upward or absolute free space approaches the monitor's fixed thresholds.
 
+## 8q. The paper market-harvest route works; an end-of-day market is not a safe live candidate
+
+**One-market forward proof measured 2026-08-15 18:34-18:35 local and independently audited.**
+The clean exact branch tip `9f8915c4aa1a7ae210ddc3c85f3c8c50f4d0e925` collected a fresh
+International economics v0.3 snapshot, then ran one Toronto `market_harvest` paper tick. The run
+retained **11 quote-intent rows**, **2 quote-permission rows**, **4 two-sided paper lifecycle legs**,
+and **0 live-permission rows**. Preflight passed. The fixed ceilings remained **25 pUSD** for the
+run/daily loss and event notional, **10 pUSD** per band, and **120 seconds** TTL. The fill tape
+retained the public-counterfactual and authoritative-account field boundary, but no real fill or
+account evidence exists.
+
+Candidate-plan v0.2 then correctly returned `BLOCK`: the only paper-proved midpoints were
+**0.9985** and **0.002**, both outside its non-raisable **0.20-0.80** safety interval. It selected
+no condition or token, authorized nothing, and named
+`current_paper_proved_safe_fee_eligible_book_candidate` as missing. This is evidence that the
+paper route is reachable and that current-market selection fails closed; it is not evidence of a
+safe candidate, reward eligibility, a fill, a rebate, or profit. Do not weaken the midpoint gate to
+turn a late-day market green. Select again from a fresh paper tick when a current market naturally
+meets the existing interval.
+
+The preserved receipt and independent audit are under
+`C:/Users/micha/ops/live-test-parent-proof-0815c/`. The audit binds the run-script hash, exact local
+and remote tip, Scheduler start/completion records, economics and candidate hashes, complete paper
+tape hashes, risk ceilings, zero live permission, and the safe refusal. No baseline was accepted and
+no secret or live-mutation path was used. This is a single operational proof, not a powered economic
+endpoint; no interval or P&L claim is available.
+
+---
+
+## 8r. The Windows child-resource sampler retained fresh ctypes pointer types on every sample
+
+**Measured 2026-08-16 10:29-10:38 local.** The healthy production snapshot
+parent had run **2,866 iterations** since 2026-08-15 01:00 and held **5,864
+MiB private / 4,808 MiB working set**, while its handle and thread counts
+remained bounded and its latest iteration was clean. The other two core parents
+from the same adoption held **709-736 MiB private**, which made the snapshot
+parent the host's dominant memory consumer and reduced free physical memory to
+about **3.6 GiB**.
+
+The hot Windows sampler in `weather.operations.long_job_guard` declared two
+new `ctypes.Structure` classes and their pointer prototypes on every resource
+sample. CPython retains pointer classes in its process-wide cache. A disposable
+**2,000-call** reproduction against the current process grew that cache from
+**3 to 4,020 entries** (**+4,017**) after garbage collection. Moving the ABI
+types and function prototypes to module scope made the same warmed repeated
+sampler path hold the cache size constant in the regression test.
+
+This establishes a real unbounded parent-retention mechanism and justifies the
+fix. It does **not** attribute every byte in the live parent to that mechanism,
+nor does a one-time restart prove the repair. Closure requires the exact-tip
+suite, guarded production adoption, and a fresh-parent memory slope over real
+capture iterations. Until then, the post-grade restart is only an operational
+headroom mitigation.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

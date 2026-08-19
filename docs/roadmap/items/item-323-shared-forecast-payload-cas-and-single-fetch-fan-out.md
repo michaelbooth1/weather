@@ -477,3 +477,21 @@ resource-specific failure classification. This is implementation evidence;
 the new defaults still require coordinated live adoption and a clean complete
 fleet iteration before the incident can be closed. Item 323 remains partial
 for its clean network-fetch proof and bounded inventory gates.
+
+## 2026-08-16 Windows sampler type-cache follow-up
+
+The production snapshot parent again accumulated material memory despite
+stable handles, stable threads, clean iterations, and isolated capture
+children. The retained object was in the parent resource sampler, not a
+forecast payload: its hot Windows path declared fresh `ctypes` structures and
+pointer prototypes on every sample, while CPython retains pointer types in a
+process-wide cache. The bounded reproduction and exact measurements are in
+`docs/operations/ESTABLISHED_FINDINGS.md` section 8r.
+
+The sampler now declares its Win32 ABI structures and function prototypes once
+per process. A Windows regression test warms the sampler, repeats it, and
+requires the pointer-cache size to remain unchanged. Adoption stays open until
+the cumulative live-test parent passes its immutable exact-tip suite, merges
+through the guarded quiet-window path, and a fresh snapshot parent proves a
+bounded post-adoption memory slope. The one-time operational restart is a
+headroom mitigation, not evidence that the leak is fixed.

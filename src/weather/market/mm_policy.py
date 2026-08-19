@@ -1092,6 +1092,7 @@ def _risk_limited_size(row, config, price, side=None):
 
 
 def _base_output(row, config, now, reason_code, reason_detail):
+    market_harvest = row.get("permission_profile") == "market_harvest"
     fair = clamp_probability(first_present(row, "fair_probability", "model_probability", "candidate_p"))
     mid = _midpoint(row)
     edge = fair - mid if fair is not None and mid is not None else None
@@ -1100,8 +1101,8 @@ def _base_output(row, config, now, reason_code, reason_detail):
     if uncertainty is None and fair is not None:
         uncertainty = math.sqrt(max(0.0, fair * (1.0 - fair)))
     book_age = _book_age(row, now)
-    model_age = maybe_float(row.get("model_age_seconds"))
-    if model_age is None:
+    model_age = None if market_harvest else maybe_float(row.get("model_age_seconds"))
+    if model_age is None and not market_harvest:
         model_age = age_seconds(row.get("captured_at_utc"), now)
     watcher_age = maybe_float(row.get("watcher_age_seconds"))
     cadence = snapshot_cadence_quality({
@@ -1325,11 +1326,130 @@ def _quote(row, config, now, regime, side, reason_code, bid_price=None, ask_pric
     return output
 
 
+def _tick_floor(value, tick):
+    return math.floor((float(value) + 1e-12) / tick) * tick
+
+
+def _tick_ceil(value, tick):
+    return math.ceil((float(value) - 1e-12) / tick) * tick
+
+
+def _decide_market_harvest(row, config, now, event_gate):
+    """Paper-only midpoint harvesting that never consumes model probability."""
+    if str(row.get("run_mode") or "shadow").lower() not in {"shadow", "paper-live-forward"}:
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_MARKET_HARVEST_PAPER_ONLY",
+            "market_harvest permission cannot emit a live-pilot quote",
+        )
+    if not bool_value(row.get("heartbeat_ok"), False):
+        return _no_quote(row, config, now, "NO_QUOTE_STALE_WATCHER", "observation watcher heartbeat is stale")
+    if not bool_value(row.get("source_fresh"), False):
+        return _no_quote(row, config, now, "NO_QUOTE_SOURCE_STALE", "source freshness gate is false")
+    if bool_value(row.get("near_decisive_window"), False):
+        return _no_quote(row, config, now, "NO_QUOTE_NEAR_DECISIVE_WINDOW", "decisive observation window")
+    if str(row.get("market_status") or "active").lower() not in {"active", "open", ""}:
+        return _no_quote(row, config, now, "NO_QUOTE_MARKET_INACTIVE", "market is not active")
+    if event_gate.get("action") == "suppress":
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_INFORMATION_EVENT",
+            event_gate.get("reason_detail") or "information-event quote-pull window",
+        )
+
+    mid = _midpoint(row)
+    spread = _book_spread(row)
+    book_age = _book_age(row, now)
+    watcher_age = maybe_float(row.get("watcher_age_seconds"))
+    depth = maybe_float(first_present(row, "book_depth_1pct_total", "clob_depth_1pct_total")) or 0.0
+    cadence = snapshot_cadence_quality(row, config=config, now=now)
+    if mid is None or spread is None:
+        return _no_quote(row, config, now, "NO_QUOTE_MISSING_BOOK", "market_harvest requires midpoint and spread")
+    if book_age is None or book_age > float(config["max_book_age_seconds"]):
+        return _no_quote(row, config, now, "NO_QUOTE_STALE_BOOK", "book age exceeds latency budget")
+    if watcher_age is None or watcher_age > float(config["max_watcher_age_seconds"]):
+        return _no_quote(row, config, now, "NO_QUOTE_STALE_WATCHER", "watcher age exceeds latency budget")
+    if depth < float(config["min_depth_1pct_total"]):
+        return _no_quote(row, config, now, "NO_QUOTE_THIN_DEPTH", "book depth below minimum")
+    if cadence.get("snapshot_cadence_permission") == "deny":
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_SNAPSHOT_CADENCE_DEGRADED",
+            cadence.get("snapshot_cadence_reason") or "CLOB cadence quality denied quote permission",
+        )
+    if spread > float(config["max_harvest_spread"]):
+        return _no_quote(row, config, now, "NO_QUOTE_WIDE_SPREAD", "spread too wide for market_harvest")
+
+    tick = maybe_float(row.get("tick_size"))
+    if tick is None or tick <= 0:
+        return _no_quote(row, config, now, "NO_QUOTE_MISSING_BOOK", "market_harvest requires current tick size")
+    half_spread = float(config["harvest_half_spread"])
+    if event_gate.get("action") == "widen":
+        half_spread += float(config.get("event_gate_widen_buffer") or 0.0)
+    min_price = _tick_ceil(max(float(config["min_price"]), tick), tick)
+    max_price = _tick_floor(min(float(config["max_price"]), 1.0 - tick), tick)
+    bid_price = max(min_price, _tick_floor(min(mid - tick, mid - half_spread), tick))
+    ask_price = min(max_price, _tick_ceil(max(mid + tick, mid + half_spread), tick))
+    best_bid = clamp_probability(first_present(row, "clob_best_bid", "best_bid"))
+    best_ask = clamp_probability(first_present(row, "clob_best_ask", "best_ask"))
+    if (
+        bid_price >= ask_price
+        or (best_ask is not None and bid_price >= best_ask)
+        or (best_bid is not None and ask_price <= best_bid)
+    ):
+        return _no_quote(row, config, now, "NO_QUOTE_POST_ONLY_CROSS", "market_harvest quote would cross")
+    minimum_size = maybe_float(row.get("min_order_size"))
+    if minimum_size is None or minimum_size <= 0:
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_MISSING_BOOK",
+            "market_harvest requires current minimum order size",
+        )
+    output = _quote(
+        row,
+        config,
+        now,
+        "market_harvest",
+        "TWO_SIDED",
+        "QUOTE_MARKET_HARVEST_MID",
+        bid_price=round(bid_price, 10),
+        ask_price=round(ask_price, 10),
+    )
+    if output.get("quote_permission") and (
+        (maybe_float(output.get("bid_size")) or 0.0) < minimum_size
+        or (maybe_float(output.get("ask_size")) or 0.0) < minimum_size
+    ):
+        return _no_quote(
+            row,
+            config,
+            now,
+            "NO_QUOTE_MIN_ORDER_SIZE",
+            "risk-adjusted market_harvest quote is below the current minimum order size",
+        )
+    output.update({
+        "shadow_mode": True,
+        "live_trade_permission": False,
+        "expected_reward_score": 0.0,
+        "expected_rebate_value": 0.0,
+    })
+    return output
+
+
 def decide_quote(row, config=None, now=None):
     """Pure policy function: one input band -> one quote/no-quote intent."""
     config = {**DEFAULT_POLICY_CONFIG, **(config or {})}
     now = utc_now(now)
     row, event_gate = row_with_event_gate(row, config, now)
+    if row.get("permission_profile") == "market_harvest":
+        return _decide_market_harvest(row, config, now, event_gate)
     promotion_state = str(row.get("promotion_state") or "BLOCK").upper()
     known_edge_permission = normalize_token(row.get("known_edge_permission"))
     if known_edge_permission == "no_quote":

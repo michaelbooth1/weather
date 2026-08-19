@@ -54,8 +54,8 @@ def stage0_identity():
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
-        "sdk_distribution": "py-clob-client-v2",
-        "sdk_version": "1.1.0",
+        "sdk_distribution": "polymarket-client",
+        "sdk_version": "0.6.0",
         "wallet_type": "deposit_wallet",
         "signature_type": "POLY_1271",
         "signature_type_id": 3,
@@ -67,7 +67,7 @@ def stage0_identity():
 
 def bootstrap_payload():
     payload = {
-        "schema_version": "mm_platform_bootstrap_v0.1",
+        "schema_version": "mm_platform_bootstrap_v0.2",
         "status": "PASS",
         "verified_at_utc": NOW,
         "verified_for_target_date": TARGET_DATE,
@@ -97,8 +97,8 @@ def bootstrap_payload():
         "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100,
         "sdk_contract": {
-            "distribution": "py-clob-client-v2",
-            "version": "1.1.0",
+            "distribution": "polymarket-client",
+            "version": "0.6.0",
             "exact_version_verified": True,
             "stage0_identity_verified": True,
         },
@@ -135,10 +135,12 @@ def bootstrap_payload():
             "inbound_silence_seconds": 30,
         },
         "dead_man_heartbeat": {
-            "endpoint": "/v1/heartbeats",
+            "endpoint": "/heartbeats",
             "endpoint_verified": True,
-            "initial_empty_id_verified": True,
-            "rotating_id_chain_verified": True,
+            "request_body_absent_verified": True,
+            "two_acknowledgments_verified": True,
+            "acknowledgment_count": 2,
+            "heartbeat_acknowledgments_sha256": "f" * 64,
             "acknowledgment_verified": True,
             "cadence_seconds": 5,
         },
@@ -152,13 +154,16 @@ def bootstrap_payload():
             "diagnostic_redaction_verified": True,
         },
         "source_urls": [
-            "https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0",
+            "https://github.com/Polymarket/py-sdk/tree/c8fb84bb51e60f790239056be7be0f5cc337d2e0",
+            "https://docs.polymarket.com/getting-started/migrate-from-previous-sdks",
+            "https://docs.polymarket.com/api-reference/trade/send-heartbeat",
             "https://docs.polymarket.com/api-reference/authentication",
             "https://docs.polymarket.com/trading/overview",
             "https://docs.polymarket.com/api-reference/core/get-current-positions-for-a-user",
             "https://docs.polymarket.com/api-reference/wss/user",
             "https://docs.polymarket.com/trading/orders/overview",
             "https://docs.polymarket.com/trading/fees",
+            "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
             "https://docs.polymarket.com/programs/maker-rebates",
             "https://docs.polymarket.com/concepts/pusd",
             "https://docs.polymarket.com/api-reference/geoblock",
@@ -357,8 +362,7 @@ def test_finite_stage0_gate_rejects_a_modified_final_journal(tmp_path):
 
 def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path):
     class Client:
-        def get_address(self):
-            return SIGNER_ADDRESS
+        signer = SIGNER_ADDRESS
 
     class UserStream:
         def __init__(self, path):
@@ -399,7 +403,7 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
         client = Client()
 
         def __init__(self):
-            self.heartbeat_ids = []
+            self.heartbeat_calls = 0
 
         def balances(self):
             return {"balance": "100000000"}
@@ -465,17 +469,17 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
                 "signature_retained": False,
             }
 
-        def heartbeat(self, heartbeat_id):
-            self.heartbeat_ids.append(heartbeat_id)
-            return {"heartbeat_id": f"hb-{len(self.heartbeat_ids)}"}
+        def heartbeat(self):
+            self.heartbeat_calls += 1
+            return {"status": "ok"}
 
         def cancel_all(self):
             return {"canceled": []}
 
         def diagnostics(self):
             return {
-                "sdk_distribution": "py-clob-client-v2",
-                "sdk_version": "1.1.0",
+                "sdk_distribution": "polymarket-client",
+                "sdk_version": "0.6.0",
                 "sdk_version_pinned": True,
             }
 
@@ -519,7 +523,8 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
 
     assert payload["account_snapshot"]["collateral_balance_usdc"] == 100.0
     assert payload["account_snapshot"]["collateral_allowance_usdc"] == 100.0
-    assert payload["dead_man_heartbeat"]["rotating_id_chain_verified"] is True
+    assert payload["dead_man_heartbeat"]["two_acknowledgments_verified"] is True
+    assert payload["dead_man_heartbeat"]["acknowledgment_count"] == 2
     assert payload["wallet_identity"]["signed_order_preview_verified"] is True
     assert payload["wallet_identity"]["signed_order_preview_signature_retained"] is False
     assert gate["ok"], gate["missing"]

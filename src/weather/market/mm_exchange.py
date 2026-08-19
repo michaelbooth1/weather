@@ -581,8 +581,8 @@ def build_global_clob_request_plan(
         path = "/cancel-all"
     elif action == "heartbeat":
         method = "POST"
-        path = "/v1/heartbeats"
-        body = {"heartbeat_id": metadata.get("heartbeat_id") or ""}
+        path = "/heartbeats"
+        body = None
     elif action == "get_order":
         order_id = metadata.get("order_id") or leg.get("exchange_order_id") or leg.get("order_id") or "{orderID}"
         path = f"/data/order/{order_id}"
@@ -1054,8 +1054,8 @@ class PolymarketGlobalHTTPAdapter(NullExchangeAdapter):
     def rewards(self):
         return self._request("rewards")
 
-    def heartbeat(self, heartbeat_id=""):
-        return self._request("heartbeat", metadata={"heartbeat_id": heartbeat_id})
+    def heartbeat(self):
+        return self._request("heartbeat")
 
     def place_order(self, intent):
         return self._request("create_post_only", leg=intent, metadata=intent)

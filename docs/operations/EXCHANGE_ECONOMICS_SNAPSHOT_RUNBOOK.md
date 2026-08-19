@@ -9,11 +9,15 @@ Polymarket US is not an allowed production platform on this host.
 
 ## Runtime proof
 
-The v0.2 snapshot is collected from current official Gamma and CLOB APIs. It
+The v0.3 snapshot is collected from current official Gamma, CLOB, and
+documentation surfaces. It
 binds every configured active weather condition to its condition ID, token IDs,
 fee schedule, maker-rebate rate, order minimum, tick size, and current reward
-configuration. Each HTTP response is represented by its URL and SHA-256 hash.
-The snapshot hash includes the complete per-condition table.
+configuration. It also binds the official pUSD collateral proxy, the program's
+pUSD payout description, the reconciliation API's legacy USDC-named amount
+field, and the requirement for later wallet-delta reconciliation. Each HTTP
+response or rule document is represented by its URL and SHA-256 hash. The
+snapshot hash includes the complete per-condition table and payout semantics.
 
 The tracked file
 `docs/research/exchange_economics_snapshot_template.json` documents the shape
@@ -27,6 +31,7 @@ Official sources:
 - https://docs.polymarket.com/programs/liquidity-rewards
 - https://docs.polymarket.com/api-reference/rewards/get-current-active-rewards-configurations
 - https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker
+- https://docs.polymarket.com/resources/contracts
 
 ## Collect a current snapshot
 
@@ -40,6 +45,20 @@ The collector reads `config/location_market_events.json` to choose exact active
 conditions, validates Gamma identity against the tracked condition/token map,
 fetches current reward campaigns from the CLOB, validates the complete payload,
 and only then replaces the ignored runtime snapshot.
+
+For blocked-host preparation or a branch proof, write a new external snapshot
+instead of replacing production state. Collection is not baseline acceptance:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global `
+  --event-metadata C:\pilot\location-market-events.json `
+  --snapshot C:\pilot\exchange-economics-v0.3.json `
+  --target-date $targetDate `
+  --max-age-hours 2
+```
+
+Audit the resulting gate and source hashes. Do not run `accept` merely because
+collection passed.
 
 The daily helper uses today's local date and the same collector:
 
@@ -92,12 +111,20 @@ Accept only after reviewing the current per-condition snapshot and deciding
 whether material drift requires paper-evidence rescoring:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-08-13
+$targetDate = "YYYY-MM-DD"
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept `
+  --target-date $targetDate `
+  --acknowledge-payout-asset-conflict
 ```
 
 Acceptance copies the validated snapshot to
 `data/backtest/exchange_economics_accepted_snapshot.json` and writes the drift
-report. Never schedule automatic acceptance.
+report. The acknowledgment is mandatory because the official program calls the
+payout pUSD while the reconciliation API describes `rebated_fees_usdc` as a
+USDC amount. It does not resolve that conflict or prove payment; the later live
+receipt still requires the returned asset address and observed wallet balance
+delta. The address must equal the current pUSD collateral proxy content-bound
+from the official contracts page. Never schedule automatic acceptance.
 
 ## Drift check
 

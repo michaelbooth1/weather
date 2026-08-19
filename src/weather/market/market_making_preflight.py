@@ -519,7 +519,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             cancel_probe.get("bootstrap_sha256") == lifecycle_bundle.get("bootstrap_sha256"),
             cancel_probe.get("placement_status") == "live",
             bool(str(cancel_probe.get("order_id") or "")),
-            cancel_probe.get("heartbeat_id_acknowledged") is True,
+            cancel_probe.get("heartbeat_acknowledged") is True,
             len(str(cancel_probe.get("capability_geoblock_evidence_sha256") or "")) == 64,
             len(str(cancel_probe.get("submission_geoblock_evidence_sha256") or "")) == 64,
             cancel_probe.get("starting_zero_open_orders_verified") is True,
@@ -543,7 +543,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             dead_man_probe.get("bootstrap_sha256") == lifecycle_bundle.get("bootstrap_sha256"),
             dead_man_probe.get("placement_status") == "live",
             bool(str(dead_man_probe.get("order_id") or "")),
-            dead_man_probe.get("heartbeat_id_acknowledged") is True,
+            dead_man_probe.get("heartbeat_acknowledged") is True,
             len(str(dead_man_probe.get("capability_geoblock_evidence_sha256") or "")) == 64,
             len(str(dead_man_probe.get("submission_geoblock_evidence_sha256") or "")) == 64,
             dead_man_probe.get("starting_zero_open_orders_verified") is True,
@@ -566,7 +566,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         ),
         "stage1_probe_identity_and_budget_match": all((
             lifecycle_bundle.get("bootstrap_schema_version")
-            == "mm_platform_bootstrap_v0.1",
+            == "mm_platform_bootstrap_v0.2",
             cancel_probe.get("bootstrap_schema_version")
             == lifecycle_bundle.get("bootstrap_schema_version"),
             dead_man_probe.get("bootstrap_schema_version")
@@ -647,16 +647,16 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         "cancel_all_request_verified": bool_value(cancel_all.get("request_verified"), False),
         "cancel_all_zero_open_orders_verified": bool_value(cancel_all.get("zero_open_orders_verified"), False),
         "dead_man_heartbeat_endpoint_verified": (
-            str(heartbeat.get("endpoint") or "").strip() == "/v1/heartbeats"
+            str(heartbeat.get("endpoint") or "").strip() == "/heartbeats"
             and bool_value(heartbeat.get("endpoint_verified"), False)
         ),
-        "dead_man_heartbeat_initial_empty_id_verified": bool_value(
-            heartbeat.get("initial_empty_id_verified"),
+        "dead_man_heartbeat_request_body_absent_verified": bool_value(
+            heartbeat.get("request_body_absent_verified"),
             False,
         ),
-        "dead_man_heartbeat_rotating_id_chain_verified": bool_value(
-            heartbeat.get("rotating_id_chain_verified"),
-            False,
+        "dead_man_heartbeat_two_acknowledgments_verified": (
+            bool_value(heartbeat.get("two_acknowledgments_verified"), False)
+            and heartbeat.get("acknowledgment_count") == 2
         ),
         "dead_man_heartbeat_acknowledgment_verified": bool_value(
             heartbeat.get("acknowledgment_verified"),
@@ -769,8 +769,9 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         "dead_man_heartbeat": {
             "endpoint": heartbeat.get("endpoint"),
             "endpoint_verified": heartbeat.get("endpoint_verified"),
-            "initial_empty_id_verified": heartbeat.get("initial_empty_id_verified"),
-            "rotating_id_chain_verified": heartbeat.get("rotating_id_chain_verified"),
+            "request_body_absent_verified": heartbeat.get("request_body_absent_verified"),
+            "two_acknowledgments_verified": heartbeat.get("two_acknowledgments_verified"),
+            "acknowledgment_count": heartbeat.get("acknowledgment_count"),
             "acknowledgment_verified": heartbeat.get("acknowledgment_verified"),
             "cadence_seconds": heartbeat_cadence,
             "stale_placement_disarm_verified": heartbeat.get("stale_placement_disarm_verified"),

@@ -7,6 +7,8 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import weather.operations.windows_process_metrics as windows_process_metrics
 from weather.operations.long_job_guard import (  # noqa: E402
     ACTIVE_ENV_VAR,
     LongJobBusy,
@@ -315,6 +317,23 @@ class TestLongJobGuard(unittest.TestCase):
             )
         else:
             self.assertEqual(result["working_set_limit"]["reason"], "non_windows")
+
+    @unittest.skipUnless(os.name == "nt", "Windows ctypes sampler path")
+    def test_windows_memory_sampler_reuses_ctypes_pointer_types(self):
+        import ctypes
+
+        pointer_cache = getattr(ctypes, "_pointer_type_cache", None)
+        if pointer_cache is None:
+            self.skipTest("CPython ctypes pointer cache is unavailable")
+        first = windows_process_metrics.windows_process_memory_metrics(os.getpid())
+        self.assertIsNotNone(first)
+        cache_size = len(pointer_cache)
+
+        for _ in range(200):
+            row = windows_process_metrics.windows_process_memory_metrics(os.getpid())
+            self.assertIsNotNone(row)
+
+        self.assertEqual(len(pointer_cache), cache_size)
 
     def test_isolated_subprocess_retains_only_bounded_child_output(self):
         result = run_isolated_subprocess(

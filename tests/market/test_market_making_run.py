@@ -76,11 +76,11 @@ def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
             "platform": "polymarket_global",
             "settlement_unit": "pUSD",
             "cancellation_mode": mode,
-            "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
             "bootstrap_sha256": bootstrap_sha256,
             "condition_id": "0x" + "b" * 64,
             "token_id": "12345",
-            "heartbeat_id_acknowledged": True,
+            "heartbeat_acknowledged": True,
             "starting_zero_open_orders_verified": True,
             "starting_zero_positions_verified": True,
             "order_notional_usdc": 0.05,
@@ -110,7 +110,7 @@ def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
         "created_at_utc": NOW,
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
-        "bootstrap_schema_version": "mm_platform_bootstrap_v0.1",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
         "bootstrap_sha256": bootstrap_sha256,
         "condition_id": "0x" + "b" * 64,
         "token_id": "12345",
@@ -726,8 +726,8 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
             "consistency_verified": True,
         },
         "sdk_contract": {
-            "distribution": "py-clob-client-v2",
-            "version": "1.1.0",
+            "distribution": "polymarket-client",
+            "version": "0.6.0",
             "exact_version_verified": True,
             "wallet_model_probe_verified": True,
         },
@@ -770,10 +770,11 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
             "zero_open_orders_verified": True,
         },
         "dead_man_heartbeat": {
-            "endpoint": "/v1/heartbeats",
+            "endpoint": "/heartbeats",
             "endpoint_verified": True,
-            "initial_empty_id_verified": True,
-            "rotating_id_chain_verified": True,
+            "request_body_absent_verified": True,
+            "two_acknowledgments_verified": True,
+            "acknowledgment_count": 2,
             "acknowledgment_verified": True,
             "cadence_seconds": 5,
             "stale_placement_disarm_verified": True,
@@ -1453,7 +1454,7 @@ class TestMarketMakingRun(unittest.TestCase):
             payload["signature_type_id"] = 0
             payload["wallet_identity"]["api_key_owner_address"] = "not-an-address"
             payload["wallet_identity"]["consistency_verified"] = False
-            payload["dead_man_heartbeat"]["rotating_id_chain_verified"] = False
+            payload["dead_man_heartbeat"]["two_acknowledgments_verified"] = False
             payload["dead_man_heartbeat"]["cadence_seconds"] = 5.01
             path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -1468,7 +1469,7 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertIn("signature_type_consistent", gate["missing"])
         self.assertIn("api_key_owner_address_valid", gate["missing"])
         self.assertIn("wallet_identity_consistency_verified", gate["missing"])
-        self.assertIn("dead_man_heartbeat_rotating_id_chain_verified", gate["missing"])
+        self.assertIn("dead_man_heartbeat_two_acknowledgments_verified", gate["missing"])
         self.assertIn("dead_man_heartbeat_cadence_verified", gate["missing"])
 
     def test_platform_verification_gate_accepts_existing_gnosis_safe_topology(self):
@@ -1991,6 +1992,116 @@ class TestMarketMakingRun(unittest.TestCase):
             self.assertLessEqual(max_reserved, 5.0)
             self.assertIn("order_lifecycle", payload)
             self.assertGreaterEqual(payload["order_lifecycle"]["posted_this_tick_count"], 1)
+
+    def test_market_harvest_profile_emits_paper_quotes_without_model_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            (folder / "snapshots_long.csv").unlink()
+            clob_features = folder / "clob_features_long.csv"
+            if clob_features.exists():
+                clob_features.unlink()
+            current_tokens = read_csv(folder / "clob_tokens.csv")
+            historical_tokens = [
+                {**row, "captured_at_utc": "2026-06-14T15:58:20+00:00"}
+                for row in current_tokens
+            ]
+            write_csv(
+                folder / "clob_tokens.csv",
+                list(current_tokens[0].keys()),
+                historical_tokens + current_tokens,
+            )
+            promotion.write_text(json.dumps({
+                "decisions": {
+                    "markets": [{
+                        "market_id": "atlanta",
+                        "action": "BLOCK_CANDIDATE",
+                        "verdict": "BLOCK",
+                    }]
+                }
+            }), encoding="utf-8")
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(
+                root / "known_edge.json",
+                permission="no_quote",
+                reason="model_edge_retired",
+            )
+
+            payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                permission_profile="market_harvest",
+                markets=["atlanta"],
+                runs_root=root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="market-harvest-no-model",
+                now=NOW,
+                policy_config={
+                    "quote_size": 500.0,
+                    "max_event_notional": 500.0,
+                    "max_band_notional": 500.0,
+                    "max_daily_loss": 500.0,
+                    "harvest_half_spread": 0.001,
+                    "max_harvest_spread": 0.99,
+                },
+            )
+
+            run_folder = Path(payload["run_folder"])
+            preflight = json.loads((run_folder / "preflight.json").read_text(encoding="utf-8"))
+            run_config = json.loads((run_folder / "run_config.json").read_text(encoding="utf-8"))
+            rows = read_csv(run_folder / "quote_intents_long.csv")
+            generated_feature_file_exists = clob_features.exists()
+
+        self.assertEqual(payload["preflight_status"], "PASS")
+        self.assertEqual(payload["quote_permission_rows"], 2)
+        self.assertEqual(payload["live_trade_permission_rows"], 0)
+        self.assertEqual(payload["reason_counts"], {"QUOTE_MARKET_HARVEST_MID": 2})
+        self.assertEqual(preflight["permission_profile"], "market_harvest")
+        gate_names = {gate["name"] for gate in preflight["markets"][0]["gates"]}
+        self.assertNotIn("snapshot_model_rows", gate_names)
+        self.assertNotIn("model_freshness", gate_names)
+        self.assertIn("market_harvest_paper_only", gate_names)
+        self.assertEqual(run_config["permission_profile"], "market_harvest")
+        self.assertFalse(run_config["shadow_safety"]["live_trade_permission_allowed"])
+        self.assertEqual(run_config["policy_config"]["quote_size"], 5.0)
+        self.assertEqual(run_config["policy_config"]["max_event_notional"], 25.0)
+        self.assertEqual(run_config["policy_config"]["max_band_notional"], 10.0)
+        self.assertEqual(run_config["policy_config"]["max_daily_loss"], 25.0)
+        self.assertEqual(run_config["policy_config"]["harvest_half_spread"], 0.01)
+        self.assertEqual(run_config["policy_config"]["max_harvest_spread"], 0.08)
+        self.assertEqual({row["known_edge_permission"] for row in rows}, {"market_harvest"})
+        self.assertEqual({row["promotion_state"] for row in rows}, {"BLOCK"})
+        self.assertEqual({row["model_variant_probability_source"] for row in rows}, {"market_mid_no_model"})
+        self.assertEqual({row["action"] for row in rows}, {"QUOTE"})
+        self.assertEqual({row["side"] for row in rows}, {"TWO_SIDED"})
+        self.assertEqual({row["budget_action"] for row in rows}, {"reserved"})
+        self.assertEqual({row["fair_probability"] for row in rows}, {""})
+        self.assertEqual({row["served_fair_probability"] for row in rows}, {""})
+        self.assertEqual({row["expected_reward_score"] for row in rows}, {"0.0"})
+        self.assertEqual({row["expected_rebate_value"] for row in rows}, {"0.0"})
+        self.assertTrue(all(row["live_trade_permission"] == "False" for row in rows))
+        self.assertTrue(all(float(row["bid_size"]) >= 5.0 for row in rows))
+        self.assertTrue(all(float(row["ask_size"]) >= 5.0 for row in rows))
+        self.assertTrue(all(row["snapshot_id"] for row in rows))
+        self.assertTrue(all(row["book_age_seconds"] != "" for row in rows))
+        self.assertFalse(generated_feature_file_exists)
+
+    def test_market_harvest_profile_rejects_live_pilot_mode(self):
+        with self.assertRaisesRegex(ValueError, "paper-only"):
+            build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="live-pilot",
+                permission_profile="market_harvest",
+                markets=["atlanta"],
+                now=NOW,
+            )
 
     def test_blank_clob_tokens_are_market_discovery_blocker(self):
         with tempfile.TemporaryDirectory() as tmp:

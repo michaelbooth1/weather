@@ -12,6 +12,7 @@ import re
 from urllib.parse import parse_qs, urlsplit
 
 from weather.market.mm_policy import bool_value, maybe_float
+from weather.market.mm_official_adapter import PUSD_COLLATERAL_PROXY_ADDRESS
 
 
 SCHEMA_VERSION = "mm_exchange_adapter_v0.2"
@@ -374,6 +375,7 @@ def maker_rebate_reconciliation(rewards):
         blockers.append("maker_rebate_rows_invalid")
         rows = []
     selected_values = []
+    observed_payout_asset_addresses = set()
     ignored_condition_rows = 0
     for row in rows:
         if not isinstance(row, dict):
@@ -397,6 +399,10 @@ def maker_rebate_reconciliation(rewards):
         ):
             blockers.append("maker_rebate_row_amount_invalid")
             continue
+        observed_payout_asset_addresses.add(asset_address)
+        if asset_address != PUSD_COLLATERAL_PROXY_ADDRESS:
+            blockers.append("maker_rebate_payout_asset_mismatch")
+            continue
         if row_condition == condition_id:
             selected_values.append(amount)
         else:
@@ -410,6 +416,10 @@ def maker_rebate_reconciliation(rewards):
         "payout_cycle_complete": bool(evidence.get("payout_cycle_complete")),
         "selected_row_count": len(selected_values),
         "ignored_other_condition_row_count": ignored_condition_rows,
+        "expected_payout_asset_address": PUSD_COLLATERAL_PROXY_ADDRESS,
+        "observed_payout_asset_addresses": sorted(
+            observed_payout_asset_addresses
+        ),
         "actual_maker_rebate_usdc": (
             round(sum(selected_values), 6) if not blockers else None
         ),

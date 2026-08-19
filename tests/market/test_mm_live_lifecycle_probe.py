@@ -16,14 +16,14 @@ def bootstrap_gate():
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.1",
+        "schema_version": "mm_platform_bootstrap_v0.2",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
         "condition_id": CONDITION_ID,
         "token_id": "12345",
         "funder_address": "0x" + "a" * 40,
-        "sdk_version": "1.1.0",
+        "sdk_version": "0.6.0",
         "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 100.0,
         "account_snapshot_sha256": "b" * 64,
@@ -51,7 +51,7 @@ class FakeAdapter:
     token_id = "12345"
     condition_id = CONDITION_ID
     maker_address = "0x" + "a" * 40
-    sdk_version = "1.1.0"
+    sdk_version = "0.6.0"
 
     def __init__(self, clock, dead_man=False, user_event_delay_seconds=0, order_id="order-1"):
         self.clock = clock
@@ -84,7 +84,7 @@ class FakeAdapter:
     def heartbeat(self):
         self.heartbeat_calls += 1
         self.last_heartbeat_at = self.clock()
-        return {"heartbeat_id": f"hb-{self.heartbeat_calls}"}
+        return {"status": "ok"}
 
     def refresh_market_rules(self):
         return {

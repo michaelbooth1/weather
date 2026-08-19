@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CLIENT/STAGE 2 INTEGRATION AND ELIGIBLE-HOST EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CUMULATIVE CLIENT/PUSD PARENT FOCUSED-GREEN; FULL SUITE, STAGE 2, AND LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -36,6 +36,15 @@ behavior before any size increase.
   min-size/tick/post-only rejection checks, one tiny two-sided quote, cancel-all
   verification, balance-reserve reconciliation, and user WebSocket lifecycle
   verification.
+- [x] Re-prove the exact selected SDK against the current official post-only,
+  heartbeat, account-reader, user-stream, cancellation, and asynchronous
+  settlement contract before credentialed integration. The selected
+  `polymarket-client==0.6.0` source and published wheel passed the keyless
+  contract audit on 2026-08-14; eligible-host wallet and exchange evidence
+  remain separate open gates.
+- [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
+  genuinely eligible execution host. Do not add a generic repository live
+  mutation CLI to close this item.
 - [x] Add report-side paid-vs-predicted reconciliation for maker rebates,
   liquidity rewards, redemptions, fees, pUSD/USDC balances, and settlement P&L
   before any size increase.
@@ -51,6 +60,34 @@ paper gates, SLO gates, risk caps, and operator confirmations pass; every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-08-14 unified-client migration
+
+The live extra now pins the official `polymarket-client==0.6.0`; the obsolete
+CLOB-v2 package is no longer an executable dependency. The adapter uses the
+unified typed account, book, reward, signed-order, post, and cancellation
+surfaces. It preserves the one-submit capability by calling local
+`create_limit_order(..., post_only=True)` followed by exactly one `post_order`,
+never the allowance-recovering convenience placement method. Signed-order
+proof now includes GTC and post-only fields.
+
+Two explicit shims close gaps without creating a second trading client. A
+public relayer `/deployed` preflight proves the exact Safe/deposit wallet exists
+before `SecureClient.create`, preventing that constructor from deploying a
+wallet during Stage 0. A one-purpose authenticated sender implements the
+current bodyless `POST /heartbeats` contract and requires the exact
+`{status: "ok"}` response. Public tick, neg-risk, and fee endpoints are also
+cross-checked against the typed book. Bootstrap schema v0.2 removes obsolete
+rotating-ID fields. Mutation remains unavailable without authoritative
+account-wide user-event health and exact-scope position readers.
+
+Keyless evidence passed against both the checked source and the isolated
+published wheel. Repository verification covers the adapter, protocol shim,
+credential factory, Stage 0/1 lifecycle, bounded pilot CLI, readiness gates,
+and exact dependency pin. Still open: deploy the fixed-purpose wrapper on the
+physically eligible host, install the live extra there, run doctor and Stage 0,
+then collect the two small Stage 1 cancellation proofs before a rebate-producing
+quote is considered.
 
 Exchange harness update (2026-06-16 UTC): `weather.market.mm_exchange`
 introduces the keyless item-67 adapter boundary. The CLI wrapper
@@ -388,10 +425,14 @@ read-only `weather.market.mm_live_candidate_cli` binds a current validated
 International economics snapshot to current CLOB books, limits selection to
 built-in weather markets, requires positive fee and maker-rebate parameters,
 central probability, a non-crossed tight book, and exact agreement between the
-book and economics min-size/tick rules. It emits a content-hashed five-minute
-plan with an explicitly non-authorizing, minimum-tick Stage 1 intent and ranked
-alternates. Book rule drift, extreme or crossed books, stale economics, and no
-eligible candidate all block. The related location refresh now has a
+book and economics min-size/tick rules. Candidate-plan v0.2 additionally
+streams and hashes the complete one-market paper quote tape and requires a
+still-current successful `market_harvest` row for the exact condition/token.
+Its expiry is the earlier of five minutes and the paper quote TTL. It emits an
+explicitly non-authorizing, minimum-tick Stage 1 intent and ranked alternates;
+`run_stage1` revalidates that binding before credential resolution. Book rule
+drift, extreme or crossed books, stale economics, missing paper permission, and
+no eligible candidate all block. The related location refresh now has a
 `--metadata-only` mode so public preparation can write an external event
 snapshot without rewriting tracked configuration. This selects the lifecycle
 probe only; it does not implement the Stage 2 maker quote or prove reward
@@ -406,7 +447,24 @@ execution, and lifecycle-bundle assembly each independently revalidate the
 finite positive requested budget, isolated-wallet cap, 100 pUSD operator cap,
 and 10 pUSD per-order cap instead of trusting upstream PASS booleans. The
 focused live/economics/architecture matrix passes; an immutable exact-tip full
-suite and reviewed source transfer remain mandatory before eligible-host use.
+suite and reviewed same-PC deployment remain mandatory before relocated-host use.
+
+## 2026-08-14 same-PC execution-host decision
+
+The operator designated the existing 16 GB production PC as the live
+International execution host after it is physically relocated. The former
+separate-host transfer blocker is therefore closed. The code, exact reviewed
+tip, runtime environment, capture evidence, and eventual credential references
+will remain on one PC; moving it does not by itself pass any exchange gate.
+
+While the PC's current official response remains Ontario/blocked, no credential
+import, authentication, Stage 0 heartbeat/cancel-all, or Stage 1 mutation is
+allowed. After relocation, the same checkout must obtain a fresh matching
+unblocked response, recover capture and public execution supervision, pass the
+keyless doctor, and use a newly reviewed fixed-scope wrapper sealed to the fresh
+condition, token, budget, and output paths. The wrapper remains intentionally
+unwritten until fresh candidate selection because prebuilding a parameterized
+mutation surface would recreate the generic live CLI that this item forbids.
 
 Current integration disposition (2026-08-14 UTC):
 
@@ -416,7 +474,7 @@ branch has since merged current production and is therefore a new, unproved
 exact tip; its scheduled full suite must pass before integration. The earlier
 proofs establish software consistency only, not live evidence or integration
 authority. Stage 0/1 must land first; Stage 2 must then merge current production
-and pass a fresh suite on that combined tree before eligible-host transfer. The
+and pass a fresh suite on that combined tree before relocated-host use. The
 two unchecked live-evidence bullets above remain open until a tiny real
 lifecycle and paid-vs-predicted settlement/rebate record are reconciled without
 weakening any gate or increasing any ceiling. Exact suite measurements live
@@ -430,11 +488,25 @@ public execution capture is also adopted. Those milestones retire the former
 software-integration blocker but create no order authority and supply no
 own-account fill, fee, rebate, position, or P&L evidence.
 
-The next parent is the paper-only market-harvest lane, which must prove one
-active-market quote-permission path without weakening ordinary model promotion.
-The official client upgrade and pUSD payout-asset contract are stacked behind
-that lane and behind current master; they require a refreshed exact-tip suite.
-Bounded Stage 2 remains a successor and must be refreshed only after that parent
-lands. The two live-evidence checklist bullets remain open until this PC is
-physically eligible and the staged lifecycle is run under the canonical pilot
-envelope.
+The paper-only market-harvest lane, unified official client, and pUSD payout-
+asset contract now share one current-master cumulative parent. Focused tests and
+the isolated real-wheel SDK contract pass. The first one-market paper attempt
+failed closed on both the expected v0.2-to-v0.3 economics schema mismatch and a
+missing model-independent CLOB-feature fallback. The parent now derives harvest
+features directly from current public books without model rows. The attempt
+emitted no quote permission and changed no live state; collect a fresh external
+v0.3 snapshot and rerun after the protected window without accepting a baseline.
+The cumulative parent still needs an immutable exact-tip full suite and guarded
+integration. Bounded Stage 2 remains a successor and must be refreshed only
+after that parent lands. The two live-evidence checklist bullets remain open
+until this PC is physically eligible and the staged lifecycle is run under the
+canonical pilot envelope.
+
+The subsequent one-market retry proved the paper market-harvest route but did
+not produce a safe Stage 1 candidate: candidate-plan v0.2 correctly refused the
+late-day extreme books under its fixed midpoint interval. This closes no live
+evidence checkbox and requires no code/risk relaxation. After parent
+integration, candidate selection should be repeated from a fresh paper tick
+only when a market naturally satisfies the existing gates. See
+`docs/operations/ESTABLISHED_FINDINGS.md` section 8q for the sole quantitative
+record.

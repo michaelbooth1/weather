@@ -21,6 +21,7 @@ from weather.collection.collection_health import source_family_degradation
 from weather.market.market_config import ensure_date
 from weather.market.market_making_run_constants import (
     DEFAULT_QUOTE_TTL_SECONDS,
+    PERMISSION_PROFILES,
     RUN_MODES,
     SCHEMA_VERSION,
 )
@@ -211,6 +212,60 @@ def latest_clob_feature_rows(folder, snapshot_id, build_if_missing=False, max_ag
     return latest_rows_for_snapshot(generated, snapshot_id)
 
 
+def market_harvest_clob_feature_rows(book_rows, *, now=None):
+    """Project current book rows into model-independent harvest features.
+
+    The ordinary feature builder is anchored to model snapshot rows. The
+    market-harvest profile deliberately has no model-row dependency, so its
+    current midpoint, spread, depth, and freshness projection must come
+    directly from the latest public book capture instead.
+    """
+
+    current = utc_now(now)
+    rows = []
+    for book in book_rows or []:
+        captured = parse_time(
+            first_present(book, "book_time_utc", "captured_at_utc")
+        )
+        bid_depth_1pct = maybe_float(book.get("bid_depth_1pct"))
+        ask_depth_1pct = maybe_float(book.get("ask_depth_1pct"))
+        bid_depth_5pct = maybe_float(book.get("bid_depth_5pct"))
+        ask_depth_5pct = maybe_float(book.get("ask_depth_5pct"))
+        bid_depth_all = maybe_float(book.get("bid_depth_all"))
+        ask_depth_all = maybe_float(book.get("ask_depth_all"))
+
+        def total(left, right):
+            if left is None and right is None:
+                return None
+            return (left or 0.0) + (right or 0.0)
+
+        row = dict(book)
+        row.update({
+            "snapshot_id": book.get("capture_id"),
+            "clob_token_id": book.get("clob_token_id"),
+            "clob_feature_available": 1.0,
+            "clob_book_captured_at_utc": (
+                captured.isoformat() if captured is not None else ""
+            ),
+            "clob_book_age_seconds": (
+                (current - captured).total_seconds()
+                if captured is not None
+                else None
+            ),
+            "clob_midpoint": maybe_float(book.get("midpoint")),
+            "clob_spread": maybe_float(book.get("spread")),
+            "clob_best_bid": maybe_float(book.get("best_bid")),
+            "clob_best_ask": maybe_float(book.get("best_ask")),
+            "clob_depth_1pct_total": total(bid_depth_1pct, ask_depth_1pct),
+            "clob_depth_5pct_total": total(bid_depth_5pct, ask_depth_5pct),
+            "clob_depth_all_total": total(bid_depth_all, ask_depth_all),
+            "clob_imbalance_1pct": maybe_float(book.get("imbalance_1pct")),
+            "clob_imbalance_5pct": maybe_float(book.get("imbalance_5pct")),
+        })
+        rows.append(row)
+    return rows
+
+
 def row_key_without_token(row):
     kind, value, value_hi = snapshot_band_key(row)
     return row.get("snapshot_id"), kind, value, value_hi
@@ -227,6 +282,138 @@ def clob_feature_index_from_rows(rows):
         if token:
             by_token[(snapshot_id, kind, value, value_hi, str(token))] = row
     return by_token, by_band
+
+
+def _row_index(rows):
+    by_token = {}
+    by_band = {}
+    for row in rows or []:
+        token = str(
+            row.get("clob_token_id")
+            or row.get("clob_yes_token_id")
+            or row.get("asset_id")
+            or ""
+        )
+        kind, value, value_hi = snapshot_band_key(row)
+        if token:
+            by_token[token] = row
+        by_band[(kind, value, value_hi)] = row
+    return by_token, by_band
+
+
+def assemble_market_harvest_inputs_for_market(
+    market_id,
+    folder,
+    book_rows,
+    clob_feature_rows,
+    promotion,
+    observation_status,
+    *,
+    run_mode="shadow",
+    source_rows=None,
+    current_high_assessment=None,
+    book_audit=None,
+):
+    """Build paper harvest rows without reading model probabilities.
+
+    The event/token registry is the row authority. Current books and CLOB
+    features add executable market state. Model snapshots, model promotion,
+    and known-edge records are deliberately not permission inputs.
+    """
+    all_token_rows = read_csv_rows(Path(folder) / "clob_tokens.csv")
+    latest_token_time = max(
+        (
+            parse_time(row.get("captured_at_utc"))
+            or datetime.min.replace(tzinfo=timezone.utc)
+            for row in all_token_rows
+        ),
+        default=datetime.min.replace(tzinfo=timezone.utc),
+    )
+    token_rows = [
+        row
+        for row in all_token_rows
+        if (
+            parse_time(row.get("captured_at_utc"))
+            or datetime.min.replace(tzinfo=timezone.utc)
+        ) == latest_token_time
+        if str(row.get("outcome") or "").strip().lower() in {"", "yes"}
+        and boolish_active(row.get("active"))
+        and not bool_value(row.get("closed"), False)
+    ]
+    book_by_token, book_by_band = _row_index(book_rows)
+    feature_by_token, feature_by_band = _row_index(clob_feature_rows)
+    source_state = source_freshness_state_from_rows(source_rows or [])
+    audit = dict(book_audit or {})
+    rows = []
+    for token_row in token_rows:
+        token = str(token_row.get("clob_token_id") or "")
+        kind, value, value_hi = snapshot_band_key(token_row)
+        band_key = (kind, value, value_hi)
+        book = book_by_token.get(token) or book_by_band.get(band_key) or {}
+        feature = feature_by_token.get(token) or feature_by_band.get(band_key) or {}
+        captured_at = (
+            feature.get("clob_book_captured_at_utc")
+            or book.get("captured_at_utc")
+            or book.get("book_time_utc")
+            or token_row.get("captured_at_utc")
+            or ""
+        )
+        merged = dict(token_row)
+        merged.update({key: value for key, value in book.items() if value not in (None, "")})
+        merged.update({key: value for key, value in feature.items() if value not in (None, "")})
+        merged.update({
+            "permission_profile": "market_harvest",
+            "run_mode": run_mode,
+            "market_id": market_id,
+            "event_slug": token_row.get("event_slug") or Path(folder).name,
+            "snapshot_id": feature.get("snapshot_id") or book.get("capture_id") or "",
+            "captured_at_utc": captured_at,
+            "market_status": "active",
+            "clob_token_id": token,
+            "condition_id": token_row.get("condition_id") or book.get("condition_id") or "",
+            "market_mid": feature.get("clob_midpoint") or book.get("midpoint"),
+            "book_spread": feature.get("clob_spread") or book.get("spread"),
+            "book_age_seconds": feature.get("clob_book_age_seconds"),
+            "clob_book_captured_at_utc": captured_at,
+            "clob_best_bid": feature.get("clob_best_bid") or book.get("best_bid"),
+            "clob_best_ask": feature.get("clob_best_ask") or book.get("best_ask"),
+            "clob_depth_1pct_total": (
+                feature.get("clob_depth_1pct_total")
+                or (
+                    (maybe_float(book.get("bid_depth_1pct")) or 0.0)
+                    + (maybe_float(book.get("ask_depth_1pct")) or 0.0)
+                )
+            ),
+            "tick_size": book.get("tick_size") or token_row.get("tick_size"),
+            "min_order_size": book.get("min_order_size") or token_row.get("min_order_size"),
+            "promotion_state": promotion.get("promotion_state") or "BLOCK",
+            "known_edge_allowed": False,
+            "known_edge_permission": "market_harvest",
+            "known_edge_reason": "operator_authorized_paper_market_harvest",
+            "model_version": "",
+            "served_model_version": "",
+            "served_fair_probability": None,
+            "fair_probability": None,
+            "model_variant_id": "market_harvest_v0",
+            "model_variant_family": "market_harvest",
+            "model_variant_role": "paper_permission_profile",
+            "model_variant_basket_id": "market_harvest_v0",
+            "model_variant_basket_size": 0,
+            "model_variant_probability_source": "market_mid_no_model",
+            "model_variant_prediction_at_utc": captured_at,
+            "model_variant_counterfactual": True,
+            "watcher_age_seconds": observation_status.get("watcher_age_seconds"),
+            "heartbeat_ok": observation_status.get("heartbeat_ok", False),
+            "source_fresh": observation_status.get("fresh", False),
+            "source_freshness_state": source_state,
+            "snapshot_cadence_quality_state": "clean" if audit.get("ok") else "gappy",
+            "snapshot_cadence_gap_count": audit.get("gaps_over_threshold", 0),
+            "snapshot_cadence_max_gap_seconds": audit.get("max_counted_gap_seconds"),
+            "snapshot_cadence_reason": audit.get("reason") or "CLOB book continuity audit",
+        })
+        merged.update(normalized_high_fields(current_high_assessment))
+        rows.append(merged)
+    return rows
 
 
 def assemble_policy_inputs_for_market(
@@ -550,14 +737,37 @@ def preflight_market(
     current_high_assessment=None,
     release_production_capable=False,
     active_window_start_utc=None,
+    permission_profile="model",
 ):
+    if permission_profile not in PERMISSION_PROFILES:
+        raise ValueError(
+            f"unknown permission profile {permission_profile!r}; "
+            f"expected one of {sorted(PERMISSION_PROFILES)}"
+        )
+    market_harvest = permission_profile == "market_harvest"
     gates = []
     blockers = []
     stale = []
     folder = Path(folder)
     snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
     latest_capture = parse_time(snapshot_rows[0].get("captured_at_utc")) if snapshot_rows else None
-    model_age = (now - latest_capture).total_seconds() if latest_capture else None
+    if market_harvest and book_rows:
+        book_times = [
+            parse_time(row.get("captured_at_utc") or row.get("book_time_utc"))
+            for row in book_rows
+        ]
+        book_times = [value for value in book_times if value is not None]
+        latest_capture = max(book_times) if book_times else None
+    model_age = (
+        (now - latest_capture).total_seconds()
+        if latest_capture and not market_harvest
+        else None
+    )
+    market_data_age = (
+        (now - latest_capture).total_seconds()
+        if latest_capture and market_harvest
+        else None
+    )
     source_status_times = [
         parse_time(row.get("captured_at_utc") or row.get("fetched_at"))
         for row in source_rows or []
@@ -601,7 +811,12 @@ def preflight_market(
         else:
             blockers.append(detail)
 
-    add_gate("active_event", any(boolish_active(row.get("market_status")) for row in snapshot_rows), "missing", "no active current market rows")
+    active_event = (
+        token_discovery.get("ok")
+        if market_harvest
+        else any(boolish_active(row.get("market_status")) for row in snapshot_rows)
+    )
+    add_gate("active_event", active_event, "missing", "no active current market rows")
     event_metadata_gate = event_metadata_gate or {"required": False, "ok": True}
     if event_metadata_gate.get("required"):
         add_gate(
@@ -610,13 +825,21 @@ def preflight_market(
             "missing",
             event_metadata_gate.get("reason") or "event metadata validation does not permit active-day evidence",
         )
-    add_gate("snapshot_model_rows", bool(snapshot_rows), "missing", "missing current snapshot/model rows")
-    add_gate(
-        "model_freshness",
-        model_age is not None and model_age <= float(policy_config["max_model_age_seconds"]),
-        "stale",
-        "current model snapshot is stale or timestamp is missing",
-    )
+    if not market_harvest:
+        add_gate("snapshot_model_rows", bool(snapshot_rows), "missing", "missing current snapshot/model rows")
+        add_gate(
+            "model_freshness",
+            model_age is not None and model_age <= float(policy_config["max_model_age_seconds"]),
+            "stale",
+            "current model snapshot is stale or timestamp is missing",
+        )
+    else:
+        add_gate(
+            "market_harvest_paper_only",
+            mode in {"shadow", "paper-live-forward"},
+            "missing",
+            "market_harvest permission is paper-only and cannot run in live-pilot mode",
+        )
     add_gate("source_status_rows", bool(source_rows), "missing", "missing current source-status rows")
     add_gate("source_status_fresh", source_status_fresh, "stale", "no fresh source-status row for latest snapshot")
     if source_rows:
@@ -701,6 +924,7 @@ def preflight_market(
         reason_kind = None
 
     return {
+        "permission_profile": permission_profile,
         "market_id": spec.id,
         "city": spec.city_label,
         "target_date": config.target_date.isoformat(),
@@ -716,6 +940,9 @@ def preflight_market(
         "latest_snapshot_id": snapshot_rows[0].get("snapshot_id") if snapshot_rows else None,
         "latest_capture_utc": latest_capture.isoformat() if latest_capture else None,
         "model_age_seconds": round(model_age, 1) if model_age is not None else None,
+        "market_data_age_seconds": (
+            round(market_data_age, 1) if market_data_age is not None else None
+        ),
         "source_status_rows": len(source_rows),
         "source_status_latest_utc": source_status_latest.isoformat() if source_status_latest else None,
         "source_status_fresh": source_status_fresh,
@@ -768,13 +995,25 @@ def preflight_no_quote(input_row, config, now, reason_kind, details):
     return row
 
 
-def placeholder_no_quote(spec, config, now, policy_config, reason_code, reason_detail):
+def placeholder_no_quote(
+    spec,
+    config,
+    now,
+    policy_config,
+    reason_code,
+    reason_detail,
+    *,
+    permission_profile="model",
+    run_mode="shadow",
+):
     row = decide_quote(
         {
             "market_id": spec.id,
             "event_slug": config.event_slug,
             "captured_at_utc": "",
             "promotion_state": "BLOCK",
+            "permission_profile": permission_profile,
+            "run_mode": run_mode,
             "heartbeat_ok": False,
             "source_fresh": False,
             "range_label": "",

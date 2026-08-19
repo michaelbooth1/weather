@@ -217,10 +217,10 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "exchange_economics_snapshot",
-        "exchange_economics_snapshot_v0.2",
+        "exchange_economics_snapshot_v0.3",
         "weather.market.exchange_economics",
         "active",
-        "Content-bound International Polymarket per-condition fee, rebate, reward, tick/min-order, and order-semantics snapshot.",
+        "Content-bound International Polymarket per-condition fee, rebate, payout-asset reconciliation, reward, tick/min-order, and order-semantics snapshot.",
     ),
     SchemaSpec(
         "exchange_economics_drift",
@@ -1317,10 +1317,10 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_platform_bootstrap",
-        "mm_platform_bootstrap_v0.1",
+        "mm_platform_bootstrap_v0.2",
         "weather.market.mm_live_bootstrap",
         "active",
-        "Read-only International physical eligibility, wallet, authenticated account, non-posting signed-order topology, market, stream, heartbeat, cancellation, and secret-hygiene proof before the first lifecycle order.",
+        "International physical eligibility, wallet, authenticated account, non-posting signed-order topology, market, stream, current heartbeat acknowledgment, cancellation, and secret-hygiene proof before the first lifecycle order.",
     ),
     SchemaSpec(
         "mm_stage1_lifecycle_bundle",
@@ -1352,10 +1352,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_live_market_candidate_plan",
-        "mm_live_market_candidate_plan_v0.1",
+        "mm_live_market_candidate_plan_v0.2",
         "weather.market.mm_live_candidate_cli",
         "active",
-        "Fresh public International weather-market candidate selected from a content-bound economics snapshot and current CLOB books for the bounded lifecycle probe; never trading authorization.",
+        "Fresh public International weather-market candidate selected from a content-bound economics snapshot, a current paper-only market-harvest quote, and current CLOB books for the bounded lifecycle probe; never trading authorization.",
+        supersedes=("mm_live_market_candidate_plan_v0.1",),
+    ),
+    SchemaSpec(
+        "mm_live_market_candidate_plan_legacy",
+        "mm_live_market_candidate_plan_v0.1",
+        "weather.market.mm_live_candidate_cli",
+        "legacy",
+        "Public-book-only lifecycle candidate plan before paper-quote proof binding.",
     ),
     SchemaSpec(
         "mm_platform_verification",
@@ -2230,6 +2238,12 @@ EXCLUDED_SCHEMA_LITERALS = (
         "weather.market.market_making_model_variants",
         "model_variant_basket_id",
         "Market-making model variant basket identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "market_harvest_v0",
+        "weather.market.market_making_run_support",
+        "model_variant_id",
+        "Paper-only market-harvest model variant identifier, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
         "polymarket_symmetric_price_v1",

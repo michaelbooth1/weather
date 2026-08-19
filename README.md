@@ -218,9 +218,10 @@ Retryable failures remain pending, and terminal results are published to
 .\venv\Scripts\python.exe -m weather.reporting.promotion.promotion_refresh
 .\venv\Scripts\python.exe -m weather.reporting.scorecards.snapshot_evaluation
 .\venv\Scripts\python.exe -m weather.reporting.daily.daily_learning
-.\venv\Scripts\python.exe -m weather.market.exchange_economics publish --target-date 2026-06-23
-.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date 2026-06-23
-.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date 2026-06-23
+$targetDate = "YYYY-MM-DD"
+.\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global --target-date $targetDate
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept --target-date $targetDate --acknowledge-payout-asset-conflict
+.\venv\Scripts\python.exe -m weather.market.exchange_economics drift --target-date $targetDate
 .\venv\Scripts\python.exe -m weather.reporting.source_gates.observed_floor_safety_monitor --target-date 2026-07-30
 # After the Toronto lock, explicitly restore fail-closed enforcement:
 .\venv\Scripts\python.exe -m weather.reporting.source_gates.observed_floor_safety_monitor --target-date 2026-07-30 --fail-closed
@@ -382,6 +383,8 @@ F-family artifacts. For the local multi-market helper, use
 # Keyless market-making operator run.
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode shadow --markets all
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode paper-live-forward --markets all --once
+# Separately authorized paper-only midpoint-harvest profile; never emits live permission.
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets atlanta --once
 .\venv\Scripts\python.exe -m weather.market.mm_paper
 .\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
 
@@ -402,6 +405,11 @@ byte counts, paths, and the apply result are recorded under `data/taker_runs`.
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.
+The default permission profile remains `model`. The `market_harvest` profile
+is a separate paper-only route built from current event/token/book/features;
+it never reads model probabilities for permission, never changes model
+promotion, assumes zero reward, clamps existing risk ceilings, and hard-fails
+if paired with `live-pilot`.
 
 ## Scheduled Operations
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from weather.operations.windows_process_lifetime import (
     WindowsProcessLifetimeTracker,
 )
+from weather.operations.windows_process_metrics import windows_process_memory_metrics
 from weather.paths import data_path
 from weather.schema_registry import schema_version
 
@@ -846,84 +847,6 @@ def _finish_posix_process_group(process_group_id, termination, *, grace_seconds=
     return termination
 
 
-def _windows_process_memory_metrics(pid):
-    import ctypes
-    from ctypes import wintypes
-
-    class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
-        _fields_ = [
-            ("cb", wintypes.DWORD),
-            ("PageFaultCount", wintypes.DWORD),
-            ("PeakWorkingSetSize", ctypes.c_size_t),
-            ("WorkingSetSize", ctypes.c_size_t),
-            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-            ("PagefileUsage", ctypes.c_size_t),
-            ("PeakPagefileUsage", ctypes.c_size_t),
-            ("PrivateUsage", ctypes.c_size_t),
-        ]
-
-    class IO_COUNTERS(ctypes.Structure):
-        _fields_ = [
-            ("ReadOperationCount", ctypes.c_uint64),
-            ("WriteOperationCount", ctypes.c_uint64),
-            ("OtherOperationCount", ctypes.c_uint64),
-            ("ReadTransferCount", ctypes.c_uint64),
-            ("WriteTransferCount", ctypes.c_uint64),
-            ("OtherTransferCount", ctypes.c_uint64),
-        ]
-
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    PROCESS_VM_READ = 0x0010
-    kernel32 = ctypes.windll.kernel32
-    psapi = ctypes.windll.psapi
-    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-    kernel32.CloseHandle.restype = wintypes.BOOL
-    kernel32.GetProcessIoCounters.argtypes = (
-        wintypes.HANDLE,
-        ctypes.POINTER(IO_COUNTERS),
-    )
-    kernel32.GetProcessIoCounters.restype = wintypes.BOOL
-    psapi.GetProcessMemoryInfo.argtypes = (
-        wintypes.HANDLE,
-        ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX),
-        wintypes.DWORD,
-    )
-    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
-    handle = kernel32.OpenProcess(
-        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-        False,
-        int(pid),
-    )
-    if not handle:
-        return None
-    try:
-        counters = PROCESS_MEMORY_COUNTERS_EX()
-        counters.cb = ctypes.sizeof(counters)
-        if not psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
-            return None
-        row = {
-            "pid": int(pid),
-            "working_set_bytes": int(counters.WorkingSetSize),
-            "private_bytes": int(counters.PrivateUsage),
-        }
-        io_counters = IO_COUNTERS()
-        if kernel32.GetProcessIoCounters(handle, ctypes.byref(io_counters)):
-            row.update({
-                "read_operation_count": int(io_counters.ReadOperationCount),
-                "write_operation_count": int(io_counters.WriteOperationCount),
-                "read_bytes": int(io_counters.ReadTransferCount),
-                "write_bytes": int(io_counters.WriteTransferCount),
-            })
-        return row
-    finally:
-        kernel32.CloseHandle(handle)
-
-
 def _posix_process_group_memory_metrics(process_group_id):
     rows = []
     proc_root = Path("/proc")
@@ -971,7 +894,7 @@ def _contained_process_memory_metrics(job, root_pid):
             rows = [
                 row
                 for row in (
-                    _windows_process_memory_metrics(pid)
+                    windows_process_memory_metrics(pid)
                     for pid in process_ids
                 )
                 if row is not None

@@ -30,9 +30,11 @@ operator must also confirm that the response matches the host's real physical
 location and that no VPN, proxy, relay, or other geoblock circumvention is in
 use. Viewing and public capture may continue from a blocked host; order
 mutation may not. On 2026-08-13 the production host returned `blocked=true`,
-`country=CA`, `region=ON`, so this host is preparation/read-only only. Never
-move submission unless the new host is genuinely and lawfully physically
-eligible.
+`country=CA`, `region=ON`, so this host is preparation/read-only at that
+location. On 2026-08-14 the operator designated this same PC as the eventual
+execution host and will physically relocate it before live use. The historical
+blocked result remains binding until a fresh response proves the relocated PC
+eligible; a host designation, move plan, or old response is not eligibility.
 
 ## Immutable pilot envelope
 
@@ -67,8 +69,8 @@ All must be current for the target date and selected market:
 1. Continuous execution capture is running and has produced rows. This remains
    ahead of the paper harvest lane in the approved sequence.
 2. The International economics snapshot passes and matches the live platform.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.1` passes for
-   the exact token and condition. This read-only, at-most-one-hour-old artifact
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.2` passes for
+   the exact token and condition. This non-order, at-most-one-hour-old artifact
    proves a fresh official physical geoblock response, explicit real-location
    match and no-circumvention confirmations, the isolated wallet identity,
    recorded cap, numeric collateral
@@ -78,7 +80,7 @@ All must be current for the target date and selected market:
    eligibility, a non-posting signed-order preview bound to the exact EOA/API
    owner, order signer, funder/maker, signature type, and token (raw signature
    discarded), account-wide
-   user stream, rotating heartbeat chain,
+   user stream, two current bodyless heartbeat acknowledgments,
    cancel-all-to-zero, SDK contract, and secret hygiene. It cannot authorize a
    general maker run.
 4. Credential references are present outside the repository. The API key,
@@ -91,22 +93,51 @@ All must be current for the target date and selected market:
    outside-repository importer documented below; never put a secret in
    `cmdkey /pass`, PowerShell history, a scheduled-task argument, or a reference
    URI. The loader does not print target names or resolved values.
-5. The official International CLOB client `py-clob-client-v2==1.1.0` is
+5. The official International CLOB client `polymarket-client==0.6.0` is
    installed from the `live` dependency extra and wrapped by a tested adapter.
    Its pinned client owns post-only placement, CLOB account reads,
    cancellation, and dead-man heartbeats. The existing hand-built request-plan
    adapter remains diagnostic and cannot authorize capital.
-   Placement stays disabled until authoritative user-event and position readers
-   are present and explicitly verified, the rotating heartbeat ID has been
-   acknowledged within 7.5 seconds, and a matching book/min-size/tick/neg-risk
-   snapshot has been read within 10 seconds.
+   `SecureClient.create` may deploy a missing default deposit wallet, so the
+   wrapper must first prove the exact supplied Safe/deposit wallet already
+   exists through the public relayer `/deployed` endpoint. Placement stays
+   disabled until authoritative user-event and position readers are present
+   and explicitly verified, a bodyless `/heartbeats` request has returned the
+   exact `{status: "ok"}` acknowledgment within 7.5 seconds, and matching
+   book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
+   seconds.
 6. Current live-readiness, data-layer, fleet, risk, release, and explicit
    confirmation gates all pass without overrides or exceptions.
 7. A simultaneous one-market paper counterfactual has quote permission and is
-   writing auditable artifacts. Zero quote-permission rows means no live test.
+   writing auditable artifacts. The separately authorized route is:
+
+   ```powershell
+   .\venv\Scripts\python.exe -m weather.market.market_making_run --date <YYYY-MM-DD> --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets <market-id> --once
+   ```
+
+   `market_harvest` assembles rows from current event metadata, CLOB tokens,
+   books, and features. When no prebuilt feature file exists, it projects the
+   current midpoint, spread, depth, and age directly from the latest public
+   book capture and uses only the latest token-registry capture; retained token
+   history cannot duplicate current quote intents. It does not reintroduce
+   model snapshot rows as the fallback.
+   It retains active-event, source/watcher, information
+   event, CLOB continuity/freshness, economics, minimum-size, tick, cadence,
+   current-high, budget, and notional gates while omitting only model-row and
+   model-freshness permission dependencies. Model promotion remains unchanged,
+   model probability fields remain empty, assumed reward remains zero, and
+   `live_trade_permission` is always false. Zero quote-permission rows means no
+   live test. The Stage 1 selector must read the retained `run_config.json` and
+   `quote_intents_long.csv`, stream and hash the complete quote tape, and bind a
+   still-current successful row for the exact selected condition and token.
+   The resulting plan remains non-authorizing; Stage 0, physical eligibility,
+   account state, current market rules, the literal confirmation, and the
+   one-submit adapter capability remain independent mutation gates.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
-9. The submitting host is physically eligible. The production Ontario host is
-   currently blocked and cannot satisfy this prerequisite.
+9. The submitting host is physically eligible. This production PC cannot
+   satisfy the prerequisite while its current evidence is Ontario/blocked; it
+   may satisfy it only after physical relocation and a fresh matching official
+   response.
 
 ## Staged protocol
 
@@ -132,9 +163,9 @@ All must be current for the target date and selected market:
 ### Stage 1: dead-man and cancel proof
 
 - Start the exchange heartbeat and require acknowledged 5-second cadence.
-- Start the first heartbeat with an empty ID, then pass the returned
-  `heartbeat_id` into every subsequent request. A missing ID, broken chain, or
-  response older than 7.5 seconds disarms placement.
+- Send the current bodyless `POST /heartbeats`; every response must equal
+  `{status: "ok"}`. A malformed acknowledgment or response older than 7.5
+  seconds disarms placement.
 - Submit one far-from-mid, smallest-valid, post-only buy with notional no more
   than the band cap.
 - Require both the placement response and authenticated stream/open-order
@@ -143,7 +174,7 @@ All must be current for the target date and selected market:
   `RETRYING`, as an unexpected Stage 1 outcome. Send cancel-all, reconcile, and
   stop; zero positions from a potentially lagging account API is not sufficient
   no-fill evidence.
-- Continue the rotating heartbeat at no more than five-second intervals during
+- Continue the bodyless heartbeat at no more than five-second intervals during
   placement and observation. Before either cancellation proof, acknowledge one
   fresh heartbeat and prove the order is still open. Otherwise a slow
   observation could let the dead-man timer cancel the order and falsely credit
@@ -226,25 +257,41 @@ observed bootstrap and its separate literal confirmation, may perform Stage 1.
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
 
-### Eligible-host preparation commands
+### Same-PC relocation and eligible-host preparation
 
-The final sequence is for a genuinely eligible physical Windows host. Public
-metadata, economics, and book selection may be rehearsed from a blocked host,
-but they must be rerun on the eligible host; identity preparation, credential
-import, authenticated Stage 0, and every mutation must not run from the blocked
-Ontario production host. Never put a secret value in the command line,
-environment, identity manifest, output path, or shell history.
+The final sequence runs from this production checkout after the PC is
+physically relocated. There is no source-transfer or second-machine deployment
+step. Public metadata, economics, and book selection may be rehearsed while the
+PC is blocked, but they must be rerun after relocation; identity preparation,
+credential import, authenticated Stage 0, and every mutation must not run while
+the current official response is blocked. Never put a secret value in the
+command line, environment, identity manifest, output path, or shell history.
 
-Select the exact Stage 1 market from fresh public data before creating the
-identity. Do not hand-pick a condition or retain an old token from a prior day.
+Plan the physical move and first lifecycle session outside both the 12:00-18:00
+graded window and the 18:00-00:30 near-close protection window. The move will
+interrupt capture even though the code is unchanged. After boot and network
+recovery, log in once so Credential Manager and `WeatherOneShotPush` are
+available, prove master equals origin at the reviewed exact tip, prove all
+capture workers and the public execution-tape producer recovered, clear the
+pending reboot state, and ensure no heavy scheduled job can overlap the session.
+Do not trade merely because Windows restarted successfully.
+
+Select the exact Stage 1 market from fresh public data and a successful
+one-market paper tick before creating the identity. Do not hand-pick a
+condition/token pair or retain one from a prior day.
 The metadata refresh's `--metadata-only` mode leaves the tracked location
 registry byte-for-byte unchanged. The selector authenticates nowhere and can
 neither place nor cancel an order; it requires a passing content-bound
-International economics snapshot and current book rules, then emits a
-content-hashed plan that explicitly is not trading authorization:
+International economics snapshot, a current paper-only market-harvest quote,
+and current book rules, then emits a content-hashed plan that explicitly is not
+trading authorization:
 
 ```powershell
 $pilotTargetDate = "replace-with-target-date"
+$pilotMarketId = "replace-with-one-built-in-market-id"
+$paperRunId = "pilot-paper-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
+$paperRunsRoot = "C:\pilot\paper-runs"
+$paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRunId)
 
 .\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
   --locations .\config\locations.json `
@@ -257,9 +304,22 @@ $pilotTargetDate = "replace-with-target-date"
   --target-date $pilotTargetDate `
   --max-age-hours 2
 
+.\venv\Scripts\python.exe -m weather.market.market_making_run `
+  --date $pilotTargetDate `
+  --budget-usdc 25 `
+  --mode paper-live-forward `
+  --permission-profile market_harvest `
+  --markets $pilotMarketId `
+  --exchange-economics-snapshot C:\pilot\exchange-economics.json `
+  --runs-root $paperRunsRoot `
+  --run-id $paperRunId `
+  --once
+
 .\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
   --economics-snapshot C:\pilot\exchange-economics.json `
   --target-date $pilotTargetDate `
+  --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
+  --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
   --plan-out C:\pilot\stage1-candidate.json
 
 $pilotPlan = Get-Content -LiteralPath C:\pilot\stage1-candidate.json -Raw | ConvertFrom-Json
@@ -274,8 +334,14 @@ $pilotConditionId = [string]$pilotPlan.selected.condition_id
 $pilotTokenId = [string]$pilotPlan.selected.token_id
 ```
 
-The plan expires after five minutes. If it expires, rerun the selector with a
-new output path; refresh the economics snapshot too when its own gate expires.
+The plan expires at the earlier of five minutes or the selected paper row's
+quote TTL (currently at most 120 seconds). If it expires, run a new one-market
+paper tick and selector with new output paths; refresh the economics snapshot
+too when its own gate expires. After Stage 0, repeat the paper tick and selector
+immediately before Stage 1 with `--expected-condition-id $pilotConditionId` and
+`--expected-token-id $pilotTokenId`. That constrained refresh must select the
+exact Stage 0 scope or block; it cannot silently switch markets after the
+authenticated bootstrap.
 Stage 0 still rereads the exact book and fails closed on any condition, token,
 min-size, tick, neg-risk, fee, or closed-state drift. The plan's minimum-tick
 intent is only a far-from-mid lifecycle probe and will normally not qualify for
@@ -318,10 +384,10 @@ $pilotSignatureType = "POLY_GNOSIS_SAFE"
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
 ```
 
-Only after identity preparation passes, provision the four secret values as
-Windows Credential Manager generic credentials. If an external source file is
-used, keep it outside the repository, remove inherited broad ACLs, and run the
-importer only on the eligible execution host. The importer validates the private
+Only after relocated-PC identity preparation passes, provision the four secret
+values as Windows Credential Manager generic credentials. If an external
+source file is used, keep it outside the repository, remove inherited broad
+ACLs, and run the importer only after this PC is eligible. The importer validates the private
 key/address and exact wallet/signature topology, refuses existing fixed targets,
 rolls back partial writes, ignores relayer/RPC/location/live-flag fields, and
 emits only a public reference manifest and secret-free receipt:
@@ -344,11 +410,15 @@ funder address in the process environment. The required variables are
 `POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
 `POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
 credentials themselves. Install the repository's exact `live` dependency extra
-in the eligible host's dedicated virtual environment; the runtime rejects any
-SDK version other than the pinned version. After a successful import, independent
-keyless doctor, and secured transfer verification, delete the source credential
-file using the eligible host's approved secure-deletion procedure. The importer
-never deletes it automatically.
+in this checkout's dedicated virtual environment; the runtime rejects any SDK
+version other than the pinned version. After a successful import, independent
+keyless doctor, and operator verification of the external source's retained
+copy, delete the source credential file using the approved secure-deletion
+procedure. The importer never deletes it automatically.
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -e ".[live]"
+```
 
 Run the keyless doctor before Stage 0. It validates the exact SDK version,
 Windows resolver availability, reference URI shapes and completeness, direct-
@@ -377,10 +447,15 @@ prepared in advance and run consecutively; an expired bootstrap is a stop, not a
 reason to edit timestamps or reuse an earlier gate.
 
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
-no exchange-mutation commands. Before a live test, create and review a
-host-owned wrapper outside the repository that imports `run_stage0` and
+no exchange-mutation commands. After relocation and fresh candidate selection,
+create and review a host-owned wrapper outside the repository on this PC that
+imports `run_stage0` and
 `run_stage1`, fixes every public identifier and new output path, and exposes no
-secret or risk-ceiling arguments. Stage 0 never submits an order, but it does
+secret or risk-ceiling arguments. Every `run_stage1` call must receive the
+fresh constrained candidate-plan path; the library validates its semantic hash,
+embedded source hashes, current paper-proof expiry, exact condition/token, and
+nonmarketable post-only minimum-tick intent before it resolves credentials or
+constructs a mutation-capable adapter. Stage 0 never submits an order, but it does
 send authenticated heartbeat and cancel-all requests, so it belongs behind the
 same reviewed boundary. Run Stage 0 once, then each Stage 1 cancellation mode in
 its own fresh process. Each Stage 1 call can perform exactly one network submit,
@@ -417,8 +492,8 @@ balance above the isolated-wallet cap, validates a public Data API position
 query scoped to the exact proxy wallet and condition, content-binds that query
 and the full account snapshot, locally constructs and hashes a signed minimum
 BUY without posting it, discards the raw signature, requires a live user-stream
-PONG, exercises two
-rotating five-second heartbeat acknowledgements, and sends cancel-all followed
+PONG, exercises two bodyless five-second heartbeat acknowledgements, and sends
+cancel-all followed
 by a zero-order query. The WebSocket does not document an initial account
 snapshot, so the gate does not invent one: REST establishes the starting state,
 PONG establishes transport liveness, and the first Stage 1 order event proves
@@ -484,6 +559,12 @@ during an outstanding order is forbidden.
 Use the public official `GET /rebates/current?date=...&maker_address=...`
 response for the completed next payout cycle. Count only rows matching the
 pilot's exact date, maker address, and condition ID; sum `rebated_fees_usdc`.
+The program document calls the payout asset pUSD while this API document calls
+that amount USDC and returns an `asset_address`. Preserve both documented terms
+as an explicit conflict: the field name is an accrual amount, not proof of the
+wallet asset actually credited. Require the returned address to equal the
+current official pUSD collateral proxy from the contracts page, then require
+the observed wallet balance delta before calling a rebate paid.
 Current reward-campaign metadata is eligibility evidence, not payout evidence.
 A completed exact-scope query with no matching row is a reconciled zero, not a
 missing value. Before the payout cycle is complete, even a positive current
@@ -529,26 +610,34 @@ or P&L from an intermediate exchange status alone.
 
 ## SDK decision record
 
-The 2026-08-13 adapter audit checked the official CLOB v2 client at tag
-`v1.1.0` against the official order and heartbeat documentation. That client
-uses `/v1/heartbeats`, accepts `OrderType.GTC` with `post_only=True`, returns a
-rotating `heartbeat_id`, and can return trade IDs before settlement hashes.
-Its convenience `create_and_post_order` helper owns an internal two-attempt
-order-version retry, so the pilot deliberately does not call it. The adapter
-calls local `create_order` followed by exactly one network `post_order`; an
-order-version rejection is a stop-and-reconcile event, not a retry.
-The generic API reference still prints `/heartbeats`; the pinned client's tag
-is the contract for this adapter, and the discrepancy must be rechecked before
-the first live session.
+The 2026-08-14 migration pins the official unified
+`polymarket-client==0.6.0`. The published wheel and its source were checked
+against the exact client construction, typed account readers, local limit-order
+signing, single-order post, cancellation, and L2 HMAC contracts. Current
+heartbeat documentation defines a bodyless `POST /heartbeats` with the exact
+`{status: "ok"}` acknowledgment. Because the unified SDK does not expose that
+REST method, `weather.market.mm_official_transport` provides only that one
+authenticated request; it is intentionally not a generic secret-bearing HTTP
+client.
 
-Polymarket now recommends its unified `polymarket-client` SDK for new projects.
-The current unified client has a stronger typed order/user-stream surface, but
-the audited public secure-client surface did not expose the maker dead-man
-heartbeat required by this pilot. Do not migrate merely because it is newer.
-Re-evaluate the unified client immediately before credentialed integration; use
-it only if the exact version proves post-only placement, rotating REST
-heartbeats, account-wide user events, cancel-all-to-zero, and asynchronous fill
-settlement in a keyless contract test.
+Two unified-client conveniences are unsafe for this bounded pilot. First,
+`SecureClient.create` can deploy a missing default deposit wallet. Client
+construction is therefore forbidden until a repository-owned public
+`/deployed` check proves the exact supplied Safe or deposit wallet already
+exists. Second, `place_limit_order` can recover missing allowance and retry.
+The adapter instead calls local `create_limit_order(..., post_only=True)` and
+then exactly one `post_order`. It verifies the signed token, signer, maker,
+signature type, signature shape, GTC type, and post-only flag before that sole
+submit. A rejection or ambiguous response is a stop-and-reconcile event, never
+permission for an automatic approval or retry.
+
+The direct account-wide WebSocket reader remains the authoritative user-event
+boundary, while the unified SDK owns authenticated REST reads and order
+signing/submission. Before any credentialed Stage 0/1 session, the exact wheel
+must be installed through the `live` extra in this checkout after relocation,
+the fixed-scope host wrapper must pass the keyless doctor, and the relocated-
+host Stage 0 proof must pass. The successful source/wheel audit is not wallet or
+exchange evidence.
 
 The supplied Safe wallet's local cryptographic topology is proven, but its live
 exchange behavior is still unproven. Stage 0 must show that the exact signer,
@@ -558,13 +647,17 @@ must pass authenticated user-stream subscription, heartbeat, a signed-order
 preview or non-posting contract probe, and cancel-all. Do not rely on a manual
 UI-trade workaround or silently switch wallet/signature models after a failure.
 
-Official references reviewed on 2026-08-13:
+Official references reviewed through 2026-08-14:
 
 - <https://docs.polymarket.com/trading/overview>
 - <https://docs.polymarket.com/api-reference/authentication>
-- <https://github.com/Polymarket/py-clob-client-v2/tree/v1.1.0>
+- <https://github.com/Polymarket/py-sdk/tree/c8fb84bb51e60f790239056be7be0f5cc337d2e0>
 - <https://github.com/Polymarket/agent-skills/blob/main/order-patterns.md>
 - <https://github.com/Polymarket/py-sdk>
+- <https://docs.polymarket.com/getting-started/migrate-from-previous-sdks>
+- <https://docs.polymarket.com/api-reference/trade/send-heartbeat>
+- <https://docs.polymarket.com/trading/fees>
+- <https://docs.polymarket.com/api-reference/market-data/get-fee-rate>
 - <https://docs.polymarket.com/programs/maker-rebates>
 - <https://docs.polymarket.com/programs/liquidity-rewards>
 - <https://docs.polymarket.com/trading/orders/create>

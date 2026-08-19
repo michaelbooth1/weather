@@ -19,6 +19,7 @@ from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_VERSION,
     require_official_clob_version,
 )
+from weather.market.mm_official_transport import fetch_wallet_deployed
 from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     contains_secret_material,
@@ -329,19 +330,22 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
     }
 
 
-def build_pinned_clob_client(
+def build_unified_clob_client(
     credentials,
     stage0_identity,
     *,
     client_factory=None,
     api_creds_factory=None,
+    wallet_deployed_reader=None,
     now=None,
 ):
-    """Construct the pinned client needed to collect the observed Stage 0 gate.
+    """Construct the pinned unified client after a no-deploy preflight.
 
     The public identity manifest breaks the bootstrap dependency cycle but is
     not trading authorization.  Stage 1 still requires a passing observed
-    ``mm_platform_bootstrap`` artifact.
+    ``mm_platform_bootstrap`` artifact.  ``SecureClient.create`` can deploy a
+    missing default deposit wallet, so the public relayer proof must pass
+    before client construction is allowed.
     """
 
     identity_gate = stage0_client_identity_gate(
@@ -357,24 +361,44 @@ def build_pinned_clob_client(
     signature_type_id = identity.get("signature_type_id")
     if signature_type_id not in {2, 3}:
         raise RuntimeError("Stage 0 requires a supported Safe or deposit-wallet signature type")
+    deployment_reader = wallet_deployed_reader or fetch_wallet_deployed
+    if deployment_reader(credentials.funder, signature_type_id) is not True:
+        raise RuntimeError(
+            "Stage 0 refuses client construction until the existing wallet is proven deployed"
+        )
     if client_factory is None or api_creds_factory is None:
         require_official_clob_version()
-        from py_clob_client_v2 import ApiCreds, ClobClient
+        from polymarket import ApiKeyCreds, SecureClient
 
-        client_factory = client_factory or ClobClient
-        api_creds_factory = api_creds_factory or ApiCreds
+        client_factory = client_factory or SecureClient.create
+        api_creds_factory = api_creds_factory or ApiKeyCreds
     api_creds = api_creds_factory(
-        api_key=credentials.api_key,
-        api_secret=credentials.api_secret,
-        api_passphrase=credentials.api_passphrase,
+        key=credentials.api_key,
+        secret=credentials.api_secret,
+        passphrase=credentials.api_passphrase,
     )
-    return client_factory(
-        host="https://clob.polymarket.com",
-        chain_id=137,
-        key=credentials.private_key,
-        creds=api_creds,
-        signature_type=signature_type_id,
-        funder=credentials.funder,
-        use_server_time=True,
-        retry_on_error=False,
+    client = client_factory(
+        private_key=credentials.private_key,
+        wallet=credentials.funder,
+        credentials=api_creds,
     )
+    expected_wallet_type = {2: "GNOSIS_SAFE", 3: "DEPOSIT_WALLET"}[signature_type_id]
+    observed_wallet = str(getattr(client, "wallet", "") or "").lower()
+    observed_signer = str(getattr(client, "signer", "") or "").lower()
+    observed_wallet_type = str(getattr(client, "wallet_type", "") or "").upper()
+    topology_valid = all((
+        observed_wallet == str(credentials.funder).lower(),
+        valid_evm_address(observed_wallet),
+        valid_evm_address(observed_signer),
+        observed_signer != observed_wallet,
+        observed_wallet_type == expected_wallet_type,
+    ))
+    if not topology_valid:
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        raise RuntimeError("unified client returned an unexpected signer/wallet topology")
+    return client

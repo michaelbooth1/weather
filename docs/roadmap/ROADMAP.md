@@ -184,7 +184,7 @@ infrastructure work remains.
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
 | 66 | [CLOB Book Recon And Reward-Competition Analytics [COMPLETE 2026-06-16 - BOOK RECON LIVE]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
-| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CLIENT/STAGE 2 INTEGRATION AND ELIGIBLE-HOST EVIDENCE OPEN]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CUMULATIVE CLIENT/PUSD PARENT FOCUSED-GREEN; FULL SUITE, STAGE 2, AND LIVE EVIDENCE OPEN]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 68 | [Information-Event Calendar And Quote-Pull Gates [COMPLETE 2026-06-16 - EVENT GATE LIVE]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
 | 69 | [Multi-Variant Shadow Harness And Experiment Governance [COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE]](items/item-69-multi-variant-shadow-harness-and-experiment-governance.md) |
 | 70 | [Exact-Winner Catch-Up Candidate [COMPLETE 2026-06-16 - WHITELIST ALPHA GUARDRAIL PASSED]](items/item-70-exact-winner-catch-up-candidate.md) |
@@ -343,7 +343,7 @@ infrastructure work remains.
 | 304 | [Maker Current-Run Evidence Selection And Quote-Starvation Gate [COMPLETE 2026-06-24 - TRADING EVIDENCE SELECTS TARGET-DATE RUNS AND GATES QUOTE STARVATION]](items/item-304-maker-current-run-evidence-selection-and-quote-starvation-gate.md) |
 | 305 | [Settled-Day Finalization Order, Partial-Label, And Nightly Run-Date Gate [COMPLETE 2026-06-24 - NIGHTLY ANALYSIS CAN RUN BEFORE FINAL ARTIFACTS AND MIX TARGET DATES]](items/item-305-settled-day-finalization-order-partial-label-and-nightly-run-date-gate.md) |
 | 308 | [Model-Performance Scoring Liveness And Regenerate-On-Settlement [COMPLETE 2026-06-24 - MODEL-SKILL SCORING WENT 3 DAYS STALE WHILE LABELS ARE CURRENT]](items/item-308-model-performance-scoring-liveness-and-regenerate-on-settlement.md) |
-| 309 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - PAYOUT-ASSET CONTRACT AND EXPLICIT BASELINE ACCEPTANCE OPEN]](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
+| 309 | [Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - INTERNATIONAL V0.3 COLLECTION PROVED; EXPLICIT ACCEPTANCE OPEN]](items/item-309-exchange-economics-snapshot-production-verification-and-accept-baseline.md) |
 | 310 | [Toronto WU Current-Max Boundary Over-Lock Guard [COMPLETE 2026-06-24 - SUPPORT-ONLY CURRENT-MAX BOUNDARY GUARD LIVE]](items/item-310-toronto-wu-current-max-boundary-overlock-guard.md) |
 | 311 | [Taker Evidence-Starvation Classification And Upstream Liveness Gate [COMPLETE 2026-06-25 - LATEST-TICK STARVATION FAILS CLOSED]](items/item-311-taker-evidence-starvation-upstream-liveness-gate.md) |
 | 312 | [Taker And Maker Daily-Roll Auto-Restart Supervisor And Stale-Fingerprint Recovery [COMPLETE 2026-06-25 - BOT DAILY-ROLL ENSURE SUPERVISORS AND STALE-FINGERPRINT RECOVERY LIVE]](items/item-312-taker-maker-daily-roll-auto-restart-supervisor-and-stale-fingerprint-recovery.md) |
@@ -353,6 +353,7 @@ infrastructure work remains.
 | 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | [Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
+| 328 | [Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-15 - ONE-MARKET PAPER ROUTE PROVED; EXACT SUITE AND INTEGRATION OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |
 
 ### Architecture And Maintainability
 

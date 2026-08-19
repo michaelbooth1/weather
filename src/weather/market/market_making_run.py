@@ -56,6 +56,7 @@ from weather.market.market_making_run_constants import (  # noqa: E402
     DEFAULT_RUNS_ROOT,
     FILL_COLUMNS,
     PLATFORM_VERIFICATION_SCHEMA_VERSION,
+    PERMISSION_PROFILES,
     RUN_EXTRA_COLUMNS,
     RUN_MODES,
     RUN_QUOTE_COLUMNS,
@@ -66,6 +67,7 @@ from weather.market.market_making_run_support import (  # noqa: E402
     append_csv,
     append_jsonl,
     apply_run_budget,
+    assemble_market_harvest_inputs_for_market,
     assemble_policy_inputs_for_market,
     boolish_active,
     budget_exhausted_row,
@@ -73,6 +75,7 @@ from weather.market.market_making_run_support import (  # noqa: E402
     classify_zero_trade_root_cause,
     latest_book_rows,
     latest_clob_feature_rows,
+    market_harvest_clob_feature_rows,
     latest_rows_for_snapshot,
     lifecycle_blocked_by_budget_events,
     lifecycle_fill_transition,
@@ -103,7 +106,10 @@ from weather.market.market_making_run_support import (  # noqa: E402
     write_csv,
     write_json,
 )
-from weather.market.market_making_live_pilot import build_run_policy_config
+from weather.market.market_making_live_pilot import (
+    build_market_harvest_policy_config,
+    build_run_policy_config,
+)
 from weather.market.live_forward_gate import build_live_forward_gate
 from weather.market.market_making_model_variants import (
     build_model_variant_quote_rows,
@@ -824,6 +830,7 @@ def build_run_config_payload(
     policy_config,
     now,
     evidence_classification=None,
+    permission_profile="model",
 ):
     evidence_classification = evidence_classification or {}
     return {
@@ -832,6 +839,7 @@ def build_run_config_payload(
         "created_at_utc": now.isoformat(),
         "target_date": ensure_date(target_date).isoformat(),
         "mode": mode,
+        "permission_profile": permission_profile,
         "budget_usdc": float(budget_usdc),
         "markets": [spec.id for spec in specs],
         "run_folder": str(run_folder),
@@ -847,7 +855,9 @@ def build_run_config_payload(
         "shadow_safety": {
             "loads_private_keys": False,
             "posts_orders": False,
-            "live_trade_permission_allowed": mode == "live-pilot",
+            "live_trade_permission_allowed": (
+                mode == "live-pilot" and permission_profile == "model"
+            ),
         },
     }
 
@@ -1282,8 +1292,16 @@ def build_run_once(
     releases_root=DEFAULT_RELEASES_ROOT,
     release_repo_root=REPO_ROOT,
     release_check_runtime=True,
+    permission_profile="model",
 ):
     mode = normalize_mode(mode)
+    if permission_profile not in PERMISSION_PROFILES:
+        raise ValueError(
+            f"unknown permission profile {permission_profile!r}; "
+            f"expected one of {sorted(PERMISSION_PROFILES)}"
+        )
+    if permission_profile == "market_harvest" and mode == "live-pilot":
+        raise ValueError("market_harvest permission profile is paper-only")
     now = utc_now(now)
     target = ensure_date(target_date)
     release_binding = load_worker_release_binding(
@@ -1301,6 +1319,8 @@ def build_run_once(
     quote_columns = worker_tape_columns(RUN_QUOTE_COLUMNS, release_binding)
     specs = selected_specs(markets)
     policy_config = build_run_policy_config(mode, budget_usdc, len(specs), overrides=policy_config)
+    if permission_profile == "market_harvest":
+        policy_config = build_market_harvest_policy_config(budget_usdc, policy_config)
     evidence_timezone = getattr(getattr(specs[0], "tz", None), "key", None) if specs else None
     evidence_classification = classify_market_making_evidence(
         target,
@@ -1333,6 +1353,10 @@ def build_run_once(
             label="maker model-variant quote-intent tape",
         )
     policy_config, clob_recon_diag = config_with_clob_recon(policy_config)
+    if permission_profile == "market_harvest":
+        # Re-clamp after dynamic reconciliation so no artifact can raise a
+        # harvest risk ceiling that the caller could not raise directly.
+        policy_config = build_market_harvest_policy_config(budget_usdc, policy_config)
 
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
     known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
@@ -1385,6 +1409,7 @@ def build_run_once(
         policy_config,
         now,
         evidence_classification=evidence_classification,
+        permission_profile=permission_profile,
     )
     run_config["clob_recon"] = clob_recon_diag
     run_config["data_layer_live_gate"] = data_layer_live_gate
@@ -1406,20 +1431,24 @@ def build_run_once(
     for spec in specs:
         config = config_for_date(target, spec.id)
         folder = Path(snapshots_root) / config.event_slug
-        snapshot_rows = load_latest_snapshot_rows(folder)
-        verify_worker_snapshot_binding(
-            folder,
-            snapshot_rows,
-            release_binding,
-            market_id=spec.id,
-            target_date=target,
+        snapshot_rows = (
+            load_latest_snapshot_rows(folder)
+            if permission_profile == "model"
+            else []
         )
+        if permission_profile == "model":
+            verify_worker_snapshot_binding(
+                folder,
+                snapshot_rows,
+                release_binding,
+                market_id=spec.id,
+                target_date=target,
+            )
         current_high_assessment = current_high_probability_summary(
             snapshot_rows,
             normalized_high_for_market(observation, spec.id),
         )
         snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
-        source_rows = source_status_for_snapshot(folder, snapshot_id)
         book_rows = latest_book_rows(folder)
         clob_feature_rows = latest_clob_feature_rows(
             folder,
@@ -1427,6 +1456,18 @@ def build_run_once(
             build_if_missing=True,
             max_age_seconds=float(policy_config["max_book_age_seconds"]),
             market_id=spec.id,
+        )
+        if permission_profile == "market_harvest" and not clob_feature_rows:
+            clob_feature_rows = market_harvest_clob_feature_rows(
+                book_rows,
+                now=now,
+            )
+        evidence_snapshot_id = snapshot_id
+        if permission_profile == "market_harvest" and clob_feature_rows:
+            evidence_snapshot_id = clob_feature_rows[0].get("snapshot_id")
+        source_rows = source_status_for_snapshot(
+            folder,
+            None if permission_profile == "market_harvest" else evidence_snapshot_id,
         )
         promotion = promotion_states.get(spec.id, {"promotion_state": "BLOCK"})
         preflight = preflight_market(
@@ -1452,6 +1493,7 @@ def build_run_once(
             current_high_assessment=current_high_assessment,
             release_production_capable=release_binding.bundle.production_capable,
             active_window_start_utc=active_window_start_utc,
+            permission_profile=permission_profile,
         )
         preflight_rows.append(preflight)
         if preflight["status"] != "PASS":
@@ -1478,7 +1520,31 @@ def build_run_once(
                     f"quarantined rows={issue.get('quarantined_row_count', 0)}"
                 ),
             })
-        if snapshot_rows:
+        if permission_profile == "market_harvest":
+            policy_inputs = assemble_market_harvest_inputs_for_market(
+                spec.id,
+                folder,
+                book_rows,
+                clob_feature_rows,
+                promotion,
+                observation,
+                run_mode=mode,
+                source_rows=source_rows,
+                current_high_assessment=current_high_assessment,
+                book_audit=preflight.get("book_audit"),
+            )
+            if preflight["status"] == "PASS":
+                raw_quote_rows.extend(
+                    decide_quote(row, config=policy_config, now=now)
+                    for row in policy_inputs
+                )
+            else:
+                details = preflight.get("blocking_reasons") or preflight.get("stale_reasons") or [preflight["status"]]
+                raw_quote_rows.extend(
+                    preflight_no_quote(row, policy_config, now, preflight["reason_kind"], details)
+                    for row in policy_inputs
+                )
+        elif snapshot_rows:
             policy_inputs = assemble_policy_inputs_for_market(
                 spec.id,
                 folder,
@@ -1509,6 +1575,8 @@ def build_run_once(
                 policy_config,
                 "NO_QUOTE_MISSING_PREFLIGHT",
                 detail,
+                permission_profile=permission_profile,
+                run_mode=mode,
             ))
 
     write_json(run_folder / "run_config.json", run_config)
@@ -1535,6 +1603,7 @@ def build_run_once(
         "run_id": run_id,
         "target_date": target.isoformat(),
         "mode": mode,
+        "permission_profile": permission_profile,
         "evidence_mode": evidence_classification.get("evidence_mode"),
         "evidence_classification": evidence_classification,
         "status": preflight_status,
@@ -1922,6 +1991,12 @@ def main(argv=None):
     parser.add_argument("--date", required=True, help="Target market date, YYYY-MM-DD.")
     parser.add_argument("--budget-usdc", type=float, required=True, help="Total run risk budget.")
     parser.add_argument("--mode", choices=sorted(RUN_MODES | {"live"}), default="shadow")
+    parser.add_argument(
+        "--permission-profile",
+        choices=sorted(PERMISSION_PROFILES),
+        default="model",
+        help="Use model-gated quoting or the separately authorized paper-only market_harvest lane.",
+    )
     parser.add_argument("--markets", default="all", help="'all' or comma-separated market ids.")
     parser.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
@@ -1965,6 +2040,7 @@ def main(argv=None):
         "evidence_mode": args.evidence_mode,
         "pilot": args.pilot,
         "confirm_live_orders": args.confirm_live_orders,
+        "permission_profile": args.permission_profile,
     }
     if mode == "paper-live-forward" and not args.once and args.now is None:
         payload = run_loop(
