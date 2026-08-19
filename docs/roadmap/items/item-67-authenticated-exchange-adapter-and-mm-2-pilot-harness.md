@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-15 - CUMULATIVE CLIENT/PUSD PARENT FOCUSED-GREEN; FULL SUITE, STAGE 2, AND LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-19 - CUMULATIVE CLIENT/PUSD PARENT INTEGRATED; STAGE 2 AND LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -510,3 +510,18 @@ integration, candidate selection should be repeated from a fresh paper tick
 only when a market naturally satisfies the existing gates. See
 `docs/operations/ESTABLISHED_FINDINGS.md` section 8q for the sole quantitative
 record.
+
+## 2026-08-19 production disposition
+
+The cumulative parent passed one exact-tip 18/18-chunk suite with 4,489 tests,
+then merged through the guarded roll-sensitive path as
+`3c326ac1c03b415877da33dc254b39d32f576de4`. All three core capture workers
+recovered with current source identities and the merge was published through
+`WeatherOneShotPush`. This lands the unified official client, pUSD contract,
+paper harvest route, and keyless Stage 0/1 software. It does not provide order
+authority, credentials, a safe current candidate, or any own-account evidence.
+
+The fixed-scope Stage 2 successor did not integrate. Its focused host wrapper
+resolved imports from production rather than its exact worktree, so the full
+suite and guarded merge correctly refused. A corrected diagnostic passed its
+73 focused tests, but a fresh exact-tip full-suite receipt remains mandatory.

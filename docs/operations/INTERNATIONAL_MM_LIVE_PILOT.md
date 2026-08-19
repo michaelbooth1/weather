@@ -14,6 +14,16 @@ markout, position, and settlement reconciliation.
 The claim boundary and frozen economics decision rule are preregistered in
 [`INTERNATIONAL_MM_PILOT_PREREGISTRATION.md`](../research/INTERNATIONAL_MM_PILOT_PREREGISTRATION.md).
 
+## Current production disposition
+
+As of 2026-08-19, the cumulative paper/client/pUSD parent is integrated at
+merge `3c326ac1c03b415877da33dc254b39d32f576de4` after an exact 4,489-test
+suite and guarded capture recovery. The fixed-scope Stage 2 successor is not
+integrated: its host focused wrapper resolved imports from production rather
+than its exact worktree, so the full suite and merge correctly refused. No
+current candidate or trading authorization exists. A corrected focused
+diagnostic is not a replacement for a new immutable full-suite receipt.
+
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
 

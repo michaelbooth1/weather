@@ -1,4 +1,4 @@
-# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-15 - INTERNATIONAL V0.3 COLLECTION PROVED; EXPLICIT ACCEPTANCE OPEN]
+# 309. Current Exchange-Economics Snapshot Production, Verification, And Accept-Baseline Workflow [PARTIAL 2026-08-19 - INTERNATIONAL V0.3/PUSD CONTRACT INTEGRATED; EXPLICIT ACCEPTANCE OPEN]
 
 Goal: produce and maintain a current, source-verified exchange-economics
 snapshot, with a tracked template, an accept-baseline mechanism, and a recurring
@@ -23,7 +23,8 @@ so the entire item-300 framework currently produces only BLOCKs and zero
 countable evidence. The drift gate is also inert without an accepted baseline. A
 profitability or promotion claim cannot be trusted until the fee, rebate,
 reward, tick-size, and minimum-order assumptions are verified against current
-Polymarket US documentation rather than test defaults.
+official International Polymarket documentation and market surfaces rather
+than test defaults. Legacy US evidence remains historical compatibility only.
 
 Why it is not already covered: item 300 owns the gate, drift logic, evidence
 threading, and tests - the software that consumes a snapshot - but not the
@@ -37,7 +38,8 @@ item owns the operator lifecycle of the economics snapshot.
 
 1. Author a tracked template (for example
    `docs/research/exchange_economics_snapshot_template.json`, mirroring item 45's
-   `mm_platform_verification_template.json`) populated from current Polymarket US
+   `mm_platform_verification_template.json`) populated from current International
+   Polymarket
    documentation: taker fee, maker fee, flattening fee, maker rebate pool-share
    and formula, liquidity-reward formula (distance threshold and c), tick size,
    minimum order size, and order/API semantics, each with source URLs and a
@@ -134,3 +136,10 @@ audited a fresh gate-valid v0.3 International snapshot without invoking
 as an assumption, but not the unchecked informed-acceptance requirement. The
 paper and candidate outcome is recorded only in
 `docs/operations/ESTABLISHED_FINDINGS.md` section 8q.
+
+The cumulative client/pUSD parent is now in production at merge
+`3c326ac1c03b415877da33dc254b39d32f576de4` after its exact 4,489-test suite
+passed. Collection and validation are therefore production software rather
+than branch-only capability. The accepted-baseline checkbox deliberately
+remains open: neither the merge, scheduled refresh, paper proof, nor candidate
+selection may accept an economics baseline on the operator's behalf.

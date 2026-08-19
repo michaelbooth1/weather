@@ -114,6 +114,12 @@ failed receipts, leave future behavior on its branch, and report the current
 blocker through dynamic status and the bounded recovery handoff. A later
 morning closeout owns the transaction once the integration is real.
 
+Treat each actual merge independently. A later member of a planned stack
+failing does not erase an earlier successful merge and must not leave that
+earlier merge undocumented. Close the pending transaction against the commits
+that really entered production, describe the later refusal as the current
+blocker, and never claim the refused code landed.
+
 ## Freshness policy
 
 - Canonical documents use `Update when` triggers instead of ceremonial

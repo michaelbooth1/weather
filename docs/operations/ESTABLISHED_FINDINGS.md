@@ -21,16 +21,22 @@ starts from what we know instead of re-deriving it.
 
 ## 0. Objectives, in priority order
 
-1. **Keep settled, promotion-countable days accruing.** **REFRAMED 2026-08-10 — see §0d.** The old
-   wording was *"protect the contiguous streak"*, and **contiguity now gates nothing on the critical
-   path.** What the live work needs is the **volume of promotion-countable date clusters**, which
-   do **not** have to be contiguous. Capture health still matters and is watched directly.
-2. **Build a better FORECAST than the market — from our own information.** We currently do not
-   beat it (§1). **The central goal is stated in full in §0c and that section governs**: aim at
-   forecast accuracy, never at benchmark-consuming shortcuts, and expect the tradeable edge to
-   follow in time rather than be targeted directly.
-3. **The end goal is the market-making bot.** MM outranks the taker. It is **downstream of
-   objective 2, not a competing objective** (§0c). The taker is deprioritized and its tape deleted.
+1. **Protect irreplaceable capture and keep real settlement evidence accruing.** Contiguity is not
+   the objective (§0d), but a lost public execution interval or unsettled date cannot be recreated
+   by documentation or a later model run.
+2. **Determine whether International market making is profitable after every cost.** The approved
+   experiment is market-centred resting liquidity: spread plus actually paid maker rebates versus
+   adverse selection, inventory/settlement loss, fees, and operational cost. Public executions
+   provide counterfactual paths; only authoritative own-account events and balances prove realized
+   economics (§8c). No profitability result exists yet.
+3. **Improve the weather forecast from our own information.** We currently lose to the market
+   (§1). The model is an input to quote centring and risk control, not assumed alpha and not a
+   prerequisite for testing market-centred spread economics. Benchmark-consuming controls remain
+   diagnostics rather than forecast improvements (§0c).
+
+**Ordering changed by the operator's 2026-08-13 maker-rebate pivot.** Sections §0b–§0c remain the
+canonical model-research standard, but their statement that market making is downstream of beating
+the market is superseded. The taker remains deprioritized.
 
 **The primary model objective is the 09:00–14:00 local slice**, leakage-audited and walk-forward — not
 aggregate Brier. Aggregate-Brier chasing was explicitly abandoned: it hides the slice where the model
@@ -2445,6 +2451,30 @@ nor does a one-time restart prove the repair. Closure requires the exact-tip
 suite, guarded production adoption, and a fresh-parent memory slope over real
 capture iterations. Until then, the post-grade restart is only an operational
 headroom mitigation.
+
+## 8s. The cumulative International parent is integrated; the fixed-scope successor was never tested
+
+**Measured 2026-08-19 from immutable suite, merge, task, and wake receipts.** Parent tip
+`1f4fb14611fe94781323d2b2da43f057a6f7241e` passed **18/18 chunks and 4,489 tests** with zero
+failures, errors, or skips. Its guarded merge recovered all three core capture workers, recorded
+the documentation obligation, and published merge
+`3c326ac1c03b415877da33dc254b39d32f576de4` through `WeatherOneShotPush`. This lands the paper
+harvest route, official unified client, pUSD contract, and sampler repair. It proves software
+consistency and adoption, not an order, candidate, fill, rebate, or profit.
+
+The fixed-scope successor failure is an orchestration result, not a Stage 2 code result. Its focused
+wrapper set a worktree `PYTHONPATH` but invoked Python from the production working directory, whose
+root package bootstrap won resolution; import of successor-only `mm_live_stage2` failed before the
+focused tests. The full suite therefore correctly refused and produced no suite log, and the merge,
+continuous-observation task, and candidate all refused the absent ancestor. Running the same four
+focused files from the exact worktree subsequently passed **73/73**, but that diagnostic is not an
+immutable full-suite receipt and authorizes no merge.
+
+The same night exposed a separate settlement-orchestration defect. The August 16 backfill settled
+**12/12** markets from real `daily_summary` rows, then continued through unrelated downstream chain
+work until its bounded teardown. Cleanup did not run, so stale lock files remained; the August 17
+wrapper used bare file existence and refused. PID reuse then made PID-only stale-lock detection
+unsafe. August 17 remains an explicit hole and will not self-heal in the next daily run.
 
 ---
 
