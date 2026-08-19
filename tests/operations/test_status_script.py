@@ -454,6 +454,16 @@ def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:
     assert "heavy workload lease active" in text
 
 
+def test_status_uses_durable_tiering_status_not_scheduler_zero() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "clob_tiering_task_status.json" in text
+    assert "clob_raw_tape_tiering_task_status.json" in text
+    assert "SKIPPED_WORKLOAD_LEASE_BUSY" in text
+    assert "Task Scheduler 0x0 does not prove reclaim" in text
+    assert "tiering  = $tieringState" in text
+
+
 def test_status_snapshot_fallback_matches_the_twelve_minute_capture_contract() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

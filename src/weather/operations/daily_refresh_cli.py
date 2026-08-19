@@ -263,6 +263,16 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--resume-from-step", default="", choices=("", *STEP_ORDER))
+    parser.add_argument(
+        "--stop-after-step",
+        default="",
+        choices=("", *STEP_ORDER),
+        help=(
+            "End successfully after this exact step. This is a bounded recovery "
+            "run: it does not publish stage manifests, trigger the evidence stage, "
+            "run production readiness, or write the daily progress ledger."
+        ),
+    )
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
     parser.add_argument("--fail-on-nightly-health-critical", action="store_true")
     parser.add_argument("--fail-on-ingest-quality", action="store_true")

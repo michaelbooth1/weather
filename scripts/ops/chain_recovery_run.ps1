@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Resume the daily refresh chain from a named step, outside the graded window.
+    Resume the daily refresh chain from a named step in the heavy-work window.
 
 .DESCRIPTION
     The chain hard-stops at the settled-day barrier when any dependency blocks, and
@@ -10,9 +10,9 @@
 
     Once the blocking condition is cleared, those steps are recoverable by resuming --
     but the resume is a multi-hour, memory-hungry run, and memory pressure during
-    12:00-18:00 local is the top cause of capture gaps, which is what costs streak days.
-    So this refuses to start inside the graded window rather than trusting the operator
-    (or a scheduled trigger) to have picked a safe time.
+    protected host time is the top cause of capture gaps, which is what costs streak
+    days. So this accepts ad-hoc work only from 00:30 through 09:00 local, using the
+    repository-owned load policy rather than a duplicated hour check.
 
     Resuming from a step re-runs that step and everything after it. Steps before it keep
     their previously recorded results, so resume from the step that actually failed, not
@@ -40,25 +40,46 @@
     This switch passes --wu-settlement-restore-refetch, which takes the target range
     unconditionally instead of via missing_ranges().
 
+.PARAMETER StopAfter
+    End after this exact daily-refresh step. The Python orchestrator records a
+    bounded-recovery receipt and suppresses downstream readiness, stage
+    publication, evidence triggering, and daily-progress writes. Use this for
+    one-purpose repairs such as settlement backfill.
+
 .PARAMETER Force
-    Run even inside the graded window. Only for a deliberate operator decision.
+    Retained for action compatibility. It does not bypass the repository host
+    load policy: ad-hoc recovery remains restricted to 00:30-09:00 local.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$ResumeFrom,
-    [Parameter(Mandatory = $true)][string]$TargetDate,
+    [Parameter(Mandatory = $true)][ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$TargetDate,
     [switch]$Refetch,
+    [string]$StopAfter = '',
     [switch]$Force
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$backtestRoot = Join-Path $repo "data\backtest"
 $logDir = Join-Path $repo "data\ops\chain_recovery"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Path $logDir -Force | Out-Null }
 
-$stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$stamp = "$(Get-Date -Format 'yyyyMMdd-HHmmss-fff')-$PID"
 $log = Join-Path $logDir "recovery-$stamp.log"
 $errLog = Join-Path $logDir "recovery-$stamp.err"
+$repairLog = Join-Path $logDir "lock-repair-$stamp.json"
+$repairErrLog = Join-Path $logDir "lock-repair-$stamp.err"
+$refreshStatus = if ($StopAfter) {
+    Join-Path $logDir "refresh-$stamp.json"
+} else {
+    Join-Path $backtestRoot "daily_refresh_status.json"
+}
+$refreshReport = if ($StopAfter) {
+    Join-Path $logDir "refresh-$stamp.md"
+} else {
+    Join-Path $backtestRoot "daily_refresh_report.md"
+}
 $statusOut = Join-Path $logDir "last_run.json"
 
 function Write-Status($state, $detail, $exit) {
@@ -69,56 +90,260 @@ function Write-Status($state, $detail, $exit) {
         resume_from  = $ResumeFrom
         target_date  = $TargetDate
         refetch      = [bool]$Refetch
+        stop_after   = $StopAfter
         started_at   = $script:startedAt
         finished_at  = (Get-Date).ToString("o")
         log          = $log
+        error_log    = $errLog
+        lock_repair  = $repairLog
+        refresh_status = $refreshStatus
+        refresh_report = $refreshReport
+        workload_lease_mode = $script:workloadLeaseMode
+        workload_lease_owner_pid = $script:workloadLeaseOwnerPid
     }
     Set-Content -Path $statusOut -Value ($payload | ConvertTo-Json -Depth 4) -Encoding utf8
 }
 
 $script:startedAt = (Get-Date).ToString("o")
-$hour = (Get-Date).Hour
-if ($hour -ge 12 -and $hour -lt 18 -and -not $Force) {
-    $msg = "refusing to start inside the graded window (12:00-18:00); a heavy chain here risks a capture gap and a streak day"
-    Write-Status "REFUSED" $msg 0
+$script:workloadLeaseMode = "none"
+$script:workloadLeaseOwnerPid = $null
+$admissionScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+$jobScript = Join-Path $repo "scripts\ops\windows_kill_on_close_job.ps1"
+$tokenScript = Join-Path $repo "scripts\ops\training_window_contract.ps1"
+foreach ($requiredScript in @($admissionScript, $jobScript, $tokenScript)) {
+    if (-not (Test-Path -LiteralPath $requiredScript -PathType Leaf)) {
+        Write-Status "ERROR" "required recovery helper not found at $requiredScript" 1
+        exit 1
+    }
+}
+. $admissionScript
+. $jobScript
+. $tokenScript
+$policyWindow = Get-WeatherHeavyWorkloadPolicyWindow
+if ($policyWindow -ne "agent_heavy") {
+    $msg = "refusing ad-hoc chain recovery outside the repository 00:30-09:00 heavy-work window; Force cannot bypass host load policy"
+    Write-Status "REFUSED" $msg 2
     Write-Host "REFUSED: $msg"
-    exit 0
+    exit 2
 }
 
 $python = Join-Path $repo "venv\Scripts\python.exe"
 if (-not (Test-Path $python)) { Write-Status "ERROR" "python not found at $python" 1; exit 1 }
 
-$chainArgs = @(
-    "-m", "weather.operations.daily_refresh", "run",
-    "--resume-from-step", $ResumeFrom,
-    "--backtest-root", (Join-Path $repo "data\backtest"),
+function Test-ProcessIsSelfOrAncestor {
+    param(
+        [Parameter(Mandatory = $true)][int]$CandidatePid,
+        [int]$MaximumDepth = 6
+    )
+    $nextPid = [int]$PID
+    for ($depth = 0; $depth -le $MaximumDepth -and $nextPid -gt 0; $depth++) {
+        if ($nextPid -eq $CandidatePid) { return $true }
+        try {
+            $rows = @(Get-CimInstance Win32_Process -Filter "ProcessId = $nextPid" -ErrorAction Stop)
+        }
+        catch { return $false }
+        if ($rows.Count -ne 1) { return $false }
+        $nextPid = [int]$rows[0].ParentProcessId
+    }
+    return $false
+}
+
+function Invoke-ContainedDailyRefreshPython {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$StandardOutputPath,
+        [Parameter(Mandatory = $true)][string]$StandardErrorPath
+    )
+    # The assigned Python process redirects itself before runpy enters the
+    # module. It is created suspended, assigned to a KILL_ON_JOB_CLOSE Job,
+    # and only then resumed; direct use therefore cannot orphan descendants.
+    $launcher = "import runpy,sys;sys.stdout=open(sys.argv[1],'w',encoding='utf-8');sys.stderr=open(sys.argv[2],'w',encoding='utf-8');sys.argv=['weather.operations.daily_refresh']+sys.argv[3:];runpy.run_module('weather.operations.daily_refresh',run_name='__main__')"
+    $tokens = @("-c", $launcher, $StandardOutputPath, $StandardErrorPath) + $Arguments
+    $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
+    $job = $null
+    $process = $null
+    try {
+        $job = New-WeatherKillOnCloseJob
+        $process = Start-WeatherProcessInJob `
+            -Job $job `
+            -FilePath $python `
+            -ArgumentString $argumentString `
+            -WorkingDirectory $repo
+        $process.WaitForExit()
+        return [int]$process.ExitCode
+    }
+    finally {
+        if ($job) { $job.Dispose() }
+        if ($process) { $process.Dispose() }
+    }
+}
+
+# Scheduled bounded wrappers already hold the same OS-backed lease. Accept that
+# lease only when its recorded live owner is this process or a bounded ancestor;
+# otherwise acquire our own handle. This makes direct recovery safe without
+# deadlocking the reviewed outer wrapper topology.
+$ownedWorkloadLease = $null
+$leaseState = Get-WeatherHeavyWorkloadLeaseState -RepoRoot $repo
+if ($leaseState.Active) {
+    $candidateOwnerPid = 0
+    try { $candidateOwnerPid = [int]$leaseState.Owner.pid } catch { }
+    $inherited = (
+        $candidateOwnerPid -gt 0 -and
+        (Test-ProcessIsSelfOrAncestor -CandidatePid $candidateOwnerPid)
+    )
+    if (-not $inherited) {
+        $detail = "another heavyweight workload owns the shared lease; refusing chain recovery"
+        Write-Status "REFUSED" $detail 3
+        Write-Host "REFUSED: $detail"
+        exit 3
+    }
+    $script:workloadLeaseMode = "inherited_ancestor"
+    $script:workloadLeaseOwnerPid = $candidateOwnerPid
+}
+else {
+    $ownedWorkloadLease = Enter-WeatherHeavyWorkloadLease `
+        -RepoRoot $repo `
+        -Workload "chain_recovery_$TargetDate"
+    if ($null -eq $ownedWorkloadLease) {
+        $detail = "shared heavy-workload lease was acquired by another process during admission"
+        Write-Status "REFUSED" $detail 3
+        Write-Host "REFUSED: $detail"
+        exit 3
+    }
+    $script:workloadLeaseMode = "owned"
+    $script:workloadLeaseOwnerPid = $PID
+}
+
+# Repair only locks whose canonical diagnostics prove that their original
+# owner is gone. This replaces file-existence inference, which refused stale
+# locks and mistook a reused PID for the original owner. An active or unreadable
+# owner remains a hard refusal; the subsequent run also acquires both locks
+# atomically, so a race after this audit still fails closed.
+try {
+$repairArgs = @(
+    "repair-stale-locks",
+    "--backtest-root", $backtestRoot,
     "--snapshots-root", (Join-Path $repo "data\snapshots"),
+    "--status-out", (Join-Path $backtestRoot "daily_refresh_status.json"),
+    "--report-out", (Join-Path $backtestRoot "daily_refresh_report.md"),
+    "--lock-path", (Join-Path $backtestRoot "daily_refresh.lock"),
+    "--long-job-lock", (Join-Path $backtestRoot "long_job_guard.lock"),
+    "--long-job-state", (Join-Path $backtestRoot "long_job_guard_status.json"),
+    "--settled-analysis-target-date", $TargetDate,
+    "--resume-from-step", $ResumeFrom
+)
+$repairExit = Invoke-ContainedDailyRefreshPython `
+    -Arguments $repairArgs `
+    -StandardOutputPath $repairLog `
+    -StandardErrorPath $repairErrLog
+if ($repairExit -ne 0) {
+    $detail = "canonical stale-lock repair failed with exit $repairExit; refusing recovery run"
+    Write-Status "ERROR" $detail 1
+    Write-Host "ERROR: $detail"
+    exit 1
+}
+try {
+    $repair = Get-Content -Raw -Path $repairLog | ConvertFrom-Json
+}
+catch {
+    $detail = "canonical stale-lock repair did not emit readable JSON; refusing recovery run"
+    Write-Status "ERROR" $detail 1
+    Write-Host "ERROR: $detail"
+    exit 1
+}
+$blockingLocks = @()
+foreach ($row in @($repair.daily_refresh_lock, $repair.long_job_lock)) {
+    if ($null -ne $row -and $row.exists -and -not $row.removed) {
+        $blockingLocks += "$($row.kind):pid=$($row.pid):owner_running=$($row.owner_running):read_status=$($row.read_status)"
+    }
+}
+if ($blockingLocks.Count -gt 0) {
+    $detail = "canonical ownership check found a live or unverifiable lock: $($blockingLocks -join '; ')"
+    Write-Status "REFUSED" $detail 3
+    Write-Host "REFUSED: $detail"
+    exit 3
+}
+if (
+    $repair.long_job_state.active -and
+    -not $repair.long_job_state.stale -and
+    -not $repair.long_job_state.cleared
+) {
+    $detail = "canonical ownership check found a live or unverifiable long-job owner pid=$($repair.long_job_state.pid)"
+    Write-Status "REFUSED" $detail 3
+    Write-Host "REFUSED: $detail"
+    exit 3
+}
+
+$chainArgs = @(
+    "run",
+    "--resume-from-step", $ResumeFrom,
+    "--backtest-root", $backtestRoot,
+    "--snapshots-root", (Join-Path $repo "data\snapshots"),
+    "--status-out", $refreshStatus,
+    "--report-out", $refreshReport,
     "--settled-analysis-target-date", $TargetDate
 )
 if ($Refetch) { $chainArgs += "--wu-settlement-restore-refetch" }
+if ($StopAfter) { $chainArgs += @("--stop-after-step", $StopAfter) }
 
 Write-Host "resuming chain from '$ResumeFrom' for $TargetDate$(if ($Refetch) { ' (refetch)' })"
 Write-Host "log: $log"
 
-# Start-Process rather than a direct call: redirecting a native executable's stderr
-# inside PowerShell 5.1 wraps each line in a NativeCommandError and trips
-# $ErrorActionPreference='Stop' even on a clean exit 0 (this killed a merge mid-run
-# on 2026-07-25). Separate redirected files avoid the wrapper entirely.
-$proc = Start-Process -FilePath $python -ArgumentList $chainArgs -WorkingDirectory $repo `
-    -NoNewWindow -PassThru -Wait -RedirectStandardOutput $log -RedirectStandardError $errLog
-$exit = $proc.ExitCode
+# The contained launcher also keeps stdout/stderr away from PowerShell 5.1's
+# NativeCommandError promotion while preserving a kill-on-close child tree.
+$exit = Invoke-ContainedDailyRefreshPython `
+    -Arguments $chainArgs `
+    -StandardOutputPath $log `
+    -StandardErrorPath $errLog
+
+if ($StopAfter -and $exit -eq 0) {
+    try {
+        $refresh = Get-Content -Raw -Path $refreshStatus | ConvertFrom-Json
+        $bounded = $refresh.bounded_recovery
+        $stepStatuses = @($bounded.step_statuses)
+        $resumeRows = @($stepStatuses | Where-Object { $_.name -eq $ResumeFrom -and $_.status -eq 'ok' })
+        $stopRows = @($stepStatuses | Where-Object { $_.name -eq $StopAfter -and $_.status -eq 'ok' })
+        $boundedPass = (
+            $refresh.terminal -eq $true -and
+            $refresh.config.settled_analysis_target_date -eq $TargetDate -and
+            $bounded.status -eq 'PASS' -and
+            $bounded.resume_from_step -eq $ResumeFrom -and
+            $bounded.stop_after_step -eq $StopAfter -and
+            $bounded.terminal_step_status -eq 'ok' -and
+            $resumeRows.Count -eq 1 -and
+            $stopRows.Count -eq 1
+        )
+    }
+    catch {
+        $boundedPass = $false
+    }
+    if (-not $boundedPass) {
+        $exit = 1
+        Write-Status "ERROR" "bounded recovery receipt is missing or does not match the requested target/resume/stop contract" $exit
+        Write-Host "ERROR: bounded recovery receipt validation failed"
+        exit $exit
+    }
+}
 
 if ($exit -eq 0) {
-    Write-Status "OK" "chain resumed and completed" $exit
-    Write-Host "OK: chain completed (exit 0)"
+    $detail = if ($StopAfter) { "bounded chain completed through $StopAfter" } else { "chain resumed and completed" }
+    Write-Status "OK" $detail $exit
+    Write-Host "OK: $detail (exit 0)"
 }
 else {
     # Exit 2 is the standing pre-release gate result, not breakage: the readiness gate
     # correctly reports that no release pointer exists yet. Naming it here keeps the
     # morning read honest instead of alarming.
-    $detail = if ($exit -eq 2) { "chain ran; exit 2 = readiness gates BLOCK, expected pre-release" }
+    $detail = if ($exit -eq 2 -and -not $StopAfter) { "chain ran; exit 2 = readiness gates BLOCK, expected pre-release" }
+    elseif ($exit -eq 2) { "bounded chain exited 2; inspect the bounded refresh status because readiness was suppressed" }
     else { "chain exited $exit - read $log" }
     Write-Status "CHECK" $detail $exit
     Write-Host "CHECK: $detail"
 }
-exit 0
+}
+finally {
+    if ($null -ne $ownedWorkloadLease) {
+        Exit-WeatherHeavyWorkloadLease -Lease $ownedWorkloadLease
+    }
+}
+exit $exit

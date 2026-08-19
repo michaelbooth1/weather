@@ -109,6 +109,13 @@ Resource headroom and time-window checks remain mandatory and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
 
+One-date settlement backfills must use the canonical bounded daily-refresh
+slice ending at `market_day_labels_finalize`; never run the remaining chain and
+kill it after settlement. Lock ownership is PID plus creation identity, not
+file existence or PID alone. Tiering wrappers must assign children to a
+kill-on-close Job, retain an absolute runtime bound, write latest status
+atomically, and append history; a busy-lease skip is not reclaim evidence.
+
 Producer provenance follows the chosen topology. The direct nightly action
 passes `scheduler-invocation-topology=direct`. The daily-refresh tasks and
 training window are scheduled PowerShell wrappers whose Python processes are

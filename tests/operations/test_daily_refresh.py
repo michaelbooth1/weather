@@ -63,6 +63,7 @@ from weather.operations.daily_refresh import (  # noqa: E402
     run_trading_evidence_step,
     run_winner_rank_parity_step,
     pipeline_summary,
+    trigger_evidence_stage_after_lock,
 )
 from weather.operations.daily_refresh_registry import (
     COVERAGE_MODE_CHOICES,
@@ -77,6 +78,7 @@ from weather.operations.daily_refresh_registry import (
     STEP_PROMOTION_RECEIPT_POLICIES,
     STEP_REGISTRY,
     carried_forward_steps,
+    filter_runners_through_step,
     step_names_for_stage,
 )
 from weather.operations.daily_refresh_lanes import (
@@ -519,6 +521,102 @@ def _settled_barrier_dependency_steps(target_date, *, restore=True, restore_afte
 
 
 class TestDailyRefresh(unittest.TestCase):
+    def test_bounded_recovery_stops_at_exact_step_without_downstream_publication(self):
+        calls = []
+
+        def runner(name):
+            def _run(_args):
+                calls.append(name)
+                return {"status": "PASS", "target_date": "2026-08-17"}
+
+            return _run
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stage_manifest = root / "backtest" / "stage-a.json"
+            args = _args(
+                tmp,
+                stage="settlement",
+                stage_a_manifest=str(stage_manifest),
+                stage_b_manifest=str(root / "backtest" / "stage-b.json"),
+                evidence_task_name="NeverStartThisTask",
+                disable_stage_trigger=False,
+                settled_analysis_target_date="2026-08-17",
+                resume_from_step="public_wu_settlement_restore",
+                stop_after_step="market_day_labels_finalize",
+                skip_production_readiness_gate=False,
+            )
+            with patch(
+                "weather.operations.daily_refresh._production_readiness_status",
+                side_effect=AssertionError("bounded recovery ran readiness"),
+            ):
+                payload, _status_path, _report_path = run_daily_refresh(
+                    args,
+                    runners=[
+                        (
+                            "public_wu_settlement_restore",
+                            runner("public_wu_settlement_restore"),
+                        ),
+                        (
+                            "market_day_labels_finalize",
+                            runner("market_day_labels_finalize"),
+                        ),
+                        (
+                            "exchange_economics_rule_drift",
+                            runner("exchange_economics_rule_drift"),
+                        ),
+                    ],
+                )
+            trigger = trigger_evidence_stage_after_lock(args, payload)
+
+        self.assertEqual(
+            calls,
+            ["public_wu_settlement_restore", "market_day_labels_finalize"],
+        )
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["bounded_recovery"]["status"], "PASS")
+        self.assertEqual(
+            payload["bounded_recovery"]["stop_after_step"],
+            "market_day_labels_finalize",
+        )
+        self.assertEqual(
+            payload["bounded_recovery"]["step_statuses"],
+            [
+                {"name": "public_wu_settlement_restore", "status": "ok"},
+                {"name": "market_day_labels_finalize", "status": "ok"},
+            ],
+        )
+        self.assertEqual(
+            payload["summary"]["rollup_freshness"],
+            {"status": "SKIPPED", "reason": "bounded_recovery_run"},
+        )
+        self.assertNotIn("production_readiness", payload)
+        self.assertNotIn("daily_progress_ledger", payload)
+        self.assertFalse(stage_manifest.exists())
+        self.assertEqual(trigger["reason"], "bounded_recovery_run")
+
+    def test_bounded_recovery_rejects_missing_or_reversed_terminal_step(self):
+        runner = lambda _args: {"status": "PASS"}
+        with self.assertRaisesRegex(ValueError, "not selected"):
+            filter_runners_through_step(
+                [("public_wu_settlement_restore", runner)],
+                "market_day_labels_finalize",
+            )
+        with tempfile.TemporaryDirectory() as tmp:
+            args = _args(
+                tmp,
+                resume_from_step="market_day_labels_finalize",
+                stop_after_step="public_wu_settlement_restore",
+            )
+            with self.assertRaisesRegex(ValueError, "precedes resume step"):
+                run_daily_refresh(
+                    args,
+                    runners=[
+                        ("public_wu_settlement_restore", runner),
+                        ("market_day_labels_finalize", runner),
+                    ],
+                )
+
     def test_run_daily_refresh_executes_steps_in_order_and_writes_status(self):
         calls = []
 

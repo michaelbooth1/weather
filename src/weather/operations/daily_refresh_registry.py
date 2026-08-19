@@ -249,6 +249,30 @@ def filter_runners_for_resume(runners, resume_from_step=""):
     return [(name, runner) for name, runner in runners if name in allowed]
 
 
+def filter_runners_through_step(runners, stop_after_step=""):
+    """Return runners no later than an explicit terminal step.
+
+    ``--resume-from-step`` intentionally selects a tail.  Recovery jobs also
+    need the inverse boundary so a one-purpose repair cannot drift into the
+    rest of the daily chain.  Requiring the terminal runner to be present is
+    fail closed: a stage/custom-runner mismatch must not silently become an
+    empty or shorter successful run.
+    """
+    selected = list(runners)
+    if not stop_after_step:
+        return selected
+    if stop_after_step not in STEP_ORDER:
+        raise ValueError(f"unknown stop-after step: {stop_after_step}")
+    end = STEP_ORDER.index(stop_after_step)
+    allowed = set(STEP_ORDER[: end + 1])
+    selected = [(name, runner) for name, runner in selected if name in allowed]
+    if not any(name == stop_after_step for name, _runner in selected):
+        raise ValueError(
+            f"stop-after step is not selected by this stage/run: {stop_after_step}"
+        )
+    return selected
+
+
 def filter_runners_for_stage(runners, stage="all"):
     if (stage or STAGE_ALL) == STAGE_ALL:
         return list(runners)
