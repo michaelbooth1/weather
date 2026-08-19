@@ -25,6 +25,7 @@ from weather.paths import REPO_ROOT
 PENDING_SCHEMA = "documentation_transaction_pending_v0.1"
 COMPLETION_SCHEMA = "documentation_transaction_completion_manifest_v0.1"
 RECEIPT_SCHEMA = "documentation_transaction_receipt_v0.1"
+LATEST_SCHEMA = "documentation_transaction_latest_v0.1"
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_REVIEWED_DOCUMENTS = frozenset(
     {
@@ -158,7 +159,20 @@ def begin_transaction(
 
     paths = _paths(repo_root)
     current_time = now or _now_local()
-    if paths["pending"].is_file():
+    current_state = transaction_status(repo_root, now=current_time)
+    if current_state["state"] == "COMPLETE":
+        # The prior pending bytes remain preserved by their content-addressed snapshot and
+        # immutable completion receipt. A new integration starts a new bounded transaction;
+        # carrying completed tips forever would make every later closeout re-prove history.
+        pending = {
+            "schema_version": PENDING_SCHEMA,
+            "status": "PENDING",
+            "created_at_local": current_time.isoformat(),
+            "due_at_local": _due_at(current_time).isoformat(),
+            "integrations": [],
+        }
+        integrations = pending["integrations"]
+    elif paths["pending"].is_file():
         pending = _read_object(paths["pending"])
         integrations = _validate_pending(pending)
     else:
@@ -221,12 +235,22 @@ def transaction_status(
     if not paths["latest"].is_file():
         return result
     try:
-        receipt = _read_object(paths["latest"])
+        latest = _read_object(paths["latest"])
+        immutable_path = Path(str(latest.get("immutable_receipt_path", "")))
+        if not immutable_path.is_absolute():
+            immutable_path = repo_root / immutable_path
+        receipt = _read_object(immutable_path)
         documentation_tip = str(receipt.get("documentation_tip", "")).lower()
         receipt_valid = (
-            receipt.get("schema_version") == RECEIPT_SCHEMA
+            latest.get("schema_version") == LATEST_SCHEMA
+            and latest.get("pending_sha256") == pending_hash
+            and latest.get("documentation_tip") == documentation_tip
+            and latest.get("immutable_receipt_sha256") == _sha256_file(immutable_path)
+            and receipt.get("schema_version") == RECEIPT_SCHEMA
             and receipt.get("status") == "PASS"
             and receipt.get("pending_sha256") == pending_hash
+            and receipt.get("integration_tips")
+            == [entry["integration_tip"] for entry in integrations]
             and FULL_SHA_RE.fullmatch(documentation_tip)
             and subprocess.run(
                 [
@@ -251,7 +275,8 @@ def transaction_status(
                 "state": "COMPLETE",
                 "overdue": False,
                 "documentation_tip": documentation_tip,
-                "receipt_path": str(paths["latest"]),
+                "receipt_path": str(immutable_path),
+                "receipt_sha256": _sha256_file(immutable_path),
             }
         )
     return result
@@ -395,8 +420,23 @@ def complete_transaction(
     if immutable.exists():
         raise ValueError(f"immutable documentation receipt already exists: {immutable}")
     _atomic_json(immutable, receipt)
-    _atomic_json(paths["latest"], {**receipt, "immutable_receipt_path": str(immutable)})
-    return {**receipt, "immutable_receipt_path": str(immutable)}
+    immutable_hash = _sha256_file(immutable)
+    _atomic_json(
+        paths["latest"],
+        {
+            "schema_version": LATEST_SCHEMA,
+            "status": "PASS",
+            "pending_sha256": pending_hash,
+            "documentation_tip": documentation_tip,
+            "immutable_receipt_path": str(immutable),
+            "immutable_receipt_sha256": immutable_hash,
+        },
+    )
+    return {
+        **receipt,
+        "immutable_receipt_path": str(immutable),
+        "immutable_receipt_sha256": immutable_hash,
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
