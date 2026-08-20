@@ -87,13 +87,17 @@ The suite trigger must be inside 00:30-09:00. The merge trigger must be inside
 not fail merely because a valid suite is still running at its trigger: it waits
 without holding the heavy-work lease until the suite reaches terminal evidence,
 or until the 03:40 merge reserve. A terminal FAIL stops immediately. If the
-suite is still running at 03:40, the merge consumer re-verifies and stops only
-that attempt's exact suite task, waits for it to leave `Running`, records the
-stop in the immutable merge receipt, and fails the merge. The current merge
-window is then spent, but the contained test tree cannot run until 09:00 and
-the attempt can be closed immediately for a reviewed next-window successor.
+suite task is disabled without a receipt, the consumer fails immediately
+instead of waiting out the window. A PASS receipt observed while Task Scheduler
+still reports `Running` gets a bounded two-minute task-exit grace. Otherwise at
+03:40, or after that grace expires, the merge consumer re-verifies and stops
+only that attempt's exact suite task, waits for it to leave `Running`, records
+the stop in the immutable merge receipt, and fails the merge. The current merge
+window is then spent, but the contained test tree cannot run until 09:00 and the
+attempt can be closed immediately for a reviewed next-window successor.
 Trigger times inside an invalid or ambiguous daylight-saving wall-clock hour
-are refused at creation, manifest validation, and registration.
+are refused at creation, manifest validation, and registration. Manifest
+schedule values are local wall clocks and may not carry `Z` or a numeric offset.
 
 The manifest freezes hashes for every repository-owned PowerShell dependency
 used by registration, suite containment, workload admission, roll verdict,
@@ -199,7 +203,8 @@ explicit, non-scheduled recovery entry point records that drift instead of
 requiring the failed orchestration set to remain executable; any detected drift
 requires either the bounded `orchestration_wrapper` classification or the
 explicitly reviewed `manual_reviewed_change` escape hatch. The mechanical
-wrapper class reaches operations PowerShell, its listed tests, and only
+wrapper class reaches only the named item-329 attempt/merge PowerShell files,
+their listed tests, and
 `INTEGRATION_ATTEMPT_RUNBOOK.md`, `OPERATIONS_DESIGN.md`, `streak-soak.md`, and
 the applicable agent guides; it cannot rewrite the reserved-window,
 delegation, host-load, role, or state-of-play contracts.
@@ -209,10 +214,13 @@ deterministic recovery therefore requires an active operator or coding agent to
 consume this dispatch. The dispatch removes ambiguity about the next action and
 leaves one specific blocker when no safe successor is ready. `status.ps1`
 surfaces `FAILED_NEEDS_CLOSE`, `CLOSED_NEEDS_DISPATCH`, `RECOVERY_READY`,
-`SUCCESSOR_CLAIMED`, and `MERGED_UNVERIFIED` in human and JSON output. It flags
-missed triggers and unreadable task-bound manifests/evidence. Actionable states
-are FLAGS for their first 24 hours, then remain visible as warnings so
-immutable historical receipts cannot burn a permanent alert.
+`SUCCESSOR_CLAIMED`, `MERGED_UNVERIFIED`, and `MERGED_RECONCILED` in human and
+JSON output. A suite is missed only after a five-minute trigger grace when its
+exact task has no current run and neither the preflight log nor a terminal
+receipt exists; an actively running suite is not a false alarm. It also flags
+unreadable task-bound manifests/evidence. Actionable states are FLAGS for their
+first 24 hours, then remain visible as warnings so immutable historical
+receipts cannot burn a permanent alert.
 
 Create attempt N+1 after classification:
 
@@ -221,7 +229,7 @@ Create attempt N+1 after classification:
 | `retry_unchanged` | The exact same 40-character commit. Allowed once after a reviewed transient failure. |
 | `schema_registry` | Additions or modifications only in the three static schema-registry shards. |
 | `ownership_metadata` | The module ownership map and its exact ratchet test only. |
-| `orchestration_wrapper` | Repository-owned PowerShell wrappers plus their operation tests and owning runbooks. |
+| `orchestration_wrapper` | Named item-329 attempt/merge PowerShell wrappers, their operation tests, and owning runbooks. Shared lease, roll-verdict, training, and unrelated status scripts require `manual_reviewed_change`. |
 | `manual_reviewed_change` | A linked, explicitly reviewed change outside the mechanical classes. |
 
 Every non-initial attempt must point to the predecessor's immutable closure
@@ -253,9 +261,25 @@ If the quiet-merge report proves `stage = pushed` and Git proves the frozen tip
 is already in equal local/remote master, but a later final proof fails, the
 receipt is `MERGED_UNVERIFIED`. This is deliberately not retryable: close and
 dispatch refuse it because production already contains the tip. Preserve the
-receipt, reconcile the named missing proof against current production, and do
-not authorize downstream work from it. An ordinary FAIL means publication was
-not proven; the two states must never use the same recovery recipe.
+receipt and reconcile it only through:
+
+```powershell
+.\scripts\ops\reconcile_integration_attempt.ps1 `
+  -ManifestPath <manifest.json> `
+  -ExpectedManifestSha256 <manifest-sha256> `
+  -ExpectedMergeReceiptSha256 <merged-unverified-receipt-sha256> `
+  -ReviewReference <operator-or-agent-review>
+```
+
+The reconciler revalidates the immutable publication evidence, exact checked-
+out/local/remote history, current three-worker capture health, and both exact
+task actions before disabling those tasks. It then writes a separate immutable
+`MERGED_RECONCILED` receipt. It deliberately leaves
+`historical_proof_upgraded = false` and `downstream_authorized = false`; current
+health cannot manufacture the historical proof that was missing at merge time.
+The original merge receipt stays `MERGED_UNVERIFIED`, so the downstream PASS
+gate continues to refuse it. An ordinary FAIL means publication was not proven;
+the two states must never use the same recovery recipe.
 
 ## Downstream gate
 
@@ -283,9 +307,10 @@ boolean as a measured credential or exchange outcome.
 ## Verification and adoption
 
 Before merging this procedure, parse every changed PowerShell file, run the
-focused operation tests (including executable log-verdict, semantic PowerShell
-binding, wait-decision, recovery-dispatch, successor-claim, alert-lifecycle,
-schedule-boundary, and tamper cases), the documentation audit, roadmap lint,
+focused operation tests (including executable exact log-verdict, semantic
+PowerShell binding, disabled/PASS-grace wait decisions, recovery-dispatch,
+successor-claim, caller-level suite status, reconciliation, schedule-boundary,
+and tamper cases), the documentation audit, roadmap lint,
 compileall, and the exact full suite in an admitted heavy-work window. Editing
 these files does not register, disable, start, or delete any host task. The
 first landing of this machinery must use the established guarded merge path,

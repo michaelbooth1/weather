@@ -47,6 +47,11 @@ safe way to create a corrected attempt.
   and require downstream adoption arguments to equal the attempt proof.
 - [x] Surface failed, closed, recovery-ready, and successor-claimed attempt
   states through canonical host status for an active overnight recovery agent.
+- [x] Correlate missed-trigger status with the exact suite task and preflight
+  evidence, fail disabled never-run suites immediately, and give a completed
+  PASS only a bounded Task Scheduler exit grace at the reserve.
+- [x] Preserve `MERGED_UNVERIFIED` while providing a reviewed, immutable,
+  explicitly non-authorizing reconciliation receipt and exact-task shutdown.
 - [x] Add a read-only downstream gate and bind execution-tape adoption to the
   attempt hashes while retaining the historical suite-gated path.
 - [ ] Pass focused operation tests, documentation audit, roadmap lint,
@@ -86,8 +91,21 @@ exact hash-bound evidence.
   token misparsed as a command parameter. Fourteen roadmap/UI contracts,
   compileall, roadmap lint/check, the agent-document audit, and diff check also
   pass on the repaired tree. The exact full suite remains time-gated.
-- Production-host `roll_verdict.ps1` reports `ROLL-FREE`: 28 changed files and zero importable
-  capture files. Landing this branch does not require a capture readoption roll.
+- A second adversarial review of tip `af5e8f9bd` confirmed the original repair
+  set but found a deterministic false missed-trigger alert, a disabled-task
+  wait that could consume the recovery window, no terminal reconciliation for
+  `MERGED_UNVERIFIED`, and a narrow PASS/deadline race. It also found four
+  low-cost parser/scope/regex/timestamp hardening gaps. The branch now carries
+  all eight corrections plus caller-level status, wait-decision, exact-verdict,
+  reconciliation, repair-scope, timestamp, and positive-control AST coverage.
+  The 13-file parser/expanded semantic sweep, changed-test `py_compile`, and
+  direct wait/verdict/timestamp/status probes pass. The 67 focused pytest
+  contracts remain unexecuted because the changes were written inside the
+  protected 18:00-00:30 host window.
+- Production-host `roll_verdict.ps1` reported `ROLL-FREE` for the prior 28-file
+  exact tip. The current follow-up adds one PowerShell file and otherwise changes
+  only PowerShell, tests, and documentation, so it is structurally roll-free;
+  re-run the canonical verdict on the committed exact tip before landing.
 
 The implementation is intentionally not registered or run from this topic
 worktree. Verification and scheduler adoption remain open until their owning

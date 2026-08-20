@@ -7,6 +7,7 @@ $script:WeatherIntegrationAttemptRegistrationReceiptSchema = "weather_integratio
 $script:WeatherIntegrationAttemptClosureReceiptSchema = "weather_integration_attempt_closure_receipt_v1"
 $script:WeatherIntegrationAttemptSuccessorClaimSchema = "weather_integration_attempt_successor_claim_v1"
 $script:WeatherIntegrationAttemptRecoveryDispatchSchema = "weather_integration_attempt_recovery_dispatch_v1"
+$script:WeatherIntegrationAttemptReconciliationReceiptSchema = "weather_integration_attempt_reconciliation_receipt_v1"
 
 function Get-WeatherIntegrationFileSha256 {
     param(
@@ -76,7 +77,7 @@ function Assert-WeatherIntegrationFullSuiteVerdict {
 
     $match = [regex]::Match(
         $Verdict,
-        'VERDICT: ALL CHUNKS PASSED \((?<passed>[0-9]+)/(?<planned>[0-9]+)\); exact tip eligible for separate reviewed merge$'
+        '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}  VERDICT: ALL CHUNKS PASSED \((?<passed>[0-9]+)/(?<planned>[0-9]+)\); exact tip eligible for separate reviewed merge$'
     )
     if (-not $match.Success) {
         throw "Full suite log is missing its exact PASS verdict."
@@ -88,6 +89,16 @@ function Assert-WeatherIntegrationFullSuiteVerdict {
         throw "Full suite PASS verdict has an invalid chunk ratio: $passed/$planned"
     }
     return $planned
+}
+
+function Assert-WeatherIntegrationPreflightVerdict {
+    param(
+        [Parameter(Mandatory = $true)][string]$Verdict
+    )
+
+    if ($Verdict -notmatch '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}  VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized$') {
+        throw "Integration preflight log is missing its exact PASS verdict."
+    }
 }
 
 function Assert-WeatherIntegrationFullSuiteLogPlan {
@@ -217,8 +228,8 @@ function Get-WeatherIntegrationRepairAllowedPatterns {
         }
         "orchestration_wrapper" {
             @(
-                '^scripts/ops/[^/]+\.ps1$',
-                '^tests/operations/test_(integration_attempt_scripts|bounded_worktree_test_suite_script|suite_gated_quiet_merge_script|quiet_window_merge_script|host_task_wrappers)\.py$',
+                '^scripts/ops/(integration_attempt_contract|new_integration_attempt|register_integration_attempt|close_integration_attempt|dispatch_integration_attempt_recovery|integration_attempt_suite|integration_attempt_merge|assert_integration_attempt_success|reconcile_integration_attempt|bounded_worktree_test_suite|quiet_window_merge)\.ps1$',
+                '^tests/operations/test_(integration_attempt_scripts|bounded_worktree_test_suite_script|suite_gated_quiet_merge_script|quiet_window_merge_script|host_task_wrappers|status_script)\.py$',
                 '^docs/operations/(INTEGRATION_ATTEMPT_RUNBOOK|OPERATIONS_DESIGN)\.md$',
                 '^docs/ops/streak-soak\.md$',
                 '^(AGENTS\.md|scripts/ops/AGENTS\.md|tests/AGENTS\.md|docs/AGENTS\.md)$'
@@ -245,9 +256,21 @@ function Get-WeatherIntegrationSuiteWaitDecision {
     }
     if ($TaskState -eq "Running") {
         if ($Now -ge $Deadline) {
+            if ($ReceiptExists -and $ReceiptStatus -eq "PASS" -and
+                $Now -lt $Deadline.AddSeconds(120)) {
+                return [pscustomobject]@{
+                    Action = "WAIT"
+                    Reason = "suite emitted PASS and has a bounded two-minute task-exit grace"
+                    PassExitGrace = $true
+                    GraceUntil = $Deadline.AddSeconds(120)
+                }
+            }
             return [pscustomobject]@{ Action = "STOP"; Reason = "suite remained running through the merge-wait deadline" }
         }
         return [pscustomobject]@{ Action = "WAIT"; Reason = "suite task is still running" }
+    }
+    if ($TaskState -eq "Disabled" -and -not $ReceiptExists) {
+        return [pscustomobject]@{ Action = "FAIL"; Reason = "suite task is disabled and can no longer run" }
     }
     if ($LastRunTime -lt $Now.Date) {
         if ($Now -ge $Deadline) {
@@ -274,6 +297,9 @@ function Assert-WeatherIntegrationLocalScheduleTime {
         [TimeZoneInfo]$TimeZone = [TimeZoneInfo]::Local
     )
 
+    if ($Value.Kind -eq [DateTimeKind]::Utc) {
+        throw "$Label must be a local wall-clock value without a UTC marker."
+    }
     $wallClock = [datetime]::SpecifyKind($Value, [DateTimeKind]::Unspecified)
     if ($TimeZone.IsInvalidTime($wallClock)) {
         throw "$Label falls in a daylight-saving gap and will not run: $($wallClock.ToString('o'))"
@@ -290,12 +316,15 @@ function ConvertFrom-WeatherIntegrationLocalTimestamp {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
+    if ($Value -match '(?i)(?:Z|[+-][0-9]{2}:[0-9]{2})$') {
+        throw "$Label must not carry a UTC marker or numeric offset; use the local wall clock."
+    }
     try {
         $parsed = [datetime]::ParseExact(
             $Value,
             [string[]]@("o", "yyyy-MM-dd'T'HH:mm:ss"),
             [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::RoundtripKind
+            [Globalization.DateTimeStyles]::None
         )
     }
     catch {
@@ -446,6 +475,7 @@ function Assert-WeatherIntegrationAttemptManifest {
     Assert-WeatherIntegrationEvidencePath -AttemptRoot $attemptRoot -ActualPath ([string]$manifest.evidence.registration_receipt) -ExpectedName "registration-receipt.json" | Out-Null
     Assert-WeatherIntegrationEvidencePath -AttemptRoot $attemptRoot -ActualPath ([string]$manifest.evidence.closure_receipt) -ExpectedName "closure-receipt.json" | Out-Null
     Assert-WeatherIntegrationEvidencePath -AttemptRoot $attemptRoot -ActualPath ([string]$manifest.evidence.recovery_dispatch) -ExpectedName "recovery-dispatch.json" | Out-Null
+    Assert-WeatherIntegrationEvidencePath -AttemptRoot $attemptRoot -ActualPath ([string]$manifest.evidence.reconciliation_receipt) -ExpectedName "reconciliation-receipt.json" | Out-Null
 
     $contract = [pscustomobject]@{
         Manifest = $manifest
@@ -455,6 +485,77 @@ function Assert-WeatherIntegrationAttemptManifest {
     }
     Assert-WeatherIntegrationRepairClaim -AttemptContract $contract
     return $contract
+}
+
+function Disable-WeatherIntegrationAttemptTasks {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract
+    )
+
+    $manifest = $AttemptContract.Manifest
+    $registrationReceiptPath = [string]$manifest.evidence.registration_receipt
+    $registrationReceipt = $null
+    if (Test-Path -LiteralPath $registrationReceiptPath -PathType Leaf) {
+        $registrationReceipt = Read-WeatherIntegrationSharedJson -Path $registrationReceiptPath
+        if ([string]$registrationReceipt.schema -ne $script:WeatherIntegrationAttemptRegistrationReceiptSchema -or
+            [string]$registrationReceipt.attempt_id -ne [string]$manifest.attempt_id -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$registrationReceipt.manifest_path) -Right $AttemptContract.ManifestPath) -or
+            [string]$registrationReceipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256) {
+            throw "Registration receipt does not bind this exact attempt."
+        }
+    }
+
+    $taskSpecs = @(
+        [pscustomobject]@{ name = [string]$manifest.schedule.suite_task_name; role = "suite" },
+        [pscustomobject]@{ name = [string]$manifest.schedule.merge_task_name; role = "merge" }
+    )
+    $taskEvidence = New-Object System.Collections.Generic.List[object]
+    foreach ($spec in $taskSpecs) {
+        $task = Get-ScheduledTask -TaskName $spec.name -ErrorAction SilentlyContinue
+        if ($null -eq $task) {
+            $taskEvidence.Add([ordered]@{ task_name = $spec.name; exists = $false; disabled = $false })
+            continue
+        }
+        if ([string]$task.State -eq "Running") {
+            throw "Attempt task is still running and may not be disabled: $($spec.name)"
+        }
+        if ($null -eq $registrationReceipt) {
+            throw "Refusing to disable an existing task without its immutable registration receipt: $($spec.name)"
+        }
+        $registeredActionProperty = $registrationReceipt.PSObject.Properties[[string]$spec.role]
+        $registeredAction = if ($null -eq $registeredActionProperty) { $null } else { $registeredActionProperty.Value }
+        if ($null -eq $registeredAction -or [string]$registeredAction.task_name -ne [string]$spec.name) {
+            throw "Registration receipt does not bind this exact task action: $($spec.name)"
+        }
+        $actions = @($task.Actions)
+        if ($actions.Count -ne 1 -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].Execute) -Right ([string]$registeredAction.executable)) -or
+            [string]$actions[0].Arguments -ne [string]$registeredAction.arguments -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].WorkingDirectory) -Right ([string]$registeredAction.working_directory)) -or
+            [string]$task.Principal.UserId -ne [string]$registrationReceipt.principal.user_id -or
+            [string]$task.Principal.LogonType -ne "S4U" -or
+            [string]$task.Principal.RunLevel -ne "Limited") {
+            throw "Refusing to disable task whose action is not exactly bound to this attempt: $($spec.name)"
+        }
+        if ([string]$task.State -ne "Disabled") {
+            Disable-ScheduledTask -TaskName $spec.name -ErrorAction Stop | Out-Null
+        }
+        $disabledTask = Get-ScheduledTask -TaskName $spec.name -ErrorAction Stop
+        if ([string]$disabledTask.State -ne "Disabled") {
+            throw "Attempt task did not enter Disabled state: $($spec.name)"
+        }
+        $info = Get-ScheduledTaskInfo -TaskName $spec.name -ErrorAction SilentlyContinue
+        $taskEvidence.Add([ordered]@{
+            task_name = $spec.name
+            exists = $true
+            disabled = $true
+            registration_receipt_registered = [bool]$registeredAction.registered
+            registration_receipt_disagreed = (-not [bool]$registeredAction.registered)
+            last_run_time = if ($null -eq $info) { $null } else { ([datetime]$info.LastRunTime).ToString("o") }
+            last_task_result = if ($null -eq $info) { $null } else { [int]$info.LastTaskResult }
+        })
+    }
+    return @($taskEvidence | ForEach-Object { $_ })
 }
 
 function Assert-WeatherIntegrationRepairClaim {
@@ -626,9 +727,7 @@ function Assert-WeatherIntegrationSuiteReceipt {
             throw "Suite receipt $logName phase did not exit successfully."
         }
     }
-    if ([string]$receipt.logs.preflight.verdict -notlike "*VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized") {
-        throw "Suite receipt preflight verdict is not exact."
-    }
+    Assert-WeatherIntegrationPreflightVerdict -Verdict ([string]$receipt.logs.preflight.verdict)
     Assert-WeatherIntegrationFullSuiteVerdict `
         -Verdict ([string]$receipt.logs.full_suite.verdict) `
         -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
@@ -740,6 +839,87 @@ function Assert-WeatherIntegrationMergeReceipt {
     $suiteReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $suiteReceiptPath
     if ($suiteReceiptSha256 -ne [string]$receipt.suite_receipt_sha256) {
         throw "Suite receipt changed after the merge gate consumed it."
+    }
+
+    return [pscustomobject]@{
+        Receipt = $receipt
+        ReceiptPath = Resolve-WeatherIntegrationPath -Path $receiptPath
+        ReceiptSha256 = $actualReceiptSha256
+        QuietReport = $quietReport
+        QuietReportSha256 = $quietReportSha256
+    }
+}
+
+function Assert-WeatherIntegrationMergedUnverifiedReceipt {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][string]$ExpectedReceiptSha256
+    )
+
+    if ($ExpectedReceiptSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "Expected merge receipt SHA256 must be exactly 64 hexadecimal characters."
+    }
+    $manifest = $AttemptContract.Manifest
+    $receiptPath = [string]$manifest.evidence.merge_receipt
+    $actualReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+    if ($actualReceiptSha256 -ne $ExpectedReceiptSha256.ToLowerInvariant()) {
+        throw "Merge receipt hash mismatch. Expected $ExpectedReceiptSha256; got $actualReceiptSha256"
+    }
+    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+        [string]$receipt.status -ne "MERGED_UNVERIFIED") {
+        throw "Reconciliation requires an immutable MERGED_UNVERIFIED merge receipt."
+    }
+    if ([string]$receipt.attempt_id -ne [string]$manifest.attempt_id -or
+        -not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.manifest_path) -Right $AttemptContract.ManifestPath) -or
+        [string]$receipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256 -or
+        [string]$receipt.source_tip -ne [string]$manifest.expected_tip -or
+        [string]$receipt.branch_ref -ne [string]$manifest.branch_ref -or
+        -not [bool]$receipt.origin_master_verified -or
+        -not [bool]$receipt.source_tip_integrated) {
+        throw "MERGED_UNVERIFIED receipt does not prove this exact attempt reached production."
+    }
+    if ([string]$receipt.production_head -notmatch '^[0-9a-f]{40}$' -or
+        [string]$receipt.production_head -ne [string]$receipt.origin_master) {
+        throw "MERGED_UNVERIFIED receipt does not bind equal published production and origin tips."
+    }
+    if ([string]$receipt.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        [bool]$receipt.safety.credential_value_access_authorized -or
+        [bool]$receipt.safety.live_exchange_mutation_authorized) {
+        throw "MERGED_UNVERIFIED receipt violates the no-credential/no-live-exchange boundary."
+    }
+    foreach ($scriptName in @("attempt_merge", "quiet_merge")) {
+        $receiptScript = $receipt.scripts.$scriptName
+        $manifestScript = $manifest.orchestration.$scriptName
+        if ($null -eq $receiptScript -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$receiptScript.path) -Right ([string]$manifestScript.path)) -or
+            [string]$receiptScript.sha256 -ne [string]$manifestScript.sha256) {
+            throw "MERGED_UNVERIFIED receipt script binding does not match the frozen manifest: $scriptName"
+        }
+    }
+
+    $quietReportPath = [string]$manifest.evidence.quiet_merge_report
+    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.quiet_merge_report.path) -Right $quietReportPath)) {
+        throw "MERGED_UNVERIFIED receipt quiet-report path does not match the attempt manifest."
+    }
+    $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $quietReportPath
+    if ($quietReportSha256 -ne [string]$receipt.quiet_merge_report.sha256) {
+        throw "Immutable quiet-merge report hash does not match the MERGED_UNVERIFIED receipt."
+    }
+    $quietReport = Read-WeatherIntegrationSharedJson -Path $quietReportPath
+    if (-not [bool]$quietReport.ok -or [string]$quietReport.stage -ne "pushed" -or
+        [string]$quietReport.expected_tip -ne [string]$manifest.expected_tip -or
+        [string]$quietReport.expected_baseline -ne [string]$manifest.baseline.master -or
+        [string]$quietReport.resolved_branch_tip -ne [string]$manifest.expected_tip -or
+        [string]$quietReport.branch -ne [string]$manifest.branch_ref -or
+        -not [bool]$quietReport.documentation_transaction_recorded -or
+        [string]$quietReport.merge_commit -ne [string]$receipt.production_head) {
+        throw "Immutable quiet-merge report does not prove the MERGED_UNVERIFIED publication."
+    }
+    $suiteReceiptPath = [string]$manifest.evidence.suite_receipt
+    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.suite_receipt_path) -Right $suiteReceiptPath) -or
+        (Get-WeatherIntegrationFileSha256 -Path $suiteReceiptPath) -ne [string]$receipt.suite_receipt_sha256) {
+        throw "Suite receipt changed after the MERGED_UNVERIFIED merge consumed it."
     }
 
     return [pscustomobject]@{

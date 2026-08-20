@@ -91,6 +91,10 @@ def test_integration_attempt_recovery_states_are_operator_visible() -> None:
     assert "$attemptEvidenceIsFresh" in text
     assert 'evidence_age_hours = $_.evidence_age_hours' in text
     assert 'task_state = $_.task_state' in text
+    assert 'suite_task_state = $_.suite_task_state' in text
+    assert "$suiteObservation = Get-WeatherIntegrationSuiteObservation" in text
+    assert "$attemptMissedSuite = [bool]$suiteObservation.TriggerMissed" in text
+    assert "Test-WeatherIntegrationSuiteTriggerMissed" in text
     assert "unreadable or does not match its task-bound hash" in text
     assert "missed its suite trigger and has no receipt" in text
     assert "integration_attempts =" in text
@@ -125,6 +129,7 @@ foreach ($name in @(
 $failed = Get-WeatherIntegrationAttemptState -SuiteReceiptStatus FAIL
 $recovery = Get-WeatherIntegrationAttemptState -DispatchStatus READY_FOR_SUCCESSOR_REVIEW
 $merged = Get-WeatherIntegrationAttemptState -MergeReceiptStatus MERGED_UNVERIFIED
+$reconciled = Get-WeatherIntegrationAttemptState -MergeReceiptStatus MERGED_UNVERIFIED -ReconciliationStatus MERGED_RECONCILED
 $cases = @(
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $failed -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $failed -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false
@@ -133,9 +138,11 @@ $cases = @(
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $true
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State SUCCESSOR_CLAIMED -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false -SuccessorAttemptId b
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $merged -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $reconciled -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $reconciled -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false
 )
 [pscustomobject]@{
-    states = @($failed, $recovery, $merged)
+    states = @($failed, $recovery, $merged, $reconciled)
     severities = @($cases | ForEach-Object { [string]$_.Severity })
 } | ConvertTo-Json -Compress
 """
@@ -149,8 +156,116 @@ $cases = @(
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
-        "states": ["FAILED_NEEDS_CLOSE", "RECOVERY_READY", "MERGED_UNVERIFIED"],
-        "severities": ["FLAG", "WARN", "FLAG", "FLAG", "WARN", "NONE", "FLAG"],
+        "states": [
+            "FAILED_NEEDS_CLOSE",
+            "RECOVERY_READY",
+            "MERGED_UNVERIFIED",
+            "MERGED_RECONCILED",
+        ],
+        "severities": [
+            "FLAG",
+            "WARN",
+            "FLAG",
+            "FLAG",
+            "FLAG",
+            "NONE",
+            "FLAG",
+            "WARN",
+            "NONE",
+        ],
+    }
+
+
+def test_running_suite_and_preflight_evidence_do_not_look_missed(tmp_path: Path) -> None:
+    preflight = tmp_path / "preflight.log"
+    preflight.write_text("started\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        {
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_PREFLIGHT": str(preflight),
+            "WEATHER_MISSING_PREFLIGHT": str(tmp_path / "missing.log"),
+        }
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @(
+    'Get-WeatherIntegrationSuiteRuntimeState',
+    'Test-WeatherIntegrationSuiteTriggerMissed',
+    'Get-WeatherIntegrationSuiteObservation'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$global:suiteState = 'Running'
+$global:lastRun = [datetime]'2026-08-21T00:35:00'
+function Get-ScheduledTask {
+    param([string]$TaskName, $ErrorAction)
+    return [pscustomobject]@{ TaskName = $TaskName; State = $global:suiteState }
+}
+function Get-ScheduledTaskInfo {
+    param([string]$TaskName, $ErrorAction)
+    return [pscustomobject]@{ LastRunTime = $global:lastRun; LastTaskResult = 267009 }
+}
+$suiteAt = [datetime]'2026-08-21T00:35:00'
+$now = [datetime]'2026-08-21T00:45:00'
+$manifest = [pscustomobject]@{
+    schedule = [pscustomobject]@{
+        suite_at_local = $suiteAt.ToString('o')
+        suite_task_name = 'WeatherIntegrationSuite_a'
+    }
+    evidence = [pscustomobject]@{ preflight_log = $env:WEATHER_MISSING_PREFLIGHT }
+}
+$running = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
+$global:suiteState = 'Ready'
+$global:lastRun = [datetime]'1999-11-30T00:00:00'
+$manifest.evidence.preflight_log = $env:WEATHER_PREFLIGHT
+$preflight = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
+$global:suiteState = 'Disabled'
+$manifest.evidence.preflight_log = $env:WEATHER_MISSING_PREFLIGHT
+$missing = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
+$withinGrace = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $suiteAt.AddMinutes(4)
+[pscustomobject]@{
+    running_started = [bool]$running.Started
+    running_missed = [bool]$running.TriggerMissed
+    preflight_started = [bool]$preflight.Started
+    preflight_missed = [bool]$preflight.TriggerMissed
+    disabled_started = [bool]$missing.Started
+    disabled_missed = [bool]$missing.TriggerMissed
+    grace_missed = [bool]$withinGrace.TriggerMissed
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "running_started": True,
+        "running_missed": False,
+        "preflight_started": True,
+        "preflight_missed": False,
+        "disabled_started": False,
+        "disabled_missed": True,
+        "grace_missed": False,
     }
 
 

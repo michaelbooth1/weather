@@ -143,6 +143,16 @@ function Wait-WeatherIntegrationSuiteTerminal {
             -ReceiptStatus $receiptStatus `
             -Now $now `
             -Deadline $deadline
+        $passExitGraceProperty = $decision.PSObject.Properties["PassExitGrace"]
+        if ($null -ne $passExitGraceProperty -and [bool]$passExitGraceProperty.Value -and
+            $null -eq $script:suitePassExitGraceEvidence) {
+            $script:suitePassExitGraceEvidence = [ordered]@{
+                observed_at_local = $now.ToString("o")
+                task_name = [string]$manifest.schedule.suite_task_name
+                reason = [string]$decision.Reason
+                grace_until_local = ([datetime]$decision.GraceUntil).ToString("o")
+            }
+        }
         if ([string]$decision.Action -eq "READY") { return }
         if ([string]$decision.Action -eq "STOP") {
             $taskName = [string]$manifest.schedule.suite_task_name
@@ -320,6 +330,7 @@ $sourceTipIntegrated = $false
 $captureRecoveryProved = $false
 $quietMergeLaunchSha256 = $null
 $script:suiteDeadlineStopEvidence = $null
+$script:suitePassExitGraceEvidence = $null
 
 try {
     $localMinute = ($startedAt.Hour * 60) + $startedAt.Minute
@@ -495,6 +506,7 @@ finally {
         capture = $captureProof
         documentation_transaction_recorded = $documentationTransactionRecorded
         suite_deadline_stop = $script:suiteDeadlineStopEvidence
+        suite_pass_exit_grace = $script:suitePassExitGraceEvidence
         failure = $failure
         safety = [ordered]@{
             authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"

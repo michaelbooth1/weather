@@ -38,14 +38,19 @@ These instructions apply to `scripts/ops/`.
 - An integration merge consumer may wait without a workload lease for its
   exact suite task to reach terminal evidence, but only through the documented
   03:40 merge reserve. A running suite is not a failure before that deadline;
-  terminal FAIL evidence is. At the deadline the consumer re-verifies and
-  stops only its own exact hash-bound suite task, records the stop in its
-  receipt, and fails the merge so closure is immediately possible. Recovery
-  dispatch never edits source or changes the scheduler and requires an active
-  reviewed operator or coding agent.
+  terminal FAIL evidence and a disabled never-run suite are. A PASS receipt
+  observed while Task Scheduler still reports Running receives only a bounded
+  two-minute exit grace. At the deadline or grace expiry the consumer
+  re-verifies and stops only its own exact hash-bound suite task, records the
+  stop in its receipt, and fails the merge so closure is immediately possible.
+  Recovery dispatch never edits source or changes the scheduler and requires
+  an active reviewed operator or coding agent.
 - A merge that is already published but lacks a final proof is
   `MERGED_UNVERIFIED`, not an ordinary FAIL. It may not be closed, dispatched,
-  or retried; preserve the receipt and reconcile production explicitly.
+  or retried. `reconcile_integration_attempt.ps1` preserves that historical
+  status, rechecks current Git and three-worker capture health, disables only
+  the exact receipt-bound tasks, and writes a separate immutable
+  `MERGED_RECONCILED` receipt with downstream authority still false.
 - `quiet_window_merge.ps1` must record the exact local merge through
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight

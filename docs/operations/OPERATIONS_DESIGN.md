@@ -320,6 +320,16 @@ closure receipt. Downstream work consumes the per-attempt merge receipt and
 rechecks current capture plus `master == origin/master`; a mutable latest
 report or generic task exit code is insufficient.
 
+Status correlates the immutable attempt with both scheduled tasks and the
+preflight log, so a running suite is never described as a missed trigger. A
+disabled never-run suite fails the merge wait immediately, while a terminal
+PASS observed during Task Scheduler's short running-to-ready transition gets a
+two-minute exit grace at the 03:40 reserve. If publication is proven but final
+proof is incomplete, `MERGED_UNVERIFIED` remains non-retryable and cannot
+authorize downstream work. A reviewed reconciliation may recheck current Git
+and capture health and disable the exact tasks, but its separate immutable
+`MERGED_RECONCILED` receipt explicitly does not upgrade the historical proof.
+
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This
 keeps shared pre-promotion producers available to learning without allowing

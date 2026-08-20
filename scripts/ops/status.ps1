@@ -26,12 +26,15 @@ function Get-WeatherIntegrationAttemptState {
     param(
         [AllowEmptyString()][string]$SuiteReceiptStatus = "",
         [AllowEmptyString()][string]$MergeReceiptStatus = "",
+        [AllowEmptyString()][string]$ReconciliationStatus = "",
         [AllowEmptyString()][string]$ClosureStatus = "",
         [AllowEmptyString()][string]$DispatchStatus = "",
         [AllowEmptyString()][string]$ClaimStatus = ""
     )
 
     if ($MergeReceiptStatus -eq "PASS") { return "PASS" }
+    if ($MergeReceiptStatus -eq "MERGED_UNVERIFIED" -and
+        $ReconciliationStatus -eq "MERGED_RECONCILED") { return "MERGED_RECONCILED" }
     if ($MergeReceiptStatus -eq "MERGED_UNVERIFIED") { return "MERGED_UNVERIFIED" }
     if ($ClaimStatus -eq "CLAIMED") { return "SUCCESSOR_CLAIMED" }
     if ($DispatchStatus -eq "READY_FOR_SUCCESSOR_REVIEW") { return "RECOVERY_READY" }
@@ -59,6 +62,10 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
         $detail = "integration attempt $AttemptId reached production but final proof is incomplete; do not retry it"
         $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
     }
+    elseif ($State -eq "MERGED_RECONCILED") {
+        $detail = "integration attempt $AttemptId was reconciled without downstream authority"
+        $severity = if ($EvidenceIsFresh) { "WARN" } else { "NONE" }
+    }
     elseif ($State -eq "FAILED_NEEDS_CLOSE") {
         $detail = "integration attempt $AttemptId failed and must close its exact tasks (task state $TaskState)"
         $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
@@ -77,9 +84,95 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
     }
     elseif ($State -eq "ACTIVE_OR_ARMED" -and $SuiteTriggerMissed) {
         $detail = "integration attempt $AttemptId missed its suite trigger and has no receipt"
-        $severity = if ($EvidenceIsFresh -and $TaskState -ne "Disabled") { "FLAG" } else { "WARN" }
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
     }
     return [pscustomobject]@{ Severity = $severity; Detail = $detail }
+}
+
+function Get-WeatherIntegrationSuiteRuntimeState {
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskName,
+        [Parameter(Mandatory = $true)][datetime]$SuiteAt,
+        [Parameter(Mandatory = $true)][string]$PreflightLogPath
+    )
+
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $taskInfo = if ($null -eq $task) {
+        $null
+    }
+    else {
+        Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
+    }
+    $lastRunTime = if ($null -eq $taskInfo) { $null } else { [datetime]$taskInfo.LastRunTime }
+    $preflightExists = Test-Path -LiteralPath $PreflightLogPath -PathType Leaf
+    $started = (
+        ($null -ne $task -and [string]$task.State -eq "Running") -or
+        $preflightExists -or
+        ($null -ne $lastRunTime -and $lastRunTime -ge $SuiteAt.AddMinutes(-5))
+    )
+    return [pscustomobject]@{
+        TaskState = if ($null -eq $task) { "Missing" } else { [string]$task.State }
+        LastRunTime = $lastRunTime
+        PreflightExists = [bool]$preflightExists
+        Started = [bool]$started
+    }
+}
+
+function Test-WeatherIntegrationSuiteTriggerMissed {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$SuiteAt,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [Parameter(Mandatory = $true)][bool]$SuiteStarted,
+        [AllowEmptyString()][string]$SuiteReceiptStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = ""
+    )
+
+    return (
+        $Now -ge $SuiteAt.AddMinutes(5) -and
+        -not $SuiteStarted -and
+        [string]::IsNullOrWhiteSpace($SuiteReceiptStatus) -and
+        [string]::IsNullOrWhiteSpace($ClosureStatus)
+    )
+}
+
+function Get-WeatherIntegrationSuiteObservation {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptManifest,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [AllowEmptyString()][string]$SuiteReceiptStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = ""
+    )
+
+    $suiteAt = $null
+    try { $suiteAt = [datetime]::Parse([string]$AttemptManifest.schedule.suite_at_local) } catch { }
+    if ($null -eq $suiteAt) {
+        return [pscustomobject]@{
+            SuiteAt = $null
+            TaskState = "Unreadable"
+            LastRunTime = $null
+            PreflightExists = $false
+            Started = $false
+            TriggerMissed = $false
+        }
+    }
+    $runtime = Get-WeatherIntegrationSuiteRuntimeState `
+        -TaskName ([string]$AttemptManifest.schedule.suite_task_name) `
+        -SuiteAt $suiteAt `
+        -PreflightLogPath ([string]$AttemptManifest.evidence.preflight_log)
+    $triggerMissed = Test-WeatherIntegrationSuiteTriggerMissed `
+        -SuiteAt $suiteAt `
+        -Now $Now `
+        -SuiteStarted ([bool]$runtime.Started) `
+        -SuiteReceiptStatus $SuiteReceiptStatus `
+        -ClosureStatus $ClosureStatus
+    return [pscustomobject]@{
+        SuiteAt = $suiteAt
+        TaskState = [string]$runtime.TaskState
+        LastRunTime = $runtime.LastRunTime
+        PreflightExists = [bool]$runtime.PreflightExists
+        Started = [bool]$runtime.Started
+        TriggerMissed = [bool]$triggerMissed
+    }
 }
 
 # ---- streak (delegate to the authoritative ledger-based checker) ----
@@ -1080,6 +1173,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                     $integratedExactTip = [string]$attemptManifest.expected_tip
                     $suiteReceiptStatus = $null
                     $mergeReceiptStatus = $null
+                    $reconciliationStatus = $null
                     $closureStatus = $null
                     $dispatchStatus = $null
                     $claimStatus = $null
@@ -1088,14 +1182,44 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                     foreach ($receiptSpec in @(
                         [pscustomobject]@{ Name = "suite receipt"; Path = [string]$attemptManifest.evidence.suite_receipt; Target = "suite" },
                         [pscustomobject]@{ Name = "merge receipt"; Path = [string]$attemptManifest.evidence.merge_receipt; Target = "merge" },
+                        [pscustomobject]@{ Name = "reconciliation receipt"; Path = [string]$attemptManifest.evidence.reconciliation_receipt; Target = "reconciliation" },
                         [pscustomobject]@{ Name = "closure receipt"; Path = [string]$attemptManifest.evidence.closure_receipt; Target = "closure" },
                         [pscustomobject]@{ Name = "recovery dispatch"; Path = [string]$attemptManifest.evidence.recovery_dispatch; Target = "dispatch" }
-                    )) {
+                        )) {
                         if (-not (Test-Path -LiteralPath $receiptSpec.Path -PathType Leaf)) { continue }
                         try {
-                            $receiptStatus = [string](Get-Content -LiteralPath $receiptSpec.Path -Raw | ConvertFrom-Json).status
+                            $receiptPayload = Get-Content -LiteralPath $receiptSpec.Path -Raw | ConvertFrom-Json
+                            $receiptStatus = [string]$receiptPayload.status
+                            if ($receiptSpec.Target -eq "reconciliation") {
+                                $currentMergeReceiptSha256 = (Get-FileHash -LiteralPath ([string]$attemptManifest.evidence.merge_receipt) -Algorithm SHA256).Hash.ToLowerInvariant()
+                                if ([string]$receiptPayload.schema -ne "weather_integration_attempt_reconciliation_receipt_v1" -or
+                                    $receiptStatus -ne "MERGED_RECONCILED" -or
+                                    [string]$receiptPayload.attempt_id -ne [string]$attemptManifest.attempt_id -or
+                                    [string]$receiptPayload.manifest_path -ne [string]$attemptManifestPath -or
+                                    [string]$receiptPayload.manifest_sha256 -ne $attemptManifestHash.ToLowerInvariant() -or
+                                    [string]$receiptPayload.merge_receipt_path -ne [string]$attemptManifest.evidence.merge_receipt -or
+                                    [string]$receiptPayload.merge_receipt_sha256 -ne $currentMergeReceiptSha256 -or
+                                    [bool]$receiptPayload.historical_proof_upgraded -or
+                                    [bool]$receiptPayload.downstream_authorized -or
+                                    -not [bool]$receiptPayload.current_proofs.checked_out_master_equals_origin -or
+                                    -not [bool]$receiptPayload.current_proofs.published_integration_commit_in_history -or
+                                    -not [bool]$receiptPayload.current_proofs.frozen_source_tip_in_history -or
+                                    -not [bool]$receiptPayload.current_proofs.capture_recovery_current -or
+                                    [string]$receiptPayload.current_proofs.production_head -notmatch '^[0-9a-f]{40}$' -or
+                                    [string]$receiptPayload.current_proofs.production_head -ne [string]$receiptPayload.current_proofs.origin_master -or
+                                    -not [bool]$receiptPayload.current_proofs.capture.ok -or
+                                    @($receiptPayload.current_proofs.capture.workers).Count -ne 3 -or
+                                    @($receiptPayload.current_proofs.capture.workers | Where-Object { -not [bool]$_.ok }).Count -ne 0 -or
+                                    @($receiptPayload.tasks | Where-Object { [bool]$_.exists -and -not [bool]$_.disabled }).Count -ne 0 -or
+                                    [string]$receiptPayload.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+                                    [bool]$receiptPayload.safety.credential_value_access_authorized -or
+                                    [bool]$receiptPayload.safety.live_exchange_mutation_authorized) {
+                                    throw "reconciliation receipt is not bound to this non-authorizing attempt"
+                                }
+                            }
                             if ($receiptSpec.Target -eq "suite") { $suiteReceiptStatus = $receiptStatus }
                             elseif ($receiptSpec.Target -eq "merge") { $mergeReceiptStatus = $receiptStatus }
+                            elseif ($receiptSpec.Target -eq "reconciliation") { $reconciliationStatus = $receiptStatus }
                             elseif ($receiptSpec.Target -eq "closure") { $closureStatus = $receiptStatus }
                             else { $dispatchStatus = $receiptStatus }
                         }
@@ -1120,6 +1244,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         $attemptManifestPath,
                         [string]$attemptManifest.evidence.suite_receipt,
                         [string]$attemptManifest.evidence.merge_receipt,
+                        [string]$attemptManifest.evidence.reconciliation_receipt,
                         [string]$attemptManifest.evidence.closure_receipt,
                         [string]$attemptManifest.evidence.recovery_dispatch,
                         $successorClaimPath
@@ -1136,15 +1261,16 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         [math]::Round(((Get-Date) - $newestAttemptEvidence[0]).TotalHours, 1)
                     }
                     $attemptEvidenceIsFresh = ($null -eq $attemptEvidenceAgeHours -or $attemptEvidenceAgeHours -le 24)
-                    $attemptSuiteAt = $null
-                    try { $attemptSuiteAt = [datetime]::Parse([string]$attemptManifest.schedule.suite_at_local) } catch { }
-                    $attemptMissedSuite = (
-                        $null -ne $attemptSuiteAt -and $attemptSuiteAt -lt (Get-Date) -and
-                        $null -eq $suiteReceiptStatus -and $null -eq $closureStatus
-                    )
+                    $suiteObservation = Get-WeatherIntegrationSuiteObservation `
+                        -AttemptManifest $attemptManifest `
+                        -Now (Get-Date) `
+                        -SuiteReceiptStatus ([string]$suiteReceiptStatus) `
+                        -ClosureStatus ([string]$closureStatus)
+                    $attemptMissedSuite = [bool]$suiteObservation.TriggerMissed
                     $attemptState = Get-WeatherIntegrationAttemptState `
                         -SuiteReceiptStatus $suiteReceiptStatus `
                         -MergeReceiptStatus $mergeReceiptStatus `
+                        -ReconciliationStatus $reconciliationStatus `
                         -ClosureStatus $closureStatus `
                         -DispatchStatus $dispatchStatus `
                         -ClaimStatus $claimStatus
@@ -1156,6 +1282,11 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                             recovery_dispatch = [string]$attemptManifest.evidence.recovery_dispatch
                             successor_attempt_id = $successorAttemptId
                             task_state = $st
+                            merge_task_state = $st
+                            suite_task_state = [string]$suiteObservation.TaskState
+                            suite_last_run_time = if ($null -eq $suiteObservation.LastRunTime) { $null } else { ([datetime]$suiteObservation.LastRunTime).ToString("o") }
+                            suite_preflight_exists = [bool]$suiteObservation.PreflightExists
+                            suite_started = [bool]$suiteObservation.Started
                             evidence_age_hours = $attemptEvidenceAgeHours
                             suite_trigger_missed = $attemptMissedSuite
                         })
@@ -1670,6 +1801,9 @@ if ($Json) {
                 @{ attempt_id = $_.attempt_id; state = $_.state; expected_tip = $_.expected_tip
                     manifest_path = $_.manifest_path; recovery_dispatch = $_.recovery_dispatch
                     successor_attempt_id = $_.successor_attempt_id; task_state = $_.task_state
+                    merge_task_state = $_.merge_task_state; suite_task_state = $_.suite_task_state
+                    suite_last_run_time = $_.suite_last_run_time
+                    suite_preflight_exists = $_.suite_preflight_exists; suite_started = $_.suite_started
                     evidence_age_hours = $_.evidence_age_hours
                     suite_trigger_missed = $_.suite_trigger_missed }
             })

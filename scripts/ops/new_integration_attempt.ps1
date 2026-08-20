@@ -318,6 +318,7 @@ $manifest = [ordered]@{
         registration_receipt = Join-Path $AttemptRoot "registration-receipt.json"
         closure_receipt = Join-Path $AttemptRoot "closure-receipt.json"
         recovery_dispatch = Join-Path $AttemptRoot "recovery-dispatch.json"
+        reconciliation_receipt = Join-Path $AttemptRoot "reconciliation-receipt.json"
     }
 }
 

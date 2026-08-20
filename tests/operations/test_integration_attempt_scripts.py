@@ -19,6 +19,7 @@ SCRIPTS = {
         "close_integration_attempt.ps1",
         "dispatch_integration_attempt_recovery.ps1",
         "assert_integration_attempt_success.ps1",
+        "reconcile_integration_attempt.ps1",
     )
 }
 PARSE_SCRIPTS = tuple(SCRIPTS.values()) + tuple(
@@ -60,6 +61,7 @@ def test_attempt_manifest_freezes_evidence_not_the_entire_night() -> None:
     assert "already has a successor claim" in creator
     assert "successor-claim.json" in creator
     assert "recovery_dispatch" in creator
+    assert "reconciliation_receipt" in creator
     assert "suite_at_local" in creator
     assert "merge_at_local" in creator
     assert "expected_test_file_count" in creator
@@ -71,14 +73,15 @@ def test_attempt_manifest_freezes_evidence_not_the_entire_night() -> None:
     assert "git push" not in creator.lower()
 
     closer = _text("close_integration_attempt.ps1")
-    assert "Attempt task is still running" in closer
-    assert "Disable-ScheduledTask" in closer
+    assert "Disable-WeatherIntegrationAttemptTasks" in closer
     assert "An attempt that reached production cannot be abandoned or retried" in closer
-    assert "immutable registration receipt" in closer
-    assert "registeredAction.arguments" in closer
-    assert 'Principal.LogonType -ne "S4U"' in closer
     assert "training_window_contract.ps1" not in closer
     assert "weather_integration_attempt_closure_receipt_v1" in contract
+    assert "Attempt task is still running" in contract
+    assert "Disable-ScheduledTask" in contract
+    assert "immutable registration receipt" in contract
+    assert "registeredAction.arguments" in contract
+    assert 'Principal.LogonType -ne "S4U"' in contract
 
 
 def test_attempt_suite_runs_ratchets_before_full_suite_and_freezes_receipt() -> None:
@@ -142,6 +145,8 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     assert merge.count("Assert-WeatherIntegrationOrchestrationFiles") == 2
     assert "suiteDeadlineStopEvidence" in merge
     assert "Stop-ScheduledTask -TaskName $taskName" in merge
+    assert "suitePassExitGraceEvidence" in merge
+    assert "suite_pass_exit_grace" in merge
     assert 'status = "MERGED_UNVERIFIED"' in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath" in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath" in merge
@@ -215,7 +220,12 @@ $paths = @(
     'docs/operations/reserved-confirmation-window.md',
     'docs/operations/HOST_LOAD_POLICY.md',
     'docs/operations/DELEGATION_CONTRACT.md',
-    'docs/operations/STATE_OF_PLAY.md'
+    'docs/operations/STATE_OF_PLAY.md',
+    'scripts/ops/integration_attempt_merge.ps1',
+    'scripts/ops/reconcile_integration_attempt.ps1',
+    'scripts/ops/workload_admission.ps1',
+    'scripts/ops/status.ps1',
+    'tests/operations/test_status_script.py'
 )
 @($paths | ForEach-Object {
     $path = $_
@@ -244,6 +254,11 @@ $paths = @(
         "docs/operations/HOST_LOAD_POLICY.md": False,
         "docs/operations/DELEGATION_CONTRACT.md": False,
         "docs/operations/STATE_OF_PLAY.md": False,
+        "scripts/ops/integration_attempt_merge.ps1": True,
+        "scripts/ops/reconcile_integration_attempt.ps1": True,
+        "scripts/ops/workload_admission.ps1": False,
+        "scripts/ops/status.ps1": False,
+        "tests/operations/test_status_script.py": True,
     }
 
 
@@ -320,6 +335,7 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
             "registration_receipt": str(attempt_root / "registration-receipt.json"),
             "closure_receipt": str(attempt_root / "closure-receipt.json"),
             "recovery_dispatch": str(attempt_root / "recovery-dispatch.json"),
+            "reconciliation_receipt": str(attempt_root / "reconciliation-receipt.json"),
         },
     }
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -439,6 +455,7 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
             "registration_receipt": str(attempt_root / "registration-receipt.json"),
             "closure_receipt": str(attempt_root / "closure-receipt.json"),
             "recovery_dispatch": str(attempt_root / "recovery-dispatch.json"),
+            "reconciliation_receipt": str(attempt_root / "reconciliation-receipt.json"),
         },
     }
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -536,6 +553,27 @@ def test_execution_tape_adoption_accepts_only_hash_bound_attempt_receipts() -> N
     assert "suite_gated_quiet_merge.ps1" in adoption  # legacy path remains supported
 
 
+def test_merged_unverified_reconciliation_is_immutable_and_non_authorizing() -> None:
+    contract = _text("integration_attempt_contract.ps1")
+    reconciler = _text("reconcile_integration_attempt.ps1")
+    success_gate = _text("assert_integration_attempt_success.ps1")
+
+    assert "weather_integration_attempt_reconciliation_receipt_v1" in contract
+    assert "Assert-WeatherIntegrationMergedUnverifiedReceipt" in contract
+    assert 'status -ne "MERGED_UNVERIFIED"' in contract
+    assert "Disable-WeatherIntegrationAttemptTasks" in reconciler
+    assert "MERGED_RECONCILED" in reconciler
+    assert "historical_proof_upgraded = $false" in reconciler
+    assert "downstream_authorized = $false" in reconciler
+    assert "Current capture state is not healthy for all three workers" in reconciler
+    assert "Write-WeatherIntegrationImmutableJson -Path $reconciliationPath" in reconciler
+    assert "ExpectedMergeReceiptSha256" in reconciler
+    assert "MERGED_RECONCILED" not in success_gate
+    assert 'receipt.status -ne "PASS"' in contract
+    assert "receipt.attempt_id" in contract
+    assert "receipt.manifest_path" in contract
+
+
 def test_manifest_contract_accepts_canonical_paths_and_rejects_tampering(
     tmp_path: Path,
 ) -> None:
@@ -579,6 +617,7 @@ def test_manifest_contract_accepts_canonical_paths_and_rejects_tampering(
             "registration_receipt": str(attempt_root / "registration-receipt.json"),
             "closure_receipt": str(attempt_root / "closure-receipt.json"),
             "recovery_dispatch": str(attempt_root / "recovery-dispatch.json"),
+            "reconciliation_receipt": str(attempt_root / "reconciliation-receipt.json"),
         },
     }
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
@@ -681,6 +720,9 @@ $deadline = [datetime]'2026-08-21T03:40:00'
 $cases = @(
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $false -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $false -Now $deadline -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline.AddSeconds(120) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Disabled -LastRunTime $today.AddDays(-1) -LastTaskResult 267011 -ReceiptExists $false -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 0 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 1 -ReceiptExists $true -ReceiptStatus FAIL -Now $today.AddHours(1) -Deadline $deadline
 )
@@ -696,7 +738,15 @@ $cases = @(
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == ["WAIT", "STOP", "READY", "FAIL"]
+    assert json.loads(result.stdout) == [
+        "WAIT",
+        "STOP",
+        "WAIT",
+        "STOP",
+        "FAIL",
+        "READY",
+        "FAIL",
+    ]
 
 
 def test_log_verdict_helper_executes_and_rejects_false_chunk_ratios(
@@ -727,21 +777,43 @@ $plan = Assert-WeatherIntegrationFullSuiteLogPlan `
 $mismatchRejected = $false
 try {
     Assert-WeatherIntegrationFullSuiteVerdict `
-        -Verdict 'VERDICT: ALL CHUNKS PASSED (1/2); exact tip eligible for separate reviewed merge' | Out-Null
+        -Verdict '2026-08-21 00:45:00  VERDICT: ALL CHUNKS PASSED (1/2); exact tip eligible for separate reviewed merge' | Out-Null
 }
 catch { $mismatchRejected = $_.Exception.Message -like '*invalid chunk ratio*' }
 $zeroRejected = $false
 try {
     Assert-WeatherIntegrationFullSuiteVerdict `
-        -Verdict 'VERDICT: ALL CHUNKS PASSED (0/0); exact tip eligible for separate reviewed merge' | Out-Null
+        -Verdict '2026-08-21 00:45:00  VERDICT: ALL CHUNKS PASSED (0/0); exact tip eligible for separate reviewed merge' | Out-Null
 }
 catch { $zeroRejected = $_.Exception.Message -like '*invalid chunk ratio*' }
+$prefixedRejected = $false
+try {
+    Assert-WeatherIntegrationFullSuiteVerdict `
+        -Verdict 'JUNK 2026-08-21 00:45:00  VERDICT: ALL CHUNKS PASSED (2/2); exact tip eligible for separate reviewed merge' `
+        -ExpectedChunkCount 2 | Out-Null
+}
+catch { $prefixedRejected = $_.Exception.Message -like '*exact PASS verdict*' }
+$preflightAccepted = $true
+try {
+    Assert-WeatherIntegrationPreflightVerdict `
+        -Verdict '2026-08-21 00:31:00  VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized'
+}
+catch { $preflightAccepted = $false }
+$prefixedPreflightRejected = $false
+try {
+    Assert-WeatherIntegrationPreflightVerdict `
+        -Verdict 'JUNK VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized'
+}
+catch { $prefixedPreflightRejected = $_.Exception.Message -like '*exact PASS verdict*' }
 [pscustomobject]@{
     verdict = $verdict
     chunks = $chunks
     planned_files = $plan.Files
     mismatch_rejected = $mismatchRejected
     zero_rejected = $zeroRejected
+    prefixed_rejected = $prefixedRejected
+    preflight_accepted = $preflightAccepted
+    prefixed_preflight_rejected = $prefixedPreflightRejected
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
@@ -763,6 +835,9 @@ catch { $zeroRejected = $_.Exception.Message -like '*invalid chunk ratio*' }
     )
     assert payload["mismatch_rejected"] is True
     assert payload["zero_rejected"] is True
+    assert payload["prefixed_rejected"] is True
+    assert payload["preflight_accepted"] is True
+    assert payload["prefixed_preflight_rejected"] is True
 
 
 def test_schedule_helper_rejects_invalid_and_ambiguous_eastern_times() -> None:
@@ -788,10 +863,32 @@ try {
         -Value ([datetime]'2026-11-01T01:30:00') -Label ambiguous -TimeZone $zone | Out-Null
 }
 catch { $ambiguousRejected = $_.Exception.Message -like '*ambiguous daylight-saving hour*' }
+$utcRejected = $false
+try {
+    ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value '2026-08-21T04:35:00.0000000Z' -Label utc | Out-Null
+}
+catch { $utcRejected = $_.Exception.Message -like '*must not carry a UTC marker*' }
+$offsetRejected = $false
+try {
+    ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value '2026-08-21T00:35:00.0000000-04:00' -Label offset | Out-Null
+}
+catch { $offsetRejected = $_.Exception.Message -like '*must not carry a UTC marker*' }
+$directUtcRejected = $false
+try {
+    Assert-WeatherIntegrationLocalScheduleTime `
+        -Value ([datetime]::SpecifyKind([datetime]'2026-08-21T04:35:00', [DateTimeKind]::Utc)) `
+        -Label directUtc -TimeZone $zone | Out-Null
+}
+catch { $directUtcRejected = $_.Exception.Message -like '*without a UTC marker*' }
 [pscustomobject]@{
     valid = $valid.ToString('o')
     invalid_rejected = $invalidRejected
     ambiguous_rejected = $ambiguousRejected
+    utc_rejected = $utcRejected
+    offset_rejected = $offsetRejected
+    direct_utc_rejected = $directUtcRejected
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
@@ -808,6 +905,9 @@ catch { $ambiguousRejected = $_.Exception.Message -like '*ambiguous daylight-sav
         "valid": "2026-08-21T01:30:00.0000000",
         "invalid_rejected": True,
         "ambiguous_rejected": True,
+        "utc_rejected": True,
+        "offset_rejected": True,
+        "direct_utc_rejected": True,
     }
 
 
@@ -908,6 +1008,7 @@ def test_repair_manifest_requires_exact_single_successor_claim(tmp_path: Path) -
             "registration_receipt": str(root / "registration-receipt.json"),
             "closure_receipt": str(root / "closure-receipt.json"),
             "recovery_dispatch": str(root / "recovery-dispatch.json"),
+            "reconciliation_receipt": str(root / "reconciliation-receipt.json"),
         }
 
     prior_manifest_path = prior_root / "manifest.json"
@@ -1273,7 +1374,12 @@ $operatorParameters = @()
 $operatorNames = @(
     'split', 'replace', 'match', 'notmatch', 'like', 'notlike', 'eq', 'ne',
     'gt', 'ge', 'lt', 'le', 'join', 'contains', 'notcontains', 'in', 'notin',
-    'is', 'isnot', 'as', 'f', 'shl', 'shr', 'band', 'bor', 'bxor'
+    'is', 'isnot', 'as', 'f', 'shl', 'shr', 'band', 'bor', 'bxor',
+    'and', 'bnot', 'ccontains', 'ceq', 'cge', 'cgt', 'cin', 'cle', 'clike',
+    'clt', 'cmatch', 'cne', 'cnotcontains', 'cnotin', 'cnotlike', 'cnotmatch',
+    'creplace', 'csplit', 'icontains', 'ieq', 'ige', 'igt', 'iin', 'ile',
+    'ilike', 'ilt', 'imatch', 'ine', 'inotcontains', 'inotin', 'inotlike',
+    'inotmatch', 'ireplace', 'isplit', 'not', 'or', 'xor'
 )
 foreach ($path in $paths) {
     $tokens = $null
@@ -1299,9 +1405,22 @@ foreach ($path in $paths) {
         }
     }
 }
+$controlTokens = $null
+$controlErrors = $null
+$controlAst = [System.Management.Automation.Language.Parser]::ParseInput(
+    'Read-Example -Path x -ireplace y',
+    [ref]$controlTokens,
+    [ref]$controlErrors
+)
+$controlHits = @($controlAst.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.CommandParameterAst] -and
+        $operatorNames -contains $node.ParameterName.ToLowerInvariant()
+}, $true))
 [pscustomobject]@{
     errors = $allErrors
     operator_parameters = $operatorParameters
+    positive_control_parameters = @($controlHits | ForEach-Object { $_.ParameterName })
 } | ConvertTo-Json -Depth 5 -Compress
 """
     result = subprocess.run(
@@ -1325,3 +1444,4 @@ foreach ($path in $paths) {
     payload = json.loads(result.stdout)
     assert payload["errors"] == []
     assert payload["operator_parameters"] == []
+    assert payload["positive_control_parameters"] == ["ireplace"]

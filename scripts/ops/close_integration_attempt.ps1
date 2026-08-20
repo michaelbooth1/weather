@@ -35,74 +35,7 @@ if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     }
 }
 
-$repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
-$registrationReceiptPath = [string]$manifest.evidence.registration_receipt
-$registrationReceipt = $null
-if (Test-Path -LiteralPath $registrationReceiptPath -PathType Leaf) {
-    $registrationReceipt = Read-WeatherIntegrationSharedJson -Path $registrationReceiptPath
-    if ([string]$registrationReceipt.schema -ne $script:WeatherIntegrationAttemptRegistrationReceiptSchema -or
-        [string]$registrationReceipt.attempt_id -ne [string]$manifest.attempt_id -or
-        -not (Test-WeatherIntegrationPathEqual -Left ([string]$registrationReceipt.manifest_path) -Right $contract.ManifestPath) -or
-        [string]$registrationReceipt.manifest_sha256 -ne [string]$contract.ManifestSha256) {
-        throw "Registration receipt does not bind this exact attempt."
-    }
-}
-$taskSpecs = @(
-    [pscustomobject]@{
-        name = [string]$manifest.schedule.suite_task_name
-        role = "suite"
-    },
-    [pscustomobject]@{
-        name = [string]$manifest.schedule.merge_task_name
-        role = "merge"
-    }
-)
-
-$taskEvidence = New-Object System.Collections.Generic.List[object]
-foreach ($spec in $taskSpecs) {
-    $task = Get-ScheduledTask -TaskName $spec.name -ErrorAction SilentlyContinue
-    if ($null -eq $task) {
-        $taskEvidence.Add([ordered]@{ task_name = $spec.name; exists = $false; disabled = $false })
-        continue
-    }
-    if ([string]$task.State -eq "Running") {
-        throw "Attempt task is still running and may not be closed: $($spec.name)"
-    }
-    if ($null -eq $registrationReceipt) {
-        throw "Refusing to disable an existing task without its immutable registration receipt: $($spec.name)"
-    }
-    $registeredActionProperty = $registrationReceipt.PSObject.Properties[[string]$spec.role]
-    $registeredAction = if ($null -eq $registeredActionProperty) { $null } else { $registeredActionProperty.Value }
-    if ($null -eq $registeredAction -or
-        [string]$registeredAction.task_name -ne [string]$spec.name) {
-        throw "Registration receipt does not bind this exact task action: $($spec.name)"
-    }
-    $actions = @($task.Actions)
-    if ($actions.Count -ne 1 -or
-        -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].Execute) -Right ([string]$registeredAction.executable)) -or
-        [string]$actions[0].Arguments -ne [string]$registeredAction.arguments -or
-        -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].WorkingDirectory) -Right ([string]$registeredAction.working_directory)) -or
-        [string]$task.Principal.UserId -ne [string]$registrationReceipt.principal.user_id -or
-        [string]$task.Principal.LogonType -ne "S4U" -or
-        [string]$task.Principal.RunLevel -ne "Limited") {
-        throw "Refusing to disable task whose action is not exactly bound to this attempt: $($spec.name)"
-    }
-    Disable-ScheduledTask -TaskName $spec.name -ErrorAction Stop | Out-Null
-    $disabledTask = Get-ScheduledTask -TaskName $spec.name -ErrorAction Stop
-    if ([string]$disabledTask.State -ne "Disabled") {
-        throw "Attempt task did not enter Disabled state: $($spec.name)"
-    }
-    $info = Get-ScheduledTaskInfo -TaskName $spec.name -ErrorAction SilentlyContinue
-    $taskEvidence.Add([ordered]@{
-        task_name = $spec.name
-        exists = $true
-        disabled = $true
-        registration_receipt_registered = [bool]$registeredAction.registered
-        registration_receipt_disagreed = (-not [bool]$registeredAction.registered)
-        last_run_time = if ($null -eq $info) { $null } else { ([datetime]$info.LastRunTime).ToString("o") }
-        last_task_result = if ($null -eq $info) { $null } else { [int]$info.LastTaskResult }
-    })
-}
+$taskEvidence = @(Disable-WeatherIntegrationAttemptTasks -AttemptContract $contract)
 
 $existingEvidence = New-Object System.Collections.Generic.List[object]
 foreach ($path in @(

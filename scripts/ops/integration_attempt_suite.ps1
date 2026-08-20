@@ -131,9 +131,7 @@ try {
         throw "Integration preflight failed with exit code $preflightExitCode; full suite was not started."
     }
     $preflightVerdict = Get-WeatherIntegrationLogVerdict -Path $preflightLogPath
-    if ($preflightVerdict -notlike "*VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized") {
-        throw "Integration preflight log is missing its exact PASS verdict."
-    }
+    Assert-WeatherIntegrationPreflightVerdict -Verdict $preflightVerdict
 
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "full-suite start" | Out-Null
     $fullSuiteExitCode = Invoke-WeatherAttemptSuitePhase `
