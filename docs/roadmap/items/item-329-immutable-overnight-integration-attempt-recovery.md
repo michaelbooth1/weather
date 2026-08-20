@@ -78,7 +78,7 @@ exact hash-bound evidence.
   Fourteen roadmap/UI contracts, compileall, roadmap lint/check, the
   agent-document audit, and diff check also passed. The exact full suite
   remains time-gated.
-- `roll_verdict.ps1` reports `ROLL-FREE`: 27 changed files and zero importable
+- Production-host `roll_verdict.ps1` reports `ROLL-FREE`: 28 changed files and zero importable
   capture files. Landing this branch does not require a capture readoption roll.
 
 The implementation is intentionally not registered or run from this topic
