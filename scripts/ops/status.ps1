@@ -922,6 +922,7 @@ $interactiveTasks = 0
 $evidenceRefreshHeld = $false
 $sensitiveDriverNextRun = $null
 $armedQuietMerges = New-Object System.Collections.Generic.List[psobject]
+$integrationAttemptState = New-Object System.Collections.Generic.List[psobject]
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
 # one-shot scheduled for tonight can be deleted, disabled or silently mis-scheduled and
 # nothing would say so until the morning it fails to have run. Surface the queue instead.
@@ -1017,6 +1018,49 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                     [string]$attemptManifest.schema -eq "weather_integration_attempt_manifest_v1" -and
                     [string]$attemptManifest.expected_tip -match '^[0-9a-f]{40}$') {
                     $integratedExactTip = [string]$attemptManifest.expected_tip
+                    $suiteReceiptStatus = $null
+                    $mergeReceiptStatus = $null
+                    $closureStatus = $null
+                    $dispatchStatus = $null
+                    $claimStatus = $null
+                    $successorAttemptId = $null
+                    try { $suiteReceiptStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.suite_receipt -Raw | ConvertFrom-Json).status } catch { }
+                    try { $mergeReceiptStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.merge_receipt -Raw | ConvertFrom-Json).status } catch { }
+                    try { $closureStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.closure_receipt -Raw | ConvertFrom-Json).status } catch { }
+                    try { $dispatchStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.recovery_dispatch -Raw | ConvertFrom-Json).status } catch { }
+                    $successorClaimPath = Join-Path ([string]$attemptManifest.attempt_root) "successor-claim.json"
+                    try {
+                        $successorClaim = Get-Content -LiteralPath $successorClaimPath -Raw | ConvertFrom-Json
+                        $claimStatus = [string]$successorClaim.status
+                        $successorAttemptId = [string]$successorClaim.successor_attempt_id
+                    }
+                    catch { }
+                    $attemptState = if ($mergeReceiptStatus -eq "PASS") { "PASS" }
+                    elseif ($claimStatus -eq "CLAIMED") { "SUCCESSOR_CLAIMED" }
+                    elseif ($dispatchStatus -eq "READY_FOR_SUCCESSOR_REVIEW") { "RECOVERY_READY" }
+                    elseif ($closureStatus -eq "FAIL") { "CLOSED_NEEDS_DISPATCH" }
+                    elseif ($suiteReceiptStatus -eq "FAIL" -or $mergeReceiptStatus -eq "FAIL") { "FAILED_NEEDS_CLOSE" }
+                    else { "ACTIVE_OR_ARMED" }
+                    $integrationAttemptState.Add([pscustomobject]@{
+                            attempt_id = [string]$attemptManifest.attempt_id
+                            state = $attemptState
+                            expected_tip = $integratedExactTip
+                            manifest_path = $attemptManifestPath
+                            recovery_dispatch = [string]$attemptManifest.evidence.recovery_dispatch
+                            successor_attempt_id = $successorAttemptId
+                        })
+                    if ($attemptState -eq "FAILED_NEEDS_CLOSE") {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) failed and must close its exact tasks")
+                    }
+                    elseif ($attemptState -eq "CLOSED_NEEDS_DISPATCH") {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) is closed and needs reviewed recovery dispatch")
+                    }
+                    elseif ($attemptState -eq "RECOVERY_READY") {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) recovery is ready for an active agent: $($attemptManifest.evidence.recovery_dispatch)")
+                    }
+                    elseif ($attemptState -eq "SUCCESSOR_CLAIMED") {
+                        $warns.Add("integration attempt $($attemptManifest.attempt_id) authorized successor $successorAttemptId")
+                    }
                 }
             }
             catch { }
@@ -1038,13 +1082,21 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         $successProtectionSeconds = $settleSeconds + 240
         $rollbackProtectionSeconds = $settleSeconds + $rollbackRecoverySeconds + 60
         $protectedSeconds = [math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)
+        $protectedUntil = ([datetime]$ti.NextRunTime).AddSeconds($protectedSeconds)
+        if ($actionArguments -like "*integration_attempt_merge.ps1*") {
+            # The attempt consumer can wait for its exact suite through 03:40,
+            # then owns the guarded merge child through its 05:00 containment
+            # boundary. Another merge driver inside that interval could advance
+            # the frozen production baseline or publish local master underneath it.
+            $protectedUntil = ([datetime]$ti.NextRunTime).Date.AddHours(5)
+        }
         $armedQuietMerges.Add([PSCustomObject]@{
                 name = $name
                 at = [datetime]$ti.NextRunTime
                 # Cover both success (settle + push acknowledgement) and failure (settle +
                 # bounded rollback readoption proof). The dangerous case is another driver
                 # publishing local master before the guarded script has completed either path.
-                protected_until = ([datetime]$ti.NextRunTime).AddSeconds($protectedSeconds)
+                protected_until = $protectedUntil
             })
     }
     # Both push tasks are deliberately Interactive: the Windows credential vault is not
@@ -1504,6 +1556,11 @@ if ($Json) {
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }) }
         documentation = $documentationTransaction
+        integration_attempts = @($integrationAttemptState | ForEach-Object {
+                @{ attempt_id = $_.attempt_id; state = $_.state; expected_tip = $_.expected_tip
+                    manifest_path = $_.manifest_path; recovery_dispatch = $_.recovery_dispatch
+                    successor_attempt_id = $_.successor_attempt_id }
+            })
         overnight_wakes = @($overnightWakeState | ForEach-Object {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path
                     runner_sha256 = $_.runner_sha256; receipt_path = $_.receipt_path
@@ -1586,6 +1643,12 @@ $crashStr = if ($lastCrash) { "{0} unexpected shutdown(s)/90d, last {1:MM-dd HH:
 Write-Output ("  STABILITY : up {0}h   |  {1}" -f $uptimeH, $crashStr)
 Write-Output ("  GIT       : {0} unpushed | {1} dirty | {2}" -f $unpushed, $dirtyCount, $lastCommit)
 Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f $taskCount)
+if ($integrationAttemptState.Count -gt 0) {
+    Write-Output "  ATTEMPTS  :"
+    foreach ($attemptState in $integrationAttemptState) {
+        Write-Output ("              {0}  {1}" -f $attemptState.attempt_id, $attemptState.state)
+    }
+}
 $wdStr = if ($null -eq $wd) { "NEVER REPORTED" } else { "{0}, {1} min ago" -f ([string]$wd.verdict), $wdAgeMin }
 $qwStr = if ($null -eq $qw) { "none" } else { "{0} ({1:yyyy-MM-dd HH:mm})" -f $qw.stage, ([datetime]$qw.ts) }
 Write-Output ("  WATCHDOG  : {0}    |  last merge attempt: {1}" -f $wdStr, $qwStr)

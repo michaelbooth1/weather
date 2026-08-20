@@ -32,10 +32,9 @@ function Invoke-WeatherIntegrationGitLine {
     return (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
 }
 
-function Assert-WeatherIntegrationSuiteTask {
+function Assert-WeatherIntegrationSuiteTaskBinding {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
-        [Parameter(Mandatory = $true)][object]$SuiteReceiptContract,
         [Parameter(Mandatory = $true)][string]$SuiteScript,
         [Parameter(Mandatory = $true)][string]$PowerShellExecutable
     )
@@ -46,13 +45,6 @@ function Assert-WeatherIntegrationSuiteTask {
     if ($null -eq $task) { throw "Suite task not found: $taskName" }
     $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
     if ($null -eq $taskInfo) { throw "Suite task info is unreadable: $taskName" }
-    if ([string]$task.State -eq "Running") { throw "Suite task is still running: $taskName" }
-    if ([datetime]$taskInfo.LastRunTime -lt (Get-Date).Date) {
-        throw "Suite task did not run on the current local day."
-    }
-    if ([int]$taskInfo.LastTaskResult -ne 0) {
-        throw ("Suite task result is 0x{0:X}, not success." -f [int]$taskInfo.LastTaskResult)
-    }
 
     $actions = @($task.Actions)
     if ($actions.Count -ne 1) { throw "Suite task must have exactly one action." }
@@ -78,9 +70,78 @@ function Assert-WeatherIntegrationSuiteTask {
         throw "Suite task must run under S4U with Limited privileges."
     }
 
+    return [pscustomobject]@{ Task = $task; Info = $taskInfo }
+}
+
+function Assert-WeatherIntegrationSuiteTask {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][object]$SuiteReceiptContract,
+        [Parameter(Mandatory = $true)][string]$SuiteScript,
+        [Parameter(Mandatory = $true)][string]$PowerShellExecutable
+    )
+
+    $binding = Assert-WeatherIntegrationSuiteTaskBinding `
+        -AttemptContract $AttemptContract `
+        -SuiteScript $SuiteScript `
+        -PowerShellExecutable $PowerShellExecutable
+    $task = $binding.Task
+    $taskInfo = $binding.Info
+    $taskName = [string]$AttemptContract.Manifest.schedule.suite_task_name
+    if ([string]$task.State -eq "Running") { throw "Suite task is still running: $taskName" }
+    if ([datetime]$taskInfo.LastRunTime -lt (Get-Date).Date) {
+        throw "Suite task did not run on the current local day."
+    }
+    if ([int]$taskInfo.LastTaskResult -ne 0) {
+        throw ("Suite task result is 0x{0:X}, not success." -f [int]$taskInfo.LastTaskResult)
+    }
+
     $receiptStarted = [datetime]::Parse([string]$SuiteReceiptContract.Receipt.started_at_local)
     if ([math]::Abs(($receiptStarted - [datetime]$taskInfo.LastRunTime).TotalMinutes) -gt 5) {
         throw "Suite task LastRunTime does not correlate to the immutable receipt."
+    }
+}
+
+function Wait-WeatherIntegrationSuiteTerminal {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][string]$SuiteScript,
+        [Parameter(Mandatory = $true)][string]$PowerShellExecutable
+    )
+
+    $manifest = $AttemptContract.Manifest
+    $receiptPath = [string]$manifest.evidence.suite_receipt
+    $suiteAt = [datetime]::Parse([string]$manifest.schedule.suite_at_local)
+    $deadline = $suiteAt.Date.AddMinutes(220)
+    $lastNotice = [datetime]::MinValue
+    while ($true) {
+        $binding = Assert-WeatherIntegrationSuiteTaskBinding `
+            -AttemptContract $AttemptContract `
+            -SuiteScript $SuiteScript `
+            -PowerShellExecutable $PowerShellExecutable
+        $receiptExists = Test-Path -LiteralPath $receiptPath -PathType Leaf
+        $receiptStatus = ""
+        if ($receiptExists) {
+            $receiptStatus = [string](Read-WeatherIntegrationSharedJson -Path $receiptPath).status
+        }
+        $now = Get-Date
+        $decision = Get-WeatherIntegrationSuiteWaitDecision `
+            -TaskState ([string]$binding.Task.State) `
+            -LastRunTime ([datetime]$binding.Info.LastRunTime) `
+            -LastTaskResult ([int]$binding.Info.LastTaskResult) `
+            -ReceiptExists ([bool]$receiptExists) `
+            -ReceiptStatus $receiptStatus `
+            -Now $now `
+            -Deadline $deadline
+        if ([string]$decision.Action -eq "READY") { return }
+        if ([string]$decision.Action -eq "FAIL") {
+            throw "Suite cannot authorize merge: $($decision.Reason)"
+        }
+        if (($now - $lastNotice).TotalSeconds -ge 60) {
+            Write-Host "Waiting for terminal suite evidence until $($deadline.ToString('o')): $($decision.Reason)"
+            $lastNotice = $now
+        }
+        Start-Sleep -Seconds 5
     }
 }
 
@@ -129,7 +190,8 @@ function Invoke-WeatherQuietMergeChild {
         [Parameter(Mandatory = $true)][string]$PowerShellExecutable,
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Branch,
-        [Parameter(Mandatory = $true)][string]$ExpectedTip
+        [Parameter(Mandatory = $true)][string]$ExpectedTip,
+        [Parameter(Mandatory = $true)][string]$ExpectedBaseline
     )
 
     $tokens = @(
@@ -139,6 +201,7 @@ function Invoke-WeatherQuietMergeChild {
         "-File", $QuietMergeScript,
         "-Branch", $Branch,
         "-ExpectedTip", $ExpectedTip,
+        "-ExpectedBaseline", $ExpectedBaseline,
         "-RepoRoot", $RepoRoot,
         "-SettleSeconds", [string]$SettleSeconds
     )
@@ -226,6 +289,12 @@ try {
         -MergeScript $PSCommandPath `
         -PowerShellExecutable $powerShellExecutable
 
+    Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "merge wait" | Out-Null
+    Wait-WeatherIntegrationSuiteTerminal `
+        -AttemptContract $contract `
+        -SuiteScript $suiteScript `
+        -PowerShellExecutable $powerShellExecutable
+    Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "guarded merge" | Out-Null
     $suiteReceiptContract = Assert-WeatherIntegrationSuiteReceipt -AttemptContract $contract
     $suiteReceiptSha256 = $suiteReceiptContract.ReceiptSha256
     Assert-WeatherIntegrationSuiteTask `
@@ -246,7 +315,8 @@ try {
         -PowerShellExecutable $powerShellExecutable `
         -RepoRoot $repoRoot `
         -Branch ([string]$manifest.branch_ref) `
-        -ExpectedTip ([string]$manifest.expected_tip)
+        -ExpectedTip ([string]$manifest.expected_tip) `
+        -ExpectedBaseline ([string]$manifest.baseline.master)
     if ($quietMergeExitCode -ne 0) {
         throw "Guarded quiet merge failed with exit code $quietMergeExitCode."
     }
@@ -264,6 +334,7 @@ try {
     }
     if ([string]$quietReport.branch -ne [string]$manifest.branch_ref -or
         [string]$quietReport.expected_tip -ne [string]$manifest.expected_tip -or
+        [string]$quietReport.expected_baseline -ne [string]$manifest.baseline.master -or
         [string]$quietReport.resolved_branch_tip -ne [string]$manifest.expected_tip) {
         throw "Quiet merge report identity does not match this attempt."
     }
@@ -303,7 +374,8 @@ catch {
             $candidateTimestamp = [datetime]::Parse([string]$candidateReport.ts)
             if ($candidateTimestamp -ge $startedAt.AddSeconds(-5) -and
                 [string]$candidateReport.branch -eq [string]$manifest.branch_ref -and
-                [string]$candidateReport.expected_tip -eq [string]$manifest.expected_tip) {
+                [string]$candidateReport.expected_tip -eq [string]$manifest.expected_tip -and
+                [string]$candidateReport.expected_baseline -eq [string]$manifest.baseline.master) {
                 $quietReport = $candidateReport
                 Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath -Payload $quietReport
                 $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $attemptQuietReportPath

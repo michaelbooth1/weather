@@ -34,6 +34,19 @@ safe way to create a corrected attempt.
 - [x] Emit a per-attempt merge receipt binding the suite, quiet-merge report,
   documentation transaction, source ancestry, remote acknowledgement, and
   three-worker capture recovery.
+- [x] Make the merge consumer wait for terminal suite evidence through the
+  03:40 reserve instead of consuming a slow but valid attempt at a fixed offset.
+- [x] Freeze the complete repository-owned PowerShell helper closure used by
+  registration, containment, admission, roll verdict, merge, and recovery.
+- [x] Require the candidate to contain the frozen production baseline and
+  reject any baseline advance through registration, suite, wait, or merge.
+- [x] Require every successor to descend from the failed tip, bind a reviewed
+  recovery dispatch, and consume one atomic predecessor successor claim;
+  unchanged retry means the exact same commit id.
+- [x] Add executable wait-decision, recovery-dispatch, claim, and tamper tests,
+  and require downstream adoption arguments to equal the attempt proof.
+- [x] Surface failed, closed, recovery-ready, and successor-claimed attempt
+  states through canonical host status for an active overnight recovery agent.
 - [x] Add a read-only downstream gate and bind execution-tape adoption to the
   attempt hashes while retaining the historical suite-gated path.
 - [ ] Pass focused operation tests, documentation audit, roadmap lint,
@@ -42,10 +55,13 @@ safe way to create a corrected attempt.
   production scheduler; editing the scripts does not authorize registration.
 
 Acceptance: after any failed attempt, the evidence stays immutable and the
-operator can either close it and create a reviewed successor or stop with one
-specific blocker. No successor can inherit a PASS from the failed attempt, no
-deterministic failure can trigger an unbounded rerun loop, and no merge or
-downstream task can proceed without exact hash-bound evidence.
+operator or active recovery agent can either close it, emit one reviewed
+machine-readable dispatch, and create exactly one reviewed successor, or stop
+with one specific blocker. A still-running suite cannot be mistaken for a
+failure before the quiet-window reserve. No successor can inherit a PASS from
+the failed attempt, no deterministic failure can trigger sibling or chained
+unchanged reruns, and no merge or downstream task can proceed without complete
+exact hash-bound evidence.
 
 ## Evidence
 
@@ -54,11 +70,14 @@ downstream task can proceed without exact hash-bound evidence.
   `new_integration_attempt.ps1`, `register_integration_attempt.ps1`,
   `close_integration_attempt.ps1`, and
   `assert_integration_attempt_success.ps1`.
-- Deterministic contract tests:
+- Deterministic and executable behavioral contract tests:
   `tests/operations/test_integration_attempt_scripts.py`.
-- Lightweight verification on 2026-08-20: 53 focused operation contracts
-  passed; all 11 affected PowerShell sources parsed; compileall, roadmap lint,
-  and the agent-document audit passed. The full suite remains time-gated.
+- Follow-up audit verification on 2026-08-20: 60 focused operation contracts,
+  including executable wait, baseline, dispatch, atomic-claim, exact-retry, and
+  tamper cases, passed; all 11 currently modified PowerShell sources parsed.
+  Fourteen roadmap/UI contracts, compileall, roadmap lint/check, the
+  agent-document audit, and diff check also passed. The exact full suite
+  remains time-gated.
 - `roll_verdict.ps1` reports `ROLL-FREE`: 27 changed files and zero importable
   capture files. Landing this branch does not require a capture readoption roll.
 

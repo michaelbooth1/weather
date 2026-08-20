@@ -56,6 +56,7 @@ if ($captureExitCode -ne 0 -or -not [bool]$capture.ok -or @($capture.workers).Co
     authorized = $true
     attempt_id = [string]$manifest.attempt_id
     source_tip = [string]$manifest.expected_tip
+    merge_task_name = [string]$manifest.schedule.merge_task_name
     integration_tip = $masterTip
     manifest_sha256 = $contract.ManifestSha256
     merge_receipt_sha256 = $mergeContract.ReceiptSha256

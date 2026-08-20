@@ -95,6 +95,7 @@ if (($MergeAtLocal - $SuiteAtLocal) -lt [TimeSpan]::FromMinutes(30)) {
 $repairOf = $null
 $priorTip = $null
 $priorManifestContract = $null
+$priorClaimPath = $null
 if ($RepairClass -eq "initial") {
     if (-not [string]::IsNullOrWhiteSpace($RepairOfReceiptPath)) {
         throw "An initial attempt may not claim a repair receipt."
@@ -106,14 +107,8 @@ else {
     }
     $resolvedRepairReceipt = Resolve-WeatherIntegrationPath -Path $RepairOfReceiptPath
     $priorReceipt = Read-WeatherIntegrationSharedJson -Path $resolvedRepairReceipt
-    $acceptedSchemas = @(
-        $script:WeatherIntegrationAttemptSuiteReceiptSchema,
-        $script:WeatherIntegrationAttemptMergeReceiptSchema,
-        $script:WeatherIntegrationAttemptRegistrationReceiptSchema,
-        $script:WeatherIntegrationAttemptClosureReceiptSchema
-    )
-    if ($acceptedSchemas -notcontains [string]$priorReceipt.schema) {
-        throw "RepairOfReceiptPath is not an integration-attempt suite or merge receipt."
+    if ([string]$priorReceipt.schema -ne $script:WeatherIntegrationAttemptClosureReceiptSchema) {
+        throw "RepairOfReceiptPath must be the predecessor's immutable closure receipt."
     }
     if ([string]$priorReceipt.status -ne "FAIL") {
         throw "A repair attempt must point at a FAIL receipt; prior evidence is never replaced."
@@ -121,6 +116,16 @@ else {
     $priorManifestContract = Assert-WeatherIntegrationAttemptManifest `
         -ManifestPath ([string]$priorReceipt.manifest_path) `
         -ExpectedSha256 ([string]$priorReceipt.manifest_sha256)
+    $priorDispatchPath = [string]$priorManifestContract.Manifest.evidence.recovery_dispatch
+    $priorDispatch = Read-WeatherIntegrationSharedJson -Path $priorDispatchPath
+    $priorDispatchSha256 = Get-WeatherIntegrationFileSha256 -Path $priorDispatchPath
+    if ([string]$priorDispatch.schema -ne $script:WeatherIntegrationAttemptRecoveryDispatchSchema -or
+        [string]$priorDispatch.status -ne "READY_FOR_SUCCESSOR_REVIEW" -or
+        [string]$priorDispatch.repair_class -ne $RepairClass -or
+        -not (Test-WeatherIntegrationPathEqual -Left ([string]$priorDispatch.closure_receipt_path) -Right $resolvedRepairReceipt) -or
+        [string]$priorDispatch.closure_receipt_sha256 -ne (Get-WeatherIntegrationFileSha256 -Path $resolvedRepairReceipt)) {
+        throw "The predecessor recovery dispatch does not authorize this repair class and closure receipt."
+    }
     $priorExpectedTipProperty = $priorReceipt.PSObject.Properties["expected_tip"]
     $priorSourceTipProperty = $priorReceipt.PSObject.Properties["source_tip"]
     if ($null -ne $priorExpectedTipProperty -and
@@ -138,11 +143,18 @@ else {
         [string]$priorManifestContract.Manifest.authorization.repair_class -eq "retry_unchanged") {
         throw "An unchanged retry may not follow another unchanged retry; diagnose or repair before spending another attempt."
     }
+    $priorClaimPath = Join-Path $priorManifestContract.AttemptRoot "successor-claim.json"
+    if (Test-Path -LiteralPath $priorClaimPath) {
+        throw "The predecessor FAIL receipt already has a successor claim and cannot authorize another attempt: $priorClaimPath"
+    }
     $repairOf = [ordered]@{
         receipt_path = $resolvedRepairReceipt
         receipt_sha256 = Get-WeatherIntegrationFileSha256 -Path $resolvedRepairReceipt
         receipt_schema = [string]$priorReceipt.schema
         prior_attempt_id = [string]$priorReceipt.attempt_id
+        claim_path = $priorClaimPath
+        dispatch_path = $priorDispatchPath
+        dispatch_sha256 = $priorDispatchSha256
     }
 }
 
@@ -172,12 +184,16 @@ if (-not [string]::IsNullOrWhiteSpace($worktreeStatus)) {
 }
 
 if ($RepairClass -ne "initial") {
+    & git -C $RepoRoot merge-base --is-ancestor $priorTip $ExpectedTip
+    if ($LASTEXITCODE -ne 0) {
+        throw "A repair tip must descend from the exact failed tip $priorTip."
+    }
     $changeRows = @(
         (Invoke-WeatherGitLine -Root $RepoRoot -Arguments @("diff", "--name-status", $priorTip, $ExpectedTip)) -split "`r?`n" |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     )
-    if ($RepairClass -eq "retry_unchanged" -and $changeRows.Count -ne 0) {
-        throw "retry_unchanged requires the exact same source tip as the failed attempt."
+    if ($RepairClass -eq "retry_unchanged" -and $ExpectedTip -ne $priorTip) {
+        throw "retry_unchanged requires the exact same commit id as the failed attempt."
     }
     if ($RepairClass -ne "retry_unchanged" -and $changeRows.Count -eq 0) {
         throw "Repair attempt does not contain a change from prior tip $priorTip."
@@ -194,32 +210,7 @@ if ($RepairClass -ne "initial") {
         }
     }
 
-    $allowedPatterns = switch ($RepairClass) {
-        "retry_unchanged" { @() }
-        "schema_registry" {
-            @(
-                '^src/weather/schema_registry_data\.py$',
-                '^src/weather/schema_registry_recent_data\.py$',
-                '^src/weather/schema_registry_types\.py$'
-            )
-        }
-        "ownership_metadata" {
-            @(
-                '^docs/operations/module-ownership-map\.md$',
-                '^tests/operations/test_module_size_audit\.py$'
-            )
-        }
-        "orchestration_wrapper" {
-            @(
-                '^scripts/ops/[^/]+\.ps1$',
-                '^tests/operations/test_(integration_attempt_scripts|bounded_worktree_test_suite_script|suite_gated_quiet_merge_script|quiet_window_merge_script|host_task_wrappers)\.py$',
-                '^docs/(operations|ops)/[^/]+\.md$',
-                '^(AGENTS\.md|scripts/ops/AGENTS\.md|tests/AGENTS\.md|docs/AGENTS\.md)$'
-            )
-        }
-        "manual_reviewed_change" { @('^.+$') }
-        default { throw "Unsupported repair class: $RepairClass" }
-    }
+    $allowedPatterns = @(Get-WeatherIntegrationRepairAllowedPatterns -RepairClass $RepairClass)
     foreach ($path in $changedPaths) {
         $matchingPolicies = @($allowedPatterns | Where-Object { $path -match $_ })
         if ($matchingPolicies.Count -eq 0) {
@@ -230,8 +221,17 @@ if ($RepairClass -ne "initial") {
 
 $masterTip = (Invoke-WeatherGitLine -Root $RepoRoot -Arguments @("rev-parse", "master")).ToLowerInvariant()
 $originMasterTip = (Invoke-WeatherGitLine -Root $RepoRoot -Arguments @("rev-parse", "origin/master")).ToLowerInvariant()
+$productionHead = (Invoke-WeatherGitLine -Root $RepoRoot -Arguments @("rev-parse", "HEAD")).ToLowerInvariant()
+$productionBranch = Invoke-WeatherGitLine -Root $RepoRoot -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
 if ($masterTip -ne $originMasterTip) {
     throw "Production master and origin/master must be reconciled before freezing a new attempt."
+}
+if ($productionBranch -ne "master" -or $productionHead -ne $masterTip) {
+    throw "The production working tree must have exact master checked out before freezing an attempt."
+}
+& git -C $RepoRoot merge-base --is-ancestor $masterTip $ExpectedTip
+if ($LASTEXITCODE -ne 0) {
+    throw "The reviewed attempt tip must contain the exact production baseline $masterTip."
 }
 $suiteTaskName = "WeatherIntegrationSuite_$AttemptId"
 $mergeTaskName = "WeatherIntegrationMerge_$AttemptId"
@@ -244,7 +244,12 @@ $orchestrationPaths = [ordered]@{
     attempt_suite = Join-Path $RepoRoot "scripts\ops\integration_attempt_suite.ps1"
     attempt_merge = Join-Path $RepoRoot "scripts\ops\integration_attempt_merge.ps1"
     attempt_success_gate = Join-Path $RepoRoot "scripts\ops\assert_integration_attempt_success.ps1"
+    attempt_recovery_dispatch = Join-Path $RepoRoot "scripts\ops\dispatch_integration_attempt_recovery.ps1"
     quiet_merge = Join-Path $RepoRoot "scripts\ops\quiet_window_merge.ps1"
+    token_contract = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
+    job_containment = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+    workload_admission = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+    roll_verdict = Join-Path $RepoRoot "scripts\ops\roll_verdict.ps1"
 }
 $orchestration = [ordered]@{}
 foreach ($name in $orchestrationPaths.Keys) {
@@ -294,11 +299,40 @@ $manifest = [ordered]@{
         quiet_merge_report = Join-Path $AttemptRoot "quiet-merge-report.json"
         registration_receipt = Join-Path $AttemptRoot "registration-receipt.json"
         closure_receipt = Join-Path $AttemptRoot "closure-receipt.json"
+        recovery_dispatch = Join-Path $AttemptRoot "recovery-dispatch.json"
     }
 }
 
 Write-WeatherIntegrationImmutableJson -Path $manifestPath -Payload $manifest
 $manifestSha256 = Get-WeatherIntegrationFileSha256 -Path $manifestPath
+
+if ($null -ne $priorClaimPath) {
+    $successorClaim = [ordered]@{
+        schema = $script:WeatherIntegrationAttemptSuccessorClaimSchema
+        status = "CLAIMED"
+        claimed_at_local = (Get-Date).ToString("o")
+        predecessor_attempt_id = [string]$priorManifestContract.Manifest.attempt_id
+        predecessor_receipt_path = [string]$repairOf.receipt_path
+        predecessor_receipt_sha256 = [string]$repairOf.receipt_sha256
+        recovery_dispatch_path = [string]$repairOf.dispatch_path
+        recovery_dispatch_sha256 = [string]$repairOf.dispatch_sha256
+        successor_attempt_id = $AttemptId
+        successor_manifest_path = $manifestPath
+        successor_manifest_sha256 = $manifestSha256
+        successor_expected_tip = $ExpectedTip
+        repair_class = $RepairClass
+        review_reference = $ReviewReference
+    }
+    try {
+        Write-WeatherIntegrationImmutableJson -Path $priorClaimPath -Payload $successorClaim
+    }
+    catch {
+        throw "Successor claim failed after manifest creation. The unclaimed manifest is not registrable and must be reviewed: $($_.Exception.Message)"
+    }
+    Assert-WeatherIntegrationAttemptManifest `
+        -ManifestPath $manifestPath `
+        -ExpectedSha256 $manifestSha256 | Out-Null
+}
 
 Write-Host "Created immutable integration attempt: $AttemptId"
 Write-Host "Manifest: $manifestPath"

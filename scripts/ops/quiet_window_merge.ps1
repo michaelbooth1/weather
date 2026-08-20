@@ -2,7 +2,8 @@
 # capture fleet survives the code roll BEFORE anything is published.
 #
 #   .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
-#       [-ExpectedTip <full-commit-sha>] [-Force] [-DryRun]
+#       [-ExpectedTip <full-commit-sha>] [-ExpectedBaseline <full-master-sha>] `
+#       [-Force] [-DryRun]
 #
 # Why this exists: merging a branch that touches modules the capture loops have imported
 # makes the supervisors readopt the new code (STALE_CODE restart). If that code is bad,
@@ -16,6 +17,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
     [string]$ExpectedTip = "",
+    [string]$ExpectedBaseline = "",
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [switch]$Force,
     [switch]$DryRun,
@@ -45,7 +47,8 @@ function Fail($m) {
 function Save-Report($ok, $stage, $detail) {
     $record = [ordered]@{
         ts = (Get-Date).ToString("o"); branch = $Branch; ok = $ok
-        expected_tip = $ExpectedTip; resolved_branch_tip = $resolvedBranchTip
+        expected_tip = $ExpectedTip; expected_baseline = $ExpectedBaseline
+        resolved_branch_tip = $resolvedBranchTip
         stage = $stage; detail = $detail; log = @($log)
     }
     try {
@@ -87,6 +90,10 @@ $ExpectedTip = $ExpectedTip.Trim().ToLowerInvariant()
 if ($ExpectedTip -and $ExpectedTip -notmatch '^[0-9a-f]{40}$') {
     Fail "ExpectedTip must be a full 40-character hexadecimal commit SHA"
 }
+$ExpectedBaseline = $ExpectedBaseline.Trim().ToLowerInvariant()
+if ($ExpectedBaseline -and $ExpectedBaseline -notmatch '^[0-9a-f]{40}$') {
+    Fail "ExpectedBaseline must be a full 40-character hexadecimal commit SHA"
+}
 
 # ---- window guard, proportional to the branch's actual roll verdict ----
 # This used to demand 01:00-04:00 for EVERY branch, including branches that cannot roll
@@ -121,6 +128,13 @@ if (-not $rollFree -and -not $Force -and -not ($h -ge 1 -and $h -lt 4)) {
 }
 if ($rollFree) { Note ("roll-free branch: 01:00-04:00 not required (now {0:N2})" -f $h) }
 
+# Serialize before any Git precondition or generated-drift commit. Two guarded
+# merge drivers may each be individually admissible, but allowing both to read
+# and then mutate the same production baseline would invalidate exact-tip suite
+# evidence.
+$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload "quiet_window_merge"
+if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+try {
 # ---- preconditions ----
 Set-Location $repo
 # Never start on top of a merge that is already in progress. WeatherBootRecovery cleans one
@@ -169,7 +183,17 @@ if ($ExpectedTip) {
 }
 $head = (& git rev-parse HEAD).Trim()
 $originMaster = (& git rev-parse origin/master).Trim()
+$currentBranchOutput = @(& git symbolic-ref --quiet --short HEAD)
+$currentBranchExit = $LASTEXITCODE
+$currentBranch = if ($currentBranchOutput.Count -eq 0) { "" } else { ([string]$currentBranchOutput[-1]).Trim() }
+if ($currentBranchExit -ne 0 -or $currentBranch -ne "master") {
+    Fail "production working tree must have master checked out; current branch is $currentBranch"
+}
 if ($head -ne $originMaster) { Fail "local master ($head) != origin/master ($originMaster); reconcile first" }
+if ($ExpectedBaseline -and ($head.ToLowerInvariant() -ne $ExpectedBaseline -or
+    $originMaster.ToLowerInvariant() -ne $ExpectedBaseline)) {
+    Fail "production baseline moved: master=$head origin/master=$originMaster expected=$ExpectedBaseline"
+}
 
 if ($dirtyTracked.Count -gt 0 -and -not $DryRun) {
     Note "committing $($dirtyTracked.Count) fleet-generated drift file(s) so the merge starts clean"
@@ -195,9 +219,6 @@ Note "pre-merge HEAD $preMerge; merging $Branch ($($resolvedBranchTip.Substring(
 # nothing about the CLOB or observation workers. The checker validates all three workers'
 # status + writer-lock PID, process liveness, heartbeat freshness, and loaded-source
 # fingerprint against the current tree. That is the same recovery contract supervisors own.
-$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload "quiet_window_merge"
-if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
-try {
 function Get-CaptureState {
     try {
         $raw = @(& $py -m weather.operations.capture_recovery_check --repo-root $repo --json)

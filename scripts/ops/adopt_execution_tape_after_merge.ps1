@@ -98,12 +98,24 @@ if ($attemptMode) {
     if (-not (Test-Path -LiteralPath $attemptGate -PathType Leaf)) {
         Refuse-Adoption "integration-attempt downstream gate is missing"
     }
-    & $attemptGate `
+    $attemptGateOutput = @(& $attemptGate `
         -ManifestPath $AttemptManifestPath `
         -ExpectedManifestSha256 $ExpectedManifestSha256 `
-        -ExpectedMergeReceiptSha256 $ExpectedMergeReceiptSha256 | Out-Null
+        -ExpectedMergeReceiptSha256 $ExpectedMergeReceiptSha256)
     if ($LASTEXITCODE -ne 0) {
         Refuse-Adoption "immutable integration-attempt success proof failed"
+    }
+    try {
+        $attemptProof = (($attemptGateOutput -join "`n") | ConvertFrom-Json)
+    }
+    catch {
+        Refuse-Adoption "immutable integration-attempt success proof was unreadable"
+    }
+    if ([string]$attemptProof.source_tip -ne $ExpectedTip) {
+        Refuse-Adoption "ExpectedTip does not equal the hash-bound integration-attempt source tip"
+    }
+    if ([string]$attemptProof.merge_task_name -ne $MergeTaskName) {
+        Refuse-Adoption "MergeTaskName does not equal the hash-bound integration-attempt task"
     }
 }
 else {

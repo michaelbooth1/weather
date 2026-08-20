@@ -27,9 +27,11 @@ REVIEWED TIP
     -> separately authorized downstream work
 
 Any failure
-    -> immutable FAIL/closure receipt
-    -> classify and review
-    -> new attempt (same tip once, or a new repaired tip)
+    -> immutable FAIL receipt
+    -> disable exact tasks and write closure receipt
+    -> reviewed recovery dispatch
+    -> one atomic successor claim
+    -> new attempt (exact same commit once, or a descendant repaired tip)
 ```
 
 The full suite is confirmation, not discovery. The preflight runs the strict
@@ -47,6 +49,7 @@ merge.
 | `integration_attempt_suite.ps1` | Run the deterministic integration preflight and then the exact full suite under bounded child-tree containment. |
 | `integration_attempt_merge.ps1` | Require the suite task and immutable PASS receipt, then invoke `quiet_window_merge.ps1` and preserve its report. |
 | `close_integration_attempt.ps1` | Disable the exact non-running attempt tasks and emit a closure receipt when a task crashed or the attempt is abandoned. |
+| `dispatch_integration_attempt_recovery.ps1` | Bind a reviewed failure class to the closure hash and emit one machine-readable successor instruction; it edits no source and touches no task. |
 | `assert_integration_attempt_success.ps1` | Revalidate manifest, receipt hashes, current `master == origin/master`, ancestry, and all three capture workers before downstream work. |
 
 The shared schema, path, hash, and immutable-write rules live in
@@ -80,9 +83,18 @@ $attemptRoot = Join-Path $attemptParent "<attempt-id>"
 ```
 
 The suite trigger must be inside 00:30-09:00. The merge trigger must be inside
-01:00-03:40 and at least 30 minutes after the suite trigger. The manifest also
-freezes hashes for the installed suite and merge orchestration, so an
-unreviewed script change between registration and execution fails closed.
+01:00-03:40 and at least 30 minutes after the suite trigger. The merge task does
+not fail merely because a valid suite is still running at its trigger: it waits
+without holding the heavy-work lease until the suite reaches terminal evidence,
+or until the 03:40 merge reserve. A terminal FAIL stops immediately. This keeps
+a slow successful suite from consuming the attempt while preserving enough of
+the quiet window for merge, recovery, documentation, and push.
+
+The manifest freezes hashes for every repository-owned PowerShell dependency
+used by registration, suite containment, workload admission, roll verdict,
+merge, recovery dispatch, and downstream validation. An unreviewed helper
+change between registration and execution therefore fails closed, not only a
+change to the top-level wrapper.
 
 Record the printed manifest SHA256. Registration is an external scheduler
 change and requires explicit operator authorization:
@@ -96,7 +108,8 @@ change and requires explicit operator authorization:
 The registrar refuses to replace an existing task. It registers the merge
 consumer first: if suite registration then fails, the merge has no PASS receipt
 to consume and cannot mutate the tree. `StartWhenAvailable` is deliberately
-off; a missed task must not wake later in a protected window.
+off; a missed task must not wake later in a protected window. The merge task's
+four-hour execution limit contains the bounded suite-wait plus quiet-merge path.
 
 ## Success contract
 
@@ -104,6 +117,10 @@ The suite receipt is PASS only when both logs exist, their hashes match, the
 preflight ends in its exact PASS verdict, and the full suite ends in its exact
 all-chunks PASS verdict. The merge task independently verifies:
 
+- the attempt tip contains the exact production baseline frozen at creation,
+  production has exact `master` checked out, and HEAD/local/remote production
+  do not advance during registration, preflight, full-suite execution, suite
+  waiting, or guarded-merge entry;
 - its own and the suite task's exact S4U/Limited action;
 - the manifest path and SHA256 in both actions;
 - the suite task's same-day success and receipt/run-time correlation;
@@ -111,6 +128,11 @@ all-chunks PASS verdict. The merge task independently verifies:
 - the guarded quiet merge's `pushed` report and documentation transaction;
 - source-tip ancestry, local/remote master equality, and three-worker capture
   recovery after publication.
+
+The quiet-merge child receives the frozen baseline explicitly, rechecks it
+inside its own process, and acquires the shared heavy-work lease before any Git
+precondition or generated-config commit. This serializes all repository-owned
+guarded merge drivers across the final baseline check and production mutation.
 
 It copies the mutable latest quiet-merge report into the attempt directory and
 hashes that immutable copy. Only a PASS `merge-receipt.json` plus its SHA256 is
@@ -121,8 +143,10 @@ downstream authority.
 Never edit a failed manifest, append to its logs, replace its receipts, reuse
 its task names, or move its task action to a new tip.
 
-If a task crashed before writing a receipt, or an operator abandons an attempt,
-close it:
+After any failed or crashed attempt, close it before creating a successor. This
+also covers attempts that already have suite or merge FAIL receipts: closure is
+the proof that every exact task is absent or disabled and can no longer race its
+replacement.
 
 ```powershell
 .\scripts\ops\close_integration_attempt.ps1 `
@@ -133,30 +157,74 @@ close it:
 ```
 
 The closer refuses while either task is running, refuses a PASS merge, verifies
-both task actions before disabling them, and preserves hashes of all evidence
-that exists. Its closure receipt is a FAIL receipt suitable for `-RepairOfReceiptPath`.
+both task actions and S4U/Limited principals against the immutable registration
+receipt before disabling them, and preserves hashes of all evidence that
+exists. It deliberately does not rebuild old task arguments through a possibly
+changed helper, so a reviewed orchestration failure remains closable. Its
+closure receipt is a FAIL receipt suitable for `-RepairOfReceiptPath`.
+
+Hash that closure receipt, classify the failure, and write the reviewed dispatch:
+
+```powershell
+.\scripts\ops\dispatch_integration_attempt_recovery.ps1 `
+  -ManifestPath <failed-manifest.json> `
+  -ExpectedManifestSha256 <manifest-sha256> `
+  -ExpectedClosureReceiptSha256 <closure-receipt-sha256> `
+  -FailureClass <transient_host|schema_registry|ownership_metadata|orchestration_wrapper|manual_reviewed_change> `
+  -ReviewReference <operator-or-agent-review>
+```
+
+The dispatch is immutable and machine-readable. It maps the reviewed failure
+class to one repair class, records the exact closure hash and allowed path
+patterns, and explicitly grants neither automatic source edits nor scheduler
+changes. It inventories current hashes against every frozen orchestration
+binding. Because orchestration drift is itself a supported recovery case, this
+explicit, non-scheduled recovery entry point records that drift instead of
+requiring the failed orchestration set to remain executable; any detected drift
+forces the `orchestration_wrapper` classification.
+
+A generic scheduler cannot safely review or repair code; same-night
+deterministic recovery therefore requires an active operator or coding agent to
+consume this dispatch. The dispatch removes ambiguity about the next action and
+leaves one specific blocker when no safe successor is ready. `status.ps1`
+surfaces `FAILED_NEEDS_CLOSE`, `CLOSED_NEEDS_DISPATCH`, `RECOVERY_READY`, and
+`SUCCESSOR_CLAIMED` states in both human and JSON output so a recovery-ready
+attempt cannot disappear behind a generic task exit code.
 
 Create attempt N+1 after classification:
 
 | Repair class | Enforced scope |
 | --- | --- |
-| `retry_unchanged` | No source change. Allowed once after a reviewed transient failure; a second consecutive unchanged retry is refused. |
+| `retry_unchanged` | The exact same 40-character commit. Allowed once after a reviewed transient failure. |
 | `schema_registry` | Additions or modifications only in the three static schema-registry shards. |
 | `ownership_metadata` | The module ownership map and its exact ratchet test only. |
 | `orchestration_wrapper` | Repository-owned PowerShell wrappers plus their operation tests and owning runbooks. |
 | `manual_reviewed_change` | A linked, explicitly reviewed change outside the mechanical classes. |
 
-Every non-initial attempt must point to an immutable FAIL receipt. Mechanical
-repair classes validate the Git name/status diff between the failed tip and the
-new tip. They cannot delete or rename files. After the repair is committed,
-reviewed, and checked out cleanly in the isolated worktree, call
+Every non-initial attempt must point to the predecessor's immutable closure
+receipt and reviewed recovery dispatch. The new tip must descend from the
+failed tip. Mechanical repair classes validate the Git name/status diff between
+those two commits and cannot delete or rename files. `retry_unchanged` requires
+commit-id equality, not merely an equal tree.
+
+After all validation, the creator writes the successor manifest and atomically
+creates `successor-claim.json` in the predecessor attempt. Registration and
+execution revalidate that claim against both manifest hashes. A closure receipt
+can therefore authorize only one successor, including under concurrent or
+repeated recovery calls. An interrupted creator can leave an unclaimed manifest,
+but that manifest is deliberately not registrable.
+
+After the repair is committed, reviewed, and checked out cleanly in the
+isolated worktree, call
 `new_integration_attempt.ps1` with the new id, times, `-RepairClass`, and
 `-RepairOfReceiptPath`, then register the new tasks.
 
 An unchanged retry is for a classified timeout, resource refusal, scheduler
 interruption, or other transient host failure. It is not a way to rerun a known
-deterministic pytest failure. When that one retry also fails, diagnose or repair
-before spending another attempt.
+deterministic pytest failure. A retry attempt cannot itself receive another
+transient retry, and the predecessor's single successor claim prevents sibling
+retry fan-out. When that one retry also fails, diagnose or repair before
+spending another attempt.
 
 ## Downstream gate
 
@@ -173,16 +241,20 @@ the moment of adoption:
 
 The execution-tape adoption wrapper accepts the same three attempt arguments
 in addition to `ExpectedTip` and `MergeTaskName`. It retains the legacy
-suite-gated path for already registered historical work. No integration
-attempt reads credential values or authorizes live exchange mutation.
+suite-gated path for already registered historical work. In attempt mode it
+requires those two legacy identity arguments to equal the source tip and merge
+task returned by the hash-bound attempt proof; an unrelated ancestor or copied
+task action is not acceptable. No integration attempt reads credential values
+or authorizes live exchange mutation.
 
 ## Verification and adoption
 
 Before merging this procedure, parse every changed PowerShell file, run the
-focused operation tests, the documentation audit, roadmap lint, compileall,
-and the exact full suite in an admitted heavy-work window. Editing these files
-does not register, disable, start, or delete any host task. Adopt the registrar
-only under a separate explicit scheduler authorization.
+focused operation tests (including executable wait-decision, recovery-dispatch,
+successor-claim, and tamper cases), the documentation audit, roadmap lint,
+compileall, and the exact full suite in an admitted heavy-work window. Editing
+these files does not register, disable, start, or delete any host task. Adopt
+the registrar only under a separate explicit scheduler authorization.
 
 ## Update when
 

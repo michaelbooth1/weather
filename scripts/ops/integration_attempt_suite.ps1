@@ -132,6 +132,7 @@ $preflightVerdict = $null
 $fullSuiteVerdict = $null
 
 try {
+    Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "integration preflight" | Out-Null
     $preflightExitCode = Invoke-WeatherAttemptSuitePhase `
         -Phase "integration preflight" `
         -LogPath $preflightLogPath `
@@ -144,6 +145,7 @@ try {
         throw "Integration preflight log is missing its exact PASS verdict."
     }
 
+    Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "full-suite start" | Out-Null
     $fullSuiteExitCode = Invoke-WeatherAttemptSuitePhase `
         -Phase "full suite" `
         -LogPath $fullSuiteLogPath
@@ -154,6 +156,7 @@ try {
     if ($fullSuiteVerdict -notmatch 'VERDICT: ALL CHUNKS PASSED \([0-9]+/[0-9]+\); exact tip eligible for separate reviewed merge$') {
         throw "Full suite log is missing its exact PASS verdict."
     }
+    Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "full-suite completion" | Out-Null
     $status = "PASS"
 }
 catch {

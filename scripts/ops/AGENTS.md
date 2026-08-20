@@ -23,8 +23,10 @@ These instructions apply to `scripts/ops/`.
   unsupported.
 - New scheduled integrations use `new_integration_attempt.ps1` and
   `register_integration_attempt.ps1`. Each attempt binds a reviewed full tip,
-  isolated worktree, orchestration hashes, unique one-shot task names, logs,
-  and receipts. A failed attempt stays immutable; repair creates a new attempt
+  isolated worktree, complete repository-owned orchestration-helper hashes,
+  unique one-shot task names, logs, and receipts. A failed attempt stays
+  immutable; recovery first closes its exact tasks, then emits a reviewed
+  dispatch, and a single atomic predecessor claim authorizes the new attempt
   under the enforced class in the integration-attempt runbook. Existing
   scheduled roll-sensitive work may retain `suite_gated_quiet_merge.ps1`, but
   a task exit code without the correlated exact full-suite verdict is never
@@ -33,6 +35,11 @@ These instructions apply to `scripts/ops/`.
   one-shot must fail visibly instead of waking in a protected window. Closing
   a crashed attempt may disable only its exact hash-bound, non-running tasks;
   it never deletes or replaces them.
+- An integration merge consumer may wait without a workload lease for its
+  exact suite task to reach terminal evidence, but only through the documented
+  03:40 merge reserve. A running suite is not a failure before that deadline;
+  terminal FAIL evidence is. Recovery dispatch never edits source or changes
+  the scheduler and requires an active reviewed operator or coding agent.
 - `quiet_window_merge.ps1` must record the exact local merge through
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight

@@ -21,6 +21,7 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
+Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "attempt registration" | Out-Null
 $manifest = $contract.Manifest
 if (-not (Test-WeatherIntegrationPathEqual -Left $RepoRoot -Right ([string]$manifest.repo_root))) {
     throw "Registrar RepoRoot does not match the immutable attempt manifest."
@@ -121,7 +122,7 @@ $suiteSettings = New-ScheduledTaskSettingsSet `
     -DontStopIfGoingOnBatteries
 $mergeSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 4) `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 

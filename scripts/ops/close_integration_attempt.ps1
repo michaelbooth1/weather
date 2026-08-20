@@ -36,20 +36,25 @@ if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
 }
 
 $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
-$tokenContractScript = Join-Path $repoRoot "scripts\ops\training_window_contract.ps1"
-if (-not (Test-Path -LiteralPath $tokenContractScript -PathType Leaf)) {
-    throw "Scheduled-task token contract is missing: $tokenContractScript"
+$registrationReceiptPath = [string]$manifest.evidence.registration_receipt
+$registrationReceipt = $null
+if (Test-Path -LiteralPath $registrationReceiptPath -PathType Leaf) {
+    $registrationReceipt = Read-WeatherIntegrationSharedJson -Path $registrationReceiptPath
+    if ([string]$registrationReceipt.schema -ne $script:WeatherIntegrationAttemptRegistrationReceiptSchema -or
+        [string]$registrationReceipt.attempt_id -ne [string]$manifest.attempt_id -or
+        -not (Test-WeatherIntegrationPathEqual -Left ([string]$registrationReceipt.manifest_path) -Right $contract.ManifestPath) -or
+        [string]$registrationReceipt.manifest_sha256 -ne [string]$contract.ManifestSha256) {
+        throw "Registration receipt does not bind this exact attempt."
+    }
 }
-. $tokenContractScript
-$powerShellExecutable = Join-Path $PSHOME "powershell.exe"
 $taskSpecs = @(
     [pscustomobject]@{
         name = [string]$manifest.schedule.suite_task_name
-        script = Join-Path $repoRoot "scripts\ops\integration_attempt_suite.ps1"
+        role = "suite"
     },
     [pscustomobject]@{
         name = [string]$manifest.schedule.merge_task_name
-        script = Join-Path $repoRoot "scripts\ops\integration_attempt_merge.ps1"
+        role = "merge"
     }
 )
 
@@ -63,20 +68,24 @@ foreach ($spec in $taskSpecs) {
     if ([string]$task.State -eq "Running") {
         throw "Attempt task is still running and may not be closed: $($spec.name)"
     }
+    if ($null -eq $registrationReceipt) {
+        throw "Refusing to disable an existing task without its immutable registration receipt: $($spec.name)"
+    }
+    $registeredActionProperty = $registrationReceipt.PSObject.Properties[[string]$spec.role]
+    $registeredAction = if ($null -eq $registeredActionProperty) { $null } else { $registeredActionProperty.Value }
+    if ($null -eq $registeredAction -or
+        -not [bool]$registeredAction.registered -or
+        [string]$registeredAction.task_name -ne [string]$spec.name) {
+        throw "Registration receipt does not prove this exact task was created: $($spec.name)"
+    }
     $actions = @($task.Actions)
-    $expectedTokens = @(
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy", "Bypass",
-        "-File", [string]$spec.script,
-        "-ManifestPath", $contract.ManifestPath,
-        "-ExpectedManifestSha256", $contract.ManifestSha256
-    )
-    $expectedArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $expectedTokens
     if ($actions.Count -ne 1 -or
-        -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].Execute) -Right $powerShellExecutable) -or
-        [string]$actions[0].Arguments -ne $expectedArguments -or
-        -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].WorkingDirectory) -Right $repoRoot)) {
+        -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].Execute) -Right ([string]$registeredAction.executable)) -or
+        [string]$actions[0].Arguments -ne [string]$registeredAction.arguments -or
+        -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].WorkingDirectory) -Right ([string]$registeredAction.working_directory)) -or
+        [string]$task.Principal.UserId -ne [string]$registrationReceipt.principal.user_id -or
+        [string]$task.Principal.LogonType -ne "S4U" -or
+        [string]$task.Principal.RunLevel -ne "Limited") {
         throw "Refusing to disable task whose action is not exactly bound to this attempt: $($spec.name)"
     }
     Disable-ScheduledTask -TaskName $spec.name -ErrorAction Stop | Out-Null

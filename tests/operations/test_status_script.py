@@ -74,6 +74,19 @@ def test_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
     assert "but exact tip $integratedExactTip is already in production history" in text
 
 
+def test_integration_attempt_recovery_states_are_operator_visible() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$integrationAttemptState" in text
+    assert '"FAILED_NEEDS_CLOSE"' in text
+    assert '"CLOSED_NEEDS_DISPATCH"' in text
+    assert '"RECOVERY_READY"' in text
+    assert '"SUCCESSOR_CLAIMED"' in text
+    assert "recovery is ready for an active agent" in text
+    assert "integration_attempts =" in text
+    assert 'Write-Output "  ATTEMPTS  :"' in text
+
+
 def test_only_active_scheduled_interactive_tasks_count_as_reboot_exposure():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
@@ -107,6 +120,8 @@ def test_quiet_merge_recovery_interval_cannot_overlap_sensitive_driver():
     assert "$settleSeconds + 240" in text
     assert "$settleSeconds + $rollbackRecoverySeconds + 60" in text
     assert "[math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)" in text
+    assert '$actionArguments -like "*integration_attempt_merge.ps1*"' in text
+    assert "Date.AddHours(5)" in text
     assert "$sensitiveDriverNextRun -ge $mergeTask.at" in text
     assert "the driver can publish unverified local master" in text
 

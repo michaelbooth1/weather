@@ -14,6 +14,7 @@ def test_quiet_merge_can_bind_a_reviewed_exact_tip() -> None:
     script = _script_text()
 
     assert '[string]$ExpectedTip = ""' in script
+    assert '[string]$ExpectedBaseline = ""' in script
     assert "$RepoRoot = (Split-Path -Parent" in script
     assert "$repo = (Resolve-Path -LiteralPath $RepoRoot" in script
     assert "ExpectedTip must be a full 40-character hexadecimal commit SHA" in script
@@ -21,6 +22,19 @@ def test_quiet_merge_can_bind_a_reviewed_exact_tip() -> None:
     assert "if ($resolvedBranchTip -ne $ExpectedTip)" in script
     assert "$mergeTarget = $resolvedBranchTip" in script
     assert "& git merge --no-ff $mergeTarget" in script
+
+
+def test_quiet_merge_serializes_before_git_mutation_and_rechecks_baseline() -> None:
+    script = _script_text()
+
+    lease = script.index("Enter-WeatherHeavyWorkloadLease")
+    drift_commit = script.index('Note "committing $($dirtyTracked.Count)')
+    merge = script.index("& git merge --no-ff $mergeTarget")
+    assert lease < drift_commit < merge
+    assert "ExpectedBaseline must be a full 40-character hexadecimal commit SHA" in script
+    assert "production baseline moved" in script
+    assert "production working tree must have master checked out" in script
+    assert "expected_baseline = $ExpectedBaseline" in script
 
 
 def test_exact_tip_guard_precedes_any_automatic_commit_or_merge() -> None:
