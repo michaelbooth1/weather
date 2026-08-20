@@ -77,6 +77,12 @@ if (-not (Test-Path -LiteralPath $attemptParent -PathType Container)) {
     throw "AttemptRoot parent directory does not exist: $attemptParent"
 }
 
+$SuiteAtLocal = Assert-WeatherIntegrationLocalScheduleTime `
+    -Value $SuiteAtLocal `
+    -Label "SuiteAtLocal"
+$MergeAtLocal = Assert-WeatherIntegrationLocalScheduleTime `
+    -Value $MergeAtLocal `
+    -Label "MergeAtLocal"
 $suiteTime = $SuiteAtLocal.TimeOfDay
 $mergeTime = $MergeAtLocal.TimeOfDay
 if ($SuiteAtLocal.Date -ne $MergeAtLocal.Date) {

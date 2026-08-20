@@ -62,6 +62,7 @@ if ($captureExitCode -ne 0 -or -not [bool]$capture.ok -or @($capture.workers).Co
     merge_receipt_sha256 = $mergeContract.ReceiptSha256
     quiet_merge_report_sha256 = $mergeContract.QuietReportSha256
     capture_workers = @($capture.workers).Count
-    credential_value_read = $false
-    live_exchange_mutation_attempted = $false
+    safety_authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
+    credential_value_access_authorized = $false
+    live_exchange_mutation_authorized = $false
 } | ConvertTo-Json -Depth 5

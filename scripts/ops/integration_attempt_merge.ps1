@@ -111,7 +111,9 @@ function Wait-WeatherIntegrationSuiteTerminal {
 
     $manifest = $AttemptContract.Manifest
     $receiptPath = [string]$manifest.evidence.suite_receipt
-    $suiteAt = [datetime]::Parse([string]$manifest.schedule.suite_at_local)
+    $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value ([string]$manifest.schedule.suite_at_local) `
+        -Label "suite_at_local"
     $deadline = $suiteAt.Date.AddMinutes(220)
     $lastNotice = [datetime]::MinValue
     while ($true) {
@@ -119,6 +121,14 @@ function Wait-WeatherIntegrationSuiteTerminal {
             -AttemptContract $AttemptContract `
             -SuiteScript $SuiteScript `
             -PowerShellExecutable $PowerShellExecutable
+        if ([string]$binding.Task.State -ne "Running" -and
+            [int]$binding.Info.LastTaskResult -in @(0x41301, 0x41303)) {
+            Start-Sleep -Seconds 1
+            $binding = Assert-WeatherIntegrationSuiteTaskBinding `
+                -AttemptContract $AttemptContract `
+                -SuiteScript $SuiteScript `
+                -PowerShellExecutable $PowerShellExecutable
+        }
         $receiptExists = Test-Path -LiteralPath $receiptPath -PathType Leaf
         $receiptStatus = ""
         if ($receiptExists) {
@@ -134,6 +144,34 @@ function Wait-WeatherIntegrationSuiteTerminal {
             -Now $now `
             -Deadline $deadline
         if ([string]$decision.Action -eq "READY") { return }
+        if ([string]$decision.Action -eq "STOP") {
+            $taskName = [string]$manifest.schedule.suite_task_name
+            $script:suiteDeadlineStopEvidence = [ordered]@{
+                requested = $true
+                requested_at_local = $now.ToString("o")
+                task_name = $taskName
+                reason = [string]$decision.Reason
+                stopped = $false
+                final_state = [string]$binding.Task.State
+                last_task_result = [int]$binding.Info.LastTaskResult
+            }
+            Stop-ScheduledTask -TaskName $taskName -ErrorAction Stop
+            $stopDeadline = (Get-Date).AddMinutes(2)
+            do {
+                Start-Sleep -Seconds 2
+                $binding = Assert-WeatherIntegrationSuiteTaskBinding `
+                    -AttemptContract $AttemptContract `
+                    -SuiteScript $SuiteScript `
+                    -PowerShellExecutable $PowerShellExecutable
+            } while ([string]$binding.Task.State -eq "Running" -and (Get-Date) -lt $stopDeadline)
+            $script:suiteDeadlineStopEvidence.final_state = [string]$binding.Task.State
+            $script:suiteDeadlineStopEvidence.last_task_result = [int]$binding.Info.LastTaskResult
+            $script:suiteDeadlineStopEvidence.stopped = ([string]$binding.Task.State -ne "Running")
+            if (-not [bool]$script:suiteDeadlineStopEvidence.stopped) {
+                throw "Suite reached the merge-wait deadline and its exact task could not be stopped within two minutes."
+            }
+            throw "Suite cannot authorize merge: $($decision.Reason); its exact task was stopped and recorded for closure."
+        }
         if ([string]$decision.Action -eq "FAIL") {
             throw "Suite cannot authorize merge: $($decision.Reason)"
         }
@@ -277,6 +315,11 @@ $productionHead = $null
 $originMaster = $null
 $captureProof = $null
 $documentationTransactionRecorded = $false
+$publicationAcknowledged = $false
+$sourceTipIntegrated = $false
+$captureRecoveryProved = $false
+$quietMergeLaunchSha256 = $null
+$script:suiteDeadlineStopEvidence = $null
 
 try {
     $localMinute = ($startedAt.Hour * 60) + $startedAt.Minute
@@ -294,6 +337,7 @@ try {
         -AttemptContract $contract `
         -SuiteScript $suiteScript `
         -PowerShellExecutable $powerShellExecutable
+    Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "guarded merge" | Out-Null
     $suiteReceiptContract = Assert-WeatherIntegrationSuiteReceipt -AttemptContract $contract
     $suiteReceiptSha256 = $suiteReceiptContract.ReceiptSha256
@@ -310,6 +354,10 @@ try {
         throw "Branch moved after suite PASS. Expected $($manifest.expected_tip); got $branchTip"
     }
 
+    $quietMergeLaunchSha256 = Get-WeatherIntegrationFileSha256 -Path $quietMergeScript
+    if ($quietMergeLaunchSha256 -ne [string]$manifest.orchestration.quiet_merge.sha256) {
+        throw "Quiet-merge script changed immediately before child launch."
+    }
     $quietMergeExitCode = Invoke-WeatherQuietMergeChild `
         -QuietMergeScript $quietMergeScript `
         -PowerShellExecutable $powerShellExecutable `
@@ -338,9 +386,7 @@ try {
         [string]$quietReport.resolved_branch_tip -ne [string]$manifest.expected_tip) {
         throw "Quiet merge report identity does not match this attempt."
     }
-    $documentationTransactionRecorded = @($quietReport.log | Where-Object {
-        [string]$_ -like "*documentation transaction recorded*"
-    }).Count -gt 0
+    $documentationTransactionRecorded = [bool]$quietReport.documentation_transaction_recorded
     if (-not $documentationTransactionRecorded) {
         throw "Quiet merge report does not prove the documentation transaction was recorded."
     }
@@ -352,17 +398,26 @@ try {
     if ($productionHead -ne $originMaster) {
         throw "Production master and origin/master do not acknowledge the same integration commit."
     }
+    if ([string]$quietReport.merge_commit -notmatch '^[0-9a-fA-F]{40}$' -or
+        [string]$quietReport.merge_commit -ine $productionHead) {
+        throw "Quiet merge report does not bind the published integration commit."
+    }
+    $publicationAcknowledged = $true
     & git -C $repoRoot merge-base --is-ancestor ([string]$manifest.expected_tip) $productionHead
     if ($LASTEXITCODE -ne 0) {
         throw "The frozen source tip is not an ancestor of the published integration commit."
     }
+    $sourceTipIntegrated = $true
 
     $captureRaw = @(& $python -m weather.operations.capture_recovery_check --repo-root $repoRoot --json)
     $captureExitCode = $LASTEXITCODE
     $captureProof = (($captureRaw -join "`n") | ConvertFrom-Json)
-    if ($captureExitCode -ne 0 -or -not [bool]$captureProof.ok -or @($captureProof.workers).Count -ne 3) {
+    $unhealthyWorkers = @($captureProof.workers | Where-Object { -not [bool]$_.ok })
+    if ($captureExitCode -ne 0 -or -not [bool]$captureProof.ok -or
+        @($captureProof.workers).Count -ne 3 -or $unhealthyWorkers.Count -ne 0) {
         throw "Post-publication capture recovery proof is not healthy for all three workers."
     }
+    $captureRecoveryProved = $true
     $status = "PASS"
 }
 catch {
@@ -379,6 +434,25 @@ catch {
                 $quietReport = $candidateReport
                 Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath -Payload $quietReport
                 $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $attemptQuietReportPath
+            }
+        }
+        catch { }
+    }
+    if ($null -ne $quietReport -and [bool]$quietReport.ok -and
+        [string]$quietReport.stage -eq "pushed" -and
+        [string]$quietReport.branch -eq [string]$manifest.branch_ref -and
+        [string]$quietReport.expected_tip -eq [string]$manifest.expected_tip -and
+        [string]$quietReport.expected_baseline -eq [string]$manifest.baseline.master) {
+        try {
+            $productionHead = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "master")).ToLowerInvariant()
+            $originMaster = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "origin/master")).ToLowerInvariant()
+            if ($productionHead -eq $originMaster) {
+                $publicationAcknowledged = $true
+                & git -C $repoRoot merge-base --is-ancestor ([string]$manifest.expected_tip) $productionHead
+                if ($LASTEXITCODE -eq 0) {
+                    $sourceTipIntegrated = $true
+                    $status = "MERGED_UNVERIFIED"
+                }
             }
         }
         catch { }
@@ -410,25 +484,34 @@ finally {
             }
             quiet_merge = [ordered]@{
                 path = [string]$manifest.orchestration.quiet_merge.path
-                sha256 = [string]$manifest.orchestration.quiet_merge.sha256
+                sha256 = $quietMergeLaunchSha256
             }
         }
         production_head = $productionHead
         origin_master = $originMaster
-        origin_master_verified = ($status -eq "PASS" -and $productionHead -eq $originMaster)
-        source_tip_integrated = ($status -eq "PASS")
-        capture_recovery_proved = ($status -eq "PASS")
+        origin_master_verified = $publicationAcknowledged
+        source_tip_integrated = $sourceTipIntegrated
+        capture_recovery_proved = $captureRecoveryProved
         capture = $captureProof
         documentation_transaction_recorded = $documentationTransactionRecorded
+        suite_deadline_stop = $script:suiteDeadlineStopEvidence
         failure = $failure
-        credential_value_read = $false
-        live_exchange_mutation_attempted = $false
+        safety = [ordered]@{
+            authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
+            credential_value_access_authorized = $false
+            live_exchange_mutation_authorized = $false
+        }
     }
     Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath -Payload $receipt
 }
 
 if ($status -ne "PASS") {
-    Write-Host "Integration attempt $($manifest.attempt_id) merge failed. Its evidence is frozen; a repair must use a new attempt."
+    if ($status -eq "MERGED_UNVERIFIED") {
+        Write-Host "Integration attempt $($manifest.attempt_id) was published but its final proof is incomplete. Do not close or retry it; reconcile production from this receipt."
+    }
+    else {
+        Write-Host "Integration attempt $($manifest.attempt_id) merge failed. Its evidence is frozen; a repair must use a new attempt."
+    }
     exit 1
 }
 

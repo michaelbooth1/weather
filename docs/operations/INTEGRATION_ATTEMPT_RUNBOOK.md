@@ -86,9 +86,14 @@ The suite trigger must be inside 00:30-09:00. The merge trigger must be inside
 01:00-03:40 and at least 30 minutes after the suite trigger. The merge task does
 not fail merely because a valid suite is still running at its trigger: it waits
 without holding the heavy-work lease until the suite reaches terminal evidence,
-or until the 03:40 merge reserve. A terminal FAIL stops immediately. This keeps
-a slow successful suite from consuming the attempt while preserving enough of
-the quiet window for merge, recovery, documentation, and push.
+or until the 03:40 merge reserve. A terminal FAIL stops immediately. If the
+suite is still running at 03:40, the merge consumer re-verifies and stops only
+that attempt's exact suite task, waits for it to leave `Running`, records the
+stop in the immutable merge receipt, and fails the merge. The current merge
+window is then spent, but the contained test tree cannot run until 09:00 and
+the attempt can be closed immediately for a reviewed next-window successor.
+Trigger times inside an invalid or ambiguous daylight-saving wall-clock hour
+are refused at creation, manifest validation, and registration.
 
 The manifest freezes hashes for every repository-owned PowerShell dependency
 used by registration, suite containment, workload admission, roll verdict,
@@ -124,7 +129,8 @@ all-chunks PASS verdict. The merge task independently verifies:
 - its own and the suite task's exact S4U/Limited action;
 - the manifest path and SHA256 in both actions;
 - the suite task's same-day success and receipt/run-time correlation;
-- the unchanged branch tip and the current orchestration hashes;
+- the unchanged branch tip and the current orchestration hashes, checked again
+  after any bounded suite wait and immediately before child launch;
 - the guarded quiet merge's `pushed` report and documentation transaction;
 - source-tip ancestry, local/remote master equality, and three-worker capture
   recovery after publication.
@@ -133,6 +139,9 @@ The quiet-merge child receives the frozen baseline explicitly, rechecks it
 inside its own process, and acquires the shared heavy-work lease before any Git
 precondition or generated-config commit. This serializes all repository-owned
 guarded merge drivers across the final baseline check and production mutation.
+Its report carries structural merge-commit and documentation-transaction
+fields; the attempt consumer does not infer either proof from a mutable log
+phrase.
 
 It copies the mutable latest quiet-merge report into the attempt directory and
 hashes that immutable copy. Only a PASS `merge-receipt.json` plus its SHA256 is
@@ -162,6 +171,10 @@ receipt before disabling them, and preserves hashes of all evidence that
 exists. It deliberately does not rebuild old task arguments through a possibly
 changed helper, so a reviewed orchestration failure remains closable. Its
 closure receipt is a FAIL receipt suitable for `-RepairOfReceiptPath`.
+If registration created an exact task but its confirming read failed, the
+receipt can say `registered = false` while the task exists. The closer still
+disables that task only when every stored action/principal field matches, and
+records the registration-receipt disagreement instead of leaving an armed task.
 
 Hash that closure receipt, classify the failure, and write the reviewed dispatch:
 
@@ -181,15 +194,22 @@ changes. It inventories current hashes against every frozen orchestration
 binding. Because orchestration drift is itself a supported recovery case, this
 explicit, non-scheduled recovery entry point records that drift instead of
 requiring the failed orchestration set to remain executable; any detected drift
-forces the `orchestration_wrapper` classification.
+requires either the bounded `orchestration_wrapper` classification or the
+explicitly reviewed `manual_reviewed_change` escape hatch. The mechanical
+wrapper class reaches operations PowerShell, its listed tests, and only
+`INTEGRATION_ATTEMPT_RUNBOOK.md`, `OPERATIONS_DESIGN.md`, `streak-soak.md`, and
+the applicable agent guides; it cannot rewrite the reserved-window,
+delegation, host-load, role, or state-of-play contracts.
 
 A generic scheduler cannot safely review or repair code; same-night
 deterministic recovery therefore requires an active operator or coding agent to
 consume this dispatch. The dispatch removes ambiguity about the next action and
 leaves one specific blocker when no safe successor is ready. `status.ps1`
-surfaces `FAILED_NEEDS_CLOSE`, `CLOSED_NEEDS_DISPATCH`, `RECOVERY_READY`, and
-`SUCCESSOR_CLAIMED` states in both human and JSON output so a recovery-ready
-attempt cannot disappear behind a generic task exit code.
+surfaces `FAILED_NEEDS_CLOSE`, `CLOSED_NEEDS_DISPATCH`, `RECOVERY_READY`,
+`SUCCESSOR_CLAIMED`, and `MERGED_UNVERIFIED` in human and JSON output. It flags
+missed triggers and unreadable task-bound manifests/evidence. Actionable states
+are FLAGS for their first 24 hours, then remain visible as warnings so
+immutable historical receipts cannot burn a permanent alert.
 
 Create attempt N+1 after classification:
 
@@ -226,6 +246,14 @@ transient retry, and the predecessor's single successor claim prevents sibling
 retry fan-out. When that one retry also fails, diagnose or repair before
 spending another attempt.
 
+If the quiet-merge report proves `stage = pushed` and Git proves the frozen tip
+is already in equal local/remote master, but a later final proof fails, the
+receipt is `MERGED_UNVERIFIED`. This is deliberately not retryable: close and
+dispatch refuse it because production already contains the tip. Preserve the
+receipt, reconcile the named missing proof against current production, and do
+not authorize downstream work from it. An ordinary FAIL means publication was
+not proven; the two states must never use the same recovery recipe.
+
 ## Downstream gate
 
 Do not pre-arm a held producer or other downstream mutation based on a planned
@@ -245,16 +273,22 @@ suite-gated path for already registered historical work. In attempt mode it
 requires those two legacy identity arguments to equal the source tip and merge
 task returned by the hash-bound attempt proof; an unrelated ancestor or copied
 task action is not acceptable. No integration attempt reads credential values
-or authorizes live exchange mutation.
+or authorizes live exchange mutation. Receipts encode that static boundary as
+`NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`; they do not mislabel a hard-coded
+boolean as a measured credential or exchange outcome.
 
 ## Verification and adoption
 
 Before merging this procedure, parse every changed PowerShell file, run the
-focused operation tests (including executable wait-decision, recovery-dispatch,
-successor-claim, and tamper cases), the documentation audit, roadmap lint,
+focused operation tests (including executable log-verdict, semantic PowerShell
+binding, wait-decision, recovery-dispatch, successor-claim, alert-lifecycle,
+schedule-boundary, and tamper cases), the documentation audit, roadmap lint,
 compileall, and the exact full suite in an admitted heavy-work window. Editing
-these files does not register, disable, start, or delete any host task. Adopt
-the registrar only under a separate explicit scheduler authorization.
+these files does not register, disable, start, or delete any host task. The
+first landing of this machinery must use the established guarded merge path,
+because production cannot freeze hashes for attempt scripts that do not exist
+there yet. Adopt the registrar only afterwards and under separate explicit
+scheduler authorization.
 
 ## Update when
 

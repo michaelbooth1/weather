@@ -43,8 +43,9 @@ foreach ($binding in @($manifest.orchestration.PSObject.Properties)) {
         })
     }
 }
-if ($orchestrationDrift.Count -ne 0 -and $FailureClass -ne "orchestration_wrapper") {
-    throw "Frozen orchestration drift exists; recovery must classify and review it as orchestration_wrapper."
+if ($orchestrationDrift.Count -ne 0 -and
+    $FailureClass -notin @("orchestration_wrapper", "manual_reviewed_change")) {
+    throw "Frozen orchestration drift exists; recovery must use orchestration_wrapper or an explicitly manual_reviewed_change."
 }
 $dispatchPath = [string]$manifest.evidence.recovery_dispatch
 if (Test-Path -LiteralPath $dispatchPath) {
@@ -54,8 +55,8 @@ if (Test-Path -LiteralPath $dispatchPath) {
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
-    if ([string]$mergeReceipt.status -eq "PASS") {
-        throw "A successfully merged attempt does not permit recovery dispatch."
+    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED")) {
+        throw "An attempt that reached production does not permit recovery dispatch."
     }
 }
 
@@ -119,8 +120,11 @@ $dispatch = [ordered]@{
     }
     automatic_source_edit_authorized = $false
     scheduler_change_authorized = $false
-    credential_value_read = $false
-    live_exchange_mutation_attempted = $false
+    safety = [ordered]@{
+        authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
+        credential_value_access_authorized = $false
+        live_exchange_mutation_authorized = $false
+    }
 }
 Write-WeatherIntegrationImmutableJson -Path $dispatchPath -Payload $dispatch
 

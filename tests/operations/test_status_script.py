@@ -1,4 +1,7 @@
+import json
+import os
 from pathlib import Path
+import subprocess
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
@@ -82,9 +85,73 @@ def test_integration_attempt_recovery_states_are_operator_visible() -> None:
     assert '"CLOSED_NEEDS_DISPATCH"' in text
     assert '"RECOVERY_READY"' in text
     assert '"SUCCESSOR_CLAIMED"' in text
+    assert '"MERGED_UNVERIFIED"' in text
     assert "recovery is ready for an active agent" in text
+    assert "$attemptEvidenceAgeHours" in text
+    assert "$attemptEvidenceIsFresh" in text
+    assert 'evidence_age_hours = $_.evidence_age_hours' in text
+    assert 'task_state = $_.task_state' in text
+    assert "unreadable or does not match its task-bound hash" in text
+    assert "missed its suite trigger and has no receipt" in text
     assert "integration_attempts =" in text
     assert 'Write-Output "  ATTEMPTS  :"' in text
+
+
+def test_integration_attempt_alert_lifecycle_executes_without_running_status() -> None:
+    env = os.environ.copy()
+    env["WEATHER_STATUS_SCRIPT"] = str(SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @(
+    'Get-WeatherIntegrationAttemptState',
+    'Get-WeatherIntegrationAttemptAlertDisposition'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$failed = Get-WeatherIntegrationAttemptState -SuiteReceiptStatus FAIL
+$recovery = Get-WeatherIntegrationAttemptState -DispatchStatus READY_FOR_SUCCESSOR_REVIEW
+$merged = Get-WeatherIntegrationAttemptState -MergeReceiptStatus MERGED_UNVERIFIED
+$cases = @(
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $failed -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $failed -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $recovery -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $false -RecoveryDispatch dispatch.json
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State SUCCESSOR_CLAIMED -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false -SuccessorAttemptId b
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $merged -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
+)
+[pscustomobject]@{
+    states = @($failed, $recovery, $merged)
+    severities = @($cases | ForEach-Object { [string]$_.Severity })
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "states": ["FAILED_NEEDS_CLOSE", "RECOVERY_READY", "MERGED_UNVERIFIED"],
+        "severities": ["FLAG", "WARN", "FLAG", "FLAG", "WARN", "NONE", "FLAG"],
+    }
 
 
 def test_only_active_scheduled_interactive_tasks_count_as_reboot_exposure():

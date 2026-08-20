@@ -114,6 +114,9 @@ def test_documentation_transaction_is_bound_before_publication() -> None:
     assert '"--integration-tip", $mergeCommit' in script
     assert '"--branch", $Branch' in script
     assert 'Save-Report -ok $true -stage "merged_unpushed"' in script
+    assert "documentation_transaction_recorded = $documentationTransactionRecorded" in script
+    assert script.index("$documentationTransactionRecorded = $true") < push
+    assert "merge_commit = $mergeCommit" in script
     assert "& git push" not in script.lower()
     assert "git rev-parse origin/master" in script
 

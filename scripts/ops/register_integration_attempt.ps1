@@ -50,8 +50,12 @@ if ([string]::IsNullOrWhiteSpace($env:USERNAME)) {
     throw "USERNAME is unavailable; cannot construct the S4U task principal."
 }
 
-$suiteAt = [datetime]::Parse([string]$manifest.schedule.suite_at_local)
-$mergeAt = [datetime]::Parse([string]$manifest.schedule.merge_at_local)
+$suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+    -Value ([string]$manifest.schedule.suite_at_local) `
+    -Label "suite_at_local"
+$mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+    -Value ([string]$manifest.schedule.merge_at_local) `
+    -Label "merge_at_local"
 $now = Get-Date
 if ($suiteAt -le $now.AddMinutes(1) -or $mergeAt -le $suiteAt) {
     throw "Attempt task triggers must be future one-shot times with suite before merge."
@@ -191,8 +195,11 @@ finally {
         }
         downstream_tasks_created = $false
         failure = $failure
-        credential_value_read = $false
-        live_exchange_mutation_attempted = $false
+        safety = [ordered]@{
+            authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
+            credential_value_access_authorized = $false
+            live_exchange_mutation_authorized = $false
+        }
     }
     Write-WeatherIntegrationImmutableJson -Path $registrationReceiptPath -Payload $receipt
 }

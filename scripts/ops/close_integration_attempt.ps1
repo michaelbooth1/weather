@@ -30,8 +30,8 @@ if (Test-Path -LiteralPath $closurePath) {
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
-    if ([string]$mergeReceipt.status -eq "PASS") {
-        throw "A successfully merged attempt cannot be abandoned."
+    if ([string]$mergeReceipt.status -in @("PASS", "MERGED_UNVERIFIED")) {
+        throw "An attempt that reached production cannot be abandoned or retried."
     }
 }
 
@@ -74,9 +74,8 @@ foreach ($spec in $taskSpecs) {
     $registeredActionProperty = $registrationReceipt.PSObject.Properties[[string]$spec.role]
     $registeredAction = if ($null -eq $registeredActionProperty) { $null } else { $registeredActionProperty.Value }
     if ($null -eq $registeredAction -or
-        -not [bool]$registeredAction.registered -or
         [string]$registeredAction.task_name -ne [string]$spec.name) {
-        throw "Registration receipt does not prove this exact task was created: $($spec.name)"
+        throw "Registration receipt does not bind this exact task action: $($spec.name)"
     }
     $actions = @($task.Actions)
     if ($actions.Count -ne 1 -or
@@ -98,6 +97,8 @@ foreach ($spec in $taskSpecs) {
         task_name = $spec.name
         exists = $true
         disabled = $true
+        registration_receipt_registered = [bool]$registeredAction.registered
+        registration_receipt_disagreed = (-not [bool]$registeredAction.registered)
         last_run_time = if ($null -eq $info) { $null } else { ([datetime]$info.LastRunTime).ToString("o") }
         last_task_result = if ($null -eq $info) { $null } else { [int]$info.LastTaskResult }
     })
@@ -133,8 +134,11 @@ $receipt = [ordered]@{
     review_reference = $ReviewReference
     tasks = @($taskEvidence | ForEach-Object { $_ })
     preserved_evidence = @($existingEvidence | ForEach-Object { $_ })
-    credential_value_read = $false
-    live_exchange_mutation_attempted = $false
+    safety = [ordered]@{
+        authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
+        credential_value_access_authorized = $false
+        live_exchange_mutation_authorized = $false
+    }
 }
 Write-WeatherIntegrationImmutableJson -Path $closurePath -Payload $receipt
 

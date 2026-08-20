@@ -72,12 +72,20 @@ exact hash-bound evidence.
   `assert_integration_attempt_success.ps1`.
 - Deterministic and executable behavioral contract tests:
   `tests/operations/test_integration_attempt_scripts.py`.
-- Follow-up audit verification on 2026-08-20: 60 focused operation contracts,
-  including executable wait, baseline, dispatch, atomic-claim, exact-retry, and
-  tamper cases, passed; all 11 currently modified PowerShell sources parsed.
-  Fourteen roadmap/UI contracts, compileall, roadmap lint/check, the
-  agent-document audit, and diff check also passed. The exact full suite
-  remains time-gated.
+- The first follow-up verification at tip `2f911f6f` passed 60 focused
+  contracts, but an independent read-only audit then falsified the PASS path:
+  `-split` was parsed as a nonexistent advanced-function parameter, so the
+  full suite could never start. That audit correctly returned
+  `APPROVE_AFTER_FIXES`; parser-only and source-substring tests had missed the
+  executable binding defect.
+- Post-audit repair verification on 2026-08-20: 65 focused operation contracts
+  pass, including executable log-verdict/binding, wait/stop, baseline,
+  dispatch, repair-scope, partial-registration closure, atomic-claim,
+  exact-retry, DST, alert-lifecycle, and tamper cases. All 12 PowerShell files
+  in the reviewed range parse, and the semantic AST ratchet finds no operator
+  token misparsed as a command parameter. Fourteen roadmap/UI contracts,
+  compileall, roadmap lint/check, the agent-document audit, and diff check also
+  pass on the repaired tree. The exact full suite remains time-gated.
 - Production-host `roll_verdict.ps1` reports `ROLL-FREE`: 28 changed files and zero importable
   capture files. Landing this branch does not require a capture readoption roll.
 

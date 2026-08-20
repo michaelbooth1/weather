@@ -50,6 +50,43 @@ function Read-WeatherIntegrationSharedText {
     }
 }
 
+function Get-WeatherIntegrationLogVerdict {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $lines = @(
+        (Read-WeatherIntegrationSharedText -Path $Path) -split "`r?`n" |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    if ($lines.Count -eq 0) {
+        throw "Attempt log is empty: $Path"
+    }
+    return [string]$lines[-1]
+}
+
+function Assert-WeatherIntegrationFullSuiteVerdict {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Verdict
+    )
+
+    $match = [regex]::Match(
+        $Verdict,
+        'VERDICT: ALL CHUNKS PASSED \((?<passed>[0-9]+)/(?<planned>[0-9]+)\); exact tip eligible for separate reviewed merge$'
+    )
+    if (-not $match.Success) {
+        throw "Full suite log is missing its exact PASS verdict."
+    }
+    $passed = [int]$match.Groups["passed"].Value
+    $planned = [int]$match.Groups["planned"].Value
+    if ($passed -le 0 -or $passed -ne $planned) {
+        throw "Full suite PASS verdict has an invalid chunk ratio: $passed/$planned"
+    }
+    return $planned
+}
+
 function Read-WeatherIntegrationSharedJson {
     param(
         [Parameter(Mandatory = $true)]
@@ -151,7 +188,8 @@ function Get-WeatherIntegrationRepairAllowedPatterns {
             @(
                 '^scripts/ops/[^/]+\.ps1$',
                 '^tests/operations/test_(integration_attempt_scripts|bounded_worktree_test_suite_script|suite_gated_quiet_merge_script|quiet_window_merge_script|host_task_wrappers)\.py$',
-                '^docs/(operations|ops)/[^/]+\.md$',
+                '^docs/operations/(INTEGRATION_ATTEMPT_RUNBOOK|OPERATIONS_DESIGN)\.md$',
+                '^docs/ops/streak-soak\.md$',
                 '^(AGENTS\.md|scripts/ops/AGENTS\.md|tests/AGENTS\.md|docs/AGENTS\.md)$'
             )
         }
@@ -176,7 +214,7 @@ function Get-WeatherIntegrationSuiteWaitDecision {
     }
     if ($TaskState -eq "Running") {
         if ($Now -ge $Deadline) {
-            return [pscustomobject]@{ Action = "FAIL"; Reason = "suite remained running through the merge-wait deadline" }
+            return [pscustomobject]@{ Action = "STOP"; Reason = "suite remained running through the merge-wait deadline" }
         }
         return [pscustomobject]@{ Action = "WAIT"; Reason = "suite task is still running" }
     }
@@ -196,6 +234,43 @@ function Get-WeatherIntegrationSuiteWaitDecision {
         return [pscustomobject]@{ Action = "FAIL"; Reason = "suite receipt status is unsupported or unreadable" }
     }
     return [pscustomobject]@{ Action = "READY"; Reason = "suite task and receipt are terminal PASS" }
+}
+
+function Assert-WeatherIntegrationLocalScheduleTime {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$Value,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [TimeZoneInfo]$TimeZone = [TimeZoneInfo]::Local
+    )
+
+    $wallClock = [datetime]::SpecifyKind($Value, [DateTimeKind]::Unspecified)
+    if ($TimeZone.IsInvalidTime($wallClock)) {
+        throw "$Label falls in a daylight-saving gap and will not run: $($wallClock.ToString('o'))"
+    }
+    if ($TimeZone.IsAmbiguousTime($wallClock)) {
+        throw "$Label falls in an ambiguous daylight-saving hour and is not safe for a one-shot: $($wallClock.ToString('o'))"
+    }
+    return $wallClock
+}
+
+function ConvertFrom-WeatherIntegrationLocalTimestamp {
+    param(
+        [Parameter(Mandatory = $true)][string]$Value,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    try {
+        $parsed = [datetime]::ParseExact(
+            $Value,
+            [string[]]@("o", "yyyy-MM-dd'T'HH:mm:ss"),
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind
+        )
+    }
+    catch {
+        throw "$Label is not a supported invariant local timestamp."
+    }
+    return Assert-WeatherIntegrationLocalScheduleTime -Value $parsed -Label $Label
 }
 
 function Assert-WeatherIntegrationGitBaseline {
@@ -292,8 +367,12 @@ function Assert-WeatherIntegrationAttemptManifest {
         throw "Attempt task names are not the canonical names derived from attempt_id."
     }
     try {
-        $suiteAt = [datetime]::Parse([string]$manifest.schedule.suite_at_local)
-        $mergeAt = [datetime]::Parse([string]$manifest.schedule.merge_at_local)
+        $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+            -Value ([string]$manifest.schedule.suite_at_local) `
+            -Label "suite_at_local"
+        $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+            -Value ([string]$manifest.schedule.merge_at_local) `
+            -Label "merge_at_local"
     }
     catch {
         throw "Attempt schedule timestamps are invalid."
@@ -484,8 +563,9 @@ function Assert-WeatherIntegrationSuiteReceipt {
         throw "Suite receipt worktree does not match the manifest."
     }
     if (-not [bool]$receipt.full_suite_started -or
-        [bool]$receipt.credential_value_read -or
-        [bool]$receipt.live_exchange_mutation_attempted) {
+        [string]$receipt.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        [bool]$receipt.safety.credential_value_access_authorized -or
+        [bool]$receipt.safety.live_exchange_mutation_authorized) {
         throw "Suite receipt is missing full-suite proof or violates the attempt safety boundary."
     }
 
@@ -510,9 +590,7 @@ function Assert-WeatherIntegrationSuiteReceipt {
     if ([string]$receipt.logs.preflight.verdict -notlike "*VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized") {
         throw "Suite receipt preflight verdict is not exact."
     }
-    if ([string]$receipt.logs.full_suite.verdict -notmatch 'VERDICT: ALL CHUNKS PASSED \([0-9]+/[0-9]+\); exact tip eligible for separate reviewed merge$') {
-        throw "Suite receipt full-suite verdict is not exact."
-    }
+    Assert-WeatherIntegrationFullSuiteVerdict -Verdict ([string]$receipt.logs.full_suite.verdict) | Out-Null
 
     $scriptBindings = [ordered]@{
         bounded_suite = $manifest.orchestration.bounded_suite
@@ -575,7 +653,9 @@ function Assert-WeatherIntegrationMergeReceipt {
         [string]$receipt.production_head -ne [string]$receipt.origin_master) {
         throw "Merge receipt does not bind equal production and origin tips."
     }
-    if ([bool]$receipt.credential_value_read -or [bool]$receipt.live_exchange_mutation_attempted) {
+    if ([string]$receipt.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        [bool]$receipt.safety.credential_value_access_authorized -or
+        [bool]$receipt.safety.live_exchange_mutation_authorized) {
         throw "Merge receipt violates the no-credential/no-live-exchange boundary."
     }
     foreach ($scriptName in @("attempt_merge", "quiet_merge")) {
@@ -601,7 +681,9 @@ function Assert-WeatherIntegrationMergeReceipt {
         [string]$quietReport.expected_tip -ne [string]$manifest.expected_tip -or
         [string]$quietReport.expected_baseline -ne [string]$manifest.baseline.master -or
         [string]$quietReport.resolved_branch_tip -ne [string]$manifest.expected_tip -or
-        [string]$quietReport.branch -ne [string]$manifest.branch_ref) {
+        [string]$quietReport.branch -ne [string]$manifest.branch_ref -or
+        -not [bool]$quietReport.documentation_transaction_recorded -or
+        [string]$quietReport.merge_commit -ne [string]$receipt.production_head) {
         throw "Immutable quiet-merge report does not prove the frozen source tip was pushed."
     }
 

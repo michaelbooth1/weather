@@ -21,6 +21,15 @@ SCRIPTS = {
         "assert_integration_attempt_success.ps1",
     )
 }
+PARSE_SCRIPTS = tuple(SCRIPTS.values()) + tuple(
+    OPS / name
+    for name in (
+        "bounded_worktree_test_suite.ps1",
+        "adopt_execution_tape_after_merge.ps1",
+        "quiet_window_merge.ps1",
+        "status.ps1",
+    )
+)
 
 
 def _text(name: str) -> str:
@@ -60,7 +69,7 @@ def test_attempt_manifest_freezes_evidence_not_the_entire_night() -> None:
     closer = _text("close_integration_attempt.ps1")
     assert "Attempt task is still running" in closer
     assert "Disable-ScheduledTask" in closer
-    assert "A successfully merged attempt cannot be abandoned" in closer
+    assert "An attempt that reached production cannot be abandoned or retried" in closer
     assert "immutable registration receipt" in closer
     assert "registeredAction.arguments" in closer
     assert 'Principal.LogonType -ne "S4U"' in closer
@@ -88,6 +97,9 @@ def test_attempt_suite_runs_ratchets_before_full_suite_and_freezes_receipt() -> 
         _text("integration_attempt_contract.ps1")
     )
     assert "Write-WeatherIntegrationImmutableJson -Path $suiteReceiptPath" in suite
+    assert "Get-WeatherIntegrationLogVerdict" in suite
+    assert "Assert-WeatherIntegrationFullSuiteVerdict" in suite
+    assert "Get-WeatherAttemptLogVerdict" not in suite
     assert "git merge" not in suite.lower()
     assert "git push" not in suite.lower()
 
@@ -113,7 +125,8 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     assert "Suite task arguments are not exactly bound" in merge
     assert "quiet_window_merge.ps1" in merge
     assert 'stage -ne "pushed"' in merge
-    assert "documentation transaction recorded" in merge
+    assert "documentation transaction recorded" not in merge.lower()
+    assert "quietReport.documentation_transaction_recorded" in merge
     assert "merge-base --is-ancestor" in merge
     assert "capture_recovery_check" in merge
     assert "Wait-WeatherIntegrationSuiteTerminal" in merge
@@ -121,6 +134,10 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     assert '"-ExpectedBaseline", $ExpectedBaseline' in merge
     assert "expected_baseline -ne [string]$manifest.baseline.master" in merge
     assert merge.count("Assert-WeatherIntegrationGitBaseline") == 2
+    assert merge.count("Assert-WeatherIntegrationOrchestrationFiles") == 2
+    assert "suiteDeadlineStopEvidence" in merge
+    assert "Stop-ScheduledTask -TaskName $taskName" in merge
+    assert 'status = "MERGED_UNVERIFIED"' in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath" in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath" in merge
     assert "git push" not in merge.lower()
@@ -150,6 +167,16 @@ def test_attempt_registrar_is_unique_unattended_and_does_not_start_work() -> Non
     assert "New-TimeSpan -Hours 4" in registrar
 
 
+def test_attempt_receipts_label_static_safety_as_authority_not_observed_outcome() -> None:
+    attempt_text = "\n".join(path.read_text(encoding="utf-8-sig") for path in SCRIPTS.values())
+
+    assert "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" in attempt_text
+    assert "credential_value_access_authorized" in attempt_text
+    assert "live_exchange_mutation_authorized" in attempt_text
+    assert "credential_value_read" not in attempt_text
+    assert "live_exchange_mutation_attempted" not in attempt_text
+
+
 def test_recovery_dispatch_is_reviewed_non_mutating_and_single_use() -> None:
     dispatch = _text("dispatch_integration_attempt_recovery.ps1")
 
@@ -158,12 +185,61 @@ def test_recovery_dispatch_is_reviewed_non_mutating_and_single_use() -> None:
     assert "automatic_source_edit_authorized = $false" in dispatch
     assert "scheduler_change_authorized = $false" in dispatch
     assert "orchestration_drift" in dispatch
-    assert "recovery must classify and review it as orchestration_wrapper" in dispatch
+    assert "orchestration_wrapper or an explicitly manual_reviewed_change" in dispatch
+    assert 'FailureClass -notin @("orchestration_wrapper", "manual_reviewed_change")' in dispatch
     assert "Assert-WeatherIntegrationOrchestrationFiles" not in dispatch
     assert "Write-WeatherIntegrationImmutableJson -Path $dispatchPath" in dispatch
     assert "Register-ScheduledTask" not in dispatch
     assert "Start-ScheduledTask" not in dispatch
     assert "git commit" not in dispatch.lower()
+
+
+def test_orchestration_repair_scope_excludes_governing_policy_documents() -> None:
+    env = os.environ.copy()
+    env["WEATHER_ATTEMPT_CONTRACT"] = str(
+        SCRIPTS["integration_attempt_contract.ps1"]
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+$patterns = @(Get-WeatherIntegrationRepairAllowedPatterns -RepairClass orchestration_wrapper)
+$paths = @(
+    'docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md',
+    'docs/operations/OPERATIONS_DESIGN.md',
+    'docs/ops/streak-soak.md',
+    'docs/operations/reserved-confirmation-window.md',
+    'docs/operations/HOST_LOAD_POLICY.md',
+    'docs/operations/DELEGATION_CONTRACT.md',
+    'docs/operations/STATE_OF_PLAY.md'
+)
+@($paths | ForEach-Object {
+    $path = $_
+    [pscustomobject]@{
+        path = $path
+        allowed = @($patterns | Where-Object { $path -match $_ }).Count -gt 0
+    }
+}) | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    allowed = {row["path"]: row["allowed"] for row in json.loads(result.stdout)}
+    assert allowed == {
+        "docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md": True,
+        "docs/operations/OPERATIONS_DESIGN.md": True,
+        "docs/ops/streak-soak.md": True,
+        "docs/operations/reserved-confirmation-window.md": False,
+        "docs/operations/HOST_LOAD_POLICY.md": False,
+        "docs/operations/DELEGATION_CONTRACT.md": False,
+        "docs/operations/STATE_OF_PLAY.md": False,
+    }
 
 
 def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
@@ -274,9 +350,9 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
         text=True,
     )
     assert wrong_class.returncode != 0
-    assert "must classify and review it as orchestration_wrapper" in wrong_class.stderr
+    assert "orchestration_wrapper or an explicitly manual_reviewed_change" in wrong_class.stderr
 
-    command[command.index("schema_registry")] = "orchestration_wrapper"
+    command[command.index("schema_registry")] = "manual_reviewed_change"
     created = subprocess.run(
         command,
         cwd=ROOT,
@@ -287,7 +363,7 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
     assert created.returncode == 0, created.stderr
     payload = json.loads(created.stdout)
     assert payload["status"] == "READY_FOR_SUCCESSOR_REVIEW"
-    assert payload["repair_class"] == "orchestration_wrapper"
+    assert payload["repair_class"] == "manual_reviewed_change"
     assert [row["name"] for row in payload["orchestration_drift"]] == [
         "token_contract"
     ]
@@ -363,7 +439,7 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
         },
         "suite": {
             "task_name": "WeatherIntegrationSuite_close-test",
-            "registered": True,
+            "registered": False,
             "executable": executable,
             "arguments": "frozen-suite-arguments",
             "working_directory": str(ROOT),
@@ -422,6 +498,8 @@ function Get-ScheduledTaskInfo { param([string]$TaskName, $ErrorAction); return 
     closure = json.loads((attempt_root / "closure-receipt.json").read_text(encoding="utf-8-sig"))
     assert closure["status"] == "FAIL"
     assert [task["disabled"] for task in closure["tasks"]] == [True, True]
+    assert closure["tasks"][0]["registration_receipt_disagreed"] is True
+    assert closure["tasks"][1]["registration_receipt_disagreed"] is False
 
 
 def test_execution_tape_adoption_accepts_only_hash_bound_attempt_receipts() -> None:
@@ -592,7 +670,112 @@ $cases = @(
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == ["WAIT", "FAIL", "READY", "FAIL"]
+    assert json.loads(result.stdout) == ["WAIT", "STOP", "READY", "FAIL"]
+
+
+def test_log_verdict_helper_executes_and_rejects_false_chunk_ratios(
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "suite.log"
+    log_path.write_text(
+        "2026-08-21 00:30:00  planned chunks=2 files=40 max_files=20\n"
+        "2026-08-21 00:45:00  VERDICT: ALL CHUNKS PASSED (2/2); "
+        "exact tip eligible for separate reviewed merge\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["WEATHER_ATTEMPT_CONTRACT"] = str(
+        SCRIPTS["integration_attempt_contract.ps1"]
+    )
+    env["WEATHER_ATTEMPT_LOG"] = str(log_path)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+$verdict = Get-WeatherIntegrationLogVerdict -Path $env:WEATHER_ATTEMPT_LOG
+$chunks = Assert-WeatherIntegrationFullSuiteVerdict -Verdict $verdict
+$mismatchRejected = $false
+try {
+    Assert-WeatherIntegrationFullSuiteVerdict `
+        -Verdict 'VERDICT: ALL CHUNKS PASSED (1/2); exact tip eligible for separate reviewed merge' | Out-Null
+}
+catch { $mismatchRejected = $_.Exception.Message -like '*invalid chunk ratio*' }
+$zeroRejected = $false
+try {
+    Assert-WeatherIntegrationFullSuiteVerdict `
+        -Verdict 'VERDICT: ALL CHUNKS PASSED (0/0); exact tip eligible for separate reviewed merge' | Out-Null
+}
+catch { $zeroRejected = $_.Exception.Message -like '*invalid chunk ratio*' }
+[pscustomobject]@{
+    verdict = $verdict
+    chunks = $chunks
+    mismatch_rejected = $mismatchRejected
+    zero_rejected = $zeroRejected
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["chunks"] == 2
+    assert payload["verdict"].endswith(
+        "VERDICT: ALL CHUNKS PASSED (2/2); "
+        "exact tip eligible for separate reviewed merge"
+    )
+    assert payload["mismatch_rejected"] is True
+    assert payload["zero_rejected"] is True
+
+
+def test_schedule_helper_rejects_invalid_and_ambiguous_eastern_times() -> None:
+    env = os.environ.copy()
+    env["WEATHER_ATTEMPT_CONTRACT"] = str(
+        SCRIPTS["integration_attempt_contract.ps1"]
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+$zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+$valid = Assert-WeatherIntegrationLocalScheduleTime `
+    -Value ([datetime]'2026-08-21T01:30:00') -Label valid -TimeZone $zone
+$invalidRejected = $false
+try {
+    Assert-WeatherIntegrationLocalScheduleTime `
+        -Value ([datetime]'2027-03-14T02:30:00') -Label invalid -TimeZone $zone | Out-Null
+}
+catch { $invalidRejected = $_.Exception.Message -like '*daylight-saving gap*' }
+$ambiguousRejected = $false
+try {
+    Assert-WeatherIntegrationLocalScheduleTime `
+        -Value ([datetime]'2026-11-01T01:30:00') -Label ambiguous -TimeZone $zone | Out-Null
+}
+catch { $ambiguousRejected = $_.Exception.Message -like '*ambiguous daylight-saving hour*' }
+[pscustomobject]@{
+    valid = $valid.ToString('o')
+    invalid_rejected = $invalidRejected
+    ambiguous_rejected = $ambiguousRejected
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "valid": "2026-08-21T01:30:00.0000000",
+        "invalid_rejected": True,
+        "ambiguous_rejected": True,
+    }
 
 
 def test_git_baseline_gate_detects_production_advance(tmp_path: Path) -> None:
@@ -1026,24 +1209,22 @@ def test_creator_rejects_equal_tree_commit_and_claims_one_exact_retry(
 def test_integration_attempt_powershell_sources_parse_without_execution() -> None:
     env = os.environ.copy()
     env["WEATHER_INTEGRATION_ATTEMPT_SCRIPTS"] = os.pathsep.join(
-        str(path) for path in SCRIPTS.values()
-    )
-    env["WEATHER_INTEGRATION_BOUNDED_SCRIPT"] = str(
-        OPS / "bounded_worktree_test_suite.ps1"
-    )
-    env["WEATHER_INTEGRATION_ADOPTION_SCRIPT"] = str(
-        OPS / "adopt_execution_tape_after_merge.ps1"
+        str(path) for path in PARSE_SCRIPTS
     )
     script = r"""
 $ErrorActionPreference = 'Stop'
 $paths = @($env:WEATHER_INTEGRATION_ATTEMPT_SCRIPTS.Split([IO.Path]::PathSeparator))
-$paths += $env:WEATHER_INTEGRATION_BOUNDED_SCRIPT
-$paths += $env:WEATHER_INTEGRATION_ADOPTION_SCRIPT
 $allErrors = @()
+$operatorParameters = @()
+$operatorNames = @(
+    'split', 'replace', 'match', 'notmatch', 'like', 'notlike', 'eq', 'ne',
+    'gt', 'ge', 'lt', 'le', 'join', 'contains', 'notcontains', 'in', 'notin',
+    'is', 'isnot', 'as', 'f', 'shl', 'shr', 'band', 'bor', 'bxor'
+)
 foreach ($path in $paths) {
     $tokens = $null
     $errors = $null
-    [void][System.Management.Automation.Language.Parser]::ParseFile(
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile(
         $path,
         [ref]$tokens,
         [ref]$errors
@@ -1051,8 +1232,23 @@ foreach ($path in $paths) {
     foreach ($item in @($errors)) {
         $allErrors += [pscustomobject]@{ path = $path; message = $item.Message }
     }
+    $badParameters = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandParameterAst] -and
+            $operatorNames -contains $node.ParameterName.ToLowerInvariant()
+    }, $true))
+    foreach ($item in $badParameters) {
+        $operatorParameters += [pscustomobject]@{
+            path = $path
+            line = $item.Extent.StartLineNumber
+            parameter = $item.ParameterName
+        }
+    }
 }
-[pscustomobject]@{ errors = $allErrors } | ConvertTo-Json -Depth 5 -Compress
+[pscustomobject]@{
+    errors = $allErrors
+    operator_parameters = $operatorParameters
+} | ConvertTo-Json -Depth 5 -Compress
 """
     result = subprocess.run(
         [
@@ -1072,4 +1268,6 @@ foreach ($path in $paths) {
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["errors"] == []
+    payload = json.loads(result.stdout)
+    assert payload["errors"] == []
+    assert payload["operator_parameters"] == []

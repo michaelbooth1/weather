@@ -35,6 +35,8 @@ $historyPath = Join-Path $repo "data\alerts\quiet_window_merge_history.jsonl"
 $log = New-Object System.Collections.Generic.List[string]
 $resolvedBranchTip = $null
 $mergeTarget = $Branch
+$mergeCommit = $null
+$documentationTransactionRecorded = $false
 function Note($m) {
     $line = "{0}  {1}" -f (Get-Date -Format "HH:mm:ss"), $m
     $log.Add($line); Write-Output $line
@@ -49,6 +51,8 @@ function Save-Report($ok, $stage, $detail) {
         ts = (Get-Date).ToString("o"); branch = $Branch; ok = $ok
         expected_tip = $ExpectedTip; expected_baseline = $ExpectedBaseline
         resolved_branch_tip = $resolvedBranchTip
+        merge_commit = $mergeCommit
+        documentation_transaction_recorded = $documentationTransactionRecorded
         stage = $stage; detail = $detail; log = @($log)
     }
     try {
@@ -349,6 +353,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 3
 }
 Note "documentation transaction recorded for $mergeCommit"
+$documentationTransactionRecorded = $true
 
 # ---- only now publish, through the credential-bearing scheduled task ----
 # Interactive git push is forbidden on this host. The scheduled task owns the credential

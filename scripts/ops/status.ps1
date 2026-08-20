@@ -22,6 +22,66 @@ if (-not (Test-Path $py)) { $py = "python" }
 $flags = New-Object System.Collections.Generic.List[string]
 $warns = New-Object System.Collections.Generic.List[string]
 
+function Get-WeatherIntegrationAttemptState {
+    param(
+        [AllowEmptyString()][string]$SuiteReceiptStatus = "",
+        [AllowEmptyString()][string]$MergeReceiptStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = "",
+        [AllowEmptyString()][string]$DispatchStatus = "",
+        [AllowEmptyString()][string]$ClaimStatus = ""
+    )
+
+    if ($MergeReceiptStatus -eq "PASS") { return "PASS" }
+    if ($MergeReceiptStatus -eq "MERGED_UNVERIFIED") { return "MERGED_UNVERIFIED" }
+    if ($ClaimStatus -eq "CLAIMED") { return "SUCCESSOR_CLAIMED" }
+    if ($DispatchStatus -eq "READY_FOR_SUCCESSOR_REVIEW") { return "RECOVERY_READY" }
+    if ($ClosureStatus -eq "FAIL") { return "CLOSED_NEEDS_DISPATCH" }
+    if ($SuiteReceiptStatus -eq "FAIL" -or $MergeReceiptStatus -eq "FAIL") {
+        return "FAILED_NEEDS_CLOSE"
+    }
+    return "ACTIVE_OR_ARMED"
+}
+
+function Get-WeatherIntegrationAttemptAlertDisposition {
+    param(
+        [Parameter(Mandatory = $true)][string]$AttemptId,
+        [Parameter(Mandatory = $true)][string]$State,
+        [Parameter(Mandatory = $true)][string]$TaskState,
+        [Parameter(Mandatory = $true)][bool]$EvidenceIsFresh,
+        [Parameter(Mandatory = $true)][bool]$SuiteTriggerMissed,
+        [AllowEmptyString()][string]$RecoveryDispatch = "",
+        [AllowEmptyString()][string]$SuccessorAttemptId = ""
+    )
+
+    $severity = "NONE"
+    $detail = ""
+    if ($State -eq "MERGED_UNVERIFIED") {
+        $detail = "integration attempt $AttemptId reached production but final proof is incomplete; do not retry it"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "FAILED_NEEDS_CLOSE") {
+        $detail = "integration attempt $AttemptId failed and must close its exact tasks (task state $TaskState)"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "CLOSED_NEEDS_DISPATCH") {
+        $detail = "integration attempt $AttemptId is closed and needs reviewed recovery dispatch"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "RECOVERY_READY") {
+        $detail = "integration attempt $AttemptId recovery is ready for an active agent: $RecoveryDispatch"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "SUCCESSOR_CLAIMED" -and $EvidenceIsFresh) {
+        $detail = "integration attempt $AttemptId authorized successor $SuccessorAttemptId"
+        $severity = "WARN"
+    }
+    elseif ($State -eq "ACTIVE_OR_ARMED" -and $SuiteTriggerMissed) {
+        $detail = "integration attempt $AttemptId missed its suite trigger and has no receipt"
+        $severity = if ($EvidenceIsFresh -and $TaskState -ne "Disabled") { "FLAG" } else { "WARN" }
+    }
+    return [pscustomobject]@{ Severity = $severity; Detail = $detail }
+}
+
 # ---- streak (delegate to the authoritative ledger-based checker) ----
 $streak = $null
 try { $streak = & $py (Join-Path $repo "scripts\ops\streak_status.py") --json | ConvertFrom-Json } catch {}
@@ -1024,23 +1084,70 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                     $dispatchStatus = $null
                     $claimStatus = $null
                     $successorAttemptId = $null
-                    try { $suiteReceiptStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.suite_receipt -Raw | ConvertFrom-Json).status } catch { }
-                    try { $mergeReceiptStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.merge_receipt -Raw | ConvertFrom-Json).status } catch { }
-                    try { $closureStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.closure_receipt -Raw | ConvertFrom-Json).status } catch { }
-                    try { $dispatchStatus = [string](Get-Content -LiteralPath $attemptManifest.evidence.recovery_dispatch -Raw | ConvertFrom-Json).status } catch { }
+                    $attemptEvidenceUnreadable = New-Object System.Collections.Generic.List[string]
+                    foreach ($receiptSpec in @(
+                        [pscustomobject]@{ Name = "suite receipt"; Path = [string]$attemptManifest.evidence.suite_receipt; Target = "suite" },
+                        [pscustomobject]@{ Name = "merge receipt"; Path = [string]$attemptManifest.evidence.merge_receipt; Target = "merge" },
+                        [pscustomobject]@{ Name = "closure receipt"; Path = [string]$attemptManifest.evidence.closure_receipt; Target = "closure" },
+                        [pscustomobject]@{ Name = "recovery dispatch"; Path = [string]$attemptManifest.evidence.recovery_dispatch; Target = "dispatch" }
+                    )) {
+                        if (-not (Test-Path -LiteralPath $receiptSpec.Path -PathType Leaf)) { continue }
+                        try {
+                            $receiptStatus = [string](Get-Content -LiteralPath $receiptSpec.Path -Raw | ConvertFrom-Json).status
+                            if ($receiptSpec.Target -eq "suite") { $suiteReceiptStatus = $receiptStatus }
+                            elseif ($receiptSpec.Target -eq "merge") { $mergeReceiptStatus = $receiptStatus }
+                            elseif ($receiptSpec.Target -eq "closure") { $closureStatus = $receiptStatus }
+                            else { $dispatchStatus = $receiptStatus }
+                        }
+                        catch { $attemptEvidenceUnreadable.Add([string]$receiptSpec.Name) }
+                    }
                     $successorClaimPath = Join-Path ([string]$attemptManifest.attempt_root) "successor-claim.json"
                     try {
                         $successorClaim = Get-Content -LiteralPath $successorClaimPath -Raw | ConvertFrom-Json
                         $claimStatus = [string]$successorClaim.status
                         $successorAttemptId = [string]$successorClaim.successor_attempt_id
                     }
-                    catch { }
-                    $attemptState = if ($mergeReceiptStatus -eq "PASS") { "PASS" }
-                    elseif ($claimStatus -eq "CLAIMED") { "SUCCESSOR_CLAIMED" }
-                    elseif ($dispatchStatus -eq "READY_FOR_SUCCESSOR_REVIEW") { "RECOVERY_READY" }
-                    elseif ($closureStatus -eq "FAIL") { "CLOSED_NEEDS_DISPATCH" }
-                    elseif ($suiteReceiptStatus -eq "FAIL" -or $mergeReceiptStatus -eq "FAIL") { "FAILED_NEEDS_CLOSE" }
-                    else { "ACTIVE_OR_ARMED" }
+                    catch {
+                        if (Test-Path -LiteralPath $successorClaimPath -PathType Leaf) {
+                            $attemptEvidenceUnreadable.Add("successor claim")
+                        }
+                    }
+                    foreach ($unreadableName in $attemptEvidenceUnreadable) {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) has unreadable $unreadableName evidence")
+                    }
+                    $attemptEvidenceTimes = New-Object System.Collections.Generic.List[datetime]
+                    foreach ($attemptEvidencePath in @(
+                        $attemptManifestPath,
+                        [string]$attemptManifest.evidence.suite_receipt,
+                        [string]$attemptManifest.evidence.merge_receipt,
+                        [string]$attemptManifest.evidence.closure_receipt,
+                        [string]$attemptManifest.evidence.recovery_dispatch,
+                        $successorClaimPath
+                    )) {
+                        if (Test-Path -LiteralPath $attemptEvidencePath -PathType Leaf) {
+                            try { $attemptEvidenceTimes.Add((Get-Item -LiteralPath $attemptEvidencePath).LastWriteTime) } catch { }
+                        }
+                    }
+                    $newestAttemptEvidence = @($attemptEvidenceTimes | Sort-Object -Descending | Select-Object -First 1)
+                    $attemptEvidenceAgeHours = if ($newestAttemptEvidence.Count -eq 0) {
+                        $null
+                    }
+                    else {
+                        [math]::Round(((Get-Date) - $newestAttemptEvidence[0]).TotalHours, 1)
+                    }
+                    $attemptEvidenceIsFresh = ($null -eq $attemptEvidenceAgeHours -or $attemptEvidenceAgeHours -le 24)
+                    $attemptSuiteAt = $null
+                    try { $attemptSuiteAt = [datetime]::Parse([string]$attemptManifest.schedule.suite_at_local) } catch { }
+                    $attemptMissedSuite = (
+                        $null -ne $attemptSuiteAt -and $attemptSuiteAt -lt (Get-Date) -and
+                        $null -eq $suiteReceiptStatus -and $null -eq $closureStatus
+                    )
+                    $attemptState = Get-WeatherIntegrationAttemptState `
+                        -SuiteReceiptStatus $suiteReceiptStatus `
+                        -MergeReceiptStatus $mergeReceiptStatus `
+                        -ClosureStatus $closureStatus `
+                        -DispatchStatus $dispatchStatus `
+                        -ClaimStatus $claimStatus
                     $integrationAttemptState.Add([pscustomobject]@{
                             attempt_id = [string]$attemptManifest.attempt_id
                             state = $attemptState
@@ -1048,22 +1155,25 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                             manifest_path = $attemptManifestPath
                             recovery_dispatch = [string]$attemptManifest.evidence.recovery_dispatch
                             successor_attempt_id = $successorAttemptId
+                            task_state = $st
+                            evidence_age_hours = $attemptEvidenceAgeHours
+                            suite_trigger_missed = $attemptMissedSuite
                         })
-                    if ($attemptState -eq "FAILED_NEEDS_CLOSE") {
-                        $flags.Add("integration attempt $($attemptManifest.attempt_id) failed and must close its exact tasks")
-                    }
-                    elseif ($attemptState -eq "CLOSED_NEEDS_DISPATCH") {
-                        $flags.Add("integration attempt $($attemptManifest.attempt_id) is closed and needs reviewed recovery dispatch")
-                    }
-                    elseif ($attemptState -eq "RECOVERY_READY") {
-                        $flags.Add("integration attempt $($attemptManifest.attempt_id) recovery is ready for an active agent: $($attemptManifest.evidence.recovery_dispatch)")
-                    }
-                    elseif ($attemptState -eq "SUCCESSOR_CLAIMED") {
-                        $warns.Add("integration attempt $($attemptManifest.attempt_id) authorized successor $successorAttemptId")
-                    }
+                    $attemptAlert = Get-WeatherIntegrationAttemptAlertDisposition `
+                        -AttemptId ([string]$attemptManifest.attempt_id) `
+                        -State $attemptState `
+                        -TaskState $st `
+                        -EvidenceIsFresh $attemptEvidenceIsFresh `
+                        -SuiteTriggerMissed $attemptMissedSuite `
+                        -RecoveryDispatch ([string]$attemptManifest.evidence.recovery_dispatch) `
+                        -SuccessorAttemptId $successorAttemptId
+                    if ([string]$attemptAlert.Severity -eq "FLAG") { $flags.Add([string]$attemptAlert.Detail) }
+                    elseif ([string]$attemptAlert.Severity -eq "WARN") { $warns.Add([string]$attemptAlert.Detail) }
                 }
             }
-            catch { }
+            catch {
+                $flags.Add("integration attempt manifest $attemptManifestPath is unreadable or does not match its task-bound hash")
+            }
         }
     }
     if ($integratedExactTip) {
@@ -1559,7 +1669,9 @@ if ($Json) {
         integration_attempts = @($integrationAttemptState | ForEach-Object {
                 @{ attempt_id = $_.attempt_id; state = $_.state; expected_tip = $_.expected_tip
                     manifest_path = $_.manifest_path; recovery_dispatch = $_.recovery_dispatch
-                    successor_attempt_id = $_.successor_attempt_id }
+                    successor_attempt_id = $_.successor_attempt_id; task_state = $_.task_state
+                    evidence_age_hours = $_.evidence_age_hours
+                    suite_trigger_missed = $_.suite_trigger_missed }
             })
         overnight_wakes = @($overnightWakeState | ForEach-Object {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path

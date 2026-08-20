@@ -17,17 +17,6 @@ $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "integration_attempt_contract.ps1")
 
-function Get-WeatherAttemptLogVerdict {
-    param([Parameter(Mandatory = $true)][string]$Path)
-
-    $lines = @(Read-WeatherIntegrationSharedText -Path $Path -split "`r?`n" |
-        Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
-    if ($lines.Count -eq 0) {
-        throw "Attempt log is empty: $Path"
-    }
-    return [string]$lines[-1]
-}
-
 function Invoke-WeatherAttemptSuitePhase {
     param(
         [Parameter(Mandatory = $true)]
@@ -140,7 +129,7 @@ try {
     if ($preflightExitCode -ne 0) {
         throw "Integration preflight failed with exit code $preflightExitCode; full suite was not started."
     }
-    $preflightVerdict = Get-WeatherAttemptLogVerdict -Path $preflightLogPath
+    $preflightVerdict = Get-WeatherIntegrationLogVerdict -Path $preflightLogPath
     if ($preflightVerdict -notlike "*VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized") {
         throw "Integration preflight log is missing its exact PASS verdict."
     }
@@ -152,10 +141,8 @@ try {
     if ($fullSuiteExitCode -ne 0) {
         throw "Full suite failed with exit code $fullSuiteExitCode."
     }
-    $fullSuiteVerdict = Get-WeatherAttemptLogVerdict -Path $fullSuiteLogPath
-    if ($fullSuiteVerdict -notmatch 'VERDICT: ALL CHUNKS PASSED \([0-9]+/[0-9]+\); exact tip eligible for separate reviewed merge$') {
-        throw "Full suite log is missing its exact PASS verdict."
-    }
+    $fullSuiteVerdict = Get-WeatherIntegrationLogVerdict -Path $fullSuiteLogPath
+    Assert-WeatherIntegrationFullSuiteVerdict -Verdict $fullSuiteVerdict | Out-Null
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "full-suite completion" | Out-Null
     $status = "PASS"
 }
@@ -167,7 +154,7 @@ finally {
     $preflightLogRecord = $null
     if (Test-Path -LiteralPath $preflightLogPath -PathType Leaf) {
         if ($null -eq $preflightVerdict) {
-            try { $preflightVerdict = Get-WeatherAttemptLogVerdict -Path $preflightLogPath } catch { }
+            try { $preflightVerdict = Get-WeatherIntegrationLogVerdict -Path $preflightLogPath } catch { }
         }
         $preflightLogRecord = [ordered]@{
             path = $preflightLogPath
@@ -180,7 +167,7 @@ finally {
     $fullSuiteLogRecord = $null
     if (Test-Path -LiteralPath $fullSuiteLogPath -PathType Leaf) {
         if ($null -eq $fullSuiteVerdict) {
-            try { $fullSuiteVerdict = Get-WeatherAttemptLogVerdict -Path $fullSuiteLogPath } catch { }
+            try { $fullSuiteVerdict = Get-WeatherIntegrationLogVerdict -Path $fullSuiteLogPath } catch { }
         }
         $fullSuiteLogRecord = [ordered]@{
             path = $fullSuiteLogPath
@@ -217,8 +204,11 @@ finally {
             full_suite = $fullSuiteLogRecord
         }
         full_suite_started = ($null -ne $fullSuiteExitCode -or (Test-Path -LiteralPath $fullSuiteLogPath -PathType Leaf))
-        credential_value_read = $false
-        live_exchange_mutation_attempted = $false
+        safety = [ordered]@{
+            authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
+            credential_value_access_authorized = $false
+            live_exchange_mutation_authorized = $false
+        }
     }
     Write-WeatherIntegrationImmutableJson -Path $suiteReceiptPath -Payload $receipt
 }
