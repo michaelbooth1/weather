@@ -99,7 +99,10 @@ The manifest freezes hashes for every repository-owned PowerShell dependency
 used by registration, suite containment, workload admission, roll verdict,
 merge, recovery dispatch, and downstream validation. An unreviewed helper
 change between registration and execution therefore fails closed, not only a
-change to the top-level wrapper.
+change to the top-level wrapper. It also freezes the exact worktree's tracked
+pytest-file count, 20-file chunk size, and derived chunk count; both the
+full-suite plan line and final equal, nonzero `n/n` verdict must match that
+inventory. Ignored or untracked `test_*.py` files cannot inflate the plan.
 
 Record the printed manifest SHA256. Registration is an external scheduler
 change and requires explicit operator authorization:

@@ -188,6 +188,15 @@ $worktreeStatus = Invoke-WeatherGitLine -Root $WorktreeRoot -Arguments @("status
 if (-not [string]::IsNullOrWhiteSpace($worktreeStatus)) {
     throw "Suite worktree must be clean before an attempt is frozen."
 }
+$expectedTestFileCount = @(
+    (Invoke-WeatherGitLine -Root $WorktreeRoot -Arguments @("ls-files", "--", "tests")) -split "`r?`n" |
+        Where-Object { ([string]$_).Replace("\", "/") -match '^tests/(?:.*/)?test_[^/]*\.py$' }
+).Count
+if ($expectedTestFileCount -le 0) {
+    throw "The exact suite worktree contains no pytest files to freeze."
+}
+$maxFilesPerChunk = 20
+$expectedChunkCount = [int][math]::Ceiling($expectedTestFileCount / [double]$maxFilesPerChunk)
 
 if ($RepairClass -ne "initial") {
     & git -C $RepoRoot merge-base --is-ancestor $priorTip $ExpectedTip
@@ -295,6 +304,9 @@ $manifest = [ordered]@{
     suite = [ordered]@{
         additional_python_path = $AdditionalPythonPath
         require_live_sdk_contract = [bool]$RequireLiveSdkContract
+        expected_test_file_count = $expectedTestFileCount
+        max_files_per_chunk = $maxFilesPerChunk
+        expected_chunk_count = $expectedChunkCount
     }
     orchestration = $orchestration
     evidence = [ordered]@{

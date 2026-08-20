@@ -238,13 +238,15 @@ try {
         }
     }
     else {
-        $testRoot = Join-Path $WorktreeRoot "tests"
+        $trackedTestFiles = @(& git -C $WorktreeRoot ls-files -- tests)
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not enumerate tracked pytest files from the exact worktree"
+        }
         $testFiles = @(
-            Get-ChildItem -LiteralPath $testRoot -Recurse -File -Filter "test_*.py" |
-                Sort-Object FullName |
-                ForEach-Object {
-                    $_.FullName.Substring($WorktreeRoot.Length + 1).Replace("\", "/")
-                }
+            $trackedTestFiles |
+                ForEach-Object { ([string]$_).Replace("\", "/") } |
+                Where-Object { $_ -match '^tests/(?:.*/)?test_[^/]*\.py$' } |
+                Sort-Object
         )
     }
     if ($testFiles.Count -eq 0) { throw "no pytest files found in exact worktree" }

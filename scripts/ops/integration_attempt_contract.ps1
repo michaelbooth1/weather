@@ -69,7 +69,9 @@ function Get-WeatherIntegrationLogVerdict {
 function Assert-WeatherIntegrationFullSuiteVerdict {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Verdict
+        [string]$Verdict,
+        [ValidateRange(0, 100000)]
+        [int]$ExpectedChunkCount = 0
     )
 
     $match = [regex]::Match(
@@ -81,10 +83,39 @@ function Assert-WeatherIntegrationFullSuiteVerdict {
     }
     $passed = [int]$match.Groups["passed"].Value
     $planned = [int]$match.Groups["planned"].Value
-    if ($passed -le 0 -or $passed -ne $planned) {
+    if ($passed -le 0 -or $passed -ne $planned -or
+        ($ExpectedChunkCount -gt 0 -and $planned -ne $ExpectedChunkCount)) {
         throw "Full suite PASS verdict has an invalid chunk ratio: $passed/$planned"
     }
     return $planned
+}
+
+function Assert-WeatherIntegrationFullSuiteLogPlan {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 1000000)][int]$ExpectedTestFileCount,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 25)][int]$ExpectedMaxFilesPerChunk,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 100000)][int]$ExpectedChunkCount
+    )
+
+    $text = Read-WeatherIntegrationSharedText -Path $Path
+    $matches = [regex]::Matches(
+        $text,
+        '(?m)planned chunks=(?<chunks>[0-9]+) files=(?<files>[0-9]+) max_files=(?<max>[0-9]+)\r?$'
+    )
+    if ($matches.Count -ne 1) {
+        throw "Full suite log must contain exactly one immutable test plan."
+    }
+    $match = $matches[0]
+    $chunks = [int]$match.Groups["chunks"].Value
+    $files = [int]$match.Groups["files"].Value
+    $maxFiles = [int]$match.Groups["max"].Value
+    if ($files -ne $ExpectedTestFileCount -or
+        $maxFiles -ne $ExpectedMaxFilesPerChunk -or
+        $chunks -ne $ExpectedChunkCount) {
+        throw "Full suite test plan does not match the frozen manifest: chunks=$chunks files=$files max_files=$maxFiles"
+    }
+    return [pscustomobject]@{ Chunks = $chunks; Files = $files; MaxFilesPerChunk = $maxFiles }
 }
 
 function Read-WeatherIntegrationSharedJson {
@@ -389,6 +420,14 @@ function Assert-WeatherIntegrationAttemptManifest {
         [string]$manifest.baseline.master -ne [string]$manifest.baseline.origin_master) {
         throw "Attempt baseline does not bind equal production and origin tips."
     }
+    $expectedTestFileCount = [int]$manifest.suite.expected_test_file_count
+    $maxFilesPerChunk = [int]$manifest.suite.max_files_per_chunk
+    $expectedChunkCount = [int]$manifest.suite.expected_chunk_count
+    if ($expectedTestFileCount -le 0 -or $maxFilesPerChunk -lt 1 -or
+        $maxFilesPerChunk -gt 25 -or $expectedChunkCount -le 0 -or
+        $expectedChunkCount -ne [int][math]::Ceiling($expectedTestFileCount / [double]$maxFilesPerChunk)) {
+        throw "Attempt suite inventory is missing or internally inconsistent."
+    }
 
     $attemptRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.attempt_root)
     $manifestParent = Resolve-WeatherIntegrationPath -Path (Split-Path -Parent $resolvedManifestPath)
@@ -590,7 +629,14 @@ function Assert-WeatherIntegrationSuiteReceipt {
     if ([string]$receipt.logs.preflight.verdict -notlike "*VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized") {
         throw "Suite receipt preflight verdict is not exact."
     }
-    Assert-WeatherIntegrationFullSuiteVerdict -Verdict ([string]$receipt.logs.full_suite.verdict) | Out-Null
+    Assert-WeatherIntegrationFullSuiteVerdict `
+        -Verdict ([string]$receipt.logs.full_suite.verdict) `
+        -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
+    Assert-WeatherIntegrationFullSuiteLogPlan `
+        -Path ([string]$receipt.logs.full_suite.path) `
+        -ExpectedTestFileCount ([int]$manifest.suite.expected_test_file_count) `
+        -ExpectedMaxFilesPerChunk ([int]$manifest.suite.max_files_per_chunk) `
+        -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
 
     $scriptBindings = [ordered]@{
         bounded_suite = $manifest.orchestration.bounded_suite

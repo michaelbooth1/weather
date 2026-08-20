@@ -62,6 +62,10 @@ def test_attempt_manifest_freezes_evidence_not_the_entire_night() -> None:
     assert "recovery_dispatch" in creator
     assert "suite_at_local" in creator
     assert "merge_at_local" in creator
+    assert "expected_test_file_count" in creator
+    assert "max_files_per_chunk" in creator
+    assert "expected_chunk_count" in creator
+    assert '@("ls-files", "--", "tests")' in creator
     assert "quiet_merge_report" in creator
     assert "git reset" not in creator.lower()
     assert "git push" not in creator.lower()
@@ -99,6 +103,7 @@ def test_attempt_suite_runs_ratchets_before_full_suite_and_freezes_receipt() -> 
     assert "Write-WeatherIntegrationImmutableJson -Path $suiteReceiptPath" in suite
     assert "Get-WeatherIntegrationLogVerdict" in suite
     assert "Assert-WeatherIntegrationFullSuiteVerdict" in suite
+    assert "Assert-WeatherIntegrationFullSuiteLogPlan" in suite
     assert "Get-WeatherAttemptLogVerdict" not in suite
     assert "git merge" not in suite.lower()
     assert "git push" not in suite.lower()
@@ -287,6 +292,13 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
             "suite_task_name": "WeatherIntegrationSuite_dispatch-test",
             "merge_task_name": "WeatherIntegrationMerge_dispatch-test",
         },
+        "suite": {
+            "additional_python_path": "",
+            "require_live_sdk_contract": False,
+            "expected_test_file_count": 40,
+            "max_files_per_chunk": 20,
+            "expected_chunk_count": 2,
+        },
         "baseline": {"master": zeros, "origin_master": zeros},
         "orchestration": {
             name: {
@@ -409,6 +421,13 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
             "merge_at_local": "2026-08-21T01:00:00",
             "suite_task_name": "WeatherIntegrationSuite_close-test",
             "merge_task_name": "WeatherIntegrationMerge_close-test",
+        },
+        "suite": {
+            "additional_python_path": "",
+            "require_live_sdk_contract": False,
+            "expected_test_file_count": 40,
+            "max_files_per_chunk": 20,
+            "expected_chunk_count": 2,
         },
         "baseline": {"master": zeros, "origin_master": zeros},
         "evidence": {
@@ -542,6 +561,13 @@ def test_manifest_contract_accepts_canonical_paths_and_rejects_tampering(
             "merge_at_local": "2026-08-21T01:00:00",
             "suite_task_name": "WeatherIntegrationSuite_attempt-001",
             "merge_task_name": "WeatherIntegrationMerge_attempt-001",
+        },
+        "suite": {
+            "additional_python_path": "",
+            "require_live_sdk_contract": False,
+            "expected_test_file_count": 40,
+            "max_files_per_chunk": 20,
+            "expected_chunk_count": 2,
         },
         "baseline": {"master": zeros, "origin_master": zeros},
         "evidence": {
@@ -692,7 +718,12 @@ def test_log_verdict_helper_executes_and_rejects_false_chunk_ratios(
 $ErrorActionPreference = 'Stop'
 . $env:WEATHER_ATTEMPT_CONTRACT
 $verdict = Get-WeatherIntegrationLogVerdict -Path $env:WEATHER_ATTEMPT_LOG
-$chunks = Assert-WeatherIntegrationFullSuiteVerdict -Verdict $verdict
+$chunks = Assert-WeatherIntegrationFullSuiteVerdict -Verdict $verdict -ExpectedChunkCount 2
+$plan = Assert-WeatherIntegrationFullSuiteLogPlan `
+    -Path $env:WEATHER_ATTEMPT_LOG `
+    -ExpectedTestFileCount 40 `
+    -ExpectedMaxFilesPerChunk 20 `
+    -ExpectedChunkCount 2
 $mismatchRejected = $false
 try {
     Assert-WeatherIntegrationFullSuiteVerdict `
@@ -708,6 +739,7 @@ catch { $zeroRejected = $_.Exception.Message -like '*invalid chunk ratio*' }
 [pscustomobject]@{
     verdict = $verdict
     chunks = $chunks
+    planned_files = $plan.Files
     mismatch_rejected = $mismatchRejected
     zero_rejected = $zeroRejected
 } | ConvertTo-Json -Compress
@@ -724,6 +756,7 @@ catch { $zeroRejected = $_.Exception.Message -like '*invalid chunk ratio*' }
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert payload["chunks"] == 2
+    assert payload["planned_files"] == 40
     assert payload["verdict"].endswith(
         "VERDICT: ALL CHUNKS PASSED (2/2); "
         "exact tip eligible for separate reviewed merge"
@@ -897,6 +930,13 @@ def test_repair_manifest_requires_exact_single_successor_claim(tmp_path: Path) -
             "suite_task_name": "WeatherIntegrationSuite_prior",
             "merge_task_name": "WeatherIntegrationMerge_prior",
         },
+        "suite": {
+            "additional_python_path": "",
+            "require_live_sdk_contract": False,
+            "expected_test_file_count": 40,
+            "max_files_per_chunk": 20,
+            "expected_chunk_count": 2,
+        },
         "baseline": {"master": zeros, "origin_master": zeros},
         "evidence": evidence(prior_root),
     }
@@ -953,6 +993,13 @@ def test_repair_manifest_requires_exact_single_successor_claim(tmp_path: Path) -
             "merge_at_local": "2026-08-21T01:00:00",
             "suite_task_name": "WeatherIntegrationSuite_current",
             "merge_task_name": "WeatherIntegrationMerge_current",
+        },
+        "suite": {
+            "additional_python_path": "",
+            "require_live_sdk_contract": False,
+            "expected_test_file_count": 40,
+            "max_files_per_chunk": 20,
+            "expected_chunk_count": 2,
         },
         "baseline": {"master": zeros, "origin_master": zeros},
         "evidence": evidence(current_root),
@@ -1053,7 +1100,14 @@ def test_creator_rejects_equal_tree_commit_and_claims_one_exact_retry(
     )
     for name in required:
         shutil.copy2(OPS / name, temp_ops / name)
-    subprocess.run(["git", "-C", str(repo_root), "add", "scripts"], check=True)
+    temp_tests = repo_root / "tests"
+    temp_tests.mkdir()
+    (temp_tests / "test_example.py").write_text(
+        "def test_example():\n    assert True\n", encoding="utf-8"
+    )
+    subprocess.run(
+        ["git", "-C", str(repo_root), "add", "scripts", "tests"], check=True
+    )
     subprocess.run(
         ["git", "-C", str(repo_root), "commit", "-m", "baseline"],
         check=True,

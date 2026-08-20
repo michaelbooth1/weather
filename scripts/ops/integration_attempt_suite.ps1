@@ -35,7 +35,8 @@ function Invoke-WeatherAttemptSuitePhase {
         "-WorktreeRoot", [string]$manifest.worktree_root,
         "-ExpectedTip", [string]$manifest.expected_tip,
         "-BranchRef", [string]$manifest.branch_ref,
-        "-LogPath", $LogPath
+        "-LogPath", $LogPath,
+        "-MaxFilesPerChunk", [string]$manifest.suite.max_files_per_chunk
     )
     if (-not [string]::IsNullOrWhiteSpace([string]$manifest.suite.additional_python_path)) {
         $tokens += @("-AdditionalPythonPath", [string]$manifest.suite.additional_python_path)
@@ -142,7 +143,14 @@ try {
         throw "Full suite failed with exit code $fullSuiteExitCode."
     }
     $fullSuiteVerdict = Get-WeatherIntegrationLogVerdict -Path $fullSuiteLogPath
-    Assert-WeatherIntegrationFullSuiteVerdict -Verdict $fullSuiteVerdict | Out-Null
+    Assert-WeatherIntegrationFullSuiteVerdict `
+        -Verdict $fullSuiteVerdict `
+        -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
+    Assert-WeatherIntegrationFullSuiteLogPlan `
+        -Path $fullSuiteLogPath `
+        -ExpectedTestFileCount ([int]$manifest.suite.expected_test_file_count) `
+        -ExpectedMaxFilesPerChunk ([int]$manifest.suite.max_files_per_chunk) `
+        -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "full-suite completion" | Out-Null
     $status = "PASS"
 }

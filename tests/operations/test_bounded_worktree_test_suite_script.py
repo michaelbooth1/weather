@@ -20,6 +20,8 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "worktree list --porcelain" in text
     assert "status --porcelain" in text
     assert "suite worktree is dirty" in text
+    assert "ls-files -- tests" in text
+    assert "Get-ChildItem -LiteralPath $testRoot" not in text
     assert "$env:PYTHONPATH = Join-Path $WorktreeRoot \"src\"" in text
     assert "AdditionalPythonPath" in text
     assert "$additionalPythonRoots" in text
