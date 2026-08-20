@@ -21,10 +21,18 @@ These instructions apply to `scripts/ops/`.
   executable task logic. Merge queues use `merge_queue_driver.ps1` and bind
   every approved branch to a full reviewed SHA; movable branch-only queues are
   unsupported.
-- A scheduled roll-sensitive merge that depends on a bounded full suite uses
-  `suite_gated_quiet_merge.ps1`. Bind its task action, log, branch, and full tip;
-  a task exit code without the correlated exact full-suite verdict is not merge
-  evidence.
+- New scheduled integrations use `new_integration_attempt.ps1` and
+  `register_integration_attempt.ps1`. Each attempt binds a reviewed full tip,
+  isolated worktree, orchestration hashes, unique one-shot task names, logs,
+  and receipts. A failed attempt stays immutable; repair creates a new attempt
+  under the enforced class in the integration-attempt runbook. Existing
+  scheduled roll-sensitive work may retain `suite_gated_quiet_merge.ps1`, but
+  a task exit code without the correlated exact full-suite verdict is never
+  merge evidence.
+- Do not add `StartWhenAvailable` to integration-attempt tasks. A missed
+  one-shot must fail visibly instead of waking in a protected window. Closing
+  a crashed attempt may disable only its exact hash-bound, non-running tasks;
+  it never deletes or replaces them.
 - `quiet_window_merge.ps1` must record the exact local merge through
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight
@@ -55,6 +63,8 @@ After a held producer's roll-sensitive repair, use
 `adopt_execution_tape_after_merge.ps1`; it binds adoption to the exact guarded
 merge, remote/local master agreement, core capture recovery, scheduler
 identity, and worker/status/lock proof, and tears back down on disagreement.
+For an integration-attempt merge it additionally requires the manifest and
+merge-receipt SHA256 values and calls the read-only downstream gate.
 
 Choose one retraining topology per host:
 

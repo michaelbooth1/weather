@@ -301,6 +301,25 @@ the production venv.
 It never merges, pushes, checks out, registers a task, or writes production
 data; a full PASS is evidence for a separate reviewed merge, not the merge.
 
+New overnight integrations compose that primitive through the immutable
+attempt workflow in `INTEGRATION_ATTEMPT_RUNBOOK.md`. Each attempt runs a
+repository-owned deterministic ratchet set before the full suite, writes
+hash-bound logs and a suite receipt, and gives a separate one-shot merge task
+authority only when the exact full-suite receipt is PASS. The manifest also
+binds the installed orchestration hashes, task actions, branch tip, isolated
+worktree, and canonical evidence paths.
+
+Attempt immutability is narrower than night immutability. A failure keeps its
+manifest, logs, task names, and receipts forever; a reviewed repair creates a
+new attempt namespace. One unchanged-tip retry is allowed for a classified
+transient failure, while mechanical schema, ownership, and wrapper repairs are
+limited by Git path/status allowlists. A second consecutive unchanged retry is
+refused. If a wrapper dies before emitting a receipt, the closer validates and
+disables only the exact non-running attempt tasks before writing an immutable
+closure receipt. Downstream work consumes the per-attempt merge receipt and
+rechecks current capture plus `master == origin/master`; a mutable latest
+report or generic task exit code is insufficient.
+
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This
 keeps shared pre-promotion producers available to learning without allowing

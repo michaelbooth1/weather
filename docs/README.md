@@ -21,6 +21,7 @@ record that is valuable evidence but not current instruction.
 | End-to-end project operation | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
 | Bounded International market-making live test | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) | Canonical runbook |
 | **Capture streak, quiet-window merges, host safety** | [Code-soak streak runbook](ops/streak-soak.md) | Canonical runbook |
+| **Overnight integration and recovery** | [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
 | Agent decision log and cross-host correspondence | `roadmap/workstation-handoff-*.md`, `roadmap/agent-report-*.md` | Dated evidence; newest is current |

@@ -980,7 +980,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     $isQuietMergeAction = (
         $actionArguments -like "*quiet_window_merge.ps1*" -or
-        $actionArguments -like "*suite_gated_quiet_merge.ps1*"
+        $actionArguments -like "*suite_gated_quiet_merge.ps1*" -or
+        $actionArguments -like "*integration_attempt_merge.ps1*"
     )
     # A replaced exact-tip quiet merge is spent evidence once that reviewed
     # object is already in production history, whether Task Scheduler retains
@@ -989,11 +990,39 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     # An unmerged or unreadable tip remains anomalous.
     $integratedExactTipMerge = $false
     $integratedExactTip = $null
-    if (
-        $isQuietMergeAction -and
-        $actionArguments -match '(?i)(?:^|\s)-ExpectedTip\s+([0-9a-f]{40})(?:\s|$)'
-    ) {
+    if ($isQuietMergeAction -and
+        $actionArguments -match '(?i)(?:^|\s)-ExpectedTip\s+([0-9a-f]{40})(?:\s|$)') {
         $integratedExactTip = $Matches[1].ToLowerInvariant()
+    }
+    elseif ($actionArguments -like "*integration_attempt_merge.ps1*") {
+        $manifestMatch = [regex]::Match(
+            $actionArguments,
+            '(?i)(?:^|\s)-ManifestPath\s+(?:"([^"]+)"|(\S+))'
+        )
+        $manifestHashMatch = [regex]::Match(
+            $actionArguments,
+            '(?i)(?:^|\s)-ExpectedManifestSha256\s+([0-9a-f]{64})(?:\s|$)'
+        )
+        if ($manifestMatch.Success -and $manifestHashMatch.Success) {
+            $attemptManifestPath = if ($manifestMatch.Groups[1].Success) {
+                $manifestMatch.Groups[1].Value
+            } else {
+                $manifestMatch.Groups[2].Value
+            }
+            $attemptManifestHash = $manifestHashMatch.Groups[1].Value
+            try {
+                $actualAttemptManifestHash = (Get-FileHash -LiteralPath $attemptManifestPath -Algorithm SHA256).Hash
+                $attemptManifest = Get-Content -LiteralPath $attemptManifestPath -Raw | ConvertFrom-Json
+                if ($actualAttemptManifestHash -ieq $attemptManifestHash -and
+                    [string]$attemptManifest.schema -eq "weather_integration_attempt_manifest_v1" -and
+                    [string]$attemptManifest.expected_tip -match '^[0-9a-f]{40}$') {
+                    $integratedExactTip = [string]$attemptManifest.expected_tip
+                }
+            }
+            catch { }
+        }
+    }
+    if ($integratedExactTip) {
         & git -C $repo merge-base --is-ancestor $integratedExactTip HEAD 2>$null
         $integratedExactTipMerge = ($LASTEXITCODE -eq 0)
     }

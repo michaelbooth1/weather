@@ -76,6 +76,7 @@ infrastructure work remains.
 | 15 | [Reproducible Backfills [COMPLETE]](items/item-15-reproducible-backfills.md) |
 | 16 | [Background Process Management [COMPLETE]](items/item-16-background-process-management.md) |
 | 17 | [Error Handling And Caching [COMPLETE]](items/item-17-error-handling-and-caching.md) |
+| 329 | [Immutable Overnight Integration Attempt Recovery [PARTIAL 2026-08-20 - WORKFLOW IMPLEMENTED; VERIFICATION AND HOST ADOPTION PENDING]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
 
 ### Market Expansion
 

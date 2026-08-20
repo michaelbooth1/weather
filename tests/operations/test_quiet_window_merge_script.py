@@ -14,6 +14,8 @@ def test_quiet_merge_can_bind_a_reviewed_exact_tip() -> None:
     script = _script_text()
 
     assert '[string]$ExpectedTip = ""' in script
+    assert "$RepoRoot = (Split-Path -Parent" in script
+    assert "$repo = (Resolve-Path -LiteralPath $RepoRoot" in script
     assert "ExpectedTip must be a full 40-character hexadecimal commit SHA" in script
     assert "$verdictRef = $(if ($ExpectedTip) { $ExpectedTip } else { $Branch })" in script
     assert "if ($resolvedBranchTip -ne $ExpectedTip)" in script

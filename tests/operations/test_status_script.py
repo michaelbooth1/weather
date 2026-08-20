@@ -60,6 +60,8 @@ def test_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
     assert "$integratedExactTipMerge = $false" in text
     assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
     assert '$actionArguments -like "*suite_gated_quiet_merge.ps1*"' in text
+    assert '$actionArguments -like "*integration_attempt_merge.ps1*"' in text
+    assert "weather_integration_attempt_manifest_v1" in text
     assert "$isQuietMergeAction -and" in text
     assert "-ExpectedTip\\s+([0-9a-f]{40})" in text
     assert "merge-base --is-ancestor $integratedExactTip HEAD" in text

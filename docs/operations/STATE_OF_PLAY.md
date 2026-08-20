@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-19 10:07 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-20 10:00 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -27,6 +27,7 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Public execution tape | Producer PID/lock/identity are current, `CONNECTED`, and integrity `PASS`. Historical gaps keep the accumulated full path unusable. The planned continuous-observation task was downstream of the absent successor and produced no receipt. |
 | Settlement | August 16 and August 18 carry real 12/12 settlement. August 17 remains the sole recent hole and will not self-heal. The August 16 recovery continued into unrelated chain work, hit bounded teardown, and left stale locks; the August 17 wrapper then refused on file existence. |
 | Host hardening | A new isolated branch adds clean stop-after-finalize recovery, PID-creation lock identity, contained/observable tiering, and honest status. It is not production until a fresh immutable suite and guarded merge pass. |
+| Integration procedure | Item 329 redesigns the failed whole-night tip freeze as immutable per-attempt evidence with a fast deterministic preflight, one bounded unchanged retry, scoped reviewed repair attempts, crash closure, and hash-bound downstream proof. It is isolated on `codex/integration-attempt-recovery`; 53 focused contracts, PowerShell parsing, compileall, roadmap lint, and the docs audit pass. The repository verdict is roll-free with zero importable files. The full suite, merge, and explicit scheduler adoption remain open; no task has been registered or started. |
 | Disk | The 24 h and 48 h slopes are both adverse. Scheduled projection and raw-tape tiering returned Scheduler zero but durably recorded `SKIPPED_WORKLOAD_LEASE_BUSY`; retry them in the next serialized heavy window. |
 | Documentation | The parent integration transaction is overdue until this rewrite, owning roadmap updates, publication, and its hash-bound completion receipt all land. A failed later successor does not erase the successful parent merge. |
 
@@ -52,15 +53,17 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 ## Immediate execution order
 
 1. Close and publish the parent documentation transaction from actual receipts.
-2. Freeze one cumulative branch containing current production, the original
-   successor, and the lock/backfill/tiering/recovery hardening. Run focused
-   checks plus a fresh exact-tip full suite.
-3. Merge that roll-sensitive cumulative tip only during 01:00-04:00, prove all
+2. Verify and land the roll-free item 329 procedure, then explicitly adopt its
+   registrar; editing the scripts alone changes no scheduled task.
+3. Create one immutable attempt for the cumulative branch containing current
+   production, the original successor, and the lock/backfill/tiering/recovery
+   hardening. Run its deterministic preflight and fresh exact-tip full suite.
+4. Merge that roll-sensitive cumulative tip only during 01:00-04:00, prove all
    capture workers recovered, and publish only through `WeatherOneShotPush`.
-4. Observe the adopted execution producer without a second writer; recover
+5. Observe the adopted execution producer without a second writer; recover
    August 17 through the stop-after-finalize path; require explicit PASS
    receipts for both before another paper candidate.
-5. After physical relocation, rerun public metadata/economics/candidate and the
+6. After physical relocation, rerun public metadata/economics/candidate and the
    full eligible-host Stage 0/1 sequence before considering bounded Stage 2.
 
 ## Host and workflow state
@@ -77,6 +80,6 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Update this file when
 
-Rewrite after cumulative-successor integration, August 17 recovery, fresh
-candidate selection, eligible-location readiness, or a live lifecycle result.
+Rewrite after item 329 adoption, cumulative-successor integration, August 17
+recovery, fresh candidate selection, eligible-location readiness, or a live lifecycle result.
 Remove superseded state rather than appending another handoff.

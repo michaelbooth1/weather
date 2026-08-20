@@ -26,7 +26,8 @@ param(
     [string]$AdditionalPythonPath = "",
     [switch]$RequireLiveSdkContract,
     [switch]$PreflightOnly,
-    [switch]$SmokeTest
+    [switch]$SmokeTest,
+    [switch]$IntegrationPreflight
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +41,11 @@ if (-not (Test-Path -LiteralPath $logParent -PathType Container)) {
 }
 if ($StartCommitPercent -ge $AbortCommitPercent) {
     throw "StartCommitPercent must be lower than AbortCommitPercent"
+}
+$selectedModes = @(@($PreflightOnly.IsPresent, $SmokeTest.IsPresent, $IntegrationPreflight.IsPresent) |
+    Where-Object { $_ })
+if ($selectedModes.Count -gt 1) {
+    throw "PreflightOnly, SmokeTest, and IntegrationPreflight are mutually exclusive."
 }
 if ($WorktreeRoot -eq $RepoRoot) {
     throw "bounded suite must use an isolated worktree, not production"
@@ -142,7 +148,7 @@ function Assert-HostAdmission {
 
 Write-SuiteLog "=== bounded worktree suite starting ==="
 Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
-Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent)"
+Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
 
 $localNow = Get-Date
 $localMinute = ($localNow.Hour * 60) + $localNow.Minute
@@ -207,14 +213,40 @@ try {
         exit 0
     }
 
-    $testRoot = Join-Path $WorktreeRoot "tests"
-    $testFiles = @(
-        Get-ChildItem -LiteralPath $testRoot -Recurse -File -Filter "test_*.py" |
-            Sort-Object FullName |
-            ForEach-Object {
-                $_.FullName.Substring($WorktreeRoot.Length + 1).Replace("\", "/")
+    if ($IntegrationPreflight) {
+        # Keep the deterministic ratchets that have repeatedly caught cumulative-tip
+        # integration defects ahead of the expensive full suite. This list is
+        # repository-owned and deliberately contains no network or live-data tests.
+        $testFiles = @(
+            "tests/operations/test_schema_registry.py",
+            "tests/operations/test_module_size_audit.py",
+            "tests/operations/test_import_architecture.py",
+            "tests/operations/test_agent_docs_audit.py",
+            "tests/operations/test_bounded_worktree_test_suite_script.py",
+            "tests/operations/test_integration_attempt_scripts.py",
+            "tests/operations/test_suite_gated_quiet_merge_script.py",
+            "tests/operations/test_quiet_window_merge_script.py",
+            "tests/operations/test_host_task_wrappers.py",
+            "tests/reporting/test_roadmap_backlog.py",
+            "tests/app/test_app_roadmap.py"
+        )
+        foreach ($relativeTestPath in $testFiles) {
+            $absoluteTestPath = Join-Path $WorktreeRoot $relativeTestPath.Replace("/", "\")
+            if (-not (Test-Path -LiteralPath $absoluteTestPath -PathType Leaf)) {
+                throw "integration preflight ratchet is missing: $relativeTestPath"
             }
-    )
+        }
+    }
+    else {
+        $testRoot = Join-Path $WorktreeRoot "tests"
+        $testFiles = @(
+            Get-ChildItem -LiteralPath $testRoot -Recurse -File -Filter "test_*.py" |
+                Sort-Object FullName |
+                ForEach-Object {
+                    $_.FullName.Substring($WorktreeRoot.Length + 1).Replace("\", "/")
+                }
+        )
+    }
     if ($testFiles.Count -eq 0) { throw "no pytest files found in exact worktree" }
     if ($SmokeTest) {
         $testFiles = @($testFiles | Select-Object -First ([math]::Min(2, $testFiles.Count)))
@@ -278,6 +310,10 @@ try {
     }
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
+        exit 0
+    }
+    if ($IntegrationPreflight) {
+        Write-SuiteLog "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
         exit 0
     }
     Write-SuiteLog "VERDICT: ALL CHUNKS PASSED ($($chunks.Count)/$($chunks.Count)); exact tip eligible for separate reviewed merge"

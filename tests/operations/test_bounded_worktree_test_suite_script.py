@@ -37,6 +37,9 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "New-WeatherKillOnCloseJob" in text
     assert "--junitxml" in text
     assert "VERDICT: ALL CHUNKS PASSED" in text
+    assert "IntegrationPreflight" in text
+    assert "test_schema_registry.py" in text
+    assert "VERDICT: INTEGRATION PREFLIGHT PASSED" in text
     assert "git merge" not in text
     assert "git push" not in text
     assert "git checkout" not in text

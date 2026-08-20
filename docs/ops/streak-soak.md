@@ -282,6 +282,14 @@ begin`. Failure leaves the merge local and unpushed. Successful stacked merges
 accumulate in one hash-bound pending transaction whose completion is due by
 09:00; see `docs/documentation-maintenance.md`.
 
+For new scheduled integrations, do not schedule this wrapper directly and do
+not freeze one branch tip as the only permissible state for the whole night.
+Use the [immutable integration-attempt runbook](../operations/INTEGRATION_ATTEMPT_RUNBOOK.md).
+Its merge task still delegates the actual roll, rollback, documentation
+transaction, and push to `quiet_window_merge.ps1`, but first requires the
+hash-bound preflight and full-suite receipts. A failed attempt remains frozen;
+a reviewed repair receives a new attempt id and cannot rewrite the old proof.
+
 Two behaviours that are easy to get wrong, both found by testing it before its first real run:
 
 - **The tracked tree is dirty most nights.** `WeatherLocationConfigRefresh` rewrites

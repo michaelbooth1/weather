@@ -16,6 +16,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
     [string]$ExpectedTip = "",
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [switch]$Force,
     [switch]$DryRun,
     [int]$SettleSeconds = 300,
@@ -23,7 +24,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repo = "C:\Users\micha\Desktop\github\weather"
+$repo = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $py = Join-Path $repo "venv\Scripts\python.exe"
 $workloadLeaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
 . $workloadLeaseScript
