@@ -1111,4 +1111,32 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Atomic global and per-market-day execution-tape counter naming physical sources, every-asset inbound coverage, evidence loss, non-unique identity limits, and received-time price-path interpretation.",
     ),
+    SchemaSpec(
+        "documentation_transaction_pending",
+        "documentation_transaction_pending_v0.1",
+        "weather.operations.documentation_transaction",
+        "active",
+        "Atomic pending-documentation state binding one or more guarded integrations to a single hash-addressed morning closeout deadline.",
+    ),
+    SchemaSpec(
+        "documentation_transaction_completion_manifest",
+        "documentation_transaction_completion_manifest_v0.1",
+        "weather.operations.documentation_transaction",
+        "active",
+        "Operator-reviewed completion manifest binding the documentation tip, pending-state hash, integration tips, reviewed documents, and durable evidence.",
+    ),
+    SchemaSpec(
+        "documentation_transaction_receipt",
+        "documentation_transaction_receipt_v0.1",
+        "weather.operations.documentation_transaction",
+        "active",
+        "Immutable successful documentation closeout receipt with exact Git ancestry, evidence hashes, and verification results.",
+    ),
+    SchemaSpec(
+        "documentation_transaction_latest",
+        "documentation_transaction_latest_v0.1",
+        "weather.operations.documentation_transaction",
+        "active",
+        "Atomic latest pointer binding the current pending-state hash and documentation tip to an immutable closeout receipt.",
+    ),
 )
