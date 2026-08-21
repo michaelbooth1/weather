@@ -93,8 +93,13 @@ def test_integration_attempt_recovery_states_are_operator_visible() -> None:
     assert 'task_state = $_.task_state' in text
     assert 'suite_task_state = $_.suite_task_state' in text
     assert "$suiteObservation = Get-WeatherIntegrationSuiteObservation" in text
+    assert "$mergeObservation = Get-WeatherIntegrationMergeObservation" in text
     assert "$attemptMissedSuite = [bool]$suiteObservation.TriggerMissed" in text
     assert "Test-WeatherIntegrationSuiteTriggerMissed" in text
+    assert "suite_ran_without_receipt" in text
+    assert "merge_receipt_missing_after_trigger" in text
+    assert "-SuiteRanWithoutReceipt ([bool]$suiteObservation.RanWithoutReceipt)" in text
+    assert "-MergeReceiptMissingAfterTrigger ([bool]$mergeObservation.ReceiptMissingAfterTrigger)" in text
     assert "unreadable or does not match its task-bound hash" in text
     assert "missed its suite trigger and has no receipt" in text
     assert "integration_attempts =" in text
@@ -140,6 +145,9 @@ $cases = @(
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $merged -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $reconciled -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $false
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $reconciled -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false -SuiteRanWithoutReceipt $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false -MergeReceiptMissingAfterTrigger $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $false -SuiteTriggerMissed $false -SuiteRanWithoutReceipt $true -MergeReceiptMissingAfterTrigger $true
 )
 [pscustomobject]@{
     states = @($failed, $recovery, $merged, $reconciled)
@@ -172,11 +180,16 @@ $cases = @(
             "FLAG",
             "WARN",
             "NONE",
+            "FLAG",
+            "FLAG",
+            "WARN",
         ],
     }
 
 
-def test_running_suite_and_preflight_evidence_do_not_look_missed(tmp_path: Path) -> None:
+def test_attempt_observation_distinguishes_running_interrupted_and_missed(
+    tmp_path: Path,
+) -> None:
     preflight = tmp_path / "preflight.log"
     preflight.write_text("started\n", encoding="utf-8")
     env = os.environ.copy()
@@ -200,7 +213,8 @@ if (@($errors).Count -ne 0) { throw 'status script did not parse' }
 foreach ($name in @(
     'Get-WeatherIntegrationSuiteRuntimeState',
     'Test-WeatherIntegrationSuiteTriggerMissed',
-    'Get-WeatherIntegrationSuiteObservation'
+    'Get-WeatherIntegrationSuiteObservation',
+    'Get-WeatherIntegrationMergeObservation'
 )) {
     $functionAst = @($ast.FindAll({
         param($node)
@@ -225,6 +239,7 @@ $now = [datetime]'2026-08-21T00:45:00'
 $manifest = [pscustomobject]@{
     schedule = [pscustomobject]@{
         suite_at_local = $suiteAt.ToString('o')
+        merge_at_local = $suiteAt.AddMinutes(30).ToString('o')
         suite_task_name = 'WeatherIntegrationSuite_a'
     }
     evidence = [pscustomobject]@{ preflight_log = $env:WEATHER_MISSING_PREFLIGHT }
@@ -239,14 +254,41 @@ $manifest.evidence.preflight_log = $env:WEATHER_MISSING_PREFLIGHT
 $missing = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
 $withinGrace = Get-WeatherIntegrationSuiteObservation `
     -AttemptManifest $manifest -Now $suiteAt.AddMinutes(4)
+$global:suiteState = 'Ready'
+$global:lastRun = $null
+$nullLastRun = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $now
+$mergeAt = $suiteAt.AddMinutes(30)
+$mergeRunning = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Running -Now $mergeAt.AddMinutes(10)
+$mergeWithinGrace = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Ready -Now $mergeAt.AddMinutes(4)
+$mergeMissed = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Ready -Now $mergeAt.AddMinutes(5)
+$mergeReceipt = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Ready -Now $mergeAt.AddMinutes(10) `
+    -MergeReceiptStatus FAIL
+$mergeClosed = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Disabled -Now $mergeAt.AddMinutes(10) `
+    -ClosureStatus FAIL
 [pscustomobject]@{
+    running_now = [bool]$running.Running
     running_started = [bool]$running.Started
     running_missed = [bool]$running.TriggerMissed
+    running_without_receipt = [bool]$running.RanWithoutReceipt
     preflight_started = [bool]$preflight.Started
     preflight_missed = [bool]$preflight.TriggerMissed
+    preflight_ran_without_receipt = [bool]$preflight.RanWithoutReceipt
     disabled_started = [bool]$missing.Started
     disabled_missed = [bool]$missing.TriggerMissed
     grace_missed = [bool]$withinGrace.TriggerMissed
+    null_last_run = $nullLastRun.LastRunTime
+    null_last_run_missed = [bool]$nullLastRun.TriggerMissed
+    merge_running_missing = [bool]$mergeRunning.ReceiptMissingAfterTrigger
+    merge_grace_missing = [bool]$mergeWithinGrace.ReceiptMissingAfterTrigger
+    merge_missed = [bool]$mergeMissed.ReceiptMissingAfterTrigger
+    merge_receipt_missing = [bool]$mergeReceipt.ReceiptMissingAfterTrigger
+    merge_closed_missing = [bool]$mergeClosed.ReceiptMissingAfterTrigger
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
@@ -259,13 +301,23 @@ $withinGrace = Get-WeatherIntegrationSuiteObservation `
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
+        "running_now": True,
         "running_started": True,
         "running_missed": False,
+        "running_without_receipt": False,
         "preflight_started": True,
         "preflight_missed": False,
+        "preflight_ran_without_receipt": True,
         "disabled_started": False,
         "disabled_missed": True,
         "grace_missed": False,
+        "null_last_run": None,
+        "null_last_run_missed": True,
+        "merge_running_missing": False,
+        "merge_grace_missing": False,
+        "merge_missed": True,
+        "merge_receipt_missing": False,
+        "merge_closed_missing": False,
     }
 
 

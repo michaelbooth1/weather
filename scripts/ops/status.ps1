@@ -52,6 +52,8 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
         [Parameter(Mandatory = $true)][string]$TaskState,
         [Parameter(Mandatory = $true)][bool]$EvidenceIsFresh,
         [Parameter(Mandatory = $true)][bool]$SuiteTriggerMissed,
+        [bool]$SuiteRanWithoutReceipt = $false,
+        [bool]$MergeReceiptMissingAfterTrigger = $false,
         [AllowEmptyString()][string]$RecoveryDispatch = "",
         [AllowEmptyString()][string]$SuccessorAttemptId = ""
     )
@@ -82,6 +84,19 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
         $detail = "integration attempt $AttemptId authorized successor $SuccessorAttemptId"
         $severity = "WARN"
     }
+    elseif ($State -eq "ACTIVE_OR_ARMED" -and
+        ($SuiteRanWithoutReceipt -or $MergeReceiptMissingAfterTrigger)) {
+        if ($SuiteRanWithoutReceipt -and $MergeReceiptMissingAfterTrigger) {
+            $detail = "integration attempt $AttemptId ran its suite without a receipt and its merge trigger passed; close it"
+        }
+        elseif ($SuiteRanWithoutReceipt) {
+            $detail = "integration attempt $AttemptId ran its suite but produced no receipt; close it"
+        }
+        else {
+            $detail = "integration attempt $AttemptId passed its merge trigger without a receipt; close it"
+        }
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
     elseif ($State -eq "ACTIVE_OR_ARMED" -and $SuiteTriggerMissed) {
         $detail = "integration attempt $AttemptId missed its suite trigger and has no receipt"
         $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
@@ -103,10 +118,21 @@ function Get-WeatherIntegrationSuiteRuntimeState {
     else {
         Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
     }
-    $lastRunTime = if ($null -eq $taskInfo) { $null } else { [datetime]$taskInfo.LastRunTime }
+    $lastRunTimeProperty = if ($null -eq $taskInfo) {
+        $null
+    }
+    else {
+        $taskInfo.PSObject.Properties["LastRunTime"]
+    }
+    $lastRunTime = if ($null -eq $lastRunTimeProperty -or $null -eq $lastRunTimeProperty.Value) {
+        $null
+    }
+    else {
+        [datetime]$lastRunTimeProperty.Value
+    }
     $preflightExists = Test-Path -LiteralPath $PreflightLogPath -PathType Leaf
-    $started = (
-        ($null -ne $task -and [string]$task.State -eq "Running") -or
+    $running = ($null -ne $task -and [string]$task.State -eq "Running")
+    $ran = (
         $preflightExists -or
         ($null -ne $lastRunTime -and $lastRunTime -ge $SuiteAt.AddMinutes(-5))
     )
@@ -114,7 +140,9 @@ function Get-WeatherIntegrationSuiteRuntimeState {
         TaskState = if ($null -eq $task) { "Missing" } else { [string]$task.State }
         LastRunTime = $lastRunTime
         PreflightExists = [bool]$preflightExists
-        Started = [bool]$started
+        Running = [bool]$running
+        Ran = [bool]$ran
+        Started = [bool]($running -or $ran)
     }
 }
 
@@ -151,8 +179,11 @@ function Get-WeatherIntegrationSuiteObservation {
             TaskState = "Unreadable"
             LastRunTime = $null
             PreflightExists = $false
+            Running = $false
+            Ran = $false
             Started = $false
             TriggerMissed = $false
+            RanWithoutReceipt = $false
         }
     }
     $runtime = Get-WeatherIntegrationSuiteRuntimeState `
@@ -165,13 +196,54 @@ function Get-WeatherIntegrationSuiteObservation {
         -SuiteStarted ([bool]$runtime.Started) `
         -SuiteReceiptStatus $SuiteReceiptStatus `
         -ClosureStatus $ClosureStatus
+    $ranWithoutReceipt = (
+        [bool]$runtime.Ran -and
+        -not [bool]$runtime.Running -and
+        [string]::IsNullOrWhiteSpace($SuiteReceiptStatus) -and
+        [string]::IsNullOrWhiteSpace($ClosureStatus)
+    )
     return [pscustomobject]@{
         SuiteAt = $suiteAt
         TaskState = [string]$runtime.TaskState
         LastRunTime = $runtime.LastRunTime
         PreflightExists = [bool]$runtime.PreflightExists
+        Running = [bool]$runtime.Running
+        Ran = [bool]$runtime.Ran
         Started = [bool]$runtime.Started
         TriggerMissed = [bool]$triggerMissed
+        RanWithoutReceipt = [bool]$ranWithoutReceipt
+    }
+}
+
+function Get-WeatherIntegrationMergeObservation {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptManifest,
+        [Parameter(Mandatory = $true)][string]$TaskState,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [AllowEmptyString()][string]$MergeReceiptStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = ""
+    )
+
+    $mergeAt = $null
+    try { $mergeAt = [datetime]::Parse([string]$AttemptManifest.schedule.merge_at_local) } catch { }
+    if ($null -eq $mergeAt) {
+        return [pscustomobject]@{
+            MergeAt = $null
+            Running = ($TaskState -eq "Running")
+            ReceiptMissingAfterTrigger = $false
+        }
+    }
+    $running = ($TaskState -eq "Running")
+    $receiptMissingAfterTrigger = (
+        $Now -ge $mergeAt.AddMinutes(5) -and
+        -not $running -and
+        [string]::IsNullOrWhiteSpace($MergeReceiptStatus) -and
+        [string]::IsNullOrWhiteSpace($ClosureStatus)
+    )
+    return [pscustomobject]@{
+        MergeAt = $mergeAt
+        Running = [bool]$running
+        ReceiptMissingAfterTrigger = [bool]$receiptMissingAfterTrigger
     }
 }
 
@@ -1261,12 +1333,19 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         [math]::Round(((Get-Date) - $newestAttemptEvidence[0]).TotalHours, 1)
                     }
                     $attemptEvidenceIsFresh = ($null -eq $attemptEvidenceAgeHours -or $attemptEvidenceAgeHours -le 24)
+                    $attemptObservationAt = Get-Date
                     $suiteObservation = Get-WeatherIntegrationSuiteObservation `
                         -AttemptManifest $attemptManifest `
-                        -Now (Get-Date) `
+                        -Now $attemptObservationAt `
                         -SuiteReceiptStatus ([string]$suiteReceiptStatus) `
                         -ClosureStatus ([string]$closureStatus)
                     $attemptMissedSuite = [bool]$suiteObservation.TriggerMissed
+                    $mergeObservation = Get-WeatherIntegrationMergeObservation `
+                        -AttemptManifest $attemptManifest `
+                        -TaskState ([string]$st) `
+                        -Now $attemptObservationAt `
+                        -MergeReceiptStatus ([string]$mergeReceiptStatus) `
+                        -ClosureStatus ([string]$closureStatus)
                     $attemptState = Get-WeatherIntegrationAttemptState `
                         -SuiteReceiptStatus $suiteReceiptStatus `
                         -MergeReceiptStatus $mergeReceiptStatus `
@@ -1286,9 +1365,13 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                             suite_task_state = [string]$suiteObservation.TaskState
                             suite_last_run_time = if ($null -eq $suiteObservation.LastRunTime) { $null } else { ([datetime]$suiteObservation.LastRunTime).ToString("o") }
                             suite_preflight_exists = [bool]$suiteObservation.PreflightExists
+                            suite_running = [bool]$suiteObservation.Running
+                            suite_ran = [bool]$suiteObservation.Ran
                             suite_started = [bool]$suiteObservation.Started
+                            suite_ran_without_receipt = [bool]$suiteObservation.RanWithoutReceipt
                             evidence_age_hours = $attemptEvidenceAgeHours
                             suite_trigger_missed = $attemptMissedSuite
+                            merge_receipt_missing_after_trigger = [bool]$mergeObservation.ReceiptMissingAfterTrigger
                         })
                     $attemptAlert = Get-WeatherIntegrationAttemptAlertDisposition `
                         -AttemptId ([string]$attemptManifest.attempt_id) `
@@ -1296,6 +1379,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         -TaskState $st `
                         -EvidenceIsFresh $attemptEvidenceIsFresh `
                         -SuiteTriggerMissed $attemptMissedSuite `
+                        -SuiteRanWithoutReceipt ([bool]$suiteObservation.RanWithoutReceipt) `
+                        -MergeReceiptMissingAfterTrigger ([bool]$mergeObservation.ReceiptMissingAfterTrigger) `
                         -RecoveryDispatch ([string]$attemptManifest.evidence.recovery_dispatch) `
                         -SuccessorAttemptId $successorAttemptId
                     if ([string]$attemptAlert.Severity -eq "FLAG") { $flags.Add([string]$attemptAlert.Detail) }
@@ -1803,9 +1888,13 @@ if ($Json) {
                     successor_attempt_id = $_.successor_attempt_id; task_state = $_.task_state
                     merge_task_state = $_.merge_task_state; suite_task_state = $_.suite_task_state
                     suite_last_run_time = $_.suite_last_run_time
-                    suite_preflight_exists = $_.suite_preflight_exists; suite_started = $_.suite_started
+                    suite_preflight_exists = $_.suite_preflight_exists
+                    suite_running = $_.suite_running; suite_ran = $_.suite_ran
+                    suite_started = $_.suite_started
+                    suite_ran_without_receipt = $_.suite_ran_without_receipt
                     evidence_age_hours = $_.evidence_age_hours
-                    suite_trigger_missed = $_.suite_trigger_missed }
+                    suite_trigger_missed = $_.suite_trigger_missed
+                    merge_receipt_missing_after_trigger = $_.merge_receipt_missing_after_trigger }
             })
         overnight_wakes = @($overnightWakeState | ForEach-Object {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path

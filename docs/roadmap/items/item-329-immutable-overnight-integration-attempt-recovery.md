@@ -50,6 +50,10 @@ safe way to create a corrected attempt.
 - [x] Correlate missed-trigger status with the exact suite task and preflight
   evidence, fail disabled never-run suites immediately, and give a completed
   PASS only a bounded Task Scheduler exit grace at the reserve.
+- [x] Distinguish a running suite from a suite that terminated without a
+  receipt, surface a spent merge trigger, tolerate null Scheduler run-time
+  metadata, emit invariant log timestamps, and resolve stale terminal
+  Scheduler results from immutable PASS evidence plus full validation.
 - [x] Preserve `MERGED_UNVERIFIED` while providing a reviewed, immutable,
   explicitly non-authorizing reconciliation receipt and exact-task shutdown.
 - [x] Add a read-only downstream gate and bind execution-tape adoption to the
@@ -106,6 +110,16 @@ exact hash-bound evidence.
   exact tip. The current follow-up adds one PowerShell file and otherwise changes
   only PowerShell, tests, and documentation, so it is structurally roll-free;
   re-run the canonical verdict on the committed exact tip before landing.
+- A final adversarial validation of `e41d30232` found no authority or evidence-
+  binding bypass, but found that a power-loss-interrupted suite and the later
+  missed merge trigger could remain silent. It also found null Scheduler
+  metadata misclassification, culture-sensitive evidence timestamps, and a
+  one-second stale-result race that could discard PASS. The branch now carries
+  all four repairs. All 13 PowerShell files parse and pass the 63-spelling
+  semantic sweep, the three changed Python tests compile, diff check passes,
+  and pure status/wait/task-validation/culture probes exercise the repaired
+  boundaries. Exact-tip focused and full-suite execution remains part of the
+  pending admitted-window verification gate.
 
 The implementation is intentionally not registered or run from this topic
 worktree. Verification and scheduler adoption remain open until their owning

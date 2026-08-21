@@ -147,6 +147,10 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     assert "Stop-ScheduledTask -TaskName $taskName" in merge
     assert "suitePassExitGraceEvidence" in merge
     assert "suite_pass_exit_grace" in merge
+    assert "suiteStaleSchedulerResultEvidence" in merge
+    assert "suite_stale_scheduler_result" in merge
+    assert 'task.State -notin @("Ready", "Disabled")' in merge
+    assert "staleTerminalResult" in merge
     assert 'status = "MERGED_UNVERIFIED"' in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath" in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath" in merge
@@ -724,6 +728,10 @@ $cases = @(
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline.AddSeconds(120) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Disabled -LastRunTime $today.AddDays(-1) -LastTaskResult 267011 -ReceiptExists $false -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 0 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 267011 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Queued -LastRunTime $today.AddMinutes(30) -LastTaskResult 0 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 1 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 1 -ReceiptExists $true -ReceiptStatus FAIL -Now $today.AddHours(1) -Deadline $deadline
 )
 @($cases | ForEach-Object { [string]$_.Action }) | ConvertTo-Json -Compress
@@ -745,6 +753,10 @@ $cases = @(
         "STOP",
         "FAIL",
         "READY",
+        "READY",
+        "READY",
+        "FAIL",
+        "FAIL",
         "FAIL",
     ]
 

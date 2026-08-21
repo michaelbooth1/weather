@@ -272,11 +272,22 @@ function Get-WeatherIntegrationSuiteWaitDecision {
     if ($TaskState -eq "Disabled" -and -not $ReceiptExists) {
         return [pscustomobject]@{ Action = "FAIL"; Reason = "suite task is disabled and can no longer run" }
     }
+    if ($TaskState -notin @("Ready", "Disabled")) {
+        return [pscustomobject]@{ Action = "FAIL"; Reason = "suite task state is not terminal: $TaskState" }
+    }
     if ($LastRunTime -lt $Now.Date) {
         if ($Now -ge $Deadline) {
             return [pscustomobject]@{ Action = "FAIL"; Reason = "suite task did not run before the merge-wait deadline" }
         }
         return [pscustomobject]@{ Action = "WAIT"; Reason = "suite task has not run on the current local day" }
+    }
+    if ($ReceiptExists -and $ReceiptStatus -eq "PASS" -and
+        $LastTaskResult -in @(0x41301, 0x41303)) {
+        return [pscustomobject]@{
+            Action = "READY"
+            Reason = "suite task is terminal with immutable PASS evidence; Scheduler result is a stale transient"
+            StaleSchedulerResult = $true
+        }
     }
     if ($LastTaskResult -ne 0) {
         return [pscustomobject]@{ Action = "FAIL"; Reason = ("suite task result is 0x{0:X}" -f $LastTaskResult) }

@@ -32,19 +32,23 @@ These instructions apply to `scripts/ops/`.
   a task exit code without the correlated exact full-suite verdict is never
   merge evidence.
 - Do not add `StartWhenAvailable` to integration-attempt tasks. A missed
-  one-shot must fail visibly instead of waking in a protected window. Closing
-  a crashed attempt may disable only its exact hash-bound, non-running tasks;
-  it never deletes or replaces them.
+  one-shot must fail visibly instead of waking in a protected window. Status
+  must distinguish a currently running suite, a suite that ran without a
+  receipt, a suite that never ran, and a merge trigger that passed without a
+  receipt. Closing a crashed attempt may disable only its exact hash-bound,
+  non-running tasks; it never deletes or replaces them.
 - An integration merge consumer may wait without a workload lease for its
   exact suite task to reach terminal evidence, but only through the documented
   03:40 merge reserve. A running suite is not a failure before that deadline;
   terminal FAIL evidence and a disabled never-run suite are. A PASS receipt
   observed while Task Scheduler still reports Running receives only a bounded
-  two-minute exit grace. At the deadline or grace expiry the consumer
-  re-verifies and stops only its own exact hash-bound suite task, records the
-  stop in its receipt, and fails the merge so closure is immediately possible.
-  Recovery dispatch never edits source or changes the scheduler and requires
-  an active reviewed operator or coding agent.
+  two-minute exit grace. A non-running task with immutable PASS and a stale
+  Scheduler transient result records the disagreement and proceeds only to the
+  full receipt/task-time checks; other nonzero results fail. At the deadline or
+  grace expiry the consumer re-verifies and stops only its own exact hash-bound
+  suite task, records the stop in its receipt, and fails the merge so closure
+  is immediately possible. Recovery dispatch never edits source or changes the
+  scheduler and requires an active reviewed operator or coding agent.
 - A merge that is already published but lacks a final proof is
   `MERGED_UNVERIFIED`, not an ordinary FAIL. It may not be closed, dispatched,
   or retried. `reconcile_integration_attempt.ps1` preserves that historical

@@ -83,7 +83,11 @@ foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript)
 function Write-SuiteLog {
     param([Parameter(Mandatory = $true)][string]$Message)
 
-    $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
+    $timestamp = ([datetime]::Now).ToString(
+        "yyyy-MM-dd HH:mm:ss",
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+    $line = "{0}  {1}" -f $timestamp, $Message
     Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
     Write-Output $line
 }

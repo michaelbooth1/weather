@@ -89,10 +89,18 @@ function Assert-WeatherIntegrationSuiteTask {
     $taskInfo = $binding.Info
     $taskName = [string]$AttemptContract.Manifest.schedule.suite_task_name
     if ([string]$task.State -eq "Running") { throw "Suite task is still running: $taskName" }
+    if ([string]$task.State -notin @("Ready", "Disabled")) {
+        throw "Suite task is not terminal: $taskName state=$($task.State)"
+    }
     if ([datetime]$taskInfo.LastRunTime -lt (Get-Date).Date) {
         throw "Suite task did not run on the current local day."
     }
-    if ([int]$taskInfo.LastTaskResult -ne 0) {
+    # SuiteReceiptContract has already passed the complete immutable receipt,
+    # log-hash, exact-verdict, and frozen-plan validation. On a terminal task,
+    # Scheduler's running/not-run codes can lag State; every other nonzero
+    # result remains authoritative failure evidence.
+    $staleTerminalResult = [int]$taskInfo.LastTaskResult -in @(0x41301, 0x41303)
+    if ([int]$taskInfo.LastTaskResult -ne 0 -and -not $staleTerminalResult) {
         throw ("Suite task result is 0x{0:X}, not success." -f [int]$taskInfo.LastTaskResult)
     }
 
@@ -151,6 +159,19 @@ function Wait-WeatherIntegrationSuiteTerminal {
                 task_name = [string]$manifest.schedule.suite_task_name
                 reason = [string]$decision.Reason
                 grace_until_local = ([datetime]$decision.GraceUntil).ToString("o")
+            }
+        }
+        $staleSchedulerResultProperty = $decision.PSObject.Properties["StaleSchedulerResult"]
+        if ($null -ne $staleSchedulerResultProperty -and
+            [bool]$staleSchedulerResultProperty.Value -and
+            $null -eq $script:suiteStaleSchedulerResultEvidence) {
+            $script:suiteStaleSchedulerResultEvidence = [ordered]@{
+                observed_at_local = $now.ToString("o")
+                task_name = [string]$manifest.schedule.suite_task_name
+                task_state = [string]$binding.Task.State
+                last_task_result = [int]$binding.Info.LastTaskResult
+                receipt_status = $receiptStatus
+                reason = [string]$decision.Reason
             }
         }
         if ([string]$decision.Action -eq "READY") { return }
@@ -331,6 +352,7 @@ $captureRecoveryProved = $false
 $quietMergeLaunchSha256 = $null
 $script:suiteDeadlineStopEvidence = $null
 $script:suitePassExitGraceEvidence = $null
+$script:suiteStaleSchedulerResultEvidence = $null
 
 try {
     $localMinute = ($startedAt.Hour * 60) + $startedAt.Minute
@@ -507,6 +529,7 @@ finally {
         documentation_transaction_recorded = $documentationTransactionRecorded
         suite_deadline_stop = $script:suiteDeadlineStopEvidence
         suite_pass_exit_grace = $script:suitePassExitGraceEvidence
+        suite_stale_scheduler_result = $script:suiteStaleSchedulerResultEvidence
         failure = $failure
         safety = [ordered]@{
             authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"

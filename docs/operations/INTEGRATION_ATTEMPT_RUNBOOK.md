@@ -89,12 +89,17 @@ without holding the heavy-work lease until the suite reaches terminal evidence,
 or until the 03:40 merge reserve. A terminal FAIL stops immediately. If the
 suite task is disabled without a receipt, the consumer fails immediately
 instead of waiting out the window. A PASS receipt observed while Task Scheduler
-still reports `Running` gets a bounded two-minute task-exit grace. Otherwise at
-03:40, or after that grace expires, the merge consumer re-verifies and stops
-only that attempt's exact suite task, waits for it to leave `Running`, records
-the stop in the immutable merge receipt, and fails the merge. The current merge
-window is then spent, but the contained test tree cannot run until 09:00 and the
-attempt can be closed immediately for a reviewed next-window successor.
+still reports `Running` gets a bounded two-minute task-exit grace. If the task
+is already non-running but its result still carries Scheduler's transient
+`0x41301`/`0x41303`, the immutable PASS receipt is the stronger candidate
+evidence: the consumer records the disagreement and proceeds only into the
+existing full receipt/task-time validation. Any other nonzero result fails.
+Otherwise at 03:40, or after the running-state grace expires, the merge
+consumer re-verifies and stops only that attempt's exact suite task, waits for
+it to leave `Running`, records the stop in the immutable merge receipt, and
+fails the merge. The current merge window is then spent, but the contained test
+tree cannot run until 09:00 and the attempt can be closed immediately for a
+reviewed next-window successor.
 Trigger times inside an invalid or ambiguous daylight-saving wall-clock hour
 are refused at creation, manifest validation, and registration. Manifest
 schedule values are local wall clocks and may not carry `Z` or a numeric offset.
@@ -127,7 +132,9 @@ four-hour execution limit contains the bounded suite-wait plus quiet-merge path.
 
 The suite receipt is PASS only when both logs exist, their hashes match, the
 preflight ends in its exact PASS verdict, and the full suite ends in its exact
-all-chunks PASS verdict. The merge task independently verifies:
+all-chunks PASS verdict. Suite log timestamps are emitted with invariant
+culture so their exact evidence format cannot drift with the task account's
+regional time separator. The merge task independently verifies:
 
 - the attempt tip contains the exact production baseline frozen at creation,
   production has exact `master` checked out, and HEAD/local/remote production
@@ -217,10 +224,14 @@ surfaces `FAILED_NEEDS_CLOSE`, `CLOSED_NEEDS_DISPATCH`, `RECOVERY_READY`,
 `SUCCESSOR_CLAIMED`, `MERGED_UNVERIFIED`, and `MERGED_RECONCILED` in human and
 JSON output. A suite is missed only after a five-minute trigger grace when its
 exact task has no current run and neither the preflight log nor a terminal
-receipt exists; an actively running suite is not a false alarm. It also flags
-unreadable task-bound manifests/evidence. Actionable states are FLAGS for their
-first 24 hours, then remain visible as warnings so immutable historical
-receipts cannot burn a permanent alert.
+receipt exists; an actively running suite is not a false alarm. A suite that
+did run but is now non-running without a receipt is a distinct actionable
+failure. The same five-minute rule flags a non-running merge task after its
+one-shot trigger when no merge or closure receipt exists, so an outage cannot
+silently spend both triggers. It also flags unreadable task-bound
+manifests/evidence. Actionable states are FLAGS for their first 24 hours, then
+remain visible as warnings so immutable historical receipts cannot burn a
+permanent alert.
 
 Create attempt N+1 after classification:
 
