@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-20 21:51 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-21 08:53 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -27,7 +27,7 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Public execution tape | Producer PID/lock/identity are current, `CONNECTED`, and integrity `PASS`. Historical gaps keep the accumulated full path unusable. The planned continuous-observation task was downstream of the absent successor and produced no receipt. |
 | Settlement | August 16 and August 18 carry real 12/12 settlement. August 17 remains the sole recent hole and will not self-heal. The August 16 recovery continued into unrelated chain work, hit bounded teardown, and left stale locks; the August 17 wrapper then refused on file existence. |
 | Host hardening | A new isolated branch adds clean stop-after-finalize recovery, PID-creation lock identity, contained/observable tiering, and honest status. It is not production until a fresh immutable suite and guarded merge pass. |
-| Integration procedure | Item 329 redesigns the failed whole-night freeze as immutable per-attempt evidence, reviewed single-successor recovery, and hash-bound merge/downstream proof. Three adversarial audits drove the original PASS/recovery repairs; a fourth exact-tip release-gate audit approved the remaining gates and found only two LOW pre-adoption gaps. The branch now also lets transient non-terminal Scheduler states settle before 03:40, stops and proves them terminal at the reserve, and rechecks suite-receipt existence after task sampling so a healthy completion cannot false-alert. It still distinguishes running, interrupted, never-run, and spent-merge states; preserves non-authorizing reconciliation; emits invariant evidence timestamps; and resolves stale terminal results only from immutable PASS plus full validation. Sixty-seven focused contracts are present. Protected-window-safe parsing, semantic, direct-function, and diff checks pass on the follow-up; focused pytest, Python compilation of the newly changed tests, the exact full suite, merge, and explicit scheduler adoption remain open, and no task has been registered or started. |
+| Integration procedure | Item 329 redesigns the failed whole-night freeze as immutable per-attempt evidence, reviewed single-successor recovery, and hash-bound merge/downstream proof. Four adversarial audits drove the PASS/recovery repairs and approved the remaining gates. Follow-up fixes let transient non-terminal Scheduler states settle before 03:40, prove them terminal at the reserve, and prevent a newly published suite receipt from becoming a false interrupted-run alert. The first exact full-suite run then exposed the production strict-schema failure: four documentation-transaction payloads were unregistered. Additive-only registrations closed it, the repaired commit `fa25dacae2a8a19f916d62223b5503441f4729f3` passed 18/18 full-suite chunks, compileall, the agent-doc audit, and roadmap lint, and the topic was published. The current clean branch tip is bound to `WeatherIntegrationRecoveryBootstrapSuite0822` at 00:35 and `WeatherIntegrationRecoveryBootstrapMerge0822` at 01:30 with fresh evidence paths, no late-start catch-up, and S4U/Limited principals. Because the landing branch now touches the shared schema registry, its guarded merge is roll-sensitive. First landing, capture-recovery proof, publication, and explicit registrar adoption remain open. |
 | Disk | The 24 h and 48 h slopes are both adverse. Scheduled projection and raw-tape tiering returned Scheduler zero but durably recorded `SKIPPED_WORKLOAD_LEASE_BUSY`; retry them in the next serialized heavy window. |
 | Documentation | The parent integration transaction is overdue until this rewrite, owning roadmap updates, publication, and its hash-bound completion receipt all land. A failed later successor does not erase the successful parent merge. |
 
@@ -53,8 +53,9 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 ## Immediate execution order
 
 1. Close and publish the parent documentation transaction from actual receipts.
-2. Verify and land the roll-free item 329 procedure, then explicitly adopt its
-   registrar; editing the scripts alone changes no scheduled task.
+2. Let the exact-tip bootstrap suite run at 00:35 and its roll-sensitive guarded
+   merge run at 01:30. Require the full PASS verdict, capture-recovery proof,
+   and `origin/master` publication, then explicitly adopt the registrar.
 3. Create one immutable attempt for the cumulative branch containing current
    production, the original successor, and the lock/backfill/tiering/recovery
    hardening. Run its deterministic preflight and fresh exact-tip full suite.
@@ -73,6 +74,9 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 - `WeatherEveningEvidenceRefresh`, `WeatherDataMirror`, and
   `WeatherTrainingWindow` remain Disabled. `WeatherTrainingWindowRestore`
   remains enabled as the dead-man restore.
+- `WeatherIntegrationRecoveryBootstrapSuite0822` and
+  `WeatherIntegrationRecoveryBootstrapMerge0822` are armed one-shots for the
+  current published recovery tip; neither has run yet.
 - Reboot remains pending; do not reboot during grading. The interactive
   disconnected session must remain logged on for `WeatherOneShotPush`.
 - Disabled or zero-result tasks are not outcome evidence. Read complete logs,
