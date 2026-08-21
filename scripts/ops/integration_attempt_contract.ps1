@@ -273,7 +273,10 @@ function Get-WeatherIntegrationSuiteWaitDecision {
         return [pscustomobject]@{ Action = "FAIL"; Reason = "suite task is disabled and can no longer run" }
     }
     if ($TaskState -notin @("Ready", "Disabled")) {
-        return [pscustomobject]@{ Action = "FAIL"; Reason = "suite task state is not terminal: $TaskState" }
+        if ($Now -ge $Deadline) {
+            return [pscustomobject]@{ Action = "STOP"; Reason = "suite task remained non-terminal through the merge-wait deadline: $TaskState" }
+        }
+        return [pscustomobject]@{ Action = "WAIT"; Reason = "suite task state is not terminal yet: $TaskState" }
     }
     if ($LastRunTime -lt $Now.Date) {
         if ($Now -ge $Deadline) {

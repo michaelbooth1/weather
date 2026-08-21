@@ -93,6 +93,8 @@ def test_integration_attempt_recovery_states_are_operator_visible() -> None:
     assert 'task_state = $_.task_state' in text
     assert 'suite_task_state = $_.suite_task_state' in text
     assert "$suiteObservation = Get-WeatherIntegrationSuiteObservation" in text
+    assert "$suiteReceiptStatus = [string]$suiteObservation.ReceiptStatus" in text
+    assert "$suiteObservation.ReceiptUnreadable" in text
     assert "$mergeObservation = Get-WeatherIntegrationMergeObservation" in text
     assert "$attemptMissedSuite = [bool]$suiteObservation.TriggerMissed" in text
     assert "Test-WeatherIntegrationSuiteTriggerMissed" in text
@@ -198,6 +200,7 @@ def test_attempt_observation_distinguishes_running_interrupted_and_missed(
             "WEATHER_STATUS_SCRIPT": str(SCRIPT),
             "WEATHER_PREFLIGHT": str(preflight),
             "WEATHER_MISSING_PREFLIGHT": str(tmp_path / "missing.log"),
+            "WEATHER_SUITE_RECEIPT": str(tmp_path / "suite-receipt.json"),
         }
     )
     script = r"""
@@ -242,13 +245,23 @@ $manifest = [pscustomobject]@{
         merge_at_local = $suiteAt.AddMinutes(30).ToString('o')
         suite_task_name = 'WeatherIntegrationSuite_a'
     }
-    evidence = [pscustomobject]@{ preflight_log = $env:WEATHER_MISSING_PREFLIGHT }
+    evidence = [pscustomobject]@{
+        preflight_log = $env:WEATHER_MISSING_PREFLIGHT
+        suite_receipt = $env:WEATHER_SUITE_RECEIPT
+    }
 }
 $running = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
 $global:suiteState = 'Ready'
 $global:lastRun = [datetime]'1999-11-30T00:00:00'
 $manifest.evidence.preflight_log = $env:WEATHER_PREFLIGHT
 $preflight = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
+Set-Content -LiteralPath $env:WEATHER_SUITE_RECEIPT -Value '{"status":"PASS"}'
+$receiptAppeared = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $now
+Set-Content -LiteralPath $env:WEATHER_SUITE_RECEIPT -Value '{'
+$unreadableReceipt = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $now
+Remove-Item -LiteralPath $env:WEATHER_SUITE_RECEIPT
 $global:suiteState = 'Disabled'
 $manifest.evidence.preflight_log = $env:WEATHER_MISSING_PREFLIGHT
 $missing = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
@@ -279,6 +292,10 @@ $mergeClosed = Get-WeatherIntegrationMergeObservation `
     preflight_started = [bool]$preflight.Started
     preflight_missed = [bool]$preflight.TriggerMissed
     preflight_ran_without_receipt = [bool]$preflight.RanWithoutReceipt
+    fresh_receipt_ran_without_receipt = [bool]$receiptAppeared.RanWithoutReceipt
+    fresh_receipt_status = [string]$receiptAppeared.ReceiptStatus
+    unreadable_receipt_flagged = [bool]$unreadableReceipt.ReceiptUnreadable
+    unreadable_receipt_ran_without_receipt = [bool]$unreadableReceipt.RanWithoutReceipt
     disabled_started = [bool]$missing.Started
     disabled_missed = [bool]$missing.TriggerMissed
     grace_missed = [bool]$withinGrace.TriggerMissed
@@ -308,6 +325,10 @@ $mergeClosed = Get-WeatherIntegrationMergeObservation `
         "preflight_started": True,
         "preflight_missed": False,
         "preflight_ran_without_receipt": True,
+        "fresh_receipt_ran_without_receipt": False,
+        "fresh_receipt_status": "PASS",
+        "unreadable_receipt_flagged": True,
+        "unreadable_receipt_ran_without_receipt": True,
         "disabled_started": False,
         "disabled_missed": True,
         "grace_missed": False,

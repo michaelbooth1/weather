@@ -194,10 +194,10 @@ function Wait-WeatherIntegrationSuiteTerminal {
                     -AttemptContract $AttemptContract `
                     -SuiteScript $SuiteScript `
                     -PowerShellExecutable $PowerShellExecutable
-            } while ([string]$binding.Task.State -eq "Running" -and (Get-Date) -lt $stopDeadline)
+            } while ([string]$binding.Task.State -notin @("Ready", "Disabled") -and (Get-Date) -lt $stopDeadline)
             $script:suiteDeadlineStopEvidence.final_state = [string]$binding.Task.State
             $script:suiteDeadlineStopEvidence.last_task_result = [int]$binding.Info.LastTaskResult
-            $script:suiteDeadlineStopEvidence.stopped = ([string]$binding.Task.State -ne "Running")
+            $script:suiteDeadlineStopEvidence.stopped = ([string]$binding.Task.State -in @("Ready", "Disabled"))
             if (-not [bool]$script:suiteDeadlineStopEvidence.stopped) {
                 throw "Suite reached the merge-wait deadline and its exact task could not be stopped within two minutes."
             }

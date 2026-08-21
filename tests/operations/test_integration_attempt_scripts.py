@@ -150,6 +150,8 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     assert "suiteStaleSchedulerResultEvidence" in merge
     assert "suite_stale_scheduler_result" in merge
     assert 'task.State -notin @("Ready", "Disabled")' in merge
+    assert 'binding.Task.State -notin @("Ready", "Disabled")' in merge
+    assert 'binding.Task.State -in @("Ready", "Disabled")' in merge
     assert "staleTerminalResult" in merge
     assert 'status = "MERGED_UNVERIFIED"' in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath" in merge
@@ -731,6 +733,9 @@ $cases = @(
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 267011 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Queued -LastRunTime $today.AddMinutes(30) -LastTaskResult 0 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Queued -LastRunTime $today.AddMinutes(30) -LastTaskResult 0 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Unknown -LastRunTime $today.AddDays(-1) -LastTaskResult 267011 -ReceiptExists $false -Now $today.AddHours(1) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Unknown -LastRunTime $today.AddDays(-1) -LastTaskResult 267011 -ReceiptExists $false -Now $deadline -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 1 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 1 -ReceiptExists $true -ReceiptStatus FAIL -Now $today.AddHours(1) -Deadline $deadline
 )
@@ -755,7 +760,10 @@ $cases = @(
         "READY",
         "READY",
         "READY",
-        "FAIL",
+        "WAIT",
+        "STOP",
+        "WAIT",
+        "STOP",
         "FAIL",
         "FAIL",
     ]

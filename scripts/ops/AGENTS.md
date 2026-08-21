@@ -46,9 +46,12 @@ These instructions apply to `scripts/ops/`.
   Scheduler transient result records the disagreement and proceeds only to the
   full receipt/task-time checks; other nonzero results fail. At the deadline or
   grace expiry the consumer re-verifies and stops only its own exact hash-bound
-  suite task, records the stop in its receipt, and fails the merge so closure
-  is immediately possible. Recovery dispatch never edits source or changes the
-  scheduler and requires an active reviewed operator or coding agent.
+  suite task, records the stop in its receipt, and requires Task Scheduler to
+  report `Ready` or `Disabled` before treating the stop as proved. A transient
+  `Queued`, `Unknown`, or other non-terminal state waits before the reserve but
+  is stopped at it; it never advances from stale PASS metadata. Recovery
+  dispatch never edits source or changes the scheduler and requires an active
+  reviewed operator or coding agent.
 - A merge that is already published but lacks a final proof is
   `MERGED_UNVERIFIED`, not an ordinary FAIL. It may not be closed, dispatched,
   or retried. `reconcile_integration_attempt.ps1` preserves that historical

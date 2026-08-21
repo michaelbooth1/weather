@@ -54,6 +54,9 @@ safe way to create a corrected attempt.
   receipt, surface a spent merge trigger, tolerate null Scheduler run-time
   metadata, emit invariant log timestamps, and resolve stale terminal
   Scheduler results from immutable PASS evidence plus full validation.
+- [x] Let transient non-terminal Scheduler states settle before the reserve,
+  stop and prove them terminal at the reserve, and eliminate the status
+  task/receipt sampling race without suppressing unreadable-evidence alerts.
 - [x] Preserve `MERGED_UNVERIFIED` while providing a reviewed, immutable,
   explicitly non-authorizing reconciliation receipt and exact-task shutdown.
 - [x] Add a read-only downstream gate and bind execution-tape adoption to the
@@ -120,6 +123,15 @@ exact hash-bound evidence.
   and pure status/wait/task-validation/culture probes exercise the repaired
   boundaries. Exact-tip focused and full-suite execution remains part of the
   pending admitted-window verification gate.
+- The release-gate audit of `7bfdb6fd4` returned
+  `APPROVE_FOR_REMAINING_GATES` and re-executed all F1-F16, N1-N8, and R1-R4
+  boundaries. Its blind pass found no blocking defect, but identified two LOW
+  pre-adoption gaps: a transient non-terminal task state spent the attempt
+  immediately, and status could sample an absent receipt before sampling the
+  now-terminal task. The branch now waits safely for the former, stops it at
+  the reserve unless it proves `Ready` or `Disabled`, and rechecks receipt
+  existence after the latter task-state sample. The 67 focused tests and exact
+  full suite remain pending in an admitted window.
 
 The implementation is intentionally not registered or run from this topic
 worktree. Verification and scheduler adoption remain open until their owning

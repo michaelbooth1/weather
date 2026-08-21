@@ -184,22 +184,52 @@ function Get-WeatherIntegrationSuiteObservation {
             Started = $false
             TriggerMissed = $false
             RanWithoutReceipt = $false
+            ReceiptStatus = [string]$SuiteReceiptStatus
+            ReceiptUnreadable = $false
         }
     }
     $runtime = Get-WeatherIntegrationSuiteRuntimeState `
         -TaskName ([string]$AttemptManifest.schedule.suite_task_name) `
         -SuiteAt $suiteAt `
         -PreflightLogPath ([string]$AttemptManifest.evidence.preflight_log)
+    # The caller reads receipts before sampling the task. If the suite publishes
+    # its receipt and exits between those two reads, the earlier empty status must
+    # not turn the now-terminal healthy run into a false interrupted-suite alert.
+    # Re-read a newly appeared receipt so FAIL is not hidden for this scan and
+    # malformed evidence remains actionable instead of being treated as present.
+    $suiteReceiptPath = ""
+    $evidenceProperty = $AttemptManifest.PSObject.Properties["evidence"]
+    if ($null -ne $evidenceProperty -and $null -ne $evidenceProperty.Value) {
+        $suiteReceiptProperty = $evidenceProperty.Value.PSObject.Properties["suite_receipt"]
+        if ($null -ne $suiteReceiptProperty -and $null -ne $suiteReceiptProperty.Value) {
+            $suiteReceiptPath = [string]$suiteReceiptProperty.Value
+        }
+    }
+    $effectiveSuiteReceiptStatus = [string]$SuiteReceiptStatus
+    $suiteReceiptUnreadable = $false
+    if ([string]::IsNullOrWhiteSpace($effectiveSuiteReceiptStatus) -and
+        -not [string]::IsNullOrWhiteSpace($suiteReceiptPath) -and
+        (Test-Path -LiteralPath $suiteReceiptPath -PathType Leaf)) {
+        try {
+            $freshSuiteReceipt = Get-Content -LiteralPath $suiteReceiptPath -Raw | ConvertFrom-Json
+            $effectiveSuiteReceiptStatus = [string]$freshSuiteReceipt.status
+            if ([string]::IsNullOrWhiteSpace($effectiveSuiteReceiptStatus)) {
+                $suiteReceiptUnreadable = $true
+            }
+        }
+        catch { $suiteReceiptUnreadable = $true }
+    }
+    $suiteReceiptExists = -not [string]::IsNullOrWhiteSpace($effectiveSuiteReceiptStatus)
     $triggerMissed = Test-WeatherIntegrationSuiteTriggerMissed `
         -SuiteAt $suiteAt `
         -Now $Now `
         -SuiteStarted ([bool]$runtime.Started) `
-        -SuiteReceiptStatus $SuiteReceiptStatus `
+        -SuiteReceiptStatus $effectiveSuiteReceiptStatus `
         -ClosureStatus $ClosureStatus
     $ranWithoutReceipt = (
         [bool]$runtime.Ran -and
         -not [bool]$runtime.Running -and
-        [string]::IsNullOrWhiteSpace($SuiteReceiptStatus) -and
+        -not $suiteReceiptExists -and
         [string]::IsNullOrWhiteSpace($ClosureStatus)
     )
     return [pscustomobject]@{
@@ -212,6 +242,8 @@ function Get-WeatherIntegrationSuiteObservation {
         Started = [bool]$runtime.Started
         TriggerMissed = [bool]$triggerMissed
         RanWithoutReceipt = [bool]$ranWithoutReceipt
+        ReceiptStatus = $effectiveSuiteReceiptStatus
+        ReceiptUnreadable = [bool]$suiteReceiptUnreadable
     }
 }
 
@@ -1339,6 +1371,11 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         -Now $attemptObservationAt `
                         -SuiteReceiptStatus ([string]$suiteReceiptStatus) `
                         -ClosureStatus ([string]$closureStatus)
+                    if ([bool]$suiteObservation.ReceiptUnreadable -and
+                        -not $attemptEvidenceUnreadable.Contains("suite receipt")) {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) has unreadable suite receipt evidence")
+                    }
+                    $suiteReceiptStatus = [string]$suiteObservation.ReceiptStatus
                     $attemptMissedSuite = [bool]$suiteObservation.TriggerMissed
                     $mergeObservation = Get-WeatherIntegrationMergeObservation `
                         -AttemptManifest $attemptManifest `

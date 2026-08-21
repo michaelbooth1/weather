@@ -90,16 +90,18 @@ or until the 03:40 merge reserve. A terminal FAIL stops immediately. If the
 suite task is disabled without a receipt, the consumer fails immediately
 instead of waiting out the window. A PASS receipt observed while Task Scheduler
 still reports `Running` gets a bounded two-minute task-exit grace. If the task
-is already non-running but its result still carries Scheduler's transient
+is `Queued`, `Unknown`, or otherwise non-terminal, the consumer keeps waiting
+before the reserve but cannot consume PASS evidence from that state. If the
+task is already terminal but its result still carries Scheduler's transient
 `0x41301`/`0x41303`, the immutable PASS receipt is the stronger candidate
 evidence: the consumer records the disagreement and proceeds only into the
 existing full receipt/task-time validation. Any other nonzero result fails.
 Otherwise at 03:40, or after the running-state grace expires, the merge
 consumer re-verifies and stops only that attempt's exact suite task, waits for
-it to leave `Running`, records the stop in the immutable merge receipt, and
-fails the merge. The current merge window is then spent, but the contained test
-tree cannot run until 09:00 and the attempt can be closed immediately for a
-reviewed next-window successor.
+Task Scheduler to report `Ready` or `Disabled`, records the stop in the
+immutable merge receipt, and fails the merge. The current merge window is then
+spent, but the contained test tree cannot run until 09:00 and the attempt can
+be closed immediately for a reviewed next-window successor.
 Trigger times inside an invalid or ambiguous daylight-saving wall-clock hour
 are refused at creation, manifest validation, and registration. Manifest
 schedule values are local wall clocks and may not carry `Z` or a numeric offset.
@@ -226,7 +228,10 @@ JSON output. A suite is missed only after a five-minute trigger grace when its
 exact task has no current run and neither the preflight log nor a terminal
 receipt exists; an actively running suite is not a false alarm. A suite that
 did run but is now non-running without a receipt is a distinct actionable
-failure. The same five-minute rule flags a non-running merge task after its
+failure. Status rechecks receipt existence after sampling the suite task, so a
+receipt published during the status scan suppresses that interrupted-suite
+alert while unreadable evidence retains its separate flag. The same five-minute
+rule flags a non-running merge task after its
 one-shot trigger when no merge or closure receipt exists, so an outage cannot
 silently spend both triggers. It also flags unreadable task-bound
 manifests/evidence. Actionable states are FLAGS for their first 24 hours, then

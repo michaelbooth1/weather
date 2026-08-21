@@ -329,7 +329,11 @@ PASS observed during Task Scheduler's short running-to-ready transition gets a
 two-minute exit grace at the 03:40 reserve. A non-running task whose Scheduler
 result still carries a transient running/not-run code may proceed only from an
 immutable PASS into the complete receipt/task-time validation, with the
-disagreement recorded. Suite evidence timestamps are invariant-culture. If
+disagreement recorded. Other non-terminal states wait only until the reserve,
+then the exact task is stopped and must reach `Ready` or `Disabled`. Status
+rechecks receipt existence after its task-state sample so a receipt published
+mid-scan cannot create a false interrupted-suite alert. Suite evidence
+timestamps are invariant-culture. If
 publication is proven but final proof is incomplete, `MERGED_UNVERIFIED`
 remains non-retryable and cannot authorize downstream work. A reviewed
 reconciliation may recheck current Git and capture health and disable the exact
