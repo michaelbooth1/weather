@@ -8,7 +8,10 @@ param(
     [Parameter(Mandatory = $true)][string]$MergeTaskName,
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$SupervisorTaskName = "WeatherExecutionTapeSupervisor",
-    [int]$StaleAfterSeconds = 180
+    [int]$StaleAfterSeconds = 180,
+    [string]$AttemptManifestPath = "",
+    [string]$ExpectedManifestSha256 = "",
+    [string]$ExpectedMergeReceiptSha256 = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +21,12 @@ $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 $pythonw = Join-Path $RepoRoot "venv\Scripts\pythonw.exe"
 $expectedArguments = "-m weather.operations.execution_tape_supervisor ensure --market all --stale-after-seconds $StaleAfterSeconds"
 $enabledByThisRun = $false
+$attemptInputs = @(@($AttemptManifestPath, $ExpectedManifestSha256, $ExpectedMergeReceiptSha256) |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+if ($attemptInputs.Count -ne 0 -and $attemptInputs.Count -ne 3) {
+    throw "AttemptManifestPath and both expected SHA256 values must be supplied together."
+}
+$attemptMode = $attemptInputs.Count -eq 3
 
 function Refuse-Adoption {
     param([Parameter(Mandatory = $true)][string]$Reason)
@@ -72,13 +81,51 @@ if ([datetime]$mergeInfo.LastRunTime -lt (Get-Date).Date -or
     Refuse-Adoption "guarded merge did not complete successfully on the current local day"
 }
 $mergeActions = @($mergeTask.Actions)
-if ($mergeActions.Count -ne 1 -or
-    [string]$mergeActions[0].Arguments -notlike "*suite_gated_quiet_merge.ps1*") {
-    Refuse-Adoption "merge task is not bound to the suite-gated quiet-window wrapper"
+if ($mergeActions.Count -ne 1) {
+    Refuse-Adoption "guarded merge task must have exactly one action"
 }
-$tipPattern = "(?i)(?:^|\s)-ExpectedTip\s+" + [regex]::Escape($ExpectedTip) + "(?:\s|$)"
-if ([string]$mergeActions[0].Arguments -notmatch $tipPattern) {
-    Refuse-Adoption "merge task is not bound to ExpectedTip"
+if ($attemptMode) {
+    if ([string]$mergeActions[0].Arguments -notlike "*integration_attempt_merge.ps1*") {
+        Refuse-Adoption "merge task is not bound to the integration-attempt merge wrapper"
+    }
+    $manifestPattern = "(?i)(?:^|\s)-ManifestPath\s+`"?" + [regex]::Escape([IO.Path]::GetFullPath($AttemptManifestPath)) + "`"?(?:\s|$)"
+    $manifestHashPattern = "(?i)(?:^|\s)-ExpectedManifestSha256\s+" + [regex]::Escape($ExpectedManifestSha256) + "(?:\s|$)"
+    if ([string]$mergeActions[0].Arguments -notmatch $manifestPattern -or
+        [string]$mergeActions[0].Arguments -notmatch $manifestHashPattern) {
+        Refuse-Adoption "merge task is not bound to the selected attempt manifest and hash"
+    }
+    $attemptGate = Join-Path $RepoRoot "scripts\ops\assert_integration_attempt_success.ps1"
+    if (-not (Test-Path -LiteralPath $attemptGate -PathType Leaf)) {
+        Refuse-Adoption "integration-attempt downstream gate is missing"
+    }
+    $attemptGateOutput = @(& $attemptGate `
+        -ManifestPath $AttemptManifestPath `
+        -ExpectedManifestSha256 $ExpectedManifestSha256 `
+        -ExpectedMergeReceiptSha256 $ExpectedMergeReceiptSha256)
+    if ($LASTEXITCODE -ne 0) {
+        Refuse-Adoption "immutable integration-attempt success proof failed"
+    }
+    try {
+        $attemptProof = (($attemptGateOutput -join "`n") | ConvertFrom-Json)
+    }
+    catch {
+        Refuse-Adoption "immutable integration-attempt success proof was unreadable"
+    }
+    if ([string]$attemptProof.source_tip -ne $ExpectedTip) {
+        Refuse-Adoption "ExpectedTip does not equal the hash-bound integration-attempt source tip"
+    }
+    if ([string]$attemptProof.merge_task_name -ne $MergeTaskName) {
+        Refuse-Adoption "MergeTaskName does not equal the hash-bound integration-attempt task"
+    }
+}
+else {
+    if ([string]$mergeActions[0].Arguments -notlike "*suite_gated_quiet_merge.ps1*") {
+        Refuse-Adoption "merge task is not bound to the suite-gated quiet-window wrapper"
+    }
+    $tipPattern = "(?i)(?:^|\s)-ExpectedTip\s+" + [regex]::Escape($ExpectedTip) + "(?:\s|$)"
+    if ([string]$mergeActions[0].Arguments -notmatch $tipPattern) {
+        Refuse-Adoption "merge task is not bound to ExpectedTip"
+    }
 }
 
 & git -C $RepoRoot merge-base --is-ancestor $ExpectedTip master 2>$null

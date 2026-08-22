@@ -77,6 +77,10 @@ machine-local state.
   quiet window via `scripts/ops/quiet_window_merge.ps1`, which consults that
   verdict, merges locally, proves all three capture workers recovered, and
   only then invokes `WeatherOneShotPush` and verifies `origin/master`.
+  New scheduled integrations use immutable per-attempt manifests and receipts
+  through `docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md`: a failed attempt is
+  frozen, but a reviewed repair or one bounded unchanged retry may create a new
+  attempt instead of freezing the entire night.
   **A roll-free branch does not need the quiet window** — requiring it of every
   branch is what backed the merge queue up to 25 branches. Markdown, `docs/`,
   `config/` and `.ps1` are roll-free. **Pushing a branch never rolls anything**,

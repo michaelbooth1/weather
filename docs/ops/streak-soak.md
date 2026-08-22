@@ -202,15 +202,38 @@ unplanned outage free.
 What software can do, and now does:
 
 - `scripts/ops/boot_recovery.ps1` runs at every boot (`WeatherBootRecovery`, AtStartup, S4U,
-  2-minute delay). It records *why* we rebooted — distinguishing power loss from a bugcheck
-  from a held power button — and verifies the capture loops came back **unattended**, which
-  is the one failure mode that silences every other check. Appends to
-  `data/alerts/boot_events.jsonl`.
-- It **heals an interrupted merge**. `quiet_window_merge.ps1` merges locally and waits five
-  minutes before deciding, so a power cut inside that window leaves `MERGE_HEAD` and a merged
-  working tree — and the supervisors would readopt unreviewed half-merged code on the way
-  back up, with no rollback in flight. An interrupted merge was never approved, so it is
-  undone. The merge tool also refuses to start while `MERGE_HEAD` exists.
+  no delay). It rolls back any unverified guarded-merge tree as early as Task Scheduler
+  permits, then waits on exact recovery evidence. Windows does not guarantee ordering
+  among startup and logon tasks, so the zero-delay trigger minimizes but does not prove
+  that a supervisor cannot briefly observe the tree before rollback. It records *why* we rebooted — distinguishing power loss from a bugcheck
+  from a held power button — and verifies the capture loops came back **unattended** with the
+  canonical exact three-worker recovery checker. A raw process count is recorded only as a
+  diagnostic and cannot make `capture_recovered` true. This is the one failure mode that
+  silences every other check. Appends to
+  `data/alerts/boot_events.jsonl`. A first-landing task may pass
+  `-ExpectedSelfSha256 <sha256>` so the pre-production recovery script fails before acting if
+  its frozen worktree bytes move.
+- It **heals an interrupted merge**. `quiet_window_merge.ps1` stages with `--no-commit`,
+  deliberately keeping `MERGE_HEAD` until every required recovery proof passes, and
+  journals a `preparing` marker before even staging the generated configs, then atomically
+  refreshes it with the synchronized baseline, temporary pre-merge commit, and any active
+  auxiliary producer's rollback identity before target code can enter the tree. A power cut
+  in that interval therefore has an exact rollback target. Boot recovery first removes the
+  target tree even if `origin/master` moved independently; it refuses only the later baseline
+  reset in that divergent case. On the expected baseline it restores `master == origin/master`
+  and preserves the two generated config contents as allowlisted working-tree drift. It retires
+  the unchanged marker only after the canonical three-worker recovery checker and any required
+  execution-tape status/lock/source identity pass, retrying that proof for up to five minutes
+  while boot evidence catches up. A legacy unmarked `MERGE_HEAD` uses the same exact post-abort
+  proof and conservatively gates any active execution-tape writer; raw process counts are only
+  diagnostic. Boot evidence also lists the small exact set of Git workflow lock files and whether
+  each predates the boot; it never deletes them automatically because safe cleanup requires a
+  repository-wide Git mutation mutex and proof that no current writer owns the lock. A marker
+  that does not bind the exact production repository, `master`, baseline,
+  and reviewed tip is retained without moving the unrelated checkout. A recovery-proved explicit commit is not reset or
+  pushed at boot; it is preserved and blocks another merge until its publication/receipt is
+  explicitly reconciled. The merge tool refuses to start while `MERGE_HEAD` or its durable
+  marker exists.
 - `status.ps1` carries a `STABILITY` line: uptime and unexpected shutdowns in 90 days. One in
   the last 24h is a **FLAG**, because it means today's capture *grade* needs checking, not
   just today's process list.
@@ -254,19 +277,27 @@ guarded operation:
 
 ```powershell
 .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
-  -ExpectedTip <full-tested-commit-sha> [-DryRun] [-Force]
+  -ExpectedTip <full-tested-commit-sha> `
+  [-ExpectedSelfSha256 <frozen-wrapper-sha256>] [-DryRun] [-Force]
 ```
 
-It merges **locally**, waits `-SettleSeconds` (default 300) for readoption, and proves all three
+It stages the merge **locally without committing**, waits `-SettleSeconds` (default 300) for readoption, and proves all three
 workers have matching status/lock PIDs, live processes, fresh heartbeats, and loaded-source
 fingerprints matching the tree. A worker whose PID or loaded-source identity changed must also
 advance its heartbeat during the settle. An unchanged worker need not advance merely because an
 unrelated closure rolled; this matters for the snapshot worker's normal ten-minute cycle, which is
-longer than the five-minute settle. **Only then** does it start `WeatherOneShotPush` and require
+longer than the five-minute settle. If the active public execution-tape closure rolls, the same
+gate directly requires its connected managed process, exact status/lock/process identity, clean
+evidence integrity, current loaded-source fingerprint, and advancing post-readoption heartbeat.
+An intentionally disabled and inactive optional producer remains disabled and is not made a merge
+dependency. `MERGE_HEAD` remains present through these proofs; **only then** is the exact two-parent
+merge committed. The wrapper next records the documentation transaction, starts
+`WeatherOneShotPush`, and requires
 `origin/master` to acknowledge the exact merge commit. If capture
-does not recover it resets to the pre-merge commit — nothing published, no history to
-rewrite — and holds the workload lease for up to `-RollbackRecoverySeconds` (default 1200)
-until all three supervisors prove they have re-adopted the previous code. Failure to prove
+does not recover it aborts the uncommitted merge — nothing published, no merge history to
+rewrite — restores synchronized baseline while preserving generated config bytes, and holds the
+workload lease for up to `-RollbackRecoverySeconds` (default 1200) until all affected active
+producers prove they have re-adopted the previous code. Failure to prove
 rollback adoption is recorded separately as `rollback_recovery_failed`; it is never reported
 as a completed rollback. It refuses to run outside 01:00–04:00
 without `-Force`, never inside 12:00–18:00, and never during the protected 18:00–00:30
@@ -275,12 +306,70 @@ for a scheduled or already-reviewed merge: the script aborts before any automati
 the named branch no longer resolves to that exact full SHA, and merges the immutable commit
 object rather than the movable branch ref. The outcome lands in
 `data/alerts/quiet_window_merge_last.json` and is surfaced by `status.ps1`.
+An immutable attempt or hash-frozen bootstrap also passes
+`-ExpectedSelfSha256`; the child verifies its own exact bytes before entering
+the operational path. Roll classification and all later mutations remain
+under the same shared workload lease, so a second guarded merge cannot change
+the baseline between verdict and mutation.
+
+Before fetch, generated-config commit, or merge, the wrapper also fail-closes unless
+`WeatherOneShotPush` is the one enabled root task in `Ready` state with the canonical current-user
+Interactive/Limited principal, `cmd.exe` push action, production working directory, and bounded
+log redirection. This catches publication dependency drift while rollback is still trivial rather
+than predictably stranding a recovery-proved commit after the roll. It repeats that exact task
+check immediately before starting the push. At the same boundary it re-proves checked-out
+`master`, exact local/remote Git identity, the unchanged documentation marker and immutable
+snapshot, all three capture workers, and any required execution-tape writer. A failed boundary
+proof leaves the commit and marker unpublished for reviewed recovery.
 
 After capture recovery and before publication, the wrapper also records the
 exact local merge commit through `weather.operations.documentation_transaction
-begin`. Failure leaves the merge local and unpushed. Successful stacked merges
-accumulate in one hash-bound pending transaction whose completion is due by
-09:00; see `docs/documentation-maintenance.md`.
+begin`. It binds the resulting pending-state SHA256 and content-addressed snapshot
+into both the active marker and terminal report. Once `begin` has been invoked,
+an error or marker-write failure preserves the recovery-proved local merge for
+reviewed, idempotent resume: resetting it could orphan a shared pending transaction
+that the child already updated. Successful stacked merges accumulate in one
+hash-bound pending transaction whose completion is due by 09:00; see
+`docs/documentation-maintenance.md`.
+
+For new scheduled integrations, do not schedule this wrapper directly and do
+not freeze one branch tip as the only permissible state for the whole night.
+Use the [immutable integration-attempt runbook](../operations/INTEGRATION_ATTEMPT_RUNBOOK.md).
+Its merge task still delegates the actual roll, rollback, documentation
+transaction, and push to `quiet_window_merge.ps1`, but first requires the
+hash-bound preflight and full-suite receipts. A failed attempt remains frozen;
+a reviewed repair receives a new attempt id and cannot rewrite the old proof.
+The attempt wrapper passes `-AttemptReportPath` as an absolute, unused path whose
+parent already exists. The quiet-merge child creates that terminal report through
+an exclusive same-directory atomic rename before updating the mutable latest/history
+slots, so killing the parent immediately after the child returns cannot lose or
+misattribute the attempt-local quiet-merge proof. Mutable compatibility reports never
+substitute for that path: the child verifies the immutable report hash again before it
+may retire an active recovery marker.
+
+The legacy `suite_gated_quiet_merge.ps1` path remains only for an already
+scheduled, hash-frozen bootstrap. Its optional `-SuiteRunningWaitMinutes`
+allows one bounded wait when the exact suite task is still `Running`; the
+default remains an immediate refusal. After waiting, the gate re-resolves the
+singleton task and re-hashes its complete exported XML before it can consume
+the suite verdict. A missing, replaced, non-terminal-at-deadline, or failed
+task still refuses without invoking the quiet merge.
+
+While the child is non-terminal it maintains
+`data/alerts/quiet_window_merge_in_progress.json`. Pre-commit phases are
+unverified and boot recovery rolls them back automatically. Once core capture,
+any required execution tape, and the documentation transaction are proved, the
+marker reaches `documented_unpublished` before push starts. A hard kill after
+the remote accepts that commit can therefore be distinguished from an
+unverified roll: boot recovery preserves the exact commit and marker, exits
+nonzero, and blocks another merge. Do not delete or hand-edit the marker. For an
+integration attempt, hash it and run the reviewed reconciler with the frozen
+manifest, its expected SHA256, `-ExpectedActiveMarkerSha256`, and a durable
+`-ReviewReference`. The reconciler rechecks exact local/remote Git identity and
+capture, records `MERGED_RECONCILED` without downstream authority, and only then
+retires the active marker. If local master remains ahead of `origin/master`, the
+merge is verified but unpushed and still requires reviewed recovery; boot never
+publishes it.
 
 Two behaviours that are easy to get wrong, both found by testing it before its first real run:
 
@@ -288,19 +377,33 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
   `config/locations.json` and `config/location_market_events.json` every 6h, including at
   ~00:00. A naive "refuse if dirty" guard therefore aborts normal merges. Exactly those two
   fleet-generated paths are
-  committed automatically before the merge, and the rollback point is taken **after** that
-  commit so a rollback undoes only the merge. Anything modified outside that exact set still
-  aborts. The live scheduler inventory belongs under ignored
+  committed automatically before the merge. The report distinguishes the original synchronized
+  `baseline_commit` from this temporary `pre_merge_commit`. On failure the merge is first restored
+  to the latter, then a mixed reset returns `master` to the baseline while retaining the exact
+  generated bytes as the same two allowlisted modifications. That makes the failed attempt
+  successor-resumable instead of leaving an unpublished local commit ahead of `origin/master`.
+  Anything modified outside that exact set still aborts. The live scheduler inventory belongs under ignored
   `data/alerts/OPERATING_SCHEDULE.md` and cannot dirty a tracked document.
-- **Never redirect git's stderr** (`*>$null`, `2>&1`). Under `$ErrorActionPreference='Stop'`,
+- **Never redirect git's stderr inside the wrapper** (`*>$null`, `2>&1`). Under `$ErrorActionPreference='Stop'`,
   PowerShell 5.1 wraps each redirected stderr line in a `NativeCommandError` and terminates —
   and git writes routine notices there, so a `CRLF will be replaced by LF` warning is enough
   to kill the script *between* `git merge` and `git merge --abort`, leaving a half-merged
-  tree that rolls the fleet with no rollback in flight.
+  tree that rolls the fleet with no rollback in flight. Scheduled callers redirect the wrapper's
+  complete stream, so every mutating/fetch Git call temporarily scopes native stderr to Continue
+  and still checks the actual process exit code.
 
 `stage: merged_unpushed` means the credential-bearing `WeatherOneShotPush` task did not acknowledge
 the merge within its bounded wait. The merge and recovery proof succeeded, but publication did
-not; the quiet wrapper never attempts an interactive or S4U `git push` itself.
+not; the quiet wrapper never attempts an interactive or S4U `git push` itself. This terminal
+retains the `documented_unpublished` active marker. First compare the marker's exact merge
+commit with local `master` and `origin/master`. If the remote already equals that commit, use
+the hash-bound active-marker reconciliation path above. If local master alone equals it and
+the branch/attempt is still reviewed for publication, an active operator may retry only the
+credential-bearing `WeatherOneShotPush` task, require `origin/master` to acknowledge that exact
+commit, and then use the same reconciler. If the remote moved anywhere else, do not push or
+reset; preserve the marker and resolve the divergence explicitly. `rollback_recovery_failed`
+also retains its marker until boot or a reviewed recovery proves the exact rollback target and
+affected producers healthy.
 
 After the final guarded merge is pushed, the next bounded morning closeout must
 complete the documentation transaction in `docs/documentation-maintenance.md`:

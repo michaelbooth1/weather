@@ -26,7 +26,8 @@ param(
     [string]$AdditionalPythonPath = "",
     [switch]$RequireLiveSdkContract,
     [switch]$PreflightOnly,
-    [switch]$SmokeTest
+    [switch]$SmokeTest,
+    [switch]$IntegrationPreflight
 )
 
 $ErrorActionPreference = "Stop"
@@ -40,6 +41,11 @@ if (-not (Test-Path -LiteralPath $logParent -PathType Container)) {
 }
 if ($StartCommitPercent -ge $AbortCommitPercent) {
     throw "StartCommitPercent must be lower than AbortCommitPercent"
+}
+$selectedModes = @(@($PreflightOnly.IsPresent, $SmokeTest.IsPresent, $IntegrationPreflight.IsPresent) |
+    Where-Object { $_ })
+if ($selectedModes.Count -gt 1) {
+    throw "PreflightOnly, SmokeTest, and IntegrationPreflight are mutually exclusive."
 }
 if ($WorktreeRoot -eq $RepoRoot) {
     throw "bounded suite must use an isolated worktree, not production"
@@ -77,7 +83,11 @@ foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript)
 function Write-SuiteLog {
     param([Parameter(Mandatory = $true)][string]$Message)
 
-    $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
+    $timestamp = ([datetime]::Now).ToString(
+        "yyyy-MM-dd HH:mm:ss",
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+    $line = "{0}  {1}" -f $timestamp, $Message
     Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
     Write-Output $line
 }
@@ -142,7 +152,7 @@ function Assert-HostAdmission {
 
 Write-SuiteLog "=== bounded worktree suite starting ==="
 Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
-Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent)"
+Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
 
 $localNow = Get-Date
 $localMinute = ($localNow.Hour * 60) + $localNow.Minute
@@ -207,14 +217,46 @@ try {
         exit 0
     }
 
-    $testRoot = Join-Path $WorktreeRoot "tests"
-    $testFiles = @(
-        Get-ChildItem -LiteralPath $testRoot -Recurse -File -Filter "test_*.py" |
-            Sort-Object FullName |
-            ForEach-Object {
-                $_.FullName.Substring($WorktreeRoot.Length + 1).Replace("\", "/")
+    if ($IntegrationPreflight) {
+        # Keep the deterministic ratchets that have repeatedly caught cumulative-tip
+        # integration defects ahead of the expensive full suite. This list is
+        # repository-owned and deliberately contains no network or live-data tests.
+        $testFiles = @(
+            "tests/operations/test_schema_registry.py",
+            "tests/operations/test_module_size_audit.py",
+            "tests/operations/test_import_architecture.py",
+            "tests/operations/test_agent_docs_audit.py",
+            "tests/operations/test_bounded_worktree_test_suite_script.py",
+            "tests/operations/test_integration_attempt_scripts.py",
+            "tests/operations/test_integration_attempt_evidence_recovery_hardening.py",
+            "tests/operations/test_integration_attempt_registration_safety.py",
+            "tests/operations/test_boot_recovery_script.py",
+            "tests/operations/test_register_boot_recovery_script.py",
+            "tests/operations/test_suite_gated_quiet_merge_script.py",
+            "tests/operations/test_quiet_window_merge_script.py",
+            "tests/operations/test_host_task_wrappers.py",
+            "tests/reporting/test_roadmap_backlog.py",
+            "tests/app/test_app_roadmap.py"
+        )
+        foreach ($relativeTestPath in $testFiles) {
+            $absoluteTestPath = Join-Path $WorktreeRoot $relativeTestPath.Replace("/", "\")
+            if (-not (Test-Path -LiteralPath $absoluteTestPath -PathType Leaf)) {
+                throw "integration preflight ratchet is missing: $relativeTestPath"
             }
-    )
+        }
+    }
+    else {
+        $trackedTestFiles = @(& git -C $WorktreeRoot ls-files -- tests)
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not enumerate tracked pytest files from the exact worktree"
+        }
+        $testFiles = @(
+            $trackedTestFiles |
+                ForEach-Object { ([string]$_).Replace("\", "/") } |
+                Where-Object { $_ -match '^tests/(?:.*/)?test_[^/]*\.py$' } |
+                Sort-Object
+        )
+    }
     if ($testFiles.Count -eq 0) { throw "no pytest files found in exact worktree" }
     if ($SmokeTest) {
         $testFiles = @($testFiles | Select-Object -First ([math]::Min(2, $testFiles.Count)))
@@ -276,8 +318,51 @@ try {
         Write-SuiteLog "VERDICT: $failedChunks CHUNK(S) FAILED; do not merge"
         exit 1
     }
+
+    # The worktree, movable branch ref, and tracked test inventory can change
+    # while the chunks run. Re-prove all three after the final child exits and
+    # before emitting the sole merge-eligible terminal verdict.
+    $finalWorktreeTipRows = @(& git -C $WorktreeRoot rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0 -or $finalWorktreeTipRows.Count -ne 1) {
+        throw "could not re-resolve the exact worktree tip after the final chunk"
+    }
+    $finalWorktreeTip = ([string]$finalWorktreeTipRows[0]).Trim().ToLowerInvariant()
+    $finalBranchTipRows = @(& git -C $RepoRoot rev-parse $BranchRef)
+    if ($LASTEXITCODE -ne 0 -or $finalBranchTipRows.Count -ne 1) {
+        throw "could not re-resolve BranchRef after the final chunk"
+    }
+    $finalBranchTip = ([string]$finalBranchTipRows[0]).Trim().ToLowerInvariant()
+    if ($finalWorktreeTip -ne $ExpectedTip -or $finalBranchTip -ne $ExpectedTip) {
+        throw "exact branch/worktree identity changed while the suite was running"
+    }
+    $finalDirty = @(& git -C $WorktreeRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $finalDirty.Count -ne 0) {
+        throw "suite worktree changed while the suite was running"
+    }
+    if (-not $SmokeTest -and -not $IntegrationPreflight) {
+        $finalTrackedRows = @(& git -C $WorktreeRoot ls-files -- tests)
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not re-enumerate tracked pytest files after the final chunk"
+        }
+        $finalTestFiles = @(
+            $finalTrackedRows |
+                ForEach-Object { ([string]$_).Replace("\", "/") } |
+                Where-Object { $_ -match '^tests/(?:.*/)?test_[^/]*\.py$' } |
+                Sort-Object
+        )
+        if ($finalTestFiles.Count -ne $testFiles.Count -or
+            @(Compare-Object -ReferenceObject @($testFiles) -DifferenceObject @($finalTestFiles)).Count -ne 0) {
+            throw "tracked pytest inventory changed while the suite was running"
+        }
+    }
+    Write-SuiteLog "final exact-tip, clean-worktree, and test-inventory recheck passed"
+
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
+        exit 0
+    }
+    if ($IntegrationPreflight) {
+        Write-SuiteLog "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
         exit 0
     }
     Write-SuiteLog "VERDICT: ALL CHUNKS PASSED ($($chunks.Count)/$($chunks.Count)); exact tip eligible for separate reviewed merge"

@@ -21,10 +21,43 @@ These instructions apply to `scripts/ops/`.
   executable task logic. Merge queues use `merge_queue_driver.ps1` and bind
   every approved branch to a full reviewed SHA; movable branch-only queues are
   unsupported.
-- A scheduled roll-sensitive merge that depends on a bounded full suite uses
-  `suite_gated_quiet_merge.ps1`. Bind its task action, log, branch, and full tip;
-  a task exit code without the correlated exact full-suite verdict is not merge
-  evidence.
+- New scheduled integrations use `new_integration_attempt.ps1` and
+  `register_integration_attempt.ps1`. Each attempt binds a reviewed full tip,
+  isolated worktree, complete repository-owned orchestration-helper hashes,
+  unique one-shot task names, logs, and receipts. A failed attempt stays
+  immutable; recovery first closes its exact tasks, then emits a reviewed
+  dispatch, and a single atomic predecessor claim authorizes the new attempt
+  under the enforced class in the integration-attempt runbook. Existing
+  scheduled roll-sensitive work may retain `suite_gated_quiet_merge.ps1`, but
+  a task exit code without the correlated exact full-suite verdict is never
+  merge evidence.
+- Do not add `StartWhenAvailable` to integration-attempt tasks. A missed
+  one-shot must fail visibly instead of waking in a protected window. Status
+  must distinguish a currently running suite, a suite that ran without a
+  receipt, a suite that never ran, and a merge trigger that passed without a
+  receipt. Closing a crashed attempt may disable only its exact hash-bound,
+  non-running tasks; it never deletes or replaces them.
+- An integration merge consumer may wait without a workload lease for its
+  exact suite task to reach terminal evidence, but only through the documented
+  03:40 merge reserve. A running suite is not a failure before that deadline;
+  terminal FAIL evidence and a disabled never-run suite are. A PASS receipt
+  observed while Task Scheduler still reports Running receives only a bounded
+  two-minute exit grace. A non-running task with immutable PASS and a stale
+  Scheduler transient result records the disagreement and proceeds only to the
+  full receipt/task-time checks; other nonzero results fail. At the deadline or
+  grace expiry the consumer re-verifies and stops only its own exact hash-bound
+  suite task, records the stop in its receipt, and requires Task Scheduler to
+  report `Ready` or `Disabled` before treating the stop as proved. A transient
+  `Queued`, `Unknown`, or other non-terminal state waits before the reserve but
+  is stopped at it; it never advances from stale PASS metadata. Recovery
+  dispatch never edits source or changes the scheduler and requires an active
+  reviewed operator or coding agent.
+- A merge that is already published but lacks a final proof is
+  `MERGED_UNVERIFIED`, not an ordinary FAIL. It may not be closed, dispatched,
+  or retried. `reconcile_integration_attempt.ps1` preserves that historical
+  status, rechecks current Git and three-worker capture health, disables only
+  the exact receipt-bound tasks, and writes a separate immutable
+  `MERGED_RECONCILED` receipt with downstream authority still false.
 - `quiet_window_merge.ps1` must record the exact local merge through
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight
@@ -55,6 +88,8 @@ After a held producer's roll-sensitive repair, use
 `adopt_execution_tape_after_merge.ps1`; it binds adoption to the exact guarded
 merge, remote/local master agreement, core capture recovery, scheduler
 identity, and worker/status/lock proof, and tears back down on disagreement.
+For an integration-attempt merge it additionally requires the manifest and
+merge-receipt SHA256 values and calls the read-only downstream gate.
 
 Choose one retraining topology per host:
 

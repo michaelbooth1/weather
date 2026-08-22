@@ -74,6 +74,9 @@ environment.
   files, dashboard control, and code-restart guidance.
 - [Host Load Policy](HOST_LOAD_POLICY.md) owns when heavy work may run on the
   capture host.
+- [Immutable Integration Attempts](INTEGRATION_ATTEMPT_RUNBOOK.md) owns
+  exact-tip preflight, full-suite, quiet-merge, failure closure, bounded repair,
+  and downstream receipt authority for overnight branch integration.
 - [Nightly Retrain Runbook](NIGHTLY_RETRAIN_RUNBOOK.md) owns research and
   production candidate-only retraining plus immutable inactive-release
   construction.

@@ -59,6 +59,9 @@ def test_execution_tape_post_merge_adoption_is_exact_and_fail_closed() -> None:
     )
 
     assert "suite_gated_quiet_merge.ps1" in text
+    assert "integration_attempt_merge.ps1" in text
+    assert "assert_integration_attempt_success.ps1" in text
+    assert "ExpectedMergeReceiptSha256" in text
     assert "merge-base --is-ancestor $ExpectedTip master" in text
     assert "$masterTip -ne $originTip" in text
     assert "capture_recovery_check --json" in text

@@ -22,6 +22,1072 @@ if (-not (Test-Path $py)) { $py = "python" }
 $flags = New-Object System.Collections.Generic.List[string]
 $warns = New-Object System.Collections.Generic.List[string]
 
+function Get-WeatherIntegrationValidatedEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedManifestSha256,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("manifest", "registration_intent", "registration", "suite", "merge", "reconciliation", "closure", "dispatch", "claim", "quiet_report")]
+        [string]$Target
+    )
+
+    # Dot-source the strict contract inside this function scope so malformed
+    # evidence fails closed without changing the legacy status script's outer
+    # SilentlyContinue/strict-mode behavior.
+    $contractScript = Join-Path $RepositoryRoot "scripts\ops\integration_attempt_contract.ps1"
+    . $contractScript
+    $attemptContract = Assert-WeatherIntegrationAttemptManifest `
+        -ManifestPath $ManifestPath `
+        -ExpectedSha256 $ExpectedManifestSha256
+    $attempt = $attemptContract.Manifest
+    if ($Target -eq "manifest") {
+        return [pscustomobject]@{ Payload = $attempt; Status = "VALID"; Sha256 = $attemptContract.ManifestSha256 }
+    }
+
+    function Assert-StatusSafetyBoundary {
+        param([Parameter(Mandatory = $true)][object]$Payload)
+        if ([string]$Payload.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+            [bool]$Payload.safety.credential_value_access_authorized -or
+            [bool]$Payload.safety.live_exchange_mutation_authorized) {
+            throw "Evidence violates the integration-attempt safety boundary."
+        }
+    }
+
+    function Assert-StatusCommonIdentity {
+        param([Parameter(Mandatory = $true)][object]$Payload)
+        if ([string]$Payload.attempt_id -ne [string]$attempt.attempt_id -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$Payload.manifest_path) -Right $attemptContract.ManifestPath) -or
+            [string]$Payload.manifest_sha256 -ne [string]$attemptContract.ManifestSha256) {
+            throw "Evidence is not bound to the task-selected manifest identity and hash."
+        }
+    }
+
+    function Assert-StatusMergeParents {
+        param([Parameter(Mandatory = $true)][object]$PublicationRecord)
+
+        $commit = [string]$PublicationRecord.merge_commit
+        $firstParent = @(& git -C ([string]$attempt.repo_root) rev-parse "$commit^1")
+        $firstExit = $LASTEXITCODE
+        $secondParent = @(& git -C ([string]$attempt.repo_root) rev-parse "$commit^2")
+        $secondExit = $LASTEXITCODE
+        $parentLine = @(& git -C ([string]$attempt.repo_root) rev-list --parents -n 1 $commit)
+        $parentLineExit = $LASTEXITCODE
+        if ($firstExit -ne 0 -or $secondExit -ne 0 -or
+            $parentLineExit -ne 0 -or $parentLine.Count -ne 1 -or
+            @(([string]$parentLine[0]) -split '\s+' | Where-Object { $_ }).Count -ne 3 -or
+            $firstParent.Count -ne 1 -or $secondParent.Count -ne 1 -or
+            ([string]$firstParent[0]).Trim().ToLowerInvariant() -ne
+                ([string]$PublicationRecord.pre_merge_commit).ToLowerInvariant() -or
+            ([string]$secondParent[0]).Trim().ToLowerInvariant() -ne
+                ([string]$attempt.expected_tip).ToLowerInvariant()) {
+            throw "Publication evidence does not identify the exact two-parent merge."
+        }
+    }
+
+    function Assert-StatusDocumentationProof {
+        param([Parameter(Mandatory = $true)][object]$PublicationRecord)
+
+        $pendingSha256 = ([string]$PublicationRecord.documentation_transaction_pending_sha256).ToLowerInvariant()
+        $snapshotRelative = ([string]$PublicationRecord.documentation_transaction_snapshot_path).Replace('\', '/')
+        $expectedRelative = "data/alerts/documentation_transactions/pending-$pendingSha256.json"
+        $snapshotPath = Join-Path ([string]$attempt.repo_root) ($snapshotRelative -replace '/', '\')
+        if ($pendingSha256 -notmatch '^[0-9a-f]{64}$' -or
+            $snapshotRelative -cne $expectedRelative -or
+            (Get-WeatherIntegrationFileSha256 -Path $snapshotPath) -ne $pendingSha256) {
+            throw "Documentation transaction snapshot identity/hash is invalid."
+        }
+        $snapshot = Read-WeatherIntegrationSharedJson -Path $snapshotPath
+        $matchingEntries = @($snapshot.integrations | Where-Object {
+            ([string]$_.integration_tip).ToLowerInvariant() -eq
+                ([string]$PublicationRecord.merge_commit).ToLowerInvariant() -and
+            [string]$_.branch -ceq [string]$attempt.branch_ref -and
+            ([string]$_.expected_tip).ToLowerInvariant() -eq [string]$attempt.expected_tip
+        })
+        if ([string]$snapshot.schema_version -ne "documentation_transaction_pending_v0.1" -or
+            [string]$snapshot.status -ne "PENDING" -or
+            ([string]$snapshot.latest_integration_tip).ToLowerInvariant() -ne
+                ([string]$PublicationRecord.merge_commit).ToLowerInvariant() -or
+            $matchingEntries.Count -ne 1) {
+            throw "Documentation snapshot does not bind the exact merge/branch/tip."
+        }
+    }
+
+    function Assert-StatusQuietReport {
+        param(
+            [Parameter(Mandatory = $true)][string]$Path,
+            [AllowEmptyString()][string]$ExpectedSha256 = "",
+            [switch]$RequirePublication,
+            [switch]$AllowMergedUnpushed,
+            [switch]$AllowPreDocumentation
+        )
+        $canonicalPath = [string]$attempt.evidence.quiet_merge_report
+        if (-not (Test-WeatherIntegrationPathEqual -Left $Path -Right $canonicalPath)) {
+            throw "Quiet-merge report path is not canonical for this attempt."
+        }
+        $actualSha256 = Get-WeatherIntegrationFileSha256 -Path $canonicalPath
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and
+            $actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
+            throw "Quiet-merge report hash is not the recorded immutable hash."
+        }
+        $report = Read-WeatherIntegrationSharedJson -Path $canonicalPath
+        $isPushedReport = ([string]$report.stage -eq "pushed")
+        $isRecoveredUnpushedReport = (
+            $AllowMergedUnpushed.IsPresent -and
+            [string]$report.stage -eq "merged_unpushed"
+        )
+        if ([string]$report.schema -ne "quiet_window_merge_report_v0.2" -or
+            [string]$report.branch -ne [string]$attempt.branch_ref -or
+            [string]$report.expected_tip -ne [string]$attempt.expected_tip -or
+            [string]$report.expected_baseline -ne [string]$attempt.baseline.master -or
+            (-not [string]::IsNullOrWhiteSpace([string]$report.baseline_commit) -and
+                [string]$report.baseline_commit -ne [string]$attempt.baseline.master) -or
+            (-not [string]::IsNullOrWhiteSpace([string]$report.resolved_branch_tip) -and
+                [string]$report.resolved_branch_tip -ne [string]$attempt.expected_tip) -or
+            (-not [string]::IsNullOrWhiteSpace([string]$report.pre_merge_commit) -and
+                [string]$report.pre_merge_commit -notmatch '^[0-9a-f]{40}$') -or
+            (-not [string]::IsNullOrWhiteSpace([string]$report.merge_commit) -and
+                [string]$report.merge_commit -notmatch '^[0-9a-f]{40}$')) {
+            throw "Quiet-merge report schema or identity is invalid."
+        }
+        if ($RequirePublication -and (
+            -not [bool]$report.ok -or
+            (-not $isPushedReport -and -not $isRecoveredUnpushedReport) -or
+            [string]$report.baseline_commit -ne [string]$attempt.baseline.master -or
+            [string]$report.resolved_branch_tip -ne [string]$attempt.expected_tip -or
+            [string]$report.merge_commit -notmatch '^[0-9a-f]{40}$' -or
+            -not [bool]$report.capture_recovery_proved -or
+            ([bool]$report.execution_tape_recovery_required -and
+                -not [bool]$report.execution_tape_recovery_proved) -or
+            (-not [bool]$report.documentation_transaction_recorded -and
+                -not $AllowPreDocumentation.IsPresent) -or
+            ($isPushedReport -and -not [bool]$report.publication_acknowledged)
+        )) {
+            throw "Quiet-merge report does not prove the exact recovered integration commit."
+        }
+        if ($RequirePublication) {
+            Assert-StatusMergeParents -PublicationRecord $report
+            if ([bool]$report.documentation_transaction_recorded) {
+                Assert-StatusDocumentationProof -PublicationRecord $report
+            }
+            elseif ($isPushedReport) {
+                throw "Pushed report lacks exact documentation transaction evidence."
+            }
+        }
+        return [pscustomobject]@{ Payload = $report; Sha256 = $actualSha256; Path = $canonicalPath }
+    }
+
+    function Assert-StatusPriorMarkerAbortReport {
+        param([Parameter(Mandatory = $true)][object]$PublicationEvidence)
+
+        $path = [string]$PublicationEvidence.supporting_prior_marker_abort_path
+        $sha256 = [string]$PublicationEvidence.supporting_prior_marker_abort_sha256
+        $raw = [string]$PublicationEvidence.supporting_prior_marker_abort_raw
+        $rawHash = [Security.Cryptography.SHA256]::Create()
+        try {
+            $rawSha256 = ([BitConverter]::ToString(
+                $rawHash.ComputeHash([Text.Encoding]::UTF8.GetBytes($raw))
+            ) -replace '-', '').ToLowerInvariant()
+        }
+        finally { $rawHash.Dispose() }
+        try { $report = $raw | ConvertFrom-Json }
+        catch { throw "Supporting prior-marker abort report JSON is invalid." }
+        Assert-WeatherIntegrationBooleanProperties `
+            -Object $report `
+            -Names @(
+                "ok", "capture_recovery_proved", "execution_tape_recovery_required",
+                "execution_tape_readoption_expected", "execution_tape_rolled_but_inactive_skipped",
+                "execution_tape_recovery_proved", "documentation_transaction_recorded",
+                "publication_acknowledged"
+            ) `
+            -Label "supporting prior-marker abort report"
+        $expectedDetail = "a prior quiet-window merge marker still exists - let WeatherBootRecovery reconcile it before another merge"
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left $path -Right ([string]$attempt.evidence.quiet_merge_report)) -or
+            $sha256 -notmatch '^[0-9a-f]{64}$' -or $rawSha256 -ne $sha256 -or
+            (Get-WeatherIntegrationFileSha256 -Path $path) -ne $sha256 -or
+            [string]$report.schema -ne "quiet_window_merge_report_v0.2" -or
+            [bool]$report.ok -or [string]$report.stage -ne "abort" -or
+            [string]$report.detail -cne $expectedDetail -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$report.repo_root) -Right ([string]$attempt.repo_root)) -or
+            [string]$report.branch -ne [string]$attempt.branch_ref -or
+            [string]$report.expected_tip -ne [string]$attempt.expected_tip -or
+            [string]$report.expected_baseline -ne [string]$attempt.baseline.master -or
+            -not [string]::IsNullOrWhiteSpace([string]$report.resolved_branch_tip) -or
+            -not [string]::IsNullOrWhiteSpace([string]$report.baseline_commit) -or
+            -not [string]::IsNullOrWhiteSpace([string]$report.pre_merge_commit) -or
+            -not [string]::IsNullOrWhiteSpace([string]$report.merge_commit) -or
+            @($report.rollback_content_sha256.PSObject.Properties).Count -ne 0 -or
+            [bool]$report.capture_recovery_proved -or
+            ([bool]$report.execution_tape_recovery_required -and
+                [bool]$report.execution_tape_rolled_but_inactive_skipped) -or
+            ([bool]$report.execution_tape_rolled_but_inactive_skipped -and
+                -not [bool]$report.execution_tape_readoption_expected) -or
+            [bool]$report.execution_tape_recovery_proved -or
+            $null -ne $report.execution_tape_source_before -or
+            [bool]$report.documentation_transaction_recorded -or
+            -not [string]::IsNullOrWhiteSpace([string]$report.documentation_transaction_pending_sha256) -or
+            -not [string]::IsNullOrWhiteSpace([string]$report.documentation_transaction_snapshot_path) -or
+            [bool]$report.publication_acknowledged -or
+            @($report.log | Where-Object { [string]$_ -like "*ABORT: $expectedDetail" }).Count -ne 1) {
+            throw "Supporting abort report is not the exact evidence-free prior-marker refusal."
+        }
+    }
+
+    function Assert-StatusPriorMarkerFailReceipt {
+        param([Parameter(Mandatory = $true)][object]$PublicationEvidence)
+
+        $path = [string]$PublicationEvidence.merge_receipt_path
+        $sha256 = [string]$PublicationEvidence.merge_receipt_sha256
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left $path -Right ([string]$attempt.evidence.merge_receipt)) -or
+            $sha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-WeatherIntegrationFileSha256 -Path $path) -ne $sha256) {
+            throw "Supporting prior-marker FAIL receipt path/hash is invalid."
+        }
+        $receipt = Read-WeatherIntegrationSharedJson -Path $path
+        if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+            [string]$receipt.status -ne "FAIL" -or
+            [string]$receipt.attempt_id -ne [string]$attempt.attempt_id -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$receipt.manifest_path) -Right $attemptContract.ManifestPath) -or
+            [string]$receipt.manifest_sha256 -ne [string]$attemptContract.ManifestSha256 -or
+            [string]$receipt.source_tip -ne [string]$attempt.expected_tip -or
+            [string]$receipt.branch_ref -ne [string]$attempt.branch_ref -or
+            [string]$receipt.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+            [bool]$receipt.safety.credential_value_access_authorized -or
+            [bool]$receipt.safety.live_exchange_mutation_authorized -or
+            [bool]$receipt.origin_master_verified -or
+            [bool]$receipt.source_tip_integrated -or
+            [bool]$receipt.capture_recovery_proved -or
+            [bool]$receipt.documentation_transaction_recorded) {
+            throw "Supporting prior-marker FAIL receipt contains contradictory evidence."
+        }
+        foreach ($scriptName in @("attempt_merge", "quiet_merge")) {
+            $receiptScript = $receipt.scripts.$scriptName
+            $manifestScript = $attempt.orchestration.$scriptName
+            if ($null -eq $receiptScript -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$receiptScript.path) -Right ([string]$manifestScript.path)) -or
+                [string]$receiptScript.sha256 -ne [string]$manifestScript.sha256) {
+                throw "Supporting prior-marker FAIL receipt script binding is invalid: $scriptName"
+            }
+        }
+        $suiteContract = Assert-WeatherIntegrationSuiteReceipt -AttemptContract $attemptContract
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$receipt.suite_receipt_path) -Right $suiteContract.ReceiptPath) -or
+            [string]$receipt.suite_receipt_sha256 -ne [string]$suiteContract.ReceiptSha256 -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$receipt.quiet_merge_report.path) `
+                -Right ([string]$PublicationEvidence.supporting_prior_marker_abort_path)) -or
+            [string]$receipt.quiet_merge_report.sha256 -ne
+                [string]$PublicationEvidence.supporting_prior_marker_abort_sha256) {
+            throw "Supporting prior-marker FAIL receipt does not bind its suite/abort evidence."
+        }
+        $abortRaw = [string]$PublicationEvidence.supporting_prior_marker_abort_raw
+        try { $abortReport = $abortRaw | ConvertFrom-Json }
+        catch { throw "Supporting prior-marker abort report JSON is invalid." }
+        if (($receipt.quiet_merge_report.payload | ConvertTo-Json -Depth 8 -Compress) -cne
+            ($abortReport | ConvertTo-Json -Depth 8 -Compress)) {
+            throw "Supporting prior-marker FAIL receipt does not embed its exact abort payload."
+        }
+    }
+
+    function Assert-StatusFailedMergeReceiptRecovery {
+        param(
+            [Parameter(Mandatory = $true)][string]$ExpectedReceiptSha256,
+            [switch]$AllowPreDocumentation
+        )
+
+        $receiptPath = Resolve-WeatherIntegrationPath -Path ([string]$attempt.evidence.merge_receipt)
+        if ((Get-WeatherIntegrationFileSha256 -Path $receiptPath) -ne $ExpectedReceiptSha256) {
+            throw "Recovered FAIL merge-receipt hash binding is invalid."
+        }
+        $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+        Assert-StatusCommonIdentity -Payload $receipt
+        Assert-StatusSafetyBoundary -Payload $receipt
+        if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+            [string]$receipt.status -ne "FAIL" -or
+            [string]$receipt.source_tip -ne [string]$attempt.expected_tip -or
+            [string]$receipt.branch_ref -ne [string]$attempt.branch_ref) {
+            throw "Recovered FAIL merge receipt schema or identity is invalid."
+        }
+        foreach ($scriptName in @("attempt_merge", "quiet_merge")) {
+            $receiptScript = $receipt.scripts.$scriptName
+            $manifestScript = $attempt.orchestration.$scriptName
+            if ($null -eq $receiptScript -or
+                -not (Test-WeatherIntegrationPathEqual -Left ([string]$receiptScript.path) -Right ([string]$manifestScript.path)) -or
+                [string]$receiptScript.sha256 -ne [string]$manifestScript.sha256) {
+                throw "Recovered FAIL merge-receipt script binding is invalid: $scriptName"
+            }
+        }
+        $suiteContract = Assert-WeatherIntegrationSuiteReceipt -AttemptContract $attemptContract
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$receipt.suite_receipt_path) `
+                -Right ([string]$suiteContract.ReceiptPath)) -or
+            [string]$receipt.suite_receipt_sha256 -ne [string]$suiteContract.ReceiptSha256) {
+            throw "Recovered FAIL merge receipt does not bind its exact PASS suite receipt."
+        }
+        $quietContract = Assert-StatusQuietReport `
+            -Path ([string]$receipt.quiet_merge_report.path) `
+            -ExpectedSha256 ([string]$receipt.quiet_merge_report.sha256) `
+            -RequirePublication `
+            -AllowMergedUnpushed `
+            -AllowPreDocumentation:($AllowPreDocumentation.IsPresent)
+        if ([string]$quietContract.Payload.stage -ne "merged_unpushed" -or
+            [string]$receipt.quiet_merge_report.payload.schema -ne [string]$quietContract.Payload.schema -or
+            [string]$receipt.quiet_merge_report.payload.stage -ne [string]$quietContract.Payload.stage -or
+            [string]$receipt.quiet_merge_report.payload.merge_commit -ne [string]$quietContract.Payload.merge_commit -or
+            [string]$receipt.quiet_merge_report.payload.expected_tip -ne [string]$quietContract.Payload.expected_tip -or
+            [string]$receipt.quiet_merge_report.payload.expected_baseline -ne [string]$quietContract.Payload.expected_baseline) {
+            throw "Recovered FAIL merge receipt does not embed its exact hash-bound quiet report."
+        }
+        return [pscustomobject]@{
+            Receipt = $receipt
+            ReceiptPath = $receiptPath
+            ReceiptSha256 = $ExpectedReceiptSha256
+            QuietReport = $quietContract.Payload
+            QuietReportSha256 = $quietContract.Sha256
+        }
+    }
+
+    $evidencePath = switch ($Target) {
+        "registration_intent" { Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $attemptContract }
+        "registration" { [string]$attempt.evidence.registration_receipt }
+        "suite" { [string]$attempt.evidence.suite_receipt }
+        "merge" { [string]$attempt.evidence.merge_receipt }
+        "reconciliation" { [string]$attempt.evidence.reconciliation_receipt }
+        "closure" { [string]$attempt.evidence.closure_receipt }
+        "dispatch" { [string]$attempt.evidence.recovery_dispatch }
+        "claim" { Join-Path ([string]$attempt.attempt_root) "successor-claim.json" }
+        "quiet_report" { [string]$attempt.evidence.quiet_merge_report }
+    }
+    if ($Target -eq "quiet_report") {
+        $quietContract = Assert-StatusQuietReport `
+            -Path $evidencePath `
+            -RequirePublication `
+            -AllowMergedUnpushed `
+            -AllowPreDocumentation
+        $quietStatus = if ([string]$quietContract.Payload.stage -eq "pushed") {
+            "PUBLISHED"
+        }
+        else { "RECOVERED_UNPUSHED" }
+        return [pscustomobject]@{ Payload = $quietContract.Payload; Status = $quietStatus; Sha256 = $quietContract.Sha256 }
+    }
+    $payload = Read-WeatherIntegrationSharedJson -Path $evidencePath
+    $evidenceSha256 = Get-WeatherIntegrationFileSha256 -Path $evidencePath
+    $validatedStatus = [string]$payload.status
+
+    if ($Target -notin @("claim", "registration_intent")) {
+        Assert-StatusCommonIdentity -Payload $payload
+    }
+    if ($Target -notin @("claim", "registration_intent", "registration")) {
+        Assert-StatusSafetyBoundary -Payload $payload
+    }
+    if ($Target -eq "registration_intent") {
+        $intentContract = Assert-WeatherIntegrationRegistrationIntent `
+            -AttemptContract $attemptContract `
+            -ExpectedSha256 $evidenceSha256
+        $payload = $intentContract.Intent
+    }
+    elseif ($Target -eq "registration") {
+        $registrationContract = Assert-WeatherIntegrationRegistrationReceipt `
+            -AttemptContract $attemptContract
+        $payload = $registrationContract.Receipt
+        $evidenceSha256 = $registrationContract.ReceiptSha256
+    }
+    elseif ($Target -eq "suite") {
+        if ([string]$payload.schema -ne $script:WeatherIntegrationAttemptSuiteReceiptSchema -or
+            [string]$payload.status -notin @("PASS", "FAIL") -or
+            [string]$payload.expected_tip -ne [string]$attempt.expected_tip -or
+            [string]$payload.branch_ref -ne [string]$attempt.branch_ref -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.worktree_root) -Right ([string]$attempt.worktree_root))) {
+            throw "Suite receipt schema or identity is invalid."
+        }
+        $suiteIntentPath = Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $attemptContract
+        $suiteRegistrationPath = [string]$attempt.evidence.registration_receipt
+        if ((Get-WeatherIntegrationFileSha256 -Path $suiteIntentPath) -ne
+                [string]$payload.registration_intent_sha256 -or
+            (Get-WeatherIntegrationFileSha256 -Path $suiteRegistrationPath) -ne
+                [string]$payload.registration_receipt_sha256) {
+            throw "Suite receipt registration intent/receipt hashes are invalid."
+        }
+        if ([string]$payload.status -eq "PASS") {
+            Assert-WeatherIntegrationSuiteReceipt -AttemptContract $attemptContract | Out-Null
+        }
+        else {
+            foreach ($name in @("preflight", "full_suite")) {
+                $record = $payload.logs.$name
+                if ($null -eq $record) { continue }
+                $expectedPath = if ($name -eq "preflight") {
+                    [string]$attempt.evidence.preflight_log
+                }
+                else { [string]$attempt.evidence.full_suite_log }
+                if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$record.path) -Right $expectedPath) -or
+                    (Get-WeatherIntegrationFileSha256 -Path $expectedPath) -ne [string]$record.sha256) {
+                    throw "FAIL suite receipt log binding is invalid: $name"
+                }
+            }
+        }
+    }
+    elseif ($Target -eq "merge") {
+        if ([string]$payload.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+            [string]$payload.status -notin @("PASS", "FAIL", "MERGED_UNVERIFIED") -or
+            [string]$payload.source_tip -ne [string]$attempt.expected_tip -or
+            [string]$payload.branch_ref -ne [string]$attempt.branch_ref) {
+            throw "Merge receipt schema or identity is invalid."
+        }
+        if ([string]$payload.status -eq "PASS") {
+            Assert-WeatherIntegrationMergeReceipt `
+                -AttemptContract $attemptContract -ExpectedReceiptSha256 $evidenceSha256 | Out-Null
+            Assert-StatusQuietReport `
+                -Path ([string]$payload.quiet_merge_report.path) `
+                -ExpectedSha256 ([string]$payload.quiet_merge_report.sha256) `
+                -RequirePublication | Out-Null
+        }
+        elseif ([string]$payload.status -eq "MERGED_UNVERIFIED") {
+            Assert-WeatherIntegrationMergedUnverifiedReceipt `
+                -AttemptContract $attemptContract -ExpectedReceiptSha256 $evidenceSha256 | Out-Null
+            Assert-StatusQuietReport `
+                -Path ([string]$payload.quiet_merge_report.path) `
+                -ExpectedSha256 ([string]$payload.quiet_merge_report.sha256) `
+                -RequirePublication | Out-Null
+        }
+        else {
+            if (-not [string]::IsNullOrWhiteSpace([string]$payload.suite_receipt_sha256)) {
+                $suitePath = [string]$attempt.evidence.suite_receipt
+                if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.suite_receipt_path) -Right $suitePath) -or
+                    (Get-WeatherIntegrationFileSha256 -Path $suitePath) -ne [string]$payload.suite_receipt_sha256) {
+                    throw "FAIL merge receipt suite-receipt binding is invalid."
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace([string]$payload.quiet_merge_report.sha256)) {
+                $failedQuietContract = Assert-StatusQuietReport `
+                    -Path ([string]$payload.quiet_merge_report.path) `
+                    -ExpectedSha256 ([string]$payload.quiet_merge_report.sha256)
+                if ([bool]$failedQuietContract.Payload.ok -and
+                    [string]$failedQuietContract.Payload.stage -eq "merged_unpushed") {
+                    Assert-StatusQuietReport `
+                        -Path ([string]$payload.quiet_merge_report.path) `
+                        -ExpectedSha256 ([string]$payload.quiet_merge_report.sha256) `
+                        -RequirePublication `
+                        -AllowMergedUnpushed `
+                        -AllowPreDocumentation | Out-Null
+                    $validatedStatus = "RECOVERED_UNPUSHED"
+                }
+            }
+        }
+    }
+    elseif ($Target -eq "reconciliation") {
+        if ([string]$payload.schema -ne $script:WeatherIntegrationAttemptReconciliationReceiptSchema -or
+            [string]$payload.status -ne "MERGED_RECONCILED" -or
+            [bool]$payload.historical_proof_upgraded -or [bool]$payload.downstream_authorized -or
+            ([bool]$payload.publication_resume.performed -and
+                -not [bool]$payload.publication_resume.requested) -or
+            -not [bool]$payload.current_proofs.checked_out_master_equals_origin -or
+            -not [bool]$payload.current_proofs.published_integration_commit_in_history -or
+            -not [bool]$payload.current_proofs.frozen_source_tip_in_history -or
+            -not [bool]$payload.current_proofs.capture_recovery_current -or
+            -not [bool]$payload.current_proofs.exact_merge_parents_current -or
+            ([bool]$payload.current_proofs.execution_tape_recovery_required -and
+                -not [bool]$payload.current_proofs.execution_tape_recovery_current) -or
+            [string]$payload.current_proofs.production_head -notmatch '^[0-9a-f]{40}$' -or
+            [string]$payload.current_proofs.production_head -ne [string]$payload.current_proofs.origin_master -or
+            -not [bool]$payload.current_proofs.capture.ok -or
+            @($payload.current_proofs.capture.workers).Count -ne 3 -or
+            @($payload.current_proofs.capture.workers | Where-Object { -not [bool]$_.ok }).Count -ne 0 -or
+            @($payload.tasks | Where-Object { [bool]$_.exists -and -not [bool]$_.disabled }).Count -ne 0) {
+            throw "Reconciliation receipt is structurally invalid or authorizing."
+        }
+        if ([bool]$payload.current_proofs.execution_tape_recovery_required) {
+            $tape = $payload.current_proofs.execution_tape
+            $tapeHealth = $tape.payload.health
+            $tapeStatus = $tape.payload.status
+            $tapeLock = $tape.writer_lock
+            if ([string]$tapeHealth.state -notin @("RUNNING", "DEGRADED") -or
+                $tapeHealth.pid_alive -ne $true -or
+                $tapeHealth.runtime_identity_matches_current -ne $true -or
+                [string]$tapeHealth.evidence_integrity -ne "PASS" -or
+                [string]$tapeStatus.state -ne "CONNECTED" -or
+                [string]$tapeStatus.market -ne "all" -or
+                [string]$tapeStatus.runner -ne "managed_execution_tape" -or
+                $tapeStatus.managed_process.verified_at_capture -ne $true -or
+                [int]$tapeStatus.pid -le 0 -or
+                [int]$tapeStatus.pid -ne [int]$tapeStatus.managed_process.pid -or
+                [int]$tapeStatus.pid -ne [int]$tapeLock.pid -or
+                [int]$tapeStatus.pid -ne [int]$tapeLock.managed_process.pid -or
+                [string]$tapeStatus.managed_process.creation_time_token -cne
+                    [string]$tapeLock.managed_process.creation_time_token) {
+                throw "Reconciliation receipt execution-tape proof is structurally invalid."
+            }
+        }
+        $reconciliationIntentPath = Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $attemptContract
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$payload.registration_evidence.intent_path) `
+                -Right $reconciliationIntentPath) -or
+            (Get-WeatherIntegrationFileSha256 -Path $reconciliationIntentPath) -ne
+                [string]$payload.registration_evidence.intent_sha256) {
+            throw "Reconciliation registration-intent hash binding is invalid."
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$payload.registration_evidence.receipt_sha256)) {
+            $reconciliationRegistrationReceipt = [string]$attempt.evidence.registration_receipt
+            if (-not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$payload.registration_evidence.receipt_path) `
+                    -Right $reconciliationRegistrationReceipt) -or
+                (Get-WeatherIntegrationFileSha256 -Path $reconciliationRegistrationReceipt) -ne
+                    [string]$payload.registration_evidence.receipt_sha256) {
+                throw "Reconciliation registration-receipt hash binding is invalid."
+            }
+        }
+        $publicationKind = [string]$payload.publication_evidence.kind
+        if ($publicationKind -eq "merge_receipt") {
+            $boundPath = [string]$attempt.evidence.merge_receipt
+            if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.publication_evidence.merge_receipt_path) -Right $boundPath) -or
+                (Get-WeatherIntegrationFileSha256 -Path $boundPath) -ne [string]$payload.publication_evidence.merge_receipt_sha256) {
+                throw "Reconciliation merge-receipt hash binding is invalid."
+            }
+            $boundMergeContract = Assert-WeatherIntegrationMergedUnverifiedReceipt `
+                -AttemptContract $attemptContract `
+                -ExpectedReceiptSha256 ([string]$payload.publication_evidence.merge_receipt_sha256)
+            if ([string]$payload.publication_evidence.published_integration_commit -ne
+                [string]$boundMergeContract.Receipt.production_head) {
+                throw "Reconciliation published commit does not match its MERGED_UNVERIFIED receipt."
+            }
+        }
+        elseif ($publicationKind -eq "failed_merge_receipt") {
+            $boundPath = [string]$attempt.evidence.merge_receipt
+            if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.publication_evidence.merge_receipt_path) -Right $boundPath) -or
+                (Get-WeatherIntegrationFileSha256 -Path $boundPath) -ne [string]$payload.publication_evidence.merge_receipt_sha256) {
+                throw "Reconciliation recovered FAIL merge-receipt hash binding is invalid."
+            }
+            $failedMergeContract = Assert-StatusFailedMergeReceiptRecovery `
+                -ExpectedReceiptSha256 ([string]$payload.publication_evidence.merge_receipt_sha256) `
+                -AllowPreDocumentation:([bool]$payload.publication_resume.performed)
+            if ([string]$payload.historical_merge_status -ne "PUBLISHED_AFTER_FAILED_PUSH_ACK" -or
+                [string]$payload.publication_evidence.published_integration_commit -ne
+                    [string]$failedMergeContract.QuietReport.merge_commit) {
+                throw "Reconciliation recovered FAIL receipt does not bind its exact published commit."
+            }
+        }
+        elseif ($publicationKind -eq "active_marker") {
+            $markerRaw = [string]$payload.publication_evidence.active_marker_raw
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try {
+                $markerRawSha256 = ([BitConverter]::ToString(
+                    $sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($markerRaw))
+                ) -replace '-', '').ToLowerInvariant()
+            }
+            finally { $sha.Dispose() }
+            if ($markerRawSha256 -ne [string]$payload.publication_evidence.active_marker_sha256) {
+                throw "Reconciliation embedded active-marker hash is invalid."
+            }
+            try { $marker = $markerRaw | ConvertFrom-Json }
+            catch { throw "Reconciliation embedded active-marker JSON is invalid." }
+            Assert-WeatherIntegrationBooleanProperties `
+                -Object $marker `
+                -Names @("execution_tape_readoption_expected") `
+                -Label "reconciliation embedded active marker"
+            $markerWasResumedBeforeDocumentation = (
+                [bool]$payload.publication_resume.performed -and
+                [string]$marker.phase -eq "merge_committed_unpublished"
+            )
+            if ([string]$marker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$marker.repo_root) -Right ([string]$attempt.repo_root)) -or
+                ([string]$marker.phase -notin @("documented_unpublished", "published") -and
+                    -not $markerWasResumedBeforeDocumentation) -or
+                [string]$marker.branch -ne [string]$attempt.branch_ref -or
+                [string]$marker.expected_tip -ne [string]$attempt.expected_tip -or
+                [string]$marker.expected_baseline -ne [string]$attempt.baseline.master -or
+                [string]$marker.resolved_branch_tip -ne [string]$attempt.expected_tip -or
+                [string]$marker.baseline_commit -ne [string]$attempt.baseline.master -or
+                [string]$marker.merge_commit -ne [string]$payload.publication_evidence.published_integration_commit -or
+                -not [bool]$marker.capture_recovery_proved -or
+                ([bool]$marker.execution_tape_recovery_required -and
+                    -not [bool]$marker.execution_tape_recovery_proved) -or
+                (-not $markerWasResumedBeforeDocumentation -and
+                    -not [bool]$marker.documentation_transaction_recorded) -or
+                ($markerWasResumedBeforeDocumentation -and
+                    [bool]$marker.documentation_transaction_recorded) -or
+                ([string]$marker.phase -eq "published" -and
+                    -not [bool]$marker.publication_acknowledged)) {
+                throw "Reconciliation embedded active marker does not prove the attempt publication."
+            }
+            Assert-StatusMergeParents -PublicationRecord $marker
+            if ([bool]$marker.documentation_transaction_recorded) {
+                Assert-StatusDocumentationProof -PublicationRecord $marker
+            }
+            if (-not [string]::IsNullOrWhiteSpace(
+                    [string]$payload.publication_evidence.supporting_quiet_merge_report_sha256)) {
+                $supportingQuiet = Assert-StatusQuietReport `
+                    -Path ([string]$payload.publication_evidence.supporting_quiet_merge_report_path) `
+                    -ExpectedSha256 ([string]$payload.publication_evidence.supporting_quiet_merge_report_sha256) `
+                    -RequirePublication `
+                    -AllowMergedUnpushed `
+                    -AllowPreDocumentation:([bool]$payload.publication_resume.performed)
+                if ([string]$supportingQuiet.Payload.stage -ne "merged_unpushed" -or
+                    [string]$supportingQuiet.Payload.merge_commit -ne [string]$marker.merge_commit) {
+                    throw "Reconciliation supporting quiet report does not match its active marker."
+                }
+            }
+            if (-not [string]::IsNullOrWhiteSpace(
+                    [string]$payload.publication_evidence.supporting_prior_marker_abort_sha256)) {
+                Assert-StatusPriorMarkerAbortReport `
+                    -PublicationEvidence $payload.publication_evidence
+            }
+            if (-not [string]::IsNullOrWhiteSpace(
+                    [string]$payload.publication_evidence.merge_receipt_sha256)) {
+                if ([string]::IsNullOrWhiteSpace(
+                        [string]$payload.publication_evidence.supporting_prior_marker_abort_sha256)) {
+                    throw "Active-marker reconciliation may subordinate a FAIL receipt only with its exact prior-marker abort report."
+                }
+                Assert-StatusPriorMarkerFailReceipt `
+                    -PublicationEvidence $payload.publication_evidence
+            }
+        }
+        elseif ($publicationKind -ne "quiet_merge_report") {
+            throw "Reconciliation publication-evidence kind is unsupported."
+        }
+        if ($publicationKind -ne "active_marker" -and
+            -not [string]::IsNullOrWhiteSpace(
+                [string]$payload.publication_evidence.supporting_prior_marker_abort_sha256)) {
+            throw "Only active-marker reconciliation may subordinate a prior-marker abort report."
+        }
+        if (-not [string]::IsNullOrWhiteSpace(
+                [string]$payload.publication_evidence.supporting_active_marker_sha256)) {
+            $supportingMarkerRaw = [string]$payload.publication_evidence.supporting_active_marker_raw
+            $supportingSha = [Security.Cryptography.SHA256]::Create()
+            try {
+                $supportingMarkerSha256 = ([BitConverter]::ToString(
+                    $supportingSha.ComputeHash([Text.Encoding]::UTF8.GetBytes($supportingMarkerRaw))
+                ) -replace '-', '').ToLowerInvariant()
+            }
+            finally { $supportingSha.Dispose() }
+            try { $supportingMarker = $supportingMarkerRaw | ConvertFrom-Json }
+            catch { throw "Reconciliation supporting active-marker JSON is invalid." }
+            Assert-WeatherIntegrationBooleanProperties `
+                -Object $supportingMarker `
+                -Names @("execution_tape_readoption_expected") `
+                -Label "reconciliation supporting active marker"
+            if ($supportingMarkerSha256 -ne
+                    [string]$payload.publication_evidence.supporting_active_marker_sha256 -or
+                [string]$supportingMarker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$supportingMarker.repo_root) -Right ([string]$attempt.repo_root)) -or
+                [string]$supportingMarker.phase -notin @(
+                    "merge_committed_unpublished", "documented_unpublished", "published"
+                ) -or
+                [string]$supportingMarker.branch -ne [string]$attempt.branch_ref -or
+                [string]$supportingMarker.expected_tip -ne [string]$attempt.expected_tip -or
+                [string]$supportingMarker.expected_baseline -ne [string]$attempt.baseline.master -or
+                [string]$supportingMarker.merge_commit -ne
+                    [string]$payload.publication_evidence.published_integration_commit -or
+                -not [bool]$supportingMarker.capture_recovery_proved -or
+                ([bool]$supportingMarker.execution_tape_recovery_required -and
+                    -not [bool]$supportingMarker.execution_tape_recovery_proved)) {
+                throw "Reconciliation supporting active marker is not bound to this publication."
+            }
+            Assert-StatusMergeParents -PublicationRecord $supportingMarker
+            if ([bool]$supportingMarker.documentation_transaction_recorded) {
+                Assert-StatusDocumentationProof -PublicationRecord $supportingMarker
+            }
+            elseif (-not [bool]$payload.publication_resume.performed -and
+                -not [bool]$payload.publication_evidence.quiet_merge_report_sha256) {
+                throw "Lagging supporting marker lacks stronger documentation evidence or reviewed resume."
+            }
+        }
+        if ($publicationKind -ne "active_marker") {
+            $boundQuietContract = Assert-StatusQuietReport `
+                -Path ([string]$payload.publication_evidence.quiet_merge_report_path) `
+                -ExpectedSha256 ([string]$payload.publication_evidence.quiet_merge_report_sha256) `
+                -RequirePublication `
+                -AllowMergedUnpushed:($publicationKind -eq "failed_merge_receipt" -or
+                    [bool]$payload.publication_resume.performed) `
+                -AllowPreDocumentation:([bool]$payload.publication_resume.performed)
+            if ([string]$payload.publication_evidence.published_integration_commit -ne
+                [string]$boundQuietContract.Payload.merge_commit) {
+                throw "Reconciliation published commit does not match its hash-bound quiet report."
+            }
+        }
+        if ([bool]$payload.publication_resume.performed) {
+            $finalMarkerRaw = [string]$payload.publication_resume.final_marker_raw
+            if ([string]::IsNullOrWhiteSpace($finalMarkerRaw)) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$payload.publication_resume.final_marker_sha256)) {
+                    throw "Publication-resume final marker fields are inconsistent."
+                }
+            }
+            else {
+                $resumeSha = [Security.Cryptography.SHA256]::Create()
+                try {
+                    $finalMarkerSha256 = ([BitConverter]::ToString(
+                        $resumeSha.ComputeHash([Text.Encoding]::UTF8.GetBytes($finalMarkerRaw))
+                    ) -replace '-', '').ToLowerInvariant()
+                }
+                finally { $resumeSha.Dispose() }
+                try { $finalMarker = $finalMarkerRaw | ConvertFrom-Json }
+                catch { throw "Publication-resume final marker JSON is invalid." }
+                if ($finalMarkerSha256 -ne [string]$payload.publication_resume.final_marker_sha256 -or
+                    [string]$finalMarker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
+                    [string]$finalMarker.phase -ne "published" -or
+                    [string]$finalMarker.merge_commit -ne
+                        [string]$payload.publication_evidence.published_integration_commit -or
+                    -not [bool]$finalMarker.documentation_transaction_recorded -or
+                    -not [bool]$finalMarker.publication_acknowledged) {
+                    throw "Publication-resume final marker does not prove its documented publication."
+                }
+                Assert-StatusDocumentationProof -PublicationRecord $finalMarker
+            }
+        }
+    }
+    elseif ($Target -eq "closure") {
+        if ([string]$payload.schema -ne $script:WeatherIntegrationAttemptClosureReceiptSchema -or
+            [string]$payload.status -ne "FAIL" -or
+            [string]$payload.expected_tip -ne [string]$attempt.expected_tip -or
+            @($payload.tasks).Count -ne 2 -or
+            -not [bool]$payload.post_disable_proof.tasks_terminal_and_disabled -or
+            -not [bool]$payload.post_disable_proof.merge_head_absent -or
+            [string]$payload.post_disable_proof.checked_out_branch -ne "master" -or
+            [string]$payload.post_disable_proof.head -ne [string]$attempt.baseline.master -or
+            [string]$payload.post_disable_proof.master -ne [string]$attempt.baseline.master -or
+            [string]$payload.post_disable_proof.origin_master -ne [string]$attempt.baseline.origin_master -or
+            [bool]$payload.post_disable_proof.source_in_master -or
+            [bool]$payload.post_disable_proof.source_in_origin -or
+            @($payload.tasks | Where-Object { [bool]$_.exists -and -not [bool]$_.disabled }).Count -ne 0) {
+            throw "Closure receipt is not a safe exact-attempt FAIL closure."
+        }
+        $intentPath = Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $attemptContract
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$payload.registration_evidence.registration_intent_path) `
+                -Right $intentPath) -or
+            (-not [string]::IsNullOrWhiteSpace([string]$payload.registration_evidence.registration_intent_sha256) -and
+                (Get-WeatherIntegrationFileSha256 -Path $intentPath) -ne
+                    [string]$payload.registration_evidence.registration_intent_sha256)) {
+            throw "Closure registration-intent evidence is invalid."
+        }
+        foreach ($record in @($payload.preserved_evidence)) {
+            if ([string]$record.sha256 -notmatch '^[0-9a-f]{64}$' -or
+                (Get-WeatherIntegrationFileSha256 -Path ([string]$record.path)) -ne [string]$record.sha256) {
+                throw "Closure receipt contains a stale preserved-evidence hash."
+            }
+        }
+    }
+    elseif ($Target -eq "dispatch") {
+        $closurePath = [string]$attempt.evidence.closure_receipt
+        if ([string]$payload.schema -ne $script:WeatherIntegrationAttemptRecoveryDispatchSchema -or
+            [string]$payload.status -ne "READY_FOR_SUCCESSOR_REVIEW" -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.closure_receipt_path) -Right $closurePath) -or
+            (Get-WeatherIntegrationFileSha256 -Path $closurePath) -ne [string]$payload.closure_receipt_sha256 -or
+            [bool]$payload.automatic_source_edit_authorized -or [bool]$payload.scheduler_change_authorized) {
+            throw "Recovery dispatch schema, authority, or closure hash is invalid."
+        }
+    }
+    elseif ($Target -eq "claim") {
+        $expectedClosurePath = [string]$attempt.evidence.closure_receipt
+        $expectedDispatchPath = [string]$attempt.evidence.recovery_dispatch
+        if ([string]$payload.schema -ne $script:WeatherIntegrationAttemptSuccessorClaimSchema -or
+            [string]$payload.status -ne "CLAIMED" -or
+            [string]$payload.predecessor_attempt_id -ne [string]$attempt.attempt_id -or
+            [string]$payload.successor_attempt_id -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$' -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.predecessor_receipt_path) -Right $expectedClosurePath) -or
+            -not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.recovery_dispatch_path) -Right $expectedDispatchPath) -or
+            (Get-WeatherIntegrationFileSha256 -Path ([string]$payload.predecessor_receipt_path)) -ne [string]$payload.predecessor_receipt_sha256 -or
+            (Get-WeatherIntegrationFileSha256 -Path ([string]$payload.recovery_dispatch_path)) -ne [string]$payload.recovery_dispatch_sha256 -or
+            (Get-WeatherIntegrationFileSha256 -Path ([string]$payload.successor_manifest_path)) -ne [string]$payload.successor_manifest_sha256) {
+            throw "Successor claim schema, identity, or immutable hash binding is invalid."
+        }
+        $successorManifest = Read-WeatherIntegrationSharedJson -Path ([string]$payload.successor_manifest_path)
+        if ([string]$successorManifest.schema -ne $script:WeatherIntegrationAttemptManifestSchema -or
+            [string]$successorManifest.attempt_id -ne [string]$payload.successor_attempt_id -or
+            [string]$successorManifest.expected_tip -ne [string]$payload.successor_expected_tip) {
+            throw "Successor claim target manifest identity is invalid."
+        }
+    }
+
+    return [pscustomobject]@{ Payload = $payload; Status = $validatedStatus; Sha256 = $evidenceSha256 }
+}
+
+function Assert-WeatherIntegrationStatusTaskBindings {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedManifestSha256
+    )
+
+    . (Join-Path $RepositoryRoot "scripts\ops\integration_attempt_contract.ps1")
+    # Legacy schema literal weather_integration_attempt_manifest_v1 is never
+    # trusted directly here; the shared manifest contract owns its validation.
+    $bindingContract = Assert-WeatherIntegrationAttemptManifest `
+        -ManifestPath $ManifestPath `
+        -ExpectedSha256 $ExpectedManifestSha256
+    $suiteBinding = Assert-WeatherIntegrationAttemptTaskBinding `
+        -AttemptContract $bindingContract -Role "suite" -IncludeTaskInfo
+    $mergeBinding = Assert-WeatherIntegrationAttemptTaskBinding `
+        -AttemptContract $bindingContract -Role "merge" -IncludeTaskInfo
+    return [pscustomobject]@{ Suite = $suiteBinding; Merge = $mergeBinding }
+}
+
+function Get-WeatherIntegrationAttemptState {
+    param(
+        [AllowEmptyString()][string]$SuiteReceiptStatus = "",
+        [AllowEmptyString()][string]$MergeReceiptStatus = "",
+        [AllowEmptyString()][string]$ReconciliationStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = "",
+        [AllowEmptyString()][string]$DispatchStatus = "",
+        [AllowEmptyString()][string]$ClaimStatus = ""
+    )
+
+    if ($MergeReceiptStatus -eq "PASS") { return "PASS" }
+    if ($ReconciliationStatus -eq "MERGED_RECONCILED") { return "MERGED_RECONCILED" }
+    if ($MergeReceiptStatus -eq "MERGED_UNVERIFIED") { return "MERGED_UNVERIFIED" }
+    if ($MergeReceiptStatus -eq "RECOVERED_UNPUSHED") { return "MERGED_UNPUSHED" }
+    if ($ClaimStatus -eq "CLAIMED") { return "SUCCESSOR_CLAIMED" }
+    if ($DispatchStatus -eq "READY_FOR_SUCCESSOR_REVIEW") { return "RECOVERY_READY" }
+    if ($ClosureStatus -eq "FAIL") { return "CLOSED_NEEDS_DISPATCH" }
+    if ($SuiteReceiptStatus -eq "FAIL" -or $MergeReceiptStatus -eq "FAIL") {
+        return "FAILED_NEEDS_CLOSE"
+    }
+    return "ACTIVE_OR_ARMED"
+}
+
+function Get-WeatherIntegrationAttemptAlertDisposition {
+    param(
+        [Parameter(Mandatory = $true)][string]$AttemptId,
+        [Parameter(Mandatory = $true)][string]$State,
+        [Parameter(Mandatory = $true)][string]$TaskState,
+        [Parameter(Mandatory = $true)][bool]$EvidenceIsFresh,
+        [Parameter(Mandatory = $true)][bool]$SuiteTriggerMissed,
+        [bool]$SuiteRanWithoutReceipt = $false,
+        [bool]$MergeReceiptMissingAfterTrigger = $false,
+        [AllowEmptyString()][string]$RecoveryDispatch = "",
+        [AllowEmptyString()][string]$SuccessorAttemptId = ""
+    )
+
+    $severity = "NONE"
+    $detail = ""
+    if ($State -eq "MERGED_UNVERIFIED") {
+        $detail = "integration attempt $AttemptId reached production but final proof is incomplete; do not retry it"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "MERGED_UNPUSHED") {
+        $detail = "integration attempt $AttemptId has a recovery-proved local merge not acknowledged by origin; obtain review, resume publication, and do not retry it"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "MERGED_RECONCILED") {
+        $detail = "integration attempt $AttemptId was reconciled without downstream authority"
+        $severity = if ($EvidenceIsFresh) { "WARN" } else { "NONE" }
+    }
+    elseif ($State -eq "FAILED_NEEDS_CLOSE") {
+        $detail = "integration attempt $AttemptId failed and must close its exact tasks (task state $TaskState)"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "CLOSED_NEEDS_DISPATCH") {
+        $detail = "integration attempt $AttemptId is closed and needs reviewed recovery dispatch"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "RECOVERY_READY") {
+        $detail = "integration attempt $AttemptId recovery is ready for an active agent: $RecoveryDispatch"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "SUCCESSOR_CLAIMED" -and $EvidenceIsFresh) {
+        $detail = "integration attempt $AttemptId authorized successor $SuccessorAttemptId"
+        $severity = "WARN"
+    }
+    elseif ($State -eq "ACTIVE_OR_ARMED" -and
+        ($SuiteRanWithoutReceipt -or $MergeReceiptMissingAfterTrigger)) {
+        if ($SuiteRanWithoutReceipt -and $MergeReceiptMissingAfterTrigger) {
+            $detail = "integration attempt $AttemptId ran its suite without a receipt and its merge trigger passed; close it"
+        }
+        elseif ($SuiteRanWithoutReceipt) {
+            $detail = "integration attempt $AttemptId ran its suite but produced no receipt; close it"
+        }
+        else {
+            $detail = "integration attempt $AttemptId passed its merge trigger without a receipt; close it"
+        }
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    elseif ($State -eq "ACTIVE_OR_ARMED" -and $SuiteTriggerMissed) {
+        $detail = "integration attempt $AttemptId missed its suite trigger and has no receipt"
+        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    }
+    return [pscustomobject]@{ Severity = $severity; Detail = $detail }
+}
+
+function Get-WeatherIntegrationSuiteRuntimeState {
+    param(
+        [Parameter(Mandatory = $true)][string]$TaskName,
+        [Parameter(Mandatory = $true)][datetime]$SuiteAt,
+        [Parameter(Mandatory = $true)][string]$PreflightLogPath
+    )
+
+    $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    $taskInfo = if ($null -eq $task) {
+        $null
+    }
+    else {
+        Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction SilentlyContinue
+    }
+    $lastRunTimeProperty = if ($null -eq $taskInfo) {
+        $null
+    }
+    else {
+        $taskInfo.PSObject.Properties["LastRunTime"]
+    }
+    $lastRunTime = if ($null -eq $lastRunTimeProperty -or $null -eq $lastRunTimeProperty.Value) {
+        $null
+    }
+    else {
+        [datetime]$lastRunTimeProperty.Value
+    }
+    $preflightExists = Test-Path -LiteralPath $PreflightLogPath -PathType Leaf
+    $running = ($null -ne $task -and [string]$task.State -eq "Running")
+    $ran = (
+        $preflightExists -or
+        ($null -ne $lastRunTime -and $lastRunTime -ge $SuiteAt.AddMinutes(-5))
+    )
+    return [pscustomobject]@{
+        TaskState = if ($null -eq $task) { "Missing" } else { [string]$task.State }
+        LastRunTime = $lastRunTime
+        PreflightExists = [bool]$preflightExists
+        Running = [bool]$running
+        Ran = [bool]$ran
+        Started = [bool]($running -or $ran)
+    }
+}
+
+function Test-WeatherIntegrationSuiteTriggerMissed {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$SuiteAt,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [Parameter(Mandatory = $true)][bool]$SuiteStarted,
+        [AllowEmptyString()][string]$SuiteReceiptStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = ""
+    )
+
+    return (
+        $Now -ge $SuiteAt.AddMinutes(5) -and
+        -not $SuiteStarted -and
+        [string]::IsNullOrWhiteSpace($SuiteReceiptStatus) -and
+        [string]::IsNullOrWhiteSpace($ClosureStatus)
+    )
+}
+
+function Get-WeatherIntegrationSuiteObservation {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptManifest,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [AllowEmptyString()][string]$SuiteReceiptStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = ""
+    )
+
+    $suiteAt = $null
+    try { $suiteAt = [datetime]::Parse([string]$AttemptManifest.schedule.suite_at_local) } catch { }
+    if ($null -eq $suiteAt) {
+        return [pscustomobject]@{
+            SuiteAt = $null
+            TaskState = "Unreadable"
+            LastRunTime = $null
+            PreflightExists = $false
+            Running = $false
+            Ran = $false
+            Started = $false
+            TriggerMissed = $false
+            RanWithoutReceipt = $false
+            ReceiptStatus = [string]$SuiteReceiptStatus
+            ReceiptUnreadable = $false
+        }
+    }
+    $runtime = Get-WeatherIntegrationSuiteRuntimeState `
+        -TaskName ([string]$AttemptManifest.schedule.suite_task_name) `
+        -SuiteAt $suiteAt `
+        -PreflightLogPath ([string]$AttemptManifest.evidence.preflight_log)
+    # The caller reads receipts before sampling the task. If the suite publishes
+    # its receipt and exits between those two reads, the earlier empty status must
+    # not turn the now-terminal healthy run into a false interrupted-suite alert.
+    # Re-read a newly appeared receipt so FAIL is not hidden for this scan and
+    # malformed evidence remains actionable instead of being treated as present.
+    $suiteReceiptPath = ""
+    $evidenceProperty = $AttemptManifest.PSObject.Properties["evidence"]
+    if ($null -ne $evidenceProperty -and $null -ne $evidenceProperty.Value) {
+        $suiteReceiptProperty = $evidenceProperty.Value.PSObject.Properties["suite_receipt"]
+        if ($null -ne $suiteReceiptProperty -and $null -ne $suiteReceiptProperty.Value) {
+            $suiteReceiptPath = [string]$suiteReceiptProperty.Value
+        }
+    }
+    $effectiveSuiteReceiptStatus = [string]$SuiteReceiptStatus
+    $suiteReceiptUnreadable = $false
+    if ([string]::IsNullOrWhiteSpace($effectiveSuiteReceiptStatus) -and
+        -not [string]::IsNullOrWhiteSpace($suiteReceiptPath) -and
+        (Test-Path -LiteralPath $suiteReceiptPath -PathType Leaf)) {
+        try {
+            $freshSuiteReceipt = Get-Content -LiteralPath $suiteReceiptPath -Raw | ConvertFrom-Json
+            $effectiveSuiteReceiptStatus = [string]$freshSuiteReceipt.status
+            if ([string]::IsNullOrWhiteSpace($effectiveSuiteReceiptStatus)) {
+                $suiteReceiptUnreadable = $true
+            }
+        }
+        catch { $suiteReceiptUnreadable = $true }
+    }
+    $suiteReceiptExists = -not [string]::IsNullOrWhiteSpace($effectiveSuiteReceiptStatus)
+    $triggerMissed = Test-WeatherIntegrationSuiteTriggerMissed `
+        -SuiteAt $suiteAt `
+        -Now $Now `
+        -SuiteStarted ([bool]$runtime.Started) `
+        -SuiteReceiptStatus $effectiveSuiteReceiptStatus `
+        -ClosureStatus $ClosureStatus
+    $ranWithoutReceipt = (
+        [bool]$runtime.Ran -and
+        -not [bool]$runtime.Running -and
+        -not $suiteReceiptExists -and
+        [string]::IsNullOrWhiteSpace($ClosureStatus)
+    )
+    return [pscustomobject]@{
+        SuiteAt = $suiteAt
+        TaskState = [string]$runtime.TaskState
+        LastRunTime = $runtime.LastRunTime
+        PreflightExists = [bool]$runtime.PreflightExists
+        Running = [bool]$runtime.Running
+        Ran = [bool]$runtime.Ran
+        Started = [bool]$runtime.Started
+        TriggerMissed = [bool]$triggerMissed
+        RanWithoutReceipt = [bool]$ranWithoutReceipt
+        ReceiptStatus = $effectiveSuiteReceiptStatus
+        ReceiptUnreadable = [bool]$suiteReceiptUnreadable
+    }
+}
+
+function Get-WeatherIntegrationMergeObservation {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptManifest,
+        [Parameter(Mandatory = $true)][string]$TaskState,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [AllowEmptyString()][string]$MergeReceiptStatus = "",
+        [AllowEmptyString()][string]$ClosureStatus = ""
+    )
+
+    $mergeAt = $null
+    try { $mergeAt = [datetime]::Parse([string]$AttemptManifest.schedule.merge_at_local) } catch { }
+    if ($null -eq $mergeAt) {
+        return [pscustomobject]@{
+            MergeAt = $null
+            Running = ($TaskState -eq "Running")
+            ReceiptMissingAfterTrigger = $false
+        }
+    }
+    $running = ($TaskState -eq "Running")
+    $receiptMissingAfterTrigger = (
+        $Now -ge $mergeAt.AddMinutes(5) -and
+        -not $running -and
+        [string]::IsNullOrWhiteSpace($MergeReceiptStatus) -and
+        [string]::IsNullOrWhiteSpace($ClosureStatus)
+    )
+    return [pscustomobject]@{
+        MergeAt = $mergeAt
+        Running = [bool]$running
+        ReceiptMissingAfterTrigger = [bool]$receiptMissingAfterTrigger
+    }
+}
+
 # ---- streak (delegate to the authoritative ledger-based checker) ----
 $streak = $null
 try { $streak = & $py (Join-Path $repo "scripts\ops\streak_status.py") --json | ConvertFrom-Json } catch {}
@@ -922,6 +1988,9 @@ $interactiveTasks = 0
 $evidenceRefreshHeld = $false
 $sensitiveDriverNextRun = $null
 $armedQuietMerges = New-Object System.Collections.Generic.List[psobject]
+$integrationAttemptState = New-Object System.Collections.Generic.List[psobject]
+$observedIntegrationAttemptManifests = `
+    [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
 # one-shot scheduled for tonight can be deleted, disabled or silently mis-scheduled and
 # nothing would say so until the morning it fails to have run. Surface the queue instead.
@@ -980,7 +2049,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     $isQuietMergeAction = (
         $actionArguments -like "*quiet_window_merge.ps1*" -or
-        $actionArguments -like "*suite_gated_quiet_merge.ps1*"
+        $actionArguments -like "*suite_gated_quiet_merge.ps1*" -or
+        $actionArguments -like "*integration_attempt_merge.ps1*"
     )
     # A replaced exact-tip quiet merge is spent evidence once that reviewed
     # object is already in production history, whether Task Scheduler retains
@@ -989,11 +2059,224 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     # An unmerged or unreadable tip remains anomalous.
     $integratedExactTipMerge = $false
     $integratedExactTip = $null
-    if (
-        $isQuietMergeAction -and
-        $actionArguments -match '(?i)(?:^|\s)-ExpectedTip\s+([0-9a-f]{40})(?:\s|$)'
-    ) {
+    if ($isQuietMergeAction -and
+        $actionArguments -match '(?i)(?:^|\s)-ExpectedTip\s+([0-9a-f]{40})(?:\s|$)') {
         $integratedExactTip = $Matches[1].ToLowerInvariant()
+    }
+    elseif ($actionArguments -like "*integration_attempt_merge.ps1*") {
+        $manifestMatch = [regex]::Match(
+            $actionArguments,
+            '(?i)(?:^|\s)-ManifestPath\s+(?:"([^"]+)"|(\S+))'
+        )
+        $manifestHashMatch = [regex]::Match(
+            $actionArguments,
+            '(?i)(?:^|\s)-ExpectedManifestSha256\s+([0-9a-f]{64})(?:\s|$)'
+        )
+        if ($manifestMatch.Success -and $manifestHashMatch.Success) {
+            $attemptManifestPath = if ($manifestMatch.Groups[1].Success) {
+                $manifestMatch.Groups[1].Value
+            } else {
+                $manifestMatch.Groups[2].Value
+            }
+            $attemptManifestHash = $manifestHashMatch.Groups[1].Value
+            try {
+                    $validatedManifest = Get-WeatherIntegrationValidatedEvidence `
+                        -RepositoryRoot $repo `
+                        -ManifestPath $attemptManifestPath `
+                        -ExpectedManifestSha256 $attemptManifestHash `
+                        -Target "manifest"
+                    $attemptManifest = $validatedManifest.Payload
+                    [void]$observedIntegrationAttemptManifests.Add(
+                        [IO.Path]::GetFullPath($attemptManifestPath)
+                    )
+                    try {
+                        Assert-WeatherIntegrationStatusTaskBindings `
+                            -RepositoryRoot $repo `
+                            -ManifestPath $attemptManifestPath `
+                            -ExpectedManifestSha256 $attemptManifestHash | Out-Null
+                    }
+                    catch {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) live suite/merge task binding failed strict intent/receipt validation")
+                    }
+                    $integratedExactTip = [string]$attemptManifest.expected_tip
+                    $suiteReceiptStatus = $null
+                    $mergeReceiptStatus = $null
+                    $reconciliationStatus = $null
+                    $closureStatus = $null
+                    $dispatchStatus = $null
+                    $claimStatus = $null
+                    $successorAttemptId = $null
+                    $attemptEvidenceUnreadable = New-Object System.Collections.Generic.List[string]
+                    foreach ($receiptSpec in @(
+                        [pscustomobject]@{ Name = "registration intent"; Path = (Join-Path ([string]$attemptManifest.attempt_root) "registration-intent.json"); Target = "registration_intent" },
+                        [pscustomobject]@{ Name = "registration receipt"; Path = [string]$attemptManifest.evidence.registration_receipt; Target = "registration" },
+                        [pscustomobject]@{ Name = "suite receipt"; Path = [string]$attemptManifest.evidence.suite_receipt; Target = "suite" },
+                        [pscustomobject]@{ Name = "merge receipt"; Path = [string]$attemptManifest.evidence.merge_receipt; Target = "merge" },
+                        [pscustomobject]@{ Name = "reconciliation receipt"; Path = [string]$attemptManifest.evidence.reconciliation_receipt; Target = "reconciliation" },
+                        [pscustomobject]@{ Name = "closure receipt"; Path = [string]$attemptManifest.evidence.closure_receipt; Target = "closure" },
+                        [pscustomobject]@{ Name = "recovery dispatch"; Path = [string]$attemptManifest.evidence.recovery_dispatch; Target = "dispatch" }
+                        )) {
+                        if (-not (Test-Path -LiteralPath $receiptSpec.Path -PathType Leaf)) { continue }
+                        try {
+                            $validatedEvidence = Get-WeatherIntegrationValidatedEvidence `
+                                -RepositoryRoot $repo `
+                                -ManifestPath $attemptManifestPath `
+                                -ExpectedManifestSha256 $attemptManifestHash `
+                                -Target ([string]$receiptSpec.Target)
+                            $receiptPayload = $validatedEvidence.Payload
+                            $receiptStatus = [string]$validatedEvidence.Status
+                            if ($receiptSpec.Target -eq "suite") { $suiteReceiptStatus = $receiptStatus }
+                            elseif ($receiptSpec.Target -eq "merge") { $mergeReceiptStatus = $receiptStatus }
+                            elseif ($receiptSpec.Target -eq "reconciliation") { $reconciliationStatus = $receiptStatus }
+                            elseif ($receiptSpec.Target -eq "closure") { $closureStatus = $receiptStatus }
+                            elseif ($receiptSpec.Target -eq "dispatch") { $dispatchStatus = $receiptStatus }
+                        }
+                        catch { $attemptEvidenceUnreadable.Add([string]$receiptSpec.Name) }
+                    }
+                    if ($null -eq $mergeReceiptStatus -and
+                        (Test-Path -LiteralPath ([string]$attemptManifest.evidence.quiet_merge_report) -PathType Leaf)) {
+                        try {
+                            $validatedQuietEvidence = Get-WeatherIntegrationValidatedEvidence `
+                                -RepositoryRoot $repo `
+                                -ManifestPath $attemptManifestPath `
+                                -ExpectedManifestSha256 $attemptManifestHash `
+                                -Target "quiet_report"
+                            # A child-owned report survives a parent hard kill.
+                            # Preserve the distinction between an origin-acknowledged
+                            # publication and a recovered local commit that still
+                            # requires reviewed publication resume.
+                            $mergeReceiptStatus = [string]$validatedQuietEvidence.Status
+                        }
+                        catch { $attemptEvidenceUnreadable.Add("quiet merge report") }
+                    }
+                    $successorClaimPath = Join-Path ([string]$attemptManifest.attempt_root) "successor-claim.json"
+                    if (Test-Path -LiteralPath $successorClaimPath -PathType Leaf) {
+                        try {
+                            $validatedClaim = Get-WeatherIntegrationValidatedEvidence `
+                                -RepositoryRoot $repo `
+                                -ManifestPath $attemptManifestPath `
+                                -ExpectedManifestSha256 $attemptManifestHash `
+                                -Target "claim"
+                            $successorClaim = $validatedClaim.Payload
+                            $claimStatus = [string]$validatedClaim.Status
+                            $successorAttemptId = [string]$successorClaim.successor_attempt_id
+                        }
+                        catch {
+                            $attemptEvidenceUnreadable.Add("successor claim")
+                        }
+                    }
+                    foreach ($unreadableName in $attemptEvidenceUnreadable) {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) has unreadable $unreadableName evidence")
+                    }
+                    $attemptEvidenceTimes = New-Object System.Collections.Generic.List[datetime]
+                    foreach ($attemptEvidencePath in @(
+                        $attemptManifestPath,
+                        (Join-Path ([string]$attemptManifest.attempt_root) "registration-intent.json"),
+                        [string]$attemptManifest.evidence.registration_receipt,
+                        [string]$attemptManifest.evidence.suite_receipt,
+                        [string]$attemptManifest.evidence.merge_receipt,
+                        [string]$attemptManifest.evidence.reconciliation_receipt,
+                        [string]$attemptManifest.evidence.closure_receipt,
+                        [string]$attemptManifest.evidence.recovery_dispatch,
+                        $successorClaimPath
+                    )) {
+                        if (Test-Path -LiteralPath $attemptEvidencePath -PathType Leaf) {
+                            try { $attemptEvidenceTimes.Add((Get-Item -LiteralPath $attemptEvidencePath).LastWriteTime) } catch { }
+                        }
+                    }
+                    $newestAttemptEvidence = @($attemptEvidenceTimes | Sort-Object -Descending | Select-Object -First 1)
+                    $attemptEvidenceAgeHours = if ($newestAttemptEvidence.Count -eq 0) {
+                        $null
+                    }
+                    else {
+                        [math]::Round(((Get-Date) - $newestAttemptEvidence[0]).TotalHours, 1)
+                    }
+                    $attemptEvidenceIsFresh = ($null -eq $attemptEvidenceAgeHours -or $attemptEvidenceAgeHours -le 24)
+                    $attemptObservationAt = Get-Date
+                    $suiteStatusBeforeObservation = [string]$suiteReceiptStatus
+                    $suiteObservation = Get-WeatherIntegrationSuiteObservation `
+                        -AttemptManifest $attemptManifest `
+                        -Now $attemptObservationAt `
+                        -SuiteReceiptStatus ([string]$suiteReceiptStatus) `
+                        -ClosureStatus ([string]$closureStatus)
+                    if ([string]::IsNullOrWhiteSpace($suiteStatusBeforeObservation) -and
+                        -not [string]::IsNullOrWhiteSpace([string]$suiteObservation.ReceiptStatus)) {
+                        try {
+                            $freshValidatedSuite = Get-WeatherIntegrationValidatedEvidence `
+                                -RepositoryRoot $repo `
+                                -ManifestPath $attemptManifestPath `
+                                -ExpectedManifestSha256 $attemptManifestHash `
+                                -Target "suite"
+                            $suiteObservation.ReceiptStatus = [string]$freshValidatedSuite.Status
+                        }
+                        catch {
+                            $suiteObservation.ReceiptStatus = ""
+                            $suiteObservation.ReceiptUnreadable = $true
+                            $suiteObservation.RanWithoutReceipt = (
+                                [bool]$suiteObservation.Ran -and
+                                -not [bool]$suiteObservation.Running -and
+                                [string]::IsNullOrWhiteSpace([string]$closureStatus)
+                            )
+                        }
+                    }
+                    if ([bool]$suiteObservation.ReceiptUnreadable -and
+                        -not $attemptEvidenceUnreadable.Contains("suite receipt")) {
+                        $flags.Add("integration attempt $($attemptManifest.attempt_id) has unreadable suite receipt evidence")
+                    }
+                    $suiteReceiptStatus = [string]$suiteObservation.ReceiptStatus
+                    $attemptMissedSuite = [bool]$suiteObservation.TriggerMissed
+                    $mergeObservation = Get-WeatherIntegrationMergeObservation `
+                        -AttemptManifest $attemptManifest `
+                        -TaskState ([string]$st) `
+                        -Now $attemptObservationAt `
+                        -MergeReceiptStatus ([string]$mergeReceiptStatus) `
+                        -ClosureStatus ([string]$closureStatus)
+                    $attemptState = Get-WeatherIntegrationAttemptState `
+                        -SuiteReceiptStatus $suiteReceiptStatus `
+                        -MergeReceiptStatus $mergeReceiptStatus `
+                        -ReconciliationStatus $reconciliationStatus `
+                        -ClosureStatus $closureStatus `
+                        -DispatchStatus $dispatchStatus `
+                        -ClaimStatus $claimStatus
+                    $integrationAttemptState.Add([pscustomobject]@{
+                            attempt_id = [string]$attemptManifest.attempt_id
+                            state = $attemptState
+                            expected_tip = $integratedExactTip
+                            manifest_path = $attemptManifestPath
+                            recovery_dispatch = [string]$attemptManifest.evidence.recovery_dispatch
+                            successor_attempt_id = $successorAttemptId
+                            task_state = $st
+                            merge_task_state = $st
+                            suite_task_state = [string]$suiteObservation.TaskState
+                            suite_last_run_time = if ($null -eq $suiteObservation.LastRunTime) { $null } else { ([datetime]$suiteObservation.LastRunTime).ToString("o") }
+                            suite_preflight_exists = [bool]$suiteObservation.PreflightExists
+                            suite_running = [bool]$suiteObservation.Running
+                            suite_ran = [bool]$suiteObservation.Ran
+                            suite_started = [bool]$suiteObservation.Started
+                            suite_ran_without_receipt = [bool]$suiteObservation.RanWithoutReceipt
+                            evidence_age_hours = $attemptEvidenceAgeHours
+                            suite_trigger_missed = $attemptMissedSuite
+                            merge_receipt_missing_after_trigger = [bool]$mergeObservation.ReceiptMissingAfterTrigger
+                        })
+                    $attemptAlert = Get-WeatherIntegrationAttemptAlertDisposition `
+                        -AttemptId ([string]$attemptManifest.attempt_id) `
+                        -State $attemptState `
+                        -TaskState $st `
+                        -EvidenceIsFresh $attemptEvidenceIsFresh `
+                        -SuiteTriggerMissed $attemptMissedSuite `
+                        -SuiteRanWithoutReceipt ([bool]$suiteObservation.RanWithoutReceipt) `
+                        -MergeReceiptMissingAfterTrigger ([bool]$mergeObservation.ReceiptMissingAfterTrigger) `
+                        -RecoveryDispatch ([string]$attemptManifest.evidence.recovery_dispatch) `
+                        -SuccessorAttemptId $successorAttemptId
+                    if ([string]$attemptAlert.Severity -eq "FLAG") { $flags.Add([string]$attemptAlert.Detail) }
+                    elseif ([string]$attemptAlert.Severity -eq "WARN") { $warns.Add([string]$attemptAlert.Detail) }
+            }
+            catch {
+                $flags.Add("integration attempt manifest $attemptManifestPath is unreadable or does not match its task-bound hash")
+            }
+        }
+    }
+    if ($integratedExactTip) {
         & git -C $repo merge-base --is-ancestor $integratedExactTip HEAD 2>$null
         $integratedExactTipMerge = ($LASTEXITCODE -eq 0)
     }
@@ -1009,13 +2292,21 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         $successProtectionSeconds = $settleSeconds + 240
         $rollbackProtectionSeconds = $settleSeconds + $rollbackRecoverySeconds + 60
         $protectedSeconds = [math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)
+        $protectedUntil = ([datetime]$ti.NextRunTime).AddSeconds($protectedSeconds)
+        if ($actionArguments -like "*integration_attempt_merge.ps1*") {
+            # The attempt consumer can wait for its exact suite through 03:40,
+            # then owns the guarded merge child through its 05:00 containment
+            # boundary. Another merge driver inside that interval could advance
+            # the frozen production baseline or publish local master underneath it.
+            $protectedUntil = ([datetime]$ti.NextRunTime).Date.AddHours(5)
+        }
         $armedQuietMerges.Add([PSCustomObject]@{
                 name = $name
                 at = [datetime]$ti.NextRunTime
                 # Cover both success (settle + push acknowledgement) and failure (settle +
                 # bounded rollback readoption proof). The dangerous case is another driver
                 # publishing local master before the guarded script has completed either path.
-                protected_until = ([datetime]$ti.NextRunTime).AddSeconds($protectedSeconds)
+                protected_until = $protectedUntil
             })
     }
     # Both push tasks are deliberately Interactive: the Windows credential vault is not
@@ -1191,6 +2482,99 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             $ok = $true
         }
         if (-not $ok) { $flags.Add("$name $res unexpected (last run $($ti.LastRunTime))") }
+    }
+}
+
+# Do not rely solely on a recognizable live merge-task action for attempt
+# discovery. That is the very field whose drift the status command must expose.
+# Canonical registered manifests are independently recoverable from the first
+# immutable registrar write, whose manifest path/hash are strictly validated.
+$integrationAttemptRoot = Join-Path $repo "data\integration_attempts"
+if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
+    foreach ($candidateManifestFile in @(
+        Get-ChildItem -LiteralPath $integrationAttemptRoot -Filter "manifest.json" -File -Recurse
+    )) {
+        $candidateManifestPath = [IO.Path]::GetFullPath([string]$candidateManifestFile.FullName)
+        $candidateIntentPath = Join-Path $candidateManifestFile.DirectoryName "registration-intent.json"
+        if (-not (Test-Path -LiteralPath $candidateIntentPath -PathType Leaf) -or
+            $observedIntegrationAttemptManifests.Contains($candidateManifestPath)) {
+            continue
+        }
+        try {
+            $candidateIntent = Get-Content -LiteralPath $candidateIntentPath -Raw | ConvertFrom-Json
+            $candidateManifestSha256 = [string]$candidateIntent.manifest_sha256
+            $validatedIntent = Get-WeatherIntegrationValidatedEvidence `
+                -RepositoryRoot $repo `
+                -ManifestPath $candidateManifestPath `
+                -ExpectedManifestSha256 $candidateManifestSha256 `
+                -Target "registration_intent"
+            $validatedManifest = Get-WeatherIntegrationValidatedEvidence `
+                -RepositoryRoot $repo `
+                -ManifestPath $candidateManifestPath `
+                -ExpectedManifestSha256 $candidateManifestSha256 `
+                -Target "manifest"
+            $candidateAttempt = $validatedManifest.Payload
+
+            $terminalEvidence = $false
+            foreach ($terminalSpec in @(
+                [pscustomobject]@{ Path = [string]$candidateAttempt.evidence.reconciliation_receipt; Target = "reconciliation"; RequiredStatus = "MERGED_RECONCILED" },
+                [pscustomobject]@{ Path = [string]$candidateAttempt.evidence.closure_receipt; Target = "closure"; RequiredStatus = "FAIL" },
+                [pscustomobject]@{ Path = [string]$candidateAttempt.evidence.merge_receipt; Target = "merge"; RequiredStatus = "PASS" }
+            )) {
+                if (-not (Test-Path -LiteralPath $terminalSpec.Path -PathType Leaf)) { continue }
+                try {
+                    $validatedTerminal = Get-WeatherIntegrationValidatedEvidence `
+                        -RepositoryRoot $repo `
+                        -ManifestPath $candidateManifestPath `
+                        -ExpectedManifestSha256 $candidateManifestSha256 `
+                        -Target ([string]$terminalSpec.Target)
+                    if ([string]$validatedTerminal.Status -eq [string]$terminalSpec.RequiredStatus) {
+                        $terminalEvidence = $true
+                        break
+                    }
+                }
+                catch {
+                    $flags.Add("integration attempt $($candidateAttempt.attempt_id) has unreadable $($terminalSpec.Target) evidence")
+                }
+            }
+            if ($terminalEvidence) { continue }
+
+            $bindingDetail = "task action does not expose its canonical manifest identity"
+            try {
+                Assert-WeatherIntegrationStatusTaskBindings `
+                    -RepositoryRoot $repo `
+                    -ManifestPath $candidateManifestPath `
+                    -ExpectedManifestSha256 $candidateManifestSha256 | Out-Null
+                $bindingDetail = "exact tasks exist but the merge action is not discoverable"
+            }
+            catch {
+                $bindingDetail = "live task binding failed strict intent/receipt validation"
+            }
+            $flags.Add("integration attempt $($candidateAttempt.attempt_id) task-binding drift: $bindingDetail")
+            $integrationAttemptState.Add([pscustomobject]@{
+                attempt_id = [string]$candidateAttempt.attempt_id
+                state = "TASK_BINDING_DRIFT"
+                expected_tip = [string]$candidateAttempt.expected_tip
+                manifest_path = $candidateManifestPath
+                recovery_dispatch = [string]$candidateAttempt.evidence.recovery_dispatch
+                successor_attempt_id = $null
+                task_state = "UNDISCOVERABLE"
+                merge_task_state = "UNDISCOVERABLE"
+                suite_task_state = "UNVALIDATED"
+                suite_last_run_time = $null
+                suite_preflight_exists = Test-Path -LiteralPath ([string]$candidateAttempt.evidence.preflight_log) -PathType Leaf
+                suite_running = $false
+                suite_ran = $false
+                suite_started = $false
+                suite_ran_without_receipt = $false
+                evidence_age_hours = [math]::Round(((Get-Date) - $candidateManifestFile.LastWriteTime).TotalHours, 1)
+                suite_trigger_missed = $false
+                merge_receipt_missing_after_trigger = $false
+            })
+        }
+        catch {
+            $flags.Add("canonical integration attempt manifest $candidateManifestPath or its registration intent is unreadable")
+        }
     }
 }
 
@@ -1382,8 +2766,31 @@ elseif ([string]$documentationTransaction.state -eq "PENDING") {
     else { $warns.Add($detail) }
 }
 
-# ---- last guarded quiet-window merge ----
+# ---- active/last guarded quiet-window merge ----
 # Merges happen at 01:30 while I am not watching; the outcome must be waiting in the morning.
+$quietMarkerPath = Join-Path $repo "data\alerts\quiet_window_merge_in_progress.json"
+if (Test-Path -LiteralPath $quietMarkerPath -PathType Leaf) {
+    try {
+        $quietMarker = Get-Content -LiteralPath $quietMarkerPath -Raw | ConvertFrom-Json
+        if ([string]$quietMarker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
+            [string]$quietMarker.expected_tip -notmatch '^[0-9a-f]{40}$' -or
+            [string]$quietMarker.expected_baseline -notmatch '^[0-9a-f]{40}$' -or
+            [string]::IsNullOrWhiteSpace([string]$quietMarker.phase)) {
+            throw "quiet-merge marker schema or identity is invalid"
+        }
+        $quietMarkerAgeMinutes = ((Get-Date) - [datetime]$quietMarker.updated_at).TotalMinutes
+        $quietMarkerDetail = "quiet-window merge marker remains at phase $($quietMarker.phase) for $([math]::Round($quietMarkerAgeMinutes, 1)) minutes (tip $($quietMarker.expected_tip))"
+        if ($quietMarkerAgeMinutes -gt 30) {
+            $flags.Add("STALE $quietMarkerDetail - run boot/merge recovery before closure or another merge")
+        }
+        else {
+            $warns.Add($quietMarkerDetail)
+        }
+    }
+    catch {
+        $flags.Add("quiet-window merge in-progress marker is unreadable; treat production mutation as interrupted")
+    }
+}
 $qw = $null
 $qwf = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 if (Test-Path $qwf) {
@@ -1399,7 +2806,7 @@ if (Test-Path $qwf) {
             $flags.Add("quiet-window merge ROLLED BACK ($($qw.detail)) - capture did not recover; branch unmerged")
         }
         elseif ($qw.stage -eq "merged_unpushed" -and $qwAgeH -lt 36) {
-            $warns.Add("quiet-window merge committed locally but NOT pushed - run WeatherOneShotPush")
+            $flags.Add("quiet-window merge committed locally but NOT pushed - obtain review, run WeatherOneShotPush, then reconcile the immutable attempt evidence")
         }
     }
     catch {}
@@ -1475,6 +2882,20 @@ if ($Json) {
         watchdog = @{ age_min = $wdAgeMin; verdict = $(if ($wd) { [string]$wd.verdict } else { $null }) }
         merge    = @{ stage = $(if ($qw) { [string]$qw.stage } else { $null }); ts = $(if ($qw) { [string]$qw.ts } else { $null }) }
         documentation = $documentationTransaction
+        integration_attempts = @($integrationAttemptState | ForEach-Object {
+                @{ attempt_id = $_.attempt_id; state = $_.state; expected_tip = $_.expected_tip
+                    manifest_path = $_.manifest_path; recovery_dispatch = $_.recovery_dispatch
+                    successor_attempt_id = $_.successor_attempt_id; task_state = $_.task_state
+                    merge_task_state = $_.merge_task_state; suite_task_state = $_.suite_task_state
+                    suite_last_run_time = $_.suite_last_run_time
+                    suite_preflight_exists = $_.suite_preflight_exists
+                    suite_running = $_.suite_running; suite_ran = $_.suite_ran
+                    suite_started = $_.suite_started
+                    suite_ran_without_receipt = $_.suite_ran_without_receipt
+                    evidence_age_hours = $_.evidence_age_hours
+                    suite_trigger_missed = $_.suite_trigger_missed
+                    merge_receipt_missing_after_trigger = $_.merge_receipt_missing_after_trigger }
+            })
         overnight_wakes = @($overnightWakeState | ForEach-Object {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path
                     runner_sha256 = $_.runner_sha256; receipt_path = $_.receipt_path
@@ -1557,6 +2978,12 @@ $crashStr = if ($lastCrash) { "{0} unexpected shutdown(s)/90d, last {1:MM-dd HH:
 Write-Output ("  STABILITY : up {0}h   |  {1}" -f $uptimeH, $crashStr)
 Write-Output ("  GIT       : {0} unpushed | {1} dirty | {2}" -f $unpushed, $dirtyCount, $lastCommit)
 Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f $taskCount)
+if ($integrationAttemptState.Count -gt 0) {
+    Write-Output "  ATTEMPTS  :"
+    foreach ($attemptState in $integrationAttemptState) {
+        Write-Output ("              {0}  {1}" -f $attemptState.attempt_id, $attemptState.state)
+    }
+}
 $wdStr = if ($null -eq $wd) { "NEVER REPORTED" } else { "{0}, {1} min ago" -f ([string]$wd.verdict), $wdAgeMin }
 $qwStr = if ($null -eq $qw) { "none" } else { "{0} ({1:yyyy-MM-dd HH:mm})" -f $qw.stage, ([datetime]$qw.ts) }
 Write-Output ("  WATCHDOG  : {0}    |  last merge attempt: {1}" -f $wdStr, $qwStr)

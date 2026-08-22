@@ -1,4 +1,7 @@
+import json
+import os
 from pathlib import Path
+import subprocess
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
@@ -60,6 +63,8 @@ def test_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
     assert "$integratedExactTipMerge = $false" in text
     assert '$actionArguments -like "*quiet_window_merge.ps1*"' in text
     assert '$actionArguments -like "*suite_gated_quiet_merge.ps1*"' in text
+    assert '$actionArguments -like "*integration_attempt_merge.ps1*"' in text
+    assert "weather_integration_attempt_manifest_v1" in text
     assert "$isQuietMergeAction -and" in text
     assert "-ExpectedTip\\s+([0-9a-f]{40})" in text
     assert "merge-base --is-ancestor $integratedExactTip HEAD" in text
@@ -70,6 +75,271 @@ def test_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
         "-not $ti.NextRunTime"
     ) in text
     assert "but exact tip $integratedExactTip is already in production history" in text
+
+
+def test_integration_attempt_recovery_states_are_operator_visible() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "$integrationAttemptState" in text
+    assert '"FAILED_NEEDS_CLOSE"' in text
+    assert '"CLOSED_NEEDS_DISPATCH"' in text
+    assert '"RECOVERY_READY"' in text
+    assert '"SUCCESSOR_CLAIMED"' in text
+    assert '"MERGED_UNVERIFIED"' in text
+    assert "recovery is ready for an active agent" in text
+    assert "$attemptEvidenceAgeHours" in text
+    assert "$attemptEvidenceIsFresh" in text
+    assert 'evidence_age_hours = $_.evidence_age_hours' in text
+    assert 'task_state = $_.task_state' in text
+    assert 'suite_task_state = $_.suite_task_state' in text
+    assert "$suiteObservation = Get-WeatherIntegrationSuiteObservation" in text
+    assert "$suiteReceiptStatus = [string]$suiteObservation.ReceiptStatus" in text
+    assert "$suiteObservation.ReceiptUnreadable" in text
+    assert "$mergeObservation = Get-WeatherIntegrationMergeObservation" in text
+    assert "$attemptMissedSuite = [bool]$suiteObservation.TriggerMissed" in text
+    assert "Test-WeatherIntegrationSuiteTriggerMissed" in text
+    assert "suite_ran_without_receipt" in text
+    assert "merge_receipt_missing_after_trigger" in text
+    assert "-SuiteRanWithoutReceipt ([bool]$suiteObservation.RanWithoutReceipt)" in text
+    assert "-MergeReceiptMissingAfterTrigger ([bool]$mergeObservation.ReceiptMissingAfterTrigger)" in text
+    assert "unreadable or does not match its task-bound hash" in text
+    assert "missed its suite trigger and has no receipt" in text
+    assert "integration_attempts =" in text
+    assert 'Write-Output "  ATTEMPTS  :"' in text
+
+
+def test_integration_attempt_alert_lifecycle_executes_without_running_status() -> None:
+    env = os.environ.copy()
+    env["WEATHER_STATUS_SCRIPT"] = str(SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @(
+    'Get-WeatherIntegrationAttemptState',
+    'Get-WeatherIntegrationAttemptAlertDisposition'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$failed = Get-WeatherIntegrationAttemptState -SuiteReceiptStatus FAIL
+$recovery = Get-WeatherIntegrationAttemptState -DispatchStatus READY_FOR_SUCCESSOR_REVIEW
+$merged = Get-WeatherIntegrationAttemptState -MergeReceiptStatus MERGED_UNVERIFIED
+$reconciled = Get-WeatherIntegrationAttemptState -MergeReceiptStatus MERGED_UNVERIFIED -ReconciliationStatus MERGED_RECONCILED
+$cases = @(
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $failed -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $failed -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $recovery -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $false -RecoveryDispatch dispatch.json
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State SUCCESSOR_CLAIMED -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false -SuccessorAttemptId b
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $merged -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $reconciled -TaskState Disabled -EvidenceIsFresh $true -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $reconciled -TaskState Disabled -EvidenceIsFresh $false -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false -SuiteRanWithoutReceipt $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false -MergeReceiptMissingAfterTrigger $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $false -SuiteTriggerMissed $false -SuiteRanWithoutReceipt $true -MergeReceiptMissingAfterTrigger $true
+)
+[pscustomobject]@{
+    states = @($failed, $recovery, $merged, $reconciled)
+    severities = @($cases | ForEach-Object { [string]$_.Severity })
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "states": [
+            "FAILED_NEEDS_CLOSE",
+            "RECOVERY_READY",
+            "MERGED_UNVERIFIED",
+            "MERGED_RECONCILED",
+        ],
+        "severities": [
+            "FLAG",
+            "WARN",
+            "FLAG",
+            "FLAG",
+            "FLAG",
+            "NONE",
+            "FLAG",
+            "WARN",
+            "NONE",
+            "FLAG",
+            "FLAG",
+            "WARN",
+        ],
+    }
+
+
+def test_attempt_observation_distinguishes_running_interrupted_and_missed(
+    tmp_path: Path,
+) -> None:
+    preflight = tmp_path / "preflight.log"
+    preflight.write_text("started\n", encoding="utf-8")
+    env = os.environ.copy()
+    env.update(
+        {
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_PREFLIGHT": str(preflight),
+            "WEATHER_MISSING_PREFLIGHT": str(tmp_path / "missing.log"),
+            "WEATHER_SUITE_RECEIPT": str(tmp_path / "suite-receipt.json"),
+        }
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @(
+    'Get-WeatherIntegrationSuiteRuntimeState',
+    'Test-WeatherIntegrationSuiteTriggerMissed',
+    'Get-WeatherIntegrationSuiteObservation',
+    'Get-WeatherIntegrationMergeObservation'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$global:suiteState = 'Running'
+$global:lastRun = [datetime]'2026-08-21T00:35:00'
+function Get-ScheduledTask {
+    param([string]$TaskName, $ErrorAction)
+    return [pscustomobject]@{ TaskName = $TaskName; State = $global:suiteState }
+}
+function Get-ScheduledTaskInfo {
+    param([string]$TaskName, $ErrorAction)
+    return [pscustomobject]@{ LastRunTime = $global:lastRun; LastTaskResult = 267009 }
+}
+$suiteAt = [datetime]'2026-08-21T00:35:00'
+$now = [datetime]'2026-08-21T00:45:00'
+$manifest = [pscustomobject]@{
+    schedule = [pscustomobject]@{
+        suite_at_local = $suiteAt.ToString('o')
+        merge_at_local = $suiteAt.AddMinutes(30).ToString('o')
+        suite_task_name = 'WeatherIntegrationSuite_a'
+    }
+    evidence = [pscustomobject]@{
+        preflight_log = $env:WEATHER_MISSING_PREFLIGHT
+        suite_receipt = $env:WEATHER_SUITE_RECEIPT
+    }
+}
+$running = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
+$global:suiteState = 'Ready'
+$global:lastRun = [datetime]'1999-11-30T00:00:00'
+$manifest.evidence.preflight_log = $env:WEATHER_PREFLIGHT
+$preflight = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
+Set-Content -LiteralPath $env:WEATHER_SUITE_RECEIPT -Value '{"status":"PASS"}'
+$receiptAppeared = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $now
+Set-Content -LiteralPath $env:WEATHER_SUITE_RECEIPT -Value '{'
+$unreadableReceipt = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $now
+Remove-Item -LiteralPath $env:WEATHER_SUITE_RECEIPT
+$global:suiteState = 'Disabled'
+$manifest.evidence.preflight_log = $env:WEATHER_MISSING_PREFLIGHT
+$missing = Get-WeatherIntegrationSuiteObservation -AttemptManifest $manifest -Now $now
+$withinGrace = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $suiteAt.AddMinutes(4)
+$global:suiteState = 'Ready'
+$global:lastRun = $null
+$nullLastRun = Get-WeatherIntegrationSuiteObservation `
+    -AttemptManifest $manifest -Now $now
+$mergeAt = $suiteAt.AddMinutes(30)
+$mergeRunning = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Running -Now $mergeAt.AddMinutes(10)
+$mergeWithinGrace = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Ready -Now $mergeAt.AddMinutes(4)
+$mergeMissed = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Ready -Now $mergeAt.AddMinutes(5)
+$mergeReceipt = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Ready -Now $mergeAt.AddMinutes(10) `
+    -MergeReceiptStatus FAIL
+$mergeClosed = Get-WeatherIntegrationMergeObservation `
+    -AttemptManifest $manifest -TaskState Disabled -Now $mergeAt.AddMinutes(10) `
+    -ClosureStatus FAIL
+[pscustomobject]@{
+    running_now = [bool]$running.Running
+    running_started = [bool]$running.Started
+    running_missed = [bool]$running.TriggerMissed
+    running_without_receipt = [bool]$running.RanWithoutReceipt
+    preflight_started = [bool]$preflight.Started
+    preflight_missed = [bool]$preflight.TriggerMissed
+    preflight_ran_without_receipt = [bool]$preflight.RanWithoutReceipt
+    fresh_receipt_ran_without_receipt = [bool]$receiptAppeared.RanWithoutReceipt
+    fresh_receipt_status = [string]$receiptAppeared.ReceiptStatus
+    unreadable_receipt_flagged = [bool]$unreadableReceipt.ReceiptUnreadable
+    unreadable_receipt_ran_without_receipt = [bool]$unreadableReceipt.RanWithoutReceipt
+    disabled_started = [bool]$missing.Started
+    disabled_missed = [bool]$missing.TriggerMissed
+    grace_missed = [bool]$withinGrace.TriggerMissed
+    null_last_run = $nullLastRun.LastRunTime
+    null_last_run_missed = [bool]$nullLastRun.TriggerMissed
+    merge_running_missing = [bool]$mergeRunning.ReceiptMissingAfterTrigger
+    merge_grace_missing = [bool]$mergeWithinGrace.ReceiptMissingAfterTrigger
+    merge_missed = [bool]$mergeMissed.ReceiptMissingAfterTrigger
+    merge_receipt_missing = [bool]$mergeReceipt.ReceiptMissingAfterTrigger
+    merge_closed_missing = [bool]$mergeClosed.ReceiptMissingAfterTrigger
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "running_now": True,
+        "running_started": True,
+        "running_missed": False,
+        "running_without_receipt": False,
+        "preflight_started": True,
+        "preflight_missed": False,
+        "preflight_ran_without_receipt": True,
+        "fresh_receipt_ran_without_receipt": False,
+        "fresh_receipt_status": "PASS",
+        "unreadable_receipt_flagged": True,
+        "unreadable_receipt_ran_without_receipt": True,
+        "disabled_started": False,
+        "disabled_missed": True,
+        "grace_missed": False,
+        "null_last_run": None,
+        "null_last_run_missed": True,
+        "merge_running_missing": False,
+        "merge_grace_missing": False,
+        "merge_missed": True,
+        "merge_receipt_missing": False,
+        "merge_closed_missing": False,
+    }
 
 
 def test_only_active_scheduled_interactive_tasks_count_as_reboot_exposure():
@@ -105,6 +375,8 @@ def test_quiet_merge_recovery_interval_cannot_overlap_sensitive_driver():
     assert "$settleSeconds + 240" in text
     assert "$settleSeconds + $rollbackRecoverySeconds + 60" in text
     assert "[math]::Max($successProtectionSeconds, $rollbackProtectionSeconds)" in text
+    assert '$actionArguments -like "*integration_attempt_merge.ps1*"' in text
+    assert "Date.AddHours(5)" in text
     assert "$sensitiveDriverNextRun -ge $mergeTask.at" in text
     assert "the driver can publish unverified local master" in text
 
