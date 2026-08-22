@@ -33,6 +33,16 @@ def bounded_planned_steps(all_planned_steps, selected_runners):
     ]
 
 
+def enforce_bounded_resume_binding(carry, stop_after):
+    restart = bool(carry.get("restart_from_stage_start"))
+    if stop_after and restart:
+        raise ValueError(
+            "bounded recovery refuses a stage-binding restart because it "
+            "would execute steps before --resume-from-step"
+        )
+    return restart
+
+
 def build_bounded_recovery_receipt(
     payload,
     *,

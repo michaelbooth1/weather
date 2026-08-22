@@ -2,18 +2,112 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 
 LOCK_OWNER_IDENTITY_FIELD = "owner_process_identity"
 LEGACY_LOCK_CLOCK_TOLERANCE_SECONDS = 2.0
+LOCK_TRANSACTION_TIMEOUT_SECONDS = 5.0
+_SAFE_OBSERVATION_FIELDS = (
+    "state",
+    "pid",
+    "image_path",
+    "creation_time_token",
+    "creation_time_utc",
+    "inspectable",
+    "reason",
+)
+
+
+class LockPathTransactionBusy(RuntimeError):
+    """Raised when another process is changing the same lock pathname."""
+
+
+def _safe_process_observation(value, *, pid=None):
+    raw = value if isinstance(value, dict) else {}
+    safe = {field: raw.get(field) for field in _SAFE_OBSERVATION_FIELDS if field in raw}
+    safe.setdefault("pid", pid)
+    if "reason" in safe and safe["reason"] is not None:
+        safe["reason"] = str(safe["reason"])[:500]
+    return safe
 
 
 def observe_process_identity(pid):
     from weather.operations.supervisor import observe_process
 
-    return observe_process(pid)
+    return _safe_process_observation(observe_process(pid), pid=pid)
+
+
+@contextlib.contextmanager
+def lock_path_transaction(path, *, timeout_seconds=LOCK_TRANSACTION_TIMEOUT_SECONDS):
+    """Serialize every compliant mutation of one lock pathname across processes."""
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    transaction_path = path.with_name(f".{path.name}.transaction.lock")
+    handle = transaction_path.open("a+b", buffering=0)
+    deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+    acquired = False
+    try:
+        if transaction_path.stat().st_size == 0:
+            handle.write(b"\0")
+        while not acquired:
+            handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise LockPathTransactionBusy(
+                        f"lock pathname transaction busy: {path}"
+                    ) from exc
+                time.sleep(0.01)
+        yield
+    finally:
+        try:
+            if acquired:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+
+
+def remove_lock_payload_if_current(path, expected_payload):
+    """Remove only the payload classified by the caller's held transaction."""
+
+    path = Path(path)
+    try:
+        current = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"removed": False, "reason": "missing_before_remove"}
+    except (OSError, json.JSONDecodeError):
+        return {"removed": False, "reason": "lock_replaced_or_unreadable"}
+    if current != expected_payload:
+        return {"removed": False, "reason": "lock_instance_replaced"}
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return {"removed": False, "reason": "missing_before_remove"}
+    return {"removed": True, "reason": "verified_lock_instance_removed"}
 
 
 def current_process_identity():
@@ -57,8 +151,6 @@ def lock_owner_status(detail, *, observe_fn=None):
     legacy = not isinstance(detail, dict) or LOCK_OWNER_IDENTITY_FIELD not in detail
     try:
         pid = int(detail.get("pid"))
-        if pid <= 0:
-            raise ValueError("invalid pid")
     except (AttributeError, TypeError, ValueError):
         return {
             "active": True,
@@ -69,7 +161,20 @@ def lock_owner_status(detail, *, observe_fn=None):
             "identity_match": None,
             "observation": {},
         }
-    observed = (observe_fn or observe_process_identity)(pid)
+    if pid <= 0:
+        return {
+            "active": False,
+            "running": False,
+            "stale": True,
+            "stale_reason": "invalid_pid",
+            "legacy_lock": legacy,
+            "identity_match": False,
+            "observation": {},
+        }
+    observed = _safe_process_observation(
+        (observe_fn or observe_process_identity)(pid),
+        pid=pid,
+    )
     common = {"legacy_lock": legacy, "observation": observed}
     if observed.get("state") == "not_found":
         return {
