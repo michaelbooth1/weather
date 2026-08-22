@@ -1,4 +1,4 @@
-# 329. Immutable Overnight Integration Attempt Recovery [PARTIAL 2026-08-20 - WORKFLOW IMPLEMENTED; VERIFICATION AND HOST ADOPTION PENDING]
+# 329. Immutable Overnight Integration Attempt Recovery [PARTIAL 2026-08-21 - CRASH/RECOVERY HARDENED; EXACT SUITE AND LANDING PENDING]
 
 Goal: stop losing entire integration windows when one frozen cumulative tip
 hits a deterministic ratchet, transient host failure, or wrapper defect.
@@ -47,6 +47,18 @@ safe way to create a corrected attempt.
   and require downstream adoption arguments to equal the attempt proof.
 - [x] Surface failed, closed, recovery-ready, and successor-claimed attempt
   states through canonical host status for an active overnight recovery agent.
+- [x] Journal the synchronized baseline and affected-producer identities before
+  Git mutation, keep `MERGE_HEAD` through recovery proof, and teach boot
+  recovery to roll back pre-commit states or preserve exact recovery-proved
+  unpublished commits for reviewed reconciliation.
+- [x] Bind the attempt-local quiet report, documentation snapshot, active
+  marker, exact merge parents, core capture, and any affected execution tape
+  through publication and reviewed resume; mutable latest reports are never
+  authority.
+- [x] Serialize registration, closure, reconciliation, and production Git
+  mutation with OS-held mutexes, and fail closed on torn registration,
+  conflicting terminal receipts, task drift, or evidence changes at the final
+  publication boundary.
 - [x] Correlate missed-trigger status with the exact suite task and preflight
   evidence, fail disabled never-run suites immediately, and give a completed
   PASS only a bounded Task Scheduler exit grace at the reserve.
@@ -132,7 +144,22 @@ exact hash-bound evidence.
   the reserve unless it proves `Ready` or `Disabled`, and rechecks receipt
   existence after the latter task-state sample. The 67 focused tests and exact
   full suite remain pending in an admitted window.
+- The 2026-08-21 deep host/control-flow audit found that the former merge
+  committed before its five-minute recovery proof, while boot recovery trusted
+  only `MERGE_HEAD`; a power loss could therefore leave unverified code on
+  production with no automatic rollback path. The repaired wrapper now stages
+  with `--no-commit`, journals before mutation, commits only after core and
+  auxiliary recovery proof, binds content-addressed documentation evidence,
+  and publishes only after a second exact boundary check. Registration,
+  closure, reconciliation, status, boot recovery, dry-run rollback, and
+  hard-kill receipt paths were hardened in the same review.
+- Final pre-freeze verification on 2026-08-21 passed 113 focused operation
+  contracts. All 14 modified PowerShell scripts parse, `git diff --check`
+  passes, and an independent process-kill state-machine review found no
+  remaining blocker. The admitted exact-tip full suite and guarded first
+  landing remain deliberately pending tonight.
 
-The implementation is intentionally not registered or run from this topic
-worktree. Verification and scheduler adoption remain open until their owning
-time windows and explicit authority are available.
+The implementation is not yet production. A hash-frozen first-landing suite,
+merge gate, and temporary boot guard may be armed from this topic worktree,
+but canonical registrar adoption and downstream authority remain open until
+the exact suite, guarded merge, publication, and recovery evidence all pass.

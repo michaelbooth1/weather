@@ -291,6 +291,8 @@ worktree whose branch and `HEAD` equal an explicit commit, while all three
 capture workers are healthy and Windows commit is below the configured start
 ceiling. It rechecks capture and commit between size-bounded pytest chunks,
 writes a JUnit artifact per chunk, and owns each child in a kill-on-close Job.
+Immediately before a full PASS it re-resolves the worktree and branch tip,
+requires a clean tree, and compares the tracked pytest inventory to the plan.
 When an exact branch contract needs a dependency deliberately absent from the
 production venv, the reviewed task may pass an existing read-only
 `AdditionalPythonPath` and `RequireLiveSdkContract`. The runner appends that
@@ -307,18 +309,74 @@ repository-owned deterministic ratchet set before the full suite, writes
 hash-bound logs and a suite receipt, and gives a separate one-shot merge task
 authority only when the exact full-suite receipt is PASS. The manifest also
 binds the installed orchestration hashes, task actions, branch tip, isolated
-worktree, and canonical evidence paths.
+worktree, and canonical evidence paths. It rejects `AdditionalPythonPath` even
+though the underlying diagnostic runner retains that option: an ambient import
+tree is not immutable attempt evidence. Registration first writes an immutable
+intent containing both tasks' complete principal, action, trigger, wake,
+battery, overlap, execution-limit, idle, and network contract. Runtime and
+merge consumption require a PASS registration receipt that hashes the intent,
+then require the observed tasks to match it. Recovery uses that same full
+identity when the receipt is valid and falls back to the manifest-derived
+intent if the registrar died before publishing a receipt or left it torn;
+action-only reconstruction is not sufficient.
+The frozen orchestration identity includes `boot_recovery.ps1` and
+`register_boot_recovery.ps1`, preventing a startup-trigger delay or registration
+drift from escaping the immutable attempt boundary. The boot registrar accepts
+an optional expected script SHA256, passes it into the startup action, then
+re-reads the registered singleton and verifies its exact action, S4U/Limited
+principal, zero-delay startup trigger, and fail-closed settings. A mismatch
+disables the just-written task and raises an error.
+Registrar, closer, and reconciler serialize terminal classification with an
+OS-held attempt mutex; registration checks for closure/reconciliation inside it
+before intent or Scheduler writes. Suite and merge wrappers independently reject
+either terminal receipt at entry. The reconciler also holds the same
+`heavy_workload.lock` as guarded merge across every evidence classification,
+receipt write, and marker cleanup; publication resume additionally enforces the
+heavy-work time window before using that already-held mutation mutex.
 
 Attempt immutability is narrower than night immutability. A failure keeps its
 manifest, logs, task names, and receipts forever; a reviewed repair creates a
 new attempt namespace. One unchanged-tip retry is allowed for a classified
 transient failure, while mechanical schema, ownership, and wrapper repairs are
 limited by Git path/status allowlists. A second consecutive unchanged retry is
-refused. If a wrapper dies before emitting a receipt, the closer validates and
-disables only the exact non-running attempt tasks before writing an immutable
-closure receipt. Downstream work consumes the per-attempt merge receipt and
-rechecks current capture plus `master == origin/master`; a mutable latest
-report or generic task exit code is insufficient.
+refused. If registration or a wrapper dies before emitting its receipt, the
+closer validates and disables only exact non-running, intent-bound attempt tasks
+and first proves checked-out production `master`, local `master`, and
+`origin/master` are still the exact frozen baseline with the source tip absent,
+before writing an immutable closure receipt. That proof is mandatory even when
+no child report or active marker survived. Because disabling does not terminate
+an already-started Scheduler instance, the closer then proves each task remains
+absent or terminal+Disabled and immediately repeats the marker, `MERGE_HEAD`,
+baseline, and ancestry classification; the receipt records that post-disable
+proof. Any valid pushed or `merged_unpushed` report is non-closable durable
+commit evidence even if current refs or the marker were later lost. Closure also
+holds the guarded-merge `heavy_workload.lock` through classification, shutdown,
+reproof, and receipt, eliminating the final ad-hoc merge TOCTOU. Downstream work
+consumes the per-attempt merge receipt and
+rechecks current capture plus checked-out branch `master` and
+`HEAD == master == origin/master`; a mutable latest report or generic task exit
+code is insufficient. The quiet-merge child writes its canonical attempt report
+directly and maintains a durable in-progress marker across local mutation. Boot
+recovery rolls unverified state back to the original synchronized baseline
+while preserving only hash-checked generated config contents. A hash-bound
+`pushed` report, or the narrower documented/published marker combined with
+exact current local/remote Git, can classify a killed parent as published but
+never authorizes downstream work. A hash-bound FAIL parent receipt may also be
+reconciled when its v0.2 `merged_unpushed` report proves capture, conditional
+execution-tape, and documentation recovery and a later reviewed push is
+independently proved by
+`HEAD == master == origin/master == report.merge_commit` plus source ancestry.
+The marker is not mandatory when that immutable receipt/report pair exists.
+Conversely, if a child dies post-commit before any report, the parent suppresses
+its generic FAIL receipt only after the exact marker and two-parent/current-Git
+shape pass, preserving marker-only recovery as the stronger terminal path.
+If master advances after a valid pushed report but before the parent samples
+refs, the parent refuses to mis-bind `MERGED_UNVERIFIED` to the later tip and
+leaves the merge-receipt path absent for exact report-only reconciliation.
+The former retry-time poison shape is recoverable only when the marker is exact
+post-commit evidence and the subordinate abort report/FAIL receipt are exact
+same-attempt pre-existing-marker refusal evidence with no contradictory commit
+or publication fields.
 
 Status correlates the immutable attempt with both scheduled tasks and the
 preflight log, so a running suite is never described as a missed trigger. A
@@ -338,7 +396,26 @@ publication is proven but final proof is incomplete, `MERGED_UNVERIFIED`
 remains non-retryable and cannot authorize downstream work. A reviewed
 reconciliation may recheck current Git and capture health and disable the exact
 tasks, but its separate immutable `MERGED_RECONCILED` receipt explicitly does
-not upgrade the historical proof.
+not upgrade the historical proof. It can bind a MERGED_UNVERIFIED receipt, an
+attempt-local pushed report when the parent receipt is absent, a recovered-
+unpushed FAIL receipt after independently proved publication, or an exact raw
+active-marker payload and SHA256 for the post-publication micro-window. A
+reviewed `ResumePublication` path additionally consumes the
+`merge_committed_unpublished` marker: under the shared workload lease it
+rederives the exact baseline/preparation and two-parent commit, rechecks core
+capture and conditional execution-tape status/lock/process/source integrity,
+idempotently begins documentation, proves the content-addressed documentation
+snapshot, validates the exact singleton current-user Interactive/Limited
+`WeatherOneShotPush` task by its stable exported XML hash, and invokes it. The
+immutable report, current marker, and content-addressed snapshot are re-hashed
+immediately at that boundary. It still emits only non-authorizing
+reconciliation evidence. Status validates complete schemas, attempt identities,
+referenced hashes, and safety fields before exposing any receipt status; a bare
+`{status: "PASS"}` is unreadable evidence, not success. It also scans canonical
+registered manifests from their immutable registration intents so drift in the
+merge task action cannot make an active attempt disappear from health reporting.
+A fresh `merged_unpushed` commit is a FLAG requiring reviewed publication or
+recovery, not a passive warning.
 
 Daily-refresh steps declare an execution lane and, separately, whether their
 current-run receipt gates promotion beside the canonical step registry. This

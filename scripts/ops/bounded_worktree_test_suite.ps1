@@ -228,6 +228,10 @@ try {
             "tests/operations/test_agent_docs_audit.py",
             "tests/operations/test_bounded_worktree_test_suite_script.py",
             "tests/operations/test_integration_attempt_scripts.py",
+            "tests/operations/test_integration_attempt_evidence_recovery_hardening.py",
+            "tests/operations/test_integration_attempt_registration_safety.py",
+            "tests/operations/test_boot_recovery_script.py",
+            "tests/operations/test_register_boot_recovery_script.py",
             "tests/operations/test_suite_gated_quiet_merge_script.py",
             "tests/operations/test_quiet_window_merge_script.py",
             "tests/operations/test_host_task_wrappers.py",
@@ -314,6 +318,45 @@ try {
         Write-SuiteLog "VERDICT: $failedChunks CHUNK(S) FAILED; do not merge"
         exit 1
     }
+
+    # The worktree, movable branch ref, and tracked test inventory can change
+    # while the chunks run. Re-prove all three after the final child exits and
+    # before emitting the sole merge-eligible terminal verdict.
+    $finalWorktreeTipRows = @(& git -C $WorktreeRoot rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0 -or $finalWorktreeTipRows.Count -ne 1) {
+        throw "could not re-resolve the exact worktree tip after the final chunk"
+    }
+    $finalWorktreeTip = ([string]$finalWorktreeTipRows[0]).Trim().ToLowerInvariant()
+    $finalBranchTipRows = @(& git -C $RepoRoot rev-parse $BranchRef)
+    if ($LASTEXITCODE -ne 0 -or $finalBranchTipRows.Count -ne 1) {
+        throw "could not re-resolve BranchRef after the final chunk"
+    }
+    $finalBranchTip = ([string]$finalBranchTipRows[0]).Trim().ToLowerInvariant()
+    if ($finalWorktreeTip -ne $ExpectedTip -or $finalBranchTip -ne $ExpectedTip) {
+        throw "exact branch/worktree identity changed while the suite was running"
+    }
+    $finalDirty = @(& git -C $WorktreeRoot status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $finalDirty.Count -ne 0) {
+        throw "suite worktree changed while the suite was running"
+    }
+    if (-not $SmokeTest -and -not $IntegrationPreflight) {
+        $finalTrackedRows = @(& git -C $WorktreeRoot ls-files -- tests)
+        if ($LASTEXITCODE -ne 0) {
+            throw "could not re-enumerate tracked pytest files after the final chunk"
+        }
+        $finalTestFiles = @(
+            $finalTrackedRows |
+                ForEach-Object { ([string]$_).Replace("\", "/") } |
+                Where-Object { $_ -match '^tests/(?:.*/)?test_[^/]*\.py$' } |
+                Sort-Object
+        )
+        if ($finalTestFiles.Count -ne $testFiles.Count -or
+            @(Compare-Object -ReferenceObject @($testFiles) -DifferenceObject @($finalTestFiles)).Count -ne 0) {
+            throw "tracked pytest inventory changed while the suite was running"
+        }
+    }
+    Write-SuiteLog "final exact-tip, clean-worktree, and test-inventory recheck passed"
+
     if ($SmokeTest) {
         Write-SuiteLog "VERDICT: SMOKE PASSED; full suite not run and merge is not authorized"
         exit 0

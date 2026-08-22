@@ -60,6 +60,9 @@ if ($ExpectedTip -notmatch '^[0-9a-f]{40}$') {
 if ([string]::IsNullOrWhiteSpace($ReviewReference)) {
     throw "ReviewReference is required; a frozen attempt may only bind a reviewed tip."
 }
+if (-not [string]::IsNullOrWhiteSpace($AdditionalPythonPath)) {
+    throw "AdditionalPythonPath is unsupported for integration attempts because external Python content is not frozen by the manifest."
+}
 if (-not (Test-Path -LiteralPath $RepoRoot -PathType Container)) {
     throw "Repository root is missing: $RepoRoot"
 }
@@ -260,6 +263,8 @@ $orchestrationPaths = [ordered]@{
     attempt_merge = Join-Path $RepoRoot "scripts\ops\integration_attempt_merge.ps1"
     attempt_success_gate = Join-Path $RepoRoot "scripts\ops\assert_integration_attempt_success.ps1"
     attempt_recovery_dispatch = Join-Path $RepoRoot "scripts\ops\dispatch_integration_attempt_recovery.ps1"
+    boot_recovery = Join-Path $RepoRoot "scripts\ops\boot_recovery.ps1"
+    register_boot_recovery = Join-Path $RepoRoot "scripts\ops\register_boot_recovery.ps1"
     quiet_merge = Join-Path $RepoRoot "scripts\ops\quiet_window_merge.ps1"
     token_contract = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
     job_containment = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
@@ -315,6 +320,7 @@ $manifest = [ordered]@{
         suite_receipt = Join-Path $AttemptRoot "suite-receipt.json"
         merge_receipt = Join-Path $AttemptRoot "merge-receipt.json"
         quiet_merge_report = Join-Path $AttemptRoot "quiet-merge-report.json"
+        registration_intent = Join-Path $AttemptRoot "registration-intent.json"
         registration_receipt = Join-Path $AttemptRoot "registration-receipt.json"
         closure_receipt = Join-Path $AttemptRoot "closure-receipt.json"
         recovery_dispatch = Join-Path $AttemptRoot "recovery-dispatch.json"

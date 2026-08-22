@@ -20,6 +20,8 @@ or `origin/master` acknowledgement.
 ```text
 REVIEWED TIP
     -> frozen manifest
+    -> immutable pre-registration intent
+    -> exact task registration receipt
     -> integration preflight
     -> exact full suite
     -> guarded quiet merge
@@ -45,7 +47,7 @@ merge.
 | Entry point | Responsibility |
 | --- | --- |
 | `new_integration_attempt.ps1` | Validate the exact clean worktree and reviewed tip; create a fresh manifest and evidence namespace. |
-| `register_integration_attempt.ps1` | Register unique one-shot S4U/Limited suite and merge tasks. It starts nothing and creates no downstream task. |
+| `register_integration_attempt.ps1` | Journal, register, and read-back attest unique one-shot S4U/Limited suite and merge tasks. It starts nothing and creates no downstream task. |
 | `integration_attempt_suite.ps1` | Run the deterministic integration preflight and then the exact full suite under bounded child-tree containment. |
 | `integration_attempt_merge.ps1` | Require the suite task and immutable PASS receipt, then invoke `quiet_window_merge.ps1` and preserve its report. |
 | `close_integration_attempt.ps1` | Disable the exact non-running attempt tasks and emit a closure receipt when a task crashed or the attempt is abandoned. |
@@ -113,7 +115,12 @@ change between registration and execution therefore fails closed, not only a
 change to the top-level wrapper. It also freezes the exact worktree's tracked
 pytest-file count, 20-file chunk size, and derived chunk count; both the
 full-suite plan line and final equal, nonzero `n/n` verdict must match that
-inventory. Ignored or untracked `test_*.py` files cannot inflate the plan.
+inventory. The runner rechecks the worktree tip, movable branch ref, clean
+status, and tracked test inventory after the final chunk and before PASS.
+Ignored or untracked `test_*.py` files cannot inflate the plan. Immutable
+attempts reject `AdditionalPythonPath`: ambient Python trees can change without
+changing the reviewed commit. The general bounded runner retains that option
+only for explicitly reviewed diagnostic work outside this attempt workflow.
 
 Record the printed manifest SHA256. Registration is an external scheduler
 change and requires explicit operator authorization:
@@ -124,11 +131,22 @@ change and requires explicit operator authorization:
   -ExpectedManifestSha256 <manifest-sha256>
 ```
 
-The registrar refuses to replace an existing task. It registers the merge
-consumer first: if suite registration then fails, the merge has no PASS receipt
-to consume and cannot mutate the tree. `StartWhenAvailable` is deliberately
-off; a missed task must not wake later in a protected window. The merge task's
-four-hour execution limit contains the bounded suite-wait plus quiet-merge path.
+Before touching Scheduler, the registrar creates an immutable
+`registration-intent.json` containing the exact user, actions, one-shot
+triggers, wake and battery behavior, execution limits, and all other relevant
+settings. Read-back attestation also requires each trigger's numeric UTC offset
+to match the host time zone at that unambiguous frozen wall clock. Runtime
+wrappers and recovery bind both tasks to that intent and the
+registration receipt. The registrar refuses to replace an existing task. It
+registers the merge consumer first: if suite registration then fails, the merge
+has no PASS receipt to consume and cannot mutate the tree; the pre-mutation
+intent remains sufficient authority to disable only a task whose complete
+identity matches. `StartWhenAvailable` is deliberately off and `WakeToRun` is
+on. The merge task's four-hour execution limit contains the bounded suite-wait
+plus quiet-merge path.
+Registration holds the attempt terminal mutex from its closure/reconciliation
+check through intent, Scheduler mutation, receipt, and final readback. Suite and
+merge entry also refuse an attempt that already has either terminal receipt.
 
 ## Success contract
 
@@ -142,36 +160,63 @@ regional time separator. The merge task independently verifies:
   production has exact `master` checked out, and HEAD/local/remote production
   do not advance during registration, preflight, full-suite execution, suite
   waiting, or guarded-merge entry;
-- its own and the suite task's exact S4U/Limited action;
-- the manifest path and SHA256 in both actions;
+- its own and the suite task's exact user/S4U/Limited principal, action,
+  one-shot trigger, and complete fail-closed settings;
+- the manifest path and SHA256 in both actions and the hash-bound registration
+  intent/receipt behind them;
 - the suite task's same-day success and receipt/run-time correlation;
 - the unchanged branch tip and the current orchestration hashes, checked again
   after any bounded suite wait and immediately before child launch;
-- the guarded quiet merge's `pushed` report and documentation transaction;
+- the guarded quiet merge's schema-validated `pushed` report, documentation
+  transaction, core capture recovery, and execution-tape recovery whenever its
+  loaded-module closure rolls;
 - source-tip ancestry, local/remote master equality, and three-worker capture
   recovery after publication.
 
-The quiet-merge child receives the frozen baseline explicitly, rechecks it
-inside its own process, and acquires the shared heavy-work lease before any Git
-precondition or generated-config commit. This serializes all repository-owned
-guarded merge drivers across the final baseline check and production mutation.
-Its report carries structural merge-commit and documentation-transaction
-fields; the attempt consumer does not infer either proof from a mutable log
-phrase.
+The quiet-merge child receives the frozen baseline and the attempt's unused
+canonical report path explicitly, rechecks both inside its own process, and
+acquires the shared heavy-work lease before any Git precondition or generated-
+config commit. This serializes all repository-owned guarded merge drivers
+across the final baseline check and production mutation. The child creates the
+attempt-local report atomically and never copies evidence back out of the
+mutable latest-report slot. Its report binds the original baseline, optional
+generated-config commit, exact merge commit, documentation transaction,
+affected-producer recovery, and publication acknowledgement.
+The frozen orchestration set also includes both boot recovery and its task
+registrar, so a changed startup delay or task action invalidates the attempt
+instead of silently weakening crash recovery.
 
-It copies the mutable latest quiet-merge report into the attempt directory and
-hashes that immutable copy. Only a PASS `merge-receipt.json` plus its SHA256 is
-downstream authority.
+During mutation it also maintains
+`data/alerts/quiet_window_merge_in_progress.json`. Boot recovery uses that
+marker to abort an unverified merge back to the exact baseline while preserving
+only the two allowlisted generated config contents, or to hold a recovery-
+proved commit for reconciliation. A `merge_committed_unpublished` marker means
+recovery passed and the exact two-parent commit exists, but the documentation
+transaction may not yet have begun; it is never safe to edit or delete that
+marker manually. `status.ps1` warns on a fresh marker and
+flags one stale for more than 30 minutes. Only a PASS `merge-receipt.json` plus
+its SHA256 is downstream authority.
+If the child is killed after committing but before it can create the canonical
+report, the parent deliberately withholds its generic FAIL receipt when the
+unchanged marker, current Git, and exact two-parent merge all bind this attempt.
+That leaves the stronger marker reachable through reviewed reconciliation
+instead of letting a weaker FAIL receipt incorrectly outrank it.
 
 ## Recover without losing the night
 
 Never edit a failed manifest, append to its logs, replace its receipts, reuse
 its task names, or move its task action to a new tip.
 
-After any failed or crashed attempt, close it before creating a successor. This
-also covers attempts that already have suite or merge FAIL receipts: closure is
-the proof that every exact task is absent or disabled and can no longer race its
-replacement.
+After any failed or crashed attempt that did not leave a recovered integration
+commit, close it before creating a successor. This normally includes attempts
+that already have suite or merge FAIL receipts: closure is the proof that every
+exact task is absent or disabled and can no longer race its replacement. The
+exception is any exact `merged_unpushed` report that proves a recovered commit,
+whether or not origin has acknowledged it yet, plus any matching post-commit
+active marker. A hash-bound FAIL receipt may accompany the report. These
+attempts must use reviewed publication resume/reconciliation below, not closure;
+loss or rollback of the marker/current ref does not erase their durable commit
+history or make a retry safe.
 
 ```powershell
 .\scripts\ops\close_integration_attempt.ps1 `
@@ -181,15 +226,32 @@ replacement.
   -ReviewReference <operator-review>
 ```
 
-The closer refuses while either task is running, refuses a PASS merge, verifies
-both task actions and S4U/Limited principals against the immutable registration
-receipt before disabling them, and preserves hashes of all evidence that
-exists. It deliberately does not rebuild old task arguments through a possibly
-changed helper, so a reviewed orchestration failure remains closable. Its
-closure receipt is a FAIL receipt suitable for `-RepairOfReceiptPath`.
+The closer refuses while either task is running and refuses a PASS merge. For a
+new attempt it verifies each root task's complete action, current-user
+S4U/Limited principal, one-shot trigger, and settings against the immutable
+registration intent before disabling it. A valid final receipt must hash that
+intent; if the receipt is absent or torn, the independently manifest-derived
+intent remains sufficient to close only the exact task and the discrepancy is
+recorded. Legacy attempts without an intent retain their prior action/principal
+close contract so an orchestration upgrade cannot strand them. The closer
+preserves hashes of all evidence that exists, including the registration
+intent. Before disabling tasks it always proves the production checkout is
+branch `master`, with `HEAD`, local `master`, and `origin/master` at the
+attempt's frozen baseline, and proves the frozen source tip is absent from both
+local and remote master. Missing terminal merge evidence never substitutes for
+that Git non-integration proof. After disabling, it refuses any task that is not
+still exactly absent or terminal+Disabled (disabling does not stop an already
+running instance), then immediately repeats the marker, `MERGE_HEAD`, checked-
+out branch, baseline, and source-ancestry proofs before writing the receipt. The
+post-disable proof is recorded in the closure receipt, which is a FAIL receipt
+suitable for `-RepairOfReceiptPath`.
+The closer holds the same OS-backed `heavy_workload.lock` used by guarded merge
+drivers from its first production classification through that receipt, plus the
+attempt terminal mutex shared with registration/reconciliation. An ad-hoc merge
+or terminal classifier therefore cannot enter the last proof-to-receipt gap.
 If registration created an exact task but its confirming read failed, the
 receipt can say `registered = false` while the task exists. The closer still
-disables that task only when every stored action/principal field matches, and
+disables that task only when every intent-bound identity field matches, and
 records the registration-receipt disagreement instead of leaving an armed task.
 
 Hash that closure receipt, classify the failure, and write the reviewed dispatch:
@@ -273,11 +335,22 @@ transient retry, and the predecessor's single successor claim prevents sibling
 retry fan-out. When that one retry also fails, diagnose or repair before
 spending another attempt.
 
-If the quiet-merge report proves `stage = pushed` and Git proves the frozen tip
-is already in equal local/remote master, but a later final proof fails, the
-receipt is `MERGED_UNVERIFIED`. This is deliberately not retryable: close and
-dispatch refuse it because production already contains the tip. Preserve the
-receipt and reconcile it only through:
+If publication is proven but the parent cannot finish its final receipt, the
+attempt is `MERGED_UNVERIFIED`. The immutable input can be a
+`MERGED_UNVERIFIED` merge receipt, the exact attempt-local `pushed` report when
+the parent was killed before its receipt, or when production advanced after the
+child released its merge lease but before the parent sampled refs, or the
+SHA256-bound active marker at
+phase `documented_unpublished`/`published` when Git independently proves
+`HEAD == master == origin/master == marker.merge_commit`. It can also be the
+exact FAIL merge receipt that hash-binds a v0.2 `merged_unpushed` report with
+capture, conditional execution-tape, and documentation recovery proved. That
+last form is accepted only after a separately reviewed push makes
+`HEAD == master == origin/master == report.merge_commit` and Git proves the
+frozen source tip is an ancestor. The active marker may help recovery but is
+not required when the immutable FAIL receipt/report pair exists. This is deliberately
+not retryable: close and dispatch refuse it because production already
+contains the tip. Reconcile by supplying exactly one evidence hash:
 
 ```powershell
 .\scripts\ops\reconcile_integration_attempt.ps1 `
@@ -287,15 +360,66 @@ receipt and reconcile it only through:
   -ReviewReference <operator-or-agent-review>
 ```
 
+The same `-ExpectedMergeReceiptSha256` parameter accepts either the original
+`MERGED_UNVERIFIED` receipt or that narrow recovered-unpushed FAIL receipt. Use
+`-ExpectedQuietMergeReportSha256` when no merge receipt exists, or
+`-ExpectedActiveMarkerSha256` for the narrower marker case. A marker-based
+reconciliation consumes that global marker only after current Git, capture,
+task, manifest, suite, documentation, and conditional execution-tape proofs
+pass; the reconciliation receipt embeds its exact raw text and hash.
+For attempts poisoned by the former retry behavior, only the exact same-attempt
+`abort` report whose detail is the pre-existing-marker refusal, with no commit,
+capture, documentation, or publication proof, may be subordinated to the
+stronger post-commit marker. Its exact generic FAIL receipt, abort bytes, and
+hash remain bound as weaker evidence; no other FAIL/abort form is accepted.
+
 The reconciler revalidates the immutable publication evidence, exact checked-
 out/local/remote history, current three-worker capture health, and both exact
 task actions before disabling those tasks. It then writes a separate immutable
 `MERGED_RECONCILED` receipt. It deliberately leaves
 `historical_proof_upgraded = false` and `downstream_authorized = false`; current
 health cannot manufacture the historical proof that was missing at merge time.
-The original merge receipt stays `MERGED_UNVERIFIED`, so the downstream PASS
-gate continues to refuse it. An ordinary FAIL means publication was not proven;
-the two states must never use the same recovery recipe.
+Any original merge receipt or report stays unchanged, and every reconciliation
+form remains non-authorizing, so the downstream PASS gate continues to refuse
+it. An ordinary FAIL without that recovered-unpushed proof means publication
+was not proven; the two states must never use the same recovery recipe. Status
+reports the strictly validated exceptional form as `MERGED_RECONCILED`, while
+the original FAIL receipt remains unchanged and non-authorizing.
+Every reconciliation form takes the guarded-merge `heavy_workload.lock` before
+it reads terminal evidence and holds it through receipt publication and marker
+retirement. This includes idempotent cleanup after an already-published receipt,
+so reconciliation cannot race the quiet child between its published marker and
+immutable report.
+
+A power loss after the recovery-proved commit but before documentation uses an
+explicit reviewed resume rather than manual Git or marker edits:
+
+```powershell
+.\scripts\ops\reconcile_integration_attempt.ps1 `
+  -ManifestPath <manifest.json> `
+  -ExpectedManifestSha256 <manifest-sha256> `
+  -ExpectedActiveMarkerSha256 <merge-committed-marker-sha256> `
+  -ReviewReference <operator-or-agent-review> `
+  -ResumePublication
+```
+
+`-ResumePublication` also accepts an exact recovered-unpushed FAIL receipt, or
+a `merged_unpushed` report only when no receipt or active marker exists. In
+addition to the already-held shared mutex, it enforces the repository-owned
+heavy-work time window; rederives the baseline/preparation and exact
+two merge parents; rechecks core capture and, when required, the canonical
+execution-tape status, writer lock, process identity, source identity, and
+evidence integrity; idempotently begins the documentation transaction if the
+marker had not recorded it; then invokes `WeatherOneShotPush`. Only exact
+`HEAD == master == origin/master == merge_commit` permits the non-authorizing
+reconciliation receipt. Marker phase transitions are atomic, and the marker is
+retired only after that receipt exists, so another interruption remains
+recoverable from immutable evidence.
+Immediately before starting the push task, the reconciler re-hashes the immutable
+report, current marker, and documentation snapshot and revalidates the exact
+exported `WeatherOneShotPush` definition, including its empty trigger set. A
+concurrent evidence or task-definition change therefore cannot cross the push
+boundary.
 
 ## Downstream gate
 
@@ -315,7 +439,9 @@ in addition to `ExpectedTip` and `MergeTaskName`. It retains the legacy
 suite-gated path for already registered historical work. In attempt mode it
 requires those two legacy identity arguments to equal the source tip and merge
 task returned by the hash-bound attempt proof; an unrelated ancestor or copied
-task action is not acceptable. No integration attempt reads credential values
+task action is not acceptable. The gate also requires the production checkout
+itself to be branch `master` with `HEAD == master == origin/master`; equality of
+the two refs without the checked-out branch is insufficient. No integration attempt reads credential values
 or authorizes live exchange mutation. Receipts encode that static boundary as
 `NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`; they do not mislabel a hard-coded
 boolean as a measured credential or exchange outcome.

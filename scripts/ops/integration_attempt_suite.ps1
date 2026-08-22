@@ -75,11 +75,85 @@ function Invoke-WeatherAttemptSuitePhase {
     }
 }
 
+function Assert-WeatherAttemptSuiteWorktreeState {
+    param(
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+
+    $registered = $false
+    $worktreeRows = @(& git -C ([string]$manifest.repo_root) worktree list --porcelain)
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Phase could not enumerate registered worktrees."
+    }
+    foreach ($row in $worktreeRows) {
+        if ([string]$row -like "worktree *") {
+            $candidate = ([string]$row).Substring("worktree ".Length)
+            if (Test-WeatherIntegrationPathEqual -Left $candidate -Right ([string]$manifest.worktree_root)) {
+                $registered = $true
+                break
+            }
+        }
+    }
+    if (-not $registered) {
+        throw "$Phase suite worktree is no longer registered by the production repository."
+    }
+
+    $worktreeTipRows = @(& git -C ([string]$manifest.worktree_root) rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0 -or $worktreeTipRows.Count -ne 1) {
+        throw "$Phase could not resolve the suite worktree HEAD."
+    }
+    $branchTipRows = @(& git -C ([string]$manifest.repo_root) rev-parse ([string]$manifest.branch_ref))
+    if ($LASTEXITCODE -ne 0 -or $branchTipRows.Count -ne 1) {
+        throw "$Phase could not resolve the frozen branch ref."
+    }
+    $worktreeTip = ([string]$worktreeTipRows[0]).Trim().ToLowerInvariant()
+    $branchTip = ([string]$branchTipRows[0]).Trim().ToLowerInvariant()
+    if ($worktreeTip -ne [string]$manifest.expected_tip -or
+        $branchTip -ne [string]$manifest.expected_tip) {
+        throw "$Phase suite worktree or branch no longer resolves to the frozen expected tip."
+    }
+
+    $dirty = @(& git -C ([string]$manifest.worktree_root) status --porcelain)
+    if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {
+        throw "$Phase suite worktree is not clean."
+    }
+    $trackedTestRows = @(& git -C ([string]$manifest.worktree_root) ls-files -- tests)
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Phase could not enumerate the frozen pytest inventory."
+    }
+    $trackedTests = @(
+        $trackedTestRows |
+            ForEach-Object { ([string]$_).Replace("\", "/") } |
+            Where-Object { $_ -match '^tests/(?:.*/)?test_[^/]*\.py$' } |
+            Sort-Object
+    )
+    $expectedCount = [int]$manifest.suite.expected_test_file_count
+    $expectedChunks = [int]$manifest.suite.expected_chunk_count
+    $actualChunks = [int][math]::Ceiling(
+        $trackedTests.Count / [double][int]$manifest.suite.max_files_per_chunk
+    )
+    if ($trackedTests.Count -ne $expectedCount -or $actualChunks -ne $expectedChunks) {
+        throw "$Phase tracked pytest inventory no longer matches the frozen manifest."
+    }
+}
+
 $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
 $manifest = $contract.Manifest
+Assert-WeatherIntegrationAttemptNotTerminal `
+    -AttemptContract $contract -Operation "Integration-attempt suite execution"
+if (-not [string]::IsNullOrWhiteSpace([string]$manifest.suite.additional_python_path)) {
+    throw "AdditionalPythonPath is unsupported for immutable integration attempts."
+}
+$suiteTaskBinding = Assert-WeatherIntegrationAttemptTaskBinding `
+    -AttemptContract $contract `
+    -Role "suite" `
+    -IncludeTaskInfo
+if ([string]$suiteTaskBinding.Task.State -ne "Running") {
+    throw "Integration-attempt suite may run only as its exact registered one-shot task."
+}
 $suiteReceiptPath = [string]$manifest.evidence.suite_receipt
 $preflightLogPath = [string]$manifest.evidence.preflight_log
 $fullSuiteLogPath = [string]$manifest.evidence.full_suite_log
@@ -123,6 +197,7 @@ $fullSuiteVerdict = $null
 
 try {
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "integration preflight" | Out-Null
+    Assert-WeatherAttemptSuiteWorktreeState -Phase "integration preflight"
     $preflightExitCode = Invoke-WeatherAttemptSuitePhase `
         -Phase "integration preflight" `
         -LogPath $preflightLogPath `
@@ -134,6 +209,7 @@ try {
     Assert-WeatherIntegrationPreflightVerdict -Verdict $preflightVerdict
 
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "full-suite start" | Out-Null
+    Assert-WeatherAttemptSuiteWorktreeState -Phase "full-suite start"
     $fullSuiteExitCode = Invoke-WeatherAttemptSuitePhase `
         -Phase "full suite" `
         -LogPath $fullSuiteLogPath
@@ -150,6 +226,8 @@ try {
         -ExpectedMaxFilesPerChunk ([int]$manifest.suite.max_files_per_chunk) `
         -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "full-suite completion" | Out-Null
+    Assert-WeatherAttemptSuiteWorktreeState -Phase "full-suite completion"
+    Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
     $status = "PASS"
 }
 catch {
@@ -189,6 +267,8 @@ finally {
         attempt_id = [string]$manifest.attempt_id
         manifest_path = $contract.ManifestPath
         manifest_sha256 = $contract.ManifestSha256
+        registration_receipt_sha256 = $suiteTaskBinding.RegistrationReceiptSha256
+        registration_intent_sha256 = $suiteTaskBinding.RegistrationIntentSha256
         branch_ref = [string]$manifest.branch_ref
         expected_tip = [string]$manifest.expected_tip
         worktree_root = [string]$manifest.worktree_root

@@ -116,6 +116,8 @@ def test_attempt_suite_runs_ratchets_before_full_suite_and_freezes_receipt() -> 
         "windows_kill_on_close_job.ps1",
         "workload_admission.ps1",
         "roll_verdict.ps1",
+        "boot_recovery.ps1",
+        "register_boot_recovery.ps1",
     ):
         assert frozen_helper in _text("new_integration_attempt.ps1")
         assert frozen_helper in _text("integration_attempt_contract.ps1")
@@ -154,13 +156,15 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     assert 'binding.Task.State -in @("Ready", "Disabled")' in merge
     assert "staleTerminalResult" in merge
     assert 'status = "MERGED_UNVERIFIED"' in merge
-    assert "Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath" in merge
+    assert "Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath" not in merge
+    assert '"-AttemptReportPath", $AttemptReportPath' in merge
+    assert "-AttemptReportPath $attemptQuietReportPath" in merge
     assert "Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath" in merge
     assert "git push" not in merge.lower()
 
     assert "ExpectedMergeReceiptSha256" in downstream
     assert "Assert-WeatherIntegrationMergeReceipt" in downstream
-    assert "Current master and origin/master are not exact" in downstream
+    assert "checked-out branch master with HEAD == master == origin/master" in downstream
     assert "published integration tip is not in current master history" in downstream
     assert "capture_recovery_check" in downstream
 
@@ -293,6 +297,8 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
         "job_containment": OPS / "windows_kill_on_close_job.ps1",
         "workload_admission": OPS / "workload_admission.ps1",
         "roll_verdict": OPS / "roll_verdict.ps1",
+        "boot_recovery": OPS / "boot_recovery.ps1",
+        "register_boot_recovery": OPS / "register_boot_recovery.ps1",
     }
     manifest = {
         "schema": "weather_integration_attempt_manifest_v1",
@@ -420,19 +426,77 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
     tmp_path: Path,
 ) -> None:
     attempt_root = tmp_path / "attempt"
+    repo_root = tmp_path / "repo"
     worktree_root = tmp_path / "worktree"
     attempt_root.mkdir()
+    repo_root.mkdir()
     worktree_root.mkdir()
     manifest_path = attempt_root / "manifest.json"
-    zeros = "0" * 40
+    subprocess.run(
+        ["git", "init", "-b", "master"], cwd=repo_root, check=True, capture_output=True
+    )
+    (repo_root / "baseline.txt").write_text("baseline\n", encoding="utf-8")
+    subprocess.run(["git", "add", "baseline.txt"], cwd=repo_root, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=Integration Test",
+            "-c",
+            "user.email=integration@example.invalid",
+            "commit",
+            "-m",
+            "baseline",
+        ],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+    )
+    baseline = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    tree = subprocess.run(
+        ["git", "rev-parse", "HEAD^{tree}"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    commit_env = os.environ.copy()
+    commit_env.update(
+        {
+            "GIT_AUTHOR_NAME": "Integration Test",
+            "GIT_AUTHOR_EMAIL": "integration@example.invalid",
+            "GIT_COMMITTER_NAME": "Integration Test",
+            "GIT_COMMITTER_EMAIL": "integration@example.invalid",
+        }
+    )
+    expected_tip = subprocess.run(
+        ["git", "commit-tree", tree, "-p", baseline],
+        cwd=repo_root,
+        env=commit_env,
+        input="reviewed source tip\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "update-ref", "refs/remotes/origin/master", baseline],
+        cwd=repo_root,
+        check=True,
+    )
     manifest = {
         "schema": "weather_integration_attempt_manifest_v1",
         "attempt_id": "close-test",
         "attempt_root": str(attempt_root),
-        "repo_root": str(ROOT),
+        "repo_root": str(repo_root),
         "worktree_root": str(worktree_root),
         "branch_ref": "codex/close-test",
-        "expected_tip": "1" * 40,
+        "expected_tip": expected_tip,
         "authorization": {
             "review_reference": "initial-review",
             "repair_class": "initial",
@@ -451,7 +515,7 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
             "max_files_per_chunk": 20,
             "expected_chunk_count": 2,
         },
-        "baseline": {"master": zeros, "origin_master": zeros},
+        "baseline": {"master": baseline, "origin_master": baseline},
         "evidence": {
             "preflight_log": str(attempt_root / "preflight.log"),
             "full_suite_log": str(attempt_root / "full-suite.log"),
@@ -484,14 +548,14 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
             "registered": False,
             "executable": executable,
             "arguments": "frozen-suite-arguments",
-            "working_directory": str(ROOT),
+            "working_directory": str(repo_root),
         },
         "merge": {
             "task_name": "WeatherIntegrationMerge_close-test",
             "registered": True,
             "executable": executable,
             "arguments": "frozen-merge-arguments",
-            "working_directory": str(ROOT),
+            "working_directory": str(repo_root),
         },
     }
     registration_path.write_text(json.dumps(registration), encoding="utf-8")
@@ -502,7 +566,7 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
             "WEATHER_ATTEMPT_MANIFEST": str(manifest_path),
             "WEATHER_ATTEMPT_MANIFEST_HASH": manifest_hash,
             "WEATHER_ATTEMPT_EXE": executable,
-            "WEATHER_ATTEMPT_ROOT": str(ROOT),
+            "WEATHER_ATTEMPT_ROOT": str(repo_root),
         }
     )
     script = r"""
@@ -1218,6 +1282,8 @@ def test_creator_rejects_equal_tree_commit_and_claims_one_exact_retry(
         "windows_kill_on_close_job.ps1",
         "workload_admission.ps1",
         "roll_verdict.ps1",
+        "boot_recovery.ps1",
+        "register_boot_recovery.ps1",
     )
     for name in required:
         shutil.copy2(OPS / name, temp_ops / name)

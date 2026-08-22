@@ -39,38 +39,13 @@ function Assert-WeatherIntegrationSuiteTaskBinding {
         [Parameter(Mandatory = $true)][string]$PowerShellExecutable
     )
 
-    $attempt = $AttemptContract.Manifest
-    $taskName = [string]$attempt.schedule.suite_task_name
-    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    if ($null -eq $task) { throw "Suite task not found: $taskName" }
-    $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
-    if ($null -eq $taskInfo) { throw "Suite task info is unreadable: $taskName" }
-
-    $actions = @($task.Actions)
-    if ($actions.Count -ne 1) { throw "Suite task must have exactly one action." }
-    $expectedTokens = @(
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy", "Bypass",
-        "-File", $SuiteScript,
-        "-ManifestPath", $AttemptContract.ManifestPath,
-        "-ExpectedManifestSha256", $AttemptContract.ManifestSha256
-    )
-    $expectedArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $expectedTokens
-    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].Execute) -Right $PowerShellExecutable)) {
-        throw "Suite task executable does not match the repository registration contract."
-    }
-    if ([string]$actions[0].Arguments -ne $expectedArguments) {
-        throw "Suite task arguments are not exactly bound to this manifest path and hash."
-    }
-    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].WorkingDirectory) -Right ([string]$attempt.repo_root))) {
-        throw "Suite task working directory is not the frozen repository root."
-    }
-    if ([string]$task.Principal.LogonType -ne "S4U" -or [string]$task.Principal.RunLevel -ne "Limited") {
-        throw "Suite task must run under S4U with Limited privileges."
-    }
-
-    return [pscustomobject]@{ Task = $task; Info = $taskInfo }
+    # The shared validator retains the old fail-closed diagnostic contract:
+    # "Suite task arguments are not exactly bound" remains the meaning of any
+    # action mismatch, now extended to principal, trigger, and settings drift.
+    return Assert-WeatherIntegrationAttemptTaskBinding `
+        -AttemptContract $AttemptContract `
+        -Role "suite" `
+        -IncludeTaskInfo
 }
 
 function Assert-WeatherIntegrationSuiteTask {
@@ -223,33 +198,17 @@ function Assert-WeatherIntegrationMergeTask {
 
     $attempt = $AttemptContract.Manifest
     $taskName = [string]$attempt.schedule.merge_task_name
-    $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    if ($null -eq $task) { throw "Merge task not found: $taskName" }
-    $taskInfo = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+    $binding = Assert-WeatherIntegrationAttemptTaskBinding `
+        -AttemptContract $AttemptContract `
+        -Role "merge" `
+        -IncludeTaskInfo
+    $task = $binding.Task
+    $taskInfo = $binding.Info
     if ($null -eq $taskInfo -or [datetime]$taskInfo.LastRunTime -lt (Get-Date).Date) {
         throw "Merge task did not start on the current local day."
     }
     if ([string]$task.State -ne "Running") {
         throw "Integration-attempt merge may run only as its registered one-shot task."
-    }
-    $actions = @($task.Actions)
-    if ($actions.Count -ne 1) { throw "Merge task must have exactly one action." }
-    $expectedTokens = @(
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy", "Bypass",
-        "-File", $MergeScript,
-        "-ManifestPath", $AttemptContract.ManifestPath,
-        "-ExpectedManifestSha256", $AttemptContract.ManifestSha256
-    )
-    $expectedArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $expectedTokens
-    if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].Execute) -Right $PowerShellExecutable) -or
-        [string]$actions[0].Arguments -ne $expectedArguments -or
-        -not (Test-WeatherIntegrationPathEqual -Left ([string]$actions[0].WorkingDirectory) -Right ([string]$attempt.repo_root))) {
-        throw "Merge task action is not exactly bound to this manifest path and hash."
-    }
-    if ([string]$task.Principal.LogonType -ne "S4U" -or [string]$task.Principal.RunLevel -ne "Limited") {
-        throw "Merge task must run under S4U with Limited privileges."
     }
 }
 
@@ -260,7 +219,9 @@ function Invoke-WeatherQuietMergeChild {
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Branch,
         [Parameter(Mandatory = $true)][string]$ExpectedTip,
-        [Parameter(Mandatory = $true)][string]$ExpectedBaseline
+        [Parameter(Mandatory = $true)][string]$ExpectedBaseline,
+        [Parameter(Mandatory = $true)][string]$AttemptReportPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedQuietMergeSha256
     )
 
     $tokens = @(
@@ -272,6 +233,8 @@ function Invoke-WeatherQuietMergeChild {
         "-ExpectedTip", $ExpectedTip,
         "-ExpectedBaseline", $ExpectedBaseline,
         "-RepoRoot", $RepoRoot,
+        "-AttemptReportPath", $AttemptReportPath,
+        "-ExpectedSelfSha256", $ExpectedQuietMergeSha256,
         "-SettleSeconds", [string]$SettleSeconds
     )
     $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
@@ -301,11 +264,104 @@ function Invoke-WeatherQuietMergeChild {
     }
 }
 
+function Get-WeatherIntegrationRecoverableActiveMarker {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot
+    )
+
+    $attempt = $AttemptContract.Manifest
+    $markerPath = Join-Path $RepositoryRoot "data\alerts\quiet_window_merge_in_progress.json"
+    if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
+        return $null
+    }
+    $markerSha256 = Get-WeatherIntegrationFileSha256 -Path $markerPath
+    $markerRaw = Read-WeatherIntegrationSharedText -Path $markerPath
+    try { $marker = $markerRaw | ConvertFrom-Json }
+    catch { throw "Active quiet-merge marker JSON is unreadable after child failure." }
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $marker `
+        -Names @("execution_tape_readoption_expected") `
+        -Label "active quiet-merge marker"
+    if ([string]$marker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$marker.repo_root) -Right $RepositoryRoot) -or
+        [string]$marker.phase -notin @(
+            "merge_committed_unpublished", "documented_unpublished", "published"
+        ) -or
+        [string]$marker.branch -ne [string]$attempt.branch_ref -or
+        [string]$marker.expected_tip -ne [string]$attempt.expected_tip -or
+        [string]$marker.expected_baseline -ne [string]$attempt.baseline.master -or
+        [string]$marker.resolved_branch_tip -ne [string]$attempt.expected_tip -or
+        [string]$marker.baseline_commit -ne [string]$attempt.baseline.master -or
+        [string]$marker.pre_merge_commit -notmatch '^[0-9a-f]{40}$' -or
+        [string]$marker.merge_commit -notmatch '^[0-9a-f]{40}$' -or
+        -not [bool]$marker.capture_recovery_proved -or
+        ([bool]$marker.execution_tape_recovery_required -and
+            -not [bool]$marker.execution_tape_recovery_proved) -or
+        ([string]$marker.phase -eq "merge_committed_unpublished" -and
+            [bool]$marker.documentation_transaction_recorded) -or
+        ([string]$marker.phase -ne "merge_committed_unpublished" -and
+            -not [bool]$marker.documentation_transaction_recorded) -or
+        ([string]$marker.phase -eq "published" -and
+            -not [bool]$marker.publication_acknowledged)) {
+        throw "Active quiet-merge marker is not exact post-commit recovery evidence for this attempt."
+    }
+    if ([bool]$marker.documentation_transaction_recorded) {
+        Assert-WeatherIntegrationQuietReportDocumentation `
+            -AttemptContract $AttemptContract -QuietReport $marker | Out-Null
+    }
+
+    $branch = Invoke-WeatherIntegrationGitLine `
+        -Root $RepositoryRoot -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
+    $head = (Invoke-WeatherIntegrationGitLine -Root $RepositoryRoot -Arguments @("rev-parse", "HEAD")).ToLowerInvariant()
+    $master = (Invoke-WeatherIntegrationGitLine -Root $RepositoryRoot -Arguments @("rev-parse", "master")).ToLowerInvariant()
+    $origin = (Invoke-WeatherIntegrationGitLine -Root $RepositoryRoot -Arguments @("rev-parse", "origin/master")).ToLowerInvariant()
+    $mergeCommit = ([string]$marker.merge_commit).ToLowerInvariant()
+    if ($branch -ne "master" -or $head -ne $mergeCommit -or $master -ne $mergeCommit -or
+        $origin -notin @([string]$attempt.baseline.origin_master, $mergeCommit)) {
+        throw "Active quiet-merge marker does not match current checked-out master/origin state."
+    }
+    $mergeHeadPathOutput = @(& git -C $RepositoryRoot rev-parse --git-path MERGE_HEAD)
+    if ($LASTEXITCODE -ne 0 -or $mergeHeadPathOutput.Count -ne 1) {
+        throw "Could not resolve MERGE_HEAD while binding active recovery evidence."
+    }
+    $mergeHeadPath = ([string]$mergeHeadPathOutput[0]).Trim()
+    if (-not [IO.Path]::IsPathRooted($mergeHeadPath)) {
+        $mergeHeadPath = Join-Path $RepositoryRoot $mergeHeadPath
+    }
+    if (Test-Path -LiteralPath $mergeHeadPath -PathType Leaf) {
+        throw "Active quiet-merge marker is post-commit but MERGE_HEAD is still present."
+    }
+    $parentLine = Invoke-WeatherIntegrationGitLine `
+        -Root $RepositoryRoot -Arguments @("rev-list", "--parents", "-n", "1", $mergeCommit)
+    $firstParent = (Invoke-WeatherIntegrationGitLine `
+        -Root $RepositoryRoot -Arguments @("rev-parse", "$mergeCommit^1")).ToLowerInvariant()
+    $secondParent = (Invoke-WeatherIntegrationGitLine `
+        -Root $RepositoryRoot -Arguments @("rev-parse", "$mergeCommit^2")).ToLowerInvariant()
+    if (@($parentLine -split '\s+' | Where-Object { $_ }).Count -ne 3 -or
+        $firstParent -ne ([string]$marker.pre_merge_commit).ToLowerInvariant() -or
+        $secondParent -ne [string]$attempt.expected_tip) {
+        throw "Active quiet-merge marker does not bind the exact two-parent attempt merge."
+    }
+    if ((Get-WeatherIntegrationFileSha256 -Path $markerPath) -ne $markerSha256) {
+        throw "Active quiet-merge marker changed while the parent was binding recovery evidence."
+    }
+    return [pscustomobject]@{
+        Path = Resolve-WeatherIntegrationPath -Path $markerPath
+        Sha256 = $markerSha256
+        RawText = $markerRaw
+        Payload = $marker
+    }
+}
+
 $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
 $manifest = $contract.Manifest
+Assert-WeatherIntegrationAttemptNotTerminal `
+    -AttemptContract $contract -Operation "Integration-attempt merge execution"
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 $attemptQuietReportPath = [string]$manifest.evidence.quiet_merge_report
 foreach ($freshPath in @($mergeReceiptPath, $attemptQuietReportPath)) {
@@ -320,7 +376,7 @@ $quietMergeScript = Join-Path $repoRoot "scripts\ops\quiet_window_merge.ps1"
 $tokenContractScript = Join-Path $repoRoot "scripts\ops\training_window_contract.ps1"
 $jobScript = Join-Path $repoRoot "scripts\ops\windows_kill_on_close_job.ps1"
 $python = Join-Path $repoRoot "venv\Scripts\python.exe"
-$quietReportPath = Join-Path $repoRoot "data\alerts\quiet_window_merge_last.json"
+$quietReportPath = $attemptQuietReportPath
 foreach ($requiredPath in @($suiteScript, $quietMergeScript, $tokenContractScript, $jobScript, $python)) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required integration-attempt merge dependency is missing: $requiredPath"
@@ -353,6 +409,8 @@ $quietMergeLaunchSha256 = $null
 $script:suiteDeadlineStopEvidence = $null
 $script:suitePassExitGraceEvidence = $null
 $script:suiteStaleSchedulerResultEvidence = $null
+$deferredMergeReceiptMarker = $null
+$preserveQuietReportForReconciliation = $false
 
 try {
     $localMinute = ($startedAt.Hour * 60) + $startedAt.Minute
@@ -397,7 +455,9 @@ try {
         -RepoRoot $repoRoot `
         -Branch ([string]$manifest.branch_ref) `
         -ExpectedTip ([string]$manifest.expected_tip) `
-        -ExpectedBaseline ([string]$manifest.baseline.master)
+        -ExpectedBaseline ([string]$manifest.baseline.master) `
+        -AttemptReportPath $attemptQuietReportPath `
+        -ExpectedQuietMergeSha256 ([string]$manifest.orchestration.quiet_merge.sha256)
     if ($quietMergeExitCode -ne 0) {
         throw "Guarded quiet merge failed with exit code $quietMergeExitCode."
     }
@@ -410,12 +470,19 @@ try {
     if ($quietReportTimestamp -lt $startedAt.AddSeconds(-5)) {
         throw "Quiet merge report predates this attempt."
     }
-    if (-not [bool]$quietReport.ok -or [string]$quietReport.stage -ne "pushed") {
+    if ([string]$quietReport.schema -ne "quiet_window_merge_report_v0.2" -or
+        -not [bool]$quietReport.ok -or [string]$quietReport.stage -ne "pushed" -or
+        -not [bool]$quietReport.capture_recovery_proved -or
+        ([bool]$quietReport.execution_tape_recovery_required -and
+            -not [bool]$quietReport.execution_tape_recovery_proved) -or
+        -not [bool]$quietReport.publication_acknowledged) {
         throw "Quiet merge report is not a pushed success."
     }
     if ([string]$quietReport.branch -ne [string]$manifest.branch_ref -or
         [string]$quietReport.expected_tip -ne [string]$manifest.expected_tip -or
         [string]$quietReport.expected_baseline -ne [string]$manifest.baseline.master -or
+        [string]$quietReport.baseline_commit -ne [string]$manifest.baseline.master -or
+        [string]$quietReport.pre_merge_commit -notmatch '^[0-9a-f]{40}$' -or
         [string]$quietReport.resolved_branch_tip -ne [string]$manifest.expected_tip) {
         throw "Quiet merge report identity does not match this attempt."
     }
@@ -423,17 +490,56 @@ try {
     if (-not $documentationTransactionRecorded) {
         throw "Quiet merge report does not prove the documentation transaction was recorded."
     }
-    Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath -Payload $quietReport
+    $documentationPendingSha256 = ([string]$quietReport.documentation_transaction_pending_sha256).ToLowerInvariant()
+    $documentationSnapshotRelative = ([string]$quietReport.documentation_transaction_snapshot_path).Replace('\', '/')
+    $expectedDocumentationSnapshotRelative = "data/alerts/documentation_transactions/pending-$documentationPendingSha256.json"
+    $documentationSnapshotPath = Join-Path $repoRoot ($documentationSnapshotRelative -replace '/', '\')
+    if ($documentationPendingSha256 -notmatch '^[0-9a-f]{64}$' -or
+        $documentationSnapshotRelative -cne $expectedDocumentationSnapshotRelative -or
+        (Get-WeatherIntegrationFileSha256 -Path $documentationSnapshotPath) -ne
+            $documentationPendingSha256) {
+        throw "Quiet merge report does not bind its immutable documentation transaction snapshot."
+    }
+    $documentationSnapshot = Read-WeatherIntegrationSharedJson -Path $documentationSnapshotPath
+    $documentationMatches = @($documentationSnapshot.integrations | Where-Object {
+        ([string]$_.integration_tip).ToLowerInvariant() -eq
+            ([string]$quietReport.merge_commit).ToLowerInvariant() -and
+        [string]$_.branch -ceq [string]$manifest.branch_ref -and
+        ([string]$_.expected_tip).ToLowerInvariant() -eq [string]$manifest.expected_tip
+    })
+    if ([string]$documentationSnapshot.schema_version -ne "documentation_transaction_pending_v0.1" -or
+        [string]$documentationSnapshot.status -ne "PENDING" -or
+        ([string]$documentationSnapshot.latest_integration_tip).ToLowerInvariant() -ne
+            ([string]$quietReport.merge_commit).ToLowerInvariant() -or
+        $documentationMatches.Count -ne 1) {
+        throw "Documentation transaction snapshot does not bind this exact attempt merge."
+    }
     $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $attemptQuietReportPath
 
     $productionHead = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "master")).ToLowerInvariant()
     $originMaster = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "origin/master")).ToLowerInvariant()
-    if ($productionHead -ne $originMaster) {
-        throw "Production master and origin/master do not acknowledge the same integration commit."
+    $checkedOutHead = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "HEAD")).ToLowerInvariant()
+    $checkedOutBranch = Invoke-WeatherIntegrationGitLine `
+        -Root $repoRoot `
+        -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
+    if ($checkedOutBranch -ne "master" -or $checkedOutHead -ne $productionHead -or
+        $productionHead -ne $originMaster) {
+        throw "Publication proof requires checked-out branch master with HEAD == master == origin/master."
     }
     if ([string]$quietReport.merge_commit -notmatch '^[0-9a-fA-F]{40}$' -or
         [string]$quietReport.merge_commit -ine $productionHead) {
         throw "Quiet merge report does not bind the published integration commit."
+    }
+    $mergeFirstParent = (Invoke-WeatherIntegrationGitLine `
+        -Root $repoRoot -Arguments @("rev-parse", "$productionHead^1")).ToLowerInvariant()
+    $mergeSecondParent = (Invoke-WeatherIntegrationGitLine `
+        -Root $repoRoot -Arguments @("rev-parse", "$productionHead^2")).ToLowerInvariant()
+    $mergeParentLine = (Invoke-WeatherIntegrationGitLine `
+        -Root $repoRoot -Arguments @("rev-list", "--parents", "-n", "1", $productionHead))
+    if (@($mergeParentLine -split '\s+' | Where-Object { $_ }).Count -ne 3 -or
+        $mergeFirstParent -ne ([string]$quietReport.pre_merge_commit).ToLowerInvariant() -or
+        $mergeSecondParent -ne [string]$manifest.expected_tip) {
+        throw "Published integration commit is not the exact two-parent merge proved by the quiet report."
     }
     $publicationAcknowledged = $true
     & git -C $repoRoot merge-base --is-ancestor ([string]$manifest.expected_tip) $productionHead
@@ -465,21 +571,43 @@ catch {
                 [string]$candidateReport.expected_tip -eq [string]$manifest.expected_tip -and
                 [string]$candidateReport.expected_baseline -eq [string]$manifest.baseline.master) {
                 $quietReport = $candidateReport
-                Write-WeatherIntegrationImmutableJson -Path $attemptQuietReportPath -Payload $quietReport
                 $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $attemptQuietReportPath
             }
         }
         catch { }
     }
-    if ($null -ne $quietReport -and [bool]$quietReport.ok -and
+    if ($null -ne $quietReport -and
+        [string]$quietReport.schema -eq "quiet_window_merge_report_v0.2" -and
+        [bool]$quietReport.ok -and
         [string]$quietReport.stage -eq "pushed" -and
+        [bool]$quietReport.publication_acknowledged -and
+        [bool]$quietReport.capture_recovery_proved -and
+        (-not [bool]$quietReport.execution_tape_recovery_required -or
+            [bool]$quietReport.execution_tape_recovery_proved) -and
         [string]$quietReport.branch -eq [string]$manifest.branch_ref -and
         [string]$quietReport.expected_tip -eq [string]$manifest.expected_tip -and
-        [string]$quietReport.expected_baseline -eq [string]$manifest.baseline.master) {
+        [string]$quietReport.expected_baseline -eq [string]$manifest.baseline.master -and
+        [string]$quietReport.baseline_commit -eq [string]$manifest.baseline.master -and
+        [string]$quietReport.resolved_branch_tip -eq [string]$manifest.expected_tip -and
+        [string]$quietReport.pre_merge_commit -match '^[0-9a-f]{40}$' -and
+        [string]$quietReport.merge_commit -match '^[0-9a-f]{40}$' -and
+        [bool]$quietReport.documentation_transaction_recorded) {
         try {
+            # A valid immutable pushed report is stronger than a generic FAIL
+            # receipt. Preserve the report-only reconciliation path unless the
+            # sampled production refs prove an exact MERGED_UNVERIFIED receipt.
+            Assert-WeatherIntegrationQuietReportDocumentation `
+                -AttemptContract $contract -QuietReport $quietReport | Out-Null
+            $preserveQuietReportForReconciliation = $true
             $productionHead = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "master")).ToLowerInvariant()
             $originMaster = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "origin/master")).ToLowerInvariant()
-            if ($productionHead -eq $originMaster) {
+            $candidateHead = (Invoke-WeatherIntegrationGitLine -Root $repoRoot -Arguments @("rev-parse", "HEAD")).ToLowerInvariant()
+            $candidateBranch = Invoke-WeatherIntegrationGitLine `
+                -Root $repoRoot `
+                -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
+            if ($candidateBranch -eq "master" -and $candidateHead -eq $productionHead -and
+                $productionHead -eq $originMaster -and
+                ([string]$quietReport.merge_commit).ToLowerInvariant() -eq $productionHead) {
                 $publicationAcknowledged = $true
                 & git -C $repoRoot merge-base --is-ancestor ([string]$manifest.expected_tip) $productionHead
                 if ($LASTEXITCODE -eq 0) {
@@ -492,6 +620,28 @@ catch {
     }
 }
 finally {
+    $reportAlreadyBindsRecoveredCommit = (
+        $null -ne $quietReport -and
+        [string]$quietReport.schema -eq "quiet_window_merge_report_v0.2" -and
+        [bool]$quietReport.ok -and
+        [string]$quietReport.stage -in @("pushed", "merged_unpushed") -and
+        [bool]$quietReport.capture_recovery_proved -and
+        (-not [bool]$quietReport.execution_tape_recovery_required -or
+            [bool]$quietReport.execution_tape_recovery_proved)
+    )
+    if (-not $reportAlreadyBindsRecoveredCommit) {
+        try {
+            $deferredMergeReceiptMarker = Get-WeatherIntegrationRecoverableActiveMarker `
+                -AttemptContract $contract -RepositoryRoot $repoRoot
+        }
+        catch {
+            $markerFailure = $_.Exception.Message
+            $failure = if ([string]::IsNullOrWhiteSpace([string]$failure)) {
+                $markerFailure
+            }
+            else { "$failure; active-marker inspection: $markerFailure" }
+        }
+    }
     $receipt = [ordered]@{
         schema = $script:WeatherIntegrationAttemptMergeReceiptSchema
         status = $status
@@ -537,11 +687,36 @@ finally {
             live_exchange_mutation_authorized = $false
         }
     }
-    Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath -Payload $receipt
+    if ($null -eq $deferredMergeReceiptMarker -and
+        (-not $preserveQuietReportForReconciliation -or $status -eq "MERGED_UNVERIFIED")) {
+        Write-WeatherIntegrationImmutableJson -Path $mergeReceiptPath -Payload $receipt
+    }
+    elseif ($null -ne $deferredMergeReceiptMarker) {
+        # A hard kill after the child committed can leave no child report. A
+        # generic FAIL receipt would outrank and strand the stronger global
+        # recovery journal. Leave the receipt path absent so reviewed
+        # ActiveMarker reconciliation can hash-bind that exact durable state.
+        Write-Warning (
+            "Withholding generic FAIL receipt because exact post-commit active " +
+            "marker $($deferredMergeReceiptMarker.Sha256) requires reconciliation."
+        )
+    }
+    else {
+        Write-Warning (
+            "Withholding merge receipt because immutable pushed report " +
+            "$quietReportSha256 is the only exact publication evidence; reconcile that report."
+        )
+    }
 }
 
 if ($status -ne "PASS") {
-    if ($status -eq "MERGED_UNVERIFIED") {
+    if ($null -ne $deferredMergeReceiptMarker) {
+        Write-Host "Integration attempt $($manifest.attempt_id) has an exact post-commit recovery marker and no terminal report. Do not close or retry it; reconcile the marker SHA256 $($deferredMergeReceiptMarker.Sha256)."
+    }
+    elseif ($preserveQuietReportForReconciliation -and $status -ne "MERGED_UNVERIFIED") {
+        Write-Host "Integration attempt $($manifest.attempt_id) has an exact pushed report but production advanced before a matching receipt could be proved. Do not close or retry it; reconcile quiet-report SHA256 $quietReportSha256."
+    }
+    elseif ($status -eq "MERGED_UNVERIFIED") {
         Write-Host "Integration attempt $($manifest.attempt_id) was published but its final proof is incomplete. Do not close or retry it; reconcile production from this receipt."
     }
     else {

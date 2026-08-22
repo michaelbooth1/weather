@@ -27,9 +27,24 @@ if (-not (Test-WeatherIntegrationPathEqual -Left $RepoRoot -Right ([string]$mani
     throw "Registrar RepoRoot does not match the immutable attempt manifest."
 }
 
+$terminalMutex = Enter-WeatherIntegrationControlMutex `
+    -RepositoryRoot $RepoRoot `
+    -LockLeaf "integration_attempt_terminal.lock" `
+    -Owner "register_integration_attempt:$($manifest.attempt_id)"
+if ($null -eq $terminalMutex) {
+    throw "Another registrar/close/reconciliation owns the integration-attempt terminal mutex."
+}
+try {
+Assert-WeatherIntegrationAttemptNotTerminal `
+    -AttemptContract $contract -Operation "Integration-attempt registration"
+
 $registrationReceiptPath = [string]$manifest.evidence.registration_receipt
 if (Test-Path -LiteralPath $registrationReceiptPath) {
     throw "Immutable registration receipt already exists and will not be replaced: $registrationReceiptPath"
+}
+$registrationIntentPath = Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $contract
+if (Test-Path -LiteralPath $registrationIntentPath) {
+    throw "Immutable pre-registration intent already exists and will not be replaced: $registrationIntentPath"
 }
 
 $tokenContractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
@@ -86,24 +101,18 @@ foreach ($taskName in @($suiteTaskName, $mergeTaskName)) {
     }
 }
 
-$suiteTokens = @(
-    "-NoProfile",
-    "-NonInteractive",
-    "-ExecutionPolicy", "Bypass",
-    "-File", $suiteScript,
-    "-ManifestPath", $contract.ManifestPath,
-    "-ExpectedManifestSha256", $contract.ManifestSha256
-)
-$mergeTokens = @(
-    "-NoProfile",
-    "-NonInteractive",
-    "-ExecutionPolicy", "Bypass",
-    "-File", $mergeScript,
-    "-ManifestPath", $contract.ManifestPath,
-    "-ExpectedManifestSha256", $contract.ManifestSha256
-)
-$suiteArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $suiteTokens
-$mergeArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $mergeTokens
+$suiteBinding = Get-WeatherIntegrationExpectedTaskBinding `
+    -AttemptContract $contract `
+    -Role "suite" `
+    -UserId $env:USERNAME `
+    -PowerShellExecutable $powerShellExecutable
+$mergeBinding = Get-WeatherIntegrationExpectedTaskBinding `
+    -AttemptContract $contract `
+    -Role "merge" `
+    -UserId $env:USERNAME `
+    -PowerShellExecutable $powerShellExecutable
+$suiteArguments = [string]$suiteBinding.arguments
+$mergeArguments = [string]$mergeBinding.arguments
 
 $suiteAction = New-ScheduledTaskAction `
     -Execute $powerShellExecutable `
@@ -122,13 +131,49 @@ $principal = New-ScheduledTaskPrincipal `
 $suiteSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Hours 8) `
+    -WakeToRun `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 $mergeSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -ExecutionTimeLimit (New-TimeSpan -Hours 4) `
+    -WakeToRun `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
+
+# This immutable journal is durably created before the first Scheduler
+# mutation. If the registrar process is interrupted at any later instruction,
+# the closer can still validate and disable only these exact task definitions.
+$intent = [ordered]@{
+    schema = $script:WeatherIntegrationAttemptRegistrationIntentSchema
+    status = "PREPARED"
+    binding_contract = $script:WeatherIntegrationAttemptTaskBindingContract
+    attempt_id = [string]$manifest.attempt_id
+    intent_path = $registrationIntentPath
+    manifest_path = $contract.ManifestPath
+    manifest_sha256 = $contract.ManifestSha256
+    prepared_at_local = (Get-Date).ToString("o")
+    principal = [ordered]@{
+        user_id = $env:USERNAME
+        logon_type = "S4U"
+        run_level = "Limited"
+        id = "Author"
+        display_name = ""
+        group_id = ""
+        process_token_sid_type = "Default"
+        required_privileges = @()
+    }
+    suite = $suiteBinding
+    merge = $mergeBinding
+    safety = [ordered]@{
+        authority = "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY"
+        credential_value_access_authorized = $false
+        live_exchange_mutation_authorized = $false
+    }
+}
+Write-WeatherIntegrationImmutableJson -Path $registrationIntentPath -Payload $intent
+$intentContract = Assert-WeatherIntegrationRegistrationIntent -AttemptContract $contract
+$intentSha256 = [string]$intentContract.IntentSha256
 
 $status = "FAIL"
 $failure = $null
@@ -143,9 +188,16 @@ try {
         -Trigger $mergeTrigger `
         -Principal $principal `
         -Settings $mergeSettings `
-        -Description "Immutable integration attempt $($manifest.attempt_id): guarded merge" | Out-Null
-    $mergeRegistered = $null -ne (Get-ScheduledTask -TaskName $mergeTaskName -ErrorAction SilentlyContinue)
-    if (-not $mergeRegistered) { throw "Merge task registration did not take effect." }
+        -Description ([string]$mergeBinding.description) | Out-Null
+    $mergeRegistered = $true
+    $registeredMerge = Assert-WeatherIntegrationScheduledTaskBinding `
+        -AttemptContract $contract `
+        -Role "merge" `
+        -BindingEvidence $intentContract.Intent
+    if ([string]$registeredMerge.Task.State -ne "Ready" -or
+        -not [bool]$registeredMerge.Task.Settings.Enabled) {
+        throw "Merge task registration did not produce one enabled Ready task."
+    }
 
     Register-ScheduledTask `
         -TaskName $suiteTaskName `
@@ -153,9 +205,16 @@ try {
         -Trigger $suiteTrigger `
         -Principal $principal `
         -Settings $suiteSettings `
-        -Description "Immutable integration attempt $($manifest.attempt_id): preflight and full suite" | Out-Null
-    $suiteRegistered = $null -ne (Get-ScheduledTask -TaskName $suiteTaskName -ErrorAction SilentlyContinue)
-    if (-not $suiteRegistered) { throw "Suite task registration did not take effect." }
+        -Description ([string]$suiteBinding.description) | Out-Null
+    $suiteRegistered = $true
+    $registeredSuite = Assert-WeatherIntegrationScheduledTaskBinding `
+        -AttemptContract $contract `
+        -Role "suite" `
+        -BindingEvidence $intentContract.Intent
+    if ([string]$registeredSuite.Task.State -ne "Ready" -or
+        -not [bool]$registeredSuite.Task.Settings.Enabled) {
+        throw "Suite task registration did not produce one enabled Ready task."
+    }
     $status = "PASS"
 }
 catch {
@@ -166,32 +225,50 @@ finally {
     $receipt = [ordered]@{
         schema = $script:WeatherIntegrationAttemptRegistrationReceiptSchema
         status = $status
+        binding_contract = $script:WeatherIntegrationAttemptTaskBindingContract
         attempt_id = [string]$manifest.attempt_id
         manifest_path = $contract.ManifestPath
         manifest_sha256 = $contract.ManifestSha256
+        registration_intent_path = $registrationIntentPath
+        registration_intent_sha256 = $intentSha256
         registered_at_local = (Get-Date).ToString("o")
         principal = [ordered]@{
             user_id = $env:USERNAME
             logon_type = "S4U"
             run_level = "Limited"
+            id = "Author"
+            display_name = ""
+            group_id = ""
+            process_token_sid_type = "Default"
+            required_privileges = @()
         }
         suite = [ordered]@{
             task_name = $suiteTaskName
             trigger_at_local = $suiteAt.ToString("o")
             registered = $suiteRegistered
-            executable = $powerShellExecutable
-            arguments = $suiteArguments
-            working_directory = $RepoRoot
-            script_sha256 = Get-WeatherIntegrationFileSha256 -Path $suiteScript
+            task_path = [string]$suiteBinding.task_path
+            description = [string]$suiteBinding.description
+            action_id = [string]$suiteBinding.action_id
+            executable = [string]$suiteBinding.executable
+            arguments = [string]$suiteBinding.arguments
+            working_directory = [string]$suiteBinding.working_directory
+            script_sha256 = [string]$suiteBinding.script_sha256
+            trigger = $suiteBinding.trigger
+            settings = $suiteBinding.settings
         }
         merge = [ordered]@{
             task_name = $mergeTaskName
             trigger_at_local = $mergeAt.ToString("o")
             registered = $mergeRegistered
-            executable = $powerShellExecutable
-            arguments = $mergeArguments
-            working_directory = $RepoRoot
-            script_sha256 = Get-WeatherIntegrationFileSha256 -Path $mergeScript
+            task_path = [string]$mergeBinding.task_path
+            description = [string]$mergeBinding.description
+            action_id = [string]$mergeBinding.action_id
+            executable = [string]$mergeBinding.executable
+            arguments = [string]$mergeBinding.arguments
+            working_directory = [string]$mergeBinding.working_directory
+            script_sha256 = [string]$mergeBinding.script_sha256
+            trigger = $mergeBinding.trigger
+            settings = $mergeBinding.settings
         }
         downstream_tasks_created = $false
         failure = $failure
@@ -209,6 +286,24 @@ if ($status -ne "PASS") {
     exit 1
 }
 
+$registrationContract = Assert-WeatherIntegrationRegistrationReceipt `
+    -AttemptContract $contract `
+    -RequirePass
+foreach ($role in @("suite", "merge")) {
+    $registeredTask = Assert-WeatherIntegrationScheduledTaskBinding `
+        -AttemptContract $contract `
+        -Role $role `
+        -BindingEvidence $registrationContract.Intent
+    if ([string]$registeredTask.Task.State -ne "Ready" -or
+        -not [bool]$registeredTask.Task.Settings.Enabled) {
+        throw "$role task changed state before registration verification completed."
+    }
+}
+
 Write-Host "Registered immutable attempt $($manifest.attempt_id): $suiteTaskName then $mergeTaskName"
 Write-Host "No task was started and no downstream task was created."
 exit 0
+}
+finally {
+    Exit-WeatherIntegrationControlMutex -Mutex $terminalMutex
+}

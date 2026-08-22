@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-21 08:53 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-21 21:05 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -19,17 +19,14 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 | Area | State / next action |
 | --- | --- |
-| Capture | Healthy and on track today. All three core workers are current and error-free; the supervised execution tape is connected and integrity-valid. Preserve the 12:00-18:00 graded window. |
-| Cumulative parent | Exact tip `1f4fb14611fe94781323d2b2da43f057a6f7241e` passed 18/18 chunks and 4,489 tests, then integrated as merge `3c326ac1c03b415877da33dc254b39d32f576de4`. Capture recovered and `WeatherOneShotPush` published it. |
-| Production capability | The paper harvest route, unified official client, pUSD contract, and keyless Stage 0/1 software are in production. This proves software consistency, not order authority, credentials, a fill, rebate, or profit. |
-| Fixed-scope successor | Original tip `0df52a9c13dd4b5f2a541b5e0d0c898d945c2b83` is not integrated. Its host focused wrapper imported from production rather than its exact worktree; the full suite and merge correctly refused. A correct-worktree diagnostic passed 73/73, but a fresh cumulative exact-tip full suite remains mandatory. |
-| Candidate | The August 19 candidate refused before economics or paper work because the required successor was absent. No current condition/token was selected and candidate selection remains non-authorizing. |
-| Public execution tape | Producer PID/lock/identity are current, `CONNECTED`, and integrity `PASS`. Historical gaps keep the accumulated full path unusable. The planned continuous-observation task was downstream of the absent successor and produced no receipt. |
-| Settlement | August 16 and August 18 carry real 12/12 settlement. August 17 remains the sole recent hole and will not self-heal. The August 16 recovery continued into unrelated chain work, hit bounded teardown, and left stale locks; the August 17 wrapper then refused on file existence. |
-| Host hardening | A new isolated branch adds clean stop-after-finalize recovery, PID-creation lock identity, contained/observable tiering, and honest status. It is not production until a fresh immutable suite and guarded merge pass. |
-| Integration procedure | Item 329 redesigns the failed whole-night freeze as immutable per-attempt evidence, reviewed single-successor recovery, and hash-bound merge/downstream proof. Four adversarial audits drove the PASS/recovery repairs and approved the remaining gates. Follow-up fixes let transient non-terminal Scheduler states settle before 03:40, prove them terminal at the reserve, and prevent a newly published suite receipt from becoming a false interrupted-run alert. The first exact full-suite run then exposed the production strict-schema failure: four documentation-transaction payloads were unregistered. Additive-only registrations closed it, the repaired commit `fa25dacae2a8a19f916d62223b5503441f4729f3` passed 18/18 full-suite chunks, compileall, the agent-doc audit, and roadmap lint, and the topic was published. The current clean branch tip is bound to `WeatherIntegrationRecoveryBootstrapSuite0822` at 00:35 and `WeatherIntegrationRecoveryBootstrapMerge0822` at 01:30 with fresh evidence paths, no late-start catch-up, and S4U/Limited principals. Because the landing branch now touches the shared schema registry, its guarded merge is roll-sensitive. First landing, capture-recovery proof, publication, and explicit registrar adoption remain open. |
-| Disk | The 24 h and 48 h slopes are both adverse. Scheduled projection and raw-tape tiering returned Scheduler zero but durably recorded `SKIPPED_WORKLOAD_LEASE_BUSY`; retry them in the next serialized heavy window. |
-| Documentation | The parent integration transaction is overdue until this rewrite, owning roadmap updates, publication, and its hash-bound completion receipt all land. A failed later successor does not erase the successful parent merge. |
+| Capture | The three streak-critical workers are healthy. The supervised public execution tape is connected and integrity-valid. Preserve the graded and near-close windows. |
+| Production | `master`, checked-out `HEAD`, and `origin/master` are synchronized at baseline `a76ec7b5599d499011054f98e43564ad0563a58f`. Only the two expected generated location-config files are modified. |
+| Integration repair | The immutable-attempt redesign has undergone repeated independent review. The current candidate adds crash-journal recovery, exact registration/task binding, terminal and Git-mutation mutexes, immutable publication evidence, reviewed resume/reconciliation, execution-tape recovery proof, and truthful status. It is not production until tonight's exact-tip suite and guarded merge pass. |
+| Tonight's suite | `WeatherIntegrationRecoveryBootstrapSuiteFixed0822` runs the frozen target worktree at 00:35. The complete exact-tip suite is still pending; focused checks are not a substitute. |
+| Tonight's merge | `WeatherIntegrationRecoveryBootstrapMergeFixed0822` starts at 01:30, may wait at most 60 minutes for that exact suite to finish, and invokes the hash-frozen quiet wrapper only after a correlated PASS. It must stage without committing, prove core capture plus any affected execution tape, record documentation, publish through `WeatherOneShotPush`, and verify `origin/master`. |
+| Crash recovery | `WeatherBootRecovery` is temporarily bound to the frozen target script with its exact SHA256 and a zero-delay startup trigger for this first landing. Pending reboot signals remain, but no reboot is authorized during the run. Task Scheduler startup ordering is not absolute; retained markers and nonzero recovery keep ambiguous states fail-closed. |
+| Documentation | The existing documentation transaction is COMPLETE and hash-consistent. A successful merge begins a new exact transaction before publication; a hard kill leaves content-addressed evidence for reviewed resume. |
+| Live money | No live-money test is authorized or ready. The code must first pass the full suite, land, recover capture, publish, and produce complete evidence; location, credential, lifecycle, economics, and release gates remain separate. |
 
 ## Closed decisions — do not relitigate without new evidence
 
@@ -52,38 +49,37 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Immediate execution order
 
-1. Close and publish the parent documentation transaction from actual receipts.
-2. Let the exact-tip bootstrap suite run at 00:35 and its roll-sensitive guarded
-   merge run at 01:30. Require the full PASS verdict, capture-recovery proof,
-   and `origin/master` publication, then explicitly adopt the registrar.
-3. Create one immutable attempt for the cumulative branch containing current
-   production, the original successor, and the lock/backfill/tiering/recovery
-   hardening. Run its deterministic preflight and fresh exact-tip full suite.
-4. Merge that roll-sensitive cumulative tip only during 01:00-04:00, prove all
-   capture workers recovered, and publish only through `WeatherOneShotPush`.
-5. Observe the adopted execution producer without a second writer; recover
-   August 17 through the stop-after-finalize path; require explicit PASS
-   receipts for both before another paper candidate.
-6. After physical relocation, rerun public metadata/economics/candidate and the
-   full eligible-host Stage 0/1 sequence before considering bounded Stage 2.
+1. Keep production, the frozen target worktree, the active RDP session, task
+   definitions, and `WeatherOneShotPush` unchanged through tonight's attempt.
+2. Let the 00:35 exact-tip bounded suite finish. Treat any missing, partial,
+   stale, mismatched, or non-PASS evidence as refusal.
+3. At 01:30, let the hash-bound gate wait only for that exact running suite.
+   Merge only inside 01:00–04:00 and publish only after exact recovery proof.
+4. In the morning, inspect the immutable suite/quiet/merge evidence, Git
+   ancestry, remote acknowledgement, documentation transaction, and live
+   worker identities. Restore `WeatherBootRecovery` to the landed production
+   path only after success is unambiguous; otherwise retain the frozen guard.
+5. Only after production adoption, recover the remaining execution evidence
+   work and rerun paper/live-readiness gates. Do not infer trading readiness
+   from an integration PASS.
 
 ## Host and workflow state
 
-- Production `master` equals `origin/master`; only the two expected generated
-  location-config files are modified.
-- `WeatherEveningEvidenceRefresh`, `WeatherDataMirror`, and
-  `WeatherTrainingWindow` remain Disabled. `WeatherTrainingWindowRestore`
-  remains enabled as the dead-man restore.
-- `WeatherIntegrationRecoveryBootstrapSuite0822` and
-  `WeatherIntegrationRecoveryBootstrapMerge0822` are armed one-shots for the
-  current published recovery tip; neither has run yet.
-- Reboot remains pending; do not reboot during grading. The interactive
-  disconnected session must remain logged on for `WeatherOneShotPush`.
-- Disabled or zero-result tasks are not outcome evidence. Read complete logs,
-  durable receipts, exact ancestry, and live worker identity.
+- The old `WeatherIntegrationRecoveryBootstrapSuite0822` and
+  `WeatherIntegrationRecoveryBootstrapMerge0822` definitions are superseded;
+  only the exact `Fixed0822` pair may be enabled for tonight.
+- `WeatherEveningEvidenceRefresh`, `WeatherDataMirror`, training, and merge
+  queue drivers remain disabled where required. No competing heavy or merge
+  task may be introduced before this attempt finishes.
+- AC sleep is disabled and wake timers are available. The interactive `micha`
+  RDP session must remain logged on because `WeatherOneShotPush` intentionally
+  uses the credential-bearing interactive token.
+- Disabled tasks, Scheduler result zero, and mutable latest reports are not
+  outcome evidence. Require immutable receipts, exact hashes, ancestry, and
+  current worker identity.
 
 ## Update this file when
 
-Rewrite after item 329 adoption, cumulative-successor integration, August 17
-recovery, fresh candidate selection, eligible-location readiness, or a live lifecycle result.
+Rewrite after tonight's integration result, execution-evidence recovery, fresh
+candidate selection, eligible-location readiness, or a live lifecycle result.
 Remove superseded state rather than appending another handoff.
