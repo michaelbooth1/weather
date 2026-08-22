@@ -280,6 +280,42 @@ def test_stage1_failure_is_journaled_and_cancelled_without_raw_exception_text(tm
     assert adapter.cancel_all_calls == 1
 
 
+def test_stage1_keyboard_interrupt_after_submit_is_journaled_and_cancelled(tmp_path):
+    class InterruptedPlacementAdapter(FakeAdapter):
+        def place_order(self, intent, *, stage1_capability=None):
+            super().place_order(intent, stage1_capability=stage1_capability)
+            raise KeyboardInterrupt("RAW-INTERRUPT-TEXT")
+
+    clock = FakeClock()
+    adapter = InterruptedPlacementAdapter(clock)
+    journal_path = tmp_path / "interrupted-after-submit.jsonl"
+
+    with pytest.raises(KeyboardInterrupt, match="RAW-INTERRUPT-TEXT"):
+        execute_stage1_lifecycle_probe(
+            adapter,
+            bootstrap_gate(),
+            confirmation=CONFIRMATION,
+            cancellation_mode="cancel_all",
+            journal_path=journal_path,
+            monotonic_clock=clock,
+            sleeper=clock.sleep,
+        )
+
+    rows = [
+        json.loads(line)
+        for line in journal_path.read_text(encoding="utf-8").splitlines()
+    ]
+    failure = rows[-1]
+    assert failure["event_type"] == "probe_failed"
+    assert failure["phase"] == "placement"
+    assert failure["exception_type"] == "KeyboardInterrupt"
+    assert failure["cleanup_succeeded"] is True
+    assert "RAW-INTERRUPT-TEXT" not in json.dumps(failure)
+    assert adapter.place_calls == 1
+    assert adapter.cancel_all_calls == 1
+    assert adapter.orders == []
+
+
 def test_stage1_blocks_existing_position_before_mutation(tmp_path):
     clock = FakeClock()
     adapter = FakeAdapter(clock)

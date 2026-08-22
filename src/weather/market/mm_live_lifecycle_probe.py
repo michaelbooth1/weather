@@ -522,7 +522,7 @@ def execute_stage1_lifecycle_probe(
         )
         result["journal_sha256"] = journal.sha256()
         return result
-    except Exception as exc:
+    except BaseException as exc:
         cleanup_succeeded = False
         cleanup_zero_open_orders = False
         cleanup_zero_positions = False
@@ -532,7 +532,7 @@ def execute_stage1_lifecycle_probe(
             cleanup_positions, _ = _verified_exact_positions(adapter)
             cleanup_zero_positions = not bool(cleanup_positions)
             cleanup_succeeded = cleanup_zero_open_orders and cleanup_zero_positions
-        except Exception:
+        except BaseException:
             cleanup_succeeded = False
         try:
             journal.record(
@@ -545,7 +545,7 @@ def execute_stage1_lifecycle_probe(
                 cleanup_zero_open_orders=cleanup_zero_open_orders,
                 cleanup_zero_positions=cleanup_zero_positions,
             )
-        except Exception:
+        except BaseException:
             pass
         raise
 

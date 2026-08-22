@@ -470,8 +470,16 @@ send authenticated heartbeat and cancel-all requests, so it belongs behind the
 same reviewed boundary. Run Stage 0 once, then each Stage 1 cancellation mode in
 its own fresh process. Each Stage 1 call can perform exactly one network submit,
 writes its PASS result only after final cancel-all/zero-state cleanup, and
-serializes exception types rather than raw SDK messages. The wrapper review and
-its exact source hash become prerequisites; their absence is a stop.
+serializes exception types rather than raw SDK messages. Console interrupts and
+other process-level Python exits enter the same cleanup path: Stage 1 first
+journals and attempts cancel-all/zero-state reconciliation, then the command
+boundary independently repeats cleanup, finalizes the user stream and client,
+writes a type-only FAIL receipt, and re-raises. The host wrapper must catch that
+`BaseException`, emit only its type, and stop; it must never print a traceback or
+retry the submit. A forced process kill or power loss cannot run Python cleanup
+and remains dependent on the independently proved heartbeat-lapse cancellation.
+The wrapper review and its exact source hash become prerequisites; their absence
+is a stop.
 
 Only after both Stage 1 calls pass, build the content-bound bundle offline. The
 builder rereads and hashes both lifecycle journals rather than trusting copied
