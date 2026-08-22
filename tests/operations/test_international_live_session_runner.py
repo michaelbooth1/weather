@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -363,3 +364,13 @@ def test_runner_rejects_rewritten_manifest_even_with_new_self_hash(tmp_path):
             now=NOW,
             launcher_runner=lambda _path: pytest.fail("launcher must not run"),
         )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")
+def test_default_launcher_runner_executes_safe_child_inside_job(tmp_path):
+    script = tmp_path / "safe-exit.ps1"
+    script.write_text("exit 0\n", encoding="utf-8")
+
+    result = runner._default_launcher_runner(script)
+
+    assert result.returncode == 0
