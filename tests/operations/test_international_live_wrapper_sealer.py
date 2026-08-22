@@ -220,7 +220,7 @@ def prepare(
         }
     else:
         stage0_receipt = {
-            "schema_version": "mm_live_pilot_command_receipt_v0.1",
+            "schema_version": "mm_live_pilot_command_receipt_v0.2",
             "status": "PASS",
             "command": "stage0",
             "target_date": NOW.date().isoformat(),
@@ -229,7 +229,16 @@ def prepare(
             "requested_budget_pusd": 10,
             "cleanup": {"ok": True},
             "credential_values_read_in_memory": True,
-            "exchange_mutation_attempted": False,
+            "exchange_mutation_attempted": True,
+            "order_submit_attempted": False,
+            "authenticated_exchange_write_attempted": True,
+            "credential_topology": {
+                "manifest_wallet_address": "0x" + "2" * 40,
+                "derived_signer_matches_manifest": True,
+                "api_owner_matches_manifest": True,
+                "order_signer_matches_manifest": True,
+                "funder_matches_identity": True,
+            },
             "exception_type": None,
         }
         identity_name = (
@@ -252,6 +261,8 @@ def prepare(
         stage0_wrapper = attempt / "wrappers/stage0.py"
         stage0_wrapper.parent.mkdir(parents=True, exist_ok=True)
         stage0_wrapper.write_text("# sealed stage0 wrapper\n", encoding="utf-8")
+        stage0_launcher = attempt / "wrappers/stage0.ps1"
+        stage0_launcher.write_text("# sealed stage0 launcher\n", encoding="utf-8")
         stage0_seal = {
             "schema_version": sealer.RECEIPT_SCHEMA_VERSION,
             "status": "PASS",
@@ -265,6 +276,7 @@ def prepare(
                 "attempt_root": str(attempt.resolve()),
             },
             "wrapper": {"path": str(stage0_wrapper), "sha256": sha256(stage0_wrapper)},
+            "launcher": {"path": str(stage0_launcher), "sha256": sha256(stage0_launcher)},
             "credential_import_receipt": {
                 "path": str(credential.resolve()),
                 "sha256": sha256(credential),
@@ -278,7 +290,7 @@ def prepare(
             attempt / "seal/stage0-seal-receipt.json", stage0_seal
         )
         stage0_execution = {
-            "schema_version": "international_live_fixed_scope_execution_v0.3",
+            "schema_version": "international_live_fixed_scope_execution_v0.4",
             "status": "PASS",
             "stage": "stage0",
             "phase": "complete",
@@ -289,7 +301,9 @@ def prepare(
             "requested_budget_pusd": 10,
             "exception_type": None,
             "credential_values_read_in_memory": True,
-            "live_mutation_attempted": False,
+            "live_mutation_attempted": True,
+            "order_submit_attempted": False,
+            "authenticated_exchange_write_attempted": True,
             "host_attestations": [
                 {
                     "checked_at_local": NOW.isoformat(),
@@ -328,6 +342,12 @@ def prepare(
         stage0_manifest = write_json(
             attempt / "inputs/stage0-session-manifest.json", {"status": "PASS"}
         )
+        stage0_manifest_sidecar = stage0_manifest.with_suffix(
+            stage0_manifest.suffix + ".sha256"
+        )
+        stage0_manifest_sidecar.write_text(
+            f"{sha256(stage0_manifest)}  {stage0_manifest.name}\n", encoding="ascii"
+        )
         stage0_composition = write_json(
             attempt / "session/stage0-composition-receipt.json", {"status": "PASS"}
         )
@@ -337,14 +357,18 @@ def prepare(
         stage0_run = write_json(
             attempt / "session/stage0-run-receipt.json",
             {
-                "schema_version": "international_live_session_run_v0.2",
+                "schema_version": "international_live_session_run_v0.3",
                 "status": "PASS",
                 "stage": "stage0",
-                "live_mutation_attempted": False,
+                "live_mutation_attempted": True,
+                "order_submit_attempted": False,
+                "authenticated_exchange_write_attempted": True,
                 "credential_values_read_in_memory": True,
                 "session_manifest": {
                     "path": str(stage0_manifest.resolve()),
                     "sha256": sha256(stage0_manifest),
+                    "sidecar_path": str(stage0_manifest_sidecar.resolve()),
+                    "sidecar_sha256": sha256(stage0_manifest_sidecar),
                 },
                 "composition_receipt": {
                     "path": str(stage0_composition.resolve()),
@@ -365,6 +389,8 @@ def prepare(
                     "path": str(stage0_execution_path.resolve()),
                     "sha256": sha256(stage0_execution_path),
                 },
+                "wrapper": stage0_seal["wrapper"],
+                "launcher": stage0_seal["launcher"],
             },
         )
         stage0_run_sidecar = attempt / "session/stage0-run-receipt.json.sha256"
@@ -390,6 +416,8 @@ def prepare(
             )
             cancel_wrapper = attempt / "wrappers/stage1-cancel-all.py"
             cancel_wrapper.write_text("# sealed cancel wrapper\n", encoding="utf-8")
+            cancel_launcher = attempt / "wrappers/stage1-cancel-all.ps1"
+            cancel_launcher.write_text("# sealed cancel launcher\n", encoding="utf-8")
             cancel_stream = attempt / "stage1-cancel-all/user-stream.jsonl"
             cancel_stream.parent.mkdir(parents=True, exist_ok=True)
             cancel_stream.write_text(
@@ -424,7 +452,7 @@ def prepare(
             cancel_command = write_json(
                 attempt / "stage1-cancel-all/command-receipt.json",
                 {
-                    "schema_version": "mm_live_pilot_command_receipt_v0.1",
+                    "schema_version": "mm_live_pilot_command_receipt_v0.2",
                     "status": "PASS",
                     "command": "stage1",
                     "cancellation_mode": "cancel_all",
@@ -434,6 +462,15 @@ def prepare(
                     "requested_budget_pusd": 10,
                     "credential_values_read_in_memory": True,
                     "exchange_mutation_attempted": True,
+                    "order_submit_attempted": True,
+                    "authenticated_exchange_write_attempted": True,
+                    "credential_topology": {
+                        "manifest_wallet_address": "0x" + "2" * 40,
+                        "derived_signer_matches_manifest": True,
+                        "api_owner_matches_manifest": True,
+                        "order_signer_matches_manifest": True,
+                        "funder_matches_identity": True,
+                    },
                     "cleanup": {"ok": True},
                     "exception_type": None,
                     "paths": {
@@ -449,7 +486,7 @@ def prepare(
             cancel_execution = write_json(
                 attempt / "stage1-cancel-all/wrapper-execution-receipt.json",
                 {
-                    "schema_version": "international_live_fixed_scope_execution_v0.3",
+                    "schema_version": "international_live_fixed_scope_execution_v0.4",
                     "status": "PASS",
                     "stage": "stage1_cancel_all",
                     "phase": "complete",
@@ -460,10 +497,16 @@ def prepare(
                     "requested_budget_pusd": 10,
                     "exception_type": None,
                     "live_mutation_attempted": True,
+                    "order_submit_attempted": True,
+                    "authenticated_exchange_write_attempted": True,
                     "credential_values_read_in_memory": True,
                     "wrapper": {
                         "path": str(cancel_wrapper.resolve()),
                         "sha256": sha256(cancel_wrapper),
+                    },
+                    "launcher": {
+                        "path": str(cancel_launcher.resolve()),
+                        "sha256": sha256(cancel_launcher),
                     },
                     "artifacts": {
                         "doctor_receipt_out": {
@@ -508,17 +551,29 @@ def prepare(
                         "path": str(cancel_wrapper.resolve()),
                         "sha256": sha256(cancel_wrapper),
                     },
-                    "inputs": {
-                        "candidate_plan": {
+                    "launcher": {
+                        "path": str(cancel_launcher.resolve()),
+                        "sha256": sha256(cancel_launcher),
+                    },
+                    "inputs": [
+                        {
+                            "role": "candidate_plan",
                             "path": str(cancel_candidate.resolve()),
                             "sha256": sha256(cancel_candidate),
                         }
-                    },
+                    ],
                 },
             )
             cancel_manifest = write_json(
                 attempt / "inputs/stage1_cancel_all-session-manifest.json",
                 {"status": "PASS"},
+            )
+            cancel_manifest_sidecar = cancel_manifest.with_suffix(
+                cancel_manifest.suffix + ".sha256"
+            )
+            cancel_manifest_sidecar.write_text(
+                f"{sha256(cancel_manifest)}  {cancel_manifest.name}\n",
+                encoding="ascii",
             )
             cancel_composition = write_json(
                 attempt / "session/stage1_cancel_all-composition-receipt.json",
@@ -531,15 +586,19 @@ def prepare(
             cancel_run = write_json(
                 attempt / "session/stage1_cancel_all-run-receipt.json",
                 {
-                    "schema_version": "international_live_session_run_v0.2",
+                    "schema_version": "international_live_session_run_v0.3",
                     "status": "PASS",
                     "stage": "stage1_cancel_all",
                     "live_mutation_attempted": True,
+                    "order_submit_attempted": True,
+                    "authenticated_exchange_write_attempted": True,
                     "credential_values_read_in_memory": True,
                     "candidate_sha256": sha256(cancel_candidate),
                     "session_manifest": {
                         "path": str(cancel_manifest.resolve()),
                         "sha256": sha256(cancel_manifest),
+                        "sidecar_path": str(cancel_manifest_sidecar.resolve()),
+                        "sidecar_sha256": sha256(cancel_manifest_sidecar),
                     },
                     "composition_receipt": {
                         "path": str(cancel_composition.resolve()),
@@ -552,6 +611,14 @@ def prepare(
                     "seal_receipt": {
                         "path": str(cancel_seal.resolve()),
                         "sha256": sha256(cancel_seal),
+                    },
+                    "wrapper": {
+                        "path": str(cancel_wrapper.resolve()),
+                        "sha256": sha256(cancel_wrapper),
+                    },
+                    "launcher": {
+                        "path": str(cancel_launcher.resolve()),
+                        "sha256": sha256(cancel_launcher),
                     },
                     "child_execution": {
                         "validation": "PASS",
@@ -942,6 +1009,13 @@ def test_inventory_is_read_only_and_reports_ancestry_state(tmp_path):
     assert result["production"]["interrupt_cleanup_ancestor_integrated"] is False
     assert result["live_mutation_attempted"] is False
     assert before == after
+
+
+def test_every_stage_binds_complete_status_attestation_source_closure():
+    for stage in sealer.STAGES:
+        assert set(sealer.STATUS_ATTESTATION_SOURCE_PATHS).issubset(
+            sealer.LIVE_SOURCE_PATHS[stage]
+        )
 
 
 def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():

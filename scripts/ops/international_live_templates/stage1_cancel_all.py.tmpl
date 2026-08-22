@@ -280,9 +280,13 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
     ):
         raise RuntimeError("fixed Stage 1 output path already exists")
     stage0 = json.loads(inputs["stage0_receipt"][0].read_text(encoding="utf-8-sig"))
+    stage0_topology = stage0.get("credential_topology") or {}
+    reference_manifest = json.loads(
+        inputs["credential_reference_manifest"][0].read_text(encoding="utf-8-sig")
+    )
     if not all(
         (
-            stage0.get("schema_version") == "mm_live_pilot_command_receipt_v0.1",
+            stage0.get("schema_version") == "mm_live_pilot_command_receipt_v0.2",
             stage0.get("status") == "PASS",
             stage0.get("command") == "stage0",
             stage0.get("target_date") == SCOPE["target_date"],
@@ -335,12 +339,14 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             float(seal_scope.get("requested_budget_pusd"))
             == float(SCOPE["requested_budget_pusd"]),
             execution.get("schema_version")
-            == "international_live_fixed_scope_execution_v0.3",
+            == "international_live_fixed_scope_execution_v0.4",
             execution.get("status") == "PASS",
             execution.get("stage") == "stage0",
             execution.get("phase") == "complete",
             execution.get("credential_values_read_in_memory") is True,
-            execution.get("live_mutation_attempted") is False,
+            execution.get("live_mutation_attempted") is True,
+            execution.get("order_submit_attempted") is False,
+            execution.get("authenticated_exchange_write_attempted") is True,
             isinstance(attestations, list),
             len(attestations or []) == 2,
             all(
@@ -391,12 +397,24 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 else False
             ),
             stage0.get("credential_values_read_in_memory") is True,
-            stage0.get("exchange_mutation_attempted") is False,
+            stage0.get("exchange_mutation_attempted") is True,
+            stage0.get("order_submit_attempted") is False,
+            stage0.get("authenticated_exchange_write_attempted") is True,
+            stage0_topology.get("manifest_wallet_address")
+            == str(reference_manifest.get("wallet_address") or "").lower(),
+            len(stage0_topology) == 5,
+            all(
+                value is True
+                for key, value in stage0_topology.items()
+                if key != "manifest_wallet_address"
+            ),
             stage0_run.get("schema_version")
-            == "international_live_session_run_v0.2",
+            == "international_live_session_run_v0.3",
             stage0_run.get("status") == "PASS",
             stage0_run.get("stage") == "stage0",
-            stage0_run.get("live_mutation_attempted") is False,
+            stage0_run.get("live_mutation_attempted") is True,
+            stage0_run.get("order_submit_attempted") is False,
+            stage0_run.get("authenticated_exchange_write_attempted") is True,
             stage0_run.get("credential_values_read_in_memory") is True,
             stage0_run_child.get("validation") == "PASS",
             stage0_run_child.get("status") == "PASS",
@@ -439,23 +457,37 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
         prior_child = prior_run.get("child_execution") or {}
         prior_scope = prior_seal.get("scope") or {}
         prior_production = prior_seal.get("production") or {}
-        prior_inputs = prior_seal.get("inputs") or {}
+        prior_inputs = {
+            row.get("role"): row
+            for row in (prior_seal.get("inputs") or [])
+            if isinstance(row, dict) and row.get("role")
+        }
+        prior_topology = prior_command.get("credential_topology") or {}
+        prior_reference = json.loads(
+            Path(prior_inputs["credential_reference_manifest"]["path"]).read_text(
+                encoding="utf-8-sig"
+            )
+        )
         prior_artifacts = prior_execution.get("artifacts") or {}
         prior_result_artifact = prior_artifacts.get("result_out") or {}
         prior_command_artifact = prior_artifacts.get("command_receipt_out") or {}
         prior_journal_artifact = prior_artifacts.get("lifecycle_journal_out") or {}
         prior_stream_artifact = prior_artifacts.get("user_stream_journal_out") or {}
         prior_lineage_ok = True
-        for role in (
-            "session_manifest",
-            "composition_receipt",
-            "run_intent",
-            "seal_receipt",
-        ):
+        prior_root = Path(str(prior_scope.get("attempt_root") or "")).resolve()
+        prior_expected = {
+            "session_manifest": prior_root / "inputs/stage1_cancel_all-session-manifest.json",
+            "composition_receipt": prior_root / "session/stage1_cancel_all-composition-receipt.json",
+            "run_intent": prior_root / "session/stage1_cancel_all-run-intent.json",
+            "seal_receipt": inputs["cancel_all_seal_receipt"][0],
+        }
+        for role, expected_path in prior_expected.items():
             record = prior_run.get(role) or {}
             record_path = Path(str(record.get("path") or ""))
             prior_lineage_ok = prior_lineage_ok and (
-                record_path.is_file() and _sha256(record_path) == record.get("sha256")
+                record_path.resolve() == expected_path.resolve()
+                and record_path.is_file()
+                and _sha256(record_path) == record.get("sha256")
             )
         if not all(
             (
@@ -472,10 +504,12 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 == float(SCOPE["requested_budget_pusd"]),
                 prior_scope.get("cancellation_mode") == "cancel_all",
                 prior_run.get("schema_version")
-                == "international_live_session_run_v0.2",
+                == "international_live_session_run_v0.3",
                 prior_run.get("status") == "PASS",
                 prior_run.get("stage") == "stage1_cancel_all",
                 prior_run.get("live_mutation_attempted") is True,
+                prior_run.get("order_submit_attempted") is True,
+                prior_run.get("authenticated_exchange_write_attempted") is True,
                 prior_run.get("credential_values_read_in_memory") is True,
                 prior_child.get("validation") == "PASS",
                 prior_child.get("status") == "PASS",
@@ -490,9 +524,17 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 == inputs["cancel_all_seal_receipt"][1],
                 prior_run.get("candidate_sha256")
                 == prior_result.get("candidate_plan_sha256"),
+                prior_run.get("wrapper") == prior_seal.get("wrapper"),
+                prior_run.get("launcher") == prior_seal.get("launcher"),
+                Path(
+                    str((prior_run.get("session_manifest") or {}).get("sidecar_path") or "")
+                ).resolve()
+                == prior_expected["session_manifest"].with_suffix(
+                    prior_expected["session_manifest"].suffix + ".sha256"
+                ).resolve(),
                 prior_lineage_ok,
                 prior_execution.get("schema_version")
-                == "international_live_fixed_scope_execution_v0.3",
+                == "international_live_fixed_scope_execution_v0.4",
                 prior_execution.get("status") == "PASS",
                 prior_execution.get("phase") == "complete",
                 prior_execution.get("stage") == "stage1_cancel_all",
@@ -504,6 +546,8 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 str(prior_execution.get("token_id") or "")
                 == str(SCOPE["token_id"]),
                 prior_execution.get("live_mutation_attempted") is True,
+                prior_execution.get("order_submit_attempted") is True,
+                prior_execution.get("authenticated_exchange_write_attempted") is True,
                 prior_execution.get("credential_values_read_in_memory") is True,
                 set(prior_artifacts)
                 == {
@@ -531,6 +575,16 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 prior_command.get("command") == "stage1",
                 prior_command.get("cancellation_mode") == "cancel_all",
                 prior_command.get("exchange_mutation_attempted") is True,
+                prior_command.get("order_submit_attempted") is True,
+                prior_command.get("authenticated_exchange_write_attempted") is True,
+                len(prior_topology) == 5,
+                prior_topology.get("manifest_wallet_address")
+                == str(prior_reference.get("wallet_address") or "").lower(),
+                all(
+                    value is True
+                    for key, value in prior_topology.items()
+                    if key != "manifest_wallet_address"
+                ),
                 prior_command.get("credential_values_read_in_memory") is True,
                 prior_command.get("target_date") == SCOPE["target_date"],
                 str(prior_command.get("condition_id") or "").lower()
@@ -685,7 +739,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.3",
+            "schema_version": "international_live_fixed_scope_execution_v0.4",
             "stage": STAGE_NAME,
             "status": status,
             "finished_at_local": datetime.now().astimezone().isoformat(),
@@ -707,7 +761,17 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
                 if isinstance(command, dict)
                 else "UNKNOWN"
             ),
-            "live_mutation_attempted": submit_started,
+            "live_mutation_attempted": (
+                command.get("authenticated_exchange_write_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else (False if EXECUTION_PHASE != "stage1_command" else "UNKNOWN")
+            ),
+            "order_submit_attempted": submit_started,
+            "authenticated_exchange_write_attempted": (
+                command.get("authenticated_exchange_write_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
             "exception_type": exception_type,
             "artifacts": artifacts,
             "secret_values_redacted": True,
@@ -769,6 +833,11 @@ def main() -> int:
         expected_token_id=SCOPE["token_id"],
     )
     EXECUTION_PHASE = "stage1_command"
+    credential_manifest = json.loads(
+        Path(SCOPE["credential_reference_manifest_path"]).read_text(
+            encoding="utf-8-sig"
+        )
+    )
     args = SimpleNamespace(
         identity=SCOPE["identity_path"],
         target_date=SCOPE["target_date"],
@@ -787,6 +856,7 @@ def main() -> int:
         user_stream_journal=SCOPE["user_stream_journal_out"],
         user_stream_ready_timeout_seconds=45.0,
         confirmation=expected_confirmation,
+        expected_wallet_address=credential_manifest["wallet_address"],
     )
     receipt = live_cli.run_stage1(args)
     if receipt.get("status") != "PASS" or (receipt.get("cleanup") or {}).get("ok") is not True:

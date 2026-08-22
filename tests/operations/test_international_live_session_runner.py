@@ -19,6 +19,7 @@ from weather.operations import international_live_wrapper_sealer as sealer
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
 CONDITION = "0x" + "7" * 64
 TOKEN = "7001"
+WALLET = "0x" + "2" * 40
 
 
 @pytest.fixture(autouse=True)
@@ -27,6 +28,11 @@ def private_attempt_root(monkeypatch):
         runner,
         "validate_private_attempt_root",
         lambda path: {"status": "PASS", "path": str(path)},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_default_overlay_file_provider",
+        lambda _root, _hashes: {},
     )
 
 
@@ -98,8 +104,20 @@ def session_fixture(tmp_path: Path, stage: str, *, remaining_seconds=120):
         {"schema_version": "mm_stage0_client_identity_v0.2"},
     )
     credential = write(tmp_path / "credential.json", {"status": "PASS"})
-    references = write(tmp_path / "references.json", {"status": "PASS"})
+    references = write(
+        tmp_path / "references.json",
+        {"status": "PASS", "wallet_address": WALLET},
+    )
     reviewed_source = write(tmp_path / "production/source", {"reviewed": True})
+    production_python = tmp_path / "production/venv/Scripts/python.exe"
+    production_python.parent.mkdir(parents=True, exist_ok=True)
+    production_python.write_bytes(b"reviewed python")
+    bootstrap_hashes = {}
+    for relative in runner.SESSION_BOOTSTRAP_PATHS:
+        source = tmp_path / "production" / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(f"# reviewed {relative}\n", encoding="utf-8")
+        bootstrap_hashes[relative] = sha(source)
     if stage != "stage0":
         lineage_paths = [
             "stage0/bootstrap.json",
@@ -132,7 +150,7 @@ def session_fixture(tmp_path: Path, stage: str, *, remaining_seconds=120):
             "branch": "master",
             "commit": "a" * 40,
             "tree": "b" * 40,
-            "python": str(tmp_path / "production/venv/Scripts/python.exe"),
+            "python": str(production_python),
         },
         "scope": {
             "target_date": NOW.date().isoformat(),
@@ -157,6 +175,8 @@ def session_fixture(tmp_path: Path, stage: str, *, remaining_seconds=120):
         "reviewed_status_flags": [],
         "template_sha256": {"python": "c" * 64, "launcher": "d" * 64},
         "source_sha256": {"source": sha(reviewed_source)},
+        "production_python_sha256": sha(production_python),
+        "session_bootstrap_sha256": bootstrap_hashes,
     }
     payload["manifest_sha256"] = runner._canonical_payload_sha256(payload)
     manifest = write(
@@ -201,9 +221,16 @@ def fake_sealer(attempt: Path, stage: str):
             "wrapper": {"path": str(wrapper.resolve()), "sha256": sha(wrapper)},
             "launcher": {"path": str(launcher.resolve()), "sha256": sha(launcher)},
             "seal_spec": {"path": str(spec_path), "sha256": sha(spec_path)},
-            "inputs": spec["inputs"],
+            "inputs": [
+                {"role": role, **record}
+                for role, record in sorted(spec["inputs"].items())
+            ],
         }
         write(seal_path, seal_payload)
+        seal_sidecar = seal_path.with_suffix(seal_path.suffix + ".sha256")
+        seal_sidecar.write_text(
+            f"{sha(seal_path)}  {seal_path.name}\n", encoding="ascii"
+        )
         return {
             "status": "PASS",
             "stage": stage,
@@ -219,6 +246,7 @@ def fake_sealer(attempt: Path, stage: str):
                 "path": str(seal_path.resolve()),
                 "sha256": sha(seal_path),
             },
+            "seal_receipt_sidecar": str(seal_sidecar.resolve()),
         }
 
     return seal
@@ -322,7 +350,7 @@ def write_execution(
             }
         )
     command = {
-        "schema_version": "mm_live_pilot_command_receipt_v0.1",
+        "schema_version": "mm_live_pilot_command_receipt_v0.2",
         "status": "PASS",
         "command": "stage0" if stage == "stage0" else "stage1",
         "target_date": NOW.date().isoformat(),
@@ -333,12 +361,21 @@ def write_execution(
         "credential_values_read_in_memory": True,
         "exception_type": None,
         "paths": command_paths,
+        "credential_topology": {
+            "manifest_wallet_address": WALLET,
+            "derived_signer_matches_manifest": True,
+            "api_owner_matches_manifest": True,
+            "order_signer_matches_manifest": True,
+            "funder_matches_identity": True,
+        },
     }
     if stage == "stage0":
-        command["exchange_mutation_attempted"] = False
+        command["exchange_mutation_attempted"] = True
     else:
         command["cancellation_mode"] = mode
         command["exchange_mutation_attempted"] = True
+    command["order_submit_attempted"] = stage != "stage0"
+    command["authenticated_exchange_write_attempted"] = True
     write(command_path, command)
     artifacts["command_receipt_out"] = {
         "path": str(command_path.resolve()),
@@ -355,7 +392,7 @@ def write_execution(
     write(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.3",
+            "schema_version": "international_live_fixed_scope_execution_v0.4",
             "status": status,
             "stage": stage,
             "phase": "complete" if status == "PASS" else "stage1_command",
@@ -373,6 +410,8 @@ def write_execution(
             or {"path": str(wrapper.resolve()), "sha256": sha(wrapper)},
             "artifacts": artifacts,
             "live_mutation_attempted": mutation,
+            "order_submit_attempted": stage != "stage0" if mutation else False,
+            "authenticated_exchange_write_attempted": mutation,
             "credential_values_read_in_memory": credential,
             "confirmation_scope_display_sha256": "8" * 64,
             "host_attestations": host_attestations,
@@ -396,7 +435,7 @@ def test_composer_accepts_only_manifest_and_fresh_candidate_for_each_stage(
         seal_function=fake_sealer(attempt, stage),
         launcher_runner=lambda path: (
             launched.append(path)
-            or write_execution(attempt, stage, mutation=stage != "stage0")
+            or write_execution(attempt, stage, mutation=True)
             or subprocess.CompletedProcess([str(path)], 0, "", "")
         ),
     )
@@ -452,7 +491,7 @@ def test_composer_uses_effective_cutoff_after_one_second_composition(tmp_path):
         clock=lambda: NOW + timedelta(seconds=1),
         seal_function=fake_sealer(attempt, stage),
         launcher_runner=lambda path: (
-            write_execution(attempt, stage, mutation=False)
+            write_execution(attempt, stage, mutation=True)
             or subprocess.CompletedProcess([str(path)], 0, "", "")
         ),
     )
@@ -723,8 +762,8 @@ def test_default_runner_forces_unresponsive_contained_tree(tmp_path):
 def test_default_runner_denies_write_delete_race_for_sealed_artifact(tmp_path):
     script = tmp_path / "bounded.ps1"
     script.write_text("Start-Sleep -Seconds 2\nexit 0\n", encoding="utf-8")
-    protected = tmp_path / "sealed-wrapper.py"
-    protected.write_text("# sealed\n", encoding="utf-8")
+    protected = tmp_path / "lazy_sdk_module.py"
+    protected.write_text("# lazy reviewed import\n", encoding="utf-8")
     outcome = {}
 
     def run():
@@ -743,4 +782,4 @@ def test_default_runner_denies_write_delete_race_for_sealed_artifact(tmp_path):
 
     assert not thread.is_alive()
     assert outcome["result"].returncode == 0
-    assert protected.read_text() == "# sealed\n"
+    assert protected.read_text() == "# lazy reviewed import\n"

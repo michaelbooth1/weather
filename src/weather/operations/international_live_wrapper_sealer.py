@@ -21,7 +21,15 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from weather.paths import REPO_ROOT
+from weather.operations.international_live_lineage import (
+    CREDENTIAL_TOPOLOGY_KEYS,
+    EXPECTED_CREDENTIAL_IMPORT_CHECKS,
+    EXPECTED_CREDENTIAL_REFERENCES,
+    exact_run_lineage,
+)
 from weather.operations.live_path_security import (
+    SESSION_BOOTSTRAP_PATHS,
+    STATUS_ATTESTATION_SOURCE_PATHS,
     validate_nonreparse_directory,
     validate_private_attempt_root,
     validate_regular_nonreparse_file,
@@ -55,31 +63,6 @@ GIT_OID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 TOKEN_RE = re.compile(r"^[1-9][0-9]*$")
 WORKLOAD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 TEMPLATE_MARKER_RE = re.compile(r"__SEAL_[A-Z0-9_]+__")
-EXPECTED_CREDENTIAL_REFERENCES = {
-    "POLYMARKET_API_KEY_STORAGE_REF": (
-        "wincred://Weather/Polymarket/InternationalPilot/ApiKey"
-    ),
-    "POLYMARKET_API_SECRET_STORAGE_REF": (
-        "wincred://Weather/Polymarket/InternationalPilot/ApiSecret"
-    ),
-    "POLYMARKET_API_PASSPHRASE_STORAGE_REF": (
-        "wincred://Weather/Polymarket/InternationalPilot/Passphrase"
-    ),
-    "POLYMARKET_PRIVATE_KEY_STORAGE_REF": (
-        "wincred://Weather/Polymarket/InternationalPilot/PrivateKey"
-    ),
-}
-EXPECTED_CREDENTIAL_IMPORT_CHECKS = {
-    "api_credentials_have_no_whitespace",
-    "chain_id_exact",
-    "clob_host_exact",
-    "funder_address_valid",
-    "private_key_matches_wallet_address",
-    "private_key_parseable",
-    "signature_topology_supported",
-    "wallet_address_valid",
-    "wallet_and_funder_distinct",
-}
 
 STAGES = ("stage0", "stage1_cancel_all", "stage1_dead_man")
 PYTHON_TEMPLATE_PATHS = {
@@ -111,6 +94,7 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_user_stream.py",
         SDK_OVERLAY_MODULE_PATH,
         SDK_OVERLAY_MANIFEST_PATH,
+        *STATUS_ATTESTATION_SOURCE_PATHS,
     ),
     "stage1_cancel_all": (
         "src/weather/market/mm_live_pilot_cli.py",
@@ -123,6 +107,7 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_user_stream.py",
         SDK_OVERLAY_MODULE_PATH,
         SDK_OVERLAY_MANIFEST_PATH,
+        *STATUS_ATTESTATION_SOURCE_PATHS,
     ),
     "stage1_dead_man": (
         "src/weather/market/mm_live_pilot_cli.py",
@@ -135,6 +120,7 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_user_stream.py",
         SDK_OVERLAY_MODULE_PATH,
         SDK_OVERLAY_MANIFEST_PATH,
+        *STATUS_ATTESTATION_SOURCE_PATHS,
     ),
 }
 
@@ -610,7 +596,7 @@ def _validate_stage0_receipt(
     except (InvalidOperation, TypeError, ValueError):
         observed_budget = Decimal("-1")
     checks = (
-        payload.get("schema_version") == "mm_live_pilot_command_receipt_v0.1",
+        payload.get("schema_version") == "mm_live_pilot_command_receipt_v0.2",
         payload.get("status") == "PASS",
         payload.get("command") == "stage0",
         payload.get("target_date") == target_date,
@@ -788,6 +774,11 @@ def _validate_stage0_lineage(
     command, _raw = _read_json_object(
         Path(inputs["stage0_receipt"]["path"]), label="Stage 0 command receipt"
     )
+    reference, _raw = _read_json_object(
+        Path(inputs["credential_reference_manifest"]["path"]),
+        label="credential reference manifest",
+    )
+    topology = command.get("credential_topology") or {}
     seal_scope = seal.get("scope") if isinstance(seal.get("scope"), dict) else {}
     seal_production = (
         seal.get("production") if isinstance(seal.get("production"), dict) else {}
@@ -817,13 +808,14 @@ def _validate_stage0_lineage(
     command_artifact = artifacts.get("command_receipt_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
     run_child = run.get("child_execution") or {}
-    run_lineage_ok = True
-    for role in ("session_manifest", "composition_receipt", "run_intent", "seal_receipt"):
-        record = run.get(role) or {}
-        record_path = Path(str(record.get("path") or ""))
-        run_lineage_ok = run_lineage_ok and (
-            record_path.is_file() and _sha256_file(record_path) == record.get("sha256")
-        )
+    run_lineage_ok = exact_run_lineage(
+        run,
+        attempt_root=Path(str(seal_scope.get("attempt_root") or "")),
+        stage="stage0",
+        seal=seal,
+        seal_path=Path(inputs["stage0_seal_receipt"]["path"]),
+        sha256_file=_sha256_file,
+    )
     run_sidecar = Path(inputs["stage0_run_receipt_sidecar"]["path"])
     attestations = execution.get("host_attestations")
     expected_flag_hashes = sorted(
@@ -850,12 +842,14 @@ def _validate_stage0_lineage(
         seal_reference.get("path") == expected_reference["path"],
         seal_reference.get("sha256") == expected_reference["sha256"],
         execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.3",
+        == "international_live_fixed_scope_execution_v0.4",
         execution.get("status") == "PASS",
         execution.get("stage") == "stage0",
         execution.get("phase") == "complete",
         execution.get("credential_values_read_in_memory") is True,
-        execution.get("live_mutation_attempted") is False,
+        execution.get("live_mutation_attempted") is True,
+        execution.get("order_submit_attempted") is False,
+        execution.get("authenticated_exchange_write_attempted") is True,
         isinstance(attestations, list),
         len(attestations or []) == 2,
         all(
@@ -894,11 +888,19 @@ def _validate_stage0_lineage(
             else False
         ),
         command.get("credential_values_read_in_memory") is True,
-        command.get("exchange_mutation_attempted") is False,
-        run.get("schema_version") == "international_live_session_run_v0.2",
+        command.get("exchange_mutation_attempted") is True,
+        command.get("order_submit_attempted") is False,
+        command.get("authenticated_exchange_write_attempted") is True,
+        topology.get("manifest_wallet_address")
+        == str(reference.get("wallet_address") or "").lower(),
+        set(topology) == CREDENTIAL_TOPOLOGY_KEYS,
+        all(value is True for key, value in topology.items() if key != "manifest_wallet_address"),
+        run.get("schema_version") == "international_live_session_run_v0.3",
         run.get("status") == "PASS",
         run.get("stage") == "stage0",
-        run.get("live_mutation_attempted") is False,
+        run.get("live_mutation_attempted") is True,
+        run.get("order_submit_attempted") is False,
+        run.get("authenticated_exchange_write_attempted") is True,
         run.get("credential_values_read_in_memory") is True,
         run_child.get("validation") == "PASS",
         run_child.get("status") == "PASS",
@@ -951,7 +953,12 @@ def _validate_cancel_all_predecessor(
     child = run.get("child_execution") or {}
     seal_scope = seal.get("scope") or {}
     seal_production = seal.get("production") or {}
-    seal_inputs = seal.get("inputs") or {}
+    seal_inputs = {
+        row.get("role"): row
+        for row in (seal.get("inputs") or [])
+        if isinstance(row, dict) and row.get("role")
+    }
+    topology = command.get("credential_topology") or {}
     seal_wrapper = seal.get("wrapper") or {}
     execution_wrapper = execution.get("wrapper") or {}
     artifacts = execution.get("artifacts") or {}
@@ -959,13 +966,14 @@ def _validate_cancel_all_predecessor(
     command_artifact = artifacts.get("command_receipt_out") or {}
     journal_artifact = artifacts.get("lifecycle_journal_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
-    run_lineage_ok = True
-    for role in ("session_manifest", "composition_receipt", "run_intent", "seal_receipt"):
-        record = run.get(role) or {}
-        record_path = Path(str(record.get("path") or ""))
-        run_lineage_ok = run_lineage_ok and (
-            record_path.is_file() and _sha256_file(record_path) == record.get("sha256")
-        )
+    run_lineage_ok = exact_run_lineage(
+        run,
+        attempt_root=Path(str(seal_scope.get("attempt_root") or "")),
+        stage="stage1_cancel_all",
+        seal=seal,
+        seal_path=Path(inputs["cancel_all_seal_receipt"]["path"]),
+        sha256_file=_sha256_file,
+    )
     checks = (
         seal.get("schema_version") == RECEIPT_SCHEMA_VERSION,
         seal.get("status") == "PASS",
@@ -978,10 +986,12 @@ def _validate_cancel_all_predecessor(
         seal_scope.get("cancellation_mode") == "cancel_all",
         seal_wrapper.get("path") == execution_wrapper.get("path"),
         seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
-        run.get("schema_version") == "international_live_session_run_v0.2",
+        run.get("schema_version") == "international_live_session_run_v0.3",
         run.get("status") == "PASS",
         run.get("stage") == "stage1_cancel_all",
         run.get("live_mutation_attempted") is True,
+        run.get("order_submit_attempted") is True,
+        run.get("authenticated_exchange_write_attempted") is True,
         run.get("credential_values_read_in_memory") is True,
         child.get("validation") == "PASS",
         child.get("status") == "PASS",
@@ -997,11 +1007,13 @@ def _validate_cancel_all_predecessor(
         run.get("candidate_sha256") == result.get("candidate_plan_sha256"),
         run_lineage_ok,
         execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.3",
+        == "international_live_fixed_scope_execution_v0.4",
         execution.get("status") == "PASS",
         execution.get("stage") == "stage1_cancel_all",
         execution.get("phase") == "complete",
         execution.get("live_mutation_attempted") is True,
+        execution.get("order_submit_attempted") is True,
+        execution.get("authenticated_exchange_write_attempted") is True,
         execution.get("credential_values_read_in_memory") is True,
         execution.get("production_tip") == production_tip,
         execution.get("target_date") == target_date,
@@ -1035,7 +1047,7 @@ def _validate_cancel_all_predecessor(
             and Path(str(stream_artifact.get("path"))).is_file()
             else False
         ),
-        command.get("schema_version") == "mm_live_pilot_command_receipt_v0.1",
+        command.get("schema_version") == "mm_live_pilot_command_receipt_v0.2",
         command.get("status") == "PASS",
         command.get("command") == "stage1",
         command.get("cancellation_mode") == "cancel_all",
@@ -1045,6 +1057,11 @@ def _validate_cancel_all_predecessor(
         float(command.get("requested_budget_pusd")) == float(budget),
         command.get("credential_values_read_in_memory") is True,
         command.get("exchange_mutation_attempted") is True,
+        command.get("order_submit_attempted") is True,
+        command.get("authenticated_exchange_write_attempted") is True,
+        bool(topology.get("manifest_wallet_address")),
+        set(topology) == CREDENTIAL_TOPOLOGY_KEYS,
+        all(value is True for key, value in topology.items() if key != "manifest_wallet_address"),
         (command.get("cleanup") or {}).get("ok") is True,
         command.get("exception_type") is None,
         result.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
@@ -1895,6 +1912,12 @@ def build_public_inventory(
         "python": _sha256_file(root / PYTHON_TEMPLATE_PATHS[stage]),
         "launcher": _sha256_file(root / LAUNCHER_TEMPLATE_PATH),
     }
+    python = root / "venv/Scripts/python.exe"
+    bootstrap = {
+        relative: _sha256_file(root / relative)
+        for relative in SESSION_BOOTSTRAP_PATHS
+        if (root / relative).is_file()
+    }
     head = _git_text(git_runner, root, "rev-parse", "HEAD").lower()
     ancestry = _git(
         git_runner,
@@ -1907,7 +1930,12 @@ def build_public_inventory(
     )
     return {
         "schema_version": INVENTORY_SCHEMA_VERSION,
-        "status": "PASS" if ancestry.returncode == 0 and len(paths) == len(sources) else "BLOCK",
+        "status": "PASS"
+        if ancestry.returncode == 0
+        and len(paths) == len(sources)
+        and python.is_file()
+        and len(bootstrap) == len(SESSION_BOOTSTRAP_PATHS)
+        else "BLOCK",
         "stage": stage,
         "production": {
             "root": str(root),
@@ -1917,11 +1945,13 @@ def build_public_inventory(
             "object_format": _git_text(
                 git_runner, root, "rev-parse", "--show-object-format"
             ).lower(),
-            "python": str((root / "venv/Scripts/python.exe").resolve()),
+            "python": str(python.resolve()),
+            "python_sha256": _sha256_file(python) if python.is_file() else None,
             "interrupt_cleanup_ancestor_integrated": ancestry.returncode == 0,
         },
         "template_sha256": templates,
         "source_sha256": dict(sorted(paths.items())),
+        "session_bootstrap_sha256": dict(sorted(bootstrap.items())),
         "live_mutation_attempted": False,
         "credential_value_read": False,
     }

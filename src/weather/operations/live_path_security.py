@@ -14,6 +14,25 @@ class LivePathSecurityError(RuntimeError):
     """Raised when a live-session path is redirected or broadly writable."""
 
 
+SESSION_BOOTSTRAP_PATHS = (
+    "src/weather/__init__.py",
+    "src/weather/paths.py",
+    "src/weather/schema_registry.py",
+    "src/weather/schema_registry_data.py",
+    "src/weather/schema_registry_recent_data.py",
+    "src/weather/operations/__init__.py",
+    "src/weather/operations/international_live_session_runner.py",
+    "src/weather/operations/international_live_lineage.py",
+    "src/weather/operations/international_live_wrapper_sealer.py",
+    "src/weather/operations/live_path_security.py",
+)
+STATUS_ATTESTATION_SOURCE_PATHS = (
+    "scripts/ops/status.ps1", "scripts/ops/integration_attempt_contract.ps1",
+    "scripts/ops/streak_status.py", "src/weather/operations/settlement_hole_check.py",
+    "src/weather/operations/documentation_transaction.py",
+)
+
+
 def canonical_windows_powershell() -> Path:
     root = Path(os.environ.get("SystemRoot", r"C:\Windows"))
     path = (root / "System32/WindowsPowerShell/v1.0/powershell.exe").resolve()

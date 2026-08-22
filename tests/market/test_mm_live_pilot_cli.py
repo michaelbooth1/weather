@@ -106,6 +106,13 @@ def context(tmp_path, name="context-stream.jsonl"):
         client=FakeClient(),
         user_stream=stream,
         adapter=adapter,
+        credential_topology={
+            "manifest_wallet_address": ADDRESS,
+            "derived_signer_matches_manifest": True,
+            "api_owner_matches_manifest": True,
+            "order_signer_matches_manifest": True,
+            "funder_matches_identity": True,
+        },
     )
 
 
@@ -119,6 +126,7 @@ def args(tmp_path, command):
         "condition_id": CONDITION_ID,
         "token_id": TOKEN_ID,
         "budget": 10.0,
+        "expected_wallet_address": ADDRESS,
         "credential_resolution_deadline_utc": "2099-01-01T00:00:00+00:00",
         "user_stream_journal": str(tmp_path / f"{command}-stream.jsonl"),
         "receipt_out": str(tmp_path / f"{command}-receipt.json"),
@@ -406,7 +414,9 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_receipt["cleanup"]["zero_positions_verified"] is True
     assert saved_receipt["credential_resolution_attempted"] is True
     assert saved_receipt["credential_values_read_in_memory"] is True
-    assert saved_receipt["exchange_mutation_attempted"] is False
+    assert saved_receipt["exchange_mutation_attempted"] is True
+    assert saved_receipt["authenticated_exchange_write_attempted"] is True
+    assert saved_receipt["order_submit_attempted"] is False
     final_sha256 = hashlib.sha256(live_context.user_stream.journal_path.read_bytes()).hexdigest()
     assert saved_receipt["cleanup"]["user_stream_journal_sha256"] == final_sha256
     assert saved_receipt["secret_values_redacted"] is True
@@ -704,6 +714,15 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                     "requested_budget_pusd": command_args.budget,
                     "cancellation_mode": mode,
                     "exchange_mutation_attempted": True,
+                    "order_submit_attempted": True,
+                    "authenticated_exchange_write_attempted": True,
+                    "credential_topology": {
+                        "manifest_wallet_address": ADDRESS,
+                        "derived_signer_matches_manifest": True,
+                        "api_owner_matches_manifest": True,
+                        "order_signer_matches_manifest": True,
+                        "funder_matches_identity": True,
+                    },
                     "cleanup": {"ok": True},
                     "exception_type": None,
                     "paths": {
@@ -720,7 +739,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         execution_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_execution_v0.3",
+                    "schema_version": "international_live_fixed_scope_execution_v0.4",
                     "status": "PASS",
                     "stage": stage,
                     "phase": "complete",
@@ -733,6 +752,8 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                     "exception_type": None,
                     "credential_values_read_in_memory": True,
                     "live_mutation_attempted": True,
+                    "order_submit_attempted": True,
+                    "authenticated_exchange_write_attempted": True,
                     "wrapper": {
                         "path": str(wrapper.resolve()),
                         "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
@@ -790,10 +811,19 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         )
         run_path = attempt / "session" / f"{stage}-run-receipt.json"
         run_payload = {
-            "schema_version": "international_live_session_run_v0.2",
+            "schema_version": "international_live_session_run_v0.3",
             "status": "PASS",
             "stage": stage,
             "live_mutation_attempted": True,
+            "order_submit_attempted": True,
+            "authenticated_exchange_write_attempted": True,
+            "credential_topology": {
+                "manifest_wallet_address": ADDRESS,
+                "derived_signer_matches_manifest": True,
+                "api_owner_matches_manifest": True,
+                "order_signer_matches_manifest": True,
+                "funder_matches_identity": True,
+            },
             "credential_values_read_in_memory": True,
             "candidate_sha256": "c" * 64,
             "launcher": {
@@ -974,12 +1004,13 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
         return {"token_id": token}
 
     result = cli.build_live_pilot_context(
-        {"identity": "public"},
+        {"identity": "public", "funder_address": ADDRESS},
         token_id=TOKEN_ID,
         condition_id=CONDITION_ID,
         user_stream_journal=tmp_path / "stream.jsonl",
+        expected_wallet_address=client.signer,
         credential_loader=lambda _env: Credentials(),
-        client_builder=lambda credentials, identity: client,
+        client_builder=lambda credentials, identity, **_kwargs: client,
         user_stream_factory=StreamFactory,
         adapter_factory=AdapterFactory,
         position_fetcher=position_fetcher,
@@ -1022,12 +1053,13 @@ def test_context_closes_the_unified_client_when_wiring_fails(tmp_path):
     client = Client()
     with pytest.raises(RuntimeError, match="authoritative reader boundary"):
         cli.build_live_pilot_context(
-            {"identity": "public"},
+            {"identity": "public", "funder_address": ADDRESS},
             token_id=TOKEN_ID,
             condition_id=CONDITION_ID,
             user_stream_journal=tmp_path / "failed-stream.jsonl",
+            expected_wallet_address=client.signer,
             credential_loader=lambda _env: Credentials(),
-            client_builder=lambda credentials, identity: client,
+            client_builder=lambda credentials, identity, **_kwargs: client,
             user_stream_factory=lambda **kwargs: FakeStream(kwargs["journal_path"]),
             adapter_factory=Adapter,
             heartbeat_sender_factory=lambda **_kwargs: object(),

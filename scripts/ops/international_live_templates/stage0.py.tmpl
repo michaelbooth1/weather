@@ -373,7 +373,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.3",
+            "schema_version": "international_live_fixed_scope_execution_v0.4",
             "stage": "stage0",
             "status": status,
             "finished_at_local": datetime.now().astimezone().isoformat(),
@@ -396,6 +396,16 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
             ),
             "live_mutation_attempted": (
                 command.get("exchange_mutation_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "order_submit_attempted": (
+                command.get("order_submit_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "authenticated_exchange_write_attempted": (
+                command.get("authenticated_exchange_write_attempted", "UNKNOWN")
                 if isinstance(command, dict)
                 else "UNKNOWN"
             ),
@@ -466,6 +476,11 @@ def main() -> int:
         expected_token_id=SCOPE["token_id"],
     )
     EXECUTION_PHASE = "stage0_command"
+    credential_manifest = json.loads(
+        Path(SCOPE["credential_reference_manifest_path"]).read_text(
+            encoding="utf-8-sig"
+        )
+    )
     args = SimpleNamespace(
         identity=SCOPE["identity_path"],
         target_date=SCOPE["target_date"],
@@ -478,6 +493,7 @@ def main() -> int:
         user_stream_journal=SCOPE["user_stream_journal_out"],
         user_stream_ready_timeout_seconds=45.0,
         confirmation=expected_confirmation,
+        expected_wallet_address=credential_manifest["wallet_address"],
     )
     receipt = live_cli.run_stage0(args)
     if receipt.get("status") != "PASS" or (receipt.get("cleanup") or {}).get("ok") is not True:

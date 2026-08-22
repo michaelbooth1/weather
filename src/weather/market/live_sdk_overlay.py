@@ -75,7 +75,13 @@ def _resolve_profile_path(record: Mapping[str, Any], *, label: str) -> Path:
     if relative.is_absolute() or not relative.parts or ".." in relative.parts:
         raise LiveSdkOverlayError(f"{label} relative path is unsafe")
     profile = _profile_root()
-    resolved = (profile / relative).resolve()
+    unresolved = profile / relative
+    cursor = profile
+    for part in relative.parts:
+        cursor /= part
+        if (cursor.exists() or cursor.is_symlink()) and _is_reparse(cursor):
+            raise LiveSdkOverlayError(f"{label} path contains a redirected entry")
+    resolved = unresolved.resolve()
     try:
         resolved.relative_to(profile)
     except ValueError as exc:
@@ -85,7 +91,9 @@ def _resolve_profile_path(record: Mapping[str, Any], *, label: str) -> Path:
     return resolved
 
 
-def _validate_overlay(record: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_overlay(
+    record: Mapping[str, Any], *, include_file_hashes: bool = False
+) -> dict[str, Any]:
     root = _resolve_profile_path(record, label="overlay")
     for entry in root.rglob("*"):
         if _is_reparse(entry):
@@ -95,13 +103,14 @@ def _validate_overlay(record: Mapping[str, Any]) -> dict[str, Any]:
         key=lambda path: path.relative_to(root).as_posix(),
     )
     rows = []
+    file_hashes = {}
     byte_count = 0
     for path in files:
         raw = path.read_bytes()
         byte_count += len(raw)
-        rows.append(
-            f"{path.relative_to(root).as_posix()}:{len(raw)}:{_sha256_bytes(raw)}"
-        )
+        digest = _sha256_bytes(raw)
+        rows.append(f"{path.relative_to(root).as_posix()}:{len(raw)}:{digest}")
+        file_hashes[str(path)] = digest
     aggregate = _sha256_bytes("\n".join(rows).encode("utf-8"))
     if (
         len(files) != int(record["file_count"])
@@ -127,7 +136,7 @@ def _validate_overlay(record: Mapping[str, Any]) -> dict[str, Any]:
         "Version: 0.6.0\n" not in metadata_text.replace("\r\n", "\n")
     ):
         raise LiveSdkOverlayError("SDK metadata does not prove polymarket-client 0.6.0")
-    return {
+    result = {
         "root": str(root),
         "file_count": len(files),
         "bytes": byte_count,
@@ -135,6 +144,9 @@ def _validate_overlay(record: Mapping[str, Any]) -> dict[str, Any]:
         "metadata_sha256": _sha256_file(metadata_path),
         "package_init_sha256": _sha256_file(package_init),
     }
+    if include_file_hashes:
+        result["file_sha256"] = file_hashes
+    return result
 
 
 def _validate_wheelhouse(record: Mapping[str, Any]) -> dict[str, Any]:
@@ -239,6 +251,21 @@ def validate_live_sdk_overlay(
         "live_mutation_attempted": False,
         "credential_value_read": False,
     }
+
+
+def validated_live_sdk_overlay_file_hashes(
+    manifest_path: str | Path,
+    expected_manifest_sha256: str,
+) -> dict[str, str]:
+    """Return every validated lazy-import file identity for held-read locking."""
+
+    validation = validate_live_sdk_overlay(manifest_path, expected_manifest_sha256)
+    payload = json.loads(Path(manifest_path).read_text(encoding="utf-8-sig"))
+    overlay = _validate_overlay(payload["overlay"], include_file_hashes=True)
+    summary = {key: value for key, value in overlay.items() if key != "file_sha256"}
+    if summary != validation["overlay"]:
+        raise LiveSdkOverlayError("overlay changed while enumerating held files")
+    return dict(overlay["file_sha256"])
 
 
 def activate_live_sdk_overlay(

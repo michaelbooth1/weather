@@ -331,6 +331,8 @@ def build_unified_clob_client(
     client_factory=None,
     api_creds_factory=None,
     wallet_deployed_reader=None,
+    expected_signer_address=None,
+    account_deriver=None,
     now=None,
 ):
     """Construct the pinned unified client after a no-deploy preflight.
@@ -342,6 +344,20 @@ def build_unified_clob_client(
     before client construction is allowed.
     """
 
+    expected_signer = str(expected_signer_address or "").lower()
+    if not valid_evm_address(expected_signer):
+        raise RuntimeError("Stage 0 requires the sealed public signer address")
+    if account_deriver is None:
+        from eth_account import Account
+
+        def account_deriver(key):
+            return Account.from_key(key).address
+    try:
+        derived_signer = str(account_deriver(credentials.private_key)).lower()
+    except Exception as exc:
+        raise RuntimeError("current private signer could not be derived") from exc
+    if derived_signer != expected_signer:
+        raise RuntimeError("current private signer differs from the sealed manifest")
     identity_gate = stage0_client_identity_gate(
         stage0_identity,
         expected_funder=credentials.funder,
@@ -385,6 +401,7 @@ def build_unified_clob_client(
         valid_evm_address(observed_wallet),
         valid_evm_address(observed_signer),
         observed_signer != observed_wallet,
+        observed_signer == expected_signer == derived_signer,
         observed_wallet_type == expected_wallet_type,
     ))
     if not topology_valid:

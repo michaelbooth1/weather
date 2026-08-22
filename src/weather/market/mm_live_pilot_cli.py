@@ -135,8 +135,10 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
     journal_artifact = artifacts.get("lifecycle_journal_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
     run_child = run.get("child_execution") or {}
+    run_topology = run.get("credential_topology") or {}
     seal_production = seal.get("production") or {}
     command_paths = command.get("paths") or {}
+    credential_topology = command.get("credential_topology") or {}
     run_sidecar = run_path.with_suffix(run_path.suffix + ".sha256")
     expected_run_sidecar = f"{_sha256_file(run_path)}  {run_path.name}\n"
     run_lineage_ok = True
@@ -194,6 +196,14 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and float(command.get("requested_budget_pusd")) == float(args.budget)
         and command.get("cancellation_mode") == mode
         and command.get("exchange_mutation_attempted") is True
+        and command.get("authenticated_exchange_write_attempted") is True
+        and command.get("order_submit_attempted") is True
+        and len(credential_topology) == 5
+        and all(
+            value is True
+            for key, value in credential_topology.items()
+            if key != "manifest_wallet_address"
+        )
         and (command.get("cleanup") or {}).get("ok") is True
         and command.get("exception_type") is None,
         "command_paths": command_paths.get("result") == str(result)
@@ -203,7 +213,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and command_paths.get("lifecycle_journal")
         == journal_artifact.get("path"),
         "execution": execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.3"
+        == "international_live_fixed_scope_execution_v0.4"
         and execution.get("status") == "PASS"
         and execution.get("stage") == stage_name
         and execution.get("target_date") == args.target_date
@@ -216,6 +226,8 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and execution.get("phase") == "complete"
         and execution.get("credential_values_read_in_memory") is True
         and execution.get("live_mutation_attempted") is True
+        and execution.get("order_submit_attempted") is True
+        and execution.get("authenticated_exchange_write_attempted") is True
         and execution.get("exception_type") is None,
         "wrapper": seal_wrapper.get("path") == execution_wrapper.get("path")
         and seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
@@ -235,11 +247,19 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
             str(_read_json_object(result).get("journal_path") or "")
         ).resolve()
         == Path(str(journal_artifact.get("path") or "")).resolve(),
-        "run": run.get("schema_version") == "international_live_session_run_v0.2"
+        "run": run.get("schema_version") == "international_live_session_run_v0.3"
         and run.get("status") == "PASS"
         and run.get("stage") == stage_name
         and run.get("live_mutation_attempted") is True
+        and run.get("order_submit_attempted") is True
+        and run.get("authenticated_exchange_write_attempted") is True
         and run.get("credential_values_read_in_memory") is True
+        and len(run_topology) == 5
+        and all(
+            value is True
+            for key, value in run_topology.items()
+            if key != "manifest_wallet_address"
+        )
         and run_child.get("validation") == "PASS"
         and run_child.get("status") == "PASS"
         and run_child.get("phase") == "complete"
@@ -302,13 +322,14 @@ def _require_new_distinct_paths(paths: dict[str, str | Path]) -> dict[str, Path]
 
 
 class LivePilotContext:
-    __slots__ = ("credentials", "client", "user_stream", "adapter")
+    __slots__ = ("credentials", "client", "user_stream", "adapter", "credential_topology")
 
-    def __init__(self, *, credentials, client, user_stream, adapter):
+    def __init__(self, *, credentials, client, user_stream, adapter, credential_topology):
         self.credentials = credentials
         self.client = client
         self.user_stream = user_stream
         self.adapter = adapter
+        self.credential_topology = credential_topology
 
     def __repr__(self) -> str:
         return "LivePilotContext(credentials=<redacted>, client=<redacted>, stream=<redacted>)"
@@ -320,6 +341,7 @@ def build_live_pilot_context(
     token_id: str,
     condition_id: str,
     user_stream_journal: str | Path,
+    expected_wallet_address: str,
     env=None,
     credential_loader=load_global_credential_bundle,
     client_builder=build_unified_clob_client,
@@ -332,7 +354,11 @@ def build_live_pilot_context(
     """Resolve credentials in memory and wire all authoritative live readers."""
 
     credentials = credential_loader(env)
-    client = client_builder(credentials, identity)
+    client = client_builder(
+        credentials,
+        identity,
+        expected_signer_address=expected_wallet_address,
+    )
     try:
         maker_address = str(credentials.funder).strip()
         condition = str(condition_id).strip().lower()
@@ -380,6 +406,17 @@ def build_live_pilot_context(
             client=client,
             user_stream=user_stream,
             adapter=adapter,
+            credential_topology={
+                "manifest_wallet_address": str(expected_wallet_address).lower(),
+                "derived_signer_matches_manifest": str(client.signer).lower()
+                == str(expected_wallet_address).lower(),
+                "api_owner_matches_manifest": str(client.signer).lower()
+                == str(expected_wallet_address).lower(),
+                "order_signer_matches_manifest": str(client.signer).lower()
+                == str(expected_wallet_address).lower(),
+                "funder_matches_identity": maker_address.lower()
+                == str(identity.get("funder_address") or "").lower(),
+            },
         )
     except BaseException:
         close = getattr(client, "close", None)
@@ -732,6 +769,8 @@ def run_stage0(
     receipt["credential_resolution_attempted"] = False
     receipt["credential_values_read_in_memory"] = False
     receipt["exchange_mutation_attempted"] = False
+    receipt["order_submit_attempted"] = False
+    receipt["authenticated_exchange_write_attempted"] = False
     context = None
     operation_error = None
     payload = None
@@ -748,7 +787,11 @@ def run_stage0(
             token_id=args.token_id,
             condition_id=args.condition_id,
             user_stream_journal=paths["user_stream_journal"],
+            expected_wallet_address=args.expected_wallet_address,
         )
+        receipt["credential_topology"] = dict(context.credential_topology)
+        if not all(context.credential_topology.values()):
+            raise RuntimeError("current credential topology differs from sealed public identity")
         receipt["credential_values_read_in_memory"] = True
         stream_waiter(
             context.user_stream,
@@ -766,6 +809,9 @@ def run_stage0(
         operation_error = exc
 
     cleanup = _cleanup_context(context)
+    if context is not None:
+        receipt["authenticated_exchange_write_attempted"] = True
+        receipt["exchange_mutation_attempted"] = True
     receipt["cleanup"] = cleanup
     if operation_error is None and not cleanup["ok"]:
         operation_error = RuntimeError("final Stage 0 cleanup did not prove zero account state")
@@ -824,6 +870,8 @@ def run_stage1(
     receipt["credential_resolution_attempted"] = False
     receipt["credential_values_read_in_memory"] = False
     receipt["exchange_mutation_attempted"] = False
+    receipt["order_submit_attempted"] = False
+    receipt["authenticated_exchange_write_attempted"] = False
     context = None
     operation_error = None
     result = None
@@ -856,12 +904,18 @@ def run_stage1(
             token_id=args.token_id,
             condition_id=args.condition_id,
             user_stream_journal=paths["user_stream_journal"],
+            expected_wallet_address=args.expected_wallet_address,
         )
+        receipt["credential_topology"] = dict(context.credential_topology)
+        if not all(context.credential_topology.values()):
+            raise RuntimeError("current credential topology differs from sealed public identity")
         receipt["credential_values_read_in_memory"] = True
         stream_waiter(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
         )
+        receipt["authenticated_exchange_write_attempted"] = True
+        receipt["exchange_mutation_attempted"] = True
         result = lifecycle_executor(
             context.adapter,
             gate,
@@ -875,6 +929,7 @@ def run_stage1(
             expected_candidate_order_min_size=candidate_gate["order_min_size"],
         )
         receipt["exchange_mutation_attempted"] = True
+        receipt["order_submit_attempted"] = True
         result = dict(result or {})
         result["candidate_plan_sha256"] = candidate_gate["plan_sha256"]
         result["candidate_semantic_plan_sha256"] = candidate_gate[

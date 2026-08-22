@@ -13,6 +13,7 @@ REFERENCES = {
     "POLYMARKET_PRIVATE_KEY_STORAGE_REF": "wincred://Weather/Polymarket/PrivateKey",
     "POLYMARKET_FUNDER_ADDRESS": "0x0000000000000000000000000000000000000001",
 }
+SIGNER = "0x" + "2" * 40
 
 
 def test_wincred_reference_parser_rejects_embedded_material():
@@ -113,6 +114,8 @@ def test_unified_client_factory_requires_deployed_wallet_and_verifies_topology()
         client_factory=client_factory,
         api_creds_factory=api_creds_factory,
         wallet_deployed_reader=wallet_deployed_reader,
+        expected_signer_address=SIGNER,
+        account_deriver=lambda _key: SIGNER,
     )
 
     assert client.wallet_type == "DEPOSIT_WALLET"
@@ -139,6 +142,8 @@ def test_unified_client_factory_requires_deployed_wallet_and_verifies_topology()
         client_factory=client_factory,
         api_creds_factory=api_creds_factory,
         wallet_deployed_reader=wallet_deployed_reader,
+        expected_signer_address=SIGNER,
+        account_deriver=lambda _key: SIGNER,
     )
     assert captured["deployment"][1] == 2
 
@@ -177,6 +182,31 @@ def test_unified_client_factory_refuses_to_invoke_sdk_for_an_unproven_wallet():
             client_factory=lambda **kwargs: invoked.append(kwargs),
             api_creds_factory=lambda **kwargs: kwargs,
             wallet_deployed_reader=lambda _wallet, _signature_type: False,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
+        )
+
+    assert invoked == []
+
+
+def test_unified_client_refuses_rotated_private_signer_before_any_sdk_or_write():
+    values = {
+        "Weather/Polymarket/ApiKey": "api-key-value",
+        "Weather/Polymarket/ApiSecret": "api-secret-value",
+        "Weather/Polymarket/Passphrase": "passphrase-value",
+        "Weather/Polymarket/PrivateKey": "rotated-private-key",
+    }
+    bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
+    invoked = []
+
+    with pytest.raises(RuntimeError, match="differs from the sealed manifest"):
+        build_unified_clob_client(
+            bundle,
+            {},
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: "0x" + "3" * 40,
+            client_factory=lambda **kwargs: invoked.append(kwargs),
+            wallet_deployed_reader=lambda *_args: invoked.append("deployment"),
         )
 
     assert invoked == []
@@ -225,6 +255,8 @@ def test_unified_client_factory_closes_an_unexpected_sdk_topology():
             client_factory=lambda **_kwargs: client,
             api_creds_factory=lambda **kwargs: kwargs,
             wallet_deployed_reader=lambda _wallet, _signature_type: True,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
         )
 
     assert client.closed is True
@@ -266,6 +298,8 @@ def test_stage0_identity_rejects_missing_topology_and_secret_fields():
             client_factory=lambda **_kwargs: object(),
             api_creds_factory=lambda **_kwargs: object(),
             wallet_deployed_reader=lambda _wallet, _signature_type: True,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
         )
 
 
@@ -285,4 +319,6 @@ def test_unified_client_factory_rejects_bootstrap_gate_in_place_of_stage0_identi
             client_factory=lambda **_kwargs: object(),
             api_creds_factory=lambda **_kwargs: object(),
             wallet_deployed_reader=lambda _wallet, _signature_type: True,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
         )

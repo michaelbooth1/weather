@@ -23,6 +23,13 @@ def fixture(tmp_path: Path):
     source = repo / "src/weather/operations/international_live_session_runner.py"
     source.parent.mkdir(parents=True)
     source.write_text("# reviewed runner source\n", encoding="utf-8")
+    for relative in runner.SESSION_BOOTSTRAP_PATHS:
+        bootstrap_source = repo / relative
+        bootstrap_source.parent.mkdir(parents=True, exist_ok=True)
+        if not bootstrap_source.exists():
+            bootstrap_source.write_text(
+                f"# reviewed {relative}\n", encoding="utf-8"
+            )
     template = repo / "scripts/ops/international_live_templates/fixed_session_launcher.ps1.tmpl"
     template.parent.mkdir(parents=True)
     shutil.copyfile(launcher_sealer.TEMPLATE_PATH, template)
@@ -35,6 +42,11 @@ def fixture(tmp_path: Path):
         "stage": "stage0",
         "production": {"root": str(repo.resolve()), "python": str(python.resolve())},
         "scope": {"attempt_root": str(attempt.resolve())},
+        "production_python_sha256": sha(python),
+        "session_bootstrap_sha256": {
+            relative: sha(repo / relative)
+            for relative in runner.SESSION_BOOTSTRAP_PATHS
+        },
     }
     manifest.write_text(json.dumps(payload), encoding="utf-8")
     sidecar = manifest.with_suffix(manifest.suffix + ".sha256")
@@ -74,6 +86,14 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     assert receipt["production_python"]["sha256"] == sha(
         repo / "venv/Scripts/python.exe"
     )
+    assert set(receipt["session_bootstrap_sha256"]) == set(
+        runner.SESSION_BOOTSTRAP_PATHS
+    )
+    assert {
+        "src/weather/operations/international_live_session_runner.py",
+        "src/weather/operations/international_live_wrapper_sealer.py",
+        "src/weather/operations/live_path_security.py",
+    }.issubset(receipt["session_bootstrap_sha256"])
     assert (attempt / "session/stage0-launcher-review.json.sha256").is_file()
 
 

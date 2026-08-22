@@ -24,6 +24,7 @@ from typing import Any, Callable, Mapping, Sequence
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
 from weather.operations.live_path_security import (
     canonical_windows_powershell,
+    SESSION_BOOTSTRAP_PATHS,
     validate_contained_regular_file,
     validate_nonreparse_directory,
     validate_private_attempt_root,
@@ -33,7 +34,7 @@ from weather.operations.live_path_security import (
 
 SESSION_SCHEMA_VERSION = "international_live_fixed_session_manifest_v0.2"
 COMPOSITION_SCHEMA_VERSION = "international_live_session_composition_v0.2"
-RUN_SCHEMA_VERSION = "international_live_session_run_v0.2"
+RUN_SCHEMA_VERSION = "international_live_session_run_v0.3"
 MAX_SESSION_SECONDS = 120
 MIN_LAUNCH_REMAINING_SECONDS = 90
 LAUNCHER_CLEANUP_MARGIN_SECONDS = 30
@@ -54,6 +55,19 @@ class LauncherControlError(SessionCompositionError):
 
 
 LauncherRunner = Callable[[Path], subprocess.CompletedProcess[str]]
+
+
+def _default_overlay_file_provider(
+    production_root: Path, source_hashes: Mapping[str, str]
+) -> Mapping[str, str]:
+    from weather.market.live_sdk_overlay import (
+        validated_live_sdk_overlay_file_hashes,
+    )
+
+    return validated_live_sdk_overlay_file_hashes(
+        production_root / fixed_sealer.SDK_OVERLAY_MANIFEST_PATH,
+        source_hashes[fixed_sealer.SDK_OVERLAY_MANIFEST_PATH],
+    )
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -129,6 +143,7 @@ def _default_launcher_runner(
     *,
     timeout_seconds: float = MAX_LAUNCHER_RUNTIME_SECONDS,
     absolute_deadline: datetime | None = None,
+    minimum_start_remaining_seconds: float = 0,
     protected_files: Mapping[Path, str] | None = None,
     cleanup_grace_seconds: float = COOPERATIVE_CLEANUP_GRACE_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
@@ -141,6 +156,9 @@ def _default_launcher_runner(
         absolute_deadline.tzinfo is None or absolute_deadline.utcoffset() is None
     ):
         raise SessionCompositionError("launcher absolute deadline is not timezone-aware")
+    minimum_start_remaining = float(minimum_start_remaining_seconds)
+    if not 0 <= minimum_start_remaining <= MIN_LAUNCH_REMAINING_SECONDS:
+        raise SessionCompositionError("launcher start reserve is outside the fixed bound")
     cleanup_grace = float(cleanup_grace_seconds)
     if not 0 < cleanup_grace <= COOPERATIVE_CLEANUP_GRACE_SECONDS:
         raise SessionCompositionError("cleanup grace is outside the fixed bound")
@@ -273,6 +291,15 @@ def _default_launcher_runner(
             job, 9, ctypes.byref(limits), ctypes.sizeof(limits)
         ):
             raise SessionCompositionError("KILL_ON_JOB_CLOSE configuration failed")
+        if absolute_deadline is not None:
+            remaining_before_start = (
+                absolute_deadline - datetime.now().astimezone()
+            ).total_seconds()
+            if remaining_before_start < minimum_start_remaining:
+                raise SessionCompositionError(
+                    "sealed deadline reserve expired before child creation"
+                )
+            timeout = min(timeout, remaining_before_start)
         powershell = canonical_windows_powershell()
         command = [
             str(powershell), "-NoProfile", "-ExecutionPolicy", "Bypass",
@@ -379,11 +406,15 @@ def _child_execution_facts(
         "status": "UNKNOWN",
         "phase": "UNKNOWN",
         "live_mutation_attempted": "UNKNOWN",
+        "order_submit_attempted": "UNKNOWN",
+        "authenticated_exchange_write_attempted": "UNKNOWN",
+        "credential_topology": "UNKNOWN",
         "credential_values_read_in_memory": "UNKNOWN",
     }
     if not path.is_file():
         return unknown
     try:
+        validate_contained_regular_file(attempt_root, path)
         payload, raw = _read_object(path, "wrapper execution receipt")
         wrapper = payload.get("wrapper") or {}
         expected_mode = (
@@ -393,6 +424,7 @@ def _child_execution_facts(
         )
         seal_record = seal_result.get("seal_receipt") or {}
         seal_path = Path(str(seal_record.get("path") or ""))
+        validate_contained_regular_file(attempt_root, seal_path)
         if (
             not seal_path.is_file()
             or _sha256_file(seal_path) != seal_record.get("sha256")
@@ -401,6 +433,11 @@ def _child_execution_facts(
         seal, _seal_raw = _read_object(seal_path, "seal receipt")
         seal_scope = seal.get("scope") or {}
         seal_production = seal.get("production") or {}
+        seal_inputs = {
+            row.get("role"): row
+            for row in (seal.get("inputs") or [])
+            if isinstance(row, dict) and row.get("role")
+        }
         for role in ("session_manifest", "session_manifest_sidecar", "seal_spec"):
             record = expected_lineage[role]
             lineage_path = Path(record["path"])
@@ -435,7 +472,7 @@ def _child_execution_facts(
         if not all(
             (
                 payload.get("schema_version")
-                == "international_live_fixed_scope_execution_v0.3",
+                == "international_live_fixed_scope_execution_v0.4",
                 payload.get("stage") == stage,
                 payload.get("status") in {"PASS", "FAIL"},
                 payload.get("production_tip") == expected_production["commit"],
@@ -479,6 +516,7 @@ def _child_execution_facts(
             raise SessionCompositionError("execution receipt has an unknown artifact role")
         for role, artifact in artifacts.items():
             artifact_path = Path(str(artifact.get("path") or ""))
+            validate_contained_regular_file(attempt_root, artifact_path)
             expected_path = (
                 attempt_root / output_layout[role.removesuffix("_out")]
             ).resolve()
@@ -489,10 +527,15 @@ def _child_execution_facts(
             ):
                 raise SessionCompositionError("wrapper execution artifact changed")
         mutation = payload.get("live_mutation_attempted", "UNKNOWN")
+        order_submit = payload.get("order_submit_attempted", "UNKNOWN")
+        authenticated_write = payload.get(
+            "authenticated_exchange_write_attempted", "UNKNOWN"
+        )
         credential = payload.get("credential_values_read_in_memory", "UNKNOWN")
-        if mutation not in {True, False, "UNKNOWN"} or credential not in {
-            True, False, "UNKNOWN"
-        }:
+        if any(
+            value not in {True, False, "UNKNOWN"}
+            for value in (mutation, order_submit, authenticated_write, credential)
+        ):
             raise SessionCompositionError("wrapper execution facts are malformed")
         if payload["status"] == "PASS":
             attestations = payload.get("host_attestations")
@@ -506,7 +549,9 @@ def _child_execution_facts(
                     payload.get("phase") == "complete",
                     payload.get("exception_type") is None,
                     credential is True,
-                    mutation is (stage != "stage0"),
+                    mutation is True,
+                    authenticated_write is True,
+                    order_submit is (stage != "stage0"),
                     len(
                         str(
                             payload.get("confirmation_scope_display_sha256")
@@ -529,8 +574,15 @@ def _child_execution_facts(
             command_path = (
                 attempt_root / output_layout["command_receipt"]
             ).resolve()
+            validate_contained_regular_file(attempt_root, command_path)
             command = _read_object(command_path, "command receipt")[0]
             command_paths = command.get("paths") or {}
+            topology = command.get("credential_topology") or {}
+            reference_record = seal_inputs.get("credential_reference_manifest") or {}
+            reference_manifest = _read_object(
+                Path(str(reference_record.get("path") or "")),
+                "credential reference manifest",
+            )[0]
             expected_command_paths = (
                 {
                     "bootstrap": str(
@@ -558,7 +610,7 @@ def _child_execution_facts(
             if not all(
                 (
                     command.get("schema_version")
-                    == "mm_live_pilot_command_receipt_v0.1",
+                    == "mm_live_pilot_command_receipt_v0.2",
                     command.get("status") == "PASS",
                     command.get("command")
                     == ("stage0" if stage == "stage0" else "stage1"),
@@ -574,10 +626,23 @@ def _child_execution_facts(
                     command.get("exception_type") is None,
                     command_paths == expected_command_paths,
                     (
-                        command.get("exchange_mutation_attempted") is False
+                        command.get("exchange_mutation_attempted") is True
                         if stage == "stage0"
                         else command.get("exchange_mutation_attempted") is True
                         and command.get("cancellation_mode") == expected_mode
+                    ),
+                    command.get("authenticated_exchange_write_attempted") is True,
+                    command.get("order_submit_attempted") is (stage != "stage0"),
+                    topology.get("manifest_wallet_address")
+                    == str(reference_manifest.get("wallet_address") or "").lower(),
+                    all(
+                        topology.get(name) is True
+                        for name in (
+                            "derived_signer_matches_manifest",
+                            "api_owner_matches_manifest",
+                            "order_signer_matches_manifest",
+                            "funder_matches_identity",
+                        )
                     ),
                 )
             ):
@@ -586,6 +651,7 @@ def _child_execution_facts(
                 result_path = (
                     attempt_root / output_layout["result"]
                 ).resolve()
+                validate_contained_regular_file(attempt_root, result_path)
                 result = _read_object(result_path, "Stage 1 result")[0]
                 result_intent = result.get("intent") or {}
                 try:
@@ -628,9 +694,7 @@ def _child_execution_facts(
                         result.get("bootstrap_schema_version")
                         == "mm_platform_bootstrap_v0.3",
                         result.get("bootstrap_sha256")
-                        == (seal.get("inputs") or {}).get("bootstrap", {}).get(
-                            "sha256"
-                        ),
+                        == (seal_inputs.get("bootstrap") or {}).get("sha256"),
                         result.get("heartbeat_acknowledged") is True,
                         result.get("starting_zero_open_orders_verified") is True,
                         result.get("starting_zero_positions_verified") is True,
@@ -677,6 +741,9 @@ def _child_execution_facts(
             "status": payload["status"],
             "phase": str(payload.get("phase") or "UNKNOWN"),
             "live_mutation_attempted": mutation,
+            "order_submit_attempted": order_submit,
+            "authenticated_exchange_write_attempted": authenticated_write,
+            "credential_topology": topology if payload["status"] == "PASS" else "UNKNOWN",
             "credential_values_read_in_memory": credential,
         }
     except BaseException as exc:
@@ -716,9 +783,10 @@ def _derived_lineage_inputs(stage: str, attempt_root: Path) -> dict[str, dict[st
         )
     records = {}
     for role, relative in relative_paths.items():
-        path = (attempt_root / relative).resolve()
-        if not path.is_file():
+        raw_path = attempt_root / relative
+        if not raw_path.is_file():
             raise SessionCompositionError(f"required prior lineage is absent: {role}")
+        path = validate_contained_regular_file(attempt_root, raw_path)
         records[role] = {"path": str(path), "sha256": _sha256_file(path)}
     return records
 
@@ -734,6 +802,7 @@ def compose_and_run_live_session(
     before_launch: Callable[[], None] | None = None,
     attempt_root_validator=None,
     clock: Callable[[], datetime] | None = None,
+    overlay_file_provider=None,
 ) -> dict[str, Any]:
     """Seal and launch one immutable session while its candidate remains current."""
 
@@ -768,6 +837,8 @@ def compose_and_run_live_session(
             "reviewed_status_flags",
             "template_sha256",
             "source_sha256",
+            "production_python_sha256",
+            "session_bootstrap_sha256",
         },
         "session manifest",
     )
@@ -799,6 +870,30 @@ def compose_and_run_live_session(
         or int(scope["max_session_seconds"]) > MAX_SESSION_SECONDS
     ):
         raise SessionCompositionError("session budget or duration exceeds the fixed contract")
+    production_root = validate_nonreparse_directory(
+        str(manifest["production"]["root"])
+    )
+    production_python = validate_regular_nonreparse_file(
+        str(manifest["production"]["python"])
+    )
+    production_python_sha256 = str(manifest["production_python_sha256"] or "").lower()
+    if (
+        fixed_sealer.SHA256_RE.fullmatch(production_python_sha256) is None
+        or _sha256_file(production_python) != production_python_sha256
+    ):
+        raise SessionCompositionError("reviewed production interpreter changed")
+    bootstrap_hashes = _exact(
+        manifest["session_bootstrap_sha256"],
+        set(SESSION_BOOTSTRAP_PATHS),
+        "session bootstrap hashes",
+    )
+    for relative, expected_hash in bootstrap_hashes.items():
+        path = validate_regular_nonreparse_file(production_root / relative)
+        if (
+            fixed_sealer.SHA256_RE.fullmatch(str(expected_hash).lower()) is None
+            or _sha256_file(path) != str(expected_hash).lower()
+        ):
+            raise SessionCompositionError("session bootstrap source changed")
     raw_attempt_root = Path(str(scope["attempt_root"]))
     try:
         attempt_root = validate_nonreparse_directory(raw_attempt_root)
@@ -923,6 +1018,8 @@ def compose_and_run_live_session(
         "attempt_root_security": attempt_root_security,
         "run_not_after_local": stop.isoformat(),
         "live_mutation_attempted": False,
+        "order_submit_attempted": False,
+        "authenticated_exchange_write_attempted": False,
         "credential_value_read": False,
     }
     composition_raw = fixed_sealer._canonical_json(composition)
@@ -958,6 +1055,8 @@ def compose_and_run_live_session(
         "run_not_after_local": stop.isoformat(),
         "terminal_receipt_path": str(run_receipt_path),
         "live_mutation_attempted": False,
+        "order_submit_attempted": False,
+        "authenticated_exchange_write_attempted": False,
         "credential_values_read_in_memory": False,
     }
     run_intent_raw = fixed_sealer._canonical_json(run_intent)
@@ -1011,6 +1110,9 @@ def compose_and_run_live_session(
         Path(seal_result["seal_receipt"]["path"]): seal_result["seal_receipt"][
             "sha256"
         ],
+        Path(seal_result["seal_receipt_sidecar"]): _sha256_file(
+            Path(seal_result["seal_receipt_sidecar"])
+        ),
         composition_path: _sha256_bytes(composition_raw),
         composition_sidecar: _sha256_file(composition_sidecar),
         run_intent_path: _sha256_bytes(run_intent_raw),
@@ -1018,11 +1120,19 @@ def compose_and_run_live_session(
     }
     for record in input_records.values():
         protected_expected[Path(record["path"]).resolve()] = record["sha256"]
-    production_root = validate_nonreparse_directory(
-        str(manifest["production"]["root"])
-    )
     for relative, expected_hash in manifest["source_sha256"].items():
         protected_expected[(production_root / relative).resolve()] = expected_hash
+    protected_expected[production_python] = production_python_sha256
+    for relative, expected_hash in bootstrap_hashes.items():
+        protected_expected[(production_root / relative).resolve()] = str(
+            expected_hash
+        ).lower()
+    overlay_files = (overlay_file_provider or _default_overlay_file_provider)(
+        production_root,
+        manifest["source_sha256"],
+    )
+    for path, expected_hash in overlay_files.items():
+        protected_expected[Path(path)] = expected_hash
     for protected, expected_hash in protected_expected.items():
         try:
             protected.relative_to(attempt_root)
@@ -1060,6 +1170,7 @@ def compose_and_run_live_session(
                 launcher,
                 timeout_seconds=launcher_timeout_seconds,
                 absolute_deadline=stop,
+                minimum_start_remaining_seconds=MIN_LAUNCH_REMAINING_SECONDS,
                 protected_files=protected_expected,
             )
         else:
@@ -1146,6 +1257,11 @@ def compose_and_run_live_session(
         },
         "child_execution": child,
         "live_mutation_attempted": child["live_mutation_attempted"],
+        "order_submit_attempted": child["order_submit_attempted"],
+        "authenticated_exchange_write_attempted": child[
+            "authenticated_exchange_write_attempted"
+        ],
+        "credential_topology": child["credential_topology"],
         "credential_values_read_in_memory": child[
             "credential_values_read_in_memory"
         ],

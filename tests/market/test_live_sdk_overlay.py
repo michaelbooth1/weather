@@ -98,6 +98,14 @@ def test_validator_binds_complete_overlay_and_ordered_wheelhouse(tmp_path, monke
     assert result["wheelhouse"]["root"] == str(wheelhouse.resolve())
     assert result["shared_environment_mutated"] is False
 
+    file_hashes = overlay.validated_live_sdk_overlay_file_hashes(
+        manifest, sha(manifest)
+    )
+    assert len(file_hashes) == result["overlay"]["file_count"]
+    assert file_hashes[str(root / "polymarket/__init__.py")] == sha(
+        root / "polymarket/__init__.py"
+    )
+
 
 @pytest.mark.parametrize("target", ["overlay", "wheelhouse", "manifest"])
 def test_validator_rejects_every_tamper_class(tmp_path, monkeypatch, target):

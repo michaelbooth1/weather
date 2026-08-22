@@ -127,7 +127,13 @@ All must be current for the target date and selected market:
 
 ## Staged protocol
 
-### Stage 0: read-only account proof
+### Stage 0: no-order account proof
+
+Stage 0 never submits an order, but it does send authenticated heartbeat and
+cancel-all/cleanup writes. Its v0.2 command, v0.4 execution, and v0.3 session-run
+receipts therefore record `order_submit_attempted=false` separately from
+`authenticated_exchange_write_attempted=true`; generic exchange mutation is
+also true. Calling Stage 0 fully read-only is incorrect.
 
 - Fill the public `mm_stage0_client_identity_v0.2` manifest. It binds only the
   International platform, chain, pinned SDK, public wallet topology,
@@ -477,7 +483,9 @@ spends that attempt namespace; create a new attempt instead of overwriting it.
 
 Because the candidate lasts at most 120 seconds, the normal path is a
 pre-reviewed `international_live_fixed_session_manifest_v0.2` plus its adjacent
-raw-file SHA-256 sidecar. Before candidate selection, turn that independently
+raw-file SHA-256 sidecar. The manifest also binds the production interpreter
+hash and the exact session-runner bootstrap closure reported by inventory.
+Before candidate selection, turn that independently
 reviewed raw hash into a no-argument launcher and immutable review receipt:
 
 ```powershell
@@ -496,7 +504,9 @@ launch, writes an immutable ARMED intent, and atomically claims the terminal
 receipt and sidecar paths before the child. The no-argument launcher and parent
 runner hold deny-write/delete handles for the reviewed runner, production
 sources, public credential inputs, candidate, and complete predecessor lineage;
-they rehash after acquiring those handles and retain them through child exit.
+the full external SDK overlay used by lazy imports, the interpreter, and the
+status-attestation helper closure. They rehash after acquiring those handles
+and retain them through child exit.
 The parent sends cooperative cleanup at the sealed stop, allows only the fixed
 20-second cleanup grace, and then uses kill-on-close containment if required.
 

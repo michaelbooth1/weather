@@ -60,6 +60,14 @@ try {
     Add-LockedExactFile -Path $manifest -ExpectedSha256 $expectedManifestSha256
     Add-LockedExactFile -Path $manifestSidecar -ExpectedSha256 $expectedManifestSidecarSha256
     $manifestPayload = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+    if ([string]$manifestPayload.production_python_sha256 -cne $expectedPythonSha256) {
+        throw "session manifest interpreter hash differs from launcher review"
+    }
+    foreach ($property in $manifestPayload.session_bootstrap_sha256.psobject.Properties) {
+        Add-LockedExactFile `
+            -Path (Join-Path $repo $property.Name) `
+            -ExpectedSha256 ([string]$property.Value).ToLowerInvariant()
+    }
     foreach ($property in $manifestPayload.source_sha256.psobject.Properties) {
         Add-LockedExactFile `
             -Path (Join-Path $repo $property.Name) `

@@ -10,6 +10,7 @@ from typing import Sequence
 
 from weather.operations.international_live_session_runner import (
     SESSION_SCHEMA_VERSION,
+    SESSION_BOOTSTRAP_PATHS,
 )
 from weather.operations.international_live_wrapper_sealer import (
     _canonical_json,
@@ -93,6 +94,20 @@ def prepare_fixed_session_launcher(
     python = validate_regular_nonreparse_file(str(production.get("python") or ""))
     if python != (root / "venv/Scripts/python.exe").resolve() or not python.is_file():
         raise SessionLauncherSealError("reviewed production interpreter is unavailable")
+    expected_python_sha256 = str(
+        manifest.get("production_python_sha256") or ""
+    ).lower()
+    if expected_python_sha256 != _sha(python):
+        raise SessionLauncherSealError("reviewed production interpreter hash changed")
+    bootstrap_hashes = manifest.get("session_bootstrap_sha256")
+    if not isinstance(bootstrap_hashes, dict) or set(bootstrap_hashes) != set(
+        SESSION_BOOTSTRAP_PATHS
+    ):
+        raise SessionLauncherSealError("session bootstrap closure is incomplete")
+    for relative, expected_hash in bootstrap_hashes.items():
+        source = validate_regular_nonreparse_file(root / relative)
+        if _sha(source) != str(expected_hash).lower():
+            raise SessionLauncherSealError("session bootstrap source hash changed")
     candidate = attempt_root / "incoming" / f"fresh-{stage}-candidate.json"
     if candidate.exists():
         raise SessionLauncherSealError("fixed candidate inbox must be new at review time")
@@ -109,7 +124,7 @@ def prepare_fixed_session_launcher(
     replacements = {
         "__SESSION_REPO_ROOT__": str(root),
         "__SESSION_PYTHON__": str(python),
-        "__SESSION_PYTHON_SHA256__": _sha(python),
+        "__SESSION_PYTHON_SHA256__": expected_python_sha256,
         "__SESSION_RUNNER_SOURCE__": str(runner_source),
         "__SESSION_RUNNER_SHA256__": _sha(runner_source),
         "__SESSION_MANIFEST__": str(manifest_path),
@@ -140,7 +155,11 @@ def prepare_fixed_session_launcher(
         },
         "runner_source": {"path": str(runner_source), "sha256": _sha(runner_source)},
         "launcher_template": {"path": str(template), "sha256": _sha(template)},
-        "production_python": {"path": str(python), "sha256": _sha(python)},
+        "production_python": {
+            "path": str(python),
+            "sha256": expected_python_sha256,
+        },
+        "session_bootstrap_sha256": dict(sorted(bootstrap_hashes.items())),
         "no_argument_surface": True,
         "live_mutation_attempted": False,
         "credential_values_read_in_memory": False,
