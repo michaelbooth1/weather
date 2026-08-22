@@ -135,6 +135,7 @@ def test_training_tasks_are_run_specific_and_restore_is_proved() -> None:
     direct = REGISTER_NIGHTLY.read_text(encoding="utf-8-sig")
     registration = REGISTER.read_text(encoding="utf-8-sig")
     window = SCRIPT.read_text(encoding="utf-8-sig")
+    contract = CONTRACT.read_text(encoding="utf-8-sig")
 
     assert "New-ScheduledTaskTrigger -Once -At $runAt" in direct
     assert "New-ScheduledTaskTrigger -Once -At $runAt" in registration
