@@ -458,6 +458,35 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_bootstrap["user_stream"]["journal_sha256"] == final_sha256
 
 
+def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def interrupt_after_authentication(*_args, **_kwargs):
+        raise KeyboardInterrupt("RAW-STAGE0-INTERRUPT-TEXT")
+
+    with pytest.raises(KeyboardInterrupt, match="RAW-STAGE0-INTERRUPT-TEXT"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=interrupt_after_authentication,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["status"] == "FAIL"
+    assert receipt["exception_type"] == "KeyboardInterrupt"
+    assert receipt["cleanup"]["ok"] is True
+    assert "RAW-STAGE0-INTERRUPT-TEXT" not in raw
+    assert live_context.adapter.cancel_calls == 1
+    assert live_context.user_stream.stopped is True
+    assert live_context.client.closed is True
+    assert not Path(command_args.bootstrap_out).exists()
+
+
 def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_path):
     command_args = args(tmp_path, "stage1")
     live_context = context(tmp_path)
@@ -517,6 +546,54 @@ def test_stage1_failure_receipt_never_serializes_raw_exception_text(tmp_path):
     assert receipt["exception_type"] == "RuntimeError"
     assert "TOP-SECRET-SDK-TEXT" not in raw
     assert live_context.adapter.cancel_calls == 1
+
+
+def test_stage1_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage1")
+    live_context = context(tmp_path)
+
+    def interrupt_after_context(*_args, **_kwargs):
+        raise KeyboardInterrupt("RAW-STAGE1-INTERRUPT-TEXT")
+
+    with pytest.raises(KeyboardInterrupt, match="RAW-STAGE1-INTERRUPT-TEXT"):
+        cli.run_stage1(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
+            lifecycle_executor=interrupt_after_context,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["status"] == "FAIL"
+    assert receipt["exception_type"] == "KeyboardInterrupt"
+    assert receipt["cleanup"]["ok"] is True
+    assert "RAW-STAGE1-INTERRUPT-TEXT" not in raw
+    assert live_context.adapter.cancel_calls == 1
+    assert live_context.user_stream.stopped is True
+    assert live_context.client.closed is True
+    assert not Path(command_args.result_out).exists()
+
+
+def test_cleanup_context_continues_after_interrupting_cancel_all(tmp_path):
+    live_context = context(tmp_path)
+    live_context.user_stream.start()
+
+    def interrupting_cancel_all():
+        raise KeyboardInterrupt("RAW-CLEANUP-INTERRUPT-TEXT")
+
+    live_context.adapter.cancel_all = interrupting_cancel_all
+    outcome = cli._cleanup_context(live_context)
+
+    assert outcome["ok"] is False
+    assert outcome["exception_type"] == "KeyboardInterrupt"
+    assert outcome["user_stream_stopped"] is True
+    assert outcome["client_closed"] is True
+    assert live_context.user_stream.stopped is True
+    assert live_context.client.closed is True
 
 
 def test_stage1_rejects_candidate_gate_before_credentials_or_mutation(tmp_path):

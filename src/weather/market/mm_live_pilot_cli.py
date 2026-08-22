@@ -269,7 +269,7 @@ def _cleanup_context(context: LivePilotContext | None) -> dict:
                 rows=positions,
             )
         )
-    except Exception as exc:  # receipt records type only; never raw SDK text
+    except BaseException as exc:  # receipt records type only; never raw SDK text
         outcome["exception_type"] = type(exc).__name__
     finally:
         try:
@@ -284,7 +284,7 @@ def _cleanup_context(context: LivePilotContext | None) -> dict:
             journal_sha256 = str(stream_evidence.get("journal_sha256") or "")
             if len(journal_sha256) == 64:
                 outcome["user_stream_journal_sha256"] = journal_sha256
-        except Exception as exc:
+        except BaseException as exc:
             outcome["exception_type"] = outcome["exception_type"] or type(exc).__name__
         try:
             close = getattr(context.client, "close", None)
@@ -292,7 +292,7 @@ def _cleanup_context(context: LivePilotContext | None) -> dict:
                 raise RuntimeError("official client does not expose close")
             close()
             outcome["client_closed"] = True
-        except Exception as exc:
+        except BaseException as exc:
             outcome["exception_type"] = outcome["exception_type"] or type(exc).__name__
     outcome["ok"] = all(
         (
@@ -570,7 +570,7 @@ def run_stage0(
             requested_budget_usdc=args.budget,
             secret_hygiene=credential_secret_hygiene(),
         )
-    except Exception as exc:
+    except BaseException as exc:
         operation_error = exc
 
     cleanup = _cleanup_context(context)
@@ -580,12 +580,12 @@ def run_stage0(
     if operation_error is None:
         try:
             payload = bootstrap_finalizer(payload, context.user_stream)
-        except Exception as exc:
+        except BaseException as exc:
             operation_error = exc
     if operation_error is None:
         try:
             write_json_atomic(paths["bootstrap"], payload, trailing_newline=True)
-        except Exception as exc:
+        except BaseException as exc:
             operation_error = exc
     if operation_error is None:
         receipt["status"] = "PASS"
@@ -672,7 +672,7 @@ def run_stage1(
         result["paper_quote_row_sha256"] = candidate_gate[
             "paper_quote_row_sha256"
         ]
-    except Exception as exc:
+    except BaseException as exc:
         operation_error = exc
 
     cleanup = _cleanup_context(context)
@@ -682,7 +682,7 @@ def run_stage1(
     if operation_error is None:
         try:
             write_json_atomic(paths["result"], result, trailing_newline=True)
-        except Exception as exc:
+        except BaseException as exc:
             operation_error = exc
     if operation_error is None:
         receipt["status"] = "PASS"
