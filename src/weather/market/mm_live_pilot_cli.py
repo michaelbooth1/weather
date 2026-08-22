@@ -948,6 +948,19 @@ def run_stage1(
         operation_error = exc
 
     cleanup = _cleanup_context(context)
+    if context is not None:
+        receipt["authenticated_exchange_write_attempted"] = True
+        receipt["exchange_mutation_attempted"] = True
+    lifecycle_path = Path(paths["lifecycle_journal"])
+    if lifecycle_path.is_file():
+        try:
+            receipt["order_submit_attempted"] = any(
+                json.loads(line).get("event_type") == "submit_started"
+                for line in lifecycle_path.read_text(encoding="utf-8-sig").splitlines()
+                if line.strip()
+            )
+        except (OSError, json.JSONDecodeError):
+            receipt["order_submit_attempted"] = "UNKNOWN"
     receipt["cleanup"] = cleanup
     if operation_error is None and not cleanup["ok"]:
         operation_error = RuntimeError("final Stage 1 cleanup did not prove zero account state")

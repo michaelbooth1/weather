@@ -518,6 +518,33 @@ def test_stage1_failure_receipt_never_serializes_raw_exception_text(tmp_path):
     assert receipt["exception_type"] == "RuntimeError"
     assert "TOP-SECRET-SDK-TEXT" not in raw
     assert live_context.adapter.cancel_calls == 1
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["exchange_mutation_attempted"] is True
+    assert receipt["order_submit_attempted"] is False
+
+
+def test_stage1_failure_after_submit_start_records_order_attempt(tmp_path):
+    command_args = args(tmp_path, "stage1")
+    live_context = context(tmp_path)
+
+    def fail_after_submit(*_args, journal_path, **_kwargs):
+        Path(journal_path).write_text(
+            '{"event_type":"submit_started"}\n', encoding="utf-8"
+        )
+        raise RuntimeError("post-submit failure")
+
+    with pytest.raises(RuntimeError, match="post-submit failure"):
+        cli.run_stage1(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
+            lifecycle_executor=fail_after_submit,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text())
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["order_submit_attempted"] is True
 
 
 def test_stage1_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(

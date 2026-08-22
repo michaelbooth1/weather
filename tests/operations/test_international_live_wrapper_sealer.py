@@ -909,6 +909,21 @@ def test_stage1_seal_refuses_tampered_stage0_run_receipt(tmp_path):
     with pytest.raises(sealer.SealError, match="Stage 0.*lineage"):
         seal(spec_path, production)
 
+
+def test_stage1_seal_refuses_predecessor_attempt_root_ancestor(tmp_path):
+    production, attempt, spec_path, spec = prepare(
+        tmp_path, stage="stage1_cancel_all"
+    )
+    seal_path = Path(spec["inputs"]["stage0_seal_receipt"]["path"])
+    prior_seal = json.loads(seal_path.read_text())
+    prior_seal["scope"]["attempt_root"] = str(attempt.parent.resolve())
+    write_json(seal_path, prior_seal)
+    spec["inputs"]["stage0_seal_receipt"]["sha256"] = sha256(seal_path)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="Stage 0.*lineage"):
+        seal(spec_path, production)
+
 def test_stage1_seal_refuses_bootstrap_not_bound_by_stage0_execution(tmp_path):
     production, attempt, spec_path, spec = prepare(
         tmp_path, stage="stage1_cancel_all"

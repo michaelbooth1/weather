@@ -1,10 +1,4 @@
-"""Deterministically seal one fixed-scope International Stage 0 or Stage 1 wrapper.
-
-This module is preparation-only.  It reads public, content-bound inputs and
-writes a no-argument wrapper, a no-argument launcher, and an immutable seal
-receipt.  It imports only the inert SDK-tree validator; it never resolves
-credentials, constructs an exchange client, or invokes a generated wrapper.
-"""
+"""Deterministically seal fixed-scope International wrappers without executing."""
 
 from __future__ import annotations
 import argparse
@@ -753,6 +747,7 @@ def _validate_identity(
 def _validate_stage0_lineage(
     inputs: Mapping[str, Mapping[str, str]],
     *,
+    attempt_root: Path,
     production_tip: str,
     target_date: str,
     condition_id: str,
@@ -810,7 +805,7 @@ def _validate_stage0_lineage(
     run_child = run.get("child_execution") or {}
     run_lineage_ok = exact_run_lineage(
         run,
-        attempt_root=Path(str(seal_scope.get("attempt_root") or "")),
+        attempt_root=attempt_root,
         stage="stage0",
         seal=seal,
         seal_path=Path(inputs["stage0_seal_receipt"]["path"]),
@@ -834,6 +829,7 @@ def _validate_stage0_lineage(
         seal.get("stage") == "stage0",
         seal_production.get("commit") == production_tip,
         seal_scope.get("target_date") == target_date,
+        Path(str(seal_scope.get("attempt_root") or "")).resolve() == attempt_root,
         str(seal_scope.get("condition_id") or "").lower() == condition_id,
         str(seal_scope.get("token_id") or "") == token_id,
         seal_budget == budget,
@@ -926,6 +922,7 @@ def _validate_stage0_lineage(
 def _validate_cancel_all_predecessor(
     inputs: Mapping[str, Mapping[str, str]],
     *,
+    attempt_root: Path,
     production_tip: str,
     target_date: str,
     condition_id: str,
@@ -968,7 +965,7 @@ def _validate_cancel_all_predecessor(
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
     run_lineage_ok = exact_run_lineage(
         run,
-        attempt_root=Path(str(seal_scope.get("attempt_root") or "")),
+        attempt_root=attempt_root,
         stage="stage1_cancel_all",
         seal=seal,
         seal_path=Path(inputs["cancel_all_seal_receipt"]["path"]),
@@ -980,6 +977,7 @@ def _validate_cancel_all_predecessor(
         seal.get("stage") == "stage1_cancel_all",
         seal_production.get("commit") == production_tip,
         seal_scope.get("target_date") == target_date,
+        Path(str(seal_scope.get("attempt_root") or "")).resolve() == attempt_root,
         str(seal_scope.get("condition_id") or "").lower() == condition_id,
         str(seal_scope.get("token_id") or "") == token_id,
         float(seal_scope.get("requested_budget_pusd")) == float(budget),
@@ -1508,6 +1506,7 @@ def _validate_spec(
         )
         _validate_stage0_lineage(
             normalized_inputs,
+            attempt_root=attempt_root,
             production_tip=_require_git_oid(
                 production["commit"], label="production.commit"
             ),
@@ -1519,6 +1518,7 @@ def _validate_spec(
         if stage == "stage1_dead_man":
             _validate_cancel_all_predecessor(
                 normalized_inputs,
+                attempt_root=attempt_root,
                 production_tip=_require_git_oid(
                     production["commit"], label="production.commit"
                 ),
