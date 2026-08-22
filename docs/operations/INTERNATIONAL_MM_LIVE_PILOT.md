@@ -457,29 +457,64 @@ prepared in advance and run consecutively; an expired bootstrap is a stop, not a
 reason to edit timestamps or reuse an earlier gate.
 
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
-no exchange-mutation commands. After relocation and fresh candidate selection,
-create and review a host-owned wrapper outside the repository on this PC that
-imports `run_stage0` and
-`run_stage1`, fixes every public identifier and new output path, and exposes no
-secret or risk-ceiling arguments. Every `run_stage1` call must receive the
-fresh constrained candidate-plan path; the library validates its semantic hash,
-embedded source hashes, current paper-proof expiry, exact condition/token, and
-nonmarketable post-only minimum-tick intent before it resolves credentials or
-constructs a mutation-capable adapter. Stage 0 never submits an order, but it does
-send authenticated heartbeat and cancel-all requests, so it belongs behind the
-same reviewed boundary. Run Stage 0 once, then each Stage 1 cancellation mode in
-its own fresh process. Each Stage 1 call can perform exactly one network submit,
-writes its PASS result only after final cancel-all/zero-state cleanup, and
-serializes exception types rather than raw SDK messages. Console interrupts and
-other process-level Python exits enter the same cleanup path: Stage 1 first
-journals and attempts cancel-all/zero-state reconciliation, then the command
-boundary independently repeats cleanup, finalizes the user stream and client,
-writes a type-only FAIL receipt, and re-raises. The host wrapper must catch that
-`BaseException`, emit only its type, and stop; it must never print a traceback or
-retry the submit. A forced process kill or power loss cannot run Python cleanup
-and remains dependent on the independently proved heartbeat-lapse cancellation.
-The wrapper review and its exact source hash become prerequisites; their absence
-is a stop.
+no exchange-mutation commands. Do not hand-edit a copy of the old host template.
+The repository-owned sealer is the only supported way to create the external
+fixed-scope Stage 0 and Stage 1 cancel-all wrappers. First inventory the exact
+production Git, template, and source hashes; this command writes nothing and
+returns `BLOCK` until the interrupt-cleanup hardening commit is an ancestor:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.international_live_wrapper_sealer inventory `
+  --stage stage0
+```
+
+Author one reviewed
+`international_live_fixed_scope_seal_spec_v0.1` JSON object with the inventory
+hashes, synchronized `master` commit/tree, explicit budget, exact scope, current
+candidate hash, no-more-than-30-minute window, new attempt root, public input
+hashes, and item-by-item reviews for any accepted status-flag hashes. Inputs use
+the canonical paths under `inputs/` from the sealer contract; the credential
+import receipt is represented only by its path and hash. Then seal it:
+
+The top-level keys are exactly `schema_version`, `stage`, `prepared_at_local`,
+`production`, `scope`, `inputs`, `reviewed_status_flags`, `template_sha256`, and
+`source_sha256`. `production` binds `root`, `branch`, `commit`, `tree`, and
+`python`; `scope` binds the target, condition, token, budget, window, attempt
+root, and lease workload. Stage 0 inputs are `identity`, `scope_plan`, and
+`credential_import_receipt`; Stage 1 cancel-all inputs are `identity`,
+`bootstrap`, `stage0_receipt`, `candidate_plan`, and
+`credential_import_receipt`. Every input record has only `path` and `sha256`.
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.international_live_wrapper_sealer seal `
+  --spec C:\pilot\inputs\stage0-seal-spec.json
+```
+
+The sealer never imports live market modules, opens Credential Manager, or runs
+the generated launcher. It independently checks candidate semantic hash, scope,
+120-second paper TTL, run-window containment, all public inputs, every imported
+live-source hash, exact production ancestry, and that every wrapper, receipt,
+sidecar, and runtime output path is new and contained. It creates a fixed
+no-argument Python wrapper, a hash-bound no-argument PowerShell launcher, an
+`international_live_fixed_scope_seal_v0.2` receipt, and its SHA-256 sidecar.
+Stage 1 uses a separate fresh spec, a newly constrained candidate, and the exact
+successful Stage 0 bootstrap and command-receipt hashes. A partial or failed seal
+spends that attempt namespace; create a new attempt instead of overwriting it.
+
+Independently compare the launcher's hash with the seal receipt before invoking
+it with no arguments. Candidate selection and successful sealing are preparation,
+not execution authorization. Every `run_stage1` call still revalidates the
+candidate before credential resolution, can perform exactly one network submit,
+writes PASS only after final cancel-all/zero-state cleanup, and serializes
+exception types rather than raw SDK messages.
+Console interrupts and other process-level Python exits enter that same cleanup
+path: Stage 1 first journals and attempts cancel-all/zero-state reconciliation,
+then the command boundary independently repeats cleanup, finalizes the user
+stream and client, writes a type-only FAIL receipt, and re-raises. The generated
+host wrapper catches that `BaseException`, emits only its type, and stops; it
+must never print a traceback or retry the submit. A forced process kill or power
+loss cannot run Python cleanup and remains dependent on the independently proved
+heartbeat-lapse cancellation.
 
 Only after both Stage 1 calls pass, build the content-bound bundle offline. The
 builder rereads and hashes both lifecycle journals rather than trusting copied
