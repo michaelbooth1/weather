@@ -1,0 +1,53 @@
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+# The repository sealer replaces every marker. The final launcher has no
+# trigger and no runtime scope, secret, budget, or cap inputs.
+$repo = "__SEAL_PRODUCTION_ROOT__"
+$python = "__SEAL_PRODUCTION_PYTHON__"
+$wrapper = "__SEAL_WRAPPER_PATH__"
+$expectedWrapperSha256 = "__SEAL_WRAPPER_SHA256__"
+$workload = "__SEAL_WORKLOAD__"
+$expectedLeaseScriptSha256 = "__SEAL_WORKLOAD_ADMISSION_SHA256__"
+$leaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+
+if ($args.Count -ne 0) {
+    throw "fixed-scope launcher accepts no arguments"
+}
+foreach ($path in @($python, $wrapper, $leaseScript)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "fixed-scope launcher dependency is absent"
+    }
+}
+$observedWrapperHash = (Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($observedWrapperHash -ne $expectedWrapperSha256) {
+    throw "fixed-scope wrapper hash changed"
+}
+$observedLeaseHash = (Get-FileHash -LiteralPath $leaseScript -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($observedLeaseHash -ne $expectedLeaseScriptSha256) {
+    throw "workload-admission source hash changed"
+}
+
+. $leaseScript
+$lease = $null
+$exitCode = 1
+try {
+    $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload $workload
+    if ($null -eq $lease) {
+        throw "shared workload lease is busy"
+    }
+    & $python $wrapper
+    $exitCode = $LASTEXITCODE
+}
+finally {
+    if ($null -ne $lease) {
+        Exit-WeatherHeavyWorkloadLease -Lease $lease
+    }
+}
+if ($exitCode -ne 0) {
+    Write-Error "fixed-scope wrapper failed with exit $exitCode" -ErrorAction Continue
+}
+exit $exitCode
