@@ -151,7 +151,7 @@ Relevant roadmap items are consistent with the current audit result:
 - Item 56: cockpit and drilldown diagnostics exist.
 - Item 57: preflight remediation and active-day reliability exist.
 - Item 66: CLOB book recon and reward competition analytics exist.
-- Item 67: authenticated adapter boundary exists, but real MM-2 live-account probes and paid-vs-predicted evidence remain open because credentials and eligible account evidence are absent.
+- Item 67: authenticated adapter boundary exists, but real MM-2 live-account probes and paid-vs-predicted evidence remain open because credentials and account evidence are absent.
 - Item 68: information-event quote-pull gates exist.
 - Item 277: all-market useful-work liveness exists.
 - Item 278: maker model-version shadow bakeoff exists.

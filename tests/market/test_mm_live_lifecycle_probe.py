@@ -16,7 +16,7 @@ def bootstrap_gate():
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.2",
+        "schema_version": "mm_platform_bootstrap_v0.3",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
@@ -27,9 +27,6 @@ def bootstrap_gate():
         "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 100.0,
         "account_snapshot_sha256": "b" * 64,
-        "geoblock_country": "CH",
-        "geoblock_region": "ZH",
-        "geoblock_evidence_sha256": "e" * 64,
         "checks": {"all_bootstrap_checks": True},
         "missing": [],
     }
@@ -71,15 +68,6 @@ class FakeAdapter:
     def authorize_stage1_lifecycle(self, gate):
         self.capability = object()
         return self.capability
-
-    def diagnostics(self):
-        return {
-            "geoblock_allows_orders": True,
-            "geoblock_country": "CH",
-            "geoblock_region": "ZH",
-            "geoblock_evidence_sha256": "f" * 64,
-            "stage1_geoblock_evidence_sha256": "e" * 64,
-        }
 
     def heartbeat(self):
         self.heartbeat_calls += 1
@@ -474,7 +462,7 @@ def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(t
 
     bundle = build_stage1_lifecycle_bundle(gate, cancel_result, dead_result)
 
-    assert bundle["schema_version"] == "mm_stage1_lifecycle_bundle_v0.1"
+    assert bundle["schema_version"] == "mm_stage1_lifecycle_bundle_v0.2"
     assert bundle["status"] == "PASS"
     assert bundle["derived_platform_evidence"] == {
         "starting_open_orders_rest_verified": True,

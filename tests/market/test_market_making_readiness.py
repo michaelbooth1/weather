@@ -11,31 +11,6 @@ from weather.market.market_making_preflight import (
     platform_account_snapshot_sha256,
     stage1_lifecycle_bundle_sha256,
 )
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
-
-
-def eligible_geoblock(now):
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps({
-                "blocked": False,
-                "country": "CH",
-                "region": "ZH",
-                "ip": "203.0.113.8",
-            }).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-        now=now,
-    )
-
-
 def write_json(path, payload):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -48,13 +23,13 @@ def stage1_lifecycle_bundle():
 
     def probe(mode, order_id):
         return {
-            "schema_version": "mm_live_lifecycle_probe_v0.1",
+            "schema_version": "mm_live_lifecycle_probe_v0.2",
             "status": "PASS",
             "completed_at_utc": "2026-06-26T16:00:00+00:00",
             "platform": "polymarket_global",
             "settlement_unit": "pUSD",
             "cancellation_mode": mode,
-            "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
             "bootstrap_sha256": bootstrap_hash,
             "condition_id": "0x" + "b" * 64,
             "token_id": "12345",
@@ -64,10 +39,6 @@ def stage1_lifecycle_bundle():
             "order_notional_usdc": 0.05,
             "order_id": order_id,
             "placement_status": "live",
-            "geoblock_country": "CH",
-            "geoblock_region": "ZH",
-            "capability_geoblock_evidence_sha256": "c" * 64,
-            "submission_geoblock_evidence_sha256": "d" * 64,
             "open_order_observed": True,
             "authoritative_user_event_observed": True,
             "cancellation_observed": True,
@@ -82,19 +53,17 @@ def stage1_lifecycle_bundle():
         }
 
     bundle = {
-        "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+        "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
         "status": "PASS",
         "created_at_utc": "2026-06-26T16:00:00+00:00",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
-        "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
         "bootstrap_sha256": bootstrap_hash,
         "condition_id": "0x" + "b" * 64,
         "token_id": "12345",
         "funder_address": "0x0000000000000000000000000000000000000001",
         "requested_budget_usdc": 100,
-        "geoblock_country": "CH",
-        "geoblock_region": "ZH",
         "lifecycle_results": {
             "cancel_all": probe("cancel_all", "cancel-order"),
             "dead_man": probe("dead_man", "dead-man-order"),
@@ -135,7 +104,7 @@ def platform_verification(target_date="2026-06-26"):
     )
     lifecycle_bundle = stage1_lifecycle_bundle()
     return {
-        "schema_version": "mm_platform_verification_v0.4",
+        "schema_version": "mm_platform_verification_v0.5",
         "status": "PASS",
         "verified_for_target_date": target_date,
         "verified_at_utc": "2026-06-26T16:00:00+00:00",
@@ -143,10 +112,6 @@ def platform_verification(target_date="2026-06-26"):
         "max_age_hours": 24,
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock("2026-06-26T17:00:00+00:00"),
-        "eligibility_verified": True,
         "api_base_url": "https://polymarket.com",
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",

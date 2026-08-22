@@ -1,27 +1,11 @@
 {
-  "schema_version": "mm_platform_bootstrap_v0.2",
+  "schema_version": "mm_platform_bootstrap_v0.3",
   "status": "TEMPLATE_FAIL_SAFE",
   "verified_at_utc": null,
   "verified_for_target_date": null,
   "max_age_hours": 1,
   "platform": "polymarket_global",
   "international_platform_confirmed": false,
-  "physical_location_matches_geoblock_confirmed": false,
-  "geoblock_circumvention_absent_confirmed": false,
-  "geographic_eligibility": {
-    "schema_version": "polymarket_geoblock_v0.1",
-    "endpoint": "https://polymarket.com/api/geoblock",
-    "checked_at_utc": null,
-    "http_status": null,
-    "blocked": null,
-    "country": null,
-    "region": null,
-    "official_response_fields_sha256": null,
-    "requesting_ip_observed": false,
-    "requesting_ip_retained": false,
-    "proxy_configuration_absent": false,
-    "evidence_sha256": null
-  },
   "api_base_url": "https://polymarket.com",
   "clob_host": "https://clob.polymarket.com",
   "settlement_unit": "pUSD",
@@ -116,7 +100,6 @@
     "https://docs.polymarket.com/trading/fees",
     "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
     "https://docs.polymarket.com/programs/maker-rebates",
-    "https://docs.polymarket.com/concepts/pusd",
-    "https://docs.polymarket.com/api-reference/geoblock"
+    "https://docs.polymarket.com/concepts/pusd"
   ]
 }

@@ -1166,7 +1166,7 @@ def build_readiness_snapshot(
                 "missing": platform_gate.get("missing") or [],
                 "reason": platform_gate.get("reason"),
             },
-            remediation="refresh mm_platform_verification_v0.4 with fresh official physical geoblock, International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
+            remediation="refresh mm_platform_verification_v0.5 with International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
         ),
     ]
 

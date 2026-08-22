@@ -1,7 +1,5 @@
 import csv
 import json
-import os
-import sys
 import tempfile
 import unittest
 from datetime import datetime
@@ -26,36 +24,10 @@ from weather.market.mm_official_adapter import (  # noqa: E402
     normalize_official_user_event,
     require_official_clob_version,
 )
-from weather.market.mm_geoblock import collect_official_geoblock_evidence  # noqa: E402
 from weather.market.mm_exchange_reports import confirmed_trade_set_sha256  # noqa: E402
 
 
 NOW = "2026-06-14T16:00:00+00:00"
-
-
-def geoblock_evidence(*, blocked=False, country="CH", region="ZH"):
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps({
-                "blocked": blocked,
-                "country": country,
-                "region": region,
-                "ip": "203.0.113.8",
-            }).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-    )
-
-
-def eligible_geoblock():
-    return geoblock_evidence()
 
 
 def write_json(path, payload):
@@ -80,7 +52,7 @@ def official_stage1_gate(adapter, snapshot_character="b"):
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.2",
+        "schema_version": "mm_platform_bootstrap_v0.3",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
@@ -92,9 +64,6 @@ def official_stage1_gate(adapter, snapshot_character="b"):
         "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 100.0,
         "account_snapshot_sha256": snapshot_character * 64,
-        "geoblock_country": "CH",
-        "geoblock_region": "ZH",
-        "geoblock_evidence_sha256": "e" * 64,
         "checks": {"all_bootstrap_checks": True},
         "missing": [],
     }
@@ -562,7 +531,6 @@ class TestMMExchange(unittest.TestCase):
                 sdk_version="0.6.0",
                 authoritative_readers_verified=True,
                 monotonic_clock=lambda: clock[0],
-                geoblock_checker=eligible_geoblock,
             )
 
         adapter = make_adapter(client)
@@ -718,17 +686,6 @@ class TestMMExchange(unittest.TestCase):
             "size": 5,
             "side": "BUY",
         }
-        blocked_adapter = make_adapter(FakeClient())
-        blocked_adapter.geoblock_checker = lambda: geoblock_evidence(
-            blocked=True,
-            country="CA",
-            region="ON",
-        )
-        with self.assertRaisesRegex(RuntimeError, "geoblock proof blocks order mutation"):
-            blocked_adapter.authorize_stage1_lifecycle(
-                official_stage1_gate(blocked_adapter)
-            )
-
         oversized_budget_adapter = make_adapter(FakeClient())
         oversized_budget_gate = official_stage1_gate(oversized_budget_adapter)
         oversized_budget_gate["requested_budget_usdc"] = 100.01
@@ -736,28 +693,6 @@ class TestMMExchange(unittest.TestCase):
             oversized_budget_adapter.authorize_stage1_lifecycle(
                 oversized_budget_gate
             )
-
-        route_changed_adapter = make_adapter(FakeClient())
-        route_changed_adapter.heartbeat()
-        route_changed_adapter.refresh_market_rules()
-        route_capability = route_changed_adapter.authorize_stage1_lifecycle(
-            official_stage1_gate(route_changed_adapter, snapshot_character="f")
-        )
-        route_changed_adapter.geoblock_checker = lambda: geoblock_evidence(
-            blocked=True,
-            country="CA",
-            region="ON",
-        )
-        with self.assertRaisesRegex(RuntimeError, "geoblock proof blocks order mutation"):
-            route_changed_adapter.place_order(
-                valid_intent,
-                stage1_capability=route_capability,
-            )
-        self.assertTrue(route_changed_adapter.diagnostics()["stage1_capability_consumed"])
-        self.assertFalse(any(
-            call[0] == "post_order"
-            for call in route_changed_adapter.client.calls
-        ))
 
         wrong_signer_client = FakeClient()
         wrong_signer_client.signed_maker = "0x" + "e" * 40

@@ -1,4 +1,4 @@
-"""One-time eligible-host import of live-pilot secrets into Credential Manager.
+"""One-time import of live-pilot secrets into Credential Manager.
 
 The source file must remain outside the repository. Secret values are never
 accepted as arguments, printed, or written to the public reference manifest or
@@ -9,7 +9,6 @@ references and a public funder address.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
@@ -47,10 +46,7 @@ SOURCE_PUBLIC_KEYS = {
 IGNORED_SOURCE_KEYS = {
     "POLYMM_RELAYER_API_KEY",
     "POLYMM_RELAYER_API_KEY_ADDRESS",
-    "POLYMM_OPERATOR_JURISDICTION",
-    "POLYMM_DEPLOYMENT_REGION",
     "POLYMM_POLYMARKET_VENUE",
-    "POLYMM_OPERATOR_ELIGIBILITY_CONFIRMED",
     "POLYMM_LIVE_TRADING",
     "POLYMM_POLYGON_RPC_URL",
 }

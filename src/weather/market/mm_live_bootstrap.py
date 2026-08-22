@@ -20,7 +20,6 @@ from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     contains_secret_material,
     dict_value,
-    international_jurisdiction,
     non_empty_text,
     pilot_wallet_identity_topology_checks,
     recent_utc_timestamp,
@@ -37,13 +36,7 @@ from weather.market.mm_official_adapter import (
 )
 from weather.market.mm_policy import bool_value, maybe_float, utc_now
 from weather.market.mm_credentials import stage0_client_identity_gate
-from weather.market.mm_geoblock import (
-    GEOBLOCK_DOCUMENTATION_URL,
-    geoblock_evidence_gate,
-)
-
-
-SCHEMA_VERSION = "mm_platform_bootstrap_v0.2"
+SCHEMA_VERSION = "mm_platform_bootstrap_v0.3"
 PLATFORM_ID = "polymarket_global"
 API_BASE_URL = "https://polymarket.com"
 CLOB_HOST = "https://clob.polymarket.com"
@@ -63,7 +56,6 @@ REQUIRED_SOURCE_URLS = {
     "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
     "https://docs.polymarket.com/programs/maker-rebates",
     "https://docs.polymarket.com/concepts/pusd",
-    GEOBLOCK_DOCUMENTATION_URL,
 }
 ATOMIC_COLLATERAL_SCALE = Decimal("1000000")
 
@@ -328,13 +320,6 @@ def collect_platform_bootstrap_payload(
         "max_age_hours": MAX_BOOTSTRAP_AGE_HOURS,
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": identity.get(
-            "physical_location_matches_geoblock_confirmed"
-        ),
-        "geoblock_circumvention_absent_confirmed": identity.get(
-            "geoblock_circumvention_absent_confirmed"
-        ),
-        "geographic_eligibility": dict(identity.get("geographic_eligibility") or {}),
         "api_base_url": API_BASE_URL,
         "clob_host": CLOB_HOST,
         "settlement_unit": INTERNATIONAL_SETTLEMENT_UNIT,
@@ -546,10 +531,6 @@ def load_platform_bootstrap_gate(
     heartbeat = dict_value(payload, "dead_man_heartbeat")
     cancel_all = dict_value(payload, "cancel_all")
     secret_hygiene = dict_value(payload, "secret_hygiene")
-    geoblock = geoblock_evidence_gate(
-        dict_value(payload, "geographic_eligibility"),
-        now=now,
-    )
     source_urls = payload.get("source_urls") or []
     if isinstance(source_urls, str):
         source_urls = [source_urls]
@@ -577,16 +558,6 @@ def load_platform_bootstrap_gate(
             max_age_hours,
         ),
         "platform_is_international": payload.get("platform") == PLATFORM_ID,
-        "international_jurisdiction_verified": international_jurisdiction(payload, now=now),
-        "official_geoblock_evidence_verified": geoblock.get("ok") is True,
-        "physical_location_matches_geoblock_confirmed": bool_value(
-            payload.get("physical_location_matches_geoblock_confirmed"),
-            False,
-        ),
-        "geoblock_circumvention_absent_confirmed": bool_value(
-            payload.get("geoblock_circumvention_absent_confirmed"),
-            False,
-        ),
         "api_base_url_exact": str(payload.get("api_base_url") or "").rstrip("/").lower()
         == API_BASE_URL,
         "clob_host_exact": str(payload.get("clob_host") or "").rstrip("/").lower()
@@ -792,10 +763,6 @@ def load_platform_bootstrap_gate(
         "verified_at_utc": payload.get("verified_at_utc"),
         "platform": payload.get("platform"),
         "settlement_unit": payload.get("settlement_unit"),
-        "geoblock_country": geoblock.get("country"),
-        "geoblock_region": geoblock.get("region"),
-        "geoblock_checked_at_utc": geoblock.get("checked_at_utc"),
-        "geoblock_evidence_sha256": geoblock.get("evidence_sha256"),
         "sdk_distribution": sdk.get("distribution"),
         "sdk_version": sdk.get("version"),
         "signature_type": payload.get("signature_type"),

@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from weather.market.mm_credentials import (
@@ -8,9 +6,6 @@ from weather.market.mm_credentials import (
     load_global_credential_bundle,
     parse_wincred_reference,
 )
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
-
-
 REFERENCES = {
     "POLYMARKET_API_KEY_STORAGE_REF": "wincred://Weather/Polymarket/ApiKey",
     "POLYMARKET_API_SECRET_STORAGE_REF": "wincred://Weather/Polymarket/ApiSecret",
@@ -18,27 +13,6 @@ REFERENCES = {
     "POLYMARKET_PRIVATE_KEY_STORAGE_REF": "wincred://Weather/Polymarket/PrivateKey",
     "POLYMARKET_FUNDER_ADDRESS": "0x0000000000000000000000000000000000000001",
 }
-
-
-def eligible_geoblock():
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps({
-                "blocked": False,
-                "country": "CH",
-                "region": "ZH",
-                "ip": "203.0.113.8",
-            }).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-    )
 
 
 def test_wincred_reference_parser_rejects_embedded_material():
@@ -117,13 +91,10 @@ def test_unified_client_factory_requires_deployed_wallet_and_verifies_topology()
         return True
 
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -181,13 +152,10 @@ def test_unified_client_factory_refuses_to_invoke_sdk_for_an_unproven_wallet():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -223,13 +191,10 @@ def test_unified_client_factory_closes_an_unexpected_sdk_topology():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -274,13 +239,10 @@ def test_stage0_identity_rejects_missing_topology_and_secret_fields():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,

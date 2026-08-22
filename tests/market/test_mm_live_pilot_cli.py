@@ -9,7 +9,6 @@ import pytest
 from weather.market import mm_live_pilot_cli as cli
 from weather.market import mm_live_candidate_cli as candidate_cli
 from weather.market.mm_credentials import STAGE0_AUTHORIZATION
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.mm_live_lifecycle_probe import CONFIRMATION as STAGE1_CONFIRMATION
 
 
@@ -227,8 +226,6 @@ def prepare_args(tmp_path):
         identity_out=str(tmp_path / "identity-prepared.json"),
         receipt_out=str(tmp_path / "identity-receipt.json"),
         confirm_international_platform=True,
-        confirm_physical_location_match=True,
-        confirm_no_circumvention=True,
         confirm_isolated_wallet=True,
         confirmation=cli.IDENTITY_CONFIRMATION,
     )
@@ -257,64 +254,18 @@ def credential_reference_env():
     }
 
 
-def geoblock_evidence(*, blocked=False):
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps(
-                {
-                    "blocked": blocked,
-                    "country": "CH",
-                    "region": "ZH",
-                    "ip": "203.0.113.9",
-                }
-            ).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-    )
-
-
-def test_prepare_identity_fetches_ip_redacted_evidence_and_derives_signature_id(tmp_path):
+def test_prepare_identity_derives_signature_id(tmp_path):
     command_args = prepare_args(tmp_path)
 
-    receipt = cli.run_prepare_identity(
-        command_args,
-        geoblock_collector=geoblock_evidence,
-    )
+    receipt = cli.run_prepare_identity(command_args)
 
     assert receipt["status"] == "PASS"
     identity = json.loads(Path(command_args.identity_out).read_text(encoding="utf-8"))
-    raw = Path(command_args.identity_out).read_text(encoding="utf-8")
     assert identity["platform"] == "polymarket_global"
     assert identity["settlement_unit"] == "pUSD"
     assert identity["signature_type"] == "POLY_1271"
     assert identity["signature_type_id"] == 3
-    assert identity["geographic_eligibility"]["blocked"] is False
-    assert identity["geographic_eligibility"]["requesting_ip_retained"] is False
-    assert "203.0.113.9" not in raw
     assert receipt["cleanup"]["reason"] == "read_only_command_no_exchange_authentication"
-
-
-def test_prepare_identity_writes_fail_receipt_but_no_manifest_when_location_blocked(tmp_path):
-    command_args = prepare_args(tmp_path)
-
-    with pytest.raises(RuntimeError, match="did not pass"):
-        cli.run_prepare_identity(
-            command_args,
-            geoblock_collector=lambda: geoblock_evidence(blocked=True),
-        )
-
-    assert not Path(command_args.identity_out).exists()
-    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
-    assert receipt["status"] == "FAIL"
-    assert receipt["geographic_eligibility"]["blocked"] is True
-    assert "physical_geo_eligibility" in receipt["missing"]
 
 
 @pytest.mark.parametrize(
@@ -336,7 +287,7 @@ def test_prepare_identity_rejects_non_deposit_wallet_topology(
     command_args.signature_type = signature_type
 
     with pytest.raises(RuntimeError, match="did not pass"):
-        cli.run_prepare_identity(command_args, geoblock_collector=geoblock_evidence)
+        cli.run_prepare_identity(command_args)
 
     receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
     assert receipt["status"] == "FAIL"
@@ -349,10 +300,7 @@ def test_prepare_identity_accepts_existing_gnosis_safe_topology(tmp_path):
     command_args.wallet_type = "gnosis_safe"
     command_args.signature_type = "POLY_GNOSIS_SAFE"
 
-    receipt = cli.run_prepare_identity(
-        command_args,
-        geoblock_collector=geoblock_evidence,
-    )
+    receipt = cli.run_prepare_identity(command_args)
 
     identity = json.loads(Path(command_args.identity_out).read_text(encoding="utf-8"))
     assert receipt["status"] == "PASS"
@@ -361,27 +309,20 @@ def test_prepare_identity_accepts_existing_gnosis_safe_topology(tmp_path):
     assert identity["signature_type_id"] == 2
 
 
-def test_prepare_identity_wrong_confirmation_does_not_fetch_geoblock(tmp_path):
+def test_prepare_identity_wrong_confirmation_writes_nothing(tmp_path):
     command_args = prepare_args(tmp_path)
     command_args.confirmation = "yes"
-    called = False
-
-    def collect():
-        nonlocal called
-        called = True
-        return geoblock_evidence()
 
     with pytest.raises(RuntimeError, match="exact confirmation"):
-        cli.run_prepare_identity(command_args, geoblock_collector=collect)
+        cli.run_prepare_identity(command_args)
 
-    assert called is False
     assert not Path(command_args.identity_out).exists()
     assert not Path(command_args.receipt_out).exists()
 
 
 def test_keyless_doctor_passes_without_resolving_credential_targets(tmp_path):
     prepare = prepare_args(tmp_path)
-    cli.run_prepare_identity(prepare, geoblock_collector=geoblock_evidence)
+    cli.run_prepare_identity(prepare)
     command_args = doctor_args(tmp_path, prepare.identity_out)
     env = credential_reference_env()
 
@@ -402,7 +343,7 @@ def test_keyless_doctor_passes_without_resolving_credential_targets(tmp_path):
 
 def test_keyless_doctor_names_missing_sdk_and_reference_without_reading_secrets(tmp_path):
     prepare = prepare_args(tmp_path)
-    cli.run_prepare_identity(prepare, geoblock_collector=geoblock_evidence)
+    cli.run_prepare_identity(prepare)
     command_args = doctor_args(tmp_path, prepare.identity_out)
     env = credential_reference_env()
     del env["POLYMARKET_API_SECRET_STORAGE_REF"]
@@ -434,7 +375,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
         context_builder=lambda *_args, **_kwargs: live_context,
         stream_waiter=lambda stream, **_kwargs: stream.start(),
         bootstrap_collector=lambda _adapter, stream, *_args, **_kwargs: {
-            "schema_version": "mm_platform_bootstrap_v0.2",
+            "schema_version": "mm_platform_bootstrap_v0.3",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -496,7 +437,7 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
         seen.update(gate=gate, kwargs=kwargs)
         kwargs["journal_path"].write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
         return {
-            "schema_version": "mm_live_lifecycle_probe_v0.1",
+            "schema_version": "mm_live_lifecycle_probe_v0.2",
             "status": "PASS",
             "secret_values_redacted": True,
         }
@@ -646,7 +587,7 @@ def test_stage1_result_write_failure_still_emits_fail_receipt(
             stream_waiter=lambda stream, **_kwargs: stream.start(),
             bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
             lifecycle_executor=lambda *_args, **_kwargs: {
-                "schema_version": "mm_live_lifecycle_probe_v0.1",
+                "schema_version": "mm_live_lifecycle_probe_v0.2",
                 "status": "PASS",
                 "secret_values_redacted": True,
             },
@@ -677,7 +618,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     def builder(gate, cancel_all, dead_man):
         seen.update(gate=gate, cancel_all=cancel_all, dead_man=dead_man)
         return {
-            "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+            "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
             "status": "PASS",
         }
 

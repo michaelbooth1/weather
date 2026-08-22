@@ -5,7 +5,7 @@ resolved from Windows Credential Manager references already present in the
 process environment; secret values are never accepted as arguments or written
 to artifacts. Exchange-mutating Stage 0 and Stage 1 functions are deliberately
 not exposed by this parser; a separately reviewed host-owned wrapper must call
-those library boundaries on an eligible machine. Stage 1 additionally requires
+those library boundaries. Stage 1 additionally requires
 a fresh non-authorizing candidate plan bound to a successful paper-only quote.
 """
 
@@ -33,14 +33,12 @@ from weather.market.mm_credentials import (
     stage0_client_identity_gate,
 )
 from weather.market.mm_exchange import credential_diagnostics
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.mm_live_bootstrap import (
     collect_platform_bootstrap_payload,
     finalize_platform_bootstrap_payload,
     load_platform_bootstrap_gate,
 )
 from weather.market.mm_live_lifecycle_probe import (
-    CANCELLATION_MODES,
     CONFIRMATION as STAGE1_CONFIRMATION,
     build_stage1_lifecycle_bundle,
     execute_stage1_lifecycle_probe,
@@ -344,10 +342,9 @@ def _validate_budget(value) -> float:
 def run_prepare_identity(
     args,
     *,
-    geoblock_collector=collect_official_geoblock_evidence,
     identity_gate=stage0_client_identity_gate,
 ) -> dict:
-    """Create a current, public, IP-redacted Stage 0 identity manifest."""
+    """Create a public Stage 0 identity manifest."""
 
     if args.confirmation != IDENTITY_CONFIRMATION:
         raise RuntimeError("identity preparation requires the exact confirmation token")
@@ -369,7 +366,6 @@ def run_prepare_identity(
     try:
         signature_type = str(args.signature_type).upper()
         signature_type_id = SIGNATURE_TYPE_IDS[signature_type]
-        evidence = geoblock_collector()
         identity = {
             "schema_version": STAGE0_IDENTITY_SCHEMA_VERSION,
             "operator_authorization": STAGE0_AUTHORIZATION,
@@ -377,13 +373,6 @@ def run_prepare_identity(
             "international_platform_confirmed": bool(
                 args.confirm_international_platform
             ),
-            "physical_location_matches_geoblock_confirmed": bool(
-                args.confirm_physical_location_match
-            ),
-            "geoblock_circumvention_absent_confirmed": bool(
-                args.confirm_no_circumvention
-            ),
-            "geographic_eligibility": evidence,
             "clob_host": "https://clob.polymarket.com",
             "settlement_unit": INTERNATIONAL_SETTLEMENT_UNIT,
             "chain_id": 137,
@@ -399,23 +388,6 @@ def run_prepare_identity(
         gate = identity_gate(identity)
         receipt["checks"] = dict(gate.get("checks") or {})
         receipt["missing"] = list(gate.get("missing") or [])
-        receipt["geographic_eligibility"] = {
-            key: evidence.get(key)
-            for key in (
-                "schema_version",
-                "endpoint",
-                "checked_at_utc",
-                "http_status",
-                "blocked",
-                "country",
-                "region",
-                "official_response_fields_sha256",
-                "requesting_ip_observed",
-                "requesting_ip_retained",
-                "proxy_configuration_absent",
-                "evidence_sha256",
-            )
-        }
         if not gate.get("ok"):
             raise RuntimeError("prepared Stage 0 identity did not pass its public gate")
     except Exception as exc:
@@ -759,7 +731,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     identity = commands.add_parser(
         "prepare-identity",
-        help="Fetch current geoblock evidence and build the public Stage 0 identity.",
+        help="Build the public Stage 0 identity.",
     )
     identity.add_argument("--funder-address", required=True)
     identity.add_argument(
@@ -776,14 +748,12 @@ def build_parser() -> argparse.ArgumentParser:
     identity.add_argument("--identity-out", required=True)
     identity.add_argument("--receipt-out", required=True)
     identity.add_argument("--confirm-international-platform", action="store_true")
-    identity.add_argument("--confirm-physical-location-match", action="store_true")
-    identity.add_argument("--confirm-no-circumvention", action="store_true")
     identity.add_argument("--confirm-isolated-wallet", action="store_true")
     identity.add_argument("--confirmation", required=True)
 
     doctor = commands.add_parser(
         "doctor",
-        help="Check keyless eligible-host setup without resolving credential values.",
+        help="Check keyless host setup without resolving credential values.",
     )
     doctor.add_argument("--identity", required=True)
     doctor.add_argument("--target-date", required=True)

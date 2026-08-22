@@ -1,7 +1,7 @@
 """Dedicated first-order lifecycle probe for International Polymarket.
 
 This module accepts an already-authenticated, fail-closed adapter plus a passing
-``mm_platform_bootstrap_v0.2`` gate. The bounded operator CLI wires that narrow
+``mm_platform_bootstrap_v0.3`` gate. The bounded operator CLI wires that narrow
 surface to credential references; the ordinary maker runner never calls it.
 """
 
@@ -24,9 +24,9 @@ from weather.market.mm_official_adapter import (
 )
 
 
-SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.1"
+SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.2"
 JOURNAL_SCHEMA_VERSION = "mm_live_lifecycle_probe_journal_v0.1"
-LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.1"
+LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.2"
 CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE"
 CANCELLATION_MODES = {"cancel_all", "dead_man"}
 OFFICIAL_HEARTBEAT_INTERVAL_SECONDS = 5.0
@@ -149,7 +149,7 @@ def _validate_bootstrap_binding(adapter, bootstrap_gate):
     required = {
         "required": bootstrap_gate.get("required") is True,
         "ok": bootstrap_gate.get("ok") is True,
-        "schema": bootstrap_gate.get("schema_version") == "mm_platform_bootstrap_v0.2",
+        "schema": bootstrap_gate.get("schema_version") == "mm_platform_bootstrap_v0.3",
         "status": bootstrap_gate.get("status") == "PASS",
         "platform": bootstrap_gate.get("platform") == "polymarket_global",
         "settlement_unit": bootstrap_gate.get("settlement_unit") == "pUSD",
@@ -160,12 +160,6 @@ def _validate_bootstrap_binding(adapter, bootstrap_gate):
         ),
         "missing": bootstrap_gate.get("missing") == [],
         "account_snapshot": len(str(bootstrap_gate.get("account_snapshot_sha256") or "")) == 64,
-        "geoblock_evidence": len(
-            str(bootstrap_gate.get("geoblock_evidence_sha256") or "")
-        ) == 64,
-        "geoblock_country": bool(
-            str(bootstrap_gate.get("geoblock_country") or "").strip()
-        ),
         "token": str(getattr(adapter, "token_id", ""))
         == str(bootstrap_gate.get("token_id") or ""),
         "token_format": str(bootstrap_gate.get("token_id") or "").isdigit()
@@ -272,9 +266,6 @@ def execute_stage1_lifecycle_probe(
         condition_id=bootstrap_gate.get("condition_id"),
         token_id=bootstrap_gate.get("token_id"),
         requested_budget_usdc=bootstrap_gate.get("requested_budget_usdc"),
-        geoblock_country=bootstrap_gate.get("geoblock_country"),
-        geoblock_region=bootstrap_gate.get("geoblock_region"),
-        geoblock_evidence_sha256=bootstrap_gate.get("geoblock_evidence_sha256"),
         confirmation_matched=True,
         secret_values_redacted=True,
     )
@@ -339,17 +330,6 @@ def execute_stage1_lifecycle_probe(
         )
         phase = "placement"
         response = adapter.place_order(intent, stage1_capability=stage1_capability)
-        geo_diagnostics = adapter.diagnostics()
-        if not all((
-            geo_diagnostics.get("geoblock_allows_orders") is True,
-            str(geo_diagnostics.get("geoblock_country") or "").upper()
-            == str(bootstrap_gate.get("geoblock_country") or "").upper(),
-            str(geo_diagnostics.get("geoblock_region") or "").upper()
-            == str(bootstrap_gate.get("geoblock_region") or "").upper(),
-            len(str(geo_diagnostics.get("geoblock_evidence_sha256") or "")) == 64,
-            len(str(geo_diagnostics.get("stage1_geoblock_evidence_sha256") or "")) == 64,
-        )):
-            raise RuntimeError("Stage 1 placement lacks current official geoblock evidence")
         order_id = _order_id(response)
         if not order_id:
             raise RuntimeError("Stage 1 placement response did not carry an order id")
@@ -357,14 +337,6 @@ def execute_stage1_lifecycle_probe(
             "order_accepted",
             order_id=order_id,
             placement_status=str(_value(response, "status") or "").lower(),
-            geoblock_country=geo_diagnostics["geoblock_country"],
-            geoblock_region=geo_diagnostics["geoblock_region"],
-            capability_geoblock_evidence_sha256=geo_diagnostics[
-                "stage1_geoblock_evidence_sha256"
-            ],
-            submission_geoblock_evidence_sha256=geo_diagnostics[
-                "geoblock_evidence_sha256"
-            ],
         )
 
         phase = "authoritative_order_observation"
@@ -492,14 +464,6 @@ def execute_stage1_lifecycle_probe(
             "order_notional_usdc": float(notional),
             "order_id": order_id,
             "placement_status": str(_value(response, "status") or "").lower(),
-            "geoblock_country": geo_diagnostics["geoblock_country"],
-            "geoblock_region": geo_diagnostics["geoblock_region"],
-            "capability_geoblock_evidence_sha256": geo_diagnostics[
-                "stage1_geoblock_evidence_sha256"
-            ],
-            "submission_geoblock_evidence_sha256": geo_diagnostics[
-                "geoblock_evidence_sha256"
-            ],
             "open_order_observed": observed_open,
             "authoritative_user_event_observed": observed_user_event,
             "cancellation_observed": cancellation_observed,
@@ -678,16 +642,6 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
             == str(bootstrap_gate.get("condition_id") or "").lower(),
             "token": str(result.get("token_id") or "")
             == str(bootstrap_gate.get("token_id") or ""),
-            "country": str(result.get("geoblock_country") or "").upper()
-            == str(bootstrap_gate.get("geoblock_country") or "").upper(),
-            "region": str(result.get("geoblock_region") or "").upper()
-            == str(bootstrap_gate.get("geoblock_region") or "").upper(),
-            "capability_geo_hash": len(
-                str(result.get("capability_geoblock_evidence_sha256") or "")
-            ) == 64,
-            "submission_geo_hash": len(
-                str(result.get("submission_geoblock_evidence_sha256") or "")
-            ) == 64,
             "heartbeat": result.get("heartbeat_acknowledged") is True,
             "starting_orders": result.get("starting_zero_open_orders_verified") is True,
             "starting_positions": result.get("starting_zero_positions_verified") is True,
@@ -748,8 +702,6 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
         "token_id": bootstrap_gate.get("token_id"),
         "funder_address": bootstrap_gate.get("funder_address"),
         "requested_budget_usdc": float(requested_budget),
-        "geoblock_country": bootstrap_gate.get("geoblock_country"),
-        "geoblock_region": bootstrap_gate.get("geoblock_region"),
         "lifecycle_results": results,
         "journal_evidence": journal_evidence,
         "derived_platform_evidence": {

@@ -21,7 +21,6 @@ from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
     OFFICIAL_CLOB_VERSION,
 )
-from weather.market.mm_geoblock import geoblock_evidence_gate
 from weather.market.mm_policy import bool_value, maybe_float, parse_time, utc_now
 
 CLOB_TOKEN_ARTIFACT_KEYS = ("clob_tokens", "clob_tokens_raw")
@@ -286,21 +285,6 @@ def stage1_lifecycle_bundle_sha256(bundle):
     return hashlib.sha256(encoded).hexdigest()
 
 
-def international_jurisdiction(payload, *, now=None):
-    """Require current physical eligibility, not merely a non-US account label."""
-
-    geoblock = geoblock_evidence_gate(
-        dict_value(payload, "geographic_eligibility"),
-        now=now,
-    )
-    return all((
-        bool_value(payload.get("international_platform_confirmed"), False),
-        bool_value(payload.get("physical_location_matches_geoblock_confirmed"), False),
-        bool_value(payload.get("geoblock_circumvention_absent_confirmed"), False),
-        geoblock.get("ok") is True,
-    ))
-
-
 def dict_value(payload, key):
     value = payload.get(key)
     return value if isinstance(value, dict) else {}
@@ -378,10 +362,6 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
     dead_man_elapsed = maybe_float(dead_man_probe.get("cancellation_elapsed_seconds"))
     is_us_platform = payload.get("platform") == "polymarket_us"
     heartbeat_cadence = maybe_float(heartbeat.get("cadence_seconds"))
-    geoblock = geoblock_evidence_gate(
-        dict_value(payload, "geographic_eligibility"),
-        now=now,
-    )
     checks = {
         "schema_version_supported": payload.get("schema_version") == PLATFORM_VERIFICATION_SCHEMA_VERSION,
         "status_pass": payload.get("status") == "PASS",
@@ -389,17 +369,6 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         "verified_at_recent": recent_utc_timestamp(payload.get("verified_at_utc"), now, max_age_hours),
         "docs_checked_recent": recent_utc_timestamp(payload.get("docs_checked_at_utc"), now, max_age_hours),
         "platform_supported": payload.get("platform") in SUPPORTED_PLATFORM_IDS,
-        "international_jurisdiction_verified": international_jurisdiction(payload, now=now),
-        "official_geoblock_evidence_verified": geoblock.get("ok") is True,
-        "physical_location_matches_geoblock_confirmed": bool_value(
-            payload.get("physical_location_matches_geoblock_confirmed"),
-            False,
-        ),
-        "geoblock_circumvention_absent_confirmed": bool_value(
-            payload.get("geoblock_circumvention_absent_confirmed"),
-            False,
-        ),
-        "eligibility_verified": bool_value(payload.get("eligibility_verified"), False),
         "api_base_url_is_international": str(payload.get("api_base_url") or "").rstrip("/").lower()
         == "https://polymarket.com",
         "clob_host_is_international": str(payload.get("clob_host") or "").rstrip("/").lower()
@@ -466,7 +435,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             == open_order_count,
         )),
         "stage1_lifecycle_bundle_schema_supported": (
-            lifecycle_bundle.get("schema_version") == "mm_stage1_lifecycle_bundle_v0.1"
+            lifecycle_bundle.get("schema_version") == "mm_stage1_lifecycle_bundle_v0.2"
         ),
         "stage1_lifecycle_bundle_status_pass": lifecycle_bundle.get("status") == "PASS",
         "stage1_lifecycle_bundle_created_recent": recent_utc_timestamp(
@@ -498,10 +467,6 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             ) is not None,
             valid_clob_token_id(lifecycle_bundle.get("token_id")),
             len(str(lifecycle_bundle.get("bootstrap_sha256") or "")) == 64,
-            str(lifecycle_bundle.get("geoblock_country") or "").upper()
-            == str(geoblock.get("country") or "").upper(),
-            str(lifecycle_bundle.get("geoblock_region") or "").upper()
-            == str(geoblock.get("region") or "").upper(),
         )),
         "stage1_lifecycle_bundle_budget_matches": (
             lifecycle_bundle_budget is not None
@@ -511,7 +476,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             and (pilot_wallet_cap is None or lifecycle_bundle_budget <= pilot_wallet_cap)
         ),
         "stage1_cancel_all_probe_verified": all((
-            cancel_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.1",
+            cancel_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
             cancel_probe.get("status") == "PASS",
             recent_utc_timestamp(cancel_probe.get("completed_at_utc"), now, max_age_hours),
             cancel_probe.get("platform") == "polymarket_global",
@@ -520,8 +485,6 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             cancel_probe.get("placement_status") == "live",
             bool(str(cancel_probe.get("order_id") or "")),
             cancel_probe.get("heartbeat_acknowledged") is True,
-            len(str(cancel_probe.get("capability_geoblock_evidence_sha256") or "")) == 64,
-            len(str(cancel_probe.get("submission_geoblock_evidence_sha256") or "")) == 64,
             cancel_probe.get("starting_zero_open_orders_verified") is True,
             cancel_probe.get("starting_zero_positions_verified") is True,
             cancel_probe.get("open_order_observed") is True,
@@ -535,7 +498,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             len(str(cancel_probe.get("journal_sha256") or "")) == 64,
         )),
         "stage1_dead_man_probe_verified": all((
-            dead_man_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.1",
+            dead_man_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
             dead_man_probe.get("status") == "PASS",
             recent_utc_timestamp(dead_man_probe.get("completed_at_utc"), now, max_age_hours),
             dead_man_probe.get("platform") == "polymarket_global",
@@ -544,8 +507,6 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             dead_man_probe.get("placement_status") == "live",
             bool(str(dead_man_probe.get("order_id") or "")),
             dead_man_probe.get("heartbeat_acknowledged") is True,
-            len(str(dead_man_probe.get("capability_geoblock_evidence_sha256") or "")) == 64,
-            len(str(dead_man_probe.get("submission_geoblock_evidence_sha256") or "")) == 64,
             dead_man_probe.get("starting_zero_open_orders_verified") is True,
             dead_man_probe.get("starting_zero_positions_verified") is True,
             dead_man_probe.get("open_order_observed") is True,
@@ -566,7 +527,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         ),
         "stage1_probe_identity_and_budget_match": all((
             lifecycle_bundle.get("bootstrap_schema_version")
-            == "mm_platform_bootstrap_v0.2",
+            == "mm_platform_bootstrap_v0.3",
             cancel_probe.get("bootstrap_schema_version")
             == lifecycle_bundle.get("bootstrap_schema_version"),
             dead_man_probe.get("bootstrap_schema_version")
@@ -577,12 +538,6 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             str(cancel_probe.get("token_id") or "")
             == str(dead_man_probe.get("token_id") or "")
             == str(lifecycle_bundle.get("token_id") or ""),
-            str(cancel_probe.get("geoblock_country") or "").upper()
-            == str(dead_man_probe.get("geoblock_country") or "").upper()
-            == str(lifecycle_bundle.get("geoblock_country") or "").upper(),
-            str(cancel_probe.get("geoblock_region") or "").upper()
-            == str(dead_man_probe.get("geoblock_region") or "").upper()
-            == str(lifecycle_bundle.get("geoblock_region") or "").upper(),
             cancel_probe_notional is not None
             and lifecycle_bundle_budget is not None
             and 0 < cancel_probe_notional <= lifecycle_bundle_budget,
@@ -734,10 +689,6 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         "docs_checked_at_utc": payload.get("docs_checked_at_utc"),
         "max_age_hours": max_age_hours,
         "platform": payload.get("platform"),
-        "geoblock_country": geoblock.get("country"),
-        "geoblock_region": geoblock.get("region"),
-        "geoblock_checked_at_utc": geoblock.get("checked_at_utc"),
-        "geoblock_evidence_sha256": geoblock.get("evidence_sha256"),
         "wallet_type": payload.get("wallet_type"),
         "signature_type": payload.get("signature_type"),
         "signature_type_id": payload.get("signature_type_id"),

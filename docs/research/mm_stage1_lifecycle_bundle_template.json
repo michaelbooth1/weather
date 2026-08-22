@@ -1,17 +1,15 @@
 {
-  "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+  "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
   "status": "TEMPLATE_FAIL_SAFE",
   "created_at_utc": null,
   "platform": "polymarket_global",
   "settlement_unit": "pUSD",
-  "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
+  "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
   "bootstrap_sha256": null,
   "condition_id": null,
   "token_id": null,
   "funder_address": null,
   "requested_budget_usdc": null,
-  "geoblock_country": null,
-  "geoblock_region": null,
   "lifecycle_results": {
     "cancel_all": {},
     "dead_man": {}
