@@ -309,10 +309,7 @@ def _production_readiness_status(args):
 
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def read_json(path):
@@ -340,9 +337,12 @@ def parse_datetime(value):
 def parse_schedule_time(value):
     try:
         hour, minute = str(value).split(":", 1)
-        return datetime_time(hour=int(hour), minute=int(minute))
-    except (TypeError, ValueError):
-        return datetime_time(hour=3, minute=30)
+        parsed = datetime_time(hour=int(hour), minute=int(minute))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"schedule local time must be HH:MM, got {value!r}"
+        ) from exc
+    return parsed
 
 
 def latest_scheduled_window(
@@ -2045,6 +2045,12 @@ def run_nightly_retrain(
     release_builder=create_release,
     code_identity_provider=capture_code_identity,
 ):
+    # Reject a malformed topology clock before acquiring the long-job lock or
+    # starting any candidate work. Scheduled registrars always bind both.
+    parse_schedule_time(
+        getattr(args, "schedule_local_time", DEFAULT_SCHEDULE_LOCAL_TIME)
+    )
+    ZoneInfo(getattr(args, "schedule_timezone", DEFAULT_SCHEDULE_TIMEZONE))
     guard_enabled = (
         not getattr(args, "dry_run", False)
         and not getattr(args, "disable_long_job_guard", False)
@@ -2729,6 +2735,20 @@ def _run_nightly_retrain_guarded(
     payload["nightly_sla"] = nightly_run_sla_status(
         status_path=args.status_out,
         status_payload=payload,
+        task_name=(
+            str(getattr(args, "scheduler_task_name", "") or "").strip()
+            or DEFAULT_TASK_NAME
+        ),
+        schedule_local_time=getattr(
+            args,
+            "schedule_local_time",
+            DEFAULT_SCHEDULE_LOCAL_TIME,
+        ),
+        schedule_timezone=getattr(
+            args,
+            "schedule_timezone",
+            DEFAULT_SCHEDULE_TIMEZONE,
+        ),
         missed_run_grace_minutes=args.missed_run_grace_minutes,
     )
     payload["nightly_sla"]["generated_at_utc"] = payload["generated_at_utc"]
@@ -3001,6 +3021,19 @@ def build_run_parser(parser):
     parser.add_argument("--scheduler-task-action-arguments-b64", default="")
     parser.add_argument("--scheduler-process-executable", default="")
     parser.add_argument("--scheduler-correlation-seconds", type=float, default=120.0)
+    parser.add_argument(
+        "--schedule-local-time",
+        default=DEFAULT_SCHEDULE_LOCAL_TIME,
+        help=(
+            "Exact local trigger time for this scheduled topology. The direct "
+            "registrar and delegated training window bind it explicitly."
+        ),
+    )
+    parser.add_argument(
+        "--schedule-timezone",
+        default=DEFAULT_SCHEDULE_TIMEZONE,
+        help="IANA timezone owning --schedule-local-time.",
+    )
     parser.add_argument(
         "--producer-sla-seconds",
         type=float,

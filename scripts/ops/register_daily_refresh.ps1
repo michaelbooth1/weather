@@ -1,8 +1,9 @@
 # Registers the split daily settlement/evidence refresh as Windows Scheduled Tasks.
 #
 # Stage A runs settlement truth through fleet observability at 09:30.
-# Stage B runs evidence recomputation and learning when Stage A triggers it,
-# with 14:00 and 17:00 fallback triggers guarded by the Stage-A manifest.
+# Stage B runs evidence recomputation and learning once overnight, after Stage
+# A has released the shared heavy-work lease and before the 09:00 deadline. It
+# remains disabled unless -EnableEvidenceTask is supplied explicitly.
 #
 # Full registration keeps the release-#1 production-evidence inputs mandatory.
 # Before those reviewed inputs exist, the explicit -ProvenanceOnly parameter set
@@ -18,8 +19,10 @@ param(
     [string]$TaskName = "WeatherDailySettlementPromotionRefresh",
     [string]$EvidenceTaskName = "WeatherEveningEvidenceRefresh",
     [string]$At = "09:30",
-    [string[]]$EvidenceAt = @("14:00", "17:00"),
+    [ValidateSet("00:35")]
+    [string]$EvidenceAt = "00:35",
     [string]$PowerShellExecutable = "powershell.exe",
+    [switch]$EnableEvidenceTask,
     [Parameter(Mandatory = $true, ParameterSetName = "Full")]
     [string[]]$CapturedInputParityServed,
     [Parameter(Mandatory = $true, ParameterSetName = "Full")]
@@ -166,16 +169,12 @@ $stageBAction = New-ScheduledTaskAction `
     -Argument $stageBArguments `
     -WorkingDirectory $RepoRoot
 
-$stageBTriggers = @()
-foreach ($time in $EvidenceAt) {
-    $stageBTriggers += New-ScheduledTaskTrigger -Daily -At $time
-}
+$stageBTrigger = New-ScheduledTaskTrigger -Daily -At $EvidenceAt
 
 $stageBSettings = New-ScheduledTaskSettingsSet `
     -MultipleInstances IgnoreNew `
     -Hidden `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 8) `
-    -StartWhenAvailable `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 8 -Minutes 40) `
     -WakeToRun `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
@@ -183,13 +182,39 @@ $stageBSettings = New-ScheduledTaskSettingsSet `
 Register-ScheduledTask `
     -TaskName $EvidenceTaskName `
     -Action $stageBAction `
-    -Trigger $stageBTriggers `
+    -Trigger $stageBTrigger `
     -Settings $stageBSettings `
     -Principal $principal `
     -Description "Runs daily weather-market evidence recomputation and learning when the Stage-A manifest is fresh (daily_refresh --stage evidence)." `
     -Force | Out-Null
 
+if ($EnableEvidenceTask) {
+    Enable-ScheduledTask -TaskName $EvidenceTaskName -ErrorAction Stop | Out-Null
+}
+else {
+    Disable-ScheduledTask -TaskName $EvidenceTaskName -ErrorAction Stop | Out-Null
+}
+$evidenceTaskReadback = @(Get-ScheduledTask -TaskName $EvidenceTaskName -ErrorAction Stop)
+if ($evidenceTaskReadback.Count -ne 1) {
+    throw "expected exactly one registered evidence task '$EvidenceTaskName'"
+}
+$evidenceTaskState = [string]$evidenceTaskReadback[0].State
+$evidenceTaskTriggers = @($evidenceTaskReadback[0].Triggers)
+if (
+    $evidenceTaskTriggers.Count -ne 1 -or
+    ([datetime]$evidenceTaskTriggers[0].StartBoundary).ToString("HH:mm") -ne $EvidenceAt -or
+    [string]$evidenceTaskReadback[0].Settings.ExecutionTimeLimit -ne "PT8H40M"
+) {
+    throw "evidence task '$EvidenceTaskName' trigger or PT8H40M cleanup limit disagrees"
+}
+if (-not $EnableEvidenceTask -and $evidenceTaskState -ne "Disabled") {
+    throw "evidence task '$EvidenceTaskName' must remain disabled without -EnableEvidenceTask"
+}
+if ($EnableEvidenceTask -and $evidenceTaskState -eq "Disabled") {
+    throw "evidence task '$EvidenceTaskName' was explicitly enabled but read back Disabled"
+}
+
 Write-Host "Registered scheduled task '$TaskName': settlement stage daily at $At."
-Write-Host "Registered scheduled task '$EvidenceTaskName': evidence stage fallback at $($EvidenceAt -join ', ')."
+Write-Host "Registered scheduled task '$EvidenceTaskName': evidence stage overnight at $EvidenceAt (state $evidenceTaskState)."
 Write-Host "Verify with: Get-ScheduledTask -TaskName $TaskName | Get-ScheduledTaskInfo"
 Write-Host "Verify evidence with: Get-ScheduledTask -TaskName $EvidenceTaskName | Get-ScheduledTaskInfo"

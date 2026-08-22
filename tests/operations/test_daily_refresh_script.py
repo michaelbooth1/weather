@@ -73,7 +73,15 @@ def _expected_child_tokens(
         stage,
     ]
     if stage == "settlement":
-        tokens += ["--evidence-task-name", "WeatherEveningEvidenceRefresh"]
+        tokens += [
+            "--evidence-task-name",
+            "WeatherEveningEvidenceRefresh",
+            "--disable-stage-trigger",
+            "--skip-historical-audits",
+            "--skip-fleet-trust-replay",
+            "--skip-fleet-runtime-identity-replay",
+            "--skip-fleet-trading-replay",
+        ]
         producer_sla = "14400"
     else:
         tokens += [
@@ -172,11 +180,54 @@ def test_daily_refresh_is_serialized_and_cannot_cross_the_graded_window():
     assert "Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot" in wrapper
     assert '-Workload "daily_refresh_$Stage"' in wrapper
     assert '-AllowStageAWindow:($Stage -eq "settlement")' in wrapper
-    assert "$localMinute -ge 715 -or $localMinute -lt 30" in wrapper
-    assert "$minute -ge 715 -or $minute -lt 30" in wrapper
+    assert '$deadlineMinute = if ($Stage -eq "evidence") { 9 * 60 } else { 11 * 60 + 55 }' in wrapper
+    assert "$localMinute -ge $deadlineMinute -or $localMinute -lt 30" in wrapper
+    assert "$minute -ge $deadlineMinute -or $minute -lt 30" in wrapper
     assert "Closing the kill-on-close Job" in wrapper
     assert "$childExitCode = 75" in wrapper
     assert "Exit-WeatherHeavyWorkloadLease" in wrapper
+
+
+def test_daily_refresh_has_one_overnight_evidence_trigger_without_immediate_race():
+    registration = REGISTER.read_text(encoding="utf-8-sig")
+    contract = CONTRACT.read_text(encoding="utf-8-sig")
+
+    assert '[string]$EvidenceAt = "00:35"' in registration
+    assert '[ValidateSet("00:35")]' in registration
+    assert "$stageBTrigger = New-ScheduledTaskTrigger -Daily -At $EvidenceAt" in registration
+    assert "foreach ($time in $EvidenceAt)" not in registration
+    assert '"--disable-stage-trigger"' in contract
+    assert '"--skip-historical-audits"' in contract
+    assert '"--skip-fleet-trust-replay"' in contract
+    assert '"--skip-fleet-runtime-identity-replay"' in contract
+    assert '"--skip-fleet-trading-replay"' in contract
+    stage_b_settings = registration.split(
+        "$stageBSettings = New-ScheduledTaskSettingsSet", 1
+    )[1].split("Register-ScheduledTask", 1)[0]
+    assert "-StartWhenAvailable" not in stage_b_settings
+    assert "-ExecutionTimeLimit (New-TimeSpan -Hours 8 -Minutes 40)" in stage_b_settings
+    stage_a_settings = registration.split(
+        "$stageASettings = New-ScheduledTaskSettingsSet", 1
+    )[1].split("$principal =", 1)[0]
+    assert "-StartWhenAvailable" in stage_a_settings
+    producer_sla_seconds = 8 * 60 * 60
+    wrapper_span_seconds = ((9 * 60) - 35) * 60
+    scheduler_limit_seconds = (8 * 60 + 40) * 60
+    assert producer_sla_seconds < wrapper_span_seconds < scheduler_limit_seconds
+
+
+def test_daily_refresh_registration_holds_stage_b_disabled_without_opt_in():
+    registration = REGISTER.read_text(encoding="utf-8-sig")
+
+    assert "[switch]$EnableEvidenceTask" in registration
+    assert "if ($EnableEvidenceTask)" in registration
+    assert "Enable-ScheduledTask -TaskName $EvidenceTaskName" in registration
+    assert "Disable-ScheduledTask -TaskName $EvidenceTaskName" in registration
+    assert "$evidenceTaskReadback = @(Get-ScheduledTask" in registration
+    assert 'Settings.ExecutionTimeLimit -ne "PT8H40M"' in registration
+    assert 'StartBoundary).ToString("HH:mm") -ne $EvidenceAt' in registration
+    assert '$evidenceTaskState -ne "Disabled"' in registration
+    assert '$evidenceTaskState -eq "Disabled"' in registration
 
 
 def test_daily_refresh_parser_accepts_delegated_child_contract():
@@ -184,6 +235,11 @@ def test_daily_refresh_parser_accepts_delegated_child_contract():
         "run",
         "--stage",
         "settlement",
+        "--disable-stage-trigger",
+        "--skip-historical-audits",
+        "--skip-fleet-trust-replay",
+        "--skip-fleet-runtime-identity-replay",
+        "--skip-fleet-trading-replay",
         "--scheduler-invocation-topology",
         "delegated_child",
         "--scheduler-task-name",
@@ -201,6 +257,11 @@ def test_daily_refresh_parser_accepts_delegated_child_contract():
     ])
 
     assert args.scheduler_invocation_topology == "delegated_child"
+    assert args.disable_stage_trigger is True
+    assert args.skip_historical_audits is True
+    assert args.skip_fleet_trust_replay is True
+    assert args.skip_fleet_runtime_identity_replay is True
+    assert args.skip_fleet_trading_replay is True
     assert args.scheduler_task_name == "WeatherDailySettlementPromotionRefresh"
     assert args.scheduler_task_action_arguments_b64 == "WyItTm9Qcm9maWxlIl0="
     assert args.scheduler_process_executable.endswith(r"venv\Scripts\pythonw.exe")

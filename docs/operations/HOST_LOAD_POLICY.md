@@ -34,10 +34,15 @@ a committed timetable.
 | Window | Load class |
 | --- | --- |
 | 00:05–00:30 | taker/MM daily roll-over — brief spike |
-| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here, and the quiet merge window (01:00–04:00) sits inside it |
+| 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
 | 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
 | 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
 | 18:00–00:05 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch |
+
+When Stage B is explicitly enabled, its exact 00:35 trigger composes an
+eight-hour child SLA (08:35), the wrapper's 09:00 teardown (8h25m), and the
+Scheduler `PT8H40M` cleanup limit (09:15). This leaves 15 minutes before the
+09:30 Stage-A exception; `StartWhenAvailable` is forbidden.
 
 Stage-A settlement safeguards: the daily taker edge-permission aggregation is
 single-pass and tape-bounded. Scheduled maker-paper scoring selects the latest
@@ -46,6 +51,18 @@ quote inputs exceed 512 MiB (`--maker-paper-latest-active-runs` and
 `--maker-paper-max-input-bytes`). These independent input limits remain
 fail-closed alongside the per-step isolation and physical-memory admission
 owned by Roadmap Item 324.
+
+The scheduled fleet-observability tail measures current fleet, tape,
+provenance, and child-resource state in an isolated 20-minute child with a
+3,072 MiB private-memory ceiling and 2,048 MiB working-set ceiling. It skips
+the separate full historical audit, `score_all_markets` trust replay, and
+runtime-identity snapshot-tape replay, whose retained-corpus scans cannot fit
+the morning tail. It also skips the duplicate all-run MM/taker summaries and
+marks every omitted evidence family explicitly. The parent persists a
+resumable fallback before launch, so a
+timeout terminalizes before the 11:55 outer teardown instead of leaving a
+nonterminal in-process status. Run full historical audits only as separately
+admitted work in the ordinary 00:30–09:00 window.
 
 For each run, a complete validated `mm_scoring_projection_v0.2` base/variant
 pair is measured and passed to the streaming scorer; any missing, stale,
@@ -207,7 +224,8 @@ useful work before capture is stopped. The independent
 5. Scheduled `-m weather.*` heavy work stays governed by its own admission
    gate (capture-resource DEFER on this live host) **and** the shared workload
    lease—neither mechanism loosens the other. The daily-refresh wrapper tears
-   down its complete Job-owned child tree at 11:55 rather than crossing into
+   down evidence at 09:00 and settlement at 11:55. Stage B therefore releases
+   the host before the 09:30 Stage-A exception, and Stage A cannot cross into
    the graded window.
 
 ## Incident 2026-07-12 (why this policy exists)

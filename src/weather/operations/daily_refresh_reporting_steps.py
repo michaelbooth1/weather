@@ -1455,6 +1455,21 @@ def run_fleet_observability_step(args):
         target_day=args.audit_target_day,
         years=years,
         include_audits=not args.skip_historical_audits,
+        include_trust_replay=not getattr(
+            args,
+            "skip_fleet_trust_replay",
+            False,
+        ),
+        include_runtime_identity_replay=not getattr(
+            args,
+            "skip_fleet_runtime_identity_replay",
+            False,
+        ),
+        include_trading_replay=not getattr(
+            args,
+            "skip_fleet_trading_replay",
+            False,
+        ),
         parquet_incremental_path=backtest_path(args, "closed_market_day_parquet_incremental.json"),
         daily_refresh_resources=getattr(args, "_daily_refresh_resource_steps", None),
     )
@@ -1470,6 +1485,18 @@ def run_fleet_observability_step(args):
         "report_out": as_path(report_out),
         "provenance_out": as_path(provenance_out),
         "status": payload.get("status"),
+        "trust_readiness_execution": payload.get(
+            "trust_readiness_execution"
+        ) or {},
+        "historical_audit_execution": payload.get(
+            "historical_audit_execution"
+        ) or {},
+        "runtime_identity_execution": payload.get(
+            "runtime_identity_execution"
+        ) or {},
+        "trading_replay_execution": payload.get(
+            "trading_replay_execution"
+        ) or {},
         "summary": payload.get("summary") or {},
         "collection_states": ((payload.get("collection") or {}).get("summary") or {}).get("states") or {},
     }

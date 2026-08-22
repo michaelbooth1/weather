@@ -2,6 +2,7 @@
 
 from collections import Counter
 
+from weather.io import write_json_atomic
 from weather.reporting.fleet.fleet_observability_payload import *  # noqa: F403
 
 # The extracted functions below intentionally resolve globals from the
@@ -23,10 +24,7 @@ def _summarize_messages(messages, limit=3):
     return "; ".join(parts)
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def write_markdown(path, payload):
@@ -110,6 +108,27 @@ def write_markdown(path, payload):
         f"Warning alerts: `{(payload.get('summary') or {}).get('warning_alerts')}`",
         "",
         "## Collection And Trust",
+        "",
+        "Historical audit: **{status}**; omitted: `{omitted}`; reason: `{reason}`.".format(
+            status=(payload.get("historical_audit_execution") or {}).get("status") or "UNKNOWN",
+            omitted=(payload.get("historical_audit_execution") or {}).get("historical_audits_omitted"),
+            reason=(payload.get("historical_audit_execution") or {}).get("reason") or "-",
+        ),
+        "Trust replay: **{status}**; omitted: `{omitted}`; reason: `{reason}`.".format(
+            status=(payload.get("trust_readiness_execution") or {}).get("status") or "UNKNOWN",
+            omitted=(payload.get("trust_readiness_execution") or {}).get("trust_readiness_omitted"),
+            reason=(payload.get("trust_readiness_execution") or {}).get("reason") or "-",
+        ),
+        "Runtime-identity replay: **{status}**; omitted: `{omitted}`; reason: `{reason}`.".format(
+            status=(payload.get("runtime_identity_execution") or {}).get("status") or "UNKNOWN",
+            omitted=(payload.get("runtime_identity_execution") or {}).get("runtime_identity_evidence_omitted"),
+            reason=(payload.get("runtime_identity_execution") or {}).get("reason") or "-",
+        ),
+        "MM/taker replay: **{status}**; omitted: `{omitted}`; reason: `{reason}`.".format(
+            status=(payload.get("trading_replay_execution") or {}).get("status") or "UNKNOWN",
+            omitted=(payload.get("trading_replay_execution") or {}).get("trading_evidence_omitted"),
+            reason=(payload.get("trading_replay_execution") or {}).get("reason") or "-",
+        ),
         "",
     ]
     lines += markdown_table(

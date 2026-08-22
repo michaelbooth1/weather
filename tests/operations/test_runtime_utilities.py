@@ -335,9 +335,86 @@ def test_operations_dashboard_includes_nightly_retrain_sla_row(monkeypatch):
         },
     )
 
-    row = nightly_retrain_status_rows()
+    row = nightly_retrain_status_rows(status_payload={})
 
     assert row["Job"] == "Nightly retrain"
     assert row["State"] == "BLOCKED"
     assert row["Task Registered"] is True
     assert row["P0 Gate"] == "Data-layer audit failed."
+
+
+def test_operations_dashboard_uses_delegated_nightly_sla_binding(monkeypatch):
+    observed = {}
+
+    def task_status(name):
+        observed["task"] = name
+        return {"Registered": True, "State": "Disabled"}
+
+    def sla_status(**kwargs):
+        observed.update(kwargs)
+        return {
+            "state": "PENDING",
+            "run_status": "blocked",
+            "task_registered": True,
+            "task_state": "Disabled",
+            "fresh_for_latest_window": False,
+        }
+
+    monkeypatch.setattr(
+        "weather.operations.ops_monitor.scheduled_task_status", task_status
+    )
+    monkeypatch.setattr(
+        "weather.operations.ops_monitor.nightly_run_sla_status", sla_status
+    )
+    payload = {
+        "invocation": {
+            "scheduler_attested": True,
+            "task_name": "WeatherTrainingWindow",
+        },
+        "nightly_sla": {
+            "task_name": "WeatherTrainingWindow",
+            "schedule_local_time": "01:00",
+            "schedule_timezone": "America/Toronto",
+        },
+    }
+
+    row = nightly_retrain_status_rows(status_payload=payload)
+
+    assert observed["task"] == "WeatherTrainingWindow"
+    assert observed["task_name"] == "WeatherTrainingWindow"
+    assert observed["schedule_local_time"] == "01:00"
+    assert row["Task State"] == "Disabled"
+    assert row["Topology Bound"] is True
+
+
+def test_operations_dashboard_rejects_unattested_delegated_hint(monkeypatch):
+    observed = {}
+
+    def task_status(name):
+        observed["task"] = name
+        return {"Registered": True, "State": "Disabled"}
+
+    monkeypatch.setattr(
+        "weather.operations.ops_monitor.scheduled_task_status", task_status
+    )
+    monkeypatch.setattr(
+        "weather.operations.ops_monitor.nightly_run_sla_status",
+        lambda **kwargs: observed.update(kwargs) or {"state": "PENDING"},
+    )
+    payload = {
+        "invocation": {
+            "scheduler_attested": False,
+            "task_name": "WeatherTrainingWindow",
+        },
+        "nightly_sla": {
+            "task_name": "WeatherTrainingWindow",
+            "schedule_local_time": "01:00",
+            "schedule_timezone": "America/Toronto",
+        },
+    }
+
+    row = nightly_retrain_status_rows(status_payload=payload)
+
+    assert observed["task"] == "WeatherNightlyRetrainValidatePromote"
+    assert observed["schedule_local_time"] == "03:30"
+    assert row["Topology Bound"] is False
