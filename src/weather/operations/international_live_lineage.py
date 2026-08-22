@@ -55,11 +55,12 @@ def exact_run_lineage(
         sidecar = expected["session_manifest"].with_suffix(
             expected["session_manifest"].suffix + ".sha256"
         )
-        validate_contained_regular_file(attempt_root, sidecar)
+        observed_sidecar = validate_contained_regular_file(
+            attempt_root, str(manifest.get("sidecar_path") or "")
+        )
         if (
-            Path(str(manifest.get("sidecar_path") or "")).resolve()
-            != sidecar.resolve()
-            or sha256_file(sidecar) != manifest.get("sidecar_sha256")
+            observed_sidecar != sidecar.resolve()
+            or sha256_file(observed_sidecar) != manifest.get("sidecar_sha256")
             or run.get("wrapper") != seal.get("wrapper")
             or run.get("launcher") != seal.get("launcher")
         ):
