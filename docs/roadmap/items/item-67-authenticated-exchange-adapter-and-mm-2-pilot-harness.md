@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-19 - CUMULATIVE CLIENT/PUSD PARENT INTEGRATED; STAGE 2 AND LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-22 - INTERRUPT-SAFE CUMULATIVE TIP PENDING EXACT SUITE AND INTEGRATION]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -525,3 +525,22 @@ The fixed-scope Stage 2 successor did not integrate. Its focused host wrapper
 resolved imports from production rather than its exact worktree, so the full
 suite and guarded merge correctly refused. A corrected diagnostic passed its
 73 focused tests, but a fresh exact-tip full-suite receipt remains mandatory.
+
+## 2026-08-22 interrupt-safety cumulative disposition
+
+Production remains at `cfdad9e5225f4dad86eaeddae7631893cd6c5350`. The exact
+documentation closeout commit `e0d54db06699fc1c6e104dbdc3ccd4800cb16dd7`
+and interrupt-cleanup commit `da32c0895bb5b40c842b35232ff266c7968d4439`
+are preserved as ancestors of `codex/stage1-readiness-cumulative-20260822`.
+That cumulative branch is pending, not landed, and has no live authority.
+
+The cleanup change routes `KeyboardInterrupt` and other `BaseException` exits
+through lifecycle and command cleanup, repeats cancel-all and exact-scope
+zero-state reconciliation at the command boundary, emits type-only failure
+evidence, and re-raises without retrying the submit. A forced process kill or
+power loss still depends on the separately proved heartbeat-lapse path. Before
+any Stage 0 or Stage 1 wrapper is sealed to production, the exact cumulative
+tip must pass its own immutable full suite, guarded integration, capture
+recovery, publication, and production-identity proof. Focused tests on either
+parent commit are not a substitute. No exchange mutation occurred in preparing
+this branch.

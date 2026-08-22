@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-22 12:08 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-22 14:32 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -26,17 +26,16 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Settlement | August 17 remains an explicit 12-market settlement hole and will not be retried by the ordinary chain. Recover it only through the bounded stop-after-finalize path, then prove normal lock release and real settlement evidence. |
 | Tiering | The canonical 05:00 projection and 06:00 raw-tape tasks are enabled and both produced durable `OK` status on their first post-adoption runs. Scheduler zero alone is not the proof; retain the task-status artifacts and free-space trail. |
 | Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
-| Documentation | This rewrite reconciles the two exact integration commits, their receipts, and the first morning readback. `weather.operations.documentation_transaction status` and its matching content-addressed receipt remain the authority for whether the ignored closeout transaction is complete. |
+| Documentation | Commit `e0d54db06699fc1c6e104dbdc3ccd4800cb16dd7` reconciles the two exact integration commits, their receipts, and the first morning readback. It is preserved as an exact ancestor of the pending Stage-1 cumulative branch, not landed production documentation. `weather.operations.documentation_transaction status` and its matching content-addressed receipt remain the authority for the ignored closeout transaction. |
 | Host safety | The temporary active-hours package protected the reboot-pending morning and restored the normal graded-window policy at 11:56/11:58 without initiating a reboot. A reboot is still pending and is not authorized during protected capture. |
-| Live money | No live-money test is authorized or ready. Location, credential, lifecycle, economics, release, and operator gates remain separate from integration success. |
+| Live money | The operator has authorized a bounded first live test, but no exchange mutation has run. Interrupt cleanup commit `da32c0895bb5b40c842b35232ff266c7968d4439` is combined with the documentation closeout only on `codex/stage1-readiness-cumulative-20260822`; that cumulative tip is pending exact-suite proof and guarded integration, not landed. Stage 0, fresh candidate, fixed-scope wrapper, runtime, economics, and account evidence remain separate gates. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
 - International Polymarket only. Never use Polymarket US for a new probe,
   credential path, readiness decision, or mutation.
-- No credential access or order mutation from the current Ontario location.
-  Physical relocation changes nothing until a fresh official response matches
-  the real location and no-circumvention confirmation.
+- Re-prove physical execution eligibility at action time. A prior response,
+  machine designation, or credential state never authorizes mutation.
 - The first live test is a plumbing/evidence probe: one market, finite
   non-raisable 100 pUSD-equivalent wallet cap, post-only, no naked sells, and
   every existing lower ceiling.
@@ -51,25 +50,25 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Immediate execution order
 
-1. Make no production Git, Scheduler, reboot, or heavy-work mutation inside the
-   12:00-18:00 graded window. A docs-only topic may be prepared and pushed, but
-   its exact tip must receive the canonical roll verdict before later adoption.
-2. Finish the hash-bound post-integration documentation transaction through the
-   approved publication path, then require `HEAD == master == origin/master`
-   and a matching immutable PASS receipt. Do not clear it from Scheduler state.
-3. In the next admitted overnight window, recover August 17 through the bounded
-   stop-after-finalize path. Preserve all tapes and ledgers and require 12/12
-   finite real settlements, normal lock release, and current capture.
-4. Let recurring tiering run serially under its canonical wrappers. Diagnose a
-   durable non-`OK` task status rather than inferring success from Scheduler.
-5. Keep Stage B and training held until their independent preconditions are
-   proved. The successful code integration grants neither workload admission
-   nor live-trading authority.
+1. Inside protected capture, do not mutate production Git, Scheduler, reboot,
+   or heavy work. Preparing or pushing a topic is not runtime adoption.
+2. Publish `codex/stage1-readiness-cumulative-20260822`, then run its immutable
+   exact-tip suite overnight. Parent or focused results cannot prove this tip.
+3. After PASS, use only the guarded integration path; require capture recovery,
+   `HEAD == master == origin/master`, and immutable receipts.
+4. Only after that exact production adoption, bind Stage 0 and the fixed-scope
+   wrapper to the production identity and a fresh candidate.
+5. Recover August 17 separately through bounded stop-after-finalize; require
+   12/12 real settlements, normal lock release, and current capture.
+6. Let tiering run serially; diagnose durable status, not Scheduler zero.
+7. Keep Stage B and training held until their own preconditions pass.
 
 ## Host and workflow state
 
-- `workflow-minimal-0822-a1` is a PASS immutable attempt. Its one-shot suite and
-  merge tasks are retained as exact evidence and have no future trigger.
+- `codex/stage1-readiness-cumulative-20260822` preserves exact commits
+  `e0d54db06699fc1c6e104dbdc3ccd4800cb16dd7` and
+  `da32c0895bb5b40c842b35232ff266c7968d4439`; it is pending and has no
+  production authority. `workflow-minimal-0822-a1` remains retained PASS evidence.
 - The earlier fixed bootstrap pair is spent evidence. Its initial merge task
   refused before production mutation; the reviewed retry produced the pushed
   report that binds the actual first landing.
@@ -83,7 +82,6 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Update this file when
 
-Rewrite after August 17 recovery, a new Stage-A soak, Stage-B proof or
-enablement, a later integration, fresh candidate selection, eligible-location
-readiness, or a live lifecycle result. Remove superseded state rather than
-appending another handoff.
+Rewrite after cumulative Stage-1 integration, August 17 recovery, a new Stage-A
+soak, Stage-B proof or enablement, fresh candidate selection, action-time
+eligibility, or a live lifecycle result. Remove superseded state.
