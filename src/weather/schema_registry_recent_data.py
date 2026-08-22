@@ -1139,4 +1139,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Atomic latest pointer binding the current pending-state hash and documentation tip to an immutable closeout receipt.",
     ),
+    SchemaSpec(
+        "execution_tape_bounded_probe",
+        "execution_tape_bounded_probe_v0.2",
+        "scripts.ops.bounded_execution_tape_probe",
+        "active",
+        "Bounded production proof of a connected execution-tape seed set, at least one clean route, clean teardown, and capture survival.",
+    ),
 )

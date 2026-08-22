@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-21 21:05 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-21 22:10 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -21,12 +21,13 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | --- | --- |
 | Capture | The three streak-critical workers are healthy. The supervised public execution tape is connected and integrity-valid. Preserve the graded and near-close windows. |
 | Production | `master`, checked-out `HEAD`, and `origin/master` are synchronized at baseline `a76ec7b5599d499011054f98e43564ad0563a58f`. Only the two expected generated location-config files are modified. |
-| Integration repair | The immutable-attempt redesign has undergone repeated independent review. The current candidate adds crash-journal recovery, exact registration/task binding, terminal and Git-mutation mutexes, immutable publication evidence, reviewed resume/reconciliation, execution-tape recovery proof, and truthful status. It is not production until tonight's exact-tip suite and guarded merge pass. |
-| Tonight's suite | `WeatherIntegrationRecoveryBootstrapSuiteFixed0822` runs the frozen target worktree at 00:35. The complete exact-tip suite is still pending; focused checks are not a substitute. |
-| Tonight's merge | `WeatherIntegrationRecoveryBootstrapMergeFixed0822` starts at 01:30, may wait at most 60 minutes for that exact suite to finish, and invokes the hash-frozen quiet wrapper only after a correlated PASS. It must stage without committing, prove core capture plus any affected execution tape, record documentation, publish through `WeatherOneShotPush`, and verify `origin/master`. |
-| Crash recovery | `WeatherBootRecovery` is temporarily bound to the frozen target script with its exact SHA256 and a zero-delay startup trigger for this first landing. Pending reboot signals remain, but no reboot is authorized during the run. Task Scheduler startup ordering is not absolute; retained markers and nonzero recovery keep ambiguous states fail-closed. |
-| Documentation | The existing documentation transaction is COMPLETE and hash-consistent. A successful merge begins a new exact transaction before publication; a hard kill leaves content-addressed evidence for reviewed resume. |
-| Live money | No live-money test is authorized or ready. The code must first pass the full suite, land, recover capture, publish, and produce complete evidence; location, credential, lifecycle, economics, and release gates remain separate. |
+| First landing | `WeatherIntegrationRecoveryBootstrapSuiteFixed0822` runs exact tip `e3805a2e83ad38ac71635655bdcda85fc96c0d50` at 00:35; its guarded merge starts at 01:30. The pair is frozen and must remain unchanged. |
+| Cumulative repair | A separate stacked worktree combines the immutable-attempt landing, fixed-scope successor, lock/backfill/tiering hardening, and the overnight-workflow audit repairs. It has no production authority until focused checks, an exact full suite, and a separate guarded integration pass. |
+| Morning chain | Three consecutive Stage-A runs reached the 11:55 teardown without a terminal manifest. Fleet observability is unbounded in-process, the exchange-economics date contract always blocks the D-1 barrier, and no registered Stage-B path can acquire its required lease. These are active repair scope, not accepted outcomes. |
+| Tiering | The enabled 05:00/06:00 tasks are bound to the absent prior cumulative receipt and will refuse before child start. Replace them only with reviewed, bounded, exact-source actions or hold them disabled. |
+| Settlement | August 17 remains the sole recent 12-market hole and will not self-heal. Recover it only through the bounded stop-after-finalize path after its owning code is production-proved. |
+| Crash/reboot | `WeatherBootRecovery` is temporarily hash-bound to the frozen first-landing worktree. Windows Update has pending reboot signals; no reboot is authorized during the overnight/morning run. |
+| Live money | No live-money test is authorized or ready. Integration, capture recovery, and scheduler repair weaken none of the location, credential, lifecycle, economics, release, or risk gates. |
 
 ## Closed decisions — do not relitigate without new evidence
 
@@ -55,13 +56,14 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
    stale, mismatched, or non-PASS evidence as refusal.
 3. At 01:30, let the hash-bound gate wait only for that exact running suite.
    Merge only inside 01:00–04:00 and publish only after exact recovery proof.
-4. In the morning, inspect the immutable suite/quiet/merge evidence, Git
-   ancestry, remote acknowledgement, documentation transaction, and live
-   worker identities. Restore `WeatherBootRecovery` to the landed production
-   path only after success is unambiguous; otherwise retain the frozen guard.
-5. Only after production adoption, recover the remaining execution evidence
-   work and rerun paper/live-readiness gates. Do not infer trading readiness
-   from an integration PASS.
+4. Complete the stacked repair branch without changing the frozen first
+   landing. Run focused checks and a fresh exact-tip full suite only in an
+   admitted window; use a separate immutable attempt after the first landing.
+5. Hold or replace the broken tiering tasks before 05:00, protect the morning
+   window from automatic reboot, and require durable outcomes for every task.
+6. After production adoption, recover August 17, retry bounded tiering, and
+   rerun paper/live-readiness gates. Do not infer trading readiness from an
+   integration PASS.
 
 ## Host and workflow state
 

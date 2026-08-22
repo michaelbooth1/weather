@@ -1369,6 +1369,34 @@ elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
     $warns.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days left")
 }
 
+# Scheduler 0x0 is not proof that either tiering job reclaimed anything. Both wrappers
+# deliberately exit zero when the shared workload lease is busy. Surface their durable
+# status beside the disk slope so a skipped recovery cannot masquerade as a clean run.
+$tieringState = [ordered]@{}
+$tieringSkippedToday = New-Object System.Collections.Generic.List[string]
+foreach ($spec in @(
+    @{ Name = "clob_projection"; Path = "data\logs\clob_tiering_task_status.json" },
+    @{ Name = "clob_raw_tape"; Path = "data\logs\clob_raw_tape_tiering_task_status.json" }
+)) {
+    $path = Join-Path $repo $spec.Path
+    $row = $null
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        try { $row = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json } catch {}
+    }
+    $tieringState[$spec.Name] = $row
+    if ($null -eq $row -or [string]$row.status -ne "SKIPPED_WORKLOAD_LEASE_BUSY") { continue }
+    try { $localTime = [datetime]$row.local_time } catch { continue }
+    if ($localTime.Date -eq (Get-Date).Date) { $tieringSkippedToday.Add([string]$spec.Name) }
+}
+if ($tieringSkippedToday.Count -gt 0) {
+    $tieringMessage = (
+        "disk tiering skipped today because the heavy-workload lease was busy: {0}; " +
+        "Task Scheduler 0x0 does not prove reclaim" -f ($tieringSkippedToday -join ", ")
+    )
+    if ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) { $flags.Add($tieringMessage) }
+    else { $warns.Add($tieringMessage) }
+}
+
 # ---- system clock ----
 # CLOB heartbeats, order TTLs, evidence ordering, and scheduled one-shots all trust the
 # Windows clock. W32Time is trigger-start on this workgroup host, so a stopped service is
@@ -2867,6 +2895,7 @@ if ($Json) {
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
             delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48 }
+        tiering  = $tieringState
         clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })
             synchronized = $clockSynchronized; source = $clockSource; sync_age_hours = $clockSyncAgeH
             last_sync = $(if ($clockLastSync) { $clockLastSync.ToString("o") } else { $null })

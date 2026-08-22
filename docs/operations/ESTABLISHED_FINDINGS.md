@@ -19,6 +19,24 @@ starts from what we know instead of re-deriving it.
 
 ---
 
+## Current strategy supersession — operator decision, 2026-08-13 and reaffirmed 2026-08-16
+
+The **current critical path** is the bounded, International-only,
+market-centred maker lifecycle and its own-account economics evidence. The
+forecast programme remains useful research, but model promotion and a forecast
+win are **not prerequisites** for the approved market-harvest plumbing probe.
+`STATE_OF_PLAY.md` owns the current execution order.
+
+Sections 0b and 0c below remain the measured history and governing method for
+forecast-improvement claims. Their statements that the maker is downstream of
+forecast improvement are **superseded as project sequencing** by the newer
+operator decision. This changes priority, not evidence: the model still does
+not beat the market, market-centred quoting does not prove profit, promotion
+must remain blocked, and only authoritative account events plus reconciled
+fees, rebates, positions, settlement, and costs can establish live economics.
+
+---
+
 ## 0. Objectives, in priority order
 
 1. **Protect irreplaceable capture and keep real settlement evidence accruing.** Contiguity is not
@@ -2447,12 +2465,31 @@ sampler path hold the cache size constant in the regression test.
 
 This establishes a real unbounded parent-retention mechanism and justifies the
 fix. It does **not** attribute every byte in the live parent to that mechanism,
-nor does a one-time restart prove the repair. Closure requires the exact-tip
-suite, guarded production adoption, and a fresh-parent memory slope over real
-capture iterations. Until then, the post-grade restart is only an operational
+nor does a one-time restart prove the repair. The exact-tip suite and guarded
+production adoption subsequently completed as recorded in section 8s. A
+fresh-parent memory slope over real capture iterations remains the outstanding
+attribution evidence; the post-grade restart alone was only an operational
 headroom mitigation.
 
-## 8s. The cumulative International parent is integrated; the fixed-scope successor was never tested
+**Follow-up live consequence, measured 2026-08-16 12:09-12:24 local.** The
+grader-facing Toronto wide-capture timestamps were **902.439 seconds** apart,
+exceeding the **900-second** limit by **2.439 seconds**. During the overdue
+interval, capture diagnostics repeatedly refused the Toronto child on physical-
+memory admission: at 12:17:55, for example, **3,436,453,888 bytes** were
+available against **3,489,660,928 bytes** required for one worker. The capture
+finally admitted at 12:23:55 and the loop remained live, but the threshold
+breach makes the 2026-08-16 day `AT_RISK`; later captures cannot erase it.
+
+This is the live-timing evidence that section 8r previously lacked. It binds
+the operational gap to insufficient child headroom while the unrepaired parent
+was the host's dominant memory consumer; it still does not prove that the type-
+cache defect explains every retained byte. The sealed 18:10 restart was a
+one-time headroom mitigation, not closure. The exact-tip suite and guarded
+production adoption subsequently completed as recorded in section 8s; a
+fresh-parent slope over real iterations remains the outstanding attribution
+evidence.
+
+## 8s. The cumulative International parent is integrated; the fixed-scope successor lacks immutable full-suite proof
 
 **Measured 2026-08-19 from immutable suite, merge, task, and wake receipts.** Parent tip
 `1f4fb14611fe94781323d2b2da43f057a6f7241e` passed **18/18 chunks and 4,489 tests** with zero

@@ -351,7 +351,7 @@ infrastructure work remains.
 | 321 | [Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 | 322 | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-15 - CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING]](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
-| 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
+| 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-19 - BOUNDED SETTLEMENT SLICE AND PID-IDENTITY REPAIR PREPARED; PRODUCTION PROOF OPEN]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | [Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | [Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |
@@ -360,6 +360,7 @@ infrastructure work remains.
 
 | Item | File |
 | ---: | --- |
+| 330 | [Live Maker Event Ledger And Architecture Hardening [OPEN 2026-08-16 - APPROVED; PRE-PROBE PREPARATION ONLY]](items/item-330-live-maker-event-ledger-and-architecture-hardening.md) |
 | 87 | [Canonical CLI And Import Surface Retirement [COMPLETE 2026-06-16 - CANONICAL PACKAGE SURFACE LIVE]](items/item-87-canonical-cli-and-import-surface-retirement.md) |
 | 88 | [Shared Scoring, Formatting, And Backtest Utility Split [COMPLETE 2026-06-16 - SHARED HELPER MODULES LIVE]](items/item-88-shared-scoring-formatting-and-backtest-utility-split.md) |
 | 89 | [Explicit Model Build Contract And Source Adapter Boundary [COMPLETE 2026-06-16 - EXPLICIT BUILD CONTRACTS LIVE]](items/item-89-explicit-model-build-contract-and-source-adapter-boundary.md) |

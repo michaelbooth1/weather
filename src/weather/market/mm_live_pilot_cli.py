@@ -45,6 +45,9 @@ from weather.market.mm_live_lifecycle_probe import (
     build_stage1_lifecycle_bundle,
     execute_stage1_lifecycle_probe,
 )
+from weather.market.mm_live_platform_verification import (
+    build_platform_verification_payload,
+)
 from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
 from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
@@ -63,6 +66,7 @@ from weather.market.mm_user_stream import OfficialUserStreamReader
 from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     SIGNATURE_TYPE_IDS,
+    load_platform_verification_gate,
 )
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
@@ -72,6 +76,7 @@ from weather.schema_registry import schema_version
 RECEIPT_SCHEMA_VERSION = schema_version("mm_live_pilot_command_receipt")
 MAX_PILOT_BUDGET = MAX_OPERATOR_PILOT_BUDGET_USDC
 BUNDLE_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE"
+PLATFORM_CONFIRMATION = "INTERNATIONAL_POLYMARKET_BUILD_PLATFORM_VERIFICATION"
 IDENTITY_CONFIRMATION = "INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY"
 DOCTOR_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE0_KEYLESS_DOCTOR"
 
@@ -753,6 +758,74 @@ def run_bundle(
     return receipt
 
 
+def run_platform_verification(
+    args,
+    *,
+    builder=build_platform_verification_payload,
+    gate_loader=load_platform_verification_gate,
+) -> dict:
+    """Build and self-validate the full post-Stage-1 v0.4 artifact."""
+
+    if args.confirmation != PLATFORM_CONFIRMATION:
+        raise RuntimeError(
+            "platform verification build requires the exact offline confirmation token"
+        )
+    _validate_budget(args.budget)
+    paths = _require_new_distinct_paths(
+        {
+            "platform_verification": args.platform_out,
+            "receipt": args.receipt_out,
+        }
+    )
+    receipt = _receipt("platform", args, paths)
+    receipt["cleanup"] = {
+        "attempted": False,
+        "ok": True,
+        "reason": "offline_normalization_no_exchange_state",
+    }
+    operation_error = None
+    payload = None
+    try:
+        payload = builder(
+            args.post_stage1_bootstrap,
+            args.stage1_bundle,
+            args.economics_snapshot,
+            target_date=args.target_date,
+            condition_id=args.condition_id,
+            token_id=args.token_id,
+            requested_budget_pusd=args.budget,
+        )
+        write_json_atomic(
+            paths["platform_verification"],
+            payload,
+            trailing_newline=True,
+        )
+        gate = gate_loader(
+            paths["platform_verification"],
+            args.target_date,
+            "live-pilot",
+            requested_budget_usdc=args.budget,
+        )
+        receipt["checks"] = dict(gate.get("checks") or {})
+        receipt["missing"] = list(gate.get("missing") or [])
+        receipt["artifact_sha256"] = gate.get("artifact_sha256")
+        receipt["stage1_lifecycle_bundle_sha256"] = gate.get(
+            "stage1_lifecycle_bundle_sha256"
+        )
+        if not gate.get("ok"):
+            raise RuntimeError("constructed platform verification did not pass v0.4")
+    except Exception as exc:
+        operation_error = exc
+    receipt["status"] = "PASS" if operation_error is None else "FAIL"
+    if operation_error is not None:
+        receipt["exception_type"] = type(operation_error).__name__
+    receipt["finished_at_utc"] = _utc_iso()
+    write_json_atomic(paths["receipt"], receipt, trailing_newline=True)
+    if operation_error is not None:
+        raise operation_error
+    return receipt
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -807,6 +880,21 @@ def build_parser() -> argparse.ArgumentParser:
     bundle.add_argument("--bundle-out", required=True)
     bundle.add_argument("--receipt-out", required=True)
     bundle.add_argument("--confirmation", required=True)
+
+    platform = commands.add_parser(
+        "platform",
+        help="Build the full post-Stage-1 platform-verification v0.4 artifact.",
+    )
+    platform.add_argument("--target-date", required=True)
+    platform.add_argument("--condition-id", required=True)
+    platform.add_argument("--token-id", required=True)
+    platform.add_argument("--budget", required=True, type=float)
+    platform.add_argument("--post-stage1-bootstrap", required=True)
+    platform.add_argument("--stage1-bundle", required=True)
+    platform.add_argument("--economics-snapshot", required=True)
+    platform.add_argument("--platform-out", required=True)
+    platform.add_argument("--receipt-out", required=True)
+    platform.add_argument("--confirmation", required=True)
     return parser
 
 
@@ -817,8 +905,10 @@ def main(argv: list[str] | None = None) -> int:
             receipt = run_prepare_identity(args)
         elif args.command == "doctor":
             receipt = run_doctor(args)
-        else:
+        elif args.command == "bundle":
             receipt = run_bundle(args)
+        else:
+            receipt = run_platform_verification(args)
     except Exception as exc:
         print(
             json.dumps(

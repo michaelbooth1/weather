@@ -16,7 +16,14 @@ from weather.reporting.data_quality.artifact_disk_budget import DEFAULT_ROW_EXPO
 from weather.operations.long_job_guard import (
     DEFAULT_LOCK_PATH as DEFAULT_LONG_JOB_LOCK_PATH,
     DEFAULT_STATE_PATH as DEFAULT_LONG_JOB_STATE_PATH,
-    process_is_running,
+    LOCK_OWNER_IDENTITY_FIELD,
+    current_process_identity,
+    lock_owner_status,
+)
+from weather.operations.process_lock_identity import (
+    LockPathTransactionBusy,
+    lock_path_transaction,
+    remove_lock_payload_if_current,
 )
 from weather.schema_registry import schema_version
 from weather.time import utc_now as shared_utc_now
@@ -151,11 +158,17 @@ def lock_diagnostic(path, *, kind):
     owner_running = None
     stale = False
     stale_reason = ""
+    owner_identity_match = None
+    legacy_lock = False
+    owner_observation = {}
     if exists and read_status == "ok" and pid not in (None, ""):
-        owner_running = process_is_running(pid)
-        if owner_running is False:
-            stale = True
-            stale_reason = "dead_pid"
+        owner = lock_owner_status(payload)
+        owner_running = owner.get("running")
+        stale = bool(owner.get("stale"))
+        stale_reason = str(owner.get("stale_reason") or "")
+        owner_identity_match = owner.get("identity_match")
+        legacy_lock = bool(owner.get("legacy_lock"))
+        owner_observation = owner.get("observation") or {}
     elif exists and read_status != "ok":
         stale_reason = "owner_unknown"
     return {
@@ -165,23 +178,39 @@ def lock_diagnostic(path, *, kind):
         "read_status": read_status,
         "pid": pid,
         "owner_running": owner_running,
+        "owner_identity_match": owner_identity_match,
+        "owner_observation": owner_observation,
+        "legacy_lock": legacy_lock,
         "stale": stale,
         "stale_reason": stale_reason,
         "payload": payload if exists else {},
     }
 
 
-def _remove_lock_if_verified_stale(path, *, kind):
+def _remove_lock_if_verified_stale(path, *, kind, _transaction_held=False):
+    if not _transaction_held:
+        try:
+            with lock_path_transaction(path):
+                return _remove_lock_if_verified_stale(
+                    path,
+                    kind=kind,
+                    _transaction_held=True,
+                )
+        except LockPathTransactionBusy:
+            diagnostic = lock_diagnostic(path, kind=kind)
+            diagnostic.update({
+                "removed": False,
+                "remove_refusal_reason": "lock_path_transaction_busy",
+            })
+            return diagnostic
     diagnostic = lock_diagnostic(path, kind=kind)
     if not diagnostic.get("stale"):
         diagnostic["removed"] = False
         return diagnostic
-    try:
-        Path(path).unlink()
-        diagnostic["removed"] = True
-    except FileNotFoundError:
-        diagnostic["removed"] = False
-        diagnostic["missing_before_remove"] = True
+    removal = remove_lock_payload_if_current(path, diagnostic.get("payload") or {})
+    diagnostic["removed"] = bool(removal.get("removed"))
+    if not diagnostic["removed"]:
+        diagnostic["remove_refusal_reason"] = removal.get("reason")
     return diagnostic
 
 
@@ -193,9 +222,18 @@ def long_job_state_diagnostic(path):
     pid = payload.get("pid") if isinstance(payload, dict) else None
     owner_running = None
     stale = False
+    stale_reason = ""
+    owner_identity_match = None
+    legacy_lock = False
+    owner_observation = {}
     if exists and read_status == "ok" and active and pid not in (None, ""):
-        owner_running = process_is_running(pid)
-        stale = owner_running is False
+        owner = lock_owner_status(payload)
+        owner_running = owner.get("running")
+        stale = bool(owner.get("stale"))
+        stale_reason = str(owner.get("stale_reason") or "")
+        owner_identity_match = owner.get("identity_match")
+        legacy_lock = bool(owner.get("legacy_lock"))
+        owner_observation = owner.get("observation") or {}
     return {
         "kind": "long_job_guard_status",
         "path": str(path),
@@ -205,8 +243,11 @@ def long_job_state_diagnostic(path):
         "status": payload.get("status") if isinstance(payload, dict) else None,
         "pid": pid,
         "owner_running": owner_running,
+        "owner_identity_match": owner_identity_match,
+        "owner_observation": owner_observation,
+        "legacy_lock": legacy_lock,
         "stale": stale,
-        "stale_reason": "dead_pid" if stale else "",
+        "stale_reason": stale_reason,
         "payload": payload if exists else {},
     }
 
@@ -222,7 +263,7 @@ def clear_stale_long_job_state(path):
         "active": False,
         "updated_at_utc": utc_iso(),
         "stale_cleared_at_utc": utc_iso(),
-        "stale_reason": "dead_pid",
+        "stale_reason": diagnostic.get("stale_reason") or "owner_not_active",
     })
     write_json(path, payload)
     diagnostic["cleared"] = True
@@ -294,6 +335,17 @@ def lock_preflight(args):
 
 
 def acquire_lock(path, force=False, audit=None):
+    try:
+        with lock_path_transaction(path):
+            return _acquire_lock_transaction(path, force=force, audit=audit)
+    except LockPathTransactionBusy:
+        if isinstance(audit, dict):
+            audit["acquired"] = False
+            audit["transaction_busy"] = True
+        return None
+
+
+def _acquire_lock_transaction(path, force=False, audit=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     audit = audit if isinstance(audit, dict) else {}
@@ -320,7 +372,11 @@ def acquire_lock(path, force=False, audit=None):
     try:
         fd = os.open(str(path), flags)
     except FileExistsError:
-        stale = _remove_lock_if_verified_stale(path, kind="daily_refresh_lock")
+        stale = _remove_lock_if_verified_stale(
+            path,
+            kind="daily_refresh_lock",
+            _transaction_held=True,
+        )
         if stale.get("stale"):
             audit["stale_lock_detected_count"] += 1
         if stale.get("removed"):
@@ -334,6 +390,7 @@ def acquire_lock(path, force=False, audit=None):
     payload = {
         "pid": os.getpid(),
         "created_at_utc": utc_iso(),
+        LOCK_OWNER_IDENTITY_FIELD: current_process_identity(),
     }
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, sort_keys=True)
@@ -345,6 +402,17 @@ def release_lock(path):
     if not path:
         return
     try:
-        Path(path).unlink()
-    except FileNotFoundError:
-        pass
+        with lock_path_transaction(path):
+            payload, read_status = _read_lock_payload(path)
+            if read_status != "ok" or payload.get("pid") != os.getpid():
+                return
+            stored = payload.get(LOCK_OWNER_IDENTITY_FIELD)
+            if isinstance(stored, dict):
+                current = current_process_identity()
+                expected_token = stored.get("creation_time_token")
+                current_token = current.get("creation_time_token")
+                if expected_token and expected_token != current_token:
+                    return
+            remove_lock_payload_if_current(path, payload)
+    except LockPathTransactionBusy:
+        return

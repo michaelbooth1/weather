@@ -618,6 +618,55 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     assert saved_receipt["cleanup"]["reason"] == "offline_command_no_exchange_state"
 
 
+def test_offline_platform_command_writes_only_a_self_validated_v0_4_artifact(tmp_path):
+    command_args = SimpleNamespace(
+        command="platform",
+        target_date="2026-08-14",
+        condition_id=CONDITION_ID,
+        token_id=TOKEN_ID,
+        budget=25.0,
+        post_stage1_bootstrap=str(tmp_path / "post-bootstrap.json"),
+        stage1_bundle=str(tmp_path / "bundle.json"),
+        economics_snapshot=str(tmp_path / "economics.json"),
+        platform_out=str(tmp_path / "platform.json"),
+        receipt_out=str(tmp_path / "platform-receipt.json"),
+        confirmation=cli.PLATFORM_CONFIRMATION,
+    )
+    seen = {}
+
+    def builder(*paths, **kwargs):
+        seen["paths"] = paths
+        seen["kwargs"] = kwargs
+        return {
+            "schema_version": "mm_platform_verification_v0.4",
+            "status": "PASS",
+            "secret_values_redacted": True,
+        }
+
+    def gate_loader(path, target_date, mode, **kwargs):
+        seen["written"] = json.loads(Path(path).read_text(encoding="utf-8"))
+        return {
+            "ok": True,
+            "checks": {"complete_v0_4": True},
+            "missing": [],
+            "artifact_sha256": "a" * 64,
+            "stage1_lifecycle_bundle_sha256": "b" * 64,
+        }
+
+    receipt = cli.run_platform_verification(
+        command_args,
+        builder=builder,
+        gate_loader=gate_loader,
+    )
+
+    assert receipt["status"] == "PASS"
+    assert seen["kwargs"]["condition_id"] == CONDITION_ID
+    assert seen["written"]["schema_version"] == "mm_platform_verification_v0.4"
+    saved_receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert saved_receipt["cleanup"]["reason"] == "offline_normalization_no_exchange_state"
+    assert saved_receipt["artifact_sha256"] == "a" * 64
+
+
 def test_wrong_confirmation_stops_before_credentials_or_mutation(tmp_path):
     command_args = args(tmp_path, "stage1")
     command_args.confirmation = "yes"
