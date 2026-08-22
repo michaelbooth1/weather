@@ -58,6 +58,7 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertIn("closed_day_parquet_incremental", STAGE_A_ISOLATED_STEPS)
         self.assertIn("public_wu_settlement_restore", STAGE_A_ISOLATED_STEPS)
         self.assertIn("taker_finalization_watchdog", STAGE_A_ISOLATED_STEPS)
+        self.assertIn("fleet_observability", STAGE_A_ISOLATED_STEPS)
         maker = step_resource_budget("maker_paper_score", reserve_mb=1536)
         self.assertEqual(maker["private_memory_max_bytes"], 4096 * MIB)
         self.assertEqual(maker["working_set_max_bytes"], 3072 * MIB)
@@ -89,6 +90,15 @@ class TestDailyRefreshResources(unittest.TestCase):
         self.assertEqual(watchdog["working_set_max_bytes"], 2048 * MIB)
         self.assertEqual(
             watchdog["required_available_before_start_bytes"],
+            3584 * MIB,
+        )
+        fleet = step_resource_budget("fleet_observability", reserve_mb=1536)
+        self.assertEqual(fleet["timeout_seconds"], 20 * 60)
+        self.assertLessEqual(fleet["timeout_seconds"], 25 * 60)
+        self.assertEqual(fleet["private_memory_max_bytes"], 3072 * MIB)
+        self.assertEqual(fleet["working_set_max_bytes"], 2048 * MIB)
+        self.assertEqual(
+            fleet["required_available_before_start_bytes"],
             3584 * MIB,
         )
 

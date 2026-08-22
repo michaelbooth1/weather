@@ -51,6 +51,18 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Set-Location $repo
 
+function Get-OptionalPropertyValue {
+    param(
+        [AllowNull()][object]$InputObject,
+        [Parameter(Mandatory = $true)][string]$Name
+    )
+
+    if ($null -ne $InputObject -and $InputObject.PSObject.Properties.Name -contains $Name) {
+        return $InputObject.$Name
+    }
+    return $null
+}
+
 # The three streak-critical closures, the historical enrichment closure, and
 # the auxiliary public execution-tape closure while that producer is armed or
 # still running. An unarmed optional producer cannot roll and must not make all
@@ -81,7 +93,8 @@ elseif (Test-Path -LiteralPath $executionWriterLock) {
 elseif (Test-Path -LiteralPath $executionWorkerStatus) {
     try {
         $executionWorker = Get-Content -LiteralPath $executionWorkerStatus -Raw | ConvertFrom-Json
-        $executionActive = [string]$executionWorker.state -ne "STOPPED"
+        $executionState = [string](Get-OptionalPropertyValue -InputObject $executionWorker -Name "state")
+        $executionActive = $executionState -ne "STOPPED"
     }
     catch {
         # No task and no writer lock means an unreadable retained bounded-pilot
@@ -111,23 +124,26 @@ foreach ($rel in $statusFiles) {
     foreach ($key in @("current_runtime_identity", "runtime_identity_before", "runtime_identity")) {
         if ($doc.PSObject.Properties.Name -contains $key -and $doc.$key) { $identity = $doc.$key; break }
     }
-    if (-not $identity -or -not $identity.source_scope_files) {
+    $sourceScopeFiles = Get-OptionalPropertyValue -InputObject $identity -Name "source_scope_files"
+    if (-not $identity -or -not $sourceScopeFiles) {
         $problems += "no source_scope_files in $rel"; continue
     }
 
     $ageH = ((Get-Date) - (Get-Item -LiteralPath $path).LastWriteTime).TotalHours
-    $state = [string]$doc.state
-    $isTombstone = ($state -eq "DEAD") -or ([string]$doc.ensure_status -eq "BLOCKED")
+    $state = [string](Get-OptionalPropertyValue -InputObject $doc -Name "state")
+    $ensureStatus = [string](Get-OptionalPropertyValue -InputObject $doc -Name "ensure_status")
+    $reason = [string](Get-OptionalPropertyValue -InputObject $doc -Name "reason")
+    $isTombstone = ($state -eq "DEAD") -or ($ensureStatus -eq "BLOCKED")
     if ($isTombstone) {
-        $problems += ("tombstone ignored: {0} state={1} reason={2}" -f $rel, $state, [string]$doc.reason)
+        $problems += ("tombstone ignored: {0} state={1} reason={2}" -f $rel, $state, $reason)
         continue
     }
     if ($ageH -gt $MaxStatusAgeHours) {
-        $dormant[$name] = @($identity.source_scope_files)
+        $dormant[$name] = @($sourceScopeFiles)
         $dormantAge[$name] = $ageH
         continue
     }
-    $closures[$name] = @($identity.source_scope_files)
+    $closures[$name] = @($sourceScopeFiles)
 }
 
 # Report dormancy only once every closure has been read, so "is this dormant loop's scope already

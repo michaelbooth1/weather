@@ -454,6 +454,16 @@ def test_status_reports_only_an_os_held_heavy_workload_lease() -> None:
     assert "heavy workload lease active" in text
 
 
+def test_status_uses_durable_tiering_status_not_scheduler_zero() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "clob_tiering_task_status.json" in text
+    assert "clob_raw_tape_tiering_task_status.json" in text
+    assert "SKIPPED_WORKLOAD_LEASE_BUSY" in text
+    assert "Task Scheduler 0x0 does not prove reclaim" in text
+    assert "tiering  = $tieringState" in text
+
+
 def test_status_snapshot_fallback_matches_the_twelve_minute_capture_contract() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
@@ -490,6 +500,37 @@ def test_status_fails_closed_on_unsynchronized_windows_clock() -> None:
     assert 'Source:\\s*Local CMOS Clock' in text
     assert "system clock is not synchronized" in text
     assert 'Write-Output ("  CLOCK     : {0}"' in text
+
+
+def test_clock_event_fallback_cannot_skip_live_w32tm_sampling() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    event_query = text.index("$syncEvent = Get-WinEvent")
+    event_catch = text.index("catch { }", event_query)
+    live_query = text.index(
+        'if ($clockService -and $clockService.Status -eq "Running")',
+        event_catch,
+    )
+    assert event_query < event_catch < live_query
+    assert "absence of an event must not\n# skip w32tm" in text
+
+
+def test_only_exact_superseded_nonfixed_bootstrap_pair_is_expected_disabled() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '"WeatherIntegrationRecoveryBootstrapSuite0822"' in text
+    assert '"WeatherIntegrationRecoveryBootstrapMerge0822"' in text
+    assert '"WeatherIntegrationRecoveryBootstrapSuiteFixed0822"' not in text
+    assert '"WeatherIntegrationRecoveryBootstrapMergeFixed0822"' not in text
+    assert '$isExpectedDisabled = ($st -eq "Disabled" -and $expDisabled -contains $name)' in text
+    assert "-and -not $isExpectedDisabled" in text
+    assert '$st -eq "Disabled" -and $expDisabled -notcontains $name' in text
+    assert "$mustRemainDisabled" in text
+    assert '$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapSuite0822")' in text
+    assert '$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapMerge0822")' in text
+    assert '$mustRemainDisabled.Contains([string]$name) -and $st -ne "Disabled"' in text
+    assert "is superseded and must never be re-enabled" in text
+    assert "Get-WeatherFixedBootstrapScheduleState" not in text
 
 
 def test_failed_disabled_one_shot_reports_the_run_not_the_terminal_state() -> None:

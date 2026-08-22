@@ -18,6 +18,9 @@ from weather.operations.market_making_daily_roll import MARKET_MAKING_DAILY_ROLL
 from weather.operations.supervisor import SupervisorSpec
 from weather.operations.taker_bot_daily_roll import TAKER_DAILY_ROLL_SUPERVISOR
 from weather.reporting.fleet.fleet_observability import (  # noqa: E402
+    _build_trust_readiness,
+    _build_runtime_identity_observability,
+    _build_trading_observability,
     artifact_metadata,
     audit_alerts,
     classify_loop_diagnostic_event,
@@ -39,12 +42,83 @@ from weather.reporting.fleet.fleet_observability import (  # noqa: E402
     runtime_identity_target_date,
     settled_day_freshness_alerts,
     trust_readiness,
+    write_json,
     write_markdown,
 )
 from weather.reporting.fleet import fleet_observability_loops
 
 
 class TestFleetObservability(unittest.TestCase):
+    def test_scheduled_bounded_mode_omits_full_trust_replay(self):
+        with patch(
+            "weather.reporting.fleet.fleet_observability_payload.score_all_markets",
+            side_effect=AssertionError("full trust replay must not run"),
+        ):
+            trust, execution = _build_trust_readiness(
+                Path("unused"),
+                include_trust_replay=False,
+            )
+
+        self.assertEqual(trust, {})
+        self.assertEqual(execution["status"], "SKIPPED")
+        self.assertTrue(execution["trust_readiness_omitted"])
+        self.assertFalse(execution["score_all_markets_called"])
+
+    def test_scheduled_bounded_mode_omits_runtime_identity_tape_replay(self):
+        with patch(
+            "weather.reporting.fleet.fleet_observability_payload.build_runtime_identity_evidence",
+            side_effect=AssertionError("snapshot tapes must not be opened"),
+        ):
+            evidence, execution = _build_runtime_identity_observability(
+                snapshots_root=Path("unused"),
+                target_date="2026-08-20",
+                mm_runs_root=Path("unused-mm"),
+                taker_runs_root=Path("unused-taker"),
+                reconciliation_path=Path("unused-reconciliation.json"),
+                include_runtime_identity_replay=False,
+            )
+
+        self.assertEqual(evidence, {})
+        self.assertEqual(execution["status"], "SKIPPED")
+        self.assertTrue(execution["runtime_identity_evidence_omitted"])
+        self.assertFalse(execution["build_runtime_identity_evidence_called"])
+
+    def test_scheduled_bounded_mode_omits_duplicate_mm_taker_replay(self):
+        with patch(
+            "weather.reporting.fleet.fleet_observability_payload.mm_evidence_starvation_summary",
+            side_effect=AssertionError("MM runs must not be enumerated"),
+        ), patch(
+            "weather.reporting.fleet.fleet_observability_payload.build_trading_evidence_summary",
+            side_effect=AssertionError("MM/taker runs must not be enumerated"),
+        ):
+            starvation, evidence, execution = _build_trading_observability(
+                Path("unused-mm"),
+                Path("unused-taker"),
+                include_trading_replay=False,
+            )
+
+        self.assertEqual(starvation, {})
+        self.assertEqual(evidence, {})
+        self.assertEqual(execution["status"], "SKIPPED")
+        self.assertTrue(execution["trading_evidence_omitted"])
+        self.assertFalse(execution["mm_evidence_starvation_summary_called"])
+        self.assertFalse(execution["build_trading_evidence_summary_called"])
+
+    def test_json_writer_publishes_complete_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nested" / "fleet.json"
+            path.parent.mkdir(parents=True)
+            path.write_text('{"old": true}\n', encoding="utf-8")
+
+            result = write_json(path, {"status": "PASS", "markets": 12})
+
+            self.assertEqual(result, path)
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")),
+                {"markets": 12, "status": "PASS"},
+            )
+            self.assertEqual(list(path.parent.glob("fleet.json.*.tmp")), [])
+
     def test_daily_refresh_resource_peaks_and_budget_decisions_surface(self):
         summary = daily_refresh_resource_summary([
             {
@@ -1129,9 +1203,29 @@ class TestFleetObservability(unittest.TestCase):
                 },
             },
             "historical_audits": {},
+            "historical_audit_execution": {
+                "status": "SKIPPED",
+                "reason": "scheduled_bounded_mode",
+                "historical_audits_omitted": True,
+            },
             "historical_gap_coverage": {"markets": {}},
             "artifact_provenance": {"markets": {}},
             "trust_readiness": {},
+            "trust_readiness_execution": {
+                "status": "SKIPPED",
+                "reason": "scheduled_bounded_mode",
+                "trust_readiness_omitted": True,
+            },
+            "runtime_identity_execution": {
+                "status": "SKIPPED",
+                "reason": "scheduled_bounded_mode",
+                "runtime_identity_evidence_omitted": True,
+            },
+            "trading_replay_execution": {
+                "status": "SKIPPED",
+                "reason": "scheduled_bounded_mode",
+                "trading_evidence_omitted": True,
+            },
             "clob": {"loop": {}, "books": {"markets": []}},
             "observation_trigger": {},
             "loop_integrity": {
@@ -1317,6 +1411,11 @@ class TestFleetObservability(unittest.TestCase):
             text = report.read_text(encoding="utf-8")
 
         self.assertIn("## Cleanup Deletion Gate", text)
+        self.assertIn("Trust replay: **SKIPPED**", text)
+        self.assertIn("Historical audit: **SKIPPED**", text)
+        self.assertIn("scheduled_bounded_mode", text)
+        self.assertIn("Runtime-identity replay: **SKIPPED**", text)
+        self.assertIn("MM/taker replay: **SKIPPED**", text)
         self.assertIn("REVIEW_REQUIRED", text)
         self.assertIn("allowed_only_with_reviewed_cleanup_manifest", text)
         self.assertIn("## Loop Artifact Integrity", text)

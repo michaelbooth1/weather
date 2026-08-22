@@ -15,7 +15,7 @@ import time
 import traceback
 from datetime import datetime, time as datetime_time, timedelta, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from weather.backtesting.settlement_ledger import DEFAULT_LABELS_CSV, DEFAULT_LEDGER_ROOT
 from weather.experiment_contract import (
@@ -309,10 +309,7 @@ def _production_readiness_status(args):
 
 
 def write_json(path, payload):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def read_json(path):
@@ -340,9 +337,69 @@ def parse_datetime(value):
 def parse_schedule_time(value):
     try:
         hour, minute = str(value).split(":", 1)
-        return datetime_time(hour=int(hour), minute=int(minute))
+        parsed = datetime_time(hour=int(hour), minute=int(minute))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"schedule local time must be HH:MM, got {value!r}"
+        ) from exc
+    return parsed
+
+
+def parse_run_at_local(value, schedule_timezone=DEFAULT_SCHEDULE_TIMEZONE):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.strptime(text, "%Y-%m-%dT%H:%M:%S")
+        zone = ZoneInfo(str(schedule_timezone))
+    except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+        raise ValueError(
+            "run-at-local must use exact local YYYY-MM-DDTHH:MM:SS form "
+            f"with a valid timezone, got {value!r} / {schedule_timezone!r}"
+        ) from exc
+    return parsed.replace(tzinfo=zone)
+
+
+def validated_nightly_run_binding(status_payload):
+    payload = status_payload if isinstance(status_payload, dict) else {}
+    bound = payload.get("nightly_sla") or {}
+    invocation = payload.get("invocation") or {}
+    task_name = str(bound.get("task_name") or "").strip()
+    schedule_local_time = str(bound.get("schedule_local_time") or "").strip()
+    schedule_timezone = str(bound.get("schedule_timezone") or "").strip()
+    run_at_local = str(bound.get("run_at_local") or "").strip()
+    try:
+        scheduled_time = parse_schedule_time(schedule_local_time)
+        parsed_run_at = parse_run_at_local(run_at_local, schedule_timezone)
     except (TypeError, ValueError):
-        return datetime_time(hour=3, minute=30)
+        return {}
+    if parsed_run_at is None:
+        return {}
+    contract = invocation.get("contract") or {}
+    arguments = contract.get("arguments") or (
+        contract.get("scheduler_action") or {}
+    ).get("arguments")
+    arguments = list(arguments) if isinstance(arguments, (list, tuple)) else []
+    attested_run_at = ""
+    for index, token in enumerate(arguments[:-1]):
+        if str(token) in {"-RunAtLocal", "--run-at-local"}:
+            attested_run_at = str(arguments[index + 1])
+            break
+    if not (
+        task_name in {DEFAULT_TASK_NAME, "WeatherTrainingWindow"}
+        and schedule_timezone == DEFAULT_SCHEDULE_TIMEZONE
+        and parsed_run_at.time().replace(second=0, microsecond=0) == scheduled_time
+        and attested_run_at == run_at_local
+        and invocation.get("scheduler_attested") is True
+        and str(invocation.get("task_name") or "") == task_name
+    ):
+        return {}
+    return {
+        "task_name": task_name,
+        "schedule_local_time": schedule_local_time,
+        "schedule_timezone": schedule_timezone,
+        "run_at_local": run_at_local,
+    }
 
 
 def latest_scheduled_window(
@@ -350,6 +407,7 @@ def latest_scheduled_window(
     now=None,
     schedule_local_time=DEFAULT_SCHEDULE_LOCAL_TIME,
     schedule_timezone=DEFAULT_SCHEDULE_TIMEZONE,
+    run_at_local="",
 ):
     zone = ZoneInfo(schedule_timezone)
     if now is None:
@@ -358,6 +416,11 @@ def latest_scheduled_window(
         local_now = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
         local_now = local_now.astimezone(zone)
     scheduled_time = parse_schedule_time(schedule_local_time)
+    one_shot_due = parse_run_at_local(run_at_local, schedule_timezone)
+    if one_shot_due is not None:
+        if one_shot_due.time().replace(second=0, microsecond=0) != scheduled_time:
+            raise ValueError("run-at-local clock must match schedule local time")
+        return local_now, one_shot_due
     due = datetime.combine(local_now.date(), scheduled_time, tzinfo=zone)
     if local_now < due:
         due -= timedelta(days=1)
@@ -1670,14 +1733,23 @@ def nightly_run_sla_status(
     now=None,
     schedule_local_time=DEFAULT_SCHEDULE_LOCAL_TIME,
     schedule_timezone=DEFAULT_SCHEDULE_TIMEZONE,
+    run_at_local="",
     missed_run_grace_minutes=DEFAULT_MISSED_RUN_GRACE_MINUTES,
 ):
     status_path = Path(status_path)
     status_payload = status_payload if status_payload is not None else read_json(status_path)
+    if not str(run_at_local or "").strip():
+        persisted_binding = validated_nightly_run_binding(status_payload)
+        if persisted_binding:
+            task_name = persisted_binding["task_name"]
+            schedule_local_time = persisted_binding["schedule_local_time"]
+            schedule_timezone = persisted_binding["schedule_timezone"]
+            run_at_local = persisted_binding["run_at_local"]
     local_now, latest_due = latest_scheduled_window(
         now=now,
         schedule_local_time=schedule_local_time,
         schedule_timezone=schedule_timezone,
+        run_at_local=run_at_local,
     )
     grace_deadline = latest_due + timedelta(minutes=float(missed_run_grace_minutes))
     run_generated = parse_datetime(
@@ -1714,10 +1786,11 @@ def nightly_run_sla_status(
             "message": f"{task_name} is not registered",
         })
     if local_now >= grace_deadline and not fresh:
+        window_label = run_at_local or schedule_local_time
         alerts.append({
             "severity": "critical",
             "category": "nightly_retrain_missed_run",
-            "message": f"no fresh nightly status exists after the {schedule_local_time} scheduled window",
+            "message": f"no fresh nightly status exists after the {window_label} scheduled window",
         })
     if fresh and run_status == "error":
         alerts.append({
@@ -1753,6 +1826,8 @@ def nightly_run_sla_status(
         "run_generated_at_utc": run_generated.astimezone(timezone.utc).isoformat() if run_generated else None,
         "run_age_hours": age_hours,
         "fresh_for_latest_window": fresh,
+        "run_at_local": str(run_at_local or ""),
+        "schedule_kind": "one_shot" if run_at_local else "daily",
         "schedule_local_time": schedule_local_time,
         "schedule_timezone": schedule_timezone,
         "latest_due_local": latest_due.isoformat(),
@@ -2045,6 +2120,29 @@ def run_nightly_retrain(
     release_builder=create_release,
     code_identity_provider=capture_code_identity,
 ):
+    # Reject a malformed topology clock before acquiring the long-job lock or
+    # starting any candidate work. Scheduled registrars always bind both.
+    schedule_local_time = getattr(
+        args, "schedule_local_time", DEFAULT_SCHEDULE_LOCAL_TIME
+    )
+    schedule_timezone = getattr(
+        args, "schedule_timezone", DEFAULT_SCHEDULE_TIMEZONE
+    )
+    scheduled_time = parse_schedule_time(schedule_local_time)
+    ZoneInfo(schedule_timezone)
+    run_at_local = str(getattr(args, "run_at_local", "") or "").strip()
+    if str(getattr(args, "scheduler_task_name", "") or "").strip() and not run_at_local:
+        raise ValueError(
+            "scheduled nightly invocation requires exact --run-at-local binding"
+        )
+    parsed_run_at = parse_run_at_local(run_at_local, schedule_timezone)
+    if (
+        parsed_run_at is not None
+        and parsed_run_at.time().replace(second=0, microsecond=0) != scheduled_time
+    ):
+        raise ValueError(
+            "run-at-local clock must match --schedule-local-time"
+        )
     guard_enabled = (
         not getattr(args, "dry_run", False)
         and not getattr(args, "disable_long_job_guard", False)
@@ -2729,6 +2827,21 @@ def _run_nightly_retrain_guarded(
     payload["nightly_sla"] = nightly_run_sla_status(
         status_path=args.status_out,
         status_payload=payload,
+        task_name=(
+            str(getattr(args, "scheduler_task_name", "") or "").strip()
+            or DEFAULT_TASK_NAME
+        ),
+        schedule_local_time=getattr(
+            args,
+            "schedule_local_time",
+            DEFAULT_SCHEDULE_LOCAL_TIME,
+        ),
+        schedule_timezone=getattr(
+            args,
+            "schedule_timezone",
+            DEFAULT_SCHEDULE_TIMEZONE,
+        ),
+        run_at_local=getattr(args, "run_at_local", ""),
         missed_run_grace_minutes=args.missed_run_grace_minutes,
     )
     payload["nightly_sla"]["generated_at_utc"] = payload["generated_at_utc"]
@@ -3002,6 +3115,27 @@ def build_run_parser(parser):
     parser.add_argument("--scheduler-process-executable", default="")
     parser.add_argument("--scheduler-correlation-seconds", type=float, default=120.0)
     parser.add_argument(
+        "--schedule-local-time",
+        default=DEFAULT_SCHEDULE_LOCAL_TIME,
+        help=(
+            "Exact local trigger time for this scheduled topology. The direct "
+            "registrar and delegated training window bind it explicitly."
+        ),
+    )
+    parser.add_argument(
+        "--schedule-timezone",
+        default=DEFAULT_SCHEDULE_TIMEZONE,
+        help="IANA timezone owning --schedule-local-time.",
+    )
+    parser.add_argument(
+        "--run-at-local",
+        default="",
+        help=(
+            "Exact local YYYY-MM-DDTHH:MM:SS occurrence bound by a one-shot "
+            "registrar. Scheduled invocations require it."
+        ),
+    )
+    parser.add_argument(
         "--producer-sla-seconds",
         type=float,
         default=0.0,
@@ -3033,6 +3167,7 @@ def cmd_status(args):
         task_name=args.task_name,
         schedule_local_time=args.schedule_local_time,
         schedule_timezone=args.schedule_timezone,
+        run_at_local=args.run_at_local,
         missed_run_grace_minutes=args.missed_run_grace_minutes,
     )
     print(f"Nightly retrain SLA: {payload['state']}")
@@ -3058,6 +3193,7 @@ def build_parser():
     status.add_argument("--task-name", default=DEFAULT_TASK_NAME)
     status.add_argument("--schedule-local-time", default=DEFAULT_SCHEDULE_LOCAL_TIME)
     status.add_argument("--schedule-timezone", default=DEFAULT_SCHEDULE_TIMEZONE)
+    status.add_argument("--run-at-local", default="")
     status.add_argument("--missed-run-grace-minutes", type=float, default=DEFAULT_MISSED_RUN_GRACE_MINUTES)
     status.add_argument("--out", default=str(DEFAULT_SLA_STATUS_OUT))
     status.add_argument("--report", default=str(DEFAULT_SLA_REPORT_OUT))

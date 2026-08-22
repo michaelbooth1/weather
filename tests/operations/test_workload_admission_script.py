@@ -90,7 +90,7 @@ def test_lease_is_exclusive_and_recovers_when_owner_exits(tmp_path: Path) -> Non
 def test_forced_tiering_cannot_bypass_protected_host_window() -> None:
     for name in ("clob_tiering_run.ps1", "clob_raw_tape_tiering_run.ps1"):
         text = (REPO_ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")
-        assert "$localMinute -ge (12 * 60) -or $localMinute -lt 30" in text
+        assert "$localMinute -ge (9 * 60) -or $localMinute -lt 30" in text
         assert "-Forced cannot bypass host policy" in text
 
 

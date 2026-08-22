@@ -62,6 +62,7 @@ from weather.operations.nightly_retrain import (
     DEFAULT_STATUS_OUT as NIGHTLY_RETRAIN_STATUS_OUT,
     DEFAULT_TASK_NAME as NIGHTLY_RETRAIN_TASK_NAME,
     nightly_run_sla_status,
+    validated_nightly_run_binding,
 )
 
 
@@ -410,14 +411,58 @@ def scheduled_task_status(task_name):
         }
 
 
-def nightly_retrain_status_rows():
-    task = scheduled_task_status(NIGHTLY_RETRAIN_TASK_NAME)
+def _nightly_status_topology(status_payload):
+    binding = validated_nightly_run_binding(status_payload)
+    if not binding:
+        return (
+            NIGHTLY_RETRAIN_TASK_NAME,
+            "03:30",
+            "America/Toronto",
+            "",
+            False,
+        )
+    return (
+        binding["task_name"],
+        binding["schedule_local_time"],
+        binding["schedule_timezone"],
+        binding["run_at_local"],
+        True,
+    )
+
+
+def nightly_retrain_status_rows(status_payload=None):
+    if status_payload is None:
+        try:
+            status_payload = json.loads(
+                Path(NIGHTLY_RETRAIN_STATUS_OUT).read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            status_payload = {}
+    (
+        task_name,
+        schedule_local_time,
+        schedule_timezone,
+        run_at_local,
+        topology_bound,
+    ) = (
+        _nightly_status_topology(status_payload)
+    )
+    task = scheduled_task_status(task_name)
     sla = nightly_run_sla_status(
         status_path=NIGHTLY_RETRAIN_STATUS_OUT,
+        status_payload=status_payload,
+        task_name=task_name,
         task_status=task,
+        schedule_local_time=schedule_local_time,
+        schedule_timezone=schedule_timezone,
+        run_at_local=run_at_local,
     )
     return {
         "Job": "Nightly retrain",
+        "Task": task_name,
+        "Schedule": f"{run_at_local or schedule_local_time} {schedule_timezone}",
+        "Run At Local": run_at_local or None,
+        "Topology Bound": topology_bound,
         "State": sla.get("state"),
         "Run Status": sla.get("run_status"),
         "Task Registered": sla.get("task_registered"),

@@ -334,5 +334,10 @@ $mergeArgs = @{
 if ($ExpectedBaseline) { $mergeArgs.ExpectedBaseline = $ExpectedBaseline }
 if ($AttemptReportPath) { $mergeArgs.AttemptReportPath = $AttemptReportPath }
 if ($ExpectedQuietMergeSha256) { $mergeArgs.ExpectedSelfSha256 = $ExpectedQuietMergeSha256 }
+# The guarded merge is a standalone operational program, not a strict-mode
+# child of this validator.  Inheriting this gate's StrictMode caused sparse but
+# valid retained status records to terminate the child before it could write a
+# refusal report.  The child owns its own fail-closed checks and error policy.
+Set-StrictMode -Off
 & $mergeScript @mergeArgs
 exit $LASTEXITCODE

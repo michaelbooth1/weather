@@ -101,3 +101,6 @@ def test_suite_gate_invokes_quiet_merge_with_named_splatting() -> None:
     assert "SettleSeconds = $SettleSeconds" in text
     assert "& $mergeScript @mergeArgs" in text
     assert '$mergeArgs = @(\n' not in text
+    strict_off = text.index("Set-StrictMode -Off")
+    invoke = text.index("& $mergeScript @mergeArgs")
+    assert strict_off < invoke

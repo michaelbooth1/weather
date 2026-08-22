@@ -263,6 +263,16 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--resume-from-step", default="", choices=("", *STEP_ORDER))
+    parser.add_argument(
+        "--stop-after-step",
+        default="",
+        choices=("", *STEP_ORDER),
+        help=(
+            "End successfully after this exact step. This is a bounded recovery "
+            "run: it does not publish stage manifests, trigger the evidence stage, "
+            "run production readiness, or write the daily progress ledger."
+        ),
+    )
     parser.add_argument("--fail-on-fleet-critical", action="store_true")
     parser.add_argument("--fail-on-nightly-health-critical", action="store_true")
     parser.add_argument("--fail-on-ingest-quality", action="store_true")
@@ -659,6 +669,9 @@ def build_run_parser(parser, dependencies=None):
     parser.add_argument("--audit-target-day", type=int, default=None)
     parser.add_argument("--audit-years", default="")
     parser.add_argument("--skip-historical-audits", action="store_true")
+    parser.add_argument("--skip-fleet-trust-replay", action="store_true")
+    parser.add_argument("--skip-fleet-runtime-identity-replay", action="store_true")
+    parser.add_argument("--skip-fleet-trading-replay", action="store_true")
     parser.add_argument("--skip-nightly-health-checks", action="store_true")
     parser.add_argument("--skip-daily-roll-log-hygiene", action="store_true")
     parser.add_argument(
@@ -929,13 +942,31 @@ def _recover_completed_isolated_child(payload):
     except (OSError, ValueError, json.JSONDecodeError):
         return {"recovered": False, "reason": "child_result_unavailable"}
     expected_pid = resource_row.get("child_pid") or current.get("child_pid")
+    pid_match_mode = None
+    if _matching_pid(child.get("pid"), expected_pid):
+        pid_match_mode = "direct"
+    elif _matching_pid(child.get("parent_pid"), expected_pid):
+        # venv\Scripts\python.exe may be a one-hop launcher shim.  Recovery
+        # must accept exactly the same relationship as the live child path:
+        # the recorded spawn PID may be the receipt interpreter's parent, but
+        # no grandparent or looser ancestry is trusted.
+        pid_match_mode = "launcher_parent"
     valid = (
         child.get("schema_version") == schema_version("daily_refresh_step_child")
         and child.get("status") == "ok"
         and child.get("step") == step_name
-        and _matching_pid(child.get("pid"), expected_pid)
+        and pid_match_mode is not None
         and bool(child.get("finished_at_utc"))
     )
+    resource_row["child_terminal_validation"] = {
+        "status": "PASS" if valid else "BLOCK",
+        "schema_matches": child.get("schema_version")
+        == schema_version("daily_refresh_step_child"),
+        "step_matches": child.get("step") == step_name,
+        "pid_matches": pid_match_mode is not None,
+        "pid_match_mode": pid_match_mode,
+        "finished_at_present": bool(child.get("finished_at_utc")),
+    }
     if not valid:
         return {"recovered": False, "reason": "child_terminal_validation_failed"}
     result = child.get("result")
@@ -951,6 +982,7 @@ def _recover_completed_isolated_child(payload):
                 "status",
                 "step",
                 "pid",
+                "parent_pid",
                 "started_at_utc",
                 "finished_at_utc",
             )
@@ -976,6 +1008,7 @@ def _recover_completed_isolated_child(payload):
         "recovered": True,
         "step": step_name,
         "pid": child.get("pid"),
+        "pid_match_mode": pid_match_mode,
         "result_path": str(resolved_result),
     }
 

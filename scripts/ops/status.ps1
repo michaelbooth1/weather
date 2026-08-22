@@ -1369,6 +1369,34 @@ elseif ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 60) {
     $warns.Add("disk filling at $([math]::Abs($diskDelta)) GB/day - about $diskDaysLeft days left")
 }
 
+# Scheduler 0x0 is not proof that either tiering job reclaimed anything. Both wrappers
+# deliberately exit zero when the shared workload lease is busy. Surface their durable
+# status beside the disk slope so a skipped recovery cannot masquerade as a clean run.
+$tieringState = [ordered]@{}
+$tieringSkippedToday = New-Object System.Collections.Generic.List[string]
+foreach ($spec in @(
+    @{ Name = "clob_projection"; Path = "data\logs\clob_tiering_task_status.json" },
+    @{ Name = "clob_raw_tape"; Path = "data\logs\clob_raw_tape_tiering_task_status.json" }
+)) {
+    $path = Join-Path $repo $spec.Path
+    $row = $null
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        try { $row = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json } catch {}
+    }
+    $tieringState[$spec.Name] = $row
+    if ($null -eq $row -or [string]$row.status -ne "SKIPPED_WORKLOAD_LEASE_BUSY") { continue }
+    try { $localTime = [datetime]$row.local_time } catch { continue }
+    if ($localTime.Date -eq (Get-Date).Date) { $tieringSkippedToday.Add([string]$spec.Name) }
+}
+if ($tieringSkippedToday.Count -gt 0) {
+    $tieringMessage = (
+        "disk tiering skipped today because the heavy-workload lease was busy: {0}; " +
+        "Task Scheduler 0x0 does not prove reclaim" -f ($tieringSkippedToday -join ", ")
+    )
+    if ($null -ne $diskDaysLeft -and $diskDaysLeft -lt 21) { $flags.Add($tieringMessage) }
+    else { $warns.Add($tieringMessage) }
+}
+
 # ---- system clock ----
 # CLOB heartbeats, order TTLs, evidence ordering, and scheduled one-shots all trust the
 # Windows clock. W32Time is trigger-start on this workgroup host, so a stopped service is
@@ -1380,8 +1408,12 @@ $clockLastSync = $null
 $clockSyncAgeH = $null
 $clockSource = $null
 $clockSynchronized = $null
+try { $clockService = Get-Service -Name W32Time -ErrorAction Stop }
+catch { }
+# Get-WinEvent throws when the bounded window contains no matching event. Keep
+# that fallback independent from the live query: absence of an event must not
+# skip w32tm on a currently running, synchronized service.
 try {
-    $clockService = Get-Service -Name W32Time -ErrorAction Stop
     $syncEvent = Get-WinEvent -FilterHashtable @{
         LogName = "System"
         ProviderName = "Microsoft-Windows-Time-Service"
@@ -1392,7 +1424,10 @@ try {
         $clockLastSync = [datetime]$syncEvent.TimeCreated
         $clockSyncAgeH = [math]::Round(((Get-Date) - $clockLastSync).TotalHours, 1)
     }
-    if ($clockService.Status -eq "Running") {
+}
+catch { }
+if ($clockService -and $clockService.Status -eq "Running") {
+    try {
         $clockStatusText = ((& w32tm.exe /query /status 2>&1) -join "`n")
         $clockQueryExit = $LASTEXITCODE
         $sourceMatch = [regex]::Match($clockStatusText, "(?m)^Source:\s*(.+?)\s*$")
@@ -1418,8 +1453,11 @@ try {
             }
         }
     }
+    catch {
+        $clockSynchronized = $false
+        $clockSource = "unavailable"
+    }
 }
-catch { }
 if ($clockSynchronized -eq $false) {
     $flags.Add("system clock is not synchronized (source $clockSource)")
 }
@@ -1934,6 +1972,10 @@ $expDisabled = @(
     # until the repository-owned exact-tip queue replaces them. The -09-69a suite is also
     # review-blocked and must not be re-armed from its obsolete wrapper.
     "WeatherMergeQueueDriver", "WeatherMergeSensitiveDriver", "WeatherSuite0969a",
+    # Superseded 2026-08-21 by the exact Fixed0822 pair. These retained disabled
+    # definitions point at the pre-hardening tip and must never be re-enabled.
+    "WeatherIntegrationRecoveryBootstrapSuite0822",
+    "WeatherIntegrationRecoveryBootstrapMerge0822",
     # This operator hold remains visible through a dedicated warning below. Keeping it in
     # the generic anomaly path as well called the same deliberate state "unexpected".
     "WeatherEveningEvidenceRefresh",
@@ -1983,6 +2025,11 @@ else {
         $warns.Add("WeatherTrainingWindow is held DISABLED by the opt-in maintenance policy; enable only for a reviewed runnable training night")
     }
 }
+$mustRemainDisabled = [System.Collections.Generic.HashSet[string]]::new(
+    [StringComparer]::Ordinal
+)
+[void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapSuite0822")
+[void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapMerge0822")
 $taskCount = 0
 $interactiveTasks = 0
 $evidenceRefreshHeld = $false
@@ -2005,6 +2052,10 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
     $name = $_.TaskName
+    $isExpectedDisabled = ($st -eq "Disabled" -and $expDisabled -contains $name)
+    if ($mustRemainDisabled.Contains([string]$name) -and $st -ne "Disabled") {
+        $flags.Add("$name is superseded and must never be re-enabled")
+    }
     if ($name -eq "WeatherMergeSensitiveDriver" -and $st -ne "Disabled" -and $ti.NextRunTime) {
         $sensitiveDriverNextRun = [datetime]$ti.NextRunTime
     }
@@ -2325,13 +2376,15 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     if ($ti.NextRunTime -and ($res -eq "0x41303" -or $oneShot)) {
         $hrs = ([datetime]$ti.NextRunTime - (Get-Date)).TotalHours
-        if ($hrs -gt 0 -and $hrs -lt 16) {
+        if ($hrs -gt 0 -and $hrs -lt 16 -and -not $isExpectedDisabled) {
             $upcoming.Add([PSCustomObject]@{
                     name = $name; at = ([datetime]$ti.NextRunTime); in_hours = [math]::Round($hrs, 1)
                     state = $st
                 })
             # Armed work that is disabled will never fire, and silence is the failure mode.
-            if ($st -eq "Disabled") { $flags.Add("$name is armed for $($ti.NextRunTime) but DISABLED - it will not fire") }
+            if ($st -eq "Disabled" -and $expDisabled -notcontains $name) {
+                $flags.Add("$name is armed for $($ti.NextRunTime) but DISABLED - it will not fire")
+            }
             # Armed work landing inside 12:00-18:00 would roll the fleet in the graded window.
             # quiet_window_merge and chain_recovery_run both refuse there, but a mis-scheduled
             # trigger should be visible here rather than relying on the callee to save us.
@@ -2867,6 +2920,7 @@ if ($Json) {
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
             delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48 }
+        tiering  = $tieringState
         clock    = @{ service = $(if ($clockService) { [string]$clockService.Status } else { $null })
             synchronized = $clockSynchronized; source = $clockSource; sync_age_hours = $clockSyncAgeH
             last_sync = $(if ($clockLastSync) { $clockLastSync.ToString("o") } else { $null })

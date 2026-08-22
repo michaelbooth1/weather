@@ -10,14 +10,22 @@ scheduled job can only build an immutable, inactive candidate release.
 There are two alternative scheduling patterns:
 
 - Dedicated single-host capture: `register_training_window.ps1` owns a bounded
-  maintenance window that stops and always restores all three capture loops.
+  run-specific 01:00 maintenance window that stops and proves restoration of
+  all three capture loops; its 04:15 restore backstop remains daily.
 - Separate-capacity/direct scheduling: `register_nightly_retrain.ps1` owns
-  `WeatherNightlyRetrainValidatePromote`, which defaults to `03:30` local time.
+  the reviewed contract for a run-specific one-shot
+  `WeatherNightlyRetrainValidatePromote` occurrence. Registration currently
+  refuses because no repository-owned lease-owning offline-host proof wrapper
+  exists; the direct Python action is not runnable merely by claiming
+  `offline_host`.
 
-Do not enable both patterns for the same workload. The direct registration
-requires explicit served/replay captured-input parity files, served artifact
-bindings, and the served route. Read its `param(...)` block and provide reviewed
-current paths; there is intentionally no argument-free production example.
+Do not enable both patterns for the same workload. Both registration paths
+require all eight explicit base-retrain bindings before creating any task. The
+direct registration additionally requires explicit served/replay captured-input
+parity files, served artifact bindings, and the served route, and it binds
+`capture-resource-mode=offline_host`; it is not a supported capture-host action.
+Read the selected registrar's `param(...)` block and provide reviewed current
+paths; there is intentionally no argument-free production example.
 
 Both patterns are scheduler-attested, but their process topology is different.
 The direct task records `scheduler-invocation-topology=direct` and requires its
@@ -38,7 +46,19 @@ times must be present and ordered within their declared bounds. A missing,
 disabled, stale, unrelated, over-deep, or mismatched parent/child contract
 remains `manual_or_unverified` and is not countable production evidence.
 Re-register the window after any task name, PowerShell executable, repository
-path, or wrapper action change.
+path, wrapper action, scheduled time, or base-retrain binding change. The
+candidate directory is immutable and run-specific, so a completed candidate
+also requires a new reviewed binding before another window can be armed.
+Both registrars therefore require an exact future `RunAtLocal`; neither
+run-specific task uses `StartWhenAvailable`. The capture-host run is fixed to
+01:00 local and refuses outside a two-minute skew before it acquires the heavy
+lease or stops capture. The daily 04:15 dead-man restore deliberately retains
+`StartWhenAvailable`.
+The exact dated `RunAtLocal` also travels into the nightly status/SLA receipt.
+One-shot freshness is evaluated against that single occurrence and does not
+roll forward to invent a missing run on later days.
+The direct task's PT8H15M Scheduler limit exceeds its eight-hour producer SLA,
+so Scheduler teardown cannot race the producer's terminal-status deadline.
 
 The direct task calls:
 
@@ -66,6 +86,15 @@ python -m weather.operations.nightly_retrain run `
   --base-retrain-candidate-dir <new-root-outside-the-repository> `
   --base-retrain-runtime-id <reviewed-runtime-id>
 ```
+
+The registrars validate that the date/time bindings are well formed, both
+manifests already exist, and the candidate root is outside the repository.
+The candidate root must also still be absent at registration and again in the
+wrapper before lease acquisition, so a run-specific collision cannot buy a
+deliberate capture gap and fail only after capture stops.
+Those are early registration checks, not substitutes for the base-retrain
+preflight: parent release identity, manifest contents, point-in-time coverage,
+feature parity, and output isolation still fail closed in Python.
 
 The same step can be invoked directly with
 `python -m weather.operations.base_retrain`; inspect `--help` for its explicit
@@ -529,15 +558,26 @@ table should list the exact P0 gates and actions.
 ## Missed-Run SLA
 
 The SLA check expects a fresh `nightly_retrain_status.json` after the configured
-scheduled window plus its grace period. If no fresh status exists,
+scheduled window plus its grace period. Each run carries the exact scheduler
+task name, local trigger time, and timezone into its SLA receipt: the delegated
+single-host window reports `WeatherTrainingWindow` at its configured 01:00
+binding, while the direct registrar reports its selected one-shot task and
+time. If no fresh status exists,
 `weather.operations.nightly_retrain status` returns a critical state and names
 the expected task and status file. When the dedicated-host training window is
 authoritative, interpret freshness together with its skip/preflight result and
-restore status.
+restore status. A window is successful only after each supervisor enable and
+ensure command succeeds and `capture_recovery_check` proves all three workers;
+an unproved restore is a nonzero window result even when training itself passed.
+The shared heavy-work lease is acquired before the wrapper's narrow generated-
+config commit; a busy lease therefore leaves both Git and capture untouched.
 
-The Operations dashboard shows the same state in the Nightly Self-Improvement
-table: task registration, next run, status freshness, daily-learning blocker
-count, and the first P0 gate.
+`weather.operations.ops_monitor.nightly_retrain_status_rows` exposes the same
+attested task, exact occurrence, freshness, blocker count, and first P0 gate
+for compatibility consumers. The current two-page Streamlit UI does not call
+that helper or render a Nightly Self-Improvement table; use the persisted
+nightly status/report and the repository operations status surfaces until a
+deliberate UI route is added.
 
 ## Update this file when
 

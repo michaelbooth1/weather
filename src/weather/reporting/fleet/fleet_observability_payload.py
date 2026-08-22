@@ -209,6 +209,85 @@ def trust_readiness(trust_rows, min_trust=DEFAULT_MIN_TRUST, min_days=DEFAULT_MI
     return rows
 
 
+def _build_trust_readiness(snapshots_root, *, include_trust_replay=True):
+    if not include_trust_replay:
+        return {}, {
+            "status": "SKIPPED",
+            "reason": "scheduled_bounded_mode",
+            "trust_readiness_omitted": True,
+            "score_all_markets_called": False,
+        }
+    rows = score_all_markets(root=snapshots_root)
+    return trust_readiness(rows), {
+        "status": "COMPLETED",
+        "reason": "full_trust_replay",
+        "trust_readiness_omitted": False,
+        "score_all_markets_called": True,
+        "market_count": len(rows),
+    }
+
+
+def _build_runtime_identity_observability(
+    *,
+    snapshots_root,
+    target_date,
+    mm_runs_root,
+    taker_runs_root,
+    reconciliation_path,
+    include_runtime_identity_replay=True,
+):
+    if not include_runtime_identity_replay:
+        return {}, {
+            "status": "SKIPPED",
+            "reason": "scheduled_bounded_mode",
+            "runtime_identity_evidence_omitted": True,
+            "build_runtime_identity_evidence_called": False,
+            "target_date": target_date,
+        }
+    evidence = build_runtime_identity_evidence(
+        snapshots_root=snapshots_root,
+        target_date=target_date,
+        mm_runs_root=mm_runs_root,
+        taker_runs_root=taker_runs_root,
+        reconciliation_path=reconciliation_path,
+    )
+    return evidence, {
+        "status": "COMPLETED",
+        "reason": "full_runtime_identity_replay",
+        "runtime_identity_evidence_omitted": False,
+        "build_runtime_identity_evidence_called": True,
+        "target_date": target_date,
+    }
+
+
+def _build_trading_observability(
+    mm_runs_root,
+    taker_runs_root,
+    *,
+    include_trading_replay=True,
+):
+    if not include_trading_replay:
+        return {}, {}, {
+            "status": "SKIPPED",
+            "reason": "scheduled_bounded_mode",
+            "trading_evidence_omitted": True,
+            "mm_evidence_starvation_summary_called": False,
+            "build_trading_evidence_summary_called": False,
+        }
+    starvation = mm_evidence_starvation_summary(mm_runs_root)
+    evidence = build_trading_evidence_summary(
+        mm_runs_root=mm_runs_root,
+        taker_runs_root=taker_runs_root,
+    )
+    return starvation, evidence, {
+        "status": "COMPLETED",
+        "reason": "full_mm_taker_run_replay",
+        "trading_evidence_omitted": False,
+        "mm_evidence_starvation_summary_called": True,
+        "build_trading_evidence_summary_called": True,
+    }
+
+
 def overall_status(alerts):
     if any(row.get("severity") == "critical" for row in alerts):
         return "CRITICAL"
@@ -384,6 +463,9 @@ def build_observability_payload(
     target_day=None,
     years=None,
     include_audits=True,
+    include_trust_replay=True,
+    include_runtime_identity_replay=True,
+    include_trading_replay=True,
     mm_runs_root=DEFAULT_MM_RUNS_ROOT,
     taker_runs_root=DEFAULT_TAKER_RUNS_ROOT,
     parquet_incremental_path=DEFAULT_INCREMENTAL_JSON,
@@ -409,9 +491,18 @@ def build_observability_payload(
         market_id: jsonable_result(result)
         for market_id, result in audits.items()
     }
+    historical_audit_execution = {
+        "status": "COMPLETED" if include_audits else "SKIPPED",
+        "reason": "full_historical_audit" if include_audits else "scheduled_bounded_mode",
+        "historical_audits_omitted": not include_audits,
+        "market_count": len(audits_json),
+    }
     provenance = artifact_inventory()
     gap_coverage = historical_gap_coverage(audits_json) if include_audits else {}
-    trust = trust_readiness(score_all_markets(root=snapshots_root))
+    trust, trust_execution = _build_trust_readiness(
+        snapshots_root,
+        include_trust_replay=include_trust_replay,
+    )
     clob = clob_summary(snapshots_root=snapshots_root)
     observation = observation_summary()
     loop_integrity = loop_artifact_integrity()
@@ -427,17 +518,20 @@ def build_observability_payload(
         current_code_soak,
     )
     mm_paper_evidence = mm_paper_evidence_summary()
-    mm_starvation = mm_evidence_starvation_summary(mm_runs_root)
-    trading_evidence = build_trading_evidence_summary(
-        mm_runs_root=mm_runs_root,
-        taker_runs_root=taker_runs_root,
+    mm_starvation, trading_evidence, trading_replay_execution = (
+        _build_trading_observability(
+            mm_runs_root,
+            taker_runs_root,
+            include_trading_replay=include_trading_replay,
+        )
     )
-    runtime_evidence = build_runtime_identity_evidence(
+    runtime_evidence, runtime_identity_execution = _build_runtime_identity_observability(
         snapshots_root=snapshots_root,
         target_date=runtime_identity_target_date(collection),
         mm_runs_root=mm_runs_root,
         taker_runs_root=taker_runs_root,
         reconciliation_path=Path(snapshots_root).parent / "backtest" / "runtime_identity_reconciliation.json",
+        include_runtime_identity_replay=include_runtime_identity_replay,
     )
     settled_freshness = settled_day_freshness_summary()
     parquet_incremental = parquet_incremental_status(parquet_incremental_path)
@@ -461,6 +555,27 @@ def build_observability_payload(
     alerts.extend(runtime_identity_alerts(runtime_evidence))
     alerts.extend(settled_day_freshness_alerts(settled_freshness))
     alerts.extend(parquet_incremental_alerts(parquet_incremental))
+    bounded_omissions = [
+        name
+        for name, execution in (
+            ("historical_audit", historical_audit_execution),
+            ("trust_replay", trust_execution),
+            ("runtime_identity_replay", runtime_identity_execution),
+            ("trading_replay", trading_replay_execution),
+        )
+        if execution.get("status") == "SKIPPED"
+    ]
+    if bounded_omissions:
+        alerts.append({
+            "severity": "warning",
+            "market_id": "fleet",
+            "category": "scheduled_bounded_omission",
+            "message": (
+                "scheduled fleet mode omitted full-corpus evidence; "
+                "promotion must remain fail-closed"
+            ),
+            "detail": {"omitted": bounded_omissions},
+        })
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": utc_now(),
@@ -468,9 +583,11 @@ def build_observability_payload(
         "snapshots_root": str(snapshots_root),
         "collection": collection,
         "historical_audits": audits_json,
+        "historical_audit_execution": historical_audit_execution,
         "historical_gap_coverage": gap_coverage,
         "artifact_provenance": provenance,
         "trust_readiness": trust,
+        "trust_readiness_execution": trust_execution,
         "event_metadata_validation": event_metadata,
         "clob": clob,
         "observation_trigger": observation,
@@ -481,7 +598,9 @@ def build_observability_payload(
         "mm_paper_evidence": mm_paper_evidence,
         "mm_evidence_starvation": mm_starvation,
         "trading_evidence": trading_evidence,
+        "trading_replay_execution": trading_replay_execution,
         "runtime_identity_evidence": runtime_evidence,
+        "runtime_identity_execution": runtime_identity_execution,
         "settled_day_freshness": settled_freshness,
         "closed_day_parquet_incremental": parquet_incremental,
         "cleanup_deletion_gate": cleanup_deletion_gate,
@@ -491,6 +610,17 @@ def build_observability_payload(
             "market_count": len(collection.get("markets") or []),
             "critical_alerts": sum(1 for row in alerts if row.get("severity") == "critical"),
             "warning_alerts": sum(1 for row in alerts if row.get("severity") == "warning"),
+            "scheduled_bounded_omissions": bounded_omissions,
+            "historical_audit_execution_status": historical_audit_execution.get(
+                "status"
+            ),
+            "historical_audits_omitted": historical_audit_execution.get(
+                "historical_audits_omitted"
+            ),
+            "trust_readiness_execution_status": trust_execution.get("status"),
+            "trust_readiness_omitted": trust_execution.get(
+                "trust_readiness_omitted"
+            ),
             "live_forward_slo_status": live_forward_slo.get("status"),
             "clean_active_day_countability_status": clean_day_countability.get("status"),
             "clean_active_day_counts_toward_early_hour_evidence": (
@@ -537,6 +667,12 @@ def build_observability_payload(
                 "recovery_attempted_starved_active_day_count"
             ),
             "mm_evidence_starvation_status": mm_starvation.get("status"),
+            "trading_replay_execution_status": trading_replay_execution.get(
+                "status"
+            ),
+            "trading_evidence_omitted": trading_replay_execution.get(
+                "trading_evidence_omitted"
+            ),
             "mm_current_high_trust_no_quote_count": (
                 (trading_evidence.get("market_making") or {}).get("current_high_trust_no_quote_count")
             ),
@@ -544,6 +680,12 @@ def build_observability_payload(
                 (trading_evidence.get("taker") or {}).get("current_high_trust_no_trade_count")
             ),
             "runtime_identity_status": runtime_evidence.get("status"),
+            "runtime_identity_execution_status": runtime_identity_execution.get(
+                "status"
+            ),
+            "runtime_identity_evidence_omitted": runtime_identity_execution.get(
+                "runtime_identity_evidence_omitted"
+            ),
             "runtime_identity_mixed": runtime_evidence.get("mixed_runtime_identity"),
             "runtime_identity_count": runtime_evidence.get("runtime_identity_count"),
             "runtime_identity_snapshot_rows": runtime_evidence.get("snapshot_row_count"),

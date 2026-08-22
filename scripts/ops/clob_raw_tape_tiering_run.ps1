@@ -30,13 +30,21 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$SettledBefore = "",
     [int]$Limit = 0,
+    [ValidateRange(60, 7200)][int]$MaxRuntimeSeconds = 2400,
     [switch]$PlanOnly,
     [switch]$Forced
 )
 
 $ErrorActionPreference = "Stop"
 $workloadLeaseScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+$jobScript = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+$contractScript = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
+foreach ($required in @($workloadLeaseScript, $jobScript, $contractScript)) {
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "missing helper: $required" }
+}
 . $workloadLeaseScript
+. $jobScript
+. $contractScript
 
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 if (-not (Test-Path $python)) {
@@ -44,6 +52,7 @@ if (-not (Test-Path $python)) {
 }
 
 $statusPath = Join-Path $RepoRoot "data\logs\clob_raw_tape_tiering_task_status.json"
+$historyPath = Join-Path $RepoRoot "data\logs\clob_raw_tape_tiering_task_history.jsonl"
 $statusDir = Split-Path -Parent $statusPath
 if (-not (Test-Path $statusDir)) {
     New-Item -ItemType Directory -Force -Path $statusDir | Out-Null
@@ -53,16 +62,19 @@ function Write-TaskStatus {
     param([hashtable]$Payload)
     $Payload["schema_version"] = "clob_raw_tape_tiering_task_status_v0.1"
     $Payload["written_at_utc"] = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-    ($Payload | ConvertTo-Json -Depth 6) | Out-File -FilePath $statusPath -Encoding utf8
+    $json = ($Payload | ConvertTo-Json -Depth 6)
+    $temporary = "$statusPath.$PID.tmp"
+    [IO.File]::WriteAllText($temporary, $json + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temporary -Destination $statusPath -Force
+    Add-Content -LiteralPath $historyPath -Value ($Payload | ConvertTo-Json -Depth 6 -Compress) -Encoding utf8
 }
 
-# The 12:00-18:00 graded capture window is what the Toronto streak is measured on.
-# Decompress-and-verify is heavier than the projection tier -- it reads every source
-# twice -- so it never runs inside that window on a normal trigger.
+# Decompress-and-verify is heavier than the projection tier -- it reads every
+# source twice -- so the complete 00:30-09:00 heavy-work policy applies.
 $now = Get-Date
 $localMinute = ($now.Hour * 60) + $now.Minute
-if ($localMinute -ge (12 * 60) -or $localMinute -lt 30) {
-    Write-Host "REFUSED: inside the 12:00-00:30 protected capture window; -Forced cannot bypass host policy."
+if ($localMinute -ge (9 * 60) -or $localMinute -lt 30) {
+    Write-Host "REFUSED: outside the 00:30-09:00 heavy-work window; -Forced cannot bypass host policy."
     Write-TaskStatus @{ status = "REFUSED_CAPTURE_WINDOW"; local_time = $now.ToString("s") }
     exit 0
 }
@@ -90,8 +102,13 @@ if ($null -eq $workloadLease) {
     exit 0
 }
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
+$proc = $null
+$job = $null
 try {
-$proc = Start-Process -FilePath $python -ArgumentList $arguments -WorkingDirectory $RepoRoot -WindowStyle Hidden -PassThru
+$job = New-WeatherKillOnCloseJob
+$argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $arguments
+$proc = Start-WeatherProcessInJob -Job $job -FilePath $python `
+    -ArgumentString $argumentString -WorkingDirectory $RepoRoot
 
 # Touching .Handle forces .NET to cache the process handle. Without it, $proc.ExitCode
 # reads back $null after the process exits and a clean run is recorded as FAILED.
@@ -100,10 +117,20 @@ $null = $proc.Handle
 # Capture outranks this job.
 try { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::BelowNormal } catch { }
 
+$hardStop = (Get-Date).AddSeconds($MaxRuntimeSeconds)
+while (-not $proc.HasExited -and (Get-Date) -lt $hardStop) {
+    Start-Sleep -Seconds 2
+    $proc.Refresh()
+}
+$hardStopped = -not $proc.HasExited
+if ($hardStopped) {
+    $job.Dispose()
+    $job = $null
+}
 $proc.WaitForExit()
 $sw.Stop()
 
-$exitCode = $proc.ExitCode
+$exitCode = $(if ($hardStopped) { 75 } else { $proc.ExitCode })
 if ($null -eq $exitCode) {
     # Never report success we cannot prove.
     $exitCode = 1
@@ -111,7 +138,7 @@ if ($null -eq $exitCode) {
 $freeAfter = (Get-PSDrive C).Free
 
 Write-TaskStatus @{
-    status            = $(if ($exitCode -eq 0) { "OK" } else { "FAILED" })
+    status            = $(if ($hardStopped) { "HARD_STOPPED" } elseif ($exitCode -eq 0) { "OK" } else { "FAILED" })
     mode              = $mode
     exit_code         = $exitCode
     duration_seconds  = [math]::Round($sw.Elapsed.TotalSeconds, 1)
@@ -119,11 +146,17 @@ Write-TaskStatus @{
     free_after_bytes  = $freeAfter
     reclaimed_bytes   = ($freeAfter - $freeBefore)
     report_path       = $outReport
+    hard_stop_reached = $hardStopped
+    max_runtime_seconds = $MaxRuntimeSeconds
     local_time        = $now.ToString("s")
 }
 
 $reclaimedGb = [math]::Round(($freeAfter - $freeBefore) / 1GB, 2)
 Write-Host ("clob raw tape tiering {0}: exit={1} elapsed={2:N1}s reclaimed={3} GB free={4:N1} GB" -f $mode, $exitCode, $sw.Elapsed.TotalSeconds, $reclaimedGb, ($freeAfter / 1GB))
 }
-finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }
+finally {
+    if ($job) { $job.Dispose() }
+    if ($proc) { $proc.Dispose() }
+    Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
+}
 exit $exitCode

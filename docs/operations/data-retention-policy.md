@@ -58,10 +58,17 @@ settled replay evidence are not routine cache.
 
 ## Scheduled CLOB Long-Tape Tiering
 
-`WeatherClobTiering` runs `scripts/ops/clob_tiering_run.ps1` daily at 05:00 local
-and is the load-bearing defence against the single largest retention leak in this
-project. It compresses each settled market-day's `order_books_long.csv` to
-`.csv.gz` (about 23x) and deletes the source only after byte-parity verification.
+`WeatherClobTiering` runs the canonical
+`scripts/ops/clob_tiering_run.ps1` daily at 05:00 local with a 1,800-second
+runner bound and PT31M task limit. `WeatherClobRawTapeTiering` runs
+`scripts/ops/clob_raw_tape_tiering_run.ps1` at 06:00 with a 2,400-second bound,
+PT41M task limit, and `-Limit 150`. Both are S4U/Limited, use kill-on-close
+child-tree containment in the runner, and deliberately disable
+`StartWhenAvailable`: a missed occurrence must not drift into Stage A or a
+protected host window. Projection tiering is the load-bearing defence against
+the single largest retention leak in this project. It compresses each settled
+market-day's `order_books_long.csv` to `.csv.gz` (about 23x) and deletes the
+source only after byte-parity verification.
 
 **It exists because the identical work as a daily-refresh chain step is not
 reliable.** `clob_order_book_tiering` is step ~13 of ~45; when the chain defers
@@ -72,10 +79,14 @@ admission on 2026-07-18, and a single transient capture error
 2026-08-04. Both times free space fell far enough to threaten capture. Disk
 headroom must not be a downstream consequence of chain health.
 
-Registration: `scripts/ops/register_clob_tiering.ps1`. Task-level outcome,
-including bytes reclaimed, is written to
-`data/logs/clob_tiering_task_status.json`; the tiering report itself stays at the
-shared `data/backtest/clob_order_book_tiering.json` path that the chain step also
+Registration is owned by `scripts/ops/register_clob_tiering.ps1` and
+`scripts/ops/register_clob_raw_tape_tiering.ps1`. Each registrar reads back the
+exact canonical action, trigger, runtime limit, no-catch-up setting, and
+principal before claiming success. Task-level outcomes, including bytes
+reclaimed, are written to `data/logs/clob_tiering_task_status.json` and
+`data/logs/clob_raw_tape_tiering_task_status.json`; the projection-tiering
+report itself stays at the shared
+`data/backtest/clob_order_book_tiering.json` path that the chain step also
 writes, so one file always answers "when did tiering last succeed."
 
 Running the job twice is harmless. An already-tiered day is classified
@@ -90,8 +101,9 @@ triggered by this job. Those days appear in the plan as
 `already_tiered_source_present` and are left alone; reclaiming them needs the
 separate verified-delete path.
 
-The runner refuses to start inside the 12:00-18:00 graded capture window unless
-`-Forced`, and runs its child process at `BelowNormal` priority so sustained
+The runner refuses to start outside the 00:30-09:00 heavy-work window;
+`-Forced` cannot bypass that host policy. It runs its child process at
+`BelowNormal` priority so sustained
 compression cannot starve the capture loops.
 
 ## Storage-Pressure Build

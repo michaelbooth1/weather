@@ -16,6 +16,15 @@ from weather.operations.windows_process_lifetime import (
     WindowsProcessLifetimeTracker,
 )
 from weather.operations.windows_process_metrics import windows_process_memory_metrics
+from weather.operations.process_lock_identity import (
+    LOCK_OWNER_IDENTITY_FIELD,
+    LockPathTransactionBusy,
+    current_process_identity as _current_process_identity,
+    lock_path_transaction,
+    lock_owner_status as _lock_owner_status,
+    observe_process_identity,
+    remove_lock_payload_if_current,
+)
 from weather.paths import data_path
 from weather.schema_registry import schema_version
 
@@ -177,6 +186,7 @@ def _lock_payload(job_name):
         "job_name": job_name,
         "pid": os.getpid(),
         "started_at_utc": utc_iso(),
+        LOCK_OWNER_IDENTITY_FIELD: current_process_identity(),
     }
 
 
@@ -216,8 +226,26 @@ def process_is_running(pid):
     return True
 
 
-def _process_is_running(pid):
-    return process_is_running(pid)
+def lock_owner_status(detail, *, observe_fn=None):
+    """Compatibility facade with a patchable observer for existing callers/tests."""
+
+    return _lock_owner_status(
+        detail,
+        observe_fn=observe_fn or observe_process_identity,
+    )
+
+
+def current_process_identity():
+    """Compatibility facade sharing the observer patched by existing tests."""
+
+    observed = observe_process_identity(os.getpid())
+    if observed:
+        return {
+            "pid": os.getpid(),
+            "image_path": observed.get("image_path"),
+            "creation_time_token": observed.get("creation_time_token"),
+        }
+    return _current_process_identity()
 
 
 def _read_lock_detail(path):
@@ -227,13 +255,23 @@ def _read_lock_detail(path):
         return {"path": str(path)}
 
 
-def _lock_owner_is_active(detail):
-    if isinstance(detail, dict) and "pid" in detail:
-        return _process_is_running(detail.get("pid"))
-    return True
-
-
 def acquire_long_job_lock(path, job_name, force=False, audit=None):
+    try:
+        with lock_path_transaction(path):
+            return _acquire_long_job_lock_transaction(
+                path,
+                job_name,
+                force=force,
+                audit=audit,
+            )
+    except LockPathTransactionBusy as exc:
+        if isinstance(audit, dict):
+            audit["acquired"] = False
+            audit["transaction_busy"] = True
+        raise LongJobBusy(f"long-job lock pathname transaction busy: {path}") from exc
+
+
+def _acquire_long_job_lock_transaction(path, job_name, force=False, audit=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     audit = audit if isinstance(audit, dict) else {}
@@ -260,13 +298,19 @@ def acquire_long_job_lock(path, job_name, force=False, audit=None):
         fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError as exc:
         detail = _read_lock_detail(path)
-        if not _lock_owner_is_active(detail):
+        owner = lock_owner_status(detail)
+        if not owner.get("active"):
             audit["stale_lock_detected_count"] += 1
-            try:
-                path.unlink()
+            audit["stale_lock_reason"] = owner.get("stale_reason")
+            audit["stale_lock_owner_observation"] = owner.get("observation")
+            removal = remove_lock_payload_if_current(path, detail)
+            if removal.get("removed"):
                 audit["stale_lock_repair_count"] += 1
-            except FileNotFoundError:
-                pass
+            else:
+                detail = _read_lock_detail(path)
+                raise LongJobBusy(
+                    f"long-job lock instance changed during stale repair: {detail}"
+                ) from exc
             try:
                 fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             except FileExistsError:
@@ -284,9 +328,20 @@ def release_long_job_lock(path):
     if not path:
         return
     try:
-        Path(path).unlink()
-    except FileNotFoundError:
-        pass
+        with lock_path_transaction(path):
+            detail = _read_lock_detail(Path(path))
+            if detail.get("pid") != os.getpid():
+                return
+            stored = detail.get(LOCK_OWNER_IDENTITY_FIELD)
+            if isinstance(stored, dict):
+                current = current_process_identity()
+                expected_token = stored.get("creation_time_token")
+                current_token = current.get("creation_time_token")
+                if expected_token and expected_token != current_token:
+                    return
+            remove_lock_payload_if_current(path, detail)
+    except LockPathTransactionBusy:
+        return
 
 
 def _lower_memory_priority(priority):
@@ -1855,6 +1910,7 @@ def long_job_guard(
     start_monotonic = time.time()
     started_wall = utc_iso()
     priority_result = lower_process_priority(priority)
+    owner_identity = current_process_identity()
     write_json(state_path, {
         "schema_version": SCHEMA_VERSION,
         "status": "running",
@@ -1865,6 +1921,7 @@ def long_job_guard(
         "updated_at_utc": started_wall,
         "duration_seconds": 0.0,
         "priority": priority_result,
+        LOCK_OWNER_IDENTITY_FIELD: owner_identity,
     })
     try:
         yield {
@@ -1886,6 +1943,7 @@ def long_job_guard(
             "updated_at_utc": utc_iso(),
             "duration_seconds": round(time.time() - start_monotonic, 3),
             "priority": priority_result,
+            LOCK_OWNER_IDENTITY_FIELD: owner_identity,
             "error": f"{type(exc).__name__}: {exc}",
         })
         raise

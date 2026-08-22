@@ -1,4 +1,4 @@
-# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-07-15 - FIRST POST-GATE RECEIPT SAFELY DEFERRED BUT SCHEDULER-UNATTESTED AND NON-COUNTABLE]
+# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-21 - TERMINAL MORNING TAIL AND OVERNIGHT HANDOFF REPAIR PREPARED; PRODUCTION PROOF OPEN]
 
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
@@ -300,3 +300,69 @@ Verification:
 - `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint`.
 
 Related: items 95, 171, 205, 260, 285, 298, 321, 322.
+
+## 2026-08-19 backfill-containment repair
+
+The August 16 recovery established the defect with real timings: settlement
+restore and finalization completed, but the generic resume continued through
+unrelated scoring and storage work until its hard teardown. Cleanup did not
+run, stale locks remained, and August 17 refused on file existence. Windows
+then reused the recorded PID for an unrelated process, proving PID liveness is
+not lock ownership.
+
+- [x] Add an inclusive `--stop-after-step` daily-refresh contract and require
+  every selected step to finish `ok`.
+- [x] Make one-date backfill stop normally after
+  `market_day_labels_finalize`, suppress downstream publication/readiness, and
+  verify finite real settlement values across every market ledger.
+- [x] Bind daily-refresh and long-job locks/state to PID plus process creation
+  identity, fail closed on unreadable identity, and protect replacement locks
+  during release.
+- [x] Give direct recovery and tiering launches kill-on-close child-tree
+  containment, bounded runtimes, atomic latest status, and append-only history.
+- [ ] Pass the combined immutable full suite and guarded production adoption.
+- [ ] Recover August 17 through the new bounded path and prove normal lock
+  release, 12/12 real settlement, current capture, and no downstream work.
+
+The implementation is prepared on an isolated branch. It is not production
+proof and must not be used to relabel the failed August 19 wrapper receipt.
+
+## 2026-08-21 overnight workflow audit repair
+
+Three consecutive scheduled Stage-A runs reached the absolute 11:55 teardown
+without a terminal manifest. The August 21 trace proved the parent had already
+finished 23 recorded steps and then entered the nominally in-process
+`fleet_observability` tail. That tail still contained both the full historical
+audit, the growing `score_all_markets` settled-tape replay, and runtime-identity
+evidence that scanned every snapshot tape before filtering, so calling it a
+light status read was false. It also redundantly enumerated every MM/taker run
+after Stage A had already produced current trading evidence.
+
+- [x] Isolate the scheduled fleet tail in a 20-minute child with 3,072 MiB
+  private and 2,048 MiB working-set ceilings, plus the existing pre-child
+  resumable checkpoint and terminal validation.
+- [x] Make the scheduled fleet mode explicitly omit the separately admitted
+  historical audit, full settled-tape trust replay, and runtime-identity tape
+  replay, plus the duplicate all-run MM/taker summaries, recording each
+  omission rather than manufacturing evidence.
+- [x] Bind the exchange-economics barrier dependency to its explicit
+  `settled_analysis_target_date`; its current operating date is deliberately D
+  while settlement analysis is D-1.
+- [x] Accept the exact one-hop Windows venv launcher relationship during stale
+  child-terminal recovery, matching the already enforced live child contract.
+- [x] Publish Stage-A manifest/trigger disposition atomically and turn any
+  required-manifest publication failure into durable terminal error status.
+- [x] Replace the impossible immediate/14:00/17:00 Stage-B topology with one
+  disabled-by-default 00:35 contract whose target is independently derived
+  from the expected prior morning, whose wrapper tears down by 09:00, and whose
+  Scheduler limit leaves cleanup margin.
+- [ ] Pass focused composition tests, the exact full suite, and guarded
+  production integration.
+- [ ] Obtain a representative scheduled 09:30 receipt that terminalizes before
+  11:55 and a separately authorized Stage-B resource proof before enabling its
+  established monolithic workload hold.
+
+These changes make refusal and timeout terminal and attributable. They do not
+claim that the omitted historical/trust/runtime-identity/MM-taker work ran,
+that Stage B is resource-safe to enable, or that the representative scheduled
+soak has passed.

@@ -18,13 +18,12 @@ import sys
 import time
 import traceback
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from weather.io import write_json_atomic
 from weather.paths import data_path, repo_path
 from weather.time import utc_now as shared_utc_now
 
-from types import SimpleNamespace
 
 from weather.backtesting.settlement_ledger import (
     DEFAULT_LABELS_CSV,
@@ -122,10 +121,6 @@ DEFAULT_STATUS_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_status.json"
 DEFAULT_REPORT_OUT = DEFAULT_BACKTEST_ROOT / "daily_refresh_report.md"
 DEFAULT_LOCK_PATH = DEFAULT_BACKTEST_ROOT / "daily_refresh.lock"
 DEFAULT_TASK_NAME = "WeatherDailySettlementPromotionRefresh"
-DEFAULT_EVIDENCE_TASK_NAME = "WeatherEveningEvidenceRefresh"
-DEFAULT_STAGE_A_MANIFEST = DEFAULT_BACKTEST_ROOT / "daily_refresh_settlement_truth_manifest.json"
-DEFAULT_STAGE_B_MANIFEST = DEFAULT_BACKTEST_ROOT / "daily_refresh_evidence_learning_manifest.json"
-STAGE_MANIFEST_SCHEMA_VERSION = schema_version("daily_refresh_stage_manifest")
 DAILY_HEAVY_STEPS = frozenset({"promotion_refresh", "active_variant_shadow"})
 from weather.operations.daily_refresh_locks import (
     DiskPreflightError,
@@ -166,7 +161,6 @@ from weather.operations.daily_refresh_steps import (
     filter_runners_for_resume,
     filter_runners_for_stage,
     ingest_quality_gate_status,
-    parse_date_arg,
     pipeline_summary,
     planned_steps,
     promotion_args,
@@ -217,11 +211,35 @@ from weather.operations.daily_refresh_steps import (
     run_winner_rank_parity_step,
     run_step,
     run_ten_minute_model_performance_step,
-    step_names_for_stage,
     summarize_labels,
     variant_learning_gate_from_steps,
     write_daily_progress_ledger,
     write_ingest_quality_report,
+)
+from weather.operations.daily_refresh_bounded import (
+    bounded_trigger_skip,
+    bounded_planned_steps,
+    build_bounded_recovery_receipt,
+    enforce_bounded_resume_binding,
+    select_bounded_runners,
+)
+from weather.operations.daily_refresh_cli_dependencies import build_cli_dependencies
+from weather.operations.daily_refresh_stage_manifests import (
+    DEFAULT_EVIDENCE_TASK_NAME,
+    DEFAULT_STAGE_A_MANIFEST,
+    DEFAULT_STAGE_B_MANIFEST,
+    STAGE_MANIFEST_SCHEMA_VERSION,
+    _expected_overnight_stage_a_target,
+    _promotion_receipts_before,
+    _read_json_payload,
+    _stage_a_binding,
+    _stage_a_trigger_disposition,
+    _stage_b_start_gate,
+    _stage_barrier_summary,
+    _stage_manifest_path,
+    _stage_manifest_payload,
+    _step_by_name,
+    _write_stage_manifest,
 )
 from weather.operations.daily_refresh_report import render_report, write_report
 def run_daily_refresh(args, runners=None):
@@ -874,214 +892,6 @@ def _stage_name(args):
     return stage
 
 
-def _stage_manifest_path(args, stage):
-    if stage == STAGE_SETTLEMENT:
-        return Path(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
-    if stage == STAGE_EVIDENCE:
-        return Path(getattr(args, "stage_b_manifest", DEFAULT_STAGE_B_MANIFEST))
-    return None
-
-
-def _read_json_payload(path):
-    try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError):
-        return {}
-
-
-def _step_by_name(steps, name):
-    return next((step for step in steps or [] if step.get("name") == name), {})
-
-
-def _stage_barrier_summary(payload):
-    barrier_step = _step_by_name(payload.get("steps"), "settled_day_analysis_barrier")
-    result = barrier_step.get("result") or {}
-    return {
-        "step_status": barrier_step.get("status"),
-        "status": result.get("status"),
-        "target_date": result.get("target_date"),
-        "blocker_count": result.get("blocker_count", 0),
-        "json_out": result.get("json_out"),
-    }
-
-
-def _stage_a_binding(manifest):
-    return str(
-        (manifest or {}).get("run_id")
-        or (manifest or {}).get("completed_at_utc")
-        or (manifest or {}).get("started_at_utc")
-        or ""
-    )
-
-
-def _promotion_receipts_before(step_name, *, names=None):
-    end = STEP_ORDER.index(step_name)
-    allowed = set(STEP_ORDER[:end] if names is None else names)
-    return tuple(
-        name
-        for name in STEP_ORDER[:end]
-        if name in allowed and STEP_PROMOTION_GATES.get(name, False)
-    )
-
-
-def _stage_manifest_payload(args, payload, *, stage, status_path=None, report_path=None):
-    target_date = getattr(args, "settled_analysis_target_date", "") or ""
-    stage_label = "settlement_truth" if stage == STAGE_SETTLEMENT else "evidence_learning"
-    execution_failures = [
-        step.get("name")
-        for step in payload.get("steps") or []
-        if not step.get("carried_forward")
-        and step.get("status") in {"error", "deferred"}
-    ]
-    manifest_status = (
-        "INCOMPLETE"
-        if stage == STAGE_EVIDENCE and execution_failures
-        else "COMPLETED"
-        if payload.get("status") in {"ok", "critical"}
-        else str(payload.get("status") or "unknown").upper()
-    )
-    stage_gate = ((payload.get("config") or {}).get("stage_gate") or {})
-    return {
-        "schema_version": STAGE_MANIFEST_SCHEMA_VERSION,
-        "run_id": payload.get("run_id") or "",
-        "stage": stage,
-        "stage_label": stage_label,
-        "status": manifest_status,
-        "payload_status": payload.get("status"),
-        "execution_failure_steps": execution_failures,
-        "source_stage_a_binding": (
-            stage_gate.get("stage_a_binding") if stage == STAGE_EVIDENCE else ""
-        ),
-        "target_date": target_date,
-        "started_at_utc": payload.get("started_at_utc"),
-        "completed_at_utc": payload.get("finished_at_utc"),
-        "status_out": as_path(status_path or getattr(args, "status_out", "")),
-        "report_out": as_path(report_path or getattr(args, "report_out", "")),
-        "step_count": len(payload.get("steps") or []),
-        "completed_steps": [
-            step.get("name")
-            for step in payload.get("steps") or []
-            if step.get("status") not in {"error", "deferred", "blocked"}
-        ],
-        "barrier": _stage_barrier_summary(payload),
-        "lanes": payload.get("lanes")
-        or _lane_summary(args, payload.get("steps") or []),
-        "steps": payload.get("steps") or [],
-        "invocation": payload.get("invocation") or {},
-        "lock_proof": payload.get("lock_proof") or {},
-        "sla": payload.get("sla") or {},
-        "inside_sla": (payload.get("sla") or {}).get("status") == "PASS",
-        "release_identity": payload.get("release_identity") or {},
-        "release_id": payload.get("release_id") or "",
-        "release_manifest_sha256": payload.get("release_manifest_sha256") or "",
-        "release_identity_status": payload.get("release_identity_status") or "unverified",
-    }
-
-
-def _write_stage_manifest(args, payload, *, stage, status_path=None, report_path=None):
-    path = _stage_manifest_path(args, stage)
-    if path is None:
-        return None
-    manifest = _stage_manifest_payload(
-        args,
-        payload,
-        stage=stage,
-        status_path=status_path,
-        report_path=report_path,
-    )
-    write_json_atomic(path, manifest, trailing_newline=True)
-    return path, manifest
-
-
-def _stage_b_start_gate(args):
-    target_date = getattr(args, "settled_analysis_target_date", "") or ""
-    stage_a_path = Path(getattr(args, "stage_a_manifest", DEFAULT_STAGE_A_MANIFEST))
-    stage_b_path = Path(getattr(args, "stage_b_manifest", DEFAULT_STAGE_B_MANIFEST))
-    stage_a = _read_json_payload(stage_a_path)
-    if not stage_a:
-        return {
-            "status": "SKIP",
-            "skip_reason": "missing_stage_a_manifest",
-            "target_date": target_date,
-            "stage_a_manifest": str(stage_a_path),
-        }
-    if stage_a.get("target_date") != target_date:
-        return {
-            "status": "SKIP",
-            "skip_reason": "stale_stage_a_manifest",
-            "target_date": target_date,
-            "stage_a_target_date": stage_a.get("target_date"),
-            "stage_a_manifest": str(stage_a_path),
-        }
-    if stage_a.get("status") != "COMPLETED":
-        return {
-            "status": "SKIP",
-            "skip_reason": "stage_a_not_completed",
-            "target_date": target_date,
-            "stage_a_status": stage_a.get("status"),
-            "stage_a_manifest": str(stage_a_path),
-        }
-    barrier = stage_a.get("barrier") or {}
-    stage_a_binding = _stage_a_binding(stage_a)
-    required_stage_a_receipts = tuple(
-        name
-        for name in step_names_for_stage(STAGE_SETTLEMENT)
-        if STEP_PROMOTION_GATES.get(name, False)
-    )
-    stage_a_promotion_blocker = _promotion_lane_outcome_blocker(
-        stage_a.get("steps") or [],
-        required_names=required_stage_a_receipts,
-        target_date=target_date,
-    )
-    stage_a_target_coverage = _chain_target_settlement_coverage(
-        args,
-        stage_a.get("steps") or [],
-    )
-    stage_b = _read_json_payload(stage_b_path)
-    if (
-        stage_b.get("target_date") == target_date
-        and stage_b.get("status") == "COMPLETED"
-        and stage_a_binding
-        and stage_b.get("source_stage_a_binding") == stage_a_binding
-    ):
-        return {
-            "status": "SKIP",
-            "skip_reason": "stage_b_already_completed",
-            "target_date": target_date,
-            "stage_b_manifest": str(stage_b_path),
-            "completed_at_utc": stage_b.get("completed_at_utc"),
-            "completed_status_out": stage_b.get("status_out"),
-            "completed_report_out": stage_b.get("report_out"),
-        }
-    return {
-        "status": "RUN",
-        "target_date": target_date,
-        "stage_a_manifest": str(stage_a_path),
-        "stage_b_manifest": str(stage_b_path),
-        "stage_a_binding": stage_a_binding,
-        "barrier": barrier,
-        "promotion_blocker": stage_a_promotion_blocker,
-        "target_settlement_coverage": stage_a_target_coverage,
-        "required_stage_a_promotion_receipts": list(
-            required_stage_a_receipts
-        ),
-        "promotion_lane_status": (
-            "BLOCKED"
-            if stage_a_promotion_blocker
-            or (
-                ((stage_a.get("lanes") or {}).get(LANE_PROMOTION) or {}).get(
-                    "status"
-                )
-                == "BLOCKED"
-            )
-            else "OPEN"
-        ),
-        "learning_mode": stage_a_target_coverage.get(
-            "coverage_status", "UNKNOWN"
-        ),
-    }
-
-
 def _write_stage_skip(args, *, started, started_at, gate):
     finished = utc_iso()
     duration_seconds = round(time.time() - started, 3)
@@ -1092,12 +902,17 @@ def _write_stage_skip(args, *, started, started_at, gate):
         duration_seconds=duration_seconds,
         limit_seconds=getattr(args, "producer_sla_seconds", 0.0),
     )
+    terminal_status = (
+        "critical" if gate.get("status") == "BLOCK" else "skipped"
+    )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "generated_at_utc": finished,
         "started_at_utc": started_at,
         "finished_at_utc": finished,
-        "status": "skipped",
+        "status": terminal_status,
+        "terminal": True,
+        "current_step": None,
         "dry_run": False,
         "runner": "daily_refresh",
         "steps": [],
@@ -1198,9 +1013,10 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     stage_runners = filter_runners_for_stage(
         list(runners or DEFAULT_RUNNERS), stage
     )
-    runners = filter_runners_for_resume(
-        stage_runners,
-        getattr(args, "resume_from_step", ""),
+    resume_from = getattr(args, "resume_from_step", "") or ""
+    stop_after = getattr(args, "stop_after_step", "") or ""
+    bounded_stage_runners, runners, bounded_step_names = select_bounded_runners(
+        stage_runners, resume_from=resume_from, stop_after=stop_after
     )
     payload = {
         "schema_version": SCHEMA_VERSION,
@@ -1281,7 +1097,9 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             "fail_on_production_readiness_block": bool(
                 getattr(args, "fail_on_production_readiness_block", False)
             ),
-            "resume_from_step": getattr(args, "resume_from_step", ""),
+            "resume_from_step": resume_from,
+            "stop_after_step": stop_after,
+            "bounded_recovery_run": bool(stop_after),
             "maker_paper_latest_active_runs": int(
                 getattr(
                     args,
@@ -1323,7 +1141,18 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         # (2026-07-07: settled_day_root_cause ran at 01:00 and targeted 07-06
         # while every pre-midnight step targeted 07-05, failing the settled
         # target-agreement invariant and blocking the experiment queue).
-        args.settled_analysis_target_date = settled_analysis_target_date(args).isoformat()
+        # Stage B is deliberately scheduled after midnight. Compute the only
+        # current Stage-A target from the operating clock rather than trusting
+        # a manifest to select its own date. Explicit operator targets still
+        # win above.
+        stage_a_target = (
+            _expected_overnight_stage_a_target(args)
+            if stage == STAGE_EVIDENCE
+            else ""
+        )
+        args.settled_analysis_target_date = (
+            stage_a_target or settled_analysis_target_date(args).isoformat()
+        )
     payload["config"]["settled_analysis_target_date"] = getattr(
         args, "settled_analysis_target_date", ""
     )
@@ -1333,9 +1162,8 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     if stage == STAGE_EVIDENCE and not args.dry_run:
         gate = _stage_b_start_gate(args)
         payload["config"]["stage_gate"] = gate
-        if gate.get("status") == "SKIP":
+        if gate.get("status") in {"SKIP", "BLOCK"}:
             return _write_stage_skip(args, started=started, started_at=started_at, gate=gate)
-    resume_from = getattr(args, "resume_from_step", "")
     if resume_from and not args.dry_run:
         try:
             prior = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
@@ -1363,8 +1191,8 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             requested_target=requested_target,
             current_stage_a_binding=current_stage_a_binding,
         )
-        if carry["restart_from_stage_start"]:
-            runners = list(stage_runners)
+        if enforce_bounded_resume_binding(carry, stop_after):
+            runners = list(bounded_stage_runners)
             payload["config"]["resume_restarted_from_stage_start"] = True
         payload["steps"] = carry["steps"]
         payload["resource_steps"] = carry["resource_steps"]
@@ -1393,6 +1221,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         payload["config"]["carried_forward_from_run_started_at_utc"] = prior.get("started_at_utc")
     readiness_step_declared = bool(
         not args.dry_run
+        and not stop_after
         and not getattr(args, "skip_production_readiness_gate", False)
     )
     total_step_count = (
@@ -1420,7 +1249,15 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         required_promotion_receipts
     )
     if args.dry_run:
-        payload["steps"] = planned_steps(stage)
+        if stop_after:
+            payload["steps"] = bounded_planned_steps(
+                planned_steps(stage), runners
+            )
+        else:
+            # Preserve the established dry-run contract: it describes the
+            # complete selected stage even when a unit/integration caller
+            # supplies custom runners that must never execute.
+            payload["steps"] = planned_steps(stage)
         payload["lanes"] = _lane_summary(args, payload["steps"])
         payload["status"] = "dry_run"
     else:
@@ -1754,6 +1591,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
     )
     if (
         not args.dry_run
+        and not stop_after
         and not getattr(args, "skip_production_readiness_gate", False)
         and not readiness_blocked_by_pipeline
     ):
@@ -1795,6 +1633,7 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
             payload["status"] = "critical"
     elif (
         not args.dry_run
+        and not stop_after
         and not getattr(args, "skip_production_readiness_gate", False)
         and readiness_blocked_by_pipeline
     ):
@@ -1822,17 +1661,41 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
         limit_seconds=getattr(args, "producer_sla_seconds", 0.0),
     )
     payload["summary"] = pipeline_summary(payload["steps"])
-    progress_will_write = not args.dry_run and not getattr(args, "skip_daily_progress_ledger", False)
+    if stop_after:
+        payload["bounded_recovery"] = build_bounded_recovery_receipt(
+            payload,
+            step_names=bounded_step_names,
+            resume_from=resume_from,
+            stop_after=stop_after,
+            dry_run=bool(args.dry_run),
+        )
+        if payload["bounded_recovery"]["status"] == "BLOCK" and payload["status"] == "ok":
+            payload["status"] = "error"
+    progress_will_write = (
+        not args.dry_run
+        and not stop_after
+        and not getattr(args, "skip_daily_progress_ledger", False)
+    )
     rollup_overrides = {}
     if progress_will_write:
         rollup_overrides["daily_progress_latest"] = payload["generated_at_utc"]
-    payload["summary"]["rollup_freshness"] = build_rollup_freshness_status(
-        args,
-        generated_at_overrides=rollup_overrides,
-    )
-    if payload["summary"]["rollup_freshness"].get("status") == "BLOCK" and payload["status"] == "ok":
-        payload["status"] = "critical"
-    if not args.dry_run and not getattr(args, "skip_daily_progress_ledger", False):
+    if stop_after:
+        payload["summary"]["rollup_freshness"] = {
+            "status": "SKIPPED",
+            "reason": "bounded_recovery_run",
+        }
+    else:
+        payload["summary"]["rollup_freshness"] = build_rollup_freshness_status(
+            args,
+            generated_at_overrides=rollup_overrides,
+        )
+        if payload["summary"]["rollup_freshness"].get("status") == "BLOCK" and payload["status"] == "ok":
+            payload["status"] = "critical"
+    if (
+        not args.dry_run
+        and not stop_after
+        and not getattr(args, "skip_daily_progress_ledger", False)
+    ):
         try:
             payload["daily_progress_ledger"] = write_daily_progress_ledger(args, payload)
         except Exception as exc:  # noqa: BLE001 - status must still persist after refresh errors
@@ -1846,33 +1709,58 @@ def _run_daily_refresh_guarded(args, runners=None, long_job_guard_info=None):
                 payload["status"] = "critical"
     status_path = write_json(args.status_out, payload)
     report_path = write_report(args.report_out, payload)
-    if not args.dry_run and stage in {STAGE_SETTLEMENT, STAGE_EVIDENCE}:
+    if (
+        not args.dry_run
+        and not stop_after
+        and stage in {STAGE_SETTLEMENT, STAGE_EVIDENCE}
+    ):
         try:
-            stage_manifest = _write_stage_manifest(
+            _write_stage_manifest(
                 args,
                 payload,
                 stage=stage,
                 status_path=status_path,
                 report_path=report_path,
             )
-            if stage_manifest and stage == STAGE_SETTLEMENT and payload.get("status") in {"ok", "critical"}:
-                stage_manifest[1]["evidence_trigger"] = {
-                    "status": "PENDING",
-                    "reason": "waiting_for_daily_lock_release",
-                    "task_name": getattr(args, "evidence_task_name", DEFAULT_EVIDENCE_TASK_NAME),
-                }
-                write_json_atomic(stage_manifest[0], stage_manifest[1], trailing_newline=True)
-        except Exception as exc:  # noqa: BLE001 - status/report are already durable
-            payload["stage_manifest_error"] = f"{type(exc).__name__}: {exc}"
+        except Exception as exc:  # noqa: BLE001 - publication must fail closed
+            failure_at = utc_iso()
+            error = f"{type(exc).__name__}: {exc}"
+            payload.update({
+                "status": "error",
+                "terminal": True,
+                "current_step": None,
+                "finished_at_utc": failure_at,
+                "generated_at_utc": failure_at,
+                "duration_seconds": round(time.time() - started, 3),
+                "stage_manifest_error": error,
+                "stage_manifest_publication": {
+                    "status": "ERROR",
+                    "stage": stage,
+                    "path": as_path(_stage_manifest_path(args, stage)),
+                    "error": error,
+                },
+            })
+            # The first status/report pair predates the publication attempt.
+            # Replace both atomically-owned artifacts so no durable surface
+            # can report success when the required stage manifest is absent.
+            status_path = write_json(args.status_out, payload)
+            report_path = write_report(args.report_out, payload)
     return payload, status_path, report_path
 
 
 def trigger_evidence_stage_after_lock(args, payload):
+    if skip := bounded_trigger_skip(payload.get("config") or {}):
+        return skip
     config = payload.get("config") or {}
     if config.get("stage") != STAGE_SETTLEMENT:
         return {"status": "SKIPPED", "reason": "not_settlement_stage"}
     if payload.get("status") not in {"ok", "critical"}:
         return {"status": "SKIPPED", "reason": "stage_a_not_successful", "payload_status": payload.get("status")}
+    if getattr(args, "disable_stage_trigger", False):
+        # The scheduled topology published this final disposition in the first
+        # atomic manifest write. Returning it directly is deliberately
+        # idempotent: there is no second manifest write that can fail open.
+        return _stage_a_trigger_disposition(args)
     path = _stage_manifest_path(args, STAGE_SETTLEMENT)
     if path is None:
         return {"status": "SKIPPED", "reason": "no_stage_a_manifest_path"}
@@ -1881,7 +1769,36 @@ def trigger_evidence_stage_after_lock(args, payload):
         return {"status": "SKIPPED", "reason": "missing_stage_a_manifest", "stage_a_manifest": str(path)}
     trigger = _trigger_evidence_stage(args, manifest)
     manifest["evidence_trigger"] = trigger
-    write_json_atomic(path, manifest, trailing_newline=True)
+    try:
+        write_json_atomic(path, manifest, trailing_newline=True)
+    except Exception as exc:  # noqa: BLE001 - trigger publication must fail closed
+        failure_at = utc_iso()
+        error = f"{type(exc).__name__}: {exc}"
+        payload.update({
+            "status": "error",
+            "terminal": True,
+            "current_step": None,
+            "finished_at_utc": failure_at,
+            "generated_at_utc": failure_at,
+            "stage_trigger_manifest_error": error,
+            "stage_trigger_manifest_publication": {
+                "status": "ERROR",
+                "stage": STAGE_SETTLEMENT,
+                "path": as_path(path),
+                "error": error,
+                "trigger": trigger,
+            },
+        })
+        status_path = write_json(args.status_out, payload)
+        report_path = write_report(args.report_out, payload)
+        return {
+            "status": "ERROR",
+            "reason": "stage_trigger_manifest_write_failed",
+            "task_name": trigger.get("task_name"),
+            "error": error,
+            "status_out": as_path(status_path),
+            "report_out": as_path(report_path),
+        }
     return trigger
 
 
@@ -1899,57 +1816,7 @@ def load_status(path=DEFAULT_STATUS_OUT):
 
 
 def _cli_dependencies():
-    return SimpleNamespace(
-        DEFAULT_SNAPSHOTS_ROOT=DEFAULT_SNAPSHOTS_ROOT,
-        DEFAULT_BACKTEST_ROOT=DEFAULT_BACKTEST_ROOT,
-        DEFAULT_STATUS_OUT=DEFAULT_STATUS_OUT,
-        DEFAULT_REPORT_OUT=DEFAULT_REPORT_OUT,
-        DEFAULT_LOCK_PATH=DEFAULT_LOCK_PATH,
-        DEFAULT_STAGE_A_MANIFEST=DEFAULT_STAGE_A_MANIFEST,
-        DEFAULT_STAGE_B_MANIFEST=DEFAULT_STAGE_B_MANIFEST,
-        DEFAULT_EVIDENCE_TASK_NAME=DEFAULT_EVIDENCE_TASK_NAME,
-        DEFAULT_LONG_JOB_STATE_PATH=DEFAULT_LONG_JOB_STATE_PATH,
-        DEFAULT_LONG_JOB_LOCK_PATH=DEFAULT_LONG_JOB_LOCK_PATH,
-        DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS=DEFAULT_HEAVY_STEP_TIMEOUT_SECONDS,
-        DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB=DEFAULT_HEAVY_STEP_WORKING_SET_MAX_MB,
-        DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB=DEFAULT_STAGE_A_MIN_AVAILABLE_RESERVE_MB,
-        DEFAULT_STAGE_A_MAX_COMMIT_PERCENT=DEFAULT_STAGE_A_MAX_COMMIT_PERCENT,
-        DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS=DEFAULT_MAKER_PAPER_LATEST_ACTIVE_RUNS,
-        DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES=DEFAULT_MAKER_PAPER_MAX_INPUT_BYTES,
-        DEFAULT_LABELS_CSV=DEFAULT_LABELS_CSV,
-        DEFAULT_LEDGER_ROOT=DEFAULT_LEDGER_ROOT,
-        STEP_ORDER=STEP_ORDER,
-        STAGE_CHOICES=STAGE_CHOICES,
-        progress_audit=progress_audit,
-        active_variant_shadow_refresh=active_variant_shadow_refresh,
-        frozen_baseline_replay_trend=frozen_baseline_replay_trend,
-        hourly_model_performance=hourly_model_performance,
-        model_market_disagreement_analysis=model_market_disagreement_analysis,
-        ten_minute_model_performance=ten_minute_model_performance,
-        settled_day_root_cause=settled_day_root_cause,
-        winner_rank_parity=winner_rank_parity,
-        june23_location_bias_repair=june23_location_bias_repair,
-        taker_bot=taker_bot,
-        taker_tail_casebook=taker_tail_casebook,
-        trading_evidence=trading_evidence,
-        exchange_economics=exchange_economics,
-        promotion_refresh=promotion_refresh,
-        clob_order_book_tiering=clob_order_book_tiering,
-        daily_roll_log_hygiene=daily_roll_log_hygiene,
-        fleet_observability=fleet_observability,
-        event_metadata_validation=event_metadata_validation,
-        data_retention_inventory=data_retention_inventory,
-        run_daily_refresh=run_daily_refresh,
-        trigger_evidence_stage_after_lock=trigger_evidence_stage_after_lock,
-        load_status=load_status,
-        lock_preflight=lock_preflight,
-        lock_diagnostic=lock_diagnostic,
-        acquire_lock=acquire_lock,
-        release_lock=release_lock,
-        _remove_lock_if_verified_stale=_remove_lock_if_verified_stale,
-        clear_stale_long_job_state=clear_stale_long_job_state,
-        utc_iso=utc_iso,
-    )
+    return build_cli_dependencies(globals())
 
 
 def build_run_parser(parser):
