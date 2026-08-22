@@ -7,7 +7,6 @@ credentials, constructs an exchange client, or invokes a generated wrapper.
 """
 
 from __future__ import annotations
-
 import argparse
 import ast
 import hashlib
@@ -30,13 +29,12 @@ from weather.operations.international_live_lineage import (
 from weather.operations.live_path_security import (
     SESSION_BOOTSTRAP_PATHS,
     STATUS_ATTESTATION_SOURCE_PATHS,
+    repository_python_source_paths,
     validate_nonreparse_directory,
     validate_private_attempt_root,
     validate_regular_nonreparse_file,
 )
 from weather.schema_registry import schema_version
-
-
 SPEC_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal_spec")
 RECEIPT_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal")
 INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_inventory")
@@ -63,7 +61,6 @@ GIT_OID_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 TOKEN_RE = re.compile(r"^[1-9][0-9]*$")
 WORKLOAD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 TEMPLATE_MARKER_RE = re.compile(r"__SEAL_[A-Z0-9_]+__")
-
 STAGES = ("stage0", "stage1_cancel_all", "stage1_dead_man")
 PYTHON_TEMPLATE_PATHS = {
     "stage0": "scripts/ops/international_live_templates/stage0.py.tmpl",
@@ -82,7 +79,6 @@ SDK_OVERLAY_MANIFEST_PATH = (
     "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
 )
 SDK_OVERLAY_MODULE_PATH = "src/weather/market/live_sdk_overlay.py"
-
 LIVE_SOURCE_PATHS = {
     "stage0": (
         "src/weather/market/mm_live_pilot_cli.py",
@@ -122,6 +118,10 @@ LIVE_SOURCE_PATHS = {
         SDK_OVERLAY_MANIFEST_PATH,
         *STATUS_ATTESTATION_SOURCE_PATHS,
     ),
+}
+LIVE_SOURCE_PATHS = {
+    stage: tuple(sorted(set(paths) | set(repository_python_source_paths(REPO_ROOT))))
+    for stage, paths in LIVE_SOURCE_PATHS.items()
 }
 
 INPUT_LAYOUTS = {

@@ -1012,10 +1012,12 @@ def test_inventory_is_read_only_and_reports_ancestry_state(tmp_path):
 
 
 def test_every_stage_binds_complete_status_attestation_source_closure():
+    python_closure = set(sealer.repository_python_source_paths(sealer.REPO_ROOT))
     for stage in sealer.STAGES:
         assert set(sealer.STATUS_ATTESTATION_SOURCE_PATHS).issubset(
             sealer.LIVE_SOURCE_PATHS[stage]
         )
+        assert python_closure.issubset(sealer.LIVE_SOURCE_PATHS[stage])
 
 
 def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():

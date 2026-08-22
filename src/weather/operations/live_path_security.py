@@ -15,6 +15,7 @@ class LivePathSecurityError(RuntimeError):
 
 
 SESSION_BOOTSTRAP_PATHS = (
+    "sitecustomize.py",
     "src/weather/__init__.py",
     "src/weather/paths.py",
     "src/weather/schema_registry.py",
@@ -31,6 +32,13 @@ STATUS_ATTESTATION_SOURCE_PATHS = (
     "scripts/ops/streak_status.py", "src/weather/operations/settlement_hole_check.py",
     "src/weather/operations/documentation_transaction.py",
 )
+
+
+def repository_python_source_paths(root: str | Path) -> tuple[str, ...]:
+    base = Path(root).resolve()
+    return tuple(
+        sorted(path.relative_to(base).as_posix() for path in (base / "src/weather").rglob("*.py"))
+    )
 
 
 def canonical_windows_powershell() -> Path:
