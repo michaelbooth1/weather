@@ -1,5 +1,7 @@
 import json
+import hashlib
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +18,18 @@ SUBMIT_DEADLINE = "2099-01-01T00:00:00+00:00"
 
 def execute_stage1_lifecycle_probe(*args, **kwargs):
     kwargs.setdefault("submit_deadline_utc", SUBMIT_DEADLINE)
+    kwargs.setdefault(
+        "expected_candidate_intent",
+        {
+            "side": "BUY",
+            "price": 0.01,
+            "size": 5.0,
+            "notional_pusd": 0.05,
+            "post_only": True,
+        },
+    )
+    kwargs.setdefault("expected_candidate_tick_size", 0.01)
+    kwargs.setdefault("expected_candidate_order_min_size", 5.0)
     return _execute_stage1_lifecycle_probe(*args, **kwargs)
 
 
@@ -70,11 +84,20 @@ class FakeAdapter:
         self.cancel_all_calls = 0
         self.position_rows = []
         self.capability = None
+        self.submit_deadline_utc = None
         self.order_id = order_id
 
-    def authorize_stage1_lifecycle(self, gate):
+    def authorize_stage1_lifecycle(self, gate, *, submit_deadline_utc):
         self.capability = object()
+        self.submit_deadline_utc = submit_deadline_utc
         return self.capability
+
+    def diagnostics(self):
+        return {
+            "submit_deadline_utc": self.submit_deadline_utc,
+            "network_submit_boundary_utc": "2026-08-22T00:00:00+00:00",
+            "network_submit_deadline_passed": True,
+        }
 
     def heartbeat(self):
         self.heartbeat_calls += 1
@@ -238,6 +261,34 @@ def test_stage1_submit_boundary_refuses_expired_deadline_before_order(tmp_path):
             utc_clock=lambda: datetime(2026, 8, 22, 0, 0, tzinfo=timezone.utc),
             monotonic_clock=clock,
             sleeper=clock.sleep,
+        )
+
+    assert adapter.place_calls == 0
+    assert adapter.cancel_all_calls == 1
+
+
+def test_stage1_refuses_when_fresh_rules_differ_from_sealed_candidate_intent(
+    tmp_path,
+):
+    clock = FakeClock()
+    adapter = FakeAdapter(clock)
+
+    with pytest.raises(RuntimeError, match="sealed candidate intent"):
+        execute_stage1_lifecycle_probe(
+            adapter,
+            bootstrap_gate(),
+            confirmation=CONFIRMATION,
+            cancellation_mode="cancel_all",
+            journal_path=tmp_path / "candidate-drift.jsonl",
+            monotonic_clock=clock,
+            sleeper=clock.sleep,
+            expected_candidate_intent={
+                "side": "BUY",
+                "price": 0.02,
+                "size": 5.0,
+                "notional_pusd": 0.1,
+                "post_only": True,
+            },
         )
 
     assert adapter.place_calls == 0
@@ -539,4 +590,56 @@ def test_stage1_bundle_rejects_journal_tampering(tmp_path):
         handle.write("{}\n")
 
     with pytest.raises(RuntimeError, match="journal hash does not match"):
+        build_stage1_lifecycle_bundle(gate, cancel_result, dead_result)
+
+
+@pytest.mark.parametrize("tamper", ["missing", "duplicate", "reordered"])
+def test_stage1_bundle_requires_deadline_before_submit_event_sequence(
+    tmp_path, tamper
+):
+    gate = bootstrap_gate()
+    cancel_clock = FakeClock()
+    cancel_result = execute_stage1_lifecycle_probe(
+        FakeAdapter(cancel_clock, order_id="cancel-order"),
+        gate,
+        confirmation=CONFIRMATION,
+        cancellation_mode="cancel_all",
+        journal_path=tmp_path / "cancel-all.jsonl",
+        monotonic_clock=cancel_clock,
+        sleeper=cancel_clock.sleep,
+    )
+    dead_clock = FakeClock()
+    dead_result = execute_stage1_lifecycle_probe(
+        FakeAdapter(dead_clock, dead_man=True, order_id="dead-man-order"),
+        gate,
+        confirmation=CONFIRMATION,
+        cancellation_mode="dead_man",
+        journal_path=tmp_path / "dead-man.jsonl",
+        monotonic_clock=dead_clock,
+        sleeper=dead_clock.sleep,
+        poll_interval_seconds=1,
+    )
+    path = Path(cancel_result["journal_path"])
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    deadline_index = next(
+        index
+        for index, row in enumerate(rows)
+        if row["event_type"] == "submit_deadline_verified"
+    )
+    if tamper == "missing":
+        rows.pop(deadline_index)
+    elif tamper == "duplicate":
+        rows.insert(deadline_index, dict(rows[deadline_index]))
+    else:
+        intent_index = next(
+            index
+            for index, row in enumerate(rows)
+            if row["event_type"] == "intent_prepared"
+        )
+        rows[intent_index], rows[deadline_index] = rows[deadline_index], rows[intent_index]
+    raw = ("\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n").encode()
+    path.write_bytes(raw)
+    cancel_result["journal_sha256"] = hashlib.sha256(raw).hexdigest()
+
+    with pytest.raises(RuntimeError, match="does not bind|missing required"):
         build_stage1_lifecycle_bundle(gate, cancel_result, dead_result)

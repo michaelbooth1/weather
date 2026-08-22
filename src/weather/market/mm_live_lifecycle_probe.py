@@ -12,7 +12,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
@@ -225,6 +225,10 @@ def execute_stage1_lifecycle_probe(
     heartbeat_interval_seconds=OFFICIAL_HEARTBEAT_INTERVAL_SECONDS,
     submit_deadline_utc=None,
     utc_clock=None,
+    pre_submit_attestor=None,
+    expected_candidate_intent=None,
+    expected_candidate_tick_size=None,
+    expected_candidate_order_min_size=None,
 ):
     """Place one minimum-tick order and prove one cancellation mechanism.
 
@@ -309,7 +313,10 @@ def execute_stage1_lifecycle_probe(
     phase = "heartbeat"
     try:
         phase = "stage1_capability"
-        stage1_capability = adapter.authorize_stage1_lifecycle(bootstrap_gate)
+        stage1_capability = adapter.authorize_stage1_lifecycle(
+            bootstrap_gate,
+            submit_deadline_utc=submit_deadline.isoformat(),
+        )
         journal.record(
             "stage1_capability_issued",
             bootstrap_sha256=bootstrap_hash,
@@ -330,11 +337,35 @@ def execute_stage1_lifecycle_probe(
             raise RuntimeError("fresh market rules do not match the bootstrap token")
         intent = _minimum_probe_intent(rules)
         notional = Decimal(str(intent["price"])) * Decimal(str(intent["size"]))
+        candidate_intent = dict(expected_candidate_intent or {})
+        try:
+            candidate_price = Decimal(str(candidate_intent.get("price")))
+            candidate_size = Decimal(str(candidate_intent.get("size")))
+            candidate_notional = Decimal(
+                str(candidate_intent.get("notional_pusd"))
+            )
+            candidate_tick = Decimal(str(expected_candidate_tick_size))
+            candidate_minimum = Decimal(str(expected_candidate_order_min_size))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise RuntimeError("Stage 1 candidate intent binding is invalid") from exc
+        if not all(
+            (
+                candidate_intent.get("side") == "BUY",
+                candidate_intent.get("post_only") is True,
+                candidate_price == Decimal(str(intent["price"])),
+                candidate_size == Decimal(str(intent["size"])),
+                candidate_notional == notional,
+                candidate_tick == Decimal(str(rules["tick_size"])),
+                candidate_minimum == Decimal(str(rules["min_order_size"])),
+            )
+        ):
+            raise RuntimeError("fresh rules no longer match the sealed candidate intent")
         requested_budget = Decimal(str(bootstrap_gate["requested_budget_usdc"]))
         if notional > requested_budget:
             raise RuntimeError("minimum valid probe order exceeds the requested pilot budget")
         journal.record(
             "intent_prepared",
+            cancellation_mode=cancellation_mode,
             token_id=intent["token_id"],
             side=intent["side"],
             price=intent["price"],
@@ -343,14 +374,46 @@ def execute_stage1_lifecycle_probe(
             post_only_required=True,
         )
         phase = "placement"
+        if pre_submit_attestor is not None:
+            if not callable(pre_submit_attestor):
+                raise RuntimeError("Stage 1 pre-submit host attestor is invalid")
+            pre_submit_attestor()
+            journal.record("host_state_attested", cancellation_mode=cancellation_mode)
         if submit_deadline is None or wall_clock().astimezone(timezone.utc) >= submit_deadline:
             raise RuntimeError("Stage 1 submit deadline has expired")
         journal.record(
             "submit_deadline_verified",
+            cancellation_mode=cancellation_mode,
             submit_deadline_utc=submit_deadline.isoformat(),
         )
         journal.record("submit_started", cancellation_mode=cancellation_mode)
         response = adapter.place_order(intent, stage1_capability=stage1_capability)
+        submit_diagnostics = adapter.diagnostics()
+        try:
+            network_boundary = datetime.fromisoformat(
+                str(submit_diagnostics["network_submit_boundary_utc"]).replace(
+                    "Z", "+00:00"
+                )
+            ).astimezone(timezone.utc)
+            adapter_deadline = datetime.fromisoformat(
+                str(submit_diagnostics["submit_deadline_utc"]).replace(
+                    "Z", "+00:00"
+                )
+            ).astimezone(timezone.utc)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("Stage 1 adapter omitted network-boundary timing") from exc
+        if not (
+            submit_diagnostics.get("network_submit_deadline_passed") is True
+            and adapter_deadline == submit_deadline
+            and network_boundary < submit_deadline
+        ):
+            raise RuntimeError("Stage 1 network submit crossed its sealed deadline")
+        journal.record(
+            "network_submit_boundary_verified",
+            cancellation_mode=cancellation_mode,
+            submit_deadline_utc=submit_deadline.isoformat(),
+            network_submit_boundary_utc=network_boundary.isoformat(),
+        )
         order_id = _order_id(response)
         if not order_id:
             raise RuntimeError("Stage 1 placement response did not carry an order id")
@@ -562,6 +625,9 @@ def _verified_probe_journal(result):
         "stage1_capability_issued",
         "heartbeat_acknowledged",
         "intent_prepared",
+        "submit_deadline_verified",
+        "submit_started",
+        "network_submit_boundary_verified",
         "order_accepted",
         "order_observed",
         "cancellation_started",
@@ -580,10 +646,34 @@ def _verified_probe_journal(result):
     bootstrap_sha256 = str(result.get("bootstrap_sha256") or "")
     authorized = matching("probe_authorized")
     starts = matching("starting_state_verified")
+    intents = matching("intent_prepared")
+    deadlines = matching("submit_deadline_verified")
+    submits = matching("submit_started")
+    boundaries = matching("network_submit_boundary_verified")
     accepted = matching("order_accepted")
     observed = matching("order_observed")
     cancelled = matching("cancellation_verified")
     passed = matching("probe_passed")
+    intent_row = intents[0] if len(intents) == 1 else {}
+    deadline_row = deadlines[0] if len(deadlines) == 1 else {}
+    submit_row = submits[0] if len(submits) == 1 else {}
+    boundary_row = boundaries[0] if len(boundaries) == 1 else {}
+    try:
+        deadline_utc = datetime.fromisoformat(
+            str(deadline_row.get("submit_deadline_utc")).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        boundary_utc = datetime.fromisoformat(
+            str(boundary_row.get("network_submit_boundary_utc")).replace(
+                "Z", "+00:00"
+            )
+        ).astimezone(timezone.utc)
+    except (IndexError, TypeError, ValueError):
+        deadline_utc = boundary_utc = datetime.max.replace(tzinfo=timezone.utc)
+    event_index = {
+        event_type: event_types.index(event_type)
+        for event_type in required_types
+        if event_types.count(event_type) == 1
+    }
     valid = all((
         len(authorized) == 1,
         authorized[0].get("bootstrap_sha256") == bootstrap_sha256,
@@ -591,7 +681,36 @@ def _verified_probe_journal(result):
         len(starts) == 1,
         starts[0].get("zero_open_orders") is True,
         starts[0].get("zero_positions") is True,
-        any(row.get("order_id") == order_id for row in accepted),
+        len(intents) == 1,
+        intent_row.get("cancellation_mode") == mode,
+        len(deadlines) == 1,
+        deadline_row.get("cancellation_mode") == mode,
+        len(submits) == 1,
+        submit_row.get("cancellation_mode") == mode,
+        len(boundaries) == 1,
+        boundary_row.get("cancellation_mode") == mode,
+        boundary_row.get("submit_deadline_utc")
+        == deadline_row.get("submit_deadline_utc"),
+        boundary_utc < deadline_utc,
+        len(accepted) == 1,
+        accepted[0].get("order_id") == order_id,
+        all(
+            name in event_index
+            for name in (
+                "intent_prepared",
+                "submit_deadline_verified",
+                "submit_started",
+                "network_submit_boundary_verified",
+                "order_accepted",
+            )
+        ),
+        (
+            event_index.get("intent_prepared", -1)
+            < event_index.get("submit_deadline_verified", -1)
+            < event_index.get("submit_started", -1)
+            < event_index.get("network_submit_boundary_verified", -1)
+            < event_index.get("order_accepted", -1)
+        ),
         any(
             row.get("order_id") == order_id
             and row.get("open_order_observed") is True

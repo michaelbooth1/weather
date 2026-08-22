@@ -48,9 +48,15 @@ function Get-SealedCredentialEnvironment {
         throw "credential reference manifest contract changed"
     }
     $environment = @{}
+    $expectedTargets = @{
+        "POLYMARKET_API_KEY_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/ApiKey"
+        "POLYMARKET_API_SECRET_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/ApiSecret"
+        "POLYMARKET_API_PASSPHRASE_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/Passphrase"
+        "POLYMARKET_PRIVATE_KEY_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/PrivateKey"
+    }
     foreach ($name in $requiredReferences) {
         $value = [string]$manifest.credential_references.$name
-        if ($value -notmatch '^wincred://[^\s]+$') {
+        if ($value -cne [string]$expectedTargets[$name]) {
             throw "credential reference manifest contains an invalid public reference"
         }
         $environment[$name] = $value
@@ -115,7 +121,38 @@ function Exit-SealedCredentialEnvironment {
     }
 }
 
-if ($args.Count -ne 0) {
+function Add-SealedReadLock {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)]$Locks
+    )
+    $stream = $null
+    try {
+        $stream = [IO.File]::Open(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try {
+            $observed = -join ($hasher.ComputeHash($stream) | ForEach-Object { $_.ToString("x2") })
+        }
+        finally { $hasher.Dispose() }
+        $stream.Position = 0
+        if ($observed -ne $ExpectedSha256.ToLowerInvariant()) {
+            throw "fixed-scope locked-file hash changed"
+        }
+        $Locks.Add($stream)
+        $stream = $null
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+if ($MyInvocation.UnboundArguments.Count -ne 0) {
     throw "fixed-scope launcher accepts no arguments"
 }
 foreach ($path in @($python, $wrapper, $leaseScript, $credentialManifest)) {
@@ -123,38 +160,41 @@ foreach ($path in @($python, $wrapper, $leaseScript, $credentialManifest)) {
         throw "fixed-scope launcher dependency is absent"
     }
 }
-$observedWrapperHash = (Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($observedWrapperHash -ne $expectedWrapperSha256) {
-    throw "fixed-scope wrapper hash changed"
-}
-$observedLeaseHash = (Get-FileHash -LiteralPath $leaseScript -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($observedLeaseHash -ne $expectedLeaseScriptSha256) {
-    throw "workload-admission source hash changed"
-}
-$sealedCredentialEnvironment = Get-SealedCredentialEnvironment `
-    -ManifestPath $credentialManifest `
-    -ExpectedSha256 $expectedCredentialManifestSha256
-
-. $leaseScript
-$lease = $null
-$priorCredentialEnvironment = $null
-$exitCode = 1
+$lockedFiles = [Collections.Generic.List[IDisposable]]::new()
 try {
-    $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload $workload
-    if ($null -eq $lease) {
-        throw "shared workload lease is busy"
+    Add-SealedReadLock -Path $wrapper -ExpectedSha256 $expectedWrapperSha256 -Locks $lockedFiles
+    Add-SealedReadLock -Path $leaseScript -ExpectedSha256 $expectedLeaseScriptSha256 -Locks $lockedFiles
+    Add-SealedReadLock -Path $credentialManifest -ExpectedSha256 $expectedCredentialManifestSha256 -Locks $lockedFiles
+    $sealedCredentialEnvironment = Get-SealedCredentialEnvironment `
+        -ManifestPath $credentialManifest `
+        -ExpectedSha256 $expectedCredentialManifestSha256
+
+    . $leaseScript
+    $lease = $null
+    $priorCredentialEnvironment = $null
+    $exitCode = 1
+    try {
+        $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload $workload
+        if ($null -eq $lease) {
+            throw "shared workload lease is busy"
+        }
+        $priorCredentialEnvironment = Enter-SealedCredentialEnvironment `
+            -PublicEnvironment $sealedCredentialEnvironment
+        & $python $wrapper
+        $exitCode = $LASTEXITCODE
     }
-    $priorCredentialEnvironment = Enter-SealedCredentialEnvironment `
-        -PublicEnvironment $sealedCredentialEnvironment
-    & $python $wrapper
-    $exitCode = $LASTEXITCODE
+    finally {
+        if ($null -ne $priorCredentialEnvironment) {
+            Exit-SealedCredentialEnvironment -PriorEnvironment $priorCredentialEnvironment
+        }
+        if ($null -ne $lease) {
+            Exit-WeatherHeavyWorkloadLease -Lease $lease
+        }
+    }
 }
 finally {
-    if ($null -ne $priorCredentialEnvironment) {
-        Exit-SealedCredentialEnvironment -PriorEnvironment $priorCredentialEnvironment
-    }
-    if ($null -ne $lease) {
-        Exit-WeatherHeavyWorkloadLease -Lease $lease
+    for ($index = $lockedFiles.Count - 1; $index -ge 0; $index--) {
+        $lockedFiles[$index].Dispose()
     }
 }
 if ($exitCode -ne 0) {

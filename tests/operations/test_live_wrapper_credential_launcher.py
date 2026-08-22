@@ -21,6 +21,12 @@ REFERENCE_NAMES = (
     "POLYMARKET_API_PASSPHRASE_STORAGE_REF",
     "POLYMARKET_PRIVATE_KEY_STORAGE_REF",
 )
+REFERENCE_TARGETS = {
+    "POLYMARKET_API_KEY_STORAGE_REF": "wincred://Weather/Polymarket/InternationalPilot/ApiKey",
+    "POLYMARKET_API_SECRET_STORAGE_REF": "wincred://Weather/Polymarket/InternationalPilot/ApiSecret",
+    "POLYMARKET_API_PASSPHRASE_STORAGE_REF": "wincred://Weather/Polymarket/InternationalPilot/Passphrase",
+    "POLYMARKET_PRIVATE_KEY_STORAGE_REF": "wincred://Weather/Polymarket/InternationalPilot/PrivateKey",
+}
 DIRECT_NAMES = (
     "POLYMARKET_API_KEY",
     "POLYMARKET_API_SECRET",
@@ -31,10 +37,7 @@ DIRECT_NAMES = (
 
 
 def manifest(path: Path) -> Path:
-    references = {
-        name: f"wincred://Weather/Test/{index}"
-        for index, name in enumerate(REFERENCE_NAMES)
-    }
+    references = dict(REFERENCE_TARGETS)
     payload = {
         "schema_version": "mm_live_credential_reference_manifest_v0.1",
         "platform": "polymarket_global",
@@ -145,3 +148,28 @@ if(-not $rejected){throw 'invalid manifest was accepted'}
             },
         )
         assert result.returncode == 0, result.stderr
+
+
+def test_launcher_no_argument_entry_does_not_trip_strict_mode_args_variable(tmp_path):
+    script_path = tmp_path / "fixed_scope_launcher.ps1"
+    script_path.write_text(TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "fixed-scope launcher dependency is absent" in (
+        result.stdout + result.stderr
+    )
+    assert "VariableIsUndefined" not in result.stderr

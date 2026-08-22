@@ -610,6 +610,7 @@ class OfficialPolymarketGlobalAdapter:
         sdk_version=None,
         authoritative_readers_verified=False,
         monotonic_clock=None,
+        utc_clock=None,
         sleeper=None,
         heartbeat_max_age_seconds=7.5,
         market_rules_max_age_seconds=10.0,
@@ -633,6 +634,7 @@ class OfficialPolymarketGlobalAdapter:
         self.market_rule_reader = market_rule_reader
         self.authoritative_readers_verified = bool(authoritative_readers_verified)
         self.monotonic_clock = monotonic_clock or time.monotonic
+        self.utc_clock = utc_clock or (lambda: datetime.now(timezone.utc))
         self.sleeper = sleeper or time.sleep
         self.heartbeat_max_age_seconds = _required_number(
             heartbeat_max_age_seconds,
@@ -675,6 +677,7 @@ class OfficialPolymarketGlobalAdapter:
         self._stage1_capability_consumed = False
         self._stage1_authorization_sha256 = None
         self._stage1_signature_type_id = None
+        self._stage1_submit_deadline_utc = None
         self._probe = {
             "sdk_version_verified": True,
             "heartbeat_acknowledged": False,
@@ -683,7 +686,7 @@ class OfficialPolymarketGlobalAdapter:
             "post_only_forced": True,
         }
 
-    def authorize_stage1_lifecycle(self, bootstrap_gate):
+    def authorize_stage1_lifecycle(self, bootstrap_gate, *, submit_deadline_utc=None):
         """Issue one opaque, single-submit capability bound to observed Stage 0."""
 
         gate = dict(bootstrap_gate or {})
@@ -694,6 +697,13 @@ class OfficialPolymarketGlobalAdapter:
         except (InvalidOperation, TypeError, ValueError):
             requested_budget = wallet_cap = None
         operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
+        try:
+            submit_deadline = datetime.fromisoformat(
+                str(submit_deadline_utc).replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Stage 1 capability submit deadline is invalid") from exc
+        current_utc = self.utc_clock().astimezone(timezone.utc)
         binding = {
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
@@ -728,6 +738,7 @@ class OfficialPolymarketGlobalAdapter:
                 and wallet_cap is not None
                 and requested_budget <= wallet_cap
             ),
+            "submit_deadline": current_utc < submit_deadline,
         }
         missing = [name for name, valid in binding.items() if not valid]
         if missing:
@@ -738,12 +749,19 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError("official adapter Stage 1 authorization is single-use per adapter")
         self._stage1_capability = object()
         self._stage1_capability_consumed = False
-        self._stage1_authorization_sha256 = _official_event_hash(gate)
+        self._stage1_authorization_sha256 = _official_event_hash(
+            {
+                "bootstrap_gate": gate,
+                "submit_deadline_utc": submit_deadline.isoformat(),
+            }
+        )
         self._stage1_signature_type_id = int(gate.get("signature_type_id"))
+        self._stage1_submit_deadline_utc = submit_deadline
         self._probe.update({
             "stage1_capability_issued": True,
             "stage1_capability_consumed": False,
             "stage1_bootstrap_sha256": self._stage1_authorization_sha256,
+            "stage1_submit_deadline_utc": submit_deadline.isoformat(),
         })
         return self._stage1_capability
 
@@ -777,6 +795,17 @@ class OfficialPolymarketGlobalAdapter:
             "order_submit_armed": bool(
                 self._stage1_capability is not None
                 and not self._stage1_capability_consumed
+            ),
+            "submit_deadline_utc": (
+                self._stage1_submit_deadline_utc.isoformat()
+                if self._stage1_submit_deadline_utc is not None
+                else None
+            ),
+            "network_submit_boundary_utc": self._probe.get(
+                "network_submit_boundary_utc"
+            ),
+            "network_submit_deadline_passed": self._probe.get(
+                "network_submit_deadline_passed"
             ),
             "sdk_distribution": OFFICIAL_CLOB_DISTRIBUTION,
             "sdk_version": self.sdk_version,
@@ -1281,6 +1310,14 @@ class OfficialPolymarketGlobalAdapter:
         self._probe["submitted_signed_order_sha256"] = signed_proof[
             "signed_order_sha256"
         ]
+        submit_boundary = self.utc_clock().astimezone(timezone.utc)
+        self._probe["network_submit_boundary_utc"] = submit_boundary.isoformat()
+        self._probe["network_submit_deadline_passed"] = bool(
+            self._stage1_submit_deadline_utc is not None
+            and submit_boundary < self._stage1_submit_deadline_utc
+        )
+        if not self._probe["network_submit_deadline_passed"]:
+            raise RuntimeError("Stage 1 network submit deadline expired after signing")
         try:
             response = self.client.post_order(signed_order)
         except Exception:

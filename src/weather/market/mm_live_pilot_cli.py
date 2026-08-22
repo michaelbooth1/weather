@@ -104,11 +104,27 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
     seal_path = Path(getattr(args, f"{prefix}_seal_receipt")).resolve()
     command_path = Path(getattr(args, f"{prefix}_command_receipt")).resolve()
     execution_path = Path(getattr(args, f"{prefix}_execution_receipt")).resolve()
+    run_path = Path(getattr(args, f"{prefix}_run_receipt")).resolve()
     result = Path(result_path).resolve()
     seal = _read_json_object(seal_path)
     command = _read_json_object(command_path)
     execution = _read_json_object(execution_path)
+    run = _read_json_object(run_path)
     seal_scope = seal.get("scope") if isinstance(seal.get("scope"), dict) else {}
+    attempt_root = Path(str(seal_scope.get("attempt_root") or "")).resolve()
+    stage_folder = "stage1-cancel-all" if mode == "cancel_all" else "stage1-dead-man"
+    expected_paths = {
+        "seal": attempt_root / "seal" / f"{stage_folder}-seal-receipt.json",
+        "run": attempt_root / "session" / f"{stage_name}-run-receipt.json",
+        "execution": attempt_root / stage_folder / "wrapper-execution-receipt.json",
+        "command": attempt_root / stage_folder / "command-receipt.json",
+        "result": attempt_root / stage_folder / "result.json",
+        "journal": attempt_root / stage_folder / "lifecycle.jsonl",
+        "stream": attempt_root / stage_folder / "user-stream.jsonl",
+        "manifest": attempt_root / "inputs" / f"{stage_name}-session-manifest.json",
+        "composition": attempt_root / "session" / f"{stage_name}-composition-receipt.json",
+        "intent": attempt_root / "session" / f"{stage_name}-run-intent.json",
+    }
     seal_wrapper = seal.get("wrapper") if isinstance(seal.get("wrapper"), dict) else {}
     execution_wrapper = (
         execution.get("wrapper") if isinstance(execution.get("wrapper"), dict) else {}
@@ -117,16 +133,57 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
     result_artifact = artifacts.get("result_out") or {}
     command_artifact = artifacts.get("command_receipt_out") or {}
     journal_artifact = artifacts.get("lifecycle_journal_out") or {}
+    stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    run_child = run.get("child_execution") or {}
+    seal_production = seal.get("production") or {}
+    command_paths = command.get("paths") or {}
+    run_sidecar = run_path.with_suffix(run_path.suffix + ".sha256")
+    expected_run_sidecar = f"{_sha256_file(run_path)}  {run_path.name}\n"
+    run_lineage_ok = True
+    expected_run_lineage = {
+        "session_manifest": expected_paths["manifest"],
+        "composition_receipt": expected_paths["composition"],
+        "run_intent": expected_paths["intent"],
+        "seal_receipt": expected_paths["seal"],
+    }
+    for role, expected_path in expected_run_lineage.items():
+        record = run.get(role) or {}
+        record_path = Path(str(record.get("path") or "")).resolve()
+        run_lineage_ok = run_lineage_ok and (
+            record_path == expected_path
+            and record_path.is_file()
+            and _sha256_file(record_path) == record.get("sha256")
+        )
+    run_manifest = run.get("session_manifest") or {}
+    manifest_sidecar = expected_paths["manifest"].with_suffix(
+        expected_paths["manifest"].suffix + ".sha256"
+    )
+    run_lineage_ok = run_lineage_ok and (
+        Path(str(run_manifest.get("sidecar_path") or "")).resolve()
+        == manifest_sidecar
+        and manifest_sidecar.is_file()
+        and _sha256_file(manifest_sidecar) == run_manifest.get("sidecar_sha256")
+    )
     checks = {
-        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.2"
+        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.3"
         and seal.get("status") == "PASS"
         and seal.get("stage") == stage_name,
+        "production": seal_production.get("commit") == args.expected_production_tip,
         "seal_scope": seal_scope.get("target_date") == args.target_date
         and str(seal_scope.get("condition_id") or "").lower()
         == str(args.condition_id).lower()
         and str(seal_scope.get("token_id") or "") == str(args.token_id)
         and float(seal_scope.get("requested_budget_pusd")) == float(args.budget)
         and seal_scope.get("cancellation_mode") == mode,
+        "canonical_paths": seal_path == expected_paths["seal"]
+        and run_path == expected_paths["run"]
+        and execution_path == expected_paths["execution"]
+        and command_path == expected_paths["command"]
+        and result == expected_paths["result"]
+        and Path(str(journal_artifact.get("path") or "")).resolve()
+        == expected_paths["journal"]
+        and Path(str(stream_artifact.get("path") or "")).resolve()
+        == expected_paths["stream"],
         "command": command.get("schema_version") == RECEIPT_SCHEMA_VERSION
         and command.get("status") == "PASS"
         and command.get("command") == "stage1"
@@ -136,10 +193,17 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and str(command.get("token_id") or "") == str(args.token_id)
         and float(command.get("requested_budget_pusd")) == float(args.budget)
         and command.get("cancellation_mode") == mode
+        and command.get("exchange_mutation_attempted") is True
         and (command.get("cleanup") or {}).get("ok") is True
         and command.get("exception_type") is None,
+        "command_paths": command_paths.get("result") == str(result)
+        and command_paths.get("receipt") == str(command_path)
+        and command_paths.get("user_stream_journal")
+        == stream_artifact.get("path")
+        and command_paths.get("lifecycle_journal")
+        == journal_artifact.get("path"),
         "execution": execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.2"
+        == "international_live_fixed_scope_execution_v0.3"
         and execution.get("status") == "PASS"
         and execution.get("stage") == stage_name
         and execution.get("target_date") == args.target_date
@@ -148,6 +212,10 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and str(execution.get("token_id") or "") == str(args.token_id)
         and float(execution.get("requested_budget_pusd")) == float(args.budget)
         and execution.get("cancellation_mode") == mode
+        and execution.get("production_tip") == args.expected_production_tip
+        and execution.get("phase") == "complete"
+        and execution.get("credential_values_read_in_memory") is True
+        and execution.get("live_mutation_attempted") is True
         and execution.get("exception_type") is None,
         "wrapper": seal_wrapper.get("path") == execution_wrapper.get("path")
         and seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
@@ -159,6 +227,34 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and len(str(journal_artifact.get("sha256") or "")) == 64
         and Path(str(journal_artifact.get("path"))).is_file()
         and _sha256_file(journal_artifact["path"]) == journal_artifact["sha256"],
+        "stream_artifact": bool(stream_artifact.get("path"))
+        and len(str(stream_artifact.get("sha256") or "")) == 64
+        and Path(str(stream_artifact.get("path"))).is_file()
+        and _sha256_file(stream_artifact["path"]) == stream_artifact["sha256"],
+        "result_journal": Path(
+            str(_read_json_object(result).get("journal_path") or "")
+        ).resolve()
+        == Path(str(journal_artifact.get("path") or "")).resolve(),
+        "run": run.get("schema_version") == "international_live_session_run_v0.2"
+        and run.get("status") == "PASS"
+        and run.get("stage") == stage_name
+        and run.get("live_mutation_attempted") is True
+        and run.get("credential_values_read_in_memory") is True
+        and run_child.get("validation") == "PASS"
+        and run_child.get("status") == "PASS"
+        and run_child.get("phase") == "complete"
+        and run_child.get("path") == str(execution_path)
+        and run_child.get("sha256") == _sha256_file(execution_path)
+        and run.get("candidate_sha256")
+        == _read_json_object(result).get("candidate_plan_sha256")
+        and (run.get("seal_receipt") or {}).get("path") == str(seal_path)
+        and (run.get("seal_receipt") or {}).get("sha256")
+        == _sha256_file(seal_path)
+        and run.get("launcher") == seal.get("launcher")
+        and run.get("wrapper") == seal.get("wrapper")
+        and run_lineage_ok,
+        "run_sidecar": run_sidecar.is_file()
+        and run_sidecar.read_text(encoding="ascii") == expected_run_sidecar,
     }
     missing = [name for name, passed in checks.items() if not passed]
     if missing:
@@ -171,6 +267,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         "seal_receipt_sha256": _sha256_file(seal_path),
         "command_receipt_sha256": _sha256_file(command_path),
         "execution_receipt_sha256": _sha256_file(execution_path),
+        "run_receipt_sha256": _sha256_file(run_path),
         "result_sha256": _sha256_file(result),
         "journal_sha256": journal_artifact["sha256"],
     }
@@ -657,7 +754,6 @@ def run_stage0(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
         )
-        receipt["exchange_mutation_attempted"] = True
         payload = bootstrap_collector(
             context.adapter,
             context.user_stream,
@@ -727,6 +823,7 @@ def run_stage1(
     receipt = _receipt("stage1", args, paths)
     receipt["credential_resolution_attempted"] = False
     receipt["credential_values_read_in_memory"] = False
+    receipt["exchange_mutation_attempted"] = False
     context = None
     operation_error = None
     result = None
@@ -772,7 +869,12 @@ def run_stage1(
             cancellation_mode=args.cancellation_mode,
             journal_path=paths["lifecycle_journal"],
             submit_deadline_utc=submit_deadline_utc,
+            pre_submit_attestor=getattr(args, "pre_submit_attestor", None),
+            expected_candidate_intent=candidate_gate["stage1_intent"],
+            expected_candidate_tick_size=candidate_gate["tick_size"],
+            expected_candidate_order_min_size=candidate_gate["order_min_size"],
         )
+        receipt["exchange_mutation_attempted"] = True
         result = dict(result or {})
         result["candidate_plan_sha256"] = candidate_gate["plan_sha256"]
         result["candidate_semantic_plan_sha256"] = candidate_gate[
@@ -933,6 +1035,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Offline verification and binding of the two Stage 1 results and journals.",
     )
     bundle.add_argument("--target-date", required=True)
+    bundle.add_argument("--expected-production-tip", required=True)
     bundle.add_argument("--condition-id", required=True)
     bundle.add_argument("--token-id", required=True)
     bundle.add_argument("--budget", required=True, type=float)
@@ -942,9 +1045,11 @@ def build_parser() -> argparse.ArgumentParser:
     bundle.add_argument("--cancel-all-seal-receipt", required=True)
     bundle.add_argument("--cancel-all-command-receipt", required=True)
     bundle.add_argument("--cancel-all-execution-receipt", required=True)
+    bundle.add_argument("--cancel-all-run-receipt", required=True)
     bundle.add_argument("--dead-man-seal-receipt", required=True)
     bundle.add_argument("--dead-man-command-receipt", required=True)
     bundle.add_argument("--dead-man-execution-receipt", required=True)
+    bundle.add_argument("--dead-man-run-receipt", required=True)
     bundle.add_argument("--bundle-out", required=True)
     bundle.add_argument("--receipt-out", required=True)
     bundle.add_argument("--confirmation", required=True)

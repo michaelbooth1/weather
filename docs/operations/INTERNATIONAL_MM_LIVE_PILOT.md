@@ -436,7 +436,7 @@ returns `BLOCK` until the interrupt-cleanup hardening commit is an ancestor:
 ```
 
 Author one reviewed
-`international_live_fixed_scope_seal_spec_v0.1` JSON object with the inventory
+`international_live_fixed_scope_seal_spec_v0.2` JSON object with the inventory
 hashes, synchronized `master` commit/tree, explicit budget, exact scope, current
 candidate hash, no-more-than-30-minute window, new attempt root, public input
 hashes, and item-by-item reviews for any accepted status-flag hashes. Inputs use
@@ -451,8 +451,12 @@ The top-level keys are exactly `schema_version`, `stage`, `prepared_at_local`,
 root, and lease workload. Stage 0 inputs are `identity`, `scope_plan`,
 `credential_import_receipt`, and `credential_reference_manifest`; each Stage 1
 mode additionally binds `bootstrap`, `stage0_receipt`, `stage0_seal_receipt`,
-`stage0_wrapper_execution_receipt`, and its own fresh `candidate_plan`. Every
-input record has only `path` and `sha256`.
+`stage0_run_receipt` and its sidecar, `stage0_wrapper_execution_receipt`, and its
+own fresh `candidate_plan`. Every
+input record has only `path` and `sha256`. Dead-man additionally requires the
+complete validated cancel-all seal, run receipt and sidecar, execution receipt,
+command receipt, result, and lifecycle journal; a failed or unknown cancel-all
+run can never advance.
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.international_live_wrapper_sealer seal `
@@ -465,31 +469,50 @@ independently validates the inert SDK overlay helper, candidate semantic hash, s
 live-source hash, exact production ancestry, and that every wrapper, receipt,
 sidecar, and runtime output path is new and contained. It creates a fixed
 no-argument Python wrapper, a hash-bound no-argument PowerShell launcher, an
-`international_live_fixed_scope_seal_v0.2` receipt, and its SHA-256 sidecar.
+`international_live_fixed_scope_seal_v0.3` receipt, and its SHA-256 sidecar.
 Each Stage 1 mode uses a separate fresh spec and candidate, plus the exact
-successful Stage 0 bootstrap, command, seal, and wrapper-execution lineage. A partial or failed seal
+successful Stage 0 bootstrap, command, seal, wrapper execution, parent run
+receipt, and sidecar lineage. A partial or failed seal
 spends that attempt namespace; create a new attempt instead of overwriting it.
 
 Because the candidate lasts at most 120 seconds, the normal path is a
-pre-reviewed `international_live_fixed_session_manifest_v0.1` plus its adjacent
-raw-file SHA-256 sidecar, followed by the
-two-argument composer. It accepts no scope or ceiling overrides, copies only the
-fresh candidate into its canonical new path, derives a no-more-than-90-second
-window, seals, rechecks candidate and launcher hashes, and launches immediately:
+pre-reviewed `international_live_fixed_session_manifest_v0.2` plus its adjacent
+raw-file SHA-256 sidecar. Before candidate selection, turn that independently
+reviewed raw hash into a no-argument launcher and immutable review receipt:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.operations.international_live_session_runner `
+.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer `
   --session-manifest C:\pilot\inputs\stage0-session-manifest.json `
-  --candidate C:\pilot\incoming\fresh-candidate.json
+  --expected-session-manifest-sha256 <independently-reviewed-raw-sha256>
 ```
 
-The wrapper confirmation itself is deadline-bounded. After confirmation it
-rechecks Git/source identity, the full current window, and the candidate before
-credential resolution. Both Stage 1 modes pass the sealed cutoff into the
-lifecycle executor, which checks it again immediately before the sole submit.
+Write the newly selected candidate only to the review receipt's fixed inbox,
+independently compare the generated launcher's hash with that receipt, then run
+the launcher with no arguments. It passes the reviewed manifest hash and fixed
+candidate path to the composer; no scope or ceiling is accepted at the live
+boundary. The composer derives a candidate-bounded window of at most 120
+seconds, requires at least 90 seconds still available immediately before
+launch, writes an immutable ARMED intent, and atomically claims the terminal
+receipt and sidecar paths before the child. The no-argument launcher and parent
+runner hold deny-write/delete handles for the reviewed runner, production
+sources, public credential inputs, candidate, and complete predecessor lineage;
+they rehash after acquiring those handles and retain them through child exit.
+The parent sends cooperative cleanup at the sealed stop, allows only the fixed
+20-second cleanup grace, and then uses kill-on-close containment if required.
 
-Independently compare the launcher's hash with the seal receipt before invoking
-it with no arguments. Candidate selection and successful sealing are preparation,
+The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
+request, 100 pUSD wallet cap, and cutoff before its literal confirmation. The
+prompt is bounded to preserve a 60-second pre-credential reserve. After
+confirmation it rechecks Git/source identity, host/capture/status/clock/reboot
+state, the full current window, and the candidate before credential resolution.
+Stage 1 repeats host attestation submit-adjacent, checks the cutoff before the
+adapter call, and binds the deadline into its one-use capability; the adapter
+checks again after signing immediately before the actual `post_order` network
+boundary. A hash-bound journal proves that ordering.
+
+Do not invoke the inner fixed-scope launcher directly. Independently compare the
+outer session launcher's hash with its review receipt, then invoke that launcher
+with no arguments. Candidate selection and successful sealing are preparation,
 not execution authorization. Every `run_stage1` call still revalidates the
 candidate before credential resolution, can perform exactly one network submit,
 writes PASS only after final cancel-all/zero-state cleanup, and serializes
@@ -510,6 +533,7 @@ booleans:
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli bundle `
   --bootstrap C:\pilot\stage0-bootstrap.json `
+  --expected-production-tip <reviewed-production-git-oid> `
   --target-date $pilotTargetDate `
   --condition-id $pilotConditionId `
   --token-id $pilotTokenId `
@@ -518,10 +542,12 @@ booleans:
   --cancel-all-seal-receipt C:\pilot\cancel-all-seal-receipt.json `
   --cancel-all-command-receipt C:\pilot\cancel-all-command-receipt.json `
   --cancel-all-execution-receipt C:\pilot\cancel-all-execution-receipt.json `
+  --cancel-all-run-receipt C:\pilot\cancel-all-run-receipt.json `
   --dead-man-result C:\pilot\dead-man-result.json `
   --dead-man-seal-receipt C:\pilot\dead-man-seal-receipt.json `
   --dead-man-command-receipt C:\pilot\dead-man-command-receipt.json `
   --dead-man-execution-receipt C:\pilot\dead-man-execution-receipt.json `
+  --dead-man-run-receipt C:\pilot\dead-man-run-receipt.json `
   --bundle-out C:\pilot\stage1-bundle.json `
   --receipt-out C:\pilot\stage1-bundle-receipt.json `
   --confirmation INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE

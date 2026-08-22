@@ -2,7 +2,7 @@ import csv
 import json
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from weather.market.mm_exchange import (  # noqa: E402
@@ -503,7 +503,13 @@ class TestMMExchange(unittest.TestCase):
 
         clock = [100.0]
 
-        def make_adapter(bound_client, *, heartbeat_sender=None, market_rule_reader=None):
+        def make_adapter(
+            bound_client,
+            *,
+            heartbeat_sender=None,
+            market_rule_reader=None,
+            utc_clock=None,
+        ):
             return OfficialPolymarketGlobalAdapter(
                 bound_client,
                 token_id="token-80",
@@ -531,6 +537,7 @@ class TestMMExchange(unittest.TestCase):
                 sdk_version="0.6.0",
                 authoritative_readers_verified=True,
                 monotonic_clock=lambda: clock[0],
+                utc_clock=utc_clock,
             )
 
         adapter = make_adapter(client)
@@ -691,7 +698,8 @@ class TestMMExchange(unittest.TestCase):
         oversized_budget_gate["requested_budget_usdc"] = 100.01
         with self.assertRaisesRegex(RuntimeError, "requested_budget"):
             oversized_budget_adapter.authorize_stage1_lifecycle(
-                oversized_budget_gate
+                oversized_budget_gate,
+                submit_deadline_utc="2099-01-01T00:00:00+00:00",
             )
 
         wrong_signer_client = FakeClient()
@@ -700,7 +708,8 @@ class TestMMExchange(unittest.TestCase):
         wrong_signer_adapter.heartbeat()
         wrong_signer_adapter.refresh_market_rules()
         wrong_signer_capability = wrong_signer_adapter.authorize_stage1_lifecycle(
-            official_stage1_gate(wrong_signer_adapter, snapshot_character="1")
+            official_stage1_gate(wrong_signer_adapter, snapshot_character="1"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
         )
         with self.assertRaisesRegex(RuntimeError, "signed-order identity mismatch"):
             wrong_signer_adapter.place_order(
@@ -747,7 +756,8 @@ class TestMMExchange(unittest.TestCase):
         stopped_stream_adapter.heartbeat()
         stopped_stream_adapter.refresh_market_rules()
         stopped_stream_capability = stopped_stream_adapter.authorize_stage1_lifecycle(
-            official_stage1_gate(stopped_stream_adapter, snapshot_character="2")
+            official_stage1_gate(stopped_stream_adapter, snapshot_character="2"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
         )
         stopped_stream_adapter.user_event_health_reader = lambda: {"state": "FAILED"}
         with self.assertRaisesRegex(RuntimeError, "user-event stream is not active"):
@@ -766,7 +776,8 @@ class TestMMExchange(unittest.TestCase):
         closed_only_adapter.heartbeat()
         closed_only_adapter.refresh_market_rules()
         closed_only_capability = closed_only_adapter.authorize_stage1_lifecycle(
-            official_stage1_gate(closed_only_adapter, snapshot_character="3")
+            official_stage1_gate(closed_only_adapter, snapshot_character="3"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
         )
         with self.assertRaisesRegex(RuntimeError, "closed-only mode"):
             closed_only_adapter.place_order(
@@ -780,7 +791,10 @@ class TestMMExchange(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Stage 1 lifecycle capability"):
             adapter.place_order(valid_intent)
-        capability = adapter.authorize_stage1_lifecycle(official_stage1_gate(adapter))
+        capability = adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(adapter),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
+        )
         response = adapter.place_order(valid_intent, stage1_capability=capability)
         self.assertTrue(response["ok"])
         post_call = next(call for call in client.calls if call[0] == "post_order")
@@ -789,6 +803,36 @@ class TestMMExchange(unittest.TestCase):
         create_calls = [call for call in client.calls if call[0] == "create_limit_order"]
         self.assertEqual(create_calls[-1][1]["token_id"], "token-80")
         self.assertTrue(create_calls[-1][1]["post_only"])
+
+        deadline_clock = [datetime(2026, 8, 22, tzinfo=timezone.utc)]
+
+        class SlowSigningClient(FakeClient):
+            def create_limit_order(self, **order):
+                signed = super().create_limit_order(**order)
+                deadline_clock[0] = datetime(
+                    2026, 8, 22, 0, 0, 2, tzinfo=timezone.utc
+                )
+                return signed
+
+        slow_client = SlowSigningClient()
+        slow_adapter = make_adapter(
+            slow_client,
+            utc_clock=lambda: deadline_clock[0],
+        )
+        slow_adapter.heartbeat()
+        slow_adapter.refresh_market_rules()
+        slow_capability = slow_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(slow_adapter, snapshot_character="9"),
+            submit_deadline_utc="2026-08-22T00:00:01+00:00",
+        )
+        with self.assertRaisesRegex(RuntimeError, "expired after signing"):
+            slow_adapter.place_order(
+                valid_intent,
+                stage1_capability=slow_capability,
+            )
+        self.assertFalse(
+            any(call[0] == "post_order" for call in slow_client.calls)
+        )
 
         with self.assertRaisesRegex(RuntimeError, "below the current market minimum"):
             adapter.place_order({
@@ -854,7 +898,8 @@ class TestMMExchange(unittest.TestCase):
         unsafe_adapter.heartbeat()
         unsafe_adapter.refresh_market_rules()
         unsafe_capability = unsafe_adapter.authorize_stage1_lifecycle(
-            official_stage1_gate(unsafe_adapter, snapshot_character="d")
+            official_stage1_gate(unsafe_adapter, snapshot_character="d"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
         )
         with self.assertRaisesRegex(RuntimeError, "execution-free live order"):
             unsafe_adapter.place_order(
@@ -877,7 +922,8 @@ class TestMMExchange(unittest.TestCase):
         settlement_hash_adapter.heartbeat()
         settlement_hash_adapter.refresh_market_rules()
         settlement_hash_capability = settlement_hash_adapter.authorize_stage1_lifecycle(
-            official_stage1_gate(settlement_hash_adapter, snapshot_character="f")
+            official_stage1_gate(settlement_hash_adapter, snapshot_character="f"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
         )
         with self.assertRaisesRegex(RuntimeError, "execution-free live order"):
             settlement_hash_adapter.place_order(
@@ -900,7 +946,8 @@ class TestMMExchange(unittest.TestCase):
                 official_stage1_gate(
                     malformed_success_adapter,
                     snapshot_character="e",
-                )
+                ),
+                submit_deadline_utc="2099-01-01T00:00:00+00:00",
             )
         )
         with self.assertRaisesRegex(RuntimeError, "execution-free live order"):

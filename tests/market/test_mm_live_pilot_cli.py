@@ -406,7 +406,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_receipt["cleanup"]["zero_positions_verified"] is True
     assert saved_receipt["credential_resolution_attempted"] is True
     assert saved_receipt["credential_values_read_in_memory"] is True
-    assert saved_receipt["exchange_mutation_attempted"] is True
+    assert saved_receipt["exchange_mutation_attempted"] is False
     final_sha256 = hashlib.sha256(live_context.user_stream.journal_path.read_bytes()).hexdigest()
     assert saved_receipt["cleanup"]["user_stream_journal_sha256"] == final_sha256
     assert saved_receipt["secret_values_redacted"] is True
@@ -624,10 +624,13 @@ def test_stage1_result_write_failure_still_emits_fail_receipt(
 
 def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_path):
     command_args = args(tmp_path, "stage1")
-    cancel_result = tmp_path / "cancel-result.json"
-    dead_result = tmp_path / "dead-result.json"
-    cancel_result.write_text(json.dumps({"mode": "cancel_all"}), encoding="utf-8")
-    dead_result.write_text(json.dumps({"mode": "dead_man"}), encoding="utf-8")
+    attempt = tmp_path / "attempt"
+    attempt.mkdir()
+    cancel_result = attempt / "stage1-cancel-all/result.json"
+    dead_result = attempt / "stage1-dead-man/result.json"
+    cancel_result.parent.mkdir(parents=True)
+    dead_result.parent.mkdir(parents=True)
+    command_args.expected_production_tip = "a" * 40
     command_args.command = "bundle"
     command_args.confirmation = cli.BUNDLE_CONFIRMATION
     command_args.cancel_all_result = str(cancel_result)
@@ -637,33 +640,58 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     def add_lineage(mode, result_path):
         stage = "stage1_cancel_all" if mode == "cancel_all" else "stage1_dead_man"
         prefix = "cancel_all" if mode == "cancel_all" else "dead_man"
-        wrapper = tmp_path / f"{prefix}-wrapper.py"
+        stage_folder = "stage1-cancel-all" if mode == "cancel_all" else "stage1-dead-man"
+        wrapper = attempt / "wrappers" / f"{stage_folder}.py"
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
         wrapper.write_text("# sealed wrapper\n", encoding="utf-8")
-        journal = tmp_path / f"{prefix}-journal.jsonl"
+        launcher = attempt / "wrappers" / f"{stage_folder}.ps1"
+        launcher.write_text("# sealed launcher\n", encoding="utf-8")
+        journal = attempt / stage_folder / "lifecycle.jsonl"
         journal.write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
-        seal_path = tmp_path / f"{prefix}-seal.json"
+        result_path.write_text(
+            json.dumps(
+                {
+                    "mode": mode,
+                    "status": "PASS",
+                    "cancellation_mode": mode,
+                    "journal_path": str(journal.resolve()),
+                    "candidate_plan_sha256": "c" * 64,
+                }
+            ),
+            encoding="utf-8",
+        )
+        seal_path = attempt / "seal" / f"{stage_folder}-seal-receipt.json"
+        seal_path.parent.mkdir(parents=True, exist_ok=True)
         seal_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_seal_v0.2",
+                    "schema_version": "international_live_fixed_scope_seal_v0.3",
                     "status": "PASS",
                     "stage": stage,
+                    "production": {"commit": command_args.expected_production_tip},
                     "scope": {
                         "target_date": command_args.target_date,
                         "condition_id": command_args.condition_id,
                         "token_id": command_args.token_id,
                         "requested_budget_pusd": command_args.budget,
                         "cancellation_mode": mode,
+                        "attempt_root": str(attempt.resolve()),
                     },
                     "wrapper": {
                         "path": str(wrapper.resolve()),
                         "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
                     },
+                    "launcher": {
+                        "path": str(launcher.resolve()),
+                        "sha256": hashlib.sha256(launcher.read_bytes()).hexdigest(),
+                    },
                 }
             ),
             encoding="utf-8",
         )
-        command_path = tmp_path / f"{prefix}-command.json"
+        command_path = attempt / stage_folder / "command-receipt.json"
+        stream = attempt / stage_folder / "user-stream.jsonl"
+        stream.write_text('{"event_type":"stream_stopped"}\n', encoding="utf-8")
         command_path.write_text(
             json.dumps(
                 {
@@ -675,25 +703,36 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                     "token_id": command_args.token_id,
                     "requested_budget_pusd": command_args.budget,
                     "cancellation_mode": mode,
+                    "exchange_mutation_attempted": True,
                     "cleanup": {"ok": True},
                     "exception_type": None,
+                    "paths": {
+                        "result": str(result_path.resolve()),
+                        "receipt": str(command_path.resolve()),
+                        "user_stream_journal": str(stream.resolve()),
+                        "lifecycle_journal": str(journal.resolve()),
+                    },
                 }
             ),
             encoding="utf-8",
         )
-        execution_path = tmp_path / f"{prefix}-execution.json"
+        execution_path = attempt / stage_folder / "wrapper-execution-receipt.json"
         execution_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_execution_v0.2",
+                    "schema_version": "international_live_fixed_scope_execution_v0.3",
                     "status": "PASS",
                     "stage": stage,
+                    "phase": "complete",
+                    "production_tip": command_args.expected_production_tip,
                     "target_date": command_args.target_date,
                     "condition_id": command_args.condition_id,
                     "token_id": command_args.token_id,
                     "requested_budget_pusd": command_args.budget,
                     "cancellation_mode": mode,
                     "exception_type": None,
+                    "credential_values_read_in_memory": True,
+                    "live_mutation_attempted": True,
                     "wrapper": {
                         "path": str(wrapper.resolve()),
                         "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
@@ -711,14 +750,82 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                             "path": str(journal.resolve()),
                             "sha256": hashlib.sha256(journal.read_bytes()).hexdigest(),
                         },
+                        "user_stream_journal_out": {
+                            "path": str(stream.resolve()),
+                            "sha256": hashlib.sha256(stream.read_bytes()).hexdigest(),
+                        },
                     },
                 }
             ),
             encoding="utf-8",
         )
+        lineage_records = {}
+        lineage_paths = {
+            "session_manifest": attempt / "inputs" / f"{stage}-session-manifest.json",
+            "composition_receipt": attempt / "session" / f"{stage}-composition-receipt.json",
+            "run_intent": attempt / "session" / f"{stage}-run-intent.json",
+        }
+        for role, lineage_path in lineage_paths.items():
+            lineage_path.parent.mkdir(parents=True, exist_ok=True)
+            lineage_path.write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+            lineage_records[role] = {
+                "path": str(lineage_path.resolve()),
+                "sha256": hashlib.sha256(lineage_path.read_bytes()).hexdigest(),
+            }
+        manifest_sidecar = lineage_paths["session_manifest"].with_suffix(
+            lineage_paths["session_manifest"].suffix + ".sha256"
+        )
+        manifest_sidecar.write_text(
+            f"{lineage_records['session_manifest']['sha256']}  "
+            f"{lineage_paths['session_manifest'].name}\n",
+            encoding="ascii",
+        )
+        lineage_records["session_manifest"].update(
+            {
+                "sidecar_path": str(manifest_sidecar.resolve()),
+                "sidecar_sha256": hashlib.sha256(
+                    manifest_sidecar.read_bytes()
+                ).hexdigest(),
+            }
+        )
+        run_path = attempt / "session" / f"{stage}-run-receipt.json"
+        run_payload = {
+            "schema_version": "international_live_session_run_v0.2",
+            "status": "PASS",
+            "stage": stage,
+            "live_mutation_attempted": True,
+            "credential_values_read_in_memory": True,
+            "candidate_sha256": "c" * 64,
+            "launcher": {
+                "path": str(launcher.resolve()),
+                "sha256": hashlib.sha256(launcher.read_bytes()).hexdigest(),
+            },
+            "wrapper": {
+                "path": str(wrapper.resolve()),
+                "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+            },
+            "child_execution": {
+                "validation": "PASS",
+                "status": "PASS",
+                "phase": "complete",
+                "path": str(execution_path.resolve()),
+                "sha256": hashlib.sha256(execution_path.read_bytes()).hexdigest(),
+            },
+            "seal_receipt": {
+                "path": str(seal_path.resolve()),
+                "sha256": hashlib.sha256(seal_path.read_bytes()).hexdigest(),
+            },
+            **lineage_records,
+        }
+        run_path.write_text(json.dumps(run_payload), encoding="utf-8")
+        run_path.with_suffix(run_path.suffix + ".sha256").write_text(
+            f"{hashlib.sha256(run_path.read_bytes()).hexdigest()}  {run_path.name}\n",
+            encoding="ascii",
+        )
         setattr(command_args, f"{prefix}_seal_receipt", str(seal_path))
         setattr(command_args, f"{prefix}_command_receipt", str(command_path))
         setattr(command_args, f"{prefix}_execution_receipt", str(execution_path))
+        setattr(command_args, f"{prefix}_run_receipt", str(run_path))
 
     add_lineage("cancel_all", cancel_result)
     add_lineage("dead_man", dead_result)
@@ -735,6 +842,26 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     with pytest.raises(RuntimeError, match="cannot read required JSON"):
         cli._validate_stage1_bundle_lineage(command_args, "dead_man", dead_result)
     command_args.dead_man_execution_receipt = original_dead_execution
+    cancel_run = Path(command_args.cancel_all_run_receipt)
+    original_run = cancel_run.read_bytes()
+    original_run_sidecar = cancel_run.with_suffix(
+        cancel_run.suffix + ".sha256"
+    ).read_bytes()
+    partial_run = json.loads(original_run)
+    partial_run["child_execution"]["status"] = "UNKNOWN"
+    cancel_run.write_text(json.dumps(partial_run), encoding="utf-8")
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_text(
+        f"{hashlib.sha256(cancel_run.read_bytes()).hexdigest()}  {cancel_run.name}\n",
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeError, match="lineage failed"):
+        cli._validate_stage1_bundle_lineage(
+            command_args, "cancel_all", cancel_result
+        )
+    cancel_run.write_bytes(original_run)
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_bytes(
+        original_run_sidecar
+    )
     seen = {}
 
     def builder(gate, cancel_all, dead_man):
