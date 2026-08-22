@@ -28,7 +28,11 @@ SETTLED_DAY_ANALYSIS_DEPENDENCIES = (
         "step": "exchange_economics_rule_drift",
         "phase": "exchange_economics_currentness",
         "critical": True,
-        "target_date_fields": ("target_date",),
+        # The economics refresh is intentionally current for operating day D,
+        # while this barrier analyzes the finalizable settlement day D-1.  The
+        # step returns both dates; bind the dependency to the settled-analysis
+        # field instead of rejecting the deliberate current-day refresh.
+        "target_date_fields": ("settled_analysis_target_date",),
         "skippable_as_non_critical": False,
     },
     {

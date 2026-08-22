@@ -263,9 +263,40 @@ budget or create another run folder. The taker supervisor has no end boundary.
 scheduled PowerShell wrapper actions:
 
 - `WeatherDailySettlementPromotionRefresh` starts Stage A settlement at 09:30
-  local with a four-hour task limit and names the Stage B task it may trigger.
-- `WeatherEveningEvidenceRefresh` has guarded fallback triggers at 14:00 and
-  17:00 local with an eight-hour task limit.
+  local with a four-hour task limit. Its scheduled child suppresses the former
+  immediate Stage-B trigger, so Stage A releases the shared heavy-work lease
+  before any evidence work is eligible to start.
+- `WeatherEveningEvidenceRefresh` has one trigger at 00:35 local with an
+  eight-hour child SLA through 08:35, an 8h25m wrapper span through its 09:00
+  teardown, and an 8h40m scheduler limit through 09:15 for bounded cleanup
+  before Stage A. The strict composition is `28800 < 30300 < 31200` seconds.
+  Across midnight it
+  requires an exact completed Stage-A
+  manifest for the independently derived overnight operating date minus two
+  days; an old manifest cannot select its own stale date. It skips only when
+  that exact Stage-B binding is already complete. Missing, target-mismatched,
+  or incomplete Stage-A evidence terminalizes Stage B as `critical` and
+  returns nonzero.
+
+Correct timing, target binding, and containment do not by themselves authorize
+enabling Stage B. Its established monolithic-memory hold remains in force until
+the evidence workload is chunked and its representative resource receipts pass
+the host-load contract. The registrar therefore leaves Stage B disabled unless
+the operator explicitly supplies `-EnableEvidenceTask`, then reads the task
+state, exact 00:35 trigger, and `PT8H40M` limit back and fails if they disagree.
+No alternative `EvidenceAt` is supported. Stage B also omits `StartWhenAvailable`:
+a missed 00:35 trigger must not become a guaranteed refusal after its 09:00
+window.
+
+A stage manifest is a required publication, not optional reporting. Its
+single atomic write includes the Stage-A trigger disposition; any publication
+exception changes the pipeline to terminal `error`, rewrites both durable
+status and Markdown report, suppresses the post-lock trigger, and returns a
+nonzero CLI result. Scheduled `--disable-stage-trigger` writes final `SKIPPED`
+in that first publication, so the post-lock path returns it without another
+write. For non-disabled/manual topology, failure to replace `PENDING` with the
+actual trigger result likewise rewrites status/report to `error`, and Stage B
+rejects any manifest whose trigger disposition remains `PENDING`.
 
 Both actions run `scripts/ops/daily_refresh.ps1`. Registration and runtime
 independently reconstruct the exact wrapper tokens through
@@ -284,6 +315,28 @@ assigns it to that Job, and resumes it only after assignment succeeds. Thus no
 child instruction or descendant can run outside containment, and terminating
 the scheduled wrapper closes the only Job handle and tears down the tree.
 Failure to create, assign, or resume fails before daily-refresh work can begin.
+
+Scheduled Stage A runs current fleet observability without the separate full
+historical audit or full-corpus trust replay. The latter would otherwise call
+`score_all_markets` across every settled `snapshots_long.csv`. The scheduled
+artifact records trust readiness as honestly `SKIPPED`/omitted rather than
+manufacturing an empty pass. It also omits runtime-identity evidence because
+that reader scans every snapshot tape before its target filter; the artifact
+marks that evidence separately `SKIPPED`/omitted. Finally, it omits the
+duplicate all-run MM starvation and MM/taker trading summaries because Stage A
+already produced current trading evidence; that omission is also explicit. The
+live fleet/tape/provenance summary is an isolated child
+with a 20-minute timeout, 3,072 MiB private-memory ceiling, and 2,048 MiB
+working-set ceiling. The orchestrator writes a resumable terminal fallback
+before child code starts and validates the child terminal before advancing.
+This leaves at least ten minutes between an 11:20 fleet start, its containment
+timeout, and the outer 11:55 teardown. Full historical audits remain available
+through the explicit fleet-observability CLI and are not silently represented
+as part of the scheduled Stage-A receipt. Any bounded omission adds a fleet
+warning, so the current-run fleet receipt cannot authorize promotion. Fleet
+JSON and nightly retrain status
+publish by atomic replacement, so containment teardown cannot expose a
+partially written status document.
 
 The same containment primitive backs `scripts/ops/bounded_worktree_test_suite.ps1`.
 That runner admits tests only from 00:30-09:00, against a registered clean
@@ -549,10 +602,12 @@ task automatically; inspect and reconcile Task Scheduler explicitly when
 changing topology.
 
 The delegated daily-refresh wrapper uses the same lease and owns its Python
-tree through a kill-on-close Job. It refuses to start outside 00:30–11:55 and
-closes the Job at 11:55, so a delayed or long settlement run cannot enter the
-12:00–18:00 graded capture window. This deadline is independent of per-step
-memory admission and Task Scheduler's broader execution limit.
+tree through a kill-on-close Job. Settlement has the sole scheduled exception
+through 11:55; evidence runs only in the ordinary heavy window and closes its
+Job at 09:00. Thus overnight Stage B cannot overlap the 09:30 settlement task,
+and a delayed or long settlement run cannot enter the 12:00–18:00 graded
+capture window. These deadlines are independent of per-step memory admission
+and Task Scheduler's broader execution limit.
 
 `scripts/ops/training_window_contract.ps1` is the single action-token owner for
 both training-window registration and delegated-child attestation. Changing

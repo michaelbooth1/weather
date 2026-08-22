@@ -81,6 +81,7 @@ from weather.operations.daily_refresh_registry import (
     filter_runners_through_step,
     step_names_for_stage,
 )
+from weather.operations.daily_refresh_cli import _recover_completed_isolated_child
 from weather.operations.daily_refresh_lanes import (
     promotion_lane_outcome_blocker,
 )
@@ -502,7 +503,13 @@ def _settled_barrier_dependency_steps(target_date, *, restore=True, restore_afte
         {
             "name": "exchange_economics_rule_drift",
             "status": "ok",
-            "result": {"status": "PASS", "target_date": target_date},
+            "result": {
+                "status": "PASS",
+                "target_date": (
+                    date.fromisoformat(target_date) + timedelta(days=1)
+                ).isoformat(),
+                "settled_analysis_target_date": target_date,
+            },
         },
         {"name": "taker_finalization_watchdog", "status": "ok", "result": {"status": "SKIPPED"}},
         {"name": "taker_edge_permission_map", "status": "ok", "result": {"status": "SKIPPED"}},
@@ -722,8 +729,13 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(guard_state["progress"]["completed_step_count"], 1)
         self.assertEqual(guard_state["progress"]["total_step_count"], 2)
 
-    def test_cli_exit_code_matches_written_normal_and_deferred_status(self):
-        for terminal_status, expected_exit in (("ok", 0), ("deferred", 2)):
+    def test_cli_exit_code_matches_written_terminal_status(self):
+        for terminal_status, expected_exit in (
+            ("ok", 0),
+            ("deferred", 2),
+            ("critical", 2),
+            ("error", 1),
+        ):
             with self.subTest(status=terminal_status), tempfile.TemporaryDirectory() as tmp:
                 args = _args(tmp, dry_run=True)
 
@@ -748,6 +760,112 @@ class TestDailyRefresh(unittest.TestCase):
 
             self.assertEqual(actual_exit, expected_exit)
             self.assertEqual(saved["status"], terminal_status)
+
+    def test_stage_manifest_write_failure_rewrites_terminal_status_and_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            args = _args(
+                tmp,
+                stage="settlement",
+                stage_a_manifest=str(root / "stage_a.json"),
+                stage_b_manifest=str(root / "stage_b.json"),
+                settled_analysis_target_date="2026-08-20",
+                disable_stage_trigger=True,
+                skip_daily_progress_ledger=True,
+            )
+            with patch(
+                "weather.operations.daily_refresh._write_stage_manifest",
+                side_effect=OSError("manifest disk failure"),
+            ):
+                payload, status_path, report_path = run_daily_refresh(
+                    args,
+                    runners=[
+                        (
+                            "reanalysis_recent_refresh",
+                            lambda _args: {"status": "PASS"},
+                        )
+                    ],
+                )
+            saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
+            report = Path(report_path).read_text(encoding="utf-8")
+
+        self.assertEqual(payload["status"], "error")
+        self.assertTrue(payload["terminal"])
+        self.assertEqual(saved["status"], "error")
+        self.assertTrue(saved["terminal"])
+        self.assertIn("manifest disk failure", saved["stage_manifest_error"])
+        self.assertEqual(
+            saved["stage_manifest_publication"]["status"],
+            "ERROR",
+        )
+        self.assertIn("Status: **error**", report)
+
+    def test_post_lock_trigger_manifest_failure_rewrites_status_and_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            stage_a_manifest = root / "stage_a.json"
+            args = _args(
+                tmp,
+                stage="settlement",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(root / "stage_b.json"),
+                settled_analysis_target_date="2026-08-20",
+                evidence_task_name="WeatherEvidenceTest",
+                disable_stage_trigger=False,
+                skip_daily_progress_ledger=True,
+            )
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    (
+                        "reanalysis_recent_refresh",
+                        lambda _args: {"status": "PASS"},
+                    )
+                ],
+            )
+            pending = json.loads(stage_a_manifest.read_text(encoding="utf-8"))
+            with patch(
+                "weather.operations.daily_refresh._trigger_evidence_stage",
+                return_value={
+                    "status": "OK",
+                    "task_name": "WeatherEvidenceTest",
+                },
+            ), patch(
+                "weather.operations.daily_refresh.write_json_atomic",
+                side_effect=OSError("trigger manifest disk failure"),
+            ):
+                trigger = trigger_evidence_stage_after_lock(args, payload)
+            saved = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
+            report = Path(args.report_out).read_text(encoding="utf-8")
+            args.stage = "evidence"
+            args.status_out = str(root / "evidence_status.json")
+            args.report_out = str(root / "evidence_report.md")
+            evidence_calls = []
+            blocked, _blocked_status, _blocked_report = run_daily_refresh(
+                args,
+                runners=[
+                    (
+                        "daily_learning",
+                        lambda _args: evidence_calls.append("daily_learning"),
+                    )
+                ],
+            )
+
+        self.assertEqual(pending["evidence_trigger"]["status"], "PENDING")
+        self.assertEqual(trigger["status"], "ERROR")
+        self.assertEqual(payload["status"], "error")
+        self.assertEqual(saved["status"], "error")
+        self.assertIn(
+            "trigger manifest disk failure",
+            saved["stage_trigger_manifest_error"],
+        )
+        self.assertIn("Status: **error**", report)
+        self.assertEqual(evidence_calls, [])
+        self.assertEqual(blocked["status"], "critical")
+        self.assertEqual(
+            blocked["skip_reason"],
+            "stage_a_trigger_disposition_pending",
+        )
 
     def test_live_capture_denial_defers_heavy_steps_but_runs_lightweight_learning(self):
         calls = []
@@ -1392,6 +1510,9 @@ class TestDailyRefresh(unittest.TestCase):
                 ],
             )
             manifest = json.loads(stage_a_manifest.read_text(encoding="utf-8"))
+            manifest_before_trigger = stage_a_manifest.read_bytes()
+            trigger = trigger_evidence_stage_after_lock(args, payload)
+            manifest_after_trigger = stage_a_manifest.read_bytes()
 
         self.assertEqual(calls, [
             "reanalysis_recent_refresh",
@@ -1402,7 +1523,13 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(manifest["status"], "COMPLETED")
         self.assertEqual(manifest["target_date"], "2026-07-07")
         self.assertEqual(manifest["barrier"]["status"], "PASS")
-        self.assertEqual(manifest["evidence_trigger"]["status"], "PENDING")
+        self.assertEqual(manifest["evidence_trigger"]["status"], "SKIPPED")
+        self.assertEqual(
+            manifest["evidence_trigger"]["reason"],
+            "disable_stage_trigger",
+        )
+        self.assertEqual(trigger, manifest["evidence_trigger"])
+        self.assertEqual(manifest_after_trigger, manifest_before_trigger)
         self.assertEqual(manifest["invocation"]["status"], "PASS")
         self.assertTrue(manifest["invocation"]["scheduler_attested"])
         self.assertEqual(manifest["lock_proof"]["status"], "PASS")
@@ -1410,7 +1537,7 @@ class TestDailyRefresh(unittest.TestCase):
         self.assertEqual(manifest["release_identity"]["status"], "PASS")
         self.assertEqual(manifest["release_id"], "release-fixture")
 
-    def test_evidence_stage_skips_when_stage_a_manifest_missing(self):
+    def test_evidence_stage_blocks_when_current_stage_a_manifest_is_missing(self):
         calls = []
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -1427,7 +1554,8 @@ class TestDailyRefresh(unittest.TestCase):
             saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
 
         self.assertEqual(calls, [])
-        self.assertEqual(payload["status"], "skipped")
+        self.assertEqual(payload["status"], "critical")
+        self.assertTrue(payload["terminal"])
         self.assertEqual(saved["skip_reason"], "missing_stage_a_manifest")
 
     def test_evidence_stage_carries_stage_a_steps_forward(self):
@@ -2008,28 +2136,99 @@ class TestDailyRefresh(unittest.TestCase):
             refresh_status["current_step"]["resume_command"],
         )
 
-    def test_repair_recovers_verified_child_terminal_before_advancing(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            args = _args(tmp, stage="settlement")
-            backtest = Path(args.backtest_root)
-            backtest.mkdir(parents=True)
-            daily_lock = Path(args.lock_path)
-            long_lock = Path(args.long_job_lock)
-            state = Path(args.long_job_state)
-            daily_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
-            long_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
-            state.write_text(
-                json.dumps({
-                    "status": "running",
-                    "active": True,
-                    "pid": -999,
-                    "progress": {
-                        "last_completed_step": "taker_tail_casebook",
-                        "last_completed_step_status": "ok",
-                    },
-                }),
-                encoding="utf-8",
+    def test_repair_recovers_direct_and_one_hop_launcher_child_terminals(self):
+        cases = (
+            (4321, None, "direct"),
+            (5432, 4321, "launcher_parent"),
+        )
+        for receipt_pid, receipt_parent_pid, expected_mode in cases:
+            with self.subTest(expected_mode=expected_mode), tempfile.TemporaryDirectory() as tmp:
+                args = _args(tmp, stage="settlement")
+                backtest = Path(args.backtest_root)
+                backtest.mkdir(parents=True)
+                daily_lock = Path(args.lock_path)
+                long_lock = Path(args.long_job_lock)
+                state = Path(args.long_job_state)
+                daily_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
+                long_lock.write_text(json.dumps({"pid": -999}), encoding="utf-8")
+                state.write_text(
+                    json.dumps({
+                        "status": "running",
+                        "active": True,
+                        "pid": -999,
+                        "progress": {
+                            "last_completed_step": "taker_tail_casebook",
+                            "last_completed_step_status": "ok",
+                        },
+                    }),
+                    encoding="utf-8",
+                )
+                result_path = (
+                    backtest
+                    / "daily_refresh_step_children"
+                    / "run-1"
+                    / "maker_paper_score.result.json"
+                )
+                result_path.parent.mkdir(parents=True)
+                terminal = {
+                    "schema_version": "daily_refresh_step_child_v0.2",
+                    "status": "ok",
+                    "step": "maker_paper_score",
+                    "pid": receipt_pid,
+                    "started_at_utc": "2026-07-13T14:00:00+00:00",
+                    "finished_at_utc": "2026-07-13T14:01:00+00:00",
+                    "result": {"status": "PASS", "selected_run_count": 14},
+                }
+                if receipt_parent_pid is not None:
+                    terminal["parent_pid"] = receipt_parent_pid
+                result_path.write_text(json.dumps(terminal), encoding="utf-8")
+                Path(args.status_out).write_text(
+                    json.dumps({
+                        "schema_version": "daily_refresh_v0.5",
+                        "status": "interrupted",
+                        "terminal": True,
+                        "owner_pid": -999,
+                        "config": {
+                            "backtest_root": str(backtest),
+                            "settled_analysis_target_date": "2026-07-12",
+                        },
+                        "steps": [],
+                        "current_step": {
+                            "name": "maker_paper_score",
+                            "child_pid": 4321,
+                        },
+                        "resource_steps": [{
+                            "step": "maker_paper_score",
+                            "status": "running",
+                            "child_pid": 4321,
+                            "child_invocation": {"result_json": str(result_path)},
+                        }],
+                    }),
+                    encoding="utf-8",
+                )
+
+                repair = repair_stale_locks(args)
+                saved = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
+
+            recovered = repair["daily_refresh_status"]["recovered_child_terminal"]
+            self.assertTrue(repair["daily_refresh_status"]["updated"])
+            self.assertTrue(recovered["recovered"])
+            self.assertEqual(recovered["pid_match_mode"], expected_mode)
+            self.assertEqual(saved["steps"][-1]["name"], "maker_paper_score")
+            self.assertEqual(saved["steps"][-1]["status"], "ok")
+            self.assertTrue(saved["steps"][-1]["recovered_from_child_terminal"])
+            validation = saved["resource_steps"][-1]["child_terminal_validation"]
+            self.assertEqual(validation["status"], "PASS")
+            self.assertEqual(validation["pid_match_mode"], expected_mode)
+            self.assertEqual(saved["current_step"]["name"], "settlement_source_audit")
+            self.assertIn(
+                "--settled-analysis-target-date 2026-07-12",
+                saved["current_step"]["resume_command"],
             )
+
+    def test_repair_rejects_grandparent_only_child_terminal_identity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            backtest = Path(tmp) / "backtest"
             result_path = (
                 backtest
                 / "daily_refresh_step_children"
@@ -2042,53 +2241,35 @@ class TestDailyRefresh(unittest.TestCase):
                     "schema_version": "daily_refresh_step_child_v0.2",
                     "status": "ok",
                     "step": "maker_paper_score",
-                    "pid": 4321,
-                    "started_at_utc": "2026-07-13T14:00:00+00:00",
+                    "pid": 5432,
+                    "parent_pid": 9876,
+                    "grandparent_pid": 4321,
                     "finished_at_utc": "2026-07-13T14:01:00+00:00",
-                    "result": {"status": "PASS", "selected_run_count": 14},
+                    "result": {"status": "PASS"},
                 }),
                 encoding="utf-8",
             )
-            Path(args.status_out).write_text(
-                json.dumps({
-                    "schema_version": "daily_refresh_v0.5",
-                    "status": "interrupted",
-                    "terminal": True,
-                    "owner_pid": -999,
-                    "config": {
-                        "backtest_root": str(backtest),
-                        "settled_analysis_target_date": "2026-07-12",
-                    },
-                    "steps": [],
-                    "current_step": {
-                        "name": "maker_paper_score",
-                        "child_pid": 4321,
-                    },
-                    "resource_steps": [{
-                        "step": "maker_paper_score",
-                        "status": "running",
-                        "child_pid": 4321,
-                        "child_invocation": {"result_json": str(result_path)},
-                    }],
-                }),
-                encoding="utf-8",
-            )
+            payload = {
+                "config": {"backtest_root": str(backtest)},
+                "steps": [],
+                "current_step": {
+                    "name": "maker_paper_score",
+                    "child_pid": 4321,
+                },
+                "resource_steps": [{
+                    "step": "maker_paper_score",
+                    "child_pid": 4321,
+                    "child_invocation": {"result_json": str(result_path)},
+                }],
+            }
 
-            repair = repair_stale_locks(args)
-            saved = json.loads(Path(args.status_out).read_text(encoding="utf-8"))
+            recovered = _recover_completed_isolated_child(payload)
 
-        self.assertTrue(repair["daily_refresh_status"]["updated"])
-        self.assertTrue(
-            repair["daily_refresh_status"]["recovered_child_terminal"]["recovered"]
-        )
-        self.assertEqual(saved["steps"][-1]["name"], "maker_paper_score")
-        self.assertEqual(saved["steps"][-1]["status"], "ok")
-        self.assertTrue(saved["steps"][-1]["recovered_from_child_terminal"])
-        self.assertEqual(saved["current_step"]["name"], "settlement_source_audit")
-        self.assertIn(
-            "--settled-analysis-target-date 2026-07-12",
-            saved["current_step"]["resume_command"],
-        )
+        self.assertFalse(recovered["recovered"])
+        self.assertEqual(recovered["reason"], "child_terminal_validation_failed")
+        validation = payload["resource_steps"][0]["child_terminal_validation"]
+        self.assertEqual(validation["status"], "BLOCK")
+        self.assertIsNone(validation["pid_match_mode"])
 
     def test_repair_does_not_rewrite_status_while_daily_owner_is_active(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3240,6 +3421,137 @@ class TestDailyRefresh(unittest.TestCase):
 
         self.assertEqual(seen["pinned"], "2026-07-05")
         self.assertEqual(payload["config"]["settled_analysis_target_date"], "2026-07-05")
+
+    def test_overnight_stage_b_defaults_to_exact_completed_stage_a_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            stage_a_manifest.write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_stage_manifest_v0.1",
+                    "run_id": "stage-a-before-midnight",
+                    "stage": "settlement",
+                    "status": "COMPLETED",
+                    "target_date": "2026-07-05",
+                    "barrier": {"status": "PASS", "target_date": "2026-07-05"},
+                    "steps": _stage_a_promotion_receipts("2026-07-05"),
+                }),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                as_of="2026-07-07T04:35:00+00:00",
+                settled_analysis_target_date="",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(root / "stage_b.json"),
+            )
+            seen = {}
+
+            def learning(step_args):
+                seen["target"] = step_args.settled_analysis_target_date
+                return {"status": "ACTIONABLE"}
+
+            payload, _status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[("daily_learning", learning)],
+            )
+
+        self.assertEqual(seen["target"], "2026-07-05")
+        self.assertEqual(
+            payload["config"]["settled_analysis_target_date"],
+            "2026-07-05",
+        )
+        self.assertEqual(
+            payload["config"]["stage_gate"]["stage_a_binding"],
+            "stage-a-before-midnight",
+        )
+
+    def test_overnight_stage_b_blocks_old_completed_manifest_after_current_stage_a_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "backtest"
+            root.mkdir(parents=True)
+            stage_a_manifest = root / "stage_a.json"
+            stage_a_manifest.write_text(
+                json.dumps({
+                    "schema_version": "daily_refresh_stage_manifest_v0.1",
+                    "run_id": "stale-stage-a",
+                    "stage": "settlement",
+                    "status": "COMPLETED",
+                    "target_date": "2026-07-04",
+                    "barrier": {"status": "PASS", "target_date": "2026-07-04"},
+                    "steps": _stage_a_promotion_receipts("2026-07-04"),
+                }),
+                encoding="utf-8",
+            )
+            args = _args(
+                tmp,
+                stage="evidence",
+                as_of="2026-07-07T04:35:00+00:00",
+                settled_analysis_target_date="",
+                stage_a_manifest=str(stage_a_manifest),
+                stage_b_manifest=str(root / "stage_b.json"),
+            )
+            calls = []
+
+            payload, status_path, _report_path = run_daily_refresh(
+                args,
+                runners=[
+                    (
+                        "daily_learning",
+                        lambda _args: calls.append("daily_learning"),
+                    )
+                ],
+            )
+            saved = json.loads(Path(status_path).read_text(encoding="utf-8"))
+
+        self.assertEqual(calls, [])
+        self.assertEqual(payload["status"], "critical")
+        self.assertTrue(payload["terminal"])
+        self.assertEqual(
+            payload["config"]["settled_analysis_target_date"],
+            "2026-07-05",
+        )
+        self.assertEqual(saved["skip_reason"], "stale_stage_a_manifest")
+        self.assertEqual(saved["stage_gate"]["stage_a_target_date"], "2026-07-04")
+
+    def test_settled_day_barrier_matches_exchange_settlement_date_not_operating_date(self):
+        target_date = "2026-06-17"
+        dependency = next(
+            row
+            for row in SETTLED_DAY_ANALYSIS_DEPENDENCIES
+            if row["step"] == "exchange_economics_rule_drift"
+        )
+        status = _dependency_status(
+            {
+                "status": "ok",
+                "result": {
+                    "status": "PASS",
+                    "target_date": "2026-06-18",
+                    "settled_analysis_target_date": target_date,
+                },
+            },
+            dependency,
+            target_date,
+        )
+
+        self.assertIsNone(status["blocker"])
+        self.assertEqual(status["observed_target_dates"], [target_date])
+
+        mismatch = _dependency_status(
+            {
+                "status": "ok",
+                "result": {
+                    "status": "PASS",
+                    "target_date": "2026-06-18",
+                    "settled_analysis_target_date": "2026-06-16",
+                },
+            },
+            dependency,
+            target_date,
+        )
+        self.assertIn("target_date_mismatch", mismatch["blocker"])
 
     def test_settled_day_barrier_blocks_pre_finalization_target_date(self):
         target_date = "2026-06-17"

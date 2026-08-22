@@ -14,6 +14,7 @@ from weather.operations.nightly_retrain import (  # noqa: E402
     default_settled_day_target_date,
     execute_experiment_queue,
     nightly_run_sla_status,
+    parse_schedule_time,
     point_in_time_qualification_command,
     prepare_candidate_outputs,
     prepare_production_point_in_time_outputs,
@@ -23,6 +24,7 @@ from weather.operations.nightly_retrain import (  # noqa: E402
     production_promotion_selection,
     run_nightly_retrain,
     settled_day_freshness_command,
+    write_json,
 )
 from weather.operations.point_in_time_staging_receipt import (
     write_staging_receipt,
@@ -518,6 +520,21 @@ def _clean_code_identity(*, repo_root):
 
 
 class TestNightlyRetrain(unittest.TestCase):
+    def test_status_json_writer_publishes_complete_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "nested" / "nightly.json"
+            path.parent.mkdir(parents=True)
+            path.write_text('{"old": true}\n', encoding="utf-8")
+
+            result = write_json(path, {"status": "blocked", "value": 2})
+
+            self.assertEqual(result, path)
+            self.assertEqual(
+                json.loads(path.read_text(encoding="utf-8")),
+                {"status": "blocked", "value": 2},
+            )
+            self.assertEqual(list(path.parent.glob("nightly.json.*.tmp")), [])
+
     def test_cli_defaults_capture_resource_admission_to_live_host(self):
         args = build_parser().parse_args(["run"])
 
@@ -1573,6 +1590,9 @@ class TestNightlyRetrain(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             args = _args(tmp)
             args.producer_sla_seconds = 8 * 60 * 60
+            args.scheduler_task_name = "WeatherTrainingWindow"
+            args.schedule_local_time = "01:00"
+            args.schedule_timezone = "America/Toronto"
             args._producer_invocation = {
                 "status": "PASS",
                 "mode": "scheduled",
@@ -1626,6 +1646,12 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(saved["invocation"]["status"], "PASS")
         self.assertEqual(saved["lock_proof"]["status"], "PASS")
         self.assertEqual(saved["sla"]["status"], "PASS")
+        self.assertEqual(saved["nightly_sla"]["task_name"], "WeatherTrainingWindow")
+        self.assertEqual(saved["nightly_sla"]["schedule_local_time"], "01:00")
+        self.assertEqual(
+            saved["nightly_sla"]["schedule_timezone"],
+            "America/Toronto",
+        )
         self.assertEqual(saved["release_identity"]["status"], "PASS")
         self.assertEqual(saved["release_id"], "release-fixture")
         self.assertEqual(guard_state["status"], "complete")
@@ -2110,6 +2136,11 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(sla["state"], "CRITICAL")
         self.assertFalse(sla["fresh_for_latest_window"])
         self.assertEqual(sla["alerts"][0]["category"], "nightly_retrain_missed_run")
+
+    def test_nightly_schedule_time_is_explicit_and_fail_closed(self):
+        self.assertEqual(parse_schedule_time("01:00").isoformat(), "01:00:00")
+        with self.assertRaisesRegex(ValueError, "must be HH:MM"):
+            parse_schedule_time("not-a-time")
 
     def test_nightly_run_sla_surfaces_first_daily_learning_blocker(self):
         status_payload = {

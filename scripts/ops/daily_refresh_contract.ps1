@@ -93,13 +93,33 @@ function Get-DailyRefreshChildTokens {
     }
     $tokens += @("--stage", $Stage)
     if ($Stage -eq "settlement") {
-        $tokens += @("--evidence-task-name", $EvidenceTaskName)
+        $tokens += @(
+            "--evidence-task-name", $EvidenceTaskName,
+            # Stage B owns one overnight trigger after Stage A has released
+            # the shared lease.  Suppress the old immediate lease race.
+            "--disable-stage-trigger",
+            # The full 2000-2025 audit cannot fit the bounded morning tail.
+            # Live fleet health remains current; historical audit is a
+            # separately invoked research operation.
+            "--skip-historical-audits",
+            # Trust scoring replays every settled snapshots_long tape. Keep
+            # that full-corpus work out of the bounded scheduled tail too.
+            "--skip-fleet-trust-replay",
+            # Runtime-identity evidence currently scans every snapshot tape
+            # before filtering. Omit it from the scheduled bounded tail.
+            "--skip-fleet-runtime-identity-replay",
+            # Stage A already produced current trading evidence. Avoid the
+            # observability tail's duplicate all-run MM/taker enumeration.
+            "--skip-fleet-trading-replay"
+        )
         $producerSlaSeconds = 14400
     } else {
         $tokens += @(
             "--status-out", "data\backtest\daily_refresh_evidence_status.json",
             "--report-out", "data\backtest\daily_refresh_evidence_report.md"
         )
+        # The child SLA ends at 08:35, leaving 25 minutes for the wrapper's
+        # 09:00 teardown and 40 minutes before Scheduler's 09:15 hard limit.
         $producerSlaSeconds = 28800
     }
 

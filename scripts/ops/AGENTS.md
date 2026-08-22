@@ -9,7 +9,9 @@ These instructions apply to `scripts/ops/`.
 - Do not publish a bare registration command when the script has mandatory
   evidence, artifact, route, or production-readiness parameters. The default
   `Full` parameter sets for `register_daily_refresh.ps1` and
-  `register_nightly_retrain.ps1` require such inputs. Daily refresh has one
+  `register_nightly_retrain.ps1` require such inputs. Both nightly registrars
+  also require all eight explicit all-market base-retrain bindings before they
+  can create a task; the direct topology is fixed to `offline_host`. Daily refresh has one
   explicit transitional exception: `-ProvenanceOnly` registers both wrapper
   tasks with scheduler provenance and release arguments while deliberately
   omitting the production-evidence contract. Never describe that mode as FULL
@@ -102,6 +104,12 @@ Choose one retraining topology per host:
 Do not leave both topologies enabled for the same workload. Preserve the
 training window's `finally` restoration and independent restore task when
 modifying it.
+All training candidates are run-specific: both registrars create a future
+one-shot task with no late catch-up. On the capture host the one-shot is fixed
+to 01:00, the daily restore remains fixed at 04:15 with late catch-up, and the
+wrapper must refuse outside its bound time before stopping capture. Restoration
+is successful only after checked enable/ensure exits and canonical 3/3 capture
+recovery proof; failure must propagate out of `finally`.
 
 Every heavyweight wrapper must hold the shared lease from
 `workload_admission.ps1` across its expensive or capture-disrupting section.
@@ -115,6 +123,10 @@ kill it after settlement. Lock ownership is PID plus creation identity, not
 file existence or PID alone. Tiering wrappers must assign children to a
 kill-on-close Job, retain an absolute runtime bound, write latest status
 atomically, and append history; a busy-lease skip is not reclaim evidence.
+The repository-owned tiering registrars bind projection/raw work to 05:00/06:00,
+1800/2400-second runner bounds, PT31M/PT41M scheduler limits, and no late
+catch-up. Their post-registration readback must prove the exact canonical
+action, trigger, S4U/Limited principal, and settings before claiming success.
 
 Producer provenance follows the chosen topology. The direct nightly action
 passes `scheduler-invocation-topology=direct`. The daily-refresh tasks and

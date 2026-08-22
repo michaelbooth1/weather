@@ -410,14 +410,55 @@ def scheduled_task_status(task_name):
         }
 
 
-def nightly_retrain_status_rows():
-    task = scheduled_task_status(NIGHTLY_RETRAIN_TASK_NAME)
+def _nightly_status_topology(status_payload):
+    bound = (status_payload or {}).get("nightly_sla") or {}
+    invocation = (status_payload or {}).get("invocation") or {}
+    task_name = str(bound.get("task_name") or "").strip()
+    schedule_local_time = str(bound.get("schedule_local_time") or "").strip()
+    schedule_timezone = str(bound.get("schedule_timezone") or "").strip()
+    supported_tasks = {NIGHTLY_RETRAIN_TASK_NAME, "WeatherTrainingWindow"}
+    try:
+        datetime.strptime(schedule_local_time, "%H:%M")
+        schedule_valid = len(schedule_local_time) == 5
+    except ValueError:
+        schedule_valid = False
+    valid = (
+        task_name in supported_tasks
+        and schedule_valid
+        and schedule_timezone == "America/Toronto"
+        and invocation.get("scheduler_attested") is True
+        and str(invocation.get("task_name") or "") == task_name
+    )
+    if not valid:
+        return NIGHTLY_RETRAIN_TASK_NAME, "03:30", "America/Toronto", False
+    return task_name, schedule_local_time, schedule_timezone, True
+
+
+def nightly_retrain_status_rows(status_payload=None):
+    if status_payload is None:
+        try:
+            status_payload = json.loads(
+                Path(NIGHTLY_RETRAIN_STATUS_OUT).read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            status_payload = {}
+    task_name, schedule_local_time, schedule_timezone, topology_bound = (
+        _nightly_status_topology(status_payload)
+    )
+    task = scheduled_task_status(task_name)
     sla = nightly_run_sla_status(
         status_path=NIGHTLY_RETRAIN_STATUS_OUT,
+        status_payload=status_payload,
+        task_name=task_name,
         task_status=task,
+        schedule_local_time=schedule_local_time,
+        schedule_timezone=schedule_timezone,
     )
     return {
         "Job": "Nightly retrain",
+        "Task": task_name,
+        "Schedule": f"{schedule_local_time} {schedule_timezone}",
+        "Topology Bound": topology_bound,
         "State": sla.get("state"),
         "Run Status": sla.get("run_status"),
         "Task Registered": sla.get("task_registered"),

@@ -95,7 +95,12 @@ STAGE_A_STEP_RESOURCE_POLICIES = {
     "settled_day_analysis_barrier": {"isolation": "in_process", "rationale": "status-only dependency barrier"},
     "runtime_identity_reconciliation": {"isolation": "in_process", "rationale": "manifest identity reconciliation"},
     "live_variant_settlement_scorecard": _budget(60, 3072, 2048, "bounded per-tape live-variant settlement scoring"),
-    "fleet_observability": {"isolation": "in_process", "rationale": "reads child resource receipts for fleet status"},
+    "fleet_observability": _budget(
+        20,
+        3072,
+        2048,
+        "current fleet, tape, provenance, and child-resource summaries; scheduled historical audits and trust replay are disabled",
+    ),
 }
 
 STAGE_A_ISOLATED_STEPS = frozenset(

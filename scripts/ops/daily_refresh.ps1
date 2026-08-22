@@ -94,9 +94,11 @@ $childArgumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $childArgs
 $child = $null
 $childJob = $null
 $childExitCode = $null
+$deadlineMinute = if ($Stage -eq "evidence") { 9 * 60 } else { 11 * 60 + 55 }
+$deadlineLabel = if ($Stage -eq "evidence") { "09:00" } else { "11:55" }
 $localMinute = ((Get-Date).Hour * 60) + (Get-Date).Minute
-if ($localMinute -ge 715 -or $localMinute -lt 30) {
-    Write-Output "REFUSED: daily refresh cannot run inside 11:55-00:30 protected host time"
+if ($localMinute -ge $deadlineMinute -or $localMinute -lt 30) {
+    Write-Output "REFUSED: daily refresh stage '$Stage' cannot run outside 00:30-$deadlineLabel"
     exit 75
 }
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot `
@@ -120,7 +122,7 @@ try {
     while (-not $child.HasExited) {
         $now = Get-Date
         $minute = ($now.Hour * 60) + $now.Minute
-        if ($minute -ge 715 -or $minute -lt 30) {
+        if ($minute -ge $deadlineMinute -or $minute -lt 30) {
             $deadlineReached = $true
             break
         }
@@ -133,7 +135,7 @@ try {
         $childJob = $null
         $child.WaitForExit()
         $childExitCode = 75
-        Write-Output "STOPPED: daily refresh reached the 11:55 protected-window deadline"
+        Write-Output "STOPPED: daily refresh stage '$Stage' reached its $deadlineLabel teardown deadline"
     }
     else {
         $child.WaitForExit()
