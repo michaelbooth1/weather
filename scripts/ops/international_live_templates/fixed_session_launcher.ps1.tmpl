@@ -44,7 +44,7 @@ function Add-LockedExactFile {
                 throw "fixed session locked-file hash changed"
             }
         }
-        $lockedFiles.Add($stream)
+        [void]$lockedFiles.Add($stream)
         $stream = $null
     }
     finally {

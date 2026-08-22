@@ -680,15 +680,19 @@ def test_default_runner_allows_cooperative_ctrl_break_cleanup(tmp_path):
         encoding="utf-8",
     )
 
+    started = time.monotonic()
+    absolute_deadline = datetime.now().astimezone() + timedelta(seconds=1)
     with pytest.raises(runner.LauncherControlError) as caught:
         runner._default_launcher_runner(
             script,
-            timeout_seconds=1,
+            timeout_seconds=5,
+            absolute_deadline=absolute_deadline,
             cleanup_grace_seconds=3,
         )
 
     assert caught.value.cooperative is True
     assert caught.value.forced is False
+    assert time.monotonic() - started < 4
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows Job containment is Windows-only")

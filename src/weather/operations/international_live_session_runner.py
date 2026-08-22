@@ -128,6 +128,7 @@ def _default_launcher_runner(
     path: Path,
     *,
     timeout_seconds: float = MAX_LAUNCHER_RUNTIME_SECONDS,
+    absolute_deadline: datetime | None = None,
     protected_files: Mapping[Path, str] | None = None,
     cleanup_grace_seconds: float = COOPERATIVE_CLEANUP_GRACE_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
@@ -136,6 +137,10 @@ def _default_launcher_runner(
     timeout = float(timeout_seconds)
     if not 0 < timeout <= MAX_LAUNCHER_RUNTIME_SECONDS:
         raise SessionCompositionError("launcher timeout is outside the fixed bound")
+    if absolute_deadline is not None and (
+        absolute_deadline.tzinfo is None or absolute_deadline.utcoffset() is None
+    ):
+        raise SessionCompositionError("launcher absolute deadline is not timezone-aware")
     cleanup_grace = float(cleanup_grace_seconds)
     if not 0 < cleanup_grace <= COOPERATIVE_CLEANUP_GRACE_SECONDS:
         raise SessionCompositionError("cleanup grace is outside the fixed bound")
@@ -288,6 +293,16 @@ def _default_launcher_runner(
         assigned = True
         if ntdll.NtResumeProcess(int(process._handle)) != 0:
             raise SessionCompositionError("suspended launcher could not be resumed")
+        if absolute_deadline is not None:
+            timeout = min(
+                timeout,
+                max(
+                    0.001,
+                    (
+                        absolute_deadline - datetime.now().astimezone()
+                    ).total_seconds(),
+                ),
+            )
         try:
             exit_code = process.wait(timeout=timeout)
         except (KeyboardInterrupt, subprocess.TimeoutExpired) as exc:
@@ -1044,6 +1059,7 @@ def compose_and_run_live_session(
             process = launcher_runner(
                 launcher,
                 timeout_seconds=launcher_timeout_seconds,
+                absolute_deadline=stop,
                 protected_files=protected_expected,
             )
         else:
@@ -1107,6 +1123,7 @@ def compose_and_run_live_session(
             effective_deadline_remaining_seconds
         ),
         "launcher_timeout_seconds": launcher_timeout_seconds,
+        "launcher_absolute_deadline": stop.isoformat(),
         "cooperative_cleanup_grace_seconds": COOPERATIVE_CLEANUP_GRACE_SECONDS,
         "exit_code": exit_code,
         "launcher_exception_type": (

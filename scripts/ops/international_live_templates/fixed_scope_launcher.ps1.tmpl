@@ -144,7 +144,7 @@ function Add-SealedReadLock {
         if ($observed -ne $ExpectedSha256.ToLowerInvariant()) {
             throw "fixed-scope locked-file hash changed"
         }
-        $Locks.Add($stream)
+        [void]$Locks.Add($stream)
         $stream = $null
     }
     finally {
