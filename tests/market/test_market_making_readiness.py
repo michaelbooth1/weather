@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 from weather.market.market_making_readiness import (
+    SCHEMA_VERSION as READINESS_SCHEMA_VERSION,
     build_readiness_snapshot,
     find_latest_paper_score,
     render_readiness_report,
@@ -11,6 +12,11 @@ from weather.market.market_making_preflight import (
     platform_account_snapshot_sha256,
     stage1_lifecycle_bundle_sha256,
 )
+from weather.market.market_making_run_constants import (
+    PLATFORM_VERIFICATION_SCHEMA_VERSION,
+)
+
+
 def write_json(path, payload):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -418,6 +424,7 @@ def test_live_readiness_snapshot_blocks_current_no_go_evidence(tmp_path):
     )
 
     assert payload["status"] == "BLOCK"
+    assert payload["schema_version"] == READINESS_SCHEMA_VERSION == "mm_live_readiness_v0.3"
     assert payload["live_capital_permission"] is False
     blockers = {gate["id"] for gate in payload["blockers"]}
     gate_by_id = {gate["id"]: gate for gate in payload["gates"]}
@@ -440,8 +447,8 @@ def test_live_readiness_snapshot_blocks_current_no_go_evidence(tmp_path):
     assert "does not have nonzero quote permissions" in gate_by_id["quote_permission_present_in_countable_paper"]["detail"]
     assert "fill_evidence_complete" in blockers
     assert "incomplete" in gate_by_id["fill_evidence_complete"]["detail"]
-    assert "platform_verification_v0_4_passes" in blockers
-    assert "missing, stale, or failing" in gate_by_id["platform_verification_v0_4_passes"]["detail"]
+    assert "platform_verification_passes" in blockers
+    assert "missing, stale, or failing" in gate_by_id["platform_verification_passes"]["detail"]
     assert payload["summary"]["paper_score_quote_permission_rows"] == 17
     assert payload["summary"]["paper_quote_blocked_rows"] == 33
     assert payload["summary"]["paper_quote_blocked_fraction"] == 1.0
@@ -486,6 +493,12 @@ def test_live_readiness_snapshot_blocks_current_no_go_evidence(tmp_path):
     assert next_actions[0]["category"] == "data_preflight"
     assert "preflight" in next_actions[0]["safe_next_step"]
     assert any(action["gate_id"] == "operator_live_readiness_file_passes" for action in next_actions)
+    platform_action = next(
+        action
+        for action in next_actions
+        if action["gate_id"] == "platform_verification_passes"
+    )
+    assert PLATFORM_VERIFICATION_SCHEMA_VERSION in platform_action["safe_next_step"]
 
 
 def test_readiness_snapshot_uses_one_shot_run_summary_for_latest_tick_counts(tmp_path):
