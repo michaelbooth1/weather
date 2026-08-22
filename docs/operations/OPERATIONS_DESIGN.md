@@ -346,13 +346,14 @@ ceiling. It rechecks capture and commit between size-bounded pytest chunks,
 writes a JUnit artifact per chunk, and owns each child in a kill-on-close Job.
 Immediately before a full PASS it re-resolves the worktree and branch tip,
 requires a clean tree, and compares the tracked pytest inventory to the plan.
-When an exact branch contract needs a dependency deliberately absent from the
-production venv, the reviewed task may pass an existing read-only
-`AdditionalPythonPath` and `RequireLiveSdkContract`. The runner appends that
-target only after the exact worktree source path, forces the non-skippable SDK
-contract environment flag, records the dependency-root count, and restores the
-original process environment in `finally`; it never installs into or mutates
-the production venv.
+The International SDK contract deliberately remains absent from the shared
+production venv. `RequireLiveSdkContract` now makes its one contract test
+validate and process-locally activate the repository-manifested external 0.6.0
+overlay, including pre/post-import tree and offline-wheelhouse hashes. It does
+not use `AdditionalPythonPath`; capture imports and the rest of the suite remain
+on the ordinary worktree-plus-production-venv path. The older
+`AdditionalPythonPath` diagnostic surface remains available to the bounded
+runner, but immutable integration attempts continue to reject it.
 It never merges, pushes, checks out, registers a task, or writes production
 data; a full PASS is evidence for a separate reviewed merge, not the merge.
 

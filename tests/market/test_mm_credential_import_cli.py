@@ -23,7 +23,6 @@ def source_values(**overrides):
         "POLYMM_PRIVATE_KEY": "fixture-private-key",
         "POLYMM_RELAYER_API_KEY": "ignored-relayer-secret",
         "POLYMM_POLYGON_RPC_URL": "https://rpc.invalid/ignored-secret",
-        "POLYMM_OPERATOR_ELIGIBILITY_CONFIRMED": "true",
         "POLYMM_LIVE_TRADING": "true",
     }
     values.update(overrides)

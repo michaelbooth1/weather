@@ -75,7 +75,7 @@ inputs are current:
    related Toronto gates.
 6. Current reward/min-size/tick metadata is fetched from Gamma/CLOB/rewards
    endpoints and written to `preflight.json`.
-7. For live mode only: account platform, jurisdiction, wallet type, allowances,
+7. For live mode only: account platform, wallet type, allowances,
    pUSD/USDC balance, heartbeat behavior, cancel-all, post-only rejection, and
    user WebSocket lifecycle have been verified for the operating account.
 

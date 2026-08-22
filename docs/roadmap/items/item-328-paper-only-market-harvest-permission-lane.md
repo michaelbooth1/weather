@@ -55,7 +55,7 @@ Scope:
 - [x] Run one active-day, one-market `paper-live-forward` tick and prove nonzero
   quote permission, two-sided post-only intent, zero live permission, exact
   risk ceilings, and public-tape counterfactual markout fields.
-- [x] Bind the successful paper row into the eligible-host Stage 1 candidate
+- [x] Bind the successful paper row into the fixed-scope Stage 1 candidate
   selection without allowing it to authorize mutation by itself.
 
 Acceptance: a current one-market paper run can emit an exchange-valid,
@@ -63,7 +63,7 @@ two-sided midpoint quote intent when model probabilities are absent and model
 promotion is BLOCK, while every retained non-model safety/economics gate passes,
 all live permission remains false, and no caller or dynamic artifact can raise
 the existing ceilings. Live orders remain exclusively owned by item 67's
-eligible-host staged lifecycle.
+fixed-scope staged lifecycle.
 
 ## 2026-08-15 cumulative-parent disposition
 
@@ -116,4 +116,4 @@ capture workers. The route is now production software. The overnight candidate
 task performed no paper/economics work because its separately reviewed Stage 2
 ancestor was absent; that dependency refusal is not a route regression and
 does not create a candidate. Fresh one-market paper proof and naturally
-qualifying candidate selection remain required before relocation.
+qualifying candidate selection remain required before Stage 1.

@@ -1,7 +1,5 @@
 import csv
 import json
-import os
-import sys
 import tempfile
 import unittest
 from contextlib import nullcontext
@@ -32,7 +30,6 @@ from weather.market.market_making_preflight import (
 from weather.market.market_making_run_support import preflight_book_audit, read_csv_rows
 from weather.market.market_making_run_support import classify_zero_trade_root_cause, preflight_market
 from weather.market.market_making_run_support import source_status_degradation_preflight
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.market_config import config_for_date
 from weather.market.market_registry import spec_for_id
 from weather.operations.market_making_preflight_recovery import close_out_preflight_recovery
@@ -43,40 +40,18 @@ NOW = "2026-06-14T16:00:00+00:00"
 TARGET_DATE = "2026-06-14"
 
 
-def eligible_geoblock(now=NOW):
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps({
-                "blocked": False,
-                "country": "CH",
-                "region": "ZH",
-                "ip": "203.0.113.8",
-            }).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-        now=now,
-    )
-
-
 def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
     bootstrap_sha256 = "a" * 64
 
     def result(mode, order_id):
         return {
-            "schema_version": "mm_live_lifecycle_probe_v0.1",
+            "schema_version": "mm_live_lifecycle_probe_v0.2",
             "status": "PASS",
             "completed_at_utc": NOW,
             "platform": "polymarket_global",
             "settlement_unit": "pUSD",
             "cancellation_mode": mode,
-            "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
             "bootstrap_sha256": bootstrap_sha256,
             "condition_id": "0x" + "b" * 64,
             "token_id": "12345",
@@ -86,10 +61,6 @@ def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
             "order_notional_usdc": 0.05,
             "order_id": order_id,
             "placement_status": "live",
-            "geoblock_country": "CH",
-            "geoblock_region": "ZH",
-            "capability_geoblock_evidence_sha256": "c" * 64,
-            "submission_geoblock_evidence_sha256": "d" * 64,
             "open_order_observed": True,
             "authoritative_user_event_observed": True,
             "cancellation_observed": True,
@@ -105,19 +76,17 @@ def synthetic_stage1_lifecycle_bundle(requested_budget_usdc=25.0):
         }
 
     bundle = {
-        "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+        "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
         "status": "PASS",
         "created_at_utc": NOW,
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
-        "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
         "bootstrap_sha256": bootstrap_sha256,
         "condition_id": "0x" + "b" * 64,
         "token_id": "12345",
         "funder_address": "0x0000000000000000000000000000000000000001",
         "requested_budget_usdc": requested_budget_usdc,
-        "geoblock_country": "CH",
-        "geoblock_region": "ZH",
         "lifecycle_results": {
             "cancel_all": result("cancel_all", "cancel-order"),
             "dead_man": result("dead_man", "dead-man-order"),
@@ -701,17 +670,13 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
     )
     lifecycle_bundle = synthetic_stage1_lifecycle_bundle()
     payload = {
-        "schema_version": "mm_platform_verification_v0.4",
+        "schema_version": "mm_platform_verification_v0.5",
         "status": "PASS",
         "verified_at_utc": verified_at,
         "docs_checked_at_utc": verified_at,
         "verified_for_target_date": target_date,
         "platform": platform,
         "international_platform_confirmed": platform == "polymarket_global",
-        "physical_location_matches_geoblock_confirmed": platform == "polymarket_global",
-        "geoblock_circumvention_absent_confirmed": platform == "polymarket_global",
-        "geographic_eligibility": eligible_geoblock(verified_at),
-        "eligibility_verified": True,
         "api_base_url": "https://polymarket.com",
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
@@ -810,7 +775,6 @@ def write_platform_verification(path, ok=True, target_date=TARGET_DATE, verified
         ],
     }
     if not ok:
-        payload["eligibility_verified"] = False
         payload["fees_verified"] = False
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -1328,7 +1292,6 @@ class TestMarketMakingRun(unittest.TestCase):
 
         self.assertTrue(good_gate["ok"])
         self.assertFalse(bad_gate["ok"])
-        self.assertIn("eligibility_verified", bad_gate["missing"])
         self.assertIn("fees_verified", bad_gate["missing"])
         self.assertFalse(stale_gate["ok"])
         self.assertIn("verified_at_recent", stale_gate["missing"])
@@ -1445,7 +1408,6 @@ class TestMarketMakingRun(unittest.TestCase):
 
         self.assertFalse(gate["ok"])
         self.assertIn("platform_supported", gate["missing"])
-        self.assertIn("international_jurisdiction_verified", gate["missing"])
 
     def test_platform_verification_gate_requires_consistent_wallet_and_heartbeat_chain(self):
         with tempfile.TemporaryDirectory() as tmp:

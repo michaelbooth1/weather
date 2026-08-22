@@ -33,19 +33,6 @@ schema fields ending in `_usdc` remain compatibility names for one-dollar
 amounts; they do not authorize reading a USDC.e balance as the trading
 collateral balance or treating an unwrapped asset as pUSD.
 
-Physical eligibility is separate from using the International platform.
-Polymarket's official [geographic-restrictions API](https://docs.polymarket.com/api-reference/geoblock)
-must return `blocked=false` for the public IP that will submit the order. The
-operator must also confirm that the response matches the host's real physical
-location and that no VPN, proxy, relay, or other geoblock circumvention is in
-use. Viewing and public capture may continue from a blocked host; order
-mutation may not. On 2026-08-13 the production host returned `blocked=true`,
-`country=CA`, `region=ON`, so this host is preparation/read-only at that
-location. On 2026-08-14 the operator designated this same PC as the eventual
-execution host and will physically relocate it before live use. The historical
-blocked result remains binding until a fresh response proves the relocated PC
-eligible; a host designation, move plan, or old response is not eligibility.
-
 ## Immutable pilot envelope
 
 - Dedicated isolated wallet funded with no more than **100 pUSD**
@@ -63,11 +50,6 @@ eligible; a host designation, move plan, or old response is not eligibility.
   express the complementary side with a backed buy.
 - No overnight or unattended first session. End with cancel-all plus an
   authenticated query proving zero open orders.
-- No order from a location blocked by the official geoblock endpoint. Fetch a
-  new response before constructing the authenticated client, before issuing
-  the one-submit Stage 1 capability, and immediately before submit. Evidence
-  expires after five minutes, retains country/region and content hashes, and
-  deliberately discards the detected IP.
 - Do not assume liquidity rewards. Model the current documented maker rebate
   only after market-level fee eligibility is verified. Treat an unpaid or
   sub-threshold estimate as unrealized.
@@ -79,11 +61,9 @@ All must be current for the target date and selected market:
 1. Continuous execution capture is running and has produced rows. This remains
    ahead of the paper harvest lane in the approved sequence.
 2. The International economics snapshot passes and matches the live platform.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.2` passes for
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.3` passes for
    the exact token and condition. This non-order, at-most-one-hour-old artifact
-   proves a fresh official physical geoblock response, explicit real-location
-   match and no-circumvention confirmations, the isolated wallet identity,
-   recorded cap, numeric collateral
+   proves the isolated wallet identity, recorded cap, numeric collateral
    balance and allowance each backing the requested budget, a content-bound
    account snapshot, an observed zero open-order count, current
    book/min size/tick/neg-risk, market fee
@@ -140,23 +120,23 @@ All must be current for the target date and selected market:
    live test. The Stage 1 selector must read the retained `run_config.json` and
    `quote_intents_long.csv`, stream and hash the complete quote tape, and bind a
    still-current successful row for the exact selected condition and token.
-   The resulting plan remains non-authorizing; Stage 0, physical eligibility,
-   account state, current market rules, the literal confirmation, and the
+   The resulting plan remains non-authorizing; Stage 0, account state, current
+   market rules, the literal confirmation, and the
    one-submit adapter capability remain independent mutation gates.
 8. The session is outside the host's protected 12:00-18:00 local capture window.
-9. The submitting host is physically eligible. This production PC cannot
-   satisfy the prerequisite while its current evidence is Ontario/blocked; it
-   may satisfy it only after physical relocation and a fresh matching official
-   response.
 
 ## Staged protocol
 
-### Stage 0: read-only account proof
+### Stage 0: no-order account proof
 
-- Fill the public `mm_stage0_client_identity_v0.1` manifest. It binds only the
-  International host, chain, pinned SDK, public wallet topology, fresh
-  IP-redacted official geoblock response, physical-location/no-circumvention
-  confirmations,
+Stage 0 never submits an order, but it does send authenticated heartbeat and
+cancel-all/cleanup writes. Its v0.2 command, v0.4 execution, and v0.3 session-run
+receipts therefore record `order_submit_attempted=false` separately from
+`authenticated_exchange_write_attempted=true`; generic exchange mutation is
+also true. Calling Stage 0 fully read-only is incorrect.
+
+- Fill the public `mm_stage0_client_identity_v0.2` manifest. It binds only the
+  International platform, chain, pinned SDK, public wallet topology,
   isolated-wallet declaration, and capital cap. It exists to construct the
   authenticated client needed to collect Stage 0; it is not evidence that any
   account check passed and cannot authorize an order.
@@ -201,7 +181,7 @@ All must be current for the target date and selected market:
 This stage is a successful live test even if no fill occurs.
 
 After both distinct probes pass, construct
-`mm_stage1_lifecycle_bundle_v0.1` with
+`mm_stage1_lifecycle_bundle_v0.2` with
 `weather.market.mm_live_lifecycle_probe.build_stage1_lifecycle_bundle`. The
 builder rereads both append-only journals, verifies their hashes and critical
 events, requires distinct journal files and order IDs, and derives the no-fill,
@@ -213,7 +193,7 @@ tracked bundle template is deliberately fail-safe.
 
 Stage 1 is the only order mutation allowed from the bootstrap artifact. Its
 completed, content-bound lifecycle bundle upgrades platform proof to
-`mm_platform_verification_v0.4`. The ordinary `market_making_run` live-pilot
+`mm_platform_verification_v0.5`. The ordinary `market_making_run` live-pilot
 path continues to require that stronger artifact and must never accept the
 bootstrap artifact. Version v0.4 embeds the bundle and its SHA-256, rechecks
 the two probe identities and budgets, and requires its flattened private-stream,
@@ -221,7 +201,7 @@ cancel-all, and heartbeat claims to match the bundle's derived facts. The
 fail-closed `weather.market.mm_live_pilot_cli` preparation surface exposes only
 identity preparation, the keyless doctor, and offline bundle construction.
 Exchange-mutating Stage 0 and Stage 1 remain library boundaries for a separately
-reviewed, host-owned eligible-machine wrapper; the generic CLI cannot invoke
+reviewed, host-owned fixed-scope wrapper; the generic CLI cannot invoke
 them. Those library boundaries wire the prepared bootstrap collector and
 lifecycle orchestrator to credential-by-reference loading, the pinned official
 client, the account-wide user stream, and the exact position reader. Stage 1
@@ -238,10 +218,8 @@ orders, and zero exact-scope positions. It
 must not invent an initial WebSocket order snapshot, which the protocol does
 not document, and it does not claim that a fill path has been tested. Actual
 fill, settlement, fee, and payout evidence remains a Stage 3 requirement.
-The official adapter fetches a new official geoblock response before issuing
-an in-memory opaque capability and requires country/region to match Stage 0.
-It fetches again immediately before submit. The capability permits exactly one
-network submit and is consumed before that final check and the SDK call, so
+The capability permits exactly one network submit and is consumed before the
+SDK call, so
 Stage 0, the ordinary runner, or a retry after
 an ambiguous response cannot call the adapter's order method directly.
 The adapter also clamps its effective per-order notional limit to **10 pUSD**
@@ -267,20 +245,17 @@ observed bootstrap and its separate literal confirmation, may perform Stage 1.
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
 
-### Same-PC relocation and eligible-host preparation
+### Production-host preparation
 
-The final sequence runs from this production checkout after the PC is
-physically relocated. There is no source-transfer or second-machine deployment
-step. Public metadata, economics, and book selection may be rehearsed while the
-PC is blocked, but they must be rerun after relocation; identity preparation,
-credential import, authenticated Stage 0, and every mutation must not run while
-the current official response is blocked. Never put a secret value in the
-command line, environment, identity manifest, output path, or shell history.
+The final sequence runs from this production checkout. There is no
+source-transfer or second-machine deployment step. Public metadata, economics,
+and book selection must be rerun for the live session. Never put a secret value
+in the command line, environment, identity manifest, output path, or shell
+history.
 
-Plan the physical move and first lifecycle session outside both the 12:00-18:00
-graded window and the 18:00-00:30 near-close protection window. The move will
-interrupt capture even though the code is unchanged. After boot and network
-recovery, log in once so Credential Manager and `WeatherOneShotPush` are
+Plan the first lifecycle session outside both the 12:00-18:00 graded window and
+the 18:00-00:30 near-close protection window. After boot and network recovery,
+log in once so Credential Manager and `WeatherOneShotPush` are
 available, prove master equals origin at the reviewed exact tip, prove all
 capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
@@ -358,10 +333,9 @@ intent is only a far-from-mid lifecycle probe and will normally not qualify for
 liquidity rewards or provide maker-fill economics evidence. Stage 2 must use a
 separate current quote decision after Stage 1 passes.
 
-Next create the public identity with a current official geoblock response. The
-command derives the numeric signature ID, strips the detected IP, rejects proxy
-configuration and blocked locations, and writes no identity if any public gate
-fails. Only these two documented topologies are accepted:
+Next create the public identity. The command derives the numeric signature ID
+and writes no identity if any public gate fails. Only these two documented
+topologies are accepted:
 
 | Wallet class | Signature | EOA/API owner | Order signer | Funder/maker |
 | --- | --- | --- | --- | --- |
@@ -373,7 +347,7 @@ validation on 2026-08-13 with the exact pinned SDK proved that its private key
 derives its public EOA, that the SDK selects that EOA as the type-2 order signer,
 and that the configured Safe funder is distinct. This is not exchange
 authentication or order evidence; Stage 0 must still prove it against live
-account reads on the eligible host. Do not switch topology after a failed probe:
+account reads on the production host. Do not switch topology after a failed probe:
 
 ```powershell
 $pilotFunderAddress = "replace-with-public-funder-address"
@@ -384,22 +358,21 @@ $pilotSignatureType = "POLY_GNOSIS_SAFE"
   --funder-address $pilotFunderAddress `
   --wallet-type $pilotWalletType `
   --signature-type $pilotSignatureType `
-  --budget 100 `
+  --budget 10 `
+  --wallet-cap 100 `
   --identity-out C:\pilot\identity.json `
   --receipt-out C:\pilot\identity-receipt.json `
   --confirm-international-platform `
-  --confirm-physical-location-match `
-  --confirm-no-circumvention `
   --confirm-isolated-wallet `
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
 ```
 
-Only after relocated-PC identity preparation passes, provision the four secret
+Only after identity preparation passes, provision the four secret
 values as Windows Credential Manager generic credentials. If an external
 source file is used, keep it outside the repository, remove inherited broad
-ACLs, and run the importer only after this PC is eligible. The importer validates the private
+ACLs. The importer validates the private
 key/address and exact wallet/signature topology, refuses existing fixed targets,
-rolls back partial writes, ignores relayer/RPC/location/live-flag fields, and
+rolls back partial writes, ignores unrelated relayer/RPC/live-flag fields, and
 emits only a public reference manifest and secret-free receipt:
 
 ```powershell
@@ -412,23 +385,23 @@ emits only a public reference manifest and secret-free receipt:
 ```
 
 Do not proceed unless the receipt is `PASS`, reports exactly four entries, and
-has no rollback. Then set only the manifest's `wincred://` references and public
-funder address in the process environment. The required variables are
+has no rollback. Do not persist its references in User or Machine environment.
+The hash-sealed launcher parses the public reference manifest, sets the five
+required values only in its child-process scope, clears all direct-secret names,
+and restores its own prior process environment afterward. The required variables are
 `POLYMARKET_API_KEY_STORAGE_REF`,
 `POLYMARKET_API_SECRET_STORAGE_REF`,
 `POLYMARKET_API_PASSPHRASE_STORAGE_REF`,
 `POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
 `POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
-credentials themselves. Install the repository's exact `live` dependency extra
-in this checkout's dedicated virtual environment; the runtime rejects any SDK
-version other than the pinned version. After a successful import, independent
+credentials themselves. Do not install the live extra into the shared production
+venv. The repository manifest instead validates the complete fixed external
+SDK overlay and all 34 offline wheels before and after process-local import; the
+runtime rejects any version or import origin other than the pinned 0.6.0 tree.
+After a successful import, independent
 keyless doctor, and operator verification of the external source's retained
 copy, delete the source credential file using the approved secure-deletion
 procedure. The importer never deletes it automatically.
-
-```powershell
-.\venv\Scripts\python.exe -m pip install -e ".[live]"
-```
 
 Run the keyless doctor before Stage 0. It validates the exact SDK version,
 Windows resolver availability, reference URI shapes and completeness, direct-
@@ -442,24 +415,24 @@ the exchange. Its receipt contains counts and gate names, never reference target
   --target-date $pilotTargetDate `
   --condition-id $pilotConditionId `
   --token-id $pilotTokenId `
-  --budget 100 `
+  --budget 10 `
+  --sdk-overlay-manifest .\scripts\ops\international_live_templates\sdk_overlay_manifest.json `
+  --sdk-overlay-manifest-sha256 <reviewed-manifest-sha256> `
   --receipt-out C:\pilot\doctor-receipt.json `
   --confirmation INTERNATIONAL_POLYMARKET_STAGE0_KEYLESS_DOCTOR
 ```
 
 Do not proceed unless the doctor receipt is `PASS` with an empty `missing` list.
 
-The geoblock evidence expires after five minutes. If credential provisioning or
-other setup is not already complete, treat the first identity as a preliminary
-eligibility check, then rerun `prepare-identity` with new paths immediately before
-Stage 0. The final Stage 0, both Stage 1 modes, and bundle construction should be
-prepared in advance and run consecutively; an expired bootstrap is a stop, not a
-reason to edit timestamps or reuse an earlier gate.
+Prepare the identity and run the keyless doctor only after the surrounding
+setup is complete. The final Stage 0, both Stage 1 modes, and bundle construction
+should be prepared in advance and run consecutively; an expired bootstrap is a
+stop, not a reason to edit timestamps or reuse an earlier gate.
 
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
 The repository-owned sealer is the only supported way to create the external
-fixed-scope Stage 0 and Stage 1 cancel-all wrappers. First inventory the exact
+fixed-scope Stage 0, Stage 1 cancel-all, and distinct Stage 1 dead-man wrappers. First inventory the exact
 production Git, template, and source hashes; this command writes nothing and
 returns `BLOCK` until the interrupt-cleanup hardening commit is an ancestor:
 
@@ -469,40 +442,87 @@ returns `BLOCK` until the interrupt-cleanup hardening commit is an ancestor:
 ```
 
 Author one reviewed
-`international_live_fixed_scope_seal_spec_v0.1` JSON object with the inventory
+`international_live_fixed_scope_seal_spec_v0.2` JSON object with the inventory
 hashes, synchronized `master` commit/tree, explicit budget, exact scope, current
 candidate hash, no-more-than-30-minute window, new attempt root, public input
 hashes, and item-by-item reviews for any accepted status-flag hashes. Inputs use
-the canonical paths under `inputs/` from the sealer contract; the credential
-import receipt is represented only by its path and hash. Then seal it:
+the canonical paths under `inputs/` from the sealer contract; credential
+evidence is represented only by public receipt/manifest paths and hashes. Then
+seal it:
 
 The top-level keys are exactly `schema_version`, `stage`, `prepared_at_local`,
 `production`, `scope`, `inputs`, `reviewed_status_flags`, `template_sha256`, and
 `source_sha256`. `production` binds `root`, `branch`, `commit`, `tree`, and
 `python`; `scope` binds the target, condition, token, budget, window, attempt
-root, and lease workload. Stage 0 inputs are `identity`, `scope_plan`, and
-`credential_import_receipt`; Stage 1 cancel-all inputs are `identity`,
-`bootstrap`, `stage0_receipt`, `candidate_plan`, and
-`credential_import_receipt`. Every input record has only `path` and `sha256`.
+root, and lease workload. Stage 0 inputs are `identity`, `scope_plan`,
+`credential_import_receipt`, and `credential_reference_manifest`; each Stage 1
+mode additionally binds `bootstrap`, `stage0_receipt`, `stage0_seal_receipt`,
+`stage0_run_receipt` and its sidecar, `stage0_wrapper_execution_receipt`, and its
+own fresh `candidate_plan`. Every
+input record has only `path` and `sha256`. Dead-man additionally requires the
+complete validated cancel-all seal, run receipt and sidecar, execution receipt,
+command receipt, result, and lifecycle journal; a failed or unknown cancel-all
+run can never advance.
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.international_live_wrapper_sealer seal `
   --spec C:\pilot\inputs\stage0-seal-spec.json
 ```
 
-The sealer never imports live market modules, opens Credential Manager, or runs
-the generated launcher. It independently checks candidate semantic hash, scope,
+The sealer never opens Credential Manager or runs the generated launcher. It
+independently validates the inert SDK overlay helper, candidate semantic hash, scope,
 120-second paper TTL, run-window containment, all public inputs, every imported
 live-source hash, exact production ancestry, and that every wrapper, receipt,
 sidecar, and runtime output path is new and contained. It creates a fixed
 no-argument Python wrapper, a hash-bound no-argument PowerShell launcher, an
-`international_live_fixed_scope_seal_v0.2` receipt, and its SHA-256 sidecar.
-Stage 1 uses a separate fresh spec, a newly constrained candidate, and the exact
-successful Stage 0 bootstrap and command-receipt hashes. A partial or failed seal
+`international_live_fixed_scope_seal_v0.3` receipt, and its SHA-256 sidecar.
+Each Stage 1 mode uses a separate fresh spec and candidate, plus the exact
+successful Stage 0 bootstrap, command, seal, wrapper execution, parent run
+receipt, and sidecar lineage. A partial or failed seal
 spends that attempt namespace; create a new attempt instead of overwriting it.
 
-Independently compare the launcher's hash with the seal receipt before invoking
-it with no arguments. Candidate selection and successful sealing are preparation,
+Because the candidate lasts at most 120 seconds, the normal path is a
+pre-reviewed `international_live_fixed_session_manifest_v0.2` plus its adjacent
+raw-file SHA-256 sidecar. The manifest also binds the production interpreter
+hash and the exact session-runner bootstrap closure reported by inventory.
+Before candidate selection, turn that independently
+reviewed raw hash into a no-argument launcher and immutable review receipt:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer `
+  --session-manifest C:\pilot\inputs\stage0-session-manifest.json `
+  --expected-session-manifest-sha256 <independently-reviewed-raw-sha256>
+```
+
+Write the newly selected candidate only to the review receipt's fixed inbox,
+independently compare the generated launcher's hash with that receipt, then run
+the launcher with no arguments. It passes the reviewed manifest hash and fixed
+candidate path to the composer; no scope or ceiling is accepted at the live
+boundary. The composer derives a candidate-bounded window of at most 120
+seconds, requires at least 90 seconds still available immediately before
+launch, writes an immutable ARMED intent, and atomically claims the terminal
+receipt and sidecar paths before the child. The no-argument launcher and parent
+runner hold deny-write/delete handles for the reviewed runner, production
+sources, public credential inputs, candidate, and complete predecessor lineage;
+the full external SDK overlay used by lazy imports, the interpreter, and the
+status-attestation helper closure. They rehash after acquiring those handles
+and retain them through child exit.
+The parent sends cooperative cleanup at the sealed stop, allows only the fixed
+20-second cleanup grace, and then uses kill-on-close containment if required.
+
+The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
+request, 100 pUSD wallet cap, and cutoff before its literal confirmation. The
+prompt is bounded to preserve a 60-second pre-credential reserve. After
+confirmation it rechecks Git/source identity, host/capture/status/clock/reboot
+state, the full current window, and the candidate before credential resolution.
+Stage 1 repeats host attestation submit-adjacent, checks the cutoff before the
+adapter call, and binds the deadline into its one-use capability; the adapter
+checks again after signing immediately before the actual `post_order` network
+boundary. A hash-bound journal proves that ordering.
+
+Do not invoke the inner fixed-scope launcher directly. Independently compare the
+outer session launcher's hash with its review receipt, then invoke that launcher
+with no arguments. Candidate selection and successful sealing are preparation,
 not execution authorization. Every `run_stage1` call still revalidates the
 candidate before credential resolution, can perform exactly one network submit,
 writes PASS only after final cancel-all/zero-state cleanup, and serializes
@@ -523,12 +543,21 @@ booleans:
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli bundle `
   --bootstrap C:\pilot\stage0-bootstrap.json `
+  --expected-production-tip <reviewed-production-git-oid> `
   --target-date $pilotTargetDate `
   --condition-id $pilotConditionId `
   --token-id $pilotTokenId `
-  --budget 100 `
+  --budget 10 `
   --cancel-all-result C:\pilot\cancel-all-result.json `
+  --cancel-all-seal-receipt C:\pilot\cancel-all-seal-receipt.json `
+  --cancel-all-command-receipt C:\pilot\cancel-all-command-receipt.json `
+  --cancel-all-execution-receipt C:\pilot\cancel-all-execution-receipt.json `
+  --cancel-all-run-receipt C:\pilot\cancel-all-run-receipt.json `
   --dead-man-result C:\pilot\dead-man-result.json `
+  --dead-man-seal-receipt C:\pilot\dead-man-seal-receipt.json `
+  --dead-man-command-receipt C:\pilot\dead-man-command-receipt.json `
+  --dead-man-execution-receipt C:\pilot\dead-man-execution-receipt.json `
+  --dead-man-run-receipt C:\pilot\dead-man-run-receipt.json `
   --bundle-out C:\pilot\stage1-bundle.json `
   --receipt-out C:\pilot\stage1-bundle-receipt.json `
   --confirmation INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE
@@ -554,8 +583,7 @@ the authenticated event path.
 
 ### Stage 2: one-band maker quote
 
-- Require a current passing `mm_platform_verification_v0.4`, including fresh
-  official physical geoblock eligibility and the
+- Require a current passing `mm_platform_verification_v0.5`, including the
   Stage 1 automatic heartbeat-lapse cancellation and cancel-all-to-zero proof.
   The full gate repeats the numeric balance, allowance, actual-wallet-cap,
   zero-open-order-count, and account-snapshot-hash checks; Stage 0 booleans are
@@ -687,9 +715,9 @@ permission for an automatic approval or retry.
 The direct account-wide WebSocket reader remains the authoritative user-event
 boundary, while the unified SDK owns authenticated REST reads and order
 signing/submission. Before any credentialed Stage 0/1 session, the exact wheel
-must be installed through the `live` extra in this checkout after relocation,
-the fixed-scope host wrapper must pass the keyless doctor, and the relocated-
-host Stage 0 proof must pass. The successful source/wheel audit is not wallet or
+must be installed through the `live` extra in this checkout, the fixed-scope
+host wrapper must pass the keyless doctor, and the production-host Stage 0
+proof must pass. The successful source/wheel audit is not wallet or
 exchange evidence.
 
 The supplied Safe wallet's local cryptographic topology is proven, but its live

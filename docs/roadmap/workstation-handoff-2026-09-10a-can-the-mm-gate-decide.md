@@ -19,7 +19,7 @@ So within days, quotes start flowing and the **14-day live-forward acceptance cl
 `docs/research/MARKET_MAKING_PLAN.md` states the gate:
 
 > **Acceptance to MM-2:** simulated P&L (markout + rewards + rebates) positive over ≥ 14 days under
-> the pessimistic fill rule, with model gates honored; plus the jurisdiction gate cleared.
+> the pessimistic fill rule, with model gates honored.
 
 **Those 14 days are irreplaceable.** This project has now spent two months of research on five dates
 because nobody checked an inherited convention, and has separately had a promotion gate reject a

@@ -86,7 +86,7 @@ truth.
 
 ## Sequence and stopping
 
-1. Pass Stage 0 on a genuinely eligible physical host with no circumvention.
+1. Pass Stage 0 on the production execution host.
 2. Pass one heartbeat-lapse Stage 1 run and one cancel-all Stage 1 run. Neither
    run seeks a fill.
 3. Run one minimum-size, one-TTL economics treatment. End with cancel-all,

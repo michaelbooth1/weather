@@ -1,19 +1,20 @@
-"""Sealer-owned template for one supervised Stage 1 cancel-all probe.
+"""Sealer-owned template for one supervised Stage 1 lifecycle probe.
 
 The repository sealer replaces every marker with reviewed public values.  The
-template itself is inert, and the sealed wrapper accepts no arguments and has
-no dead-man or Stage 2 surface.
+template itself is inert, and the sealed wrapper accepts no arguments or Stage 2 surface.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import msvcrt
 import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,6 +25,12 @@ PRODUCTION_PYTHON = Path("__SEAL_PRODUCTION_PYTHON__")
 HARDENING_TIP = "__SEAL_HARDENING_ANCESTOR__"
 SCOPE = "__SEAL_SCOPE__"
 SOURCE_SHA256 = "__SEAL_SOURCE_SHA256__"
+CANCELLATION_MODE = "__SEAL_CANCELLATION_MODE__"
+STAGE_NAME = "__SEAL_STAGE_NAME__"
+EXECUTION_PHASE = "preflight"
+PRE_CREDENTIAL_RESERVE_SECONDS = 60
+CONFIRMATION_SCOPE_DISPLAY_SHA256 = None
+HOST_ATTESTATIONS = []
 
 ALLOWED_DIRTY_PATHS = {
     "config/location_market_events.json",
@@ -73,7 +80,7 @@ def _is_fully_sealed() -> bool:
 
 def _assert_sealed() -> None:
     if not _is_fully_sealed():
-        raise RuntimeError("fixed-scope cancel-all template is not sealed")
+        raise RuntimeError("fixed-scope Stage 1 template is not sealed")
     if not isinstance(SCOPE["allowed_status_flag_sha256"], list):
         raise RuntimeError("allowed status hashes are not sealed as a list")
     if any(
@@ -88,8 +95,14 @@ def _assert_sealed() -> None:
     if not token.isdigit() or int(token) <= 0:
         raise RuntimeError("fixed token id is invalid")
     budget = float(SCOPE["requested_budget_pusd"])
-    if not 0 < budget <= 100:
-        raise RuntimeError("fixed requested budget is outside the operator ceiling")
+    if budget != 10:
+        raise RuntimeError("fixed requested budget is not exactly 10 pUSD")
+    if CANCELLATION_MODE not in {"cancel_all", "dead_man"}:
+        raise RuntimeError("sealed cancellation mode is invalid")
+    _assert_window_current()
+
+
+def _assert_window_current() -> None:
     start = datetime.fromisoformat(str(SCOPE["run_not_before_local"]))
     stop = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
     now = datetime.now().astimezone()
@@ -98,7 +111,62 @@ def _assert_sealed() -> None:
     if (stop - start).total_seconds() > 30 * 60:
         raise RuntimeError("fixed local run window exceeds 30 minutes")
     if not start <= now <= stop or now.date().isoformat() != SCOPE["target_date"]:
-        raise RuntimeError("fixed-scope cancel-all wrapper is outside its exact window")
+        raise RuntimeError("fixed-scope Stage 1 wrapper is outside its exact window")
+
+
+def _prompt_until(expected: str) -> str:
+    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"])) - timedelta(
+        seconds=PRE_CREDENTIAL_RESERVE_SECONDS
+    )
+    sys.stdout.write(f"Type {expected} to continue: ")
+    sys.stdout.flush()
+    characters: list[str] = []
+    while datetime.now().astimezone() < deadline:
+        if not msvcrt.kbhit():
+            time.sleep(0.05)
+            continue
+        character = msvcrt.getwch()
+        if character in ("\r", "\n"):
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return "".join(characters)
+        if character == "\x03":
+            raise KeyboardInterrupt()
+        if character == "\b":
+            if characters:
+                characters.pop()
+                sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            continue
+        if character.isprintable():
+            characters.append(character)
+            sys.stdout.write(character)
+            sys.stdout.flush()
+    raise TimeoutError("supervised confirmation expired at the sealed deadline")
+
+
+def _assert_precredential_reserve() -> None:
+    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
+    if (deadline - datetime.now().astimezone()).total_seconds() < PRE_CREDENTIAL_RESERVE_SECONDS:
+        raise RuntimeError("sealed Stage 1 pre-credential reserve is exhausted")
+
+
+def _display_confirmation_scope() -> str:
+    payload = {
+        "stage": STAGE_NAME,
+        "cancellation_mode": CANCELLATION_MODE,
+        "target_date": SCOPE["target_date"],
+        "condition_id": SCOPE["condition_id"],
+        "token_id": SCOPE["token_id"],
+        "requested_budget_pusd": 10,
+        "wallet_cap_pusd": 100,
+        "cutoff_local": SCOPE["run_not_after_local"],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    print(json.dumps({"confirmation_scope": payload}, sort_keys=True))
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _assert_git_and_sources() -> None:
@@ -141,9 +209,32 @@ def _assert_git_and_sources() -> None:
             raise RuntimeError("reviewed live source hash changed")
 
 
-def _assert_paths_and_stage0() -> None:
+def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
     root = Path(str(SCOPE["attempt_root"])).resolve()
-    input_names = ("identity", "bootstrap", "stage0_receipt", "candidate_plan")
+    input_names = [
+        "identity",
+        "bootstrap",
+        "stage0_receipt",
+        "stage0_seal_receipt",
+        "stage0_run_receipt",
+        "stage0_run_receipt_sidecar",
+        "stage0_wrapper_execution_receipt",
+        "candidate_plan",
+        "credential_import_receipt",
+        "credential_reference_manifest",
+    ]
+    if CANCELLATION_MODE == "dead_man":
+        input_names.extend(
+            [
+                "cancel_all_seal_receipt",
+                "cancel_all_run_receipt",
+                "cancel_all_run_receipt_sidecar",
+                "cancel_all_wrapper_execution_receipt",
+                "cancel_all_command_receipt",
+                "cancel_all_result",
+                "cancel_all_lifecycle_journal",
+            ]
+        )
     inputs = {
         name: (
             Path(str(SCOPE[f"{name}_path"])).resolve(),
@@ -151,21 +242,28 @@ def _assert_paths_and_stage0() -> None:
         )
         for name in input_names
     }
-    outputs = [
-        Path(str(SCOPE[name])).resolve()
-        for name in (
-            "doctor_receipt_out",
-            "result_out",
-            "command_receipt_out",
-            "user_stream_journal_out",
-            "lifecycle_journal_out",
-            "wrapper_execution_receipt_out",
-        )
-    ]
-    all_paths = [path for path, _expected in inputs.values()] + outputs
+    output_names = (
+        "doctor_receipt_out",
+        "result_out",
+        "command_receipt_out",
+        "user_stream_journal_out",
+        "lifecycle_journal_out",
+        "wrapper_execution_receipt_out",
+    )
+    outputs = {
+        name: Path(str(SCOPE[name])).resolve()
+        for name in output_names
+    }
+    all_paths = [path for path, _expected in inputs.values()] + list(outputs.values())
     if len(all_paths) != len(set(all_paths)):
         raise RuntimeError("fixed input/output paths are not distinct")
+    external_inputs = {
+        inputs["credential_import_receipt"][0],
+        inputs["credential_reference_manifest"][0],
+    }
     for path in all_paths:
+        if path in external_inputs:
+            continue
         if root != path and root not in path.parents:
             raise RuntimeError("fixed path escapes the reviewed attempt root")
     for path, expected in inputs.values():
@@ -174,13 +272,21 @@ def _assert_paths_and_stage0() -> None:
             or SHA256_RE.fullmatch(expected) is None
             or _sha256(path) != expected
         ):
-            raise RuntimeError("fixed cancel-all input is absent or hash-mismatched")
-    if any(path.exists() for path in outputs):
-        raise RuntimeError("fixed cancel-all output path already exists")
+            raise RuntimeError("fixed Stage 1 input is absent or hash-mismatched")
+    if any(
+        path.exists()
+        for name, path in outputs.items()
+        if not (doctor_may_exist and name == "doctor_receipt_out")
+    ):
+        raise RuntimeError("fixed Stage 1 output path already exists")
     stage0 = json.loads(inputs["stage0_receipt"][0].read_text(encoding="utf-8-sig"))
+    stage0_topology = stage0.get("credential_topology") or {}
+    reference_manifest = json.loads(
+        inputs["credential_reference_manifest"][0].read_text(encoding="utf-8-sig")
+    )
     if not all(
         (
-            stage0.get("schema_version") == "mm_live_pilot_command_receipt_v0.1",
+            stage0.get("schema_version") == "mm_live_pilot_command_receipt_v0.2",
             stage0.get("status") == "PASS",
             stage0.get("command") == "stage0",
             stage0.get("target_date") == SCOPE["target_date"],
@@ -193,7 +299,321 @@ def _assert_paths_and_stage0() -> None:
             stage0.get("exception_type") is None,
         )
     ):
-        raise RuntimeError("fixed Stage 0 receipt does not bind the cancel-all scope")
+        raise RuntimeError("fixed Stage 0 receipt does not bind the Stage 1 scope")
+    seal = json.loads(
+        inputs["stage0_seal_receipt"][0].read_text(encoding="utf-8-sig")
+    )
+    execution = json.loads(
+        inputs["stage0_wrapper_execution_receipt"][0].read_text(
+            encoding="utf-8-sig"
+        )
+    )
+    stage0_run = json.loads(
+        inputs["stage0_run_receipt"][0].read_text(encoding="utf-8-sig")
+    )
+    stage0_run_child = stage0_run.get("child_execution") or {}
+    stage0_run_sidecar = inputs["stage0_run_receipt_sidecar"][0].read_text(
+        encoding="ascii"
+    )
+    seal_scope = seal.get("scope") or {}
+    seal_production = seal.get("production") or {}
+    seal_wrapper = seal.get("wrapper") or {}
+    seal_credential = seal.get("credential_import_receipt") or {}
+    seal_reference = seal.get("credential_reference_manifest") or {}
+    execution_wrapper = execution.get("wrapper") or {}
+    artifacts = execution.get("artifacts") or {}
+    bootstrap_artifact = artifacts.get("bootstrap_out") or {}
+    command_artifact = artifacts.get("command_receipt_out") or {}
+    stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    attestations = execution.get("host_attestations")
+    if not all(
+        (
+            seal.get("schema_version") == "international_live_fixed_scope_seal_v0.3",
+            seal.get("status") == "PASS",
+            seal.get("stage") == "stage0",
+            seal_production.get("commit") == SCOPE["expected_production_tip"],
+            seal_scope.get("target_date") == SCOPE["target_date"],
+            str(seal_scope.get("condition_id") or "").lower()
+            == str(SCOPE["condition_id"]).lower(),
+            str(seal_scope.get("token_id") or "") == str(SCOPE["token_id"]),
+            float(seal_scope.get("requested_budget_pusd"))
+            == float(SCOPE["requested_budget_pusd"]),
+            execution.get("schema_version")
+            == "international_live_fixed_scope_execution_v0.4",
+            execution.get("status") == "PASS",
+            execution.get("stage") == "stage0",
+            execution.get("phase") == "complete",
+            execution.get("credential_values_read_in_memory") is True,
+            execution.get("live_mutation_attempted") is True,
+            execution.get("order_submit_attempted") is False,
+            execution.get("authenticated_exchange_write_attempted") is True,
+            isinstance(attestations, list),
+            len(attestations or []) == 2,
+            all(
+                len(str(row.get("status_json_sha256") or "")) == 64
+                and sorted(row.get("status_flag_sha256") or [])
+                == sorted(SCOPE["allowed_status_flag_sha256"])
+                and bool(row.get("checked_at_local"))
+                for row in (attestations or [])
+            ),
+            execution.get("production_tip") == SCOPE["expected_production_tip"],
+            execution.get("target_date") == SCOPE["target_date"],
+            str(execution.get("condition_id") or "").lower()
+            == str(SCOPE["condition_id"]).lower(),
+            str(execution.get("token_id") or "") == str(SCOPE["token_id"]),
+            float(execution.get("requested_budget_pusd"))
+            == float(SCOPE["requested_budget_pusd"]),
+            execution.get("exception_type") is None,
+            set(artifacts)
+            == {
+                "doctor_receipt_out",
+                "bootstrap_out",
+                "command_receipt_out",
+                "user_stream_journal_out",
+            },
+            seal_credential.get("path")
+            == str(inputs["credential_import_receipt"][0]),
+            seal_credential.get("sha256")
+            == inputs["credential_import_receipt"][1],
+            seal_reference.get("path")
+            == str(inputs["credential_reference_manifest"][0]),
+            seal_reference.get("sha256")
+            == inputs["credential_reference_manifest"][1],
+            seal_wrapper.get("path") == execution_wrapper.get("path"),
+            seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
+            bootstrap_artifact.get("path") == str(inputs["bootstrap"][0]),
+            bootstrap_artifact.get("sha256") == inputs["bootstrap"][1],
+            command_artifact.get("path") == str(inputs["stage0_receipt"][0]),
+            command_artifact.get("sha256") == inputs["stage0_receipt"][1],
+            bool(stream_artifact.get("path")),
+            SHA256_RE.fullmatch(str(stream_artifact.get("sha256") or ""))
+            is not None,
+            Path(str(stream_artifact.get("path") or "")).is_file(),
+            (
+                _sha256(Path(str(stream_artifact.get("path"))))
+                == stream_artifact.get("sha256")
+                if stream_artifact.get("path")
+                and Path(str(stream_artifact.get("path"))).is_file()
+                else False
+            ),
+            stage0.get("credential_values_read_in_memory") is True,
+            stage0.get("exchange_mutation_attempted") is True,
+            stage0.get("order_submit_attempted") is False,
+            stage0.get("authenticated_exchange_write_attempted") is True,
+            stage0_topology.get("manifest_wallet_address")
+            == str(reference_manifest.get("wallet_address") or "").lower(),
+            len(stage0_topology) == 5,
+            all(
+                value is True
+                for key, value in stage0_topology.items()
+                if key != "manifest_wallet_address"
+            ),
+            stage0_run.get("schema_version")
+            == "international_live_session_run_v0.3",
+            stage0_run.get("status") == "PASS",
+            stage0_run.get("stage") == "stage0",
+            stage0_run.get("live_mutation_attempted") is True,
+            stage0_run.get("order_submit_attempted") is False,
+            stage0_run.get("authenticated_exchange_write_attempted") is True,
+            stage0_run.get("credential_values_read_in_memory") is True,
+            stage0_run_child.get("validation") == "PASS",
+            stage0_run_child.get("status") == "PASS",
+            stage0_run_child.get("phase") == "complete",
+            stage0_run_child.get("path")
+            == str(inputs["stage0_wrapper_execution_receipt"][0]),
+            stage0_run_child.get("sha256")
+            == inputs["stage0_wrapper_execution_receipt"][1],
+            stage0_run_sidecar
+            == (
+                f"{inputs['stage0_run_receipt'][1]}  "
+                f"{inputs['stage0_run_receipt'][0].name}\n"
+            ),
+        )
+    ):
+        raise RuntimeError("Stage 0 seal/execution lineage changed")
+    if CANCELLATION_MODE == "dead_man":
+        prior_seal = json.loads(
+            inputs["cancel_all_seal_receipt"][0].read_text(encoding="utf-8-sig")
+        )
+        prior_run = json.loads(
+            inputs["cancel_all_run_receipt"][0].read_text(encoding="utf-8-sig")
+        )
+        prior_run_sidecar = inputs["cancel_all_run_receipt_sidecar"][0].read_text(
+            encoding="ascii"
+        )
+        prior_execution = json.loads(
+            inputs["cancel_all_wrapper_execution_receipt"][0].read_text(
+                encoding="utf-8-sig"
+            )
+        )
+        prior_command = json.loads(
+            inputs["cancel_all_command_receipt"][0].read_text(
+                encoding="utf-8-sig"
+            )
+        )
+        prior_result = json.loads(
+            inputs["cancel_all_result"][0].read_text(encoding="utf-8-sig")
+        )
+        prior_child = prior_run.get("child_execution") or {}
+        prior_scope = prior_seal.get("scope") or {}
+        prior_production = prior_seal.get("production") or {}
+        prior_inputs = {
+            row.get("role"): row
+            for row in (prior_seal.get("inputs") or [])
+            if isinstance(row, dict) and row.get("role")
+        }
+        prior_topology = prior_command.get("credential_topology") or {}
+        prior_reference = json.loads(
+            Path(prior_inputs["credential_reference_manifest"]["path"]).read_text(
+                encoding="utf-8-sig"
+            )
+        )
+        prior_artifacts = prior_execution.get("artifacts") or {}
+        prior_result_artifact = prior_artifacts.get("result_out") or {}
+        prior_command_artifact = prior_artifacts.get("command_receipt_out") or {}
+        prior_journal_artifact = prior_artifacts.get("lifecycle_journal_out") or {}
+        prior_stream_artifact = prior_artifacts.get("user_stream_journal_out") or {}
+        prior_lineage_ok = True
+        prior_root = Path(str(prior_scope.get("attempt_root") or "")).resolve()
+        prior_expected = {
+            "session_manifest": prior_root / "inputs/stage1_cancel_all-session-manifest.json",
+            "composition_receipt": prior_root / "session/stage1_cancel_all-composition-receipt.json",
+            "run_intent": prior_root / "session/stage1_cancel_all-run-intent.json",
+            "seal_receipt": inputs["cancel_all_seal_receipt"][0],
+        }
+        for role, expected_path in prior_expected.items():
+            record = prior_run.get(role) or {}
+            record_path = Path(str(record.get("path") or ""))
+            prior_lineage_ok = prior_lineage_ok and (
+                record_path.resolve() == expected_path.resolve()
+                and record_path.is_file()
+                and _sha256(record_path) == record.get("sha256")
+            )
+        if not all(
+            (
+                prior_seal.get("schema_version")
+                == "international_live_fixed_scope_seal_v0.3",
+                prior_seal.get("status") == "PASS",
+                prior_seal.get("stage") == "stage1_cancel_all",
+                prior_production.get("commit") == SCOPE["expected_production_tip"],
+                prior_scope.get("target_date") == SCOPE["target_date"],
+                str(prior_scope.get("condition_id") or "").lower()
+                == str(SCOPE["condition_id"]).lower(),
+                str(prior_scope.get("token_id") or "") == str(SCOPE["token_id"]),
+                float(prior_scope.get("requested_budget_pusd"))
+                == float(SCOPE["requested_budget_pusd"]),
+                prior_scope.get("cancellation_mode") == "cancel_all",
+                prior_run.get("schema_version")
+                == "international_live_session_run_v0.3",
+                prior_run.get("status") == "PASS",
+                prior_run.get("stage") == "stage1_cancel_all",
+                prior_run.get("live_mutation_attempted") is True,
+                prior_run.get("order_submit_attempted") is True,
+                prior_run.get("authenticated_exchange_write_attempted") is True,
+                prior_run.get("credential_values_read_in_memory") is True,
+                prior_child.get("validation") == "PASS",
+                prior_child.get("status") == "PASS",
+                prior_child.get("phase") == "complete",
+                prior_child.get("path")
+                == str(inputs["cancel_all_wrapper_execution_receipt"][0]),
+                prior_child.get("sha256")
+                == inputs["cancel_all_wrapper_execution_receipt"][1],
+                (prior_run.get("seal_receipt") or {}).get("path")
+                == str(inputs["cancel_all_seal_receipt"][0]),
+                (prior_run.get("seal_receipt") or {}).get("sha256")
+                == inputs["cancel_all_seal_receipt"][1],
+                prior_run.get("candidate_sha256")
+                == prior_result.get("candidate_plan_sha256"),
+                prior_run.get("wrapper") == prior_seal.get("wrapper"),
+                prior_run.get("launcher") == prior_seal.get("launcher"),
+                Path(
+                    str((prior_run.get("session_manifest") or {}).get("sidecar_path") or "")
+                ).resolve()
+                == prior_expected["session_manifest"].with_suffix(
+                    prior_expected["session_manifest"].suffix + ".sha256"
+                ).resolve(),
+                prior_lineage_ok,
+                prior_execution.get("schema_version")
+                == "international_live_fixed_scope_execution_v0.4",
+                prior_execution.get("status") == "PASS",
+                prior_execution.get("phase") == "complete",
+                prior_execution.get("stage") == "stage1_cancel_all",
+                prior_execution.get("production_tip")
+                == SCOPE["expected_production_tip"],
+                prior_execution.get("target_date") == SCOPE["target_date"],
+                str(prior_execution.get("condition_id") or "").lower()
+                == str(SCOPE["condition_id"]).lower(),
+                str(prior_execution.get("token_id") or "")
+                == str(SCOPE["token_id"]),
+                prior_execution.get("live_mutation_attempted") is True,
+                prior_execution.get("order_submit_attempted") is True,
+                prior_execution.get("authenticated_exchange_write_attempted") is True,
+                prior_execution.get("credential_values_read_in_memory") is True,
+                set(prior_artifacts)
+                == {
+                    "doctor_receipt_out",
+                    "result_out",
+                    "command_receipt_out",
+                    "user_stream_journal_out",
+                    "lifecycle_journal_out",
+                },
+                prior_result_artifact.get("path")
+                == str(inputs["cancel_all_result"][0]),
+                prior_result_artifact.get("sha256")
+                == inputs["cancel_all_result"][1],
+                prior_command_artifact.get("path")
+                == str(inputs["cancel_all_command_receipt"][0]),
+                prior_command_artifact.get("sha256")
+                == inputs["cancel_all_command_receipt"][1],
+                prior_journal_artifact.get("path")
+                == str(inputs["cancel_all_lifecycle_journal"][0]),
+                prior_journal_artifact.get("sha256")
+                == inputs["cancel_all_lifecycle_journal"][1],
+                bool(prior_stream_artifact.get("path")),
+                Path(str(prior_stream_artifact.get("path") or "")).is_file(),
+                prior_command.get("status") == "PASS",
+                prior_command.get("command") == "stage1",
+                prior_command.get("cancellation_mode") == "cancel_all",
+                prior_command.get("exchange_mutation_attempted") is True,
+                prior_command.get("order_submit_attempted") is True,
+                prior_command.get("authenticated_exchange_write_attempted") is True,
+                len(prior_topology) == 5,
+                prior_topology.get("manifest_wallet_address")
+                == str(prior_reference.get("wallet_address") or "").lower(),
+                all(
+                    value is True
+                    for key, value in prior_topology.items()
+                    if key != "manifest_wallet_address"
+                ),
+                prior_command.get("credential_values_read_in_memory") is True,
+                prior_command.get("target_date") == SCOPE["target_date"],
+                str(prior_command.get("condition_id") or "").lower()
+                == str(SCOPE["condition_id"]).lower(),
+                str(prior_command.get("token_id") or "") == str(SCOPE["token_id"]),
+                (prior_command.get("cleanup") or {}).get("ok") is True,
+                prior_result.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
+                prior_result.get("status") == "PASS",
+                prior_result.get("cancellation_mode") == "cancel_all",
+                str(prior_result.get("condition_id") or "").lower()
+                == str(SCOPE["condition_id"]).lower(),
+                str(prior_result.get("token_id") or "") == str(SCOPE["token_id"]),
+                prior_result.get("candidate_plan_sha256")
+                == (prior_inputs.get("candidate_plan") or {}).get("sha256"),
+                bool(str(prior_result.get("order_id") or "")),
+                prior_result.get("zero_open_orders_verified") is True,
+                prior_result.get("zero_positions_verified") is True,
+                prior_result.get("no_trade_lifecycle_event_observed") is True,
+                prior_result.get("cancel_response_present") is True,
+                prior_result.get("journal_sha256")
+                == inputs["cancel_all_lifecycle_journal"][1],
+                prior_run_sidecar
+                == (
+                    f"{inputs['cancel_all_run_receipt'][1]}  "
+                    f"{inputs['cancel_all_run_receipt'][0].name}\n"
+                ),
+            )
+        ):
+            raise RuntimeError("dead-man predecessor cancel-all lineage changed")
 
 
 def _assert_host_state() -> None:
@@ -258,6 +678,15 @@ def _assert_host_state() -> None:
         and int(owner.get("pid")) == os.getppid()
     ):
         raise RuntimeError("fixed-scope wrapper does not own the shared launcher lease")
+    HOST_ATTESTATIONS.append(
+        {
+            "checked_at_local": datetime.now().astimezone().isoformat(),
+            "status_json_sha256": hashlib.sha256(
+                status_result.stdout.encode("utf-8")
+            ).hexdigest(),
+            "status_flag_sha256": observed_flag_hashes,
+        }
+    )
 
 
 def _atomic_json(path: Path, payload: dict) -> None:
@@ -288,11 +717,30 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
         candidate = Path(str(SCOPE[name])).resolve()
         if candidate.is_file():
             artifacts[name] = {"path": str(candidate), "sha256": _sha256(candidate)}
+    command = None
+    command_path = Path(str(SCOPE["command_receipt_out"])).resolve()
+    if command_path.is_file():
+        try:
+            command = json.loads(command_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            command = None
+    submit_started = False if EXECUTION_PHASE != "stage1_command" else "UNKNOWN"
+    journal_path = Path(str(SCOPE["lifecycle_journal_out"])).resolve()
+    if journal_path.is_file():
+        try:
+            submit_started = False
+            for line in journal_path.read_text(encoding="utf-8-sig").splitlines():
+                row = json.loads(line)
+                if row.get("event_type") == "submit_started":
+                    submit_started = True
+                    break
+        except (OSError, json.JSONDecodeError):
+            submit_started = "UNKNOWN"
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.2",
-            "stage": "stage1_cancel_all",
+            "schema_version": "international_live_fixed_scope_execution_v0.4",
+            "stage": STAGE_NAME,
             "status": status,
             "finished_at_local": datetime.now().astimezone().isoformat(),
             "production_tip": SCOPE["expected_production_tip"],
@@ -300,7 +748,30 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
             "condition_id": SCOPE["condition_id"],
             "token_id": SCOPE["token_id"],
             "requested_budget_pusd": float(SCOPE["requested_budget_pusd"]),
-            "cancellation_mode": "cancel_all",
+            "cancellation_mode": CANCELLATION_MODE,
+            "wrapper": {
+                "path": str(Path(__file__).resolve()),
+                "sha256": _sha256(Path(__file__).resolve()),
+            },
+            "phase": EXECUTION_PHASE,
+            "confirmation_scope_display_sha256": CONFIRMATION_SCOPE_DISPLAY_SHA256,
+            "host_attestations": list(HOST_ATTESTATIONS),
+            "credential_values_read_in_memory": (
+                command.get("credential_values_read_in_memory", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "live_mutation_attempted": (
+                command.get("authenticated_exchange_write_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else (False if EXECUTION_PHASE != "stage1_command" else "UNKNOWN")
+            ),
+            "order_submit_attempted": submit_started,
+            "authenticated_exchange_write_attempted": (
+                command.get("authenticated_exchange_write_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
             "exception_type": exception_type,
             "artifacts": artifacts,
             "secret_values_redacted": True,
@@ -309,15 +780,24 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
 
 
 def main() -> int:
+    global CONFIRMATION_SCOPE_DISPLAY_SHA256, EXECUTION_PHASE
     if len(sys.argv) != 1:
-        raise RuntimeError("fixed-scope cancel-all wrapper accepts no arguments")
+        raise RuntimeError("fixed-scope Stage 1 wrapper accepts no arguments")
     _assert_sealed()
     _assert_git_and_sources()
     _assert_paths_and_stage0()
     _assert_host_state()
 
+    EXECUTION_PHASE = "sdk_overlay_validation"
     sys.path.insert(0, str(PRODUCTION / "src"))
+    from weather.market.live_sdk_overlay import activate_live_sdk_overlay
+
+    sdk_activation = activate_live_sdk_overlay(
+        SCOPE["sdk_overlay_manifest_path"],
+        SCOPE["sdk_overlay_manifest_sha256"],
+    )
     from weather.market import mm_live_pilot_cli as live_cli
+    from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
 
     expected_module = (PRODUCTION / "src/weather/market/mm_live_pilot_cli.py").resolve()
     if Path(live_cli.__file__).resolve() != expected_module:
@@ -330,14 +810,34 @@ def main() -> int:
         token_id=SCOPE["token_id"],
         budget=SCOPE["requested_budget_pusd"],
         receipt_out=SCOPE["doctor_receipt_out"],
+        sdk_overlay_activation=sdk_activation,
         confirmation=live_cli.DOCTOR_CONFIRMATION,
     )
     doctor = live_cli.run_doctor(doctor_args)
     if doctor.get("status") != "PASS" or doctor.get("missing"):
         raise RuntimeError("fixed-scope keyless doctor did not pass")
+    EXECUTION_PHASE = "supervised_confirmation"
+    CONFIRMATION_SCOPE_DISPLAY_SHA256 = _display_confirmation_scope()
     expected_confirmation = "INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE"
-    if input(f"Type {expected_confirmation} to continue: ").strip() != expected_confirmation:
-        raise RuntimeError("supervised cancel-all confirmation did not match")
+    if _prompt_until(expected_confirmation).strip() != expected_confirmation:
+        raise RuntimeError("supervised Stage 1 confirmation did not match")
+    _assert_precredential_reserve()
+    _assert_window_current()
+    _assert_git_and_sources()
+    _assert_paths_and_stage0(doctor_may_exist=True)
+    _assert_host_state()
+    load_stage1_candidate_gate(
+        SCOPE["candidate_plan_path"],
+        SCOPE["target_date"],
+        expected_condition_id=SCOPE["condition_id"],
+        expected_token_id=SCOPE["token_id"],
+    )
+    EXECUTION_PHASE = "stage1_command"
+    credential_manifest = json.loads(
+        Path(SCOPE["credential_reference_manifest_path"]).read_text(
+            encoding="utf-8-sig"
+        )
+    )
     args = SimpleNamespace(
         identity=SCOPE["identity_path"],
         target_date=SCOPE["target_date"],
@@ -346,24 +846,28 @@ def main() -> int:
         budget=SCOPE["requested_budget_pusd"],
         bootstrap=SCOPE["bootstrap_path"],
         candidate_plan=SCOPE["candidate_plan_path"],
-        cancellation_mode="cancel_all",
+        cancellation_mode=CANCELLATION_MODE,
+        submit_deadline_utc=SCOPE["run_not_after_local"],
+        credential_resolution_deadline_utc=SCOPE["run_not_after_local"],
+        pre_submit_attestor=_assert_host_state,
         lifecycle_journal=SCOPE["lifecycle_journal_out"],
         result_out=SCOPE["result_out"],
         receipt_out=SCOPE["command_receipt_out"],
         user_stream_journal=SCOPE["user_stream_journal_out"],
         user_stream_ready_timeout_seconds=45.0,
         confirmation=expected_confirmation,
+        expected_wallet_address=credential_manifest["wallet_address"],
     )
     receipt = live_cli.run_stage1(args)
     if receipt.get("status") != "PASS" or (receipt.get("cleanup") or {}).get("ok") is not True:
-        raise RuntimeError("fixed-scope cancel-all did not finish with proved cleanup")
+        raise RuntimeError("fixed-scope Stage 1 did not finish with proved cleanup")
     result_path = Path(str(SCOPE["result_out"])).resolve()
     result = json.loads(result_path.read_text(encoding="utf-8-sig"))
     lifecycle_path = Path(str(SCOPE["lifecycle_journal_out"])).resolve()
     if not all(
         (
             result.get("status") == "PASS",
-            result.get("cancellation_mode") == "cancel_all",
+            result.get("cancellation_mode") == CANCELLATION_MODE,
             result.get("zero_open_orders_verified") is True,
             result.get("zero_positions_verified") is True,
             result.get("no_trade_lifecycle_event_observed") is True,
@@ -372,9 +876,20 @@ def main() -> int:
             result.get("journal_sha256") == _sha256(lifecycle_path),
         )
     ):
-        raise RuntimeError("fixed-scope cancel-all result failed host postconditions")
+        raise RuntimeError("fixed-scope Stage 1 result failed host postconditions")
+    if CANCELLATION_MODE == "cancel_all" and result.get("cancel_response_present") is not True:
+        raise RuntimeError("cancel-all result omitted the explicit cancellation response")
+    if CANCELLATION_MODE == "dead_man" and not all(
+        (
+            result.get("cancel_response_present") is False,
+            float(result.get("cancellation_elapsed_seconds")) >= 10,
+            float(result.get("cancellation_elapsed_seconds")) <= 15,
+        )
+    ):
+        raise RuntimeError("dead-man result failed the automatic lapse contract")
+    EXECUTION_PHASE = "complete"
     _write_execution_receipt("PASS")
-    print(json.dumps({"status": "PASS", "stage": "stage1_cancel_all"}, sort_keys=True))
+    print(json.dumps({"status": "PASS", "stage": STAGE_NAME}, sort_keys=True))
     return 0
 
 
@@ -391,7 +906,7 @@ if __name__ == "__main__":
             json.dumps(
                 {
                     "status": "FAIL",
-                    "stage": "stage1_cancel_all",
+                    "stage": STAGE_NAME,
                     "exception_type": type(exc).__name__,
                     "secret_values_redacted": True,
                 },

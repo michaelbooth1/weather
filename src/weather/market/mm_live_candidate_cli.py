@@ -660,6 +660,9 @@ def load_stage1_candidate_gate(
         "paper_run_config_sha256": evidence["run_config_sha256"],
         "paper_quote_intents_sha256": evidence["quote_intents_sha256"],
         "paper_quote_row_sha256": paper["quote_row_sha256"],
+        "stage1_intent": dict(intent),
+        "tick_size": float(tick_size),
+        "order_min_size": float(min_size),
     }
 
 

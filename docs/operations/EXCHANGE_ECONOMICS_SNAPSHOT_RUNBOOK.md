@@ -46,7 +46,7 @@ conditions, validates Gamma identity against the tracked condition/token map,
 fetches current reward campaigns from the CLOB, validates the complete payload,
 and only then replaces the ignored runtime snapshot.
 
-For blocked-host preparation or a branch proof, write a new external snapshot
+For isolated preparation or a branch proof, write a new external snapshot
 instead of replacing production state. Collection is not baseline acceptance:
 
 ```powershell

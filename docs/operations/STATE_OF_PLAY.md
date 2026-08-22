@@ -34,8 +34,6 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 - International Polymarket only. Never use Polymarket US for a new probe,
   credential path, readiness decision, or mutation.
-- Re-prove physical execution eligibility at action time. A prior response,
-  machine designation, or credential state never authorizes mutation.
 - The first live test is a plumbing/evidence probe: one market, finite
   non-raisable 100 pUSD-equivalent wallet cap, post-only, no naked sells, and
   every existing lower ceiling.

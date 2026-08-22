@@ -5,13 +5,14 @@ resolved from Windows Credential Manager references already present in the
 process environment; secret values are never accepted as arguments or written
 to artifacts. Exchange-mutating Stage 0 and Stage 1 functions are deliberately
 not exposed by this parser; a separately reviewed host-owned wrapper must call
-those library boundaries on an eligible machine. Stage 1 additionally requires
+those library boundaries. Stage 1 additionally requires
 a fresh non-authorizing candidate plan bound to a successful paper-only quote.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -33,14 +34,12 @@ from weather.market.mm_credentials import (
     stage0_client_identity_gate,
 )
 from weather.market.mm_exchange import credential_diagnostics
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.mm_live_bootstrap import (
     collect_platform_bootstrap_payload,
     finalize_platform_bootstrap_payload,
     load_platform_bootstrap_gate,
 )
 from weather.market.mm_live_lifecycle_probe import (
-    CANCELLATION_MODES,
     CONFIRMATION as STAGE1_CONFIRMATION,
     build_stage1_lifecycle_bundle,
     execute_stage1_lifecycle_probe,
@@ -91,6 +90,209 @@ def _read_json_object(path: str | Path) -> dict:
     return payload
 
 
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) -> dict:
+    stage_name = "stage1_cancel_all" if mode == "cancel_all" else "stage1_dead_man"
+    prefix = "cancel_all" if mode == "cancel_all" else "dead_man"
+    seal_path = Path(getattr(args, f"{prefix}_seal_receipt")).resolve()
+    command_path = Path(getattr(args, f"{prefix}_command_receipt")).resolve()
+    execution_path = Path(getattr(args, f"{prefix}_execution_receipt")).resolve()
+    run_path = Path(getattr(args, f"{prefix}_run_receipt")).resolve()
+    result = Path(result_path).resolve()
+    seal = _read_json_object(seal_path)
+    command = _read_json_object(command_path)
+    execution = _read_json_object(execution_path)
+    run = _read_json_object(run_path)
+    seal_scope = seal.get("scope") if isinstance(seal.get("scope"), dict) else {}
+    attempt_root = Path(str(seal_scope.get("attempt_root") or "")).resolve()
+    stage_folder = "stage1-cancel-all" if mode == "cancel_all" else "stage1-dead-man"
+    expected_paths = {
+        "seal": attempt_root / "seal" / f"{stage_folder}-seal-receipt.json",
+        "run": attempt_root / "session" / f"{stage_name}-run-receipt.json",
+        "execution": attempt_root / stage_folder / "wrapper-execution-receipt.json",
+        "command": attempt_root / stage_folder / "command-receipt.json",
+        "result": attempt_root / stage_folder / "result.json",
+        "journal": attempt_root / stage_folder / "lifecycle.jsonl",
+        "stream": attempt_root / stage_folder / "user-stream.jsonl",
+        "manifest": attempt_root / "inputs" / f"{stage_name}-session-manifest.json",
+        "composition": attempt_root / "session" / f"{stage_name}-composition-receipt.json",
+        "intent": attempt_root / "session" / f"{stage_name}-run-intent.json",
+    }
+    seal_wrapper = seal.get("wrapper") if isinstance(seal.get("wrapper"), dict) else {}
+    execution_wrapper = (
+        execution.get("wrapper") if isinstance(execution.get("wrapper"), dict) else {}
+    )
+    artifacts = execution.get("artifacts") if isinstance(execution.get("artifacts"), dict) else {}
+    result_artifact = artifacts.get("result_out") or {}
+    command_artifact = artifacts.get("command_receipt_out") or {}
+    journal_artifact = artifacts.get("lifecycle_journal_out") or {}
+    stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    run_child = run.get("child_execution") or {}
+    run_topology = run.get("credential_topology") or {}
+    seal_production = seal.get("production") or {}
+    command_paths = command.get("paths") or {}
+    credential_topology = command.get("credential_topology") or {}
+    run_sidecar = run_path.with_suffix(run_path.suffix + ".sha256")
+    expected_run_sidecar = f"{_sha256_file(run_path)}  {run_path.name}\n"
+    run_lineage_ok = True
+    expected_run_lineage = {
+        "session_manifest": expected_paths["manifest"],
+        "composition_receipt": expected_paths["composition"],
+        "run_intent": expected_paths["intent"],
+        "seal_receipt": expected_paths["seal"],
+    }
+    for role, expected_path in expected_run_lineage.items():
+        record = run.get(role) or {}
+        record_path = Path(str(record.get("path") or "")).resolve()
+        run_lineage_ok = run_lineage_ok and (
+            record_path == expected_path
+            and record_path.is_file()
+            and _sha256_file(record_path) == record.get("sha256")
+        )
+    run_manifest = run.get("session_manifest") or {}
+    manifest_sidecar = expected_paths["manifest"].with_suffix(
+        expected_paths["manifest"].suffix + ".sha256"
+    )
+    run_lineage_ok = run_lineage_ok and (
+        Path(str(run_manifest.get("sidecar_path") or "")).resolve()
+        == manifest_sidecar
+        and manifest_sidecar.is_file()
+        and _sha256_file(manifest_sidecar) == run_manifest.get("sidecar_sha256")
+    )
+    checks = {
+        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.3"
+        and seal.get("status") == "PASS"
+        and seal.get("stage") == stage_name,
+        "production": seal_production.get("commit") == args.expected_production_tip,
+        "seal_scope": seal_scope.get("target_date") == args.target_date
+        and str(seal_scope.get("condition_id") or "").lower()
+        == str(args.condition_id).lower()
+        and str(seal_scope.get("token_id") or "") == str(args.token_id)
+        and float(seal_scope.get("requested_budget_pusd")) == float(args.budget)
+        and seal_scope.get("cancellation_mode") == mode,
+        "canonical_paths": seal_path == expected_paths["seal"]
+        and run_path == expected_paths["run"]
+        and execution_path == expected_paths["execution"]
+        and command_path == expected_paths["command"]
+        and result == expected_paths["result"]
+        and Path(str(journal_artifact.get("path") or "")).resolve()
+        == expected_paths["journal"]
+        and Path(str(stream_artifact.get("path") or "")).resolve()
+        == expected_paths["stream"],
+        "command": command.get("schema_version") == RECEIPT_SCHEMA_VERSION
+        and command.get("status") == "PASS"
+        and command.get("command") == "stage1"
+        and command.get("target_date") == args.target_date
+        and str(command.get("condition_id") or "").lower()
+        == str(args.condition_id).lower()
+        and str(command.get("token_id") or "") == str(args.token_id)
+        and float(command.get("requested_budget_pusd")) == float(args.budget)
+        and command.get("cancellation_mode") == mode
+        and command.get("exchange_mutation_attempted") is True
+        and command.get("authenticated_exchange_write_attempted") is True
+        and command.get("order_submit_attempted") is True
+        and len(credential_topology) == 5
+        and all(
+            value is True
+            for key, value in credential_topology.items()
+            if key != "manifest_wallet_address"
+        )
+        and (command.get("cleanup") or {}).get("ok") is True
+        and command.get("exception_type") is None,
+        "command_paths": command_paths.get("result") == str(result)
+        and command_paths.get("receipt") == str(command_path)
+        and command_paths.get("user_stream_journal")
+        == stream_artifact.get("path")
+        and command_paths.get("lifecycle_journal")
+        == journal_artifact.get("path"),
+        "execution": execution.get("schema_version")
+        == "international_live_fixed_scope_execution_v0.4"
+        and execution.get("status") == "PASS"
+        and execution.get("stage") == stage_name
+        and execution.get("target_date") == args.target_date
+        and str(execution.get("condition_id") or "").lower()
+        == str(args.condition_id).lower()
+        and str(execution.get("token_id") or "") == str(args.token_id)
+        and float(execution.get("requested_budget_pusd")) == float(args.budget)
+        and execution.get("cancellation_mode") == mode
+        and execution.get("production_tip") == args.expected_production_tip
+        and execution.get("phase") == "complete"
+        and execution.get("credential_values_read_in_memory") is True
+        and execution.get("live_mutation_attempted") is True
+        and execution.get("order_submit_attempted") is True
+        and execution.get("authenticated_exchange_write_attempted") is True
+        and execution.get("exception_type") is None,
+        "wrapper": seal_wrapper.get("path") == execution_wrapper.get("path")
+        and seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
+        "result": result_artifact.get("path") == str(result)
+        and result_artifact.get("sha256") == _sha256_file(result),
+        "command_artifact": command_artifact.get("path") == str(command_path)
+        and command_artifact.get("sha256") == _sha256_file(command_path),
+        "journal_artifact": bool(journal_artifact.get("path"))
+        and len(str(journal_artifact.get("sha256") or "")) == 64
+        and Path(str(journal_artifact.get("path"))).is_file()
+        and _sha256_file(journal_artifact["path"]) == journal_artifact["sha256"],
+        "stream_artifact": bool(stream_artifact.get("path"))
+        and len(str(stream_artifact.get("sha256") or "")) == 64
+        and Path(str(stream_artifact.get("path"))).is_file()
+        and _sha256_file(stream_artifact["path"]) == stream_artifact["sha256"],
+        "result_journal": Path(
+            str(_read_json_object(result).get("journal_path") or "")
+        ).resolve()
+        == Path(str(journal_artifact.get("path") or "")).resolve(),
+        "run": run.get("schema_version") == "international_live_session_run_v0.3"
+        and run.get("status") == "PASS"
+        and run.get("stage") == stage_name
+        and run.get("live_mutation_attempted") is True
+        and run.get("order_submit_attempted") is True
+        and run.get("authenticated_exchange_write_attempted") is True
+        and run.get("credential_values_read_in_memory") is True
+        and len(run_topology) == 5
+        and all(
+            value is True
+            for key, value in run_topology.items()
+            if key != "manifest_wallet_address"
+        )
+        and run_child.get("validation") == "PASS"
+        and run_child.get("status") == "PASS"
+        and run_child.get("phase") == "complete"
+        and run_child.get("path") == str(execution_path)
+        and run_child.get("sha256") == _sha256_file(execution_path)
+        and run.get("candidate_sha256")
+        == _read_json_object(result).get("candidate_plan_sha256")
+        and (run.get("seal_receipt") or {}).get("path") == str(seal_path)
+        and (run.get("seal_receipt") or {}).get("sha256")
+        == _sha256_file(seal_path)
+        and run.get("launcher") == seal.get("launcher")
+        and run.get("wrapper") == seal.get("wrapper")
+        and run_lineage_ok,
+        "run_sidecar": run_sidecar.is_file()
+        and run_sidecar.read_text(encoding="ascii") == expected_run_sidecar,
+    }
+    missing = [name for name, passed in checks.items() if not passed]
+    if missing:
+        raise RuntimeError(
+            f"Stage 1 {mode} seal/command/execution lineage failed: "
+            + ", ".join(missing)
+        )
+    return {
+        "mode": mode,
+        "seal_receipt_sha256": _sha256_file(seal_path),
+        "command_receipt_sha256": _sha256_file(command_path),
+        "execution_receipt_sha256": _sha256_file(execution_path),
+        "run_receipt_sha256": _sha256_file(run_path),
+        "result_sha256": _sha256_file(result),
+        "journal_sha256": journal_artifact["sha256"],
+    }
+
+
 def _require_new_distinct_paths(paths: dict[str, str | Path]) -> dict[str, Path]:
     resolved = {name: Path(value).resolve() for name, value in paths.items()}
     if len(set(resolved.values())) != len(resolved):
@@ -120,13 +322,14 @@ def _require_new_distinct_paths(paths: dict[str, str | Path]) -> dict[str, Path]
 
 
 class LivePilotContext:
-    __slots__ = ("credentials", "client", "user_stream", "adapter")
+    __slots__ = ("credentials", "client", "user_stream", "adapter", "credential_topology")
 
-    def __init__(self, *, credentials, client, user_stream, adapter):
+    def __init__(self, *, credentials, client, user_stream, adapter, credential_topology):
         self.credentials = credentials
         self.client = client
         self.user_stream = user_stream
         self.adapter = adapter
+        self.credential_topology = credential_topology
 
     def __repr__(self) -> str:
         return "LivePilotContext(credentials=<redacted>, client=<redacted>, stream=<redacted>)"
@@ -138,6 +341,7 @@ def build_live_pilot_context(
     token_id: str,
     condition_id: str,
     user_stream_journal: str | Path,
+    expected_wallet_address: str,
     env=None,
     credential_loader=load_global_credential_bundle,
     client_builder=build_unified_clob_client,
@@ -150,7 +354,11 @@ def build_live_pilot_context(
     """Resolve credentials in memory and wire all authoritative live readers."""
 
     credentials = credential_loader(env)
-    client = client_builder(credentials, identity)
+    client = client_builder(
+        credentials,
+        identity,
+        expected_signer_address=expected_wallet_address,
+    )
     try:
         maker_address = str(credentials.funder).strip()
         condition = str(condition_id).strip().lower()
@@ -198,6 +406,17 @@ def build_live_pilot_context(
             client=client,
             user_stream=user_stream,
             adapter=adapter,
+            credential_topology={
+                "manifest_wallet_address": str(expected_wallet_address).lower(),
+                "derived_signer_matches_manifest": str(client.signer).lower()
+                == str(expected_wallet_address).lower(),
+                "api_owner_matches_manifest": str(client.signer).lower()
+                == str(expected_wallet_address).lower(),
+                "order_signer_matches_manifest": str(client.signer).lower()
+                == str(expected_wallet_address).lower(),
+                "funder_matches_identity": maker_address.lower()
+                == str(identity.get("funder_address") or "").lower(),
+            },
         )
     except BaseException:
         close = getattr(client, "close", None)
@@ -341,17 +560,33 @@ def _validate_budget(value) -> float:
     return budget
 
 
+def _require_current_deadline(value, *, label: str) -> str:
+    try:
+        deadline = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeError(f"{label} deadline is invalid") from exc
+    if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline.astimezone(
+        timezone.utc
+    ):
+        raise RuntimeError(f"{label} deadline has expired")
+    return deadline.isoformat()
+
+
 def run_prepare_identity(
     args,
     *,
-    geoblock_collector=collect_official_geoblock_evidence,
     identity_gate=stage0_client_identity_gate,
 ) -> dict:
-    """Create a current, public, IP-redacted Stage 0 identity manifest."""
+    """Create a public Stage 0 identity manifest."""
 
     if args.confirmation != IDENTITY_CONFIRMATION:
         raise RuntimeError("identity preparation requires the exact confirmation token")
     budget = _validate_budget(args.budget)
+    wallet_cap = _validate_budget(args.wallet_cap)
+    if budget != 10.0 or wallet_cap != 100.0 or budget > wallet_cap:
+        raise RuntimeError(
+            "first identity requires a 10 pUSD request and separate 100 pUSD wallet cap"
+        )
     paths = _require_new_distinct_paths(
         {
             "identity": args.identity_out,
@@ -369,7 +604,6 @@ def run_prepare_identity(
     try:
         signature_type = str(args.signature_type).upper()
         signature_type_id = SIGNATURE_TYPE_IDS[signature_type]
-        evidence = geoblock_collector()
         identity = {
             "schema_version": STAGE0_IDENTITY_SCHEMA_VERSION,
             "operator_authorization": STAGE0_AUTHORIZATION,
@@ -377,13 +611,6 @@ def run_prepare_identity(
             "international_platform_confirmed": bool(
                 args.confirm_international_platform
             ),
-            "physical_location_matches_geoblock_confirmed": bool(
-                args.confirm_physical_location_match
-            ),
-            "geoblock_circumvention_absent_confirmed": bool(
-                args.confirm_no_circumvention
-            ),
-            "geographic_eligibility": evidence,
             "clob_host": "https://clob.polymarket.com",
             "settlement_unit": INTERNATIONAL_SETTLEMENT_UNIT,
             "chain_id": 137,
@@ -394,28 +621,11 @@ def run_prepare_identity(
             "signature_type_id": signature_type_id,
             "funder_address": str(args.funder_address).strip(),
             "isolated_pilot_wallet": bool(args.confirm_isolated_wallet),
-            "pilot_wallet_max_funding_usdc": budget,
+            "pilot_wallet_max_funding_usdc": wallet_cap,
         }
         gate = identity_gate(identity)
         receipt["checks"] = dict(gate.get("checks") or {})
         receipt["missing"] = list(gate.get("missing") or [])
-        receipt["geographic_eligibility"] = {
-            key: evidence.get(key)
-            for key in (
-                "schema_version",
-                "endpoint",
-                "checked_at_utc",
-                "http_status",
-                "blocked",
-                "country",
-                "region",
-                "official_response_fields_sha256",
-                "requesting_ip_observed",
-                "requesting_ip_retained",
-                "proxy_configuration_absent",
-                "evidence_sha256",
-            )
-        }
         if not gate.get("ok"):
             raise RuntimeError("prepared Stage 0 identity did not pass its public gate")
     except Exception as exc:
@@ -456,6 +666,9 @@ def run_doctor(
         "ok": True,
         "reason": "keyless_command_no_credential_resolution_or_exchange_authentication",
     }
+    receipt["sdk_overlay_activation"] = getattr(
+        args, "sdk_overlay_activation", None
+    )
     process_env = env if env is not None else os.environ
     operation_error = None
     try:
@@ -538,7 +751,13 @@ def run_stage0(
 ) -> dict:
     if args.confirmation != STAGE0_AUTHORIZATION:
         raise RuntimeError("Stage 0 requires the exact read-only confirmation token")
-    _validate_budget(args.budget)
+    stage0_budget = _validate_budget(args.budget)
+    if stage0_budget != 10.0:
+        raise RuntimeError("first Stage 0 requires exactly 10 pUSD")
+    credential_deadline = _require_current_deadline(
+        getattr(args, "credential_resolution_deadline_utc", None),
+        label="Stage 0 credential resolution",
+    )
     paths = _require_new_distinct_paths(
         {
             "bootstrap": args.bootstrap_out,
@@ -547,17 +766,33 @@ def run_stage0(
         }
     )
     receipt = _receipt("stage0", args, paths)
+    receipt["credential_resolution_attempted"] = False
+    receipt["credential_values_read_in_memory"] = False
+    receipt["exchange_mutation_attempted"] = False
+    receipt["order_submit_attempted"] = False
+    receipt["authenticated_exchange_write_attempted"] = False
     context = None
     operation_error = None
     payload = None
     try:
         identity = _read_json_object(args.identity)
+        _require_current_deadline(
+            credential_deadline,
+            label="Stage 0 credential resolution",
+        )
+        receipt["credential_resolution_attempted"] = True
+        receipt["credential_values_read_in_memory"] = "UNKNOWN"
         context = context_builder(
             identity,
             token_id=args.token_id,
             condition_id=args.condition_id,
             user_stream_journal=paths["user_stream_journal"],
+            expected_wallet_address=args.expected_wallet_address,
         )
+        receipt["credential_topology"] = dict(context.credential_topology)
+        if not all(context.credential_topology.values()):
+            raise RuntimeError("current credential topology differs from sealed public identity")
+        receipt["credential_values_read_in_memory"] = True
         stream_waiter(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
@@ -574,6 +809,9 @@ def run_stage0(
         operation_error = exc
 
     cleanup = _cleanup_context(context)
+    if context is not None:
+        receipt["authenticated_exchange_write_attempted"] = True
+        receipt["exchange_mutation_attempted"] = True
     receipt["cleanup"] = cleanup
     if operation_error is None and not cleanup["ok"]:
         operation_error = RuntimeError("final Stage 0 cleanup did not prove zero account state")
@@ -610,7 +848,16 @@ def run_stage1(
 ) -> dict:
     if args.confirmation != STAGE1_CONFIRMATION:
         raise RuntimeError("Stage 1 requires the exact lifecycle confirmation token")
-    _validate_budget(args.budget)
+    stage1_budget = _validate_budget(args.budget)
+    if stage1_budget != 10.0:
+        raise RuntimeError("first Stage 1 probe requires exactly 10 pUSD")
+    submit_deadline_utc = getattr(args, "submit_deadline_utc", None)
+    if not submit_deadline_utc:
+        raise RuntimeError("Stage 1 requires an exact submit deadline")
+    credential_deadline = _require_current_deadline(
+        getattr(args, "credential_resolution_deadline_utc", None),
+        label="Stage 1 credential resolution",
+    )
     paths = _require_new_distinct_paths(
         {
             "result": args.result_out,
@@ -620,6 +867,11 @@ def run_stage1(
         }
     )
     receipt = _receipt("stage1", args, paths)
+    receipt["credential_resolution_attempted"] = False
+    receipt["credential_values_read_in_memory"] = False
+    receipt["exchange_mutation_attempted"] = False
+    receipt["order_submit_attempted"] = False
+    receipt["authenticated_exchange_write_attempted"] = False
     context = None
     operation_error = None
     result = None
@@ -641,23 +893,43 @@ def run_stage1(
         )
         if not gate.get("ok"):
             raise RuntimeError("Stage 1 platform bootstrap gate is not passing")
+        _require_current_deadline(
+            credential_deadline,
+            label="Stage 1 credential resolution",
+        )
+        receipt["credential_resolution_attempted"] = True
+        receipt["credential_values_read_in_memory"] = "UNKNOWN"
         context = context_builder(
             identity,
             token_id=args.token_id,
             condition_id=args.condition_id,
             user_stream_journal=paths["user_stream_journal"],
+            expected_wallet_address=args.expected_wallet_address,
         )
+        receipt["credential_topology"] = dict(context.credential_topology)
+        if not all(context.credential_topology.values()):
+            raise RuntimeError("current credential topology differs from sealed public identity")
+        receipt["credential_values_read_in_memory"] = True
         stream_waiter(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
         )
+        receipt["authenticated_exchange_write_attempted"] = True
+        receipt["exchange_mutation_attempted"] = True
         result = lifecycle_executor(
             context.adapter,
             gate,
             confirmation=args.confirmation,
             cancellation_mode=args.cancellation_mode,
             journal_path=paths["lifecycle_journal"],
+            submit_deadline_utc=submit_deadline_utc,
+            pre_submit_attestor=getattr(args, "pre_submit_attestor", None),
+            expected_candidate_intent=candidate_gate["stage1_intent"],
+            expected_candidate_tick_size=candidate_gate["tick_size"],
+            expected_candidate_order_min_size=candidate_gate["order_min_size"],
         )
+        receipt["exchange_mutation_attempted"] = True
+        receipt["order_submit_attempted"] = True
         result = dict(result or {})
         result["candidate_plan_sha256"] = candidate_gate["plan_sha256"]
         result["candidate_semantic_plan_sha256"] = candidate_gate[
@@ -676,6 +948,19 @@ def run_stage1(
         operation_error = exc
 
     cleanup = _cleanup_context(context)
+    if context is not None:
+        receipt["authenticated_exchange_write_attempted"] = True
+        receipt["exchange_mutation_attempted"] = True
+    lifecycle_path = Path(paths["lifecycle_journal"])
+    if lifecycle_path.is_file():
+        try:
+            receipt["order_submit_attempted"] = any(
+                json.loads(line).get("event_type") == "submit_started"
+                for line in lifecycle_path.read_text(encoding="utf-8-sig").splitlines()
+                if line.strip()
+            )
+        except (OSError, json.JSONDecodeError):
+            receipt["order_submit_attempted"] = "UNKNOWN"
     receipt["cleanup"] = cleanup
     if operation_error is None and not cleanup["ok"]:
         operation_error = RuntimeError("final Stage 1 cleanup did not prove zero account state")
@@ -706,7 +991,9 @@ def run_bundle(
 
     if args.confirmation != BUNDLE_CONFIRMATION:
         raise RuntimeError("Stage 1 bundle requires the exact offline confirmation token")
-    _validate_budget(args.budget)
+    bundle_budget = _validate_budget(args.budget)
+    if bundle_budget != 10.0:
+        raise RuntimeError("first Stage 1 bundle requires exactly 10 pUSD")
     paths = _require_new_distinct_paths(
         {
             "bundle": args.bundle_out,
@@ -716,6 +1003,7 @@ def run_bundle(
     receipt = _receipt("bundle", args, paths)
     operation_error = None
     bundle = None
+    lineages = None
     try:
         gate = bootstrap_loader(
             args.bootstrap,
@@ -726,8 +1014,23 @@ def run_bundle(
         )
         if not gate.get("ok"):
             raise RuntimeError("Stage 1 bundle bootstrap gate is not passing")
+        if (
+            float(gate.get("requested_budget_usdc")) != 10.0
+            or float(gate.get("pilot_wallet_max_funding_usdc")) != 100.0
+        ):
+            raise RuntimeError(
+                "Stage 1 bundle does not preserve the 10 pUSD request and 100 pUSD cap"
+            )
         cancel_all_result = _read_json_object(args.cancel_all_result)
         dead_man_result = _read_json_object(args.dead_man_result)
+        lineages = {
+            "cancel_all": _validate_stage1_bundle_lineage(
+                args, "cancel_all", args.cancel_all_result
+            ),
+            "dead_man": _validate_stage1_bundle_lineage(
+                args, "dead_man", args.dead_man_result
+            ),
+        }
         bundle = bundle_builder(gate, cancel_all_result, dead_man_result)
     except Exception as exc:
         operation_error = exc
@@ -736,6 +1039,7 @@ def run_bundle(
         "ok": True,
         "reason": "offline_command_no_exchange_state",
     }
+    receipt["stage1_lineage"] = lineages
     if operation_error is None:
         try:
             write_json_atomic(paths["bundle"], bundle, trailing_newline=True)
@@ -759,7 +1063,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     identity = commands.add_parser(
         "prepare-identity",
-        help="Fetch current geoblock evidence and build the public Stage 0 identity.",
+        help="Build the public Stage 0 identity.",
     )
     identity.add_argument("--funder-address", required=True)
     identity.add_argument(
@@ -773,17 +1077,16 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     identity.add_argument("--budget", required=True, type=float)
+    identity.add_argument("--wallet-cap", required=True, type=float)
     identity.add_argument("--identity-out", required=True)
     identity.add_argument("--receipt-out", required=True)
     identity.add_argument("--confirm-international-platform", action="store_true")
-    identity.add_argument("--confirm-physical-location-match", action="store_true")
-    identity.add_argument("--confirm-no-circumvention", action="store_true")
     identity.add_argument("--confirm-isolated-wallet", action="store_true")
     identity.add_argument("--confirmation", required=True)
 
     doctor = commands.add_parser(
         "doctor",
-        help="Check keyless eligible-host setup without resolving credential values.",
+        help="Check keyless host setup without resolving credential values.",
     )
     doctor.add_argument("--identity", required=True)
     doctor.add_argument("--target-date", required=True)
@@ -791,6 +1094,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--token-id", required=True)
     doctor.add_argument("--budget", required=True, type=float)
     doctor.add_argument("--receipt-out", required=True)
+    doctor.add_argument("--sdk-overlay-manifest")
+    doctor.add_argument("--sdk-overlay-manifest-sha256")
     doctor.add_argument("--confirmation", required=True)
 
     bundle = commands.add_parser(
@@ -798,12 +1103,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Offline verification and binding of the two Stage 1 results and journals.",
     )
     bundle.add_argument("--target-date", required=True)
+    bundle.add_argument("--expected-production-tip", required=True)
     bundle.add_argument("--condition-id", required=True)
     bundle.add_argument("--token-id", required=True)
     bundle.add_argument("--budget", required=True, type=float)
     bundle.add_argument("--bootstrap", required=True)
     bundle.add_argument("--cancel-all-result", required=True)
     bundle.add_argument("--dead-man-result", required=True)
+    bundle.add_argument("--cancel-all-seal-receipt", required=True)
+    bundle.add_argument("--cancel-all-command-receipt", required=True)
+    bundle.add_argument("--cancel-all-execution-receipt", required=True)
+    bundle.add_argument("--cancel-all-run-receipt", required=True)
+    bundle.add_argument("--dead-man-seal-receipt", required=True)
+    bundle.add_argument("--dead-man-command-receipt", required=True)
+    bundle.add_argument("--dead-man-execution-receipt", required=True)
+    bundle.add_argument("--dead-man-run-receipt", required=True)
     bundle.add_argument("--bundle-out", required=True)
     bundle.add_argument("--receipt-out", required=True)
     bundle.add_argument("--confirmation", required=True)
@@ -816,6 +1130,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-identity":
             receipt = run_prepare_identity(args)
         elif args.command == "doctor":
+            manifest = getattr(args, "sdk_overlay_manifest", None)
+            manifest_hash = getattr(args, "sdk_overlay_manifest_sha256", None)
+            if bool(manifest) != bool(manifest_hash):
+                raise RuntimeError(
+                    "keyless doctor SDK overlay path and hash must be supplied together"
+                )
+            if manifest:
+                from weather.market.live_sdk_overlay import activate_live_sdk_overlay
+
+                args.sdk_overlay_activation = activate_live_sdk_overlay(
+                    manifest,
+                    manifest_hash,
+                )
             receipt = run_doctor(args)
         else:
             receipt = run_bundle(args)

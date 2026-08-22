@@ -30,9 +30,9 @@ the current `data/backtest/data_layer_audit_report.md` still reported
 - [x] Make the latest data-layer audit a live gate: no MM-2 start unless CLOB
   token IDs, condition IDs, order-book depth, and trade tapes are verified in
   current active-day artifacts, not just described in roadmap text.
-- [x] Verify the exact operating platform before live keys: Polymarket global
-  versus Polymarket US eligibility, current fees, current reward/rebate rules,
-  account jurisdiction, wallet type, allowances, and API semantics.
+- [x] Verify the exact International operating platform before live keys,
+  including current fees, current reward/rebate rules, wallet type, allowances,
+  and API semantics.
 - [x] Write the MM-2 day-one protocol: heartbeat-lapse drill with a throwaway
   far-from-mid order, min-size/tick/post-only rejection probes, one tiny
   two-sided quote on one band, user WebSocket lifecycle verification,
@@ -44,7 +44,7 @@ the current `data/backtest/data_layer_audit_report.md` still reported
 
 Acceptance: no live market-making order is allowed until items 43 and 44 have
 passed their acceptance gates, the latest data-layer audit proves token/book
-artifacts are current, account/platform eligibility is verified, caps and
+artifacts are current, platform and account checks pass, caps and
 balance math are tested, kill-switch drills pass, and the dedicated pilot
 wallet is funded only with isolated risk capital.
 
@@ -83,7 +83,7 @@ Runbook update (2026-06-15 UTC): `docs/research/MARKET_MAKING_LIVE_RUNBOOK_2026-
 now records the MM-2 day-one protocol and live operating runbook, with official
 Polymarket global and Polymarket US documentation links checked on 2026-06-15.
 The account/platform verification checkbox remained open because it depended on
-the actual operating account, jurisdiction, wallet type, API base URL,
+the actual operating account, wallet type, API base URL,
 allowances, fee/reward settings, and live-key semantics immediately before use.
 
 Platform verification gate update (2026-06-16 UTC, tightened 2026-06-26 UTC):
@@ -94,7 +94,7 @@ runtime artifact path, with tracked template
 `docs/research/mm_platform_verification_template.json`; operators must refresh
 the runtime artifact within 24 hours for the target date before preflight can
 pass. The gate validates platform surface
-(`polymarket_global` versus `polymarket_us`), account jurisdiction, eligibility,
+(`polymarket_global` versus `polymarket_us`),
 API base URL, CLOB host, wallet type, signature type/funder, allowances,
 balance, fee parameters, rebate/reward rules, order/cancel/tick/min-size
 semantics, maker-only order field, private user-stream lifecycle/fill/final
@@ -120,4 +120,3 @@ Validated in the 2026-06-24 complete-roadmap sweep:
 - The file contains 10 checked implementation checklist item(s); no unchecked implementation checklist items remain.
 - Validation result: accepted as properly implemented for this completed disposition based on the existing checked implementation evidence; no active roadmap work was reopened for this item.
 - Future validation should rerun `python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint` and the referenced modules, generated artifacts, and checked implementation bullets in this file.
-

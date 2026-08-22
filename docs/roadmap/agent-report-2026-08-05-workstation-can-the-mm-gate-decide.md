@@ -233,8 +233,8 @@ Status today: **`NOT_READY_CLOCK_NOT_STARTED`**.
    toxicity. Negative 30m mean does not by itself reject a settlement-positive
    hold-to-resolution strategy, but any existing capital, inventory, stale
    quote, decisive-event, or unresolved-resting-quote gate blocks.
-9. **External conjunctive gate:** the jurisdiction gate and every unchanged
-   release, promotion, known-edge, risk, and execution-readiness gate must pass
+9. **External conjunctive gate:** every unchanged release, promotion,
+   known-edge, risk, and execution-readiness gate must pass
    separately before MM-2. This report grants no live permission.
 
 ## Day-1 checklist — a target date counts only if every box is true

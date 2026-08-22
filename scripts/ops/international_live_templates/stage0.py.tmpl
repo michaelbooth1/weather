@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import msvcrt
 import os
 import re
 import subprocess
 import sys
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +25,10 @@ PRODUCTION_PYTHON = Path("__SEAL_PRODUCTION_PYTHON__")
 HARDENING_TIP = "__SEAL_HARDENING_ANCESTOR__"
 SCOPE = "__SEAL_SCOPE__"
 SOURCE_SHA256 = "__SEAL_SOURCE_SHA256__"
+EXECUTION_PHASE = "preflight"
+PRE_CREDENTIAL_RESERVE_SECONDS = 60
+CONFIRMATION_SCOPE_DISPLAY_SHA256 = None
+HOST_ATTESTATIONS = []
 
 ALLOWED_DIRTY_PATHS = {
     "config/location_market_events.json",
@@ -87,8 +93,12 @@ def _assert_sealed() -> None:
     if not token.isdigit() or int(token) <= 0:
         raise RuntimeError("fixed token id is invalid")
     budget = float(SCOPE["requested_budget_pusd"])
-    if not 0 < budget <= 100:
-        raise RuntimeError("fixed requested budget is outside the operator ceiling")
+    if budget != 10:
+        raise RuntimeError("fixed requested budget is not exactly 10 pUSD")
+    _assert_window_current()
+
+
+def _assert_window_current() -> None:
     start = datetime.fromisoformat(str(SCOPE["run_not_before_local"]))
     stop = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
     now = datetime.now().astimezone()
@@ -98,6 +108,61 @@ def _assert_sealed() -> None:
         raise RuntimeError("fixed local run window exceeds 30 minutes")
     if not start <= now <= stop or now.date().isoformat() != SCOPE["target_date"]:
         raise RuntimeError("fixed-scope Stage 0 wrapper is outside its exact window")
+
+
+def _prompt_until(expected: str) -> str:
+    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"])) - timedelta(
+        seconds=PRE_CREDENTIAL_RESERVE_SECONDS
+    )
+    sys.stdout.write(f"Type {expected} to continue: ")
+    sys.stdout.flush()
+    characters: list[str] = []
+    while datetime.now().astimezone() < deadline:
+        if not msvcrt.kbhit():
+            time.sleep(0.05)
+            continue
+        character = msvcrt.getwch()
+        if character in ("\r", "\n"):
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return "".join(characters)
+        if character == "\x03":
+            raise KeyboardInterrupt()
+        if character == "\b":
+            if characters:
+                characters.pop()
+                sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            continue
+        if character.isprintable():
+            characters.append(character)
+            sys.stdout.write(character)
+            sys.stdout.flush()
+    raise TimeoutError("supervised confirmation expired at the sealed deadline")
+
+
+def _assert_precredential_reserve() -> None:
+    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
+    if (deadline - datetime.now().astimezone()).total_seconds() < PRE_CREDENTIAL_RESERVE_SECONDS:
+        raise RuntimeError("sealed Stage 0 pre-credential reserve is exhausted")
+
+
+def _display_confirmation_scope() -> str:
+    payload = {
+        "stage": "stage0",
+        "cancellation_mode": "not_applicable",
+        "target_date": SCOPE["target_date"],
+        "condition_id": SCOPE["condition_id"],
+        "token_id": SCOPE["token_id"],
+        "requested_budget_pusd": 10,
+        "wallet_cap_pusd": 100,
+        "cutoff_local": SCOPE["run_not_after_local"],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    print(json.dumps({"confirmation_scope": payload}, sort_keys=True))
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _assert_git_and_sources() -> None:
@@ -140,7 +205,7 @@ def _assert_git_and_sources() -> None:
             raise RuntimeError("reviewed live source hash changed")
 
 
-def _assert_paths() -> None:
+def _assert_paths(*, doctor_may_exist: bool = False) -> None:
     root = Path(str(SCOPE["attempt_root"])).resolve()
     inputs = {
         "identity": (
@@ -151,21 +216,36 @@ def _assert_paths() -> None:
             Path(str(SCOPE["scope_plan_path"])).resolve(),
             str(SCOPE["scope_plan_sha256"]).lower(),
         ),
+        "credential_import_receipt": (
+            Path(str(SCOPE["credential_import_receipt_path"])).resolve(),
+            str(SCOPE["credential_import_receipt_sha256"]).lower(),
+        ),
+        "credential_reference_manifest": (
+            Path(str(SCOPE["credential_reference_manifest_path"])).resolve(),
+            str(SCOPE["credential_reference_manifest_sha256"]).lower(),
+        ),
     }
-    outputs = [
-        Path(str(SCOPE[name])).resolve()
-        for name in (
-            "doctor_receipt_out",
-            "bootstrap_out",
-            "command_receipt_out",
-            "user_stream_journal_out",
-            "wrapper_execution_receipt_out",
-        )
-    ]
-    all_paths = [path for path, _expected in inputs.values()] + outputs
+    output_names = (
+        "doctor_receipt_out",
+        "bootstrap_out",
+        "command_receipt_out",
+        "user_stream_journal_out",
+        "wrapper_execution_receipt_out",
+    )
+    outputs = {
+        name: Path(str(SCOPE[name])).resolve()
+        for name in output_names
+    }
+    all_paths = [path for path, _expected in inputs.values()] + list(outputs.values())
     if len(all_paths) != len(set(all_paths)):
         raise RuntimeError("fixed input/output paths are not distinct")
+    external_inputs = {
+        inputs["credential_import_receipt"][0],
+        inputs["credential_reference_manifest"][0],
+    }
     for path in all_paths:
+        if path in external_inputs:
+            continue
         if root != path and root not in path.parents:
             raise RuntimeError("fixed path escapes the reviewed attempt root")
     for path, expected in inputs.values():
@@ -175,7 +255,11 @@ def _assert_paths() -> None:
             or _sha256(path) != expected
         ):
             raise RuntimeError("fixed Stage 0 input is absent or hash-mismatched")
-    if any(path.exists() for path in outputs):
+    if any(
+        path.exists()
+        for name, path in outputs.items()
+        if not (doctor_may_exist and name == "doctor_receipt_out")
+    ):
         raise RuntimeError("fixed Stage 0 output path already exists")
 
 
@@ -241,6 +325,15 @@ def _assert_host_state() -> None:
         and int(owner.get("pid")) == os.getppid()
     ):
         raise RuntimeError("fixed-scope wrapper does not own the shared launcher lease")
+    HOST_ATTESTATIONS.append(
+        {
+            "checked_at_local": datetime.now().astimezone().isoformat(),
+            "status_json_sha256": hashlib.sha256(
+                status_result.stdout.encode("utf-8")
+            ).hexdigest(),
+            "status_flag_sha256": observed_flag_hashes,
+        }
+    )
 
 
 def _atomic_json(path: Path, payload: dict) -> None:
@@ -270,10 +363,17 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
         candidate = Path(str(SCOPE[name])).resolve()
         if candidate.is_file():
             artifacts[name] = {"path": str(candidate), "sha256": _sha256(candidate)}
+    command = None
+    command_path = Path(str(SCOPE["command_receipt_out"])).resolve()
+    if command_path.is_file():
+        try:
+            command = json.loads(command_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            command = None
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.2",
+            "schema_version": "international_live_fixed_scope_execution_v0.4",
             "stage": "stage0",
             "status": status,
             "finished_at_local": datetime.now().astimezone().isoformat(),
@@ -282,6 +382,33 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
             "condition_id": SCOPE["condition_id"],
             "token_id": SCOPE["token_id"],
             "requested_budget_pusd": float(SCOPE["requested_budget_pusd"]),
+            "wrapper": {
+                "path": str(Path(__file__).resolve()),
+                "sha256": _sha256(Path(__file__).resolve()),
+            },
+            "phase": EXECUTION_PHASE,
+            "confirmation_scope_display_sha256": CONFIRMATION_SCOPE_DISPLAY_SHA256,
+            "host_attestations": list(HOST_ATTESTATIONS),
+            "credential_values_read_in_memory": (
+                command.get("credential_values_read_in_memory", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "live_mutation_attempted": (
+                command.get("exchange_mutation_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "order_submit_attempted": (
+                command.get("order_submit_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "authenticated_exchange_write_attempted": (
+                command.get("authenticated_exchange_write_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
             "exception_type": exception_type,
             "artifacts": artifacts,
             "secret_values_redacted": True,
@@ -290,6 +417,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
 
 
 def main() -> int:
+    global CONFIRMATION_SCOPE_DISPLAY_SHA256, EXECUTION_PHASE
     if len(sys.argv) != 1:
         raise RuntimeError("fixed-scope Stage 0 wrapper accepts no arguments")
     _assert_sealed()
@@ -297,7 +425,14 @@ def main() -> int:
     _assert_paths()
     _assert_host_state()
 
+    EXECUTION_PHASE = "sdk_overlay_validation"
     sys.path.insert(0, str(PRODUCTION / "src"))
+    from weather.market.live_sdk_overlay import activate_live_sdk_overlay
+
+    sdk_activation = activate_live_sdk_overlay(
+        SCOPE["sdk_overlay_manifest_path"],
+        SCOPE["sdk_overlay_manifest_sha256"],
+    )
     from weather.market import mm_live_pilot_cli as live_cli
     from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
 
@@ -318,29 +453,52 @@ def main() -> int:
         token_id=SCOPE["token_id"],
         budget=SCOPE["requested_budget_pusd"],
         receipt_out=SCOPE["doctor_receipt_out"],
+        sdk_overlay_activation=sdk_activation,
         confirmation=live_cli.DOCTOR_CONFIRMATION,
     )
     doctor = live_cli.run_doctor(doctor_args)
     if doctor.get("status") != "PASS" or doctor.get("missing"):
         raise RuntimeError("fixed-scope keyless doctor did not pass")
+    EXECUTION_PHASE = "supervised_confirmation"
+    CONFIRMATION_SCOPE_DISPLAY_SHA256 = _display_confirmation_scope()
     expected_confirmation = "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY"
-    if input(f"Type {expected_confirmation} to continue: ").strip() != expected_confirmation:
+    if _prompt_until(expected_confirmation).strip() != expected_confirmation:
         raise RuntimeError("supervised Stage 0 confirmation did not match")
+    _assert_precredential_reserve()
+    _assert_window_current()
+    _assert_git_and_sources()
+    _assert_paths(doctor_may_exist=True)
+    _assert_host_state()
+    load_stage1_candidate_gate(
+        SCOPE["scope_plan_path"],
+        SCOPE["target_date"],
+        expected_condition_id=SCOPE["condition_id"],
+        expected_token_id=SCOPE["token_id"],
+    )
+    EXECUTION_PHASE = "stage0_command"
+    credential_manifest = json.loads(
+        Path(SCOPE["credential_reference_manifest_path"]).read_text(
+            encoding="utf-8-sig"
+        )
+    )
     args = SimpleNamespace(
         identity=SCOPE["identity_path"],
         target_date=SCOPE["target_date"],
         condition_id=SCOPE["condition_id"],
         token_id=SCOPE["token_id"],
         budget=SCOPE["requested_budget_pusd"],
+        credential_resolution_deadline_utc=SCOPE["run_not_after_local"],
         bootstrap_out=SCOPE["bootstrap_out"],
         receipt_out=SCOPE["command_receipt_out"],
         user_stream_journal=SCOPE["user_stream_journal_out"],
         user_stream_ready_timeout_seconds=45.0,
         confirmation=expected_confirmation,
+        expected_wallet_address=credential_manifest["wallet_address"],
     )
     receipt = live_cli.run_stage0(args)
     if receipt.get("status") != "PASS" or (receipt.get("cleanup") or {}).get("ok") is not True:
         raise RuntimeError("fixed-scope Stage 0 did not finish with proved cleanup")
+    EXECUTION_PHASE = "complete"
     _write_execution_receipt("PASS")
     print(json.dumps({"status": "PASS", "stage": "stage0"}, sort_keys=True))
     return 0
