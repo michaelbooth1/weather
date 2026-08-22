@@ -42,7 +42,7 @@ Relevant current facts from those docs:
   they are distributed daily, but live reward economics must be reconciled from
   actual account earnings and markouts before scaling.
 - Polymarket global and Polymarket US documentation are distinct surfaces.
-  The operating account, jurisdiction, API base URL, reward rules, and wallet
+  The operating account, API base URL, reward rules, and wallet
   semantics must be verified immediately before any live key is used.
 
 ## Required Gates
@@ -60,7 +60,7 @@ No live-pilot order may be attempted unless all of these are true:
   condition IDs, CLOB feature rows, and book-available rows in the latest
   data-layer audit.
 - The `platform_verification_gate` proves the current target date has fresh
-  platform/account eligibility, jurisdiction, wallet/signature/funder,
+  platform/account, wallet/signature/funder,
   allowance/balance, fee/rebate/reward, order/cancel/tick/min-size, user
   WebSocket/private-stream, cancel-all, maker-only order field, isolated-wallet,
   and platform-specific API-lifecycle evidence. The active template is
@@ -87,7 +87,7 @@ Use one market, one central band, and one dedicated pilot wallet.
 
 2. Account and platform check:
    - Confirm whether the pilot is Polymarket global or Polymarket US.
-   - Record API base URL, account jurisdiction, wallet type, signer/funder,
+   - Record API base URL, wallet type, signer/funder,
      collateral token, minimum order size, tick size, maker/taker fee fields,
      reward settings, balance endpoint, allowance endpoint, and cancel-all
      endpoint in the platform-verification evidence file.

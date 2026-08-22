@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 from weather.market.market_making_readiness import (
+    SCHEMA_VERSION as READINESS_SCHEMA_VERSION,
     build_readiness_snapshot,
     find_latest_paper_score,
     render_readiness_report,
@@ -11,29 +12,9 @@ from weather.market.market_making_preflight import (
     platform_account_snapshot_sha256,
     stage1_lifecycle_bundle_sha256,
 )
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
-
-
-def eligible_geoblock(now):
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps({
-                "blocked": False,
-                "country": "CH",
-                "region": "ZH",
-                "ip": "203.0.113.8",
-            }).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-        now=now,
-    )
+from weather.market.market_making_run_constants import (
+    PLATFORM_VERIFICATION_SCHEMA_VERSION,
+)
 
 
 def write_json(path, payload):
@@ -48,13 +29,13 @@ def stage1_lifecycle_bundle():
 
     def probe(mode, order_id):
         return {
-            "schema_version": "mm_live_lifecycle_probe_v0.1",
+            "schema_version": "mm_live_lifecycle_probe_v0.2",
             "status": "PASS",
             "completed_at_utc": "2026-06-26T16:00:00+00:00",
             "platform": "polymarket_global",
             "settlement_unit": "pUSD",
             "cancellation_mode": mode,
-            "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
             "bootstrap_sha256": bootstrap_hash,
             "condition_id": "0x" + "b" * 64,
             "token_id": "12345",
@@ -64,10 +45,6 @@ def stage1_lifecycle_bundle():
             "order_notional_usdc": 0.05,
             "order_id": order_id,
             "placement_status": "live",
-            "geoblock_country": "CH",
-            "geoblock_region": "ZH",
-            "capability_geoblock_evidence_sha256": "c" * 64,
-            "submission_geoblock_evidence_sha256": "d" * 64,
             "open_order_observed": True,
             "authoritative_user_event_observed": True,
             "cancellation_observed": True,
@@ -82,19 +59,17 @@ def stage1_lifecycle_bundle():
         }
 
     bundle = {
-        "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+        "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
         "status": "PASS",
         "created_at_utc": "2026-06-26T16:00:00+00:00",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
-        "bootstrap_schema_version": "mm_platform_bootstrap_v0.2",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
         "bootstrap_sha256": bootstrap_hash,
         "condition_id": "0x" + "b" * 64,
         "token_id": "12345",
         "funder_address": "0x0000000000000000000000000000000000000001",
         "requested_budget_usdc": 100,
-        "geoblock_country": "CH",
-        "geoblock_region": "ZH",
         "lifecycle_results": {
             "cancel_all": probe("cancel_all", "cancel-order"),
             "dead_man": probe("dead_man", "dead-man-order"),
@@ -135,7 +110,7 @@ def platform_verification(target_date="2026-06-26"):
     )
     lifecycle_bundle = stage1_lifecycle_bundle()
     return {
-        "schema_version": "mm_platform_verification_v0.4",
+        "schema_version": "mm_platform_verification_v0.5",
         "status": "PASS",
         "verified_for_target_date": target_date,
         "verified_at_utc": "2026-06-26T16:00:00+00:00",
@@ -143,10 +118,6 @@ def platform_verification(target_date="2026-06-26"):
         "max_age_hours": 24,
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock("2026-06-26T17:00:00+00:00"),
-        "eligibility_verified": True,
         "api_base_url": "https://polymarket.com",
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
@@ -453,6 +424,7 @@ def test_live_readiness_snapshot_blocks_current_no_go_evidence(tmp_path):
     )
 
     assert payload["status"] == "BLOCK"
+    assert payload["schema_version"] == READINESS_SCHEMA_VERSION == "mm_live_readiness_v0.3"
     assert payload["live_capital_permission"] is False
     blockers = {gate["id"] for gate in payload["blockers"]}
     gate_by_id = {gate["id"]: gate for gate in payload["gates"]}
@@ -475,8 +447,8 @@ def test_live_readiness_snapshot_blocks_current_no_go_evidence(tmp_path):
     assert "does not have nonzero quote permissions" in gate_by_id["quote_permission_present_in_countable_paper"]["detail"]
     assert "fill_evidence_complete" in blockers
     assert "incomplete" in gate_by_id["fill_evidence_complete"]["detail"]
-    assert "platform_verification_v0_4_passes" in blockers
-    assert "missing, stale, or failing" in gate_by_id["platform_verification_v0_4_passes"]["detail"]
+    assert "platform_verification_passes" in blockers
+    assert "missing, stale, or failing" in gate_by_id["platform_verification_passes"]["detail"]
     assert payload["summary"]["paper_score_quote_permission_rows"] == 17
     assert payload["summary"]["paper_quote_blocked_rows"] == 33
     assert payload["summary"]["paper_quote_blocked_fraction"] == 1.0
@@ -521,6 +493,12 @@ def test_live_readiness_snapshot_blocks_current_no_go_evidence(tmp_path):
     assert next_actions[0]["category"] == "data_preflight"
     assert "preflight" in next_actions[0]["safe_next_step"]
     assert any(action["gate_id"] == "operator_live_readiness_file_passes" for action in next_actions)
+    platform_action = next(
+        action
+        for action in next_actions
+        if action["gate_id"] == "platform_verification_passes"
+    )
+    assert PLATFORM_VERIFICATION_SCHEMA_VERSION in platform_action["safe_next_step"]
 
 
 def test_readiness_snapshot_uses_one_shot_run_summary_for_latest_tick_counts(tmp_path):

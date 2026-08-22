@@ -476,11 +476,22 @@ RECENT_REGISTERED_SCHEMAS = (
         ),
     ),
     SchemaSpec(
-        "mm_live_readiness",
+        "mm_live_readiness_v0_2_legacy",
         "mm_live_readiness_v0.2",
         "weather.market.market_making_readiness",
+        "legacy",
+        "Legacy readiness output with a platform-verification gate identifier bound to one schema version.",
+    ),
+    SchemaSpec(
+        "mm_live_readiness",
+        "mm_live_readiness_v0.3",
+        "weather.market.market_making_readiness",
         "active",
-        "Conservative market-making live-readiness summary and sorted no-go gate evidence.",
+        "Conservative market-making live-readiness summary with version-neutral gate identifiers and sorted no-go evidence.",
+        supersedes=("mm_live_readiness_v0.2",),
+        migration_notes=(
+            "The platform verification gate identifier is version-neutral and its guidance binds the active verification schema constant."
+        ),
     ),
     SchemaSpec(
         "mm_quote_blocker_diagnostics",

@@ -112,11 +112,6 @@ See [path policy](path-policy.md),
 - Ordinary development stays in research, shadow, dry-run, read-only, or paper
   modes. Live exchange actions require explicit user authorization plus current
   readiness, credentials-by-reference, risk, evidence, and release gates.
-- Physical eligibility is established at action time, not inferred from a
-  machine name or prior location. A designated execution PC remains read-only
-  while the official geoblock response is blocked; physically relocating that
-  same PC can make it eligible only after a fresh response matches the real
-  location and every other live gate still passes.
 - Background capture is more valuable than opportunistic heavy work on the
   dedicated host. Follow the host-load and operations topology policies before
   running backfills, corpus builds, replays, or training.

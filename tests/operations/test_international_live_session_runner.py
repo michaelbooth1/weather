@@ -82,7 +82,7 @@ def session_fixture(tmp_path: Path, stage: str, *, remaining_seconds=120):
     attempt.mkdir()
     identity = write(
         attempt / sealer.INPUT_LAYOUTS[stage]["identity"],
-        {"schema_version": "mm_stage0_client_identity_v0.1"},
+        {"schema_version": "mm_stage0_client_identity_v0.2"},
     )
     credential = write(tmp_path / "credential.json", {"status": "PASS"})
     references = write(tmp_path / "references.json", {"status": "PASS"})

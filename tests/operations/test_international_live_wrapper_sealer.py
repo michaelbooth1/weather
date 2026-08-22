@@ -183,7 +183,7 @@ def prepare(
         },
     )
     identity_payload = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "platform": "polymarket_global",
         "pilot_wallet_max_funding_usdc": 100,
     }

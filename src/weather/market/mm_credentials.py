@@ -23,7 +23,6 @@ from weather.market.mm_official_transport import fetch_wallet_deployed
 from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     contains_secret_material,
-    international_jurisdiction,
     pilot_wallet_signature_topology,
     valid_evm_address,
 )
@@ -38,16 +37,13 @@ REFERENCE_ENV = {
 }
 FUNDER_ENV = "POLYMARKET_FUNDER_ADDRESS"
 WINCRED_SCHEME = "wincred"
-STAGE0_IDENTITY_SCHEMA_VERSION = "mm_stage0_client_identity_v0.1"
+STAGE0_IDENTITY_SCHEMA_VERSION = "mm_stage0_client_identity_v0.2"
 STAGE0_AUTHORIZATION = "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY"
 STAGE0_IDENTITY_KEYS = {
     "schema_version",
     "operator_authorization",
     "platform",
     "international_platform_confirmed",
-    "physical_location_matches_geoblock_confirmed",
-    "geoblock_circumvention_absent_confirmed",
-    "geographic_eligibility",
     "clob_host",
     "settlement_unit",
     "chain_id",
@@ -292,7 +288,6 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
         "schema": identity.get("schema_version") == STAGE0_IDENTITY_SCHEMA_VERSION,
         "authorization": identity.get("operator_authorization") == STAGE0_AUTHORIZATION,
         "platform": identity.get("platform") == "polymarket_global",
-        "physical_geo_eligibility": international_jurisdiction(identity, now=now),
         "international_confirmed": identity.get("international_platform_confirmed") is True,
         "host": str(identity.get("clob_host") or "").rstrip("/").lower()
         == "https://clob.polymarket.com",
@@ -325,7 +320,6 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
         "signature_type": identity.get("signature_type"),
         "signature_type_id": identity.get("signature_type_id"),
         "pilot_wallet_max_funding_usdc": wallet_cap,
-        "geographic_eligibility": identity.get("geographic_eligibility"),
         "identity": identity,
     }
 

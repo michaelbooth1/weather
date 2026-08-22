@@ -655,7 +655,7 @@ def _validate_identity(path: Path, *, requested_budget: Decimal) -> None:
     except (InvalidOperation, TypeError, ValueError):
         wallet_cap = Decimal("-1")
     if (
-        payload.get("schema_version") != "mm_stage0_client_identity_v0.1"
+        payload.get("schema_version") != "mm_stage0_client_identity_v0.2"
         or payload.get("platform") != "polymarket_global"
         or wallet_cap != FIRST_TEST_WALLET_CAP_PUSD
         or requested_budget != FIRST_TEST_REQUESTED_BUDGET_PUSD
