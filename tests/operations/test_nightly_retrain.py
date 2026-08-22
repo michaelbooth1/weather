@@ -14,6 +14,7 @@ from weather.operations.nightly_retrain import (  # noqa: E402
     default_settled_day_target_date,
     execute_experiment_queue,
     nightly_run_sla_status,
+    parse_run_at_local,
     parse_schedule_time,
     point_in_time_qualification_command,
     prepare_candidate_outputs,
@@ -1593,11 +1594,12 @@ class TestNightlyRetrain(unittest.TestCase):
             args.scheduler_task_name = "WeatherTrainingWindow"
             args.schedule_local_time = "01:00"
             args.schedule_timezone = "America/Toronto"
+            args.run_at_local = "2026-08-22T01:00:00"
             args._producer_invocation = {
                 "status": "PASS",
                 "mode": "scheduled",
                 "scheduler_attested": True,
-                "task_name": "WeatherNightlyRetrainValidatePromote",
+                "task_name": "WeatherTrainingWindow",
                 "task_definition_sha256": "a" * 64,
                 "manual_intervention": False,
                 "manual_intervention_reasons": [],
@@ -1648,6 +1650,11 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(saved["sla"]["status"], "PASS")
         self.assertEqual(saved["nightly_sla"]["task_name"], "WeatherTrainingWindow")
         self.assertEqual(saved["nightly_sla"]["schedule_local_time"], "01:00")
+        self.assertEqual(
+            saved["nightly_sla"]["run_at_local"],
+            "2026-08-22T01:00:00",
+        )
+        self.assertEqual(saved["nightly_sla"]["schedule_kind"], "one_shot")
         self.assertEqual(
             saved["nightly_sla"]["schedule_timezone"],
             "America/Toronto",
@@ -2139,8 +2146,51 @@ class TestNightlyRetrain(unittest.TestCase):
 
     def test_nightly_schedule_time_is_explicit_and_fail_closed(self):
         self.assertEqual(parse_schedule_time("01:00").isoformat(), "01:00:00")
+        self.assertEqual(
+            parse_run_at_local(
+                "2026-08-22T01:00:00", "America/Toronto"
+            ).isoformat(),
+            "2026-08-22T01:00:00-04:00",
+        )
         with self.assertRaisesRegex(ValueError, "must be HH:MM"):
             parse_schedule_time("not-a-time")
+        with self.assertRaisesRegex(ValueError, "run-at-local must use exact"):
+            parse_run_at_local("August 22 at one", "America/Toronto")
+
+    def test_exact_one_shot_sla_does_not_roll_forward_after_completion(self):
+        status_payload = {
+            "status": "blocked",
+            "finished_at_utc": "2026-08-22T05:10:00+00:00",
+            "daily_learning": {"status": "BLOCKED", "blockers": []},
+            "invocation": {
+                "scheduler_attested": True,
+                "task_name": "WeatherTrainingWindow",
+                "contract": {
+                    "arguments": [
+                        "-RunAtLocal",
+                        "2026-08-22T01:00:00",
+                    ],
+                },
+            },
+            "nightly_sla": {
+                "task_name": "WeatherTrainingWindow",
+                "schedule_local_time": "01:00",
+                "schedule_timezone": "America/Toronto",
+                "run_at_local": "2026-08-22T01:00:00",
+            },
+        }
+
+        sla = nightly_run_sla_status(
+            status_payload=status_payload,
+            task_status={"Registered": True, "State": "Ready"},
+            now=datetime(2026, 8, 25, 14, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(sla["state"], "BLOCKED")
+        self.assertTrue(sla["fresh_for_latest_window"])
+        self.assertEqual(sla["schedule_kind"], "one_shot")
+        self.assertEqual(sla["latest_due_local"], "2026-08-22T01:00:00-04:00")
+        self.assertEqual(sla["alerts"], [])
 
     def test_nightly_run_sla_surfaces_first_daily_learning_blocker(self):
         status_payload = {

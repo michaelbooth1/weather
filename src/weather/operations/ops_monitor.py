@@ -62,6 +62,7 @@ from weather.operations.nightly_retrain import (
     DEFAULT_STATUS_OUT as NIGHTLY_RETRAIN_STATUS_OUT,
     DEFAULT_TASK_NAME as NIGHTLY_RETRAIN_TASK_NAME,
     nightly_run_sla_status,
+    validated_nightly_run_binding,
 )
 
 
@@ -411,27 +412,22 @@ def scheduled_task_status(task_name):
 
 
 def _nightly_status_topology(status_payload):
-    bound = (status_payload or {}).get("nightly_sla") or {}
-    invocation = (status_payload or {}).get("invocation") or {}
-    task_name = str(bound.get("task_name") or "").strip()
-    schedule_local_time = str(bound.get("schedule_local_time") or "").strip()
-    schedule_timezone = str(bound.get("schedule_timezone") or "").strip()
-    supported_tasks = {NIGHTLY_RETRAIN_TASK_NAME, "WeatherTrainingWindow"}
-    try:
-        datetime.strptime(schedule_local_time, "%H:%M")
-        schedule_valid = len(schedule_local_time) == 5
-    except ValueError:
-        schedule_valid = False
-    valid = (
-        task_name in supported_tasks
-        and schedule_valid
-        and schedule_timezone == "America/Toronto"
-        and invocation.get("scheduler_attested") is True
-        and str(invocation.get("task_name") or "") == task_name
+    binding = validated_nightly_run_binding(status_payload)
+    if not binding:
+        return (
+            NIGHTLY_RETRAIN_TASK_NAME,
+            "03:30",
+            "America/Toronto",
+            "",
+            False,
+        )
+    return (
+        binding["task_name"],
+        binding["schedule_local_time"],
+        binding["schedule_timezone"],
+        binding["run_at_local"],
+        True,
     )
-    if not valid:
-        return NIGHTLY_RETRAIN_TASK_NAME, "03:30", "America/Toronto", False
-    return task_name, schedule_local_time, schedule_timezone, True
 
 
 def nightly_retrain_status_rows(status_payload=None):
@@ -442,7 +438,13 @@ def nightly_retrain_status_rows(status_payload=None):
             )
         except (OSError, json.JSONDecodeError):
             status_payload = {}
-    task_name, schedule_local_time, schedule_timezone, topology_bound = (
+    (
+        task_name,
+        schedule_local_time,
+        schedule_timezone,
+        run_at_local,
+        topology_bound,
+    ) = (
         _nightly_status_topology(status_payload)
     )
     task = scheduled_task_status(task_name)
@@ -453,11 +455,13 @@ def nightly_retrain_status_rows(status_payload=None):
         task_status=task,
         schedule_local_time=schedule_local_time,
         schedule_timezone=schedule_timezone,
+        run_at_local=run_at_local,
     )
     return {
         "Job": "Nightly retrain",
         "Task": task_name,
-        "Schedule": f"{schedule_local_time} {schedule_timezone}",
+        "Schedule": f"{run_at_local or schedule_local_time} {schedule_timezone}",
+        "Run At Local": run_at_local or None,
         "Topology Bound": topology_bound,
         "State": sla.get("state"),
         "Run Status": sla.get("run_status"),

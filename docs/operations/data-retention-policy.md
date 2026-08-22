@@ -101,8 +101,9 @@ triggered by this job. Those days appear in the plan as
 `already_tiered_source_present` and are left alone; reclaiming them needs the
 separate verified-delete path.
 
-The runner refuses to start inside the 12:00-18:00 graded capture window unless
-`-Forced`, and runs its child process at `BelowNormal` priority so sustained
+The runner refuses to start outside the 00:30-09:00 heavy-work window;
+`-Forced` cannot bypass that host policy. It runs its child process at
+`BelowNormal` priority so sustained
 compression cannot starve the capture loops.
 
 ## Storage-Pressure Build

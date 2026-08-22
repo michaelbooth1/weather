@@ -21,3 +21,5 @@ def test_tiering_wrappers_own_bounded_child_tree_containment():
         assert "task_history.jsonl" in text
         assert "Move-Item -LiteralPath $temporary" in text
         assert "Add-Content -LiteralPath $historyPath" in text
+        assert "$localMinute -ge (9 * 60) -or $localMinute -lt 30" in text
+        assert "outside the 00:30-09:00 heavy-work window" in text

@@ -110,6 +110,7 @@ def test_both_nightly_registrars_fail_early_on_all_base_bindings() -> None:
     assert "--capture-resource-mode offline_host" in direct
     assert '--scheduler-invocation-topology direct' in direct
     assert '--schedule-local-time `"$scheduleLocalTime`"' in direct
+    assert '--run-at-local `"$RunAtLocal`"' in direct
     assert "--no-fail-on-daily-learning-blocker" in direct
     assert "Production readiness served artifact role is empty or unsafe" in direct
     assert "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$" in direct
@@ -165,6 +166,7 @@ def test_training_tasks_are_run_specific_and_restore_is_proved() -> None:
     assert "[ValidateRange(1, 600)]" in window
     assert "[ValidateRange(10, 170)]" in window
     assert "($ChildTimeoutMinutes * 60.0) - 300.0" in window
+    assert '"--run-at-local", $RunAtLocal' in window
     assert "RestoreOnly and DryRun are mutually exclusive" in window
     assert "Enable-ScheduledTask -TaskName $task -ErrorAction Stop" in window
     assert "capture_recovery_check" in window

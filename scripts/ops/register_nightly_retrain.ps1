@@ -185,6 +185,7 @@ $arguments = (
     " --scheduler-task-executable `"$python`"" +
     " --scheduler-task-working-directory `"$RepoRoot`"" +
     " --schedule-local-time `"$scheduleLocalTime`" --schedule-timezone America/Toronto" +
+    " --run-at-local `"$RunAtLocal`"" +
     " --producer-sla-seconds 28800" +
     " --capture-resource-mode offline_host" +
     " --base-retrain-target-date `"$BaseRetrainTargetDate`"" +

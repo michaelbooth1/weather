@@ -370,11 +370,18 @@ def test_operations_dashboard_uses_delegated_nightly_sla_binding(monkeypatch):
         "invocation": {
             "scheduler_attested": True,
             "task_name": "WeatherTrainingWindow",
+            "contract": {
+                "arguments": [
+                    "-RunAtLocal",
+                    "2026-08-22T01:00:00",
+                ],
+            },
         },
         "nightly_sla": {
             "task_name": "WeatherTrainingWindow",
             "schedule_local_time": "01:00",
             "schedule_timezone": "America/Toronto",
+            "run_at_local": "2026-08-22T01:00:00",
         },
     }
 
@@ -383,8 +390,10 @@ def test_operations_dashboard_uses_delegated_nightly_sla_binding(monkeypatch):
     assert observed["task"] == "WeatherTrainingWindow"
     assert observed["task_name"] == "WeatherTrainingWindow"
     assert observed["schedule_local_time"] == "01:00"
+    assert observed["run_at_local"] == "2026-08-22T01:00:00"
     assert row["Task State"] == "Disabled"
     assert row["Topology Bound"] is True
+    assert row["Run At Local"] == "2026-08-22T01:00:00"
 
 
 def test_operations_dashboard_rejects_unattested_delegated_hint(monkeypatch):
@@ -410,6 +419,7 @@ def test_operations_dashboard_rejects_unattested_delegated_hint(monkeypatch):
             "task_name": "WeatherTrainingWindow",
             "schedule_local_time": "01:00",
             "schedule_timezone": "America/Toronto",
+            "run_at_local": "2026-08-22T01:00:00",
         },
     }
 
@@ -417,4 +427,38 @@ def test_operations_dashboard_rejects_unattested_delegated_hint(monkeypatch):
 
     assert observed["task"] == "WeatherNightlyRetrainValidatePromote"
     assert observed["schedule_local_time"] == "03:30"
+    assert observed["run_at_local"] == ""
+    assert row["Topology Bound"] is False
+
+
+def test_operations_dashboard_rejects_mismatched_one_shot_date(monkeypatch):
+    observed = {}
+    monkeypatch.setattr(
+        "weather.operations.ops_monitor.scheduled_task_status",
+        lambda name: observed.update(task=name) or {"Registered": True},
+    )
+    monkeypatch.setattr(
+        "weather.operations.ops_monitor.nightly_run_sla_status",
+        lambda **kwargs: observed.update(kwargs) or {"state": "PENDING"},
+    )
+    payload = {
+        "invocation": {
+            "scheduler_attested": True,
+            "task_name": "WeatherTrainingWindow",
+            "contract": {
+                "arguments": ["-RunAtLocal", "2026-08-23T01:00:00"],
+            },
+        },
+        "nightly_sla": {
+            "task_name": "WeatherTrainingWindow",
+            "schedule_local_time": "01:00",
+            "schedule_timezone": "America/Toronto",
+            "run_at_local": "2026-08-22T01:00:00",
+        },
+    }
+
+    row = nightly_retrain_status_rows(status_payload=payload)
+
+    assert observed["task"] == "WeatherNightlyRetrainValidatePromote"
+    assert observed["run_at_local"] == ""
     assert row["Topology Bound"] is False

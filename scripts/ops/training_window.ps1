@@ -436,6 +436,7 @@ if ($dirtyPaths.Count -gt 0) {
         "--producer-sla-seconds", ([string]$producerSlaSeconds),
         "--schedule-local-time", $baseBindings.ScheduleLocalTime,
         "--schedule-timezone", "America/Toronto",
+        "--run-at-local", $RunAtLocal,
         "--base-retrain-target-date", $baseBindings.BaseRetrainTargetDate,
         "--base-retrain-parent-release-id", $baseBindings.BaseRetrainParentReleaseId,
         "--base-retrain-training-as-of", $baseBindings.BaseRetrainTrainingAsOf,

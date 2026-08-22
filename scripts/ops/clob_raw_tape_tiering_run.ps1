@@ -69,13 +69,12 @@ function Write-TaskStatus {
     Add-Content -LiteralPath $historyPath -Value ($Payload | ConvertTo-Json -Depth 6 -Compress) -Encoding utf8
 }
 
-# The 12:00-18:00 graded capture window is what the Toronto streak is measured on.
-# Decompress-and-verify is heavier than the projection tier -- it reads every source
-# twice -- so it never runs inside that window on a normal trigger.
+# Decompress-and-verify is heavier than the projection tier -- it reads every
+# source twice -- so the complete 00:30-09:00 heavy-work policy applies.
 $now = Get-Date
 $localMinute = ($now.Hour * 60) + $now.Minute
-if ($localMinute -ge (12 * 60) -or $localMinute -lt 30) {
-    Write-Host "REFUSED: inside the 12:00-00:30 protected capture window; -Forced cannot bypass host policy."
+if ($localMinute -ge (9 * 60) -or $localMinute -lt 30) {
+    Write-Host "REFUSED: outside the 00:30-09:00 heavy-work window; -Forced cannot bypass host policy."
     Write-TaskStatus @{ status = "REFUSED_CAPTURE_WINDOW"; local_time = $now.ToString("s") }
     exit 0
 }

@@ -54,6 +54,9 @@ run-specific task uses `StartWhenAvailable`. The capture-host run is fixed to
 01:00 local and refuses outside a two-minute skew before it acquires the heavy
 lease or stops capture. The daily 04:15 dead-man restore deliberately retains
 `StartWhenAvailable`.
+The exact dated `RunAtLocal` also travels into the nightly status/SLA receipt.
+One-shot freshness is evaluated against that single occurrence and does not
+roll forward to invent a missing run on later days.
 The direct task's PT8H15M Scheduler limit exceeds its eight-hour producer SLA,
 so Scheduler teardown cannot race the producer's terminal-status deadline.
 
@@ -569,9 +572,12 @@ an unproved restore is a nonzero window result even when training itself passed.
 The shared heavy-work lease is acquired before the wrapper's narrow generated-
 config commit; a busy lease therefore leaves both Git and capture untouched.
 
-The Operations dashboard shows the same state in the Nightly Self-Improvement
-table: task registration, next run, status freshness, daily-learning blocker
-count, and the first P0 gate.
+`weather.operations.ops_monitor.nightly_retrain_status_rows` exposes the same
+attested task, exact occurrence, freshness, blocker count, and first P0 gate
+for compatibility consumers. The current two-page Streamlit UI does not call
+that helper or render a Nightly Self-Improvement table; use the persisted
+nightly status/report and the repository operations status surfaces until a
+deliberate UI route is added.
 
 ## Update this file when
 
