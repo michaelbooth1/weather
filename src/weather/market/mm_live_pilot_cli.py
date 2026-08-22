@@ -12,6 +12,7 @@ a fresh non-authorizing candidate plan bound to a successful paper-only quote.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -40,7 +41,6 @@ from weather.market.mm_live_bootstrap import (
     load_platform_bootstrap_gate,
 )
 from weather.market.mm_live_lifecycle_probe import (
-    CANCELLATION_MODES,
     CONFIRMATION as STAGE1_CONFIRMATION,
     build_stage1_lifecycle_bundle,
     execute_stage1_lifecycle_probe,
@@ -89,6 +89,92 @@ def _read_json_object(path: str | Path) -> dict:
     if not isinstance(payload, dict):
         raise RuntimeError(f"required JSON artifact is not an object: {candidate}")
     return payload
+
+
+def _sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) -> dict:
+    stage_name = "stage1_cancel_all" if mode == "cancel_all" else "stage1_dead_man"
+    prefix = "cancel_all" if mode == "cancel_all" else "dead_man"
+    seal_path = Path(getattr(args, f"{prefix}_seal_receipt")).resolve()
+    command_path = Path(getattr(args, f"{prefix}_command_receipt")).resolve()
+    execution_path = Path(getattr(args, f"{prefix}_execution_receipt")).resolve()
+    result = Path(result_path).resolve()
+    seal = _read_json_object(seal_path)
+    command = _read_json_object(command_path)
+    execution = _read_json_object(execution_path)
+    seal_scope = seal.get("scope") if isinstance(seal.get("scope"), dict) else {}
+    seal_wrapper = seal.get("wrapper") if isinstance(seal.get("wrapper"), dict) else {}
+    execution_wrapper = (
+        execution.get("wrapper") if isinstance(execution.get("wrapper"), dict) else {}
+    )
+    artifacts = execution.get("artifacts") if isinstance(execution.get("artifacts"), dict) else {}
+    result_artifact = artifacts.get("result_out") or {}
+    command_artifact = artifacts.get("command_receipt_out") or {}
+    journal_artifact = artifacts.get("lifecycle_journal_out") or {}
+    checks = {
+        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.2"
+        and seal.get("status") == "PASS"
+        and seal.get("stage") == stage_name,
+        "seal_scope": seal_scope.get("target_date") == args.target_date
+        and str(seal_scope.get("condition_id") or "").lower()
+        == str(args.condition_id).lower()
+        and str(seal_scope.get("token_id") or "") == str(args.token_id)
+        and float(seal_scope.get("requested_budget_pusd")) == float(args.budget)
+        and seal_scope.get("cancellation_mode") == mode,
+        "command": command.get("schema_version") == RECEIPT_SCHEMA_VERSION
+        and command.get("status") == "PASS"
+        and command.get("command") == "stage1"
+        and command.get("target_date") == args.target_date
+        and str(command.get("condition_id") or "").lower()
+        == str(args.condition_id).lower()
+        and str(command.get("token_id") or "") == str(args.token_id)
+        and float(command.get("requested_budget_pusd")) == float(args.budget)
+        and command.get("cancellation_mode") == mode
+        and (command.get("cleanup") or {}).get("ok") is True
+        and command.get("exception_type") is None,
+        "execution": execution.get("schema_version")
+        == "international_live_fixed_scope_execution_v0.2"
+        and execution.get("status") == "PASS"
+        and execution.get("stage") == stage_name
+        and execution.get("target_date") == args.target_date
+        and str(execution.get("condition_id") or "").lower()
+        == str(args.condition_id).lower()
+        and str(execution.get("token_id") or "") == str(args.token_id)
+        and float(execution.get("requested_budget_pusd")) == float(args.budget)
+        and execution.get("cancellation_mode") == mode
+        and execution.get("exception_type") is None,
+        "wrapper": seal_wrapper.get("path") == execution_wrapper.get("path")
+        and seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
+        "result": result_artifact.get("path") == str(result)
+        and result_artifact.get("sha256") == _sha256_file(result),
+        "command_artifact": command_artifact.get("path") == str(command_path)
+        and command_artifact.get("sha256") == _sha256_file(command_path),
+        "journal_artifact": bool(journal_artifact.get("path"))
+        and len(str(journal_artifact.get("sha256") or "")) == 64
+        and Path(str(journal_artifact.get("path"))).is_file()
+        and _sha256_file(journal_artifact["path"]) == journal_artifact["sha256"],
+    }
+    missing = [name for name, passed in checks.items() if not passed]
+    if missing:
+        raise RuntimeError(
+            f"Stage 1 {mode} seal/command/execution lineage failed: "
+            + ", ".join(missing)
+        )
+    return {
+        "mode": mode,
+        "seal_receipt_sha256": _sha256_file(seal_path),
+        "command_receipt_sha256": _sha256_file(command_path),
+        "execution_receipt_sha256": _sha256_file(execution_path),
+        "result_sha256": _sha256_file(result),
+        "journal_sha256": journal_artifact["sha256"],
+    }
 
 
 def _require_new_distinct_paths(paths: dict[str, str | Path]) -> dict[str, Path]:
@@ -341,6 +427,18 @@ def _validate_budget(value) -> float:
     return budget
 
 
+def _require_current_deadline(value, *, label: str) -> str:
+    try:
+        deadline = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise RuntimeError(f"{label} deadline is invalid") from exc
+    if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline.astimezone(
+        timezone.utc
+    ):
+        raise RuntimeError(f"{label} deadline has expired")
+    return deadline.isoformat()
+
+
 def run_prepare_identity(
     args,
     *,
@@ -352,6 +450,11 @@ def run_prepare_identity(
     if args.confirmation != IDENTITY_CONFIRMATION:
         raise RuntimeError("identity preparation requires the exact confirmation token")
     budget = _validate_budget(args.budget)
+    wallet_cap = _validate_budget(args.wallet_cap)
+    if budget != 10.0 or wallet_cap != 100.0 or budget > wallet_cap:
+        raise RuntimeError(
+            "first identity requires a 10 pUSD request and separate 100 pUSD wallet cap"
+        )
     paths = _require_new_distinct_paths(
         {
             "identity": args.identity_out,
@@ -394,7 +497,7 @@ def run_prepare_identity(
             "signature_type_id": signature_type_id,
             "funder_address": str(args.funder_address).strip(),
             "isolated_pilot_wallet": bool(args.confirm_isolated_wallet),
-            "pilot_wallet_max_funding_usdc": budget,
+            "pilot_wallet_max_funding_usdc": wallet_cap,
         }
         gate = identity_gate(identity)
         receipt["checks"] = dict(gate.get("checks") or {})
@@ -456,6 +559,9 @@ def run_doctor(
         "ok": True,
         "reason": "keyless_command_no_credential_resolution_or_exchange_authentication",
     }
+    receipt["sdk_overlay_activation"] = getattr(
+        args, "sdk_overlay_activation", None
+    )
     process_env = env if env is not None else os.environ
     operation_error = None
     try:
@@ -538,7 +644,13 @@ def run_stage0(
 ) -> dict:
     if args.confirmation != STAGE0_AUTHORIZATION:
         raise RuntimeError("Stage 0 requires the exact read-only confirmation token")
-    _validate_budget(args.budget)
+    stage0_budget = _validate_budget(args.budget)
+    if stage0_budget != 10.0:
+        raise RuntimeError("first Stage 0 requires exactly 10 pUSD")
+    credential_deadline = _require_current_deadline(
+        getattr(args, "credential_resolution_deadline_utc", None),
+        label="Stage 0 credential resolution",
+    )
     paths = _require_new_distinct_paths(
         {
             "bootstrap": args.bootstrap_out,
@@ -547,21 +659,32 @@ def run_stage0(
         }
     )
     receipt = _receipt("stage0", args, paths)
+    receipt["credential_resolution_attempted"] = False
+    receipt["credential_values_read_in_memory"] = False
+    receipt["exchange_mutation_attempted"] = False
     context = None
     operation_error = None
     payload = None
     try:
         identity = _read_json_object(args.identity)
+        _require_current_deadline(
+            credential_deadline,
+            label="Stage 0 credential resolution",
+        )
+        receipt["credential_resolution_attempted"] = True
+        receipt["credential_values_read_in_memory"] = "UNKNOWN"
         context = context_builder(
             identity,
             token_id=args.token_id,
             condition_id=args.condition_id,
             user_stream_journal=paths["user_stream_journal"],
         )
+        receipt["credential_values_read_in_memory"] = True
         stream_waiter(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
         )
+        receipt["exchange_mutation_attempted"] = True
         payload = bootstrap_collector(
             context.adapter,
             context.user_stream,
@@ -610,7 +733,16 @@ def run_stage1(
 ) -> dict:
     if args.confirmation != STAGE1_CONFIRMATION:
         raise RuntimeError("Stage 1 requires the exact lifecycle confirmation token")
-    _validate_budget(args.budget)
+    stage1_budget = _validate_budget(args.budget)
+    if stage1_budget != 10.0:
+        raise RuntimeError("first Stage 1 probe requires exactly 10 pUSD")
+    submit_deadline_utc = getattr(args, "submit_deadline_utc", None)
+    if not submit_deadline_utc:
+        raise RuntimeError("Stage 1 requires an exact submit deadline")
+    credential_deadline = _require_current_deadline(
+        getattr(args, "credential_resolution_deadline_utc", None),
+        label="Stage 1 credential resolution",
+    )
     paths = _require_new_distinct_paths(
         {
             "result": args.result_out,
@@ -620,6 +752,8 @@ def run_stage1(
         }
     )
     receipt = _receipt("stage1", args, paths)
+    receipt["credential_resolution_attempted"] = False
+    receipt["credential_values_read_in_memory"] = False
     context = None
     operation_error = None
     result = None
@@ -641,12 +775,19 @@ def run_stage1(
         )
         if not gate.get("ok"):
             raise RuntimeError("Stage 1 platform bootstrap gate is not passing")
+        _require_current_deadline(
+            credential_deadline,
+            label="Stage 1 credential resolution",
+        )
+        receipt["credential_resolution_attempted"] = True
+        receipt["credential_values_read_in_memory"] = "UNKNOWN"
         context = context_builder(
             identity,
             token_id=args.token_id,
             condition_id=args.condition_id,
             user_stream_journal=paths["user_stream_journal"],
         )
+        receipt["credential_values_read_in_memory"] = True
         stream_waiter(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
@@ -657,6 +798,7 @@ def run_stage1(
             confirmation=args.confirmation,
             cancellation_mode=args.cancellation_mode,
             journal_path=paths["lifecycle_journal"],
+            submit_deadline_utc=submit_deadline_utc,
         )
         result = dict(result or {})
         result["candidate_plan_sha256"] = candidate_gate["plan_sha256"]
@@ -706,7 +848,9 @@ def run_bundle(
 
     if args.confirmation != BUNDLE_CONFIRMATION:
         raise RuntimeError("Stage 1 bundle requires the exact offline confirmation token")
-    _validate_budget(args.budget)
+    bundle_budget = _validate_budget(args.budget)
+    if bundle_budget != 10.0:
+        raise RuntimeError("first Stage 1 bundle requires exactly 10 pUSD")
     paths = _require_new_distinct_paths(
         {
             "bundle": args.bundle_out,
@@ -716,6 +860,7 @@ def run_bundle(
     receipt = _receipt("bundle", args, paths)
     operation_error = None
     bundle = None
+    lineages = None
     try:
         gate = bootstrap_loader(
             args.bootstrap,
@@ -726,8 +871,23 @@ def run_bundle(
         )
         if not gate.get("ok"):
             raise RuntimeError("Stage 1 bundle bootstrap gate is not passing")
+        if (
+            float(gate.get("requested_budget_usdc")) != 10.0
+            or float(gate.get("pilot_wallet_max_funding_usdc")) != 100.0
+        ):
+            raise RuntimeError(
+                "Stage 1 bundle does not preserve the 10 pUSD request and 100 pUSD cap"
+            )
         cancel_all_result = _read_json_object(args.cancel_all_result)
         dead_man_result = _read_json_object(args.dead_man_result)
+        lineages = {
+            "cancel_all": _validate_stage1_bundle_lineage(
+                args, "cancel_all", args.cancel_all_result
+            ),
+            "dead_man": _validate_stage1_bundle_lineage(
+                args, "dead_man", args.dead_man_result
+            ),
+        }
         bundle = bundle_builder(gate, cancel_all_result, dead_man_result)
     except Exception as exc:
         operation_error = exc
@@ -736,6 +896,7 @@ def run_bundle(
         "ok": True,
         "reason": "offline_command_no_exchange_state",
     }
+    receipt["stage1_lineage"] = lineages
     if operation_error is None:
         try:
             write_json_atomic(paths["bundle"], bundle, trailing_newline=True)
@@ -773,6 +934,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     identity.add_argument("--budget", required=True, type=float)
+    identity.add_argument("--wallet-cap", required=True, type=float)
     identity.add_argument("--identity-out", required=True)
     identity.add_argument("--receipt-out", required=True)
     identity.add_argument("--confirm-international-platform", action="store_true")
@@ -791,6 +953,8 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--token-id", required=True)
     doctor.add_argument("--budget", required=True, type=float)
     doctor.add_argument("--receipt-out", required=True)
+    doctor.add_argument("--sdk-overlay-manifest")
+    doctor.add_argument("--sdk-overlay-manifest-sha256")
     doctor.add_argument("--confirmation", required=True)
 
     bundle = commands.add_parser(
@@ -804,6 +968,12 @@ def build_parser() -> argparse.ArgumentParser:
     bundle.add_argument("--bootstrap", required=True)
     bundle.add_argument("--cancel-all-result", required=True)
     bundle.add_argument("--dead-man-result", required=True)
+    bundle.add_argument("--cancel-all-seal-receipt", required=True)
+    bundle.add_argument("--cancel-all-command-receipt", required=True)
+    bundle.add_argument("--cancel-all-execution-receipt", required=True)
+    bundle.add_argument("--dead-man-seal-receipt", required=True)
+    bundle.add_argument("--dead-man-command-receipt", required=True)
+    bundle.add_argument("--dead-man-execution-receipt", required=True)
     bundle.add_argument("--bundle-out", required=True)
     bundle.add_argument("--receipt-out", required=True)
     bundle.add_argument("--confirmation", required=True)
@@ -816,6 +986,19 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "prepare-identity":
             receipt = run_prepare_identity(args)
         elif args.command == "doctor":
+            manifest = getattr(args, "sdk_overlay_manifest", None)
+            manifest_hash = getattr(args, "sdk_overlay_manifest_sha256", None)
+            if bool(manifest) != bool(manifest_hash):
+                raise RuntimeError(
+                    "keyless doctor SDK overlay path and hash must be supplied together"
+                )
+            if manifest:
+                from weather.market.live_sdk_overlay import activate_live_sdk_overlay
+
+                args.sdk_overlay_activation = activate_live_sdk_overlay(
+                    manifest,
+                    manifest_hash,
+                )
             receipt = run_doctor(args)
         else:
             receipt = run_bundle(args)

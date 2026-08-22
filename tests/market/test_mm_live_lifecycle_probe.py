@@ -1,15 +1,22 @@
 import json
+from datetime import datetime, timezone
 
 import pytest
 
 from weather.market.mm_live_lifecycle_probe import (
     CONFIRMATION,
     build_stage1_lifecycle_bundle,
-    execute_stage1_lifecycle_probe,
+    execute_stage1_lifecycle_probe as _execute_stage1_lifecycle_probe,
 )
 
 
 CONDITION_ID = "0x" + "b" * 64
+SUBMIT_DEADLINE = "2099-01-01T00:00:00+00:00"
+
+
+def execute_stage1_lifecycle_probe(*args, **kwargs):
+    kwargs.setdefault("submit_deadline_utc", SUBMIT_DEADLINE)
+    return _execute_stage1_lifecycle_probe(*args, **kwargs)
 
 
 def bootstrap_gate():
@@ -199,6 +206,7 @@ def test_stage1_cancel_all_probe_is_minimum_non_crossing_and_reconciled(tmp_path
         "cancellation_verified",
         "probe_passed",
     ]
+    assert any(row["event_type"] == "submit_started" for row in journal_rows)
     assert all("secret" not in json.dumps(row).lower() or row.get("secret_values_redacted") for row in journal_rows)
     assert adapter.cancel_all_calls == 1
 
@@ -225,6 +233,27 @@ def test_stage1_dead_man_probe_observes_exchange_cancel_without_refreshing_heart
     assert result["zero_positions_verified"]
     assert adapter.cancel_all_calls == 0
     assert result["cancellation_elapsed_seconds"] >= 10
+
+
+def test_stage1_submit_boundary_refuses_expired_deadline_before_order(tmp_path):
+    clock = FakeClock()
+    adapter = FakeAdapter(clock)
+
+    with pytest.raises(RuntimeError, match="submit deadline has expired"):
+        execute_stage1_lifecycle_probe(
+            adapter,
+            bootstrap_gate(),
+            confirmation=CONFIRMATION,
+            cancellation_mode="cancel_all",
+            journal_path=tmp_path / "expired-submit.jsonl",
+            submit_deadline_utc="2026-08-22T00:00:00+00:00",
+            utc_clock=lambda: datetime(2026, 8, 22, 0, 0, tzinfo=timezone.utc),
+            monotonic_clock=clock,
+            sleeper=clock.sleep,
+        )
+
+    assert adapter.place_calls == 0
+    assert adapter.cancel_all_calls == 1
 
 
 def test_stage1_cancel_all_keeps_dead_man_alive_until_explicit_cancel(tmp_path):

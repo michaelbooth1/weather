@@ -2,8 +2,8 @@
 
 This module is preparation-only.  It reads public, content-bound inputs and
 writes a no-argument wrapper, a no-argument launcher, and an immutable seal
-receipt.  It never imports the live market modules, resolves credentials, or
-invokes a generated wrapper.
+receipt.  It imports only the inert SDK-tree validator; it never resolves
+credentials, constructs an exchange client, or invokes a generated wrapper.
 """
 
 from __future__ import annotations
@@ -36,6 +36,8 @@ MAX_PAPER_QUOTE_TTL_SECONDS = 120
 MAX_RUN_WINDOW_SECONDS = 30 * 60
 MAX_STAGE1_ORDER_NOTIONAL_PUSD = Decimal("10")
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
+FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
+FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
 ALLOWED_DIRTY_PATHS = frozenset(
     {
         "config/location_market_events.json",
@@ -48,10 +50,13 @@ TOKEN_RE = re.compile(r"^[1-9][0-9]*$")
 WORKLOAD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
 TEMPLATE_MARKER_RE = re.compile(r"__SEAL_[A-Z0-9_]+__")
 
-STAGES = ("stage0", "stage1_cancel_all")
+STAGES = ("stage0", "stage1_cancel_all", "stage1_dead_man")
 PYTHON_TEMPLATE_PATHS = {
     "stage0": "scripts/ops/international_live_templates/stage0.py.tmpl",
     "stage1_cancel_all": (
+        "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl"
+    ),
+    "stage1_dead_man": (
         "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl"
     ),
 }
@@ -59,6 +64,10 @@ LAUNCHER_TEMPLATE_PATH = (
     "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
 )
 WORKLOAD_ADMISSION_PATH = "scripts/ops/workload_admission.ps1"
+SDK_OVERLAY_MANIFEST_PATH = (
+    "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
+)
+SDK_OVERLAY_MODULE_PATH = "src/weather/market/live_sdk_overlay.py"
 
 LIVE_SOURCE_PATHS = {
     "stage0": (
@@ -69,6 +78,8 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_official_adapter.py",
         "src/weather/market/mm_official_transport.py",
         "src/weather/market/mm_user_stream.py",
+        SDK_OVERLAY_MODULE_PATH,
+        SDK_OVERLAY_MANIFEST_PATH,
     ),
     "stage1_cancel_all": (
         "src/weather/market/mm_live_pilot_cli.py",
@@ -79,6 +90,20 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_official_adapter.py",
         "src/weather/market/mm_official_transport.py",
         "src/weather/market/mm_user_stream.py",
+        SDK_OVERLAY_MODULE_PATH,
+        SDK_OVERLAY_MANIFEST_PATH,
+    ),
+    "stage1_dead_man": (
+        "src/weather/market/mm_live_pilot_cli.py",
+        "src/weather/market/mm_live_bootstrap.py",
+        "src/weather/market/mm_live_lifecycle_probe.py",
+        "src/weather/market/mm_live_candidate_cli.py",
+        "src/weather/market/mm_credentials.py",
+        "src/weather/market/mm_official_adapter.py",
+        "src/weather/market/mm_official_transport.py",
+        "src/weather/market/mm_user_stream.py",
+        SDK_OVERLAY_MODULE_PATH,
+        SDK_OVERLAY_MANIFEST_PATH,
     ),
 }
 
@@ -87,13 +112,27 @@ INPUT_LAYOUTS = {
         "identity": "inputs/stage0-identity.json",
         "scope_plan": "inputs/stage0-scope-plan.json",
         "credential_import_receipt": None,
+        "credential_reference_manifest": None,
     },
     "stage1_cancel_all": {
         "identity": "inputs/stage1-identity.json",
         "bootstrap": "stage0/bootstrap.json",
         "stage0_receipt": "stage0/command-receipt.json",
+        "stage0_seal_receipt": "seal/stage0-seal-receipt.json",
+        "stage0_wrapper_execution_receipt": "stage0/wrapper-execution-receipt.json",
         "candidate_plan": "inputs/stage1-cancel-all-candidate.json",
         "credential_import_receipt": None,
+        "credential_reference_manifest": None,
+    },
+    "stage1_dead_man": {
+        "identity": "inputs/stage1-dead-man-identity.json",
+        "bootstrap": "stage0/bootstrap.json",
+        "stage0_receipt": "stage0/command-receipt.json",
+        "stage0_seal_receipt": "seal/stage0-seal-receipt.json",
+        "stage0_wrapper_execution_receipt": "stage0/wrapper-execution-receipt.json",
+        "candidate_plan": "inputs/stage1-dead-man-candidate.json",
+        "credential_import_receipt": None,
+        "credential_reference_manifest": None,
     },
 }
 
@@ -125,6 +164,20 @@ OUTPUT_LAYOUTS = {
             "seal/stage1-cancel-all-seal-receipt.json.sha256"
         ),
     },
+    "stage1_dead_man": {
+        "python_wrapper": "wrappers/stage1-dead-man.py",
+        "launcher": "wrappers/stage1-dead-man.ps1",
+        "doctor_receipt": "stage1-dead-man/doctor-receipt.json",
+        "result": "stage1-dead-man/result.json",
+        "command_receipt": "stage1-dead-man/command-receipt.json",
+        "user_stream_journal": "stage1-dead-man/user-stream.jsonl",
+        "lifecycle_journal": "stage1-dead-man/lifecycle.jsonl",
+        "wrapper_execution_receipt": (
+            "stage1-dead-man/wrapper-execution-receipt.json"
+        ),
+        "seal_receipt": "seal/stage1-dead-man-seal-receipt.json",
+        "seal_receipt_sidecar": "seal/stage1-dead-man-seal-receipt.json.sha256",
+    },
 }
 
 
@@ -134,6 +187,7 @@ class SealError(RuntimeError):
 
 GitRunner = Callable[[Path, Sequence[str]], subprocess.CompletedProcess[str]]
 PowerShellParser = Callable[[str], None]
+SdkValidator = Callable[[str | Path, str], Mapping[str, Any]]
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -299,6 +353,15 @@ def _default_powershell_parser(source: str) -> None:
     )
     if result.returncode != 0:
         raise SealError("generated launcher failed PowerShell AST parsing")
+
+
+def _default_sdk_validator(
+    manifest_path: str | Path,
+    expected_manifest_sha256: str,
+) -> Mapping[str, Any]:
+    from weather.market.live_sdk_overlay import validate_live_sdk_overlay
+
+    return validate_live_sdk_overlay(manifest_path, expected_manifest_sha256)
 
 
 def _verify_git_state(
@@ -497,6 +560,206 @@ def _validate_stage0_receipt(
         raise SealError("Stage 0 receipt does not bind the reviewed Stage 1 scope")
 
 
+def _validate_credential_reference_manifest(path: Path) -> None:
+    payload, _raw = _read_json_object(path, label="credential reference manifest")
+    _require_exact_keys(
+        payload,
+        {
+            "schema_version",
+            "platform",
+            "wallet_type",
+            "signature_type",
+            "signature_type_id",
+            "wallet_address",
+            "funder_address",
+            "credential_references",
+            "public_environment",
+            "secret_values_retained",
+            "ignored_relayers_rpc_and_self_assertions",
+        },
+        label="credential reference manifest",
+    )
+    reference_names = {
+        "POLYMARKET_API_KEY_STORAGE_REF",
+        "POLYMARKET_API_SECRET_STORAGE_REF",
+        "POLYMARKET_API_PASSPHRASE_STORAGE_REF",
+        "POLYMARKET_PRIVATE_KEY_STORAGE_REF",
+    }
+    references = _require_exact_keys(
+        payload["credential_references"],
+        reference_names,
+        label="credential references",
+    )
+    public = _require_exact_keys(
+        payload["public_environment"],
+        {"POLYMARKET_FUNDER_ADDRESS"},
+        label="credential public environment",
+    )
+    if (
+        payload["schema_version"] != "mm_live_credential_reference_manifest_v0.1"
+        or payload["platform"] != "polymarket_global"
+        or payload["secret_values_retained"] is not False
+        or any(
+            re.fullmatch(r"wincred://[^\s]+", str(value or "")) is None
+            for value in references.values()
+        )
+        or re.fullmatch(r"0x[0-9a-fA-F]{40}", str(payload["funder_address"] or ""))
+        is None
+        or str(public["POLYMARKET_FUNDER_ADDRESS"]).lower()
+        != str(payload["funder_address"]).lower()
+    ):
+        raise SealError("credential reference manifest is not the exact public contract")
+
+
+def _validate_credential_import_receipt(path: Path) -> None:
+    payload, _raw = _read_json_object(path, label="credential import receipt")
+    required = {
+        "schema_version",
+        "status",
+        "platform",
+        "source_outside_repository_verified",
+        "source_acl_private_confirmed",
+        "credential_value_count_expected",
+        "credential_value_count_written",
+        "credential_values_retained",
+        "ignored_source_key_count",
+        "checks",
+        "missing",
+        "rollback_attempted",
+        "rollback_ok",
+        "source_deletion_required_after_transfer",
+    }
+    _require_exact_keys(payload, required, label="credential import receipt")
+    checks = payload.get("checks")
+    if (
+        payload["schema_version"] != "mm_live_credential_import_receipt_v0.1"
+        or payload["status"] != "PASS"
+        or payload["platform"] != "polymarket_global"
+        or payload["credential_value_count_expected"] != 4
+        or payload["credential_value_count_written"] != 4
+        or payload["credential_values_retained"] is not False
+        or payload["rollback_attempted"] is not False
+        or payload["rollback_ok"] is not None
+        or payload["missing"] != []
+        or not isinstance(checks, dict)
+        or not checks
+        or any(value is not True for value in checks.values())
+    ):
+        raise SealError("credential import receipt is not an exact clean PASS")
+
+
+def _validate_identity(path: Path, *, requested_budget: Decimal) -> None:
+    payload, _raw = _read_json_object(path, label="Stage 0 identity")
+    try:
+        wallet_cap = Decimal(str(payload.get("pilot_wallet_max_funding_usdc")))
+    except (InvalidOperation, TypeError, ValueError):
+        wallet_cap = Decimal("-1")
+    if (
+        payload.get("schema_version") != "mm_stage0_client_identity_v0.1"
+        or payload.get("platform") != "polymarket_global"
+        or wallet_cap != FIRST_TEST_WALLET_CAP_PUSD
+        or requested_budget != FIRST_TEST_REQUESTED_BUDGET_PUSD
+        or requested_budget > wallet_cap
+    ):
+        raise SealError("identity does not bind the 10 pUSD request and 100 pUSD wallet cap")
+
+
+def _validate_stage0_lineage(
+    inputs: Mapping[str, Mapping[str, str]],
+    *,
+    production_tip: str,
+    target_date: str,
+    condition_id: str,
+    token_id: str,
+    budget: Decimal,
+) -> None:
+    seal, _raw = _read_json_object(
+        Path(inputs["stage0_seal_receipt"]["path"]),
+        label="Stage 0 seal receipt",
+    )
+    execution, _raw = _read_json_object(
+        Path(inputs["stage0_wrapper_execution_receipt"]["path"]),
+        label="Stage 0 wrapper execution receipt",
+    )
+    seal_scope = seal.get("scope") if isinstance(seal.get("scope"), dict) else {}
+    seal_production = (
+        seal.get("production") if isinstance(seal.get("production"), dict) else {}
+    )
+    seal_credential = (
+        seal.get("credential_import_receipt")
+        if isinstance(seal.get("credential_import_receipt"), dict)
+        else {}
+    )
+    seal_reference = (
+        seal.get("credential_reference_manifest")
+        if isinstance(seal.get("credential_reference_manifest"), dict)
+        else {}
+    )
+    seal_wrapper = seal.get("wrapper") if isinstance(seal.get("wrapper"), dict) else {}
+    execution_wrapper = (
+        execution.get("wrapper")
+        if isinstance(execution.get("wrapper"), dict)
+        else {}
+    )
+    artifacts = (
+        execution.get("artifacts")
+        if isinstance(execution.get("artifacts"), dict)
+        else {}
+    )
+    bootstrap_artifact = artifacts.get("bootstrap_out") or {}
+    command_artifact = artifacts.get("command_receipt_out") or {}
+    stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    expected_credential = inputs["credential_import_receipt"]
+    expected_reference = inputs["credential_reference_manifest"]
+    try:
+        seal_budget = Decimal(str(seal_scope.get("requested_budget_pusd")))
+        execution_budget = Decimal(str(execution.get("requested_budget_pusd")))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise SealError("Stage 0 lineage has an invalid budget") from exc
+    checks = (
+        seal.get("schema_version") == RECEIPT_SCHEMA_VERSION,
+        seal.get("status") == "PASS",
+        seal.get("stage") == "stage0",
+        seal_production.get("commit") == production_tip,
+        seal_scope.get("target_date") == target_date,
+        str(seal_scope.get("condition_id") or "").lower() == condition_id,
+        str(seal_scope.get("token_id") or "") == token_id,
+        seal_budget == budget,
+        seal_credential.get("path") == expected_credential["path"],
+        seal_credential.get("sha256") == expected_credential["sha256"],
+        seal_reference.get("path") == expected_reference["path"],
+        seal_reference.get("sha256") == expected_reference["sha256"],
+        execution.get("schema_version")
+        == "international_live_fixed_scope_execution_v0.2",
+        execution.get("status") == "PASS",
+        execution.get("stage") == "stage0",
+        execution.get("production_tip") == production_tip,
+        execution.get("target_date") == target_date,
+        str(execution.get("condition_id") or "").lower() == condition_id,
+        str(execution.get("token_id") or "") == token_id,
+        execution_budget == budget,
+        execution.get("exception_type") is None,
+        seal_wrapper.get("path") == execution_wrapper.get("path"),
+        seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
+        bootstrap_artifact.get("path") == inputs["bootstrap"]["path"],
+        bootstrap_artifact.get("sha256") == inputs["bootstrap"]["sha256"],
+        command_artifact.get("path") == inputs["stage0_receipt"]["path"],
+        command_artifact.get("sha256") == inputs["stage0_receipt"]["sha256"],
+        bool(stream_artifact.get("path")),
+        SHA256_RE.fullmatch(str(stream_artifact.get("sha256") or "")) is not None,
+        Path(str(stream_artifact.get("path") or "")).is_file(),
+        (
+            _sha256_file(Path(str(stream_artifact.get("path"))))
+            == stream_artifact.get("sha256")
+            if stream_artifact.get("path")
+            and Path(str(stream_artifact.get("path"))).is_file()
+            else False
+        ),
+    )
+    if not all(checks):
+        raise SealError("Stage 0 seal/execution lineage does not bind Stage 1")
+
+
 def _replace_once(source: str, marker: str, replacement: str) -> str:
     if source.count(marker) != 1:
         raise SealError(f"template marker is not unique: {marker}")
@@ -600,6 +863,21 @@ def _render_python_wrapper(
         '"__SEAL_SOURCE_SHA256__"',
         _python_literal(source_sha256),
     )
+    cancellation_mode = None
+    if stage != "stage0":
+        cancellation_mode = (
+            "cancel_all" if stage == "stage1_cancel_all" else "dead_man"
+        )
+        rendered = _replace_once(
+            rendered,
+            '"__SEAL_CANCELLATION_MODE__"',
+            repr(cancellation_mode),
+        )
+        rendered = _replace_once(
+            rendered,
+            '"__SEAL_STAGE_NAME__"',
+            repr(stage),
+        )
     if TEMPLATE_MARKER_RE.search(rendered) or "UNSEALED" in rendered:
         raise SealError("generated Python wrapper retains an unsealed marker")
     try:
@@ -621,9 +899,8 @@ def _render_python_wrapper(
     else:
         if (
             "live_cli.run_stage1(" not in rendered
-            or 'cancellation_mode="cancel_all"' not in rendered
+            or f"CANCELLATION_MODE = {cancellation_mode!r}" not in rendered
             or "live_cli.run_stage0(" in rendered
-            or "dead_man" in rendered
             or "stage2" in rendered.lower()
         ):
             raise SealError("generated Stage 1 wrapper crossed its stage boundary")
@@ -639,6 +916,8 @@ def _render_launcher(
     wrapper_sha256: str,
     workload: str,
     workload_sha256: str,
+    credential_manifest_path: Path,
+    credential_manifest_sha256: str,
 ) -> str:
     values = {
         '"__SEAL_PRODUCTION_ROOT__"': str(production_root),
@@ -647,6 +926,8 @@ def _render_launcher(
         '"__SEAL_WRAPPER_SHA256__"': wrapper_sha256,
         '"__SEAL_WORKLOAD__"': workload,
         '"__SEAL_WORKLOAD_ADMISSION_SHA256__"': workload_sha256,
+        '"__SEAL_CREDENTIAL_MANIFEST_PATH__"': str(credential_manifest_path),
+        '"__SEAL_CREDENTIAL_MANIFEST_SHA256__"': credential_manifest_sha256,
     }
     rendered = template
     for marker, value in values.items():
@@ -736,8 +1017,8 @@ def _validate_spec(
     if CONDITION_RE.fullmatch(condition) is None or TOKEN_RE.fullmatch(token) is None:
         raise SealError("condition or token scope is invalid")
     budget = _parse_decimal(scope["requested_budget_pusd"], label="requested budget")
-    if not Decimal("0") < budget <= MAX_OPERATOR_BUDGET_PUSD:
-        raise SealError("requested budget is outside the operator ceiling")
+    if budget != FIRST_TEST_REQUESTED_BUDGET_PUSD:
+        raise SealError("first live test budget must be exactly 10 pUSD")
     prepared = _parse_aware(spec["prepared_at_local"], label="prepared_at_local")
     start = _parse_aware(scope["run_not_before_local"], label="run_not_before_local")
     stop = _parse_aware(scope["run_not_after_local"], label="run_not_after_local")
@@ -799,6 +1080,16 @@ def _validate_spec(
         if not path.is_file() or _sha256_file(path) != expected_hash:
             raise SealError(f"inputs.{role} is absent or hash-mismatched")
         normalized_inputs[role] = {"path": str(path), "sha256": expected_hash}
+    _validate_credential_reference_manifest(
+        Path(normalized_inputs["credential_reference_manifest"]["path"])
+    )
+    _validate_credential_import_receipt(
+        Path(normalized_inputs["credential_import_receipt"]["path"])
+    )
+    _validate_identity(
+        Path(normalized_inputs["identity"]["path"]),
+        requested_budget=budget,
+    )
 
     outputs = {
         role: (attempt_root / relative).resolve()
@@ -855,9 +1146,19 @@ def _validate_spec(
     )
     if candidate["sha256"] != normalized_inputs[candidate_role]["sha256"]:
         raise SealError("candidate file hash changed during validation")
-    if stage == "stage1_cancel_all":
+    if stage != "stage0":
         _validate_stage0_receipt(
             Path(normalized_inputs["stage0_receipt"]["path"]),
+            target_date=target.isoformat(),
+            condition_id=condition,
+            token_id=token,
+            budget=budget,
+        )
+        _validate_stage0_lineage(
+            normalized_inputs,
+            production_tip=_require_sha256(
+                production["commit"], label="production.commit"
+            ),
             target_date=target.isoformat(),
             condition_id=condition,
             token_id=token,
@@ -925,6 +1226,24 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
         ],
         "identity_path": inputs["identity"]["path"],
         "identity_sha256": inputs["identity"]["sha256"],
+        "credential_import_receipt_path": inputs["credential_import_receipt"][
+            "path"
+        ],
+        "credential_import_receipt_sha256": inputs["credential_import_receipt"][
+            "sha256"
+        ],
+        "credential_reference_manifest_path": inputs[
+            "credential_reference_manifest"
+        ]["path"],
+        "credential_reference_manifest_sha256": inputs[
+            "credential_reference_manifest"
+        ]["sha256"],
+        "sdk_overlay_manifest_path": str(
+            Path(validated["production"]["root"]) / SDK_OVERLAY_MANIFEST_PATH
+        ),
+        "sdk_overlay_manifest_sha256": validated["source_sha256"][
+            SDK_OVERLAY_MANIFEST_PATH
+        ],
         "doctor_receipt_out": str(outputs["doctor_receipt"]),
         "command_receipt_out": str(outputs["command_receipt"]),
         "user_stream_journal_out": str(outputs["user_stream_journal"]),
@@ -945,6 +1264,16 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
                 "bootstrap_sha256": inputs["bootstrap"]["sha256"],
                 "stage0_receipt_path": inputs["stage0_receipt"]["path"],
                 "stage0_receipt_sha256": inputs["stage0_receipt"]["sha256"],
+                "stage0_seal_receipt_path": inputs["stage0_seal_receipt"]["path"],
+                "stage0_seal_receipt_sha256": inputs["stage0_seal_receipt"][
+                    "sha256"
+                ],
+                "stage0_wrapper_execution_receipt_path": inputs[
+                    "stage0_wrapper_execution_receipt"
+                ]["path"],
+                "stage0_wrapper_execution_receipt_sha256": inputs[
+                    "stage0_wrapper_execution_receipt"
+                ]["sha256"],
                 "candidate_plan_path": inputs["candidate_plan"]["path"],
                 "candidate_plan_sha256": inputs["candidate_plan"]["sha256"],
                 "result_out": str(outputs["result"]),
@@ -978,6 +1307,7 @@ def seal_fixed_scope(
     now: datetime | None = None,
     git_runner: GitRunner = _default_git_runner,
     powershell_parser: PowerShellParser = _default_powershell_parser,
+    sdk_validator: SdkValidator = _default_sdk_validator,
     template_root: str | Path | None = None,
     sealer_repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -995,6 +1325,14 @@ def seal_fixed_scope(
     ):
         raise SealError("sealer code and templates must run from the reviewed production tree")
     _verify_git_state(validated["production"], git_runner=git_runner)
+    sdk_validation = dict(
+        sdk_validator(
+            production_root / SDK_OVERLAY_MANIFEST_PATH,
+            validated["source_sha256"][SDK_OVERLAY_MANIFEST_PATH],
+        )
+    )
+    if sdk_validation.get("status") != "PASS":
+        raise SealError("sealed SDK overlay validation did not pass")
 
     python_template = Path(validated["templates"]["python"]["path"]).read_text(
         encoding="utf-8"
@@ -1022,6 +1360,12 @@ def seal_fixed_scope(
         wrapper_sha256=wrapper_sha256,
         workload=validated["scope"]["lease_workload"],
         workload_sha256=validated["source_sha256"][WORKLOAD_ADMISSION_PATH],
+        credential_manifest_path=Path(
+            validated["inputs"]["credential_reference_manifest"]["path"]
+        ),
+        credential_manifest_sha256=validated["inputs"][
+            "credential_reference_manifest"
+        ]["sha256"],
     )
     powershell_parser(launcher_text)
     launcher_bytes = launcher_text.encode("utf-8-sig")
@@ -1045,6 +1389,9 @@ def seal_fixed_scope(
         for relative in LIVE_SOURCE_PATHS[validated["stage"]]
     ]
     credential_record = validated["inputs"]["credential_import_receipt"]
+    credential_reference_record = validated["inputs"][
+        "credential_reference_manifest"
+    ]
     receipt = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "status": "PASS",
@@ -1079,13 +1426,20 @@ def seal_fixed_scope(
         "scope": {
             **validated["scope"],
             "cancellation_mode": (
-                "cancel_all" if validated["stage"] == "stage1_cancel_all" else "not_applicable"
+                "not_applicable"
+                if validated["stage"] == "stage0"
+                else (
+                    "cancel_all"
+                    if validated["stage"] == "stage1_cancel_all"
+                    else "dead_man"
+                )
             ),
             "reviewed_status_flags": validated["reviewed_status_flags"],
         },
         "inputs": input_records,
         "planned_new_outputs": output_records,
         "candidate_validation": validated["candidate"],
+        "sdk_overlay_validation": sdk_validation,
         "live_source_modules": live_sources,
         "support_sources": [
             {
@@ -1095,6 +1449,7 @@ def seal_fixed_scope(
             }
         ],
         "credential_import_receipt": credential_record,
+        "credential_reference_manifest": credential_reference_record,
         "validation": {
             "python_ast": "PASS",
             "powershell_ast": "PASS",

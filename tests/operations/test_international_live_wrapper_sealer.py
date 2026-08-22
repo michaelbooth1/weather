@@ -140,13 +140,60 @@ def prepare(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"reviewed source: {relative}\n", encoding="utf-8")
 
-    credential = write_json(tmp_path / "credential-import-receipt.json", {"status": "PASS"})
+    credential = write_json(
+        tmp_path / "credential-import-receipt.json",
+        {
+            "schema_version": "mm_live_credential_import_receipt_v0.1",
+            "status": "PASS",
+            "platform": "polymarket_global",
+            "source_outside_repository_verified": True,
+            "source_acl_private_confirmed": True,
+            "credential_value_count_expected": 4,
+            "credential_value_count_written": 4,
+            "credential_values_retained": False,
+            "ignored_source_key_count": 0,
+            "checks": {"all_public_import_checks": True},
+            "missing": [],
+            "rollback_attempted": False,
+            "rollback_ok": None,
+            "source_deletion_required_after_transfer": True,
+        },
+    )
+    credential_manifest = write_json(
+        tmp_path / "credential-reference-manifest.json",
+        {
+            "schema_version": "mm_live_credential_reference_manifest_v0.1",
+            "platform": "polymarket_global",
+            "wallet_type": "gnosis_safe",
+            "signature_type": "POLY_GNOSIS_SAFE",
+            "signature_type_id": 2,
+            "wallet_address": "0x" + "2" * 40,
+            "funder_address": "0x" + "3" * 40,
+            "credential_references": {
+                "POLYMARKET_API_KEY_STORAGE_REF": "wincred://Weather/Test/Key",
+                "POLYMARKET_API_SECRET_STORAGE_REF": "wincred://Weather/Test/Secret",
+                "POLYMARKET_API_PASSPHRASE_STORAGE_REF": "wincred://Weather/Test/Passphrase",
+                "POLYMARKET_PRIVATE_KEY_STORAGE_REF": "wincred://Weather/Test/PrivateKey",
+            },
+            "public_environment": {
+                "POLYMARKET_FUNDER_ADDRESS": "0x" + "3" * 40,
+            },
+            "secret_values_retained": False,
+            "ignored_relayers_rpc_and_self_assertions": True,
+        },
+    )
+    identity_payload = {
+        "schema_version": "mm_stage0_client_identity_v0.1",
+        "platform": "polymarket_global",
+        "pilot_wallet_max_funding_usdc": 100,
+    }
     plan = candidate or candidate_payload()
     if stage == "stage0":
         input_paths = {
-            "identity": write_json(attempt / "inputs/stage0-identity.json", {"public": True}),
+            "identity": write_json(attempt / "inputs/stage0-identity.json", identity_payload),
             "scope_plan": write_json(attempt / "inputs/stage0-scope-plan.json", plan),
             "credential_import_receipt": credential,
+            "credential_reference_manifest": credential_manifest,
         }
     else:
         stage0_receipt = {
@@ -160,16 +207,88 @@ def prepare(
             "cleanup": {"ok": True},
             "exception_type": None,
         }
+        identity_name = (
+            "stage1-identity.json"
+            if stage == "stage1_cancel_all"
+            else "stage1-dead-man-identity.json"
+        )
+        candidate_name = (
+            "stage1-cancel-all-candidate.json"
+            if stage == "stage1_cancel_all"
+            else "stage1-dead-man-candidate.json"
+        )
+        identity_path = write_json(attempt / "inputs" / identity_name, identity_payload)
+        bootstrap_path = write_json(attempt / "stage0/bootstrap.json", {"status": "PASS"})
+        stage0_receipt_path = write_json(
+            attempt / "stage0/command-receipt.json", stage0_receipt
+        )
+        stream_path = attempt / "stage0/user-stream.jsonl"
+        stream_path.write_text('{"event_type":"stream_stopped"}\n', encoding="utf-8")
+        stage0_wrapper = attempt / "wrappers/stage0.py"
+        stage0_wrapper.parent.mkdir(parents=True, exist_ok=True)
+        stage0_wrapper.write_text("# sealed stage0 wrapper\n", encoding="utf-8")
+        stage0_seal = {
+            "schema_version": sealer.RECEIPT_SCHEMA_VERSION,
+            "status": "PASS",
+            "stage": "stage0",
+            "production": {"commit": COMMIT},
+            "scope": {
+                "target_date": NOW.date().isoformat(),
+                "condition_id": CONDITION,
+                "token_id": TOKEN,
+                "requested_budget_pusd": 10,
+            },
+            "wrapper": {"path": str(stage0_wrapper), "sha256": sha256(stage0_wrapper)},
+            "credential_import_receipt": {
+                "path": str(credential.resolve()),
+                "sha256": sha256(credential),
+            },
+            "credential_reference_manifest": {
+                "path": str(credential_manifest.resolve()),
+                "sha256": sha256(credential_manifest),
+            },
+        }
+        stage0_seal_path = write_json(
+            attempt / "seal/stage0-seal-receipt.json", stage0_seal
+        )
+        stage0_execution = {
+            "schema_version": "international_live_fixed_scope_execution_v0.2",
+            "status": "PASS",
+            "stage": "stage0",
+            "production_tip": COMMIT,
+            "target_date": NOW.date().isoformat(),
+            "condition_id": CONDITION,
+            "token_id": TOKEN,
+            "requested_budget_pusd": 10,
+            "exception_type": None,
+            "wrapper": {"path": str(stage0_wrapper), "sha256": sha256(stage0_wrapper)},
+            "artifacts": {
+                "bootstrap_out": {
+                    "path": str(bootstrap_path.resolve()),
+                    "sha256": sha256(bootstrap_path),
+                },
+                "command_receipt_out": {
+                    "path": str(stage0_receipt_path.resolve()),
+                    "sha256": sha256(stage0_receipt_path),
+                },
+                "user_stream_journal_out": {
+                    "path": str(stream_path.resolve()),
+                    "sha256": sha256(stream_path),
+                },
+            },
+        }
+        stage0_execution_path = write_json(
+            attempt / "stage0/wrapper-execution-receipt.json", stage0_execution
+        )
         input_paths = {
-            "identity": write_json(attempt / "inputs/stage1-identity.json", {"public": True}),
-            "bootstrap": write_json(attempt / "stage0/bootstrap.json", {"status": "PASS"}),
-            "stage0_receipt": write_json(
-                attempt / "stage0/command-receipt.json", stage0_receipt
-            ),
-            "candidate_plan": write_json(
-                attempt / "inputs/stage1-cancel-all-candidate.json", plan
-            ),
+            "identity": identity_path,
+            "bootstrap": bootstrap_path,
+            "stage0_receipt": stage0_receipt_path,
+            "stage0_seal_receipt": stage0_seal_path,
+            "stage0_wrapper_execution_receipt": stage0_execution_path,
+            "candidate_plan": write_json(attempt / "inputs" / candidate_name, plan),
             "credential_import_receipt": credential,
+            "credential_reference_manifest": credential_manifest,
         }
     source_hashes = {
         relative: sha256(production / relative)
@@ -219,6 +338,7 @@ def seal(spec_path: Path, production: Path, git: GitStub | None = None):
         now=NOW,
         git_runner=git or GitStub(),
         powershell_parser=lambda _source: None,
+        sdk_validator=lambda _path, _sha: {"status": "PASS"},
         template_root=production,
         sealer_repo_root=production,
     )
@@ -242,6 +362,9 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "__SEAL_" not in wrapper_text
     assert "live_cli.run_stage0(" in wrapper_text
     assert "live_cli.run_stage1(" not in wrapper_text
+    assert "_prompt_until(expected_confirmation)" in wrapper_text
+    assert wrapper_text.count("load_stage1_candidate_gate(") == 2
+    assert "activate_live_sdk_overlay(" in wrapper_text
     launcher_text = launcher.read_text(encoding="utf-8-sig")
     assert "param()" in launcher_text
     assert "$args.Count -ne 0" in launcher_text
@@ -329,16 +452,40 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     text = wrapper.read_text(encoding="utf-8")
     assert result["stage"] == "stage1_cancel_all"
     assert "live_cli.run_stage1(" in text
-    assert 'cancellation_mode="cancel_all"' in text
+    assert "CANCELLATION_MODE = 'cancel_all'" in text
+    assert "STAGE_NAME = 'stage1_cancel_all'" in text
     assert "live_cli.run_stage0(" not in text
-    assert "dead_man" not in text
     assert "stage2" not in text.lower()
+    assert "_prompt_until(expected_confirmation)" in text
+    assert "_assert_window_current()" in text
+    assert "activate_live_sdk_overlay(" in text
     receipt = json.loads(
         (attempt / "seal/stage1-cancel-all-seal-receipt.json").read_text(
             encoding="utf-8"
         )
     )
     assert receipt["scope"]["cancellation_mode"] == "cancel_all"
+
+
+def test_stage1_dead_man_seal_is_distinct_and_fixed(tmp_path):
+    production, attempt, spec_path, _spec = prepare(
+        tmp_path, stage="stage1_dead_man"
+    )
+
+    result = seal(spec_path, production)
+
+    wrapper = attempt / "wrappers/stage1-dead-man.py"
+    text = wrapper.read_text(encoding="utf-8")
+    assert result["stage"] == "stage1_dead_man"
+    assert "CANCELLATION_MODE = 'dead_man'" in text
+    assert "STAGE_NAME = 'stage1_dead_man'" in text
+    assert "submit_deadline_utc=SCOPE[\"run_not_after_local\"]" in text
+    receipt = json.loads(
+        (attempt / "seal/stage1-dead-man-seal-receipt.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert receipt["scope"]["cancellation_mode"] == "dead_man"
 
 
 def test_stage1_seal_refuses_stage0_scope_mismatch(tmp_path):
@@ -357,6 +504,45 @@ def test_stage1_seal_refuses_stage0_scope_mismatch(tmp_path):
         seal(spec_path, production)
 
     assert not (attempt / "wrappers/stage1-cancel-all.py").exists()
+
+
+def test_stage1_seal_refuses_bootstrap_not_bound_by_stage0_execution(tmp_path):
+    production, attempt, spec_path, spec = prepare(
+        tmp_path, stage="stage1_cancel_all"
+    )
+    bootstrap = attempt / "stage0/bootstrap.json"
+    write_json(bootstrap, {"status": "PASS", "replacement": True})
+    spec["inputs"]["bootstrap"]["sha256"] = sha256(bootstrap)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="lineage"):
+        seal(spec_path, production)
+
+
+def test_seal_refuses_nonpass_credential_import_receipt(tmp_path):
+    production, _attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["status"] = "FAIL"
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="clean PASS"):
+        seal(spec_path, production)
+
+
+def test_seal_refuses_incomplete_credential_reference_manifest(tmp_path):
+    production, _attempt, spec_path, spec = prepare(tmp_path)
+    manifest = Path(spec["inputs"]["credential_reference_manifest"]["path"])
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    del payload["credential_references"]["POLYMARKET_API_SECRET_STORAGE_REF"]
+    write_json(manifest, payload)
+    spec["inputs"]["credential_reference_manifest"]["sha256"] = sha256(manifest)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="credential references"):
+        seal(spec_path, production)
 
 
 @pytest.mark.parametrize(

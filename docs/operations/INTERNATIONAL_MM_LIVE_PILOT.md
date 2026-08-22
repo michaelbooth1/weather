@@ -384,7 +384,8 @@ $pilotSignatureType = "POLY_GNOSIS_SAFE"
   --funder-address $pilotFunderAddress `
   --wallet-type $pilotWalletType `
   --signature-type $pilotSignatureType `
-  --budget 100 `
+  --budget 10 `
+  --wallet-cap 100 `
   --identity-out C:\pilot\identity.json `
   --receipt-out C:\pilot\identity-receipt.json `
   --confirm-international-platform `
@@ -412,23 +413,23 @@ emits only a public reference manifest and secret-free receipt:
 ```
 
 Do not proceed unless the receipt is `PASS`, reports exactly four entries, and
-has no rollback. Then set only the manifest's `wincred://` references and public
-funder address in the process environment. The required variables are
+has no rollback. Do not persist its references in User or Machine environment.
+The hash-sealed launcher parses the public reference manifest, sets the five
+required values only in its child-process scope, clears all direct-secret names,
+and restores its own prior process environment afterward. The required variables are
 `POLYMARKET_API_KEY_STORAGE_REF`,
 `POLYMARKET_API_SECRET_STORAGE_REF`,
 `POLYMARKET_API_PASSPHRASE_STORAGE_REF`,
 `POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
 `POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
-credentials themselves. Install the repository's exact `live` dependency extra
-in this checkout's dedicated virtual environment; the runtime rejects any SDK
-version other than the pinned version. After a successful import, independent
+credentials themselves. Do not install the live extra into the shared production
+venv. The repository manifest instead validates the complete fixed external
+SDK overlay and all 34 offline wheels before and after process-local import; the
+runtime rejects any version or import origin other than the pinned 0.6.0 tree.
+After a successful import, independent
 keyless doctor, and operator verification of the external source's retained
 copy, delete the source credential file using the approved secure-deletion
 procedure. The importer never deletes it automatically.
-
-```powershell
-.\venv\Scripts\python.exe -m pip install -e ".[live]"
-```
 
 Run the keyless doctor before Stage 0. It validates the exact SDK version,
 Windows resolver availability, reference URI shapes and completeness, direct-
@@ -442,7 +443,9 @@ the exchange. Its receipt contains counts and gate names, never reference target
   --target-date $pilotTargetDate `
   --condition-id $pilotConditionId `
   --token-id $pilotTokenId `
-  --budget 100 `
+  --budget 10 `
+  --sdk-overlay-manifest .\scripts\ops\international_live_templates\sdk_overlay_manifest.json `
+  --sdk-overlay-manifest-sha256 <reviewed-manifest-sha256> `
   --receipt-out C:\pilot\doctor-receipt.json `
   --confirmation INTERNATIONAL_POLYMARKET_STAGE0_KEYLESS_DOCTOR
 ```
@@ -459,7 +462,7 @@ reason to edit timestamps or reuse an earlier gate.
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
 The repository-owned sealer is the only supported way to create the external
-fixed-scope Stage 0 and Stage 1 cancel-all wrappers. First inventory the exact
+fixed-scope Stage 0, Stage 1 cancel-all, and distinct Stage 1 dead-man wrappers. First inventory the exact
 production Git, template, and source hashes; this command writes nothing and
 returns `BLOCK` until the interrupt-cleanup hardening commit is an ancestor:
 
@@ -481,25 +484,44 @@ The top-level keys are exactly `schema_version`, `stage`, `prepared_at_local`,
 `source_sha256`. `production` binds `root`, `branch`, `commit`, `tree`, and
 `python`; `scope` binds the target, condition, token, budget, window, attempt
 root, and lease workload. Stage 0 inputs are `identity`, `scope_plan`, and
-`credential_import_receipt`; Stage 1 cancel-all inputs are `identity`,
-`bootstrap`, `stage0_receipt`, `candidate_plan`, and
-`credential_import_receipt`. Every input record has only `path` and `sha256`.
+`credential_import_receipt`, and `credential_reference_manifest`; each Stage 1
+mode additionally binds `bootstrap`, `stage0_receipt`, `stage0_seal_receipt`,
+`stage0_wrapper_execution_receipt`, and its own fresh `candidate_plan`. Every
+input record has only `path` and `sha256`.
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.international_live_wrapper_sealer seal `
   --spec C:\pilot\inputs\stage0-seal-spec.json
 ```
 
-The sealer never imports live market modules, opens Credential Manager, or runs
-the generated launcher. It independently checks candidate semantic hash, scope,
+The sealer never opens Credential Manager or runs the generated launcher. It
+independently validates the inert SDK overlay helper, candidate semantic hash, scope,
 120-second paper TTL, run-window containment, all public inputs, every imported
 live-source hash, exact production ancestry, and that every wrapper, receipt,
 sidecar, and runtime output path is new and contained. It creates a fixed
 no-argument Python wrapper, a hash-bound no-argument PowerShell launcher, an
 `international_live_fixed_scope_seal_v0.2` receipt, and its SHA-256 sidecar.
-Stage 1 uses a separate fresh spec, a newly constrained candidate, and the exact
-successful Stage 0 bootstrap and command-receipt hashes. A partial or failed seal
+Each Stage 1 mode uses a separate fresh spec and candidate, plus the exact
+successful Stage 0 bootstrap, command, seal, and wrapper-execution lineage. A partial or failed seal
 spends that attempt namespace; create a new attempt instead of overwriting it.
+
+Because the candidate lasts at most 120 seconds, the normal path is a
+pre-reviewed `international_live_fixed_session_manifest_v0.1` plus its adjacent
+raw-file SHA-256 sidecar, followed by the
+two-argument composer. It accepts no scope or ceiling overrides, copies only the
+fresh candidate into its canonical new path, derives a no-more-than-90-second
+window, seals, rechecks candidate and launcher hashes, and launches immediately:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.operations.international_live_session_runner `
+  --session-manifest C:\pilot\inputs\stage0-session-manifest.json `
+  --candidate C:\pilot\incoming\fresh-candidate.json
+```
+
+The wrapper confirmation itself is deadline-bounded. After confirmation it
+rechecks Git/source identity, the full current window, and the candidate before
+credential resolution. Both Stage 1 modes pass the sealed cutoff into the
+lifecycle executor, which checks it again immediately before the sole submit.
 
 Independently compare the launcher's hash with the seal receipt before invoking
 it with no arguments. Candidate selection and successful sealing are preparation,
@@ -526,9 +548,15 @@ booleans:
   --target-date $pilotTargetDate `
   --condition-id $pilotConditionId `
   --token-id $pilotTokenId `
-  --budget 100 `
+  --budget 10 `
   --cancel-all-result C:\pilot\cancel-all-result.json `
+  --cancel-all-seal-receipt C:\pilot\cancel-all-seal-receipt.json `
+  --cancel-all-command-receipt C:\pilot\cancel-all-command-receipt.json `
+  --cancel-all-execution-receipt C:\pilot\cancel-all-execution-receipt.json `
   --dead-man-result C:\pilot\dead-man-result.json `
+  --dead-man-seal-receipt C:\pilot\dead-man-seal-receipt.json `
+  --dead-man-command-receipt C:\pilot\dead-man-command-receipt.json `
+  --dead-man-execution-receipt C:\pilot\dead-man-execution-receipt.json `
   --bundle-out C:\pilot\stage1-bundle.json `
   --receipt-out C:\pilot\stage1-bundle-receipt.json `
   --confirmation INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE

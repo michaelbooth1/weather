@@ -229,6 +229,8 @@ def execute_stage1_lifecycle_probe(
     dead_man_timeout_seconds=15.0,
     poll_interval_seconds=0.25,
     heartbeat_interval_seconds=OFFICIAL_HEARTBEAT_INTERVAL_SECONDS,
+    submit_deadline_utc=None,
+    utc_clock=None,
 ):
     """Place one minimum-tick order and prove one cancellation mechanism.
 
@@ -257,8 +259,20 @@ def execute_stage1_lifecycle_probe(
         + OFFICIAL_DEAD_MAN_MAX_CHECK_DELAY_SECONDS
     ):
         raise RuntimeError("Stage 1 dead-man observation window must be at least 15 seconds")
+    submit_deadline = None
+    if submit_deadline_utc is not None:
+        try:
+            submit_deadline = datetime.fromisoformat(
+                str(submit_deadline_utc).replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise RuntimeError("Stage 1 submit deadline is invalid") from exc
+        if submit_deadline.tzinfo is None:
+            raise RuntimeError("Stage 1 submit deadline must be timezone-aware")
+        submit_deadline = submit_deadline.astimezone(timezone.utc)
 
     clock = monotonic_clock or time.monotonic
+    wall_clock = utc_clock or (lambda: datetime.now(timezone.utc))
     sleep = sleeper or time.sleep
     poll_interval = max(0.01, float(poll_interval_seconds))
     journal = LifecycleProbeJournal(journal_path)
@@ -338,6 +352,13 @@ def execute_stage1_lifecycle_probe(
             post_only_required=True,
         )
         phase = "placement"
+        if submit_deadline is None or wall_clock().astimezone(timezone.utc) >= submit_deadline:
+            raise RuntimeError("Stage 1 submit deadline has expired")
+        journal.record(
+            "submit_deadline_verified",
+            submit_deadline_utc=submit_deadline.isoformat(),
+        )
+        journal.record("submit_started", cancellation_mode=cancellation_mode)
         response = adapter.place_order(intent, stage1_capability=stage1_capability)
         geo_diagnostics = adapter.diagnostics()
         if not all((

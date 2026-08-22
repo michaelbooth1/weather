@@ -119,7 +119,8 @@ def args(tmp_path, command):
         "target_date": "2026-08-14",
         "condition_id": CONDITION_ID,
         "token_id": TOKEN_ID,
-        "budget": 100.0,
+        "budget": 10.0,
+        "credential_resolution_deadline_utc": "2099-01-01T00:00:00+00:00",
         "user_stream_journal": str(tmp_path / f"{command}-stream.jsonl"),
         "receipt_out": str(tmp_path / f"{command}-receipt.json"),
         "user_stream_ready_timeout_seconds": 5.0,
@@ -211,6 +212,7 @@ def args(tmp_path, command):
             bootstrap=str(bootstrap),
             candidate_plan=str(candidate),
             cancellation_mode="cancel_all",
+            submit_deadline_utc=(current + timedelta(minutes=2)).isoformat(),
             lifecycle_journal=str(tmp_path / "lifecycle.jsonl"),
             result_out=str(tmp_path / "stage1-result.json"),
         )
@@ -223,7 +225,8 @@ def prepare_args(tmp_path):
         funder_address=ADDRESS,
         wallet_type="deposit_wallet",
         signature_type="POLY_1271",
-        budget=100.0,
+        budget=10.0,
+        wallet_cap=100.0,
         identity_out=str(tmp_path / "identity-prepared.json"),
         receipt_out=str(tmp_path / "identity-receipt.json"),
         confirm_international_platform=True,
@@ -241,7 +244,7 @@ def doctor_args(tmp_path, identity_path):
         target_date="2026-08-14",
         condition_id=CONDITION_ID,
         token_id=TOKEN_ID,
-        budget=100.0,
+        budget=10.0,
         receipt_out=str(tmp_path / "doctor-receipt.json"),
         confirmation=cli.DOCTOR_CONFIRMATION,
     )
@@ -295,10 +298,24 @@ def test_prepare_identity_fetches_ip_redacted_evidence_and_derives_signature_id(
     assert identity["settlement_unit"] == "pUSD"
     assert identity["signature_type"] == "POLY_1271"
     assert identity["signature_type_id"] == 3
+    assert identity["pilot_wallet_max_funding_usdc"] == 100.0
+    assert receipt["requested_budget_pusd"] == 10.0
     assert identity["geographic_eligibility"]["blocked"] is False
     assert identity["geographic_eligibility"]["requesting_ip_retained"] is False
     assert "203.0.113.9" not in raw
     assert receipt["cleanup"]["reason"] == "read_only_command_no_exchange_authentication"
+
+
+def test_prepare_identity_keeps_requested_budget_below_independent_wallet_cap(tmp_path):
+    command_args = prepare_args(tmp_path)
+    command_args.budget = 100.0
+    command_args.wallet_cap = 10.0
+
+    with pytest.raises(RuntimeError, match="10 pUSD.*100 pUSD"):
+        cli.run_prepare_identity(command_args, geoblock_collector=geoblock_evidence)
+
+    assert not Path(command_args.identity_out).exists()
+    assert not Path(command_args.receipt_out).exists()
 
 
 def test_prepare_identity_writes_fail_receipt_but_no_manifest_when_location_blocked(tmp_path):
@@ -448,6 +465,9 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     saved_receipt = json.loads(open(command_args.receipt_out, encoding="utf-8").read())
     assert saved_receipt["cleanup"]["zero_open_orders_verified"] is True
     assert saved_receipt["cleanup"]["zero_positions_verified"] is True
+    assert saved_receipt["credential_resolution_attempted"] is True
+    assert saved_receipt["credential_values_read_in_memory"] is True
+    assert saved_receipt["exchange_mutation_attempted"] is True
     final_sha256 = hashlib.sha256(live_context.user_stream.journal_path.read_bytes()).hexdigest()
     assert saved_receipt["cleanup"]["user_stream_journal_sha256"] == final_sha256
     assert saved_receipt["secret_values_redacted"] is True
@@ -515,6 +535,7 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
     assert receipt["status"] == "PASS"
     assert seen["kwargs"]["confirmation"] == STAGE1_CONFIRMATION
     assert seen["kwargs"]["cancellation_mode"] == "cancel_all"
+    assert seen["kwargs"]["submit_deadline_utc"] == command_args.submit_deadline_utc
     assert live_context.adapter.cancel_calls == 1
     assert live_context.user_stream.stopped
     saved_result = json.loads(open(command_args.result_out, encoding="utf-8").read())
@@ -523,6 +544,8 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
     assert saved_result["paper_run_config_sha256"] == "d" * 64
     assert saved_result["paper_quote_intents_sha256"] == "e" * 64
     assert saved_result["paper_quote_row_sha256"] == "f" * 64
+    saved_receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert saved_receipt["credential_values_read_in_memory"] is True
 
 
 def test_stage1_failure_receipt_never_serializes_raw_exception_text(tmp_path):
@@ -672,6 +695,107 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     command_args.dead_man_result = str(dead_result)
     command_args.bundle_out = str(tmp_path / "bundle.json")
     command_args.receipt_out = str(tmp_path / "bundle-receipt.json")
+    def add_lineage(mode, result_path):
+        stage = "stage1_cancel_all" if mode == "cancel_all" else "stage1_dead_man"
+        prefix = "cancel_all" if mode == "cancel_all" else "dead_man"
+        wrapper = tmp_path / f"{prefix}-wrapper.py"
+        wrapper.write_text("# sealed wrapper\n", encoding="utf-8")
+        journal = tmp_path / f"{prefix}-journal.jsonl"
+        journal.write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
+        seal_path = tmp_path / f"{prefix}-seal.json"
+        seal_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "international_live_fixed_scope_seal_v0.2",
+                    "status": "PASS",
+                    "stage": stage,
+                    "scope": {
+                        "target_date": command_args.target_date,
+                        "condition_id": command_args.condition_id,
+                        "token_id": command_args.token_id,
+                        "requested_budget_pusd": command_args.budget,
+                        "cancellation_mode": mode,
+                    },
+                    "wrapper": {
+                        "path": str(wrapper.resolve()),
+                        "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        command_path = tmp_path / f"{prefix}-command.json"
+        command_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": cli.RECEIPT_SCHEMA_VERSION,
+                    "status": "PASS",
+                    "command": "stage1",
+                    "target_date": command_args.target_date,
+                    "condition_id": command_args.condition_id,
+                    "token_id": command_args.token_id,
+                    "requested_budget_pusd": command_args.budget,
+                    "cancellation_mode": mode,
+                    "cleanup": {"ok": True},
+                    "exception_type": None,
+                }
+            ),
+            encoding="utf-8",
+        )
+        execution_path = tmp_path / f"{prefix}-execution.json"
+        execution_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "international_live_fixed_scope_execution_v0.2",
+                    "status": "PASS",
+                    "stage": stage,
+                    "target_date": command_args.target_date,
+                    "condition_id": command_args.condition_id,
+                    "token_id": command_args.token_id,
+                    "requested_budget_pusd": command_args.budget,
+                    "cancellation_mode": mode,
+                    "exception_type": None,
+                    "wrapper": {
+                        "path": str(wrapper.resolve()),
+                        "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+                    },
+                    "artifacts": {
+                        "result_out": {
+                            "path": str(result_path.resolve()),
+                            "sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
+                        },
+                        "command_receipt_out": {
+                            "path": str(command_path.resolve()),
+                            "sha256": hashlib.sha256(command_path.read_bytes()).hexdigest(),
+                        },
+                        "lifecycle_journal_out": {
+                            "path": str(journal.resolve()),
+                            "sha256": hashlib.sha256(journal.read_bytes()).hexdigest(),
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        setattr(command_args, f"{prefix}_seal_receipt", str(seal_path))
+        setattr(command_args, f"{prefix}_command_receipt", str(command_path))
+        setattr(command_args, f"{prefix}_execution_receipt", str(execution_path))
+
+    add_lineage("cancel_all", cancel_result)
+    add_lineage("dead_man", dead_result)
+    cancel_command = Path(command_args.cancel_all_command_receipt)
+    original_command = cancel_command.read_bytes()
+    cancel_command.write_bytes(original_command + b"\n")
+    with pytest.raises(RuntimeError, match="lineage failed"):
+        cli._validate_stage1_bundle_lineage(
+            command_args, "cancel_all", cancel_result
+        )
+    cancel_command.write_bytes(original_command)
+    original_dead_execution = command_args.dead_man_execution_receipt
+    command_args.dead_man_execution_receipt = str(tmp_path / "missing-execution.json")
+    with pytest.raises(RuntimeError, match="cannot read required JSON"):
+        cli._validate_stage1_bundle_lineage(command_args, "dead_man", dead_result)
+    command_args.dead_man_execution_receipt = original_dead_execution
     seen = {}
 
     def builder(gate, cancel_all, dead_man):
@@ -683,11 +807,16 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
 
     receipt = cli.run_bundle(
         command_args,
-        bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
+        bootstrap_loader=lambda *_args, **_kwargs: {
+            "ok": True,
+            "requested_budget_usdc": 10.0,
+            "pilot_wallet_max_funding_usdc": 100.0,
+        },
         bundle_builder=builder,
     )
 
     assert receipt["status"] == "PASS"
+    assert set(receipt["stage1_lineage"]) == {"cancel_all", "dead_man"}
     assert seen["cancel_all"]["mode"] == "cancel_all"
     assert seen["dead_man"]["mode"] == "dead_man"
     assert json.loads(open(command_args.bundle_out, encoding="utf-8").read())["status"] == "PASS"
