@@ -31,6 +31,15 @@ by the operator. The fixed-session manifest builder below is public preparation
 only. Inventory or manifest-build PASS is not temporal, credential,
 exchange-mutation, or trading authorization.
 
+**This Ontario host is also ineligible for order placement.** Polymarket's
+current official geographic-restrictions policy lists Ontario as blocked and
+forbids VPN, proxy, or similar circumvention. Public capture and paper-only
+preparation may continue here, but no Stage 1 order may be submitted while the
+attended operator or execution host is physically in Ontario. A future session
+from an eligible physical location must obtain a fresh official geoblock result
+and an attended no-circumvention attestation; an unblocked egress classification
+that disagrees with physical location is not authority.
+
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
 
@@ -151,6 +160,18 @@ All must be current for the target date and selected market:
    the 18:00-00:30 near-close window. The existing heavy-workload lease remains
    an independent enforcement boundary; do not interpret 09:00-12:00 as a
    supported live-session gap.
+9. Geographic eligibility passes immediately before credential resolution and
+   again submit-adjacent for Stage 1. Query the official public
+   `GET https://polymarket.com/api/geoblock` endpoint, retain only
+   `blocked/country/region`, observation time, and response hash (never the IP),
+   and require `blocked=false`. Separately require the attended operator to
+   attest that the operator and execution host are physically in an eligible
+   location and that no VPN, proxy, remote-location service, or other
+   circumvention is in use. An unavailable endpoint, `blocked=true`, a
+   physically blocked location, or disagreement between the endpoint and the
+   attended attestation is a hard stop. See the official
+   [geographic-restrictions API](https://docs.polymarket.com/api-reference/geoblock)
+   and [current geographic-restrictions policy](https://help.polymarket.com/en/articles/13364163-geographic-restrictions).
 
 ## Staged protocol
 
@@ -300,6 +321,12 @@ available, prove master equals origin at the reviewed exact tip, prove all
 capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
 Do not trade merely because Windows restarted successfully.
+
+Do not continue on this host merely because a public endpoint happens to
+classify its egress as unblocked. Eligibility follows the attended operator's
+and execution host's real physical location, and the venue currently blocks
+Ontario. Relocation to an eligible physical location may be reviewed as a new
+session; VPN/proxy/location circumvention is not an allowed workaround.
 
 Prepare the identity and public credential receipt/reference sources first;
 they do not bind a market. Only after both preparations pass, discover the
@@ -906,7 +933,7 @@ must pass authenticated user-stream subscription, heartbeat, a signed-order
 preview or non-posting contract probe, and cancel-all. Do not rely on a manual
 UI-trade workaround or silently switch wallet/signature models after a failure.
 
-Official references reviewed through 2026-08-14:
+Official references reviewed through 2026-08-23:
 
 - <https://docs.polymarket.com/trading/overview>
 - <https://docs.polymarket.com/api-reference/authentication>
@@ -922,6 +949,8 @@ Official references reviewed through 2026-08-14:
 - <https://docs.polymarket.com/trading/orders/create>
 - <https://docs.polymarket.com/api-reference/trade/get-order-scoring-status>
 - <https://docs.polymarket.com/api-reference/rebates/get-current-rebated-fees-for-a-maker>
+- <https://docs.polymarket.com/api-reference/geoblock>
+- <https://help.polymarket.com/en/articles/13364163-geographic-restrictions>
 
 ## Stop conditions
 
@@ -936,6 +965,8 @@ Cancel all and do not resume on any of the following:
 - cancel-all is not followed by zero open orders;
 - the execution cutoff plus its full cleanup reserve leaves **[00:30, 09:00)
   America/Toronto**, host enters a protected window, or capture health degrades.
+- official geoblock state is unavailable or blocked, physical eligibility is
+  unconfirmed, or endpoint and attended physical-location attestations disagree.
 
 ## Decision after the pilot
 
