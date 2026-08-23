@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-23 19:20 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-23 19:52 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -86,7 +86,13 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
   then explicitly approved one dated bypass, bound in code to this branch
   lineage and synchronized baseline. The S4U process guard remains enabled;
   an attended operator invocation runs outside the Codex-owned process tree.
-  Static diff review, canonical roll verdict, guarded merge rollback, worker
+  The first guarded attempt remained unpublished and rolled back cleanly after
+  the execution-tape worker stayed on stale code: its one-minute supervisor ran,
+  but six explicitly failed/no-mutation starts were incorrectly counted as
+  recoveries and imposed a 3,600-second backoff. The reviewed repair excludes
+  only refused starts that launched no child while preserving failed-launch,
+  failed-restart, legacy-history, and ordinary restart-budget protection. A
+  fresh immutable guarded attempt, worker
   recovery, and remote-master acknowledgement remain required.
 - `WeatherClobTiering` and `WeatherClobRawTapeTiering` are recurring, enabled,
   and bound to the canonical 05:00/06:00 topology without late catch-up.
