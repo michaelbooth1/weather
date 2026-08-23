@@ -31,14 +31,13 @@ by the operator. The fixed-session manifest builder below is public preparation
 only. Inventory or manifest-build PASS is not temporal, credential,
 exchange-mutation, or trading authorization.
 
-**This Ontario host is also ineligible for order placement.** Polymarket's
-current official geographic-restrictions policy lists Ontario as blocked and
-forbids VPN, proxy, or similar circumvention. Public capture and paper-only
-preparation may continue here, but no Stage 1 order may be submitted while the
-attended operator or execution host is physically in Ontario. A future session
-from an eligible physical location must obtain a fresh official geoblock result
-and an attended no-circumvention attestation; an unblocked egress classification
-that disagrees with physical location is not authority.
+**Geographic eligibility is an action-time fact, not a repository or timezone
+inference.** This repository does not assert the operator's or execution host's
+physical location. Polymarket blocks specified locations and forbids VPN,
+proxy, or similar circumvention. Before any Stage 1 order, obtain a fresh
+official geoblock result and an attended no-circumvention attestation; an
+unblocked egress classification that disagrees with physical location is not
+authority.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -322,11 +321,10 @@ capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
 Do not trade merely because Windows restarted successfully.
 
-Do not continue on this host merely because a public endpoint happens to
-classify its egress as unblocked. Eligibility follows the attended operator's
-and execution host's real physical location, and the venue currently blocks
-Ontario. Relocation to an eligible physical location may be reviewed as a new
-session; VPN/proxy/location circumvention is not an allowed workaround.
+Do not continue merely because a public endpoint classifies the host's egress
+as unblocked. Eligibility also follows the attended operator's and execution
+host's real physical location. A session in a blocked location must stop;
+VPN/proxy/location circumvention is not an allowed workaround.
 
 Prepare the identity and public credential receipt/reference sources first;
 they do not bind a market. Only after both preparations pass, discover the
