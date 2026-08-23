@@ -2475,6 +2475,22 @@ work until its bounded teardown. Cleanup did not run, so stale lock files remain
 wrapper used bare file existence and refused. PID reuse then made PID-only stale-lock detection
 unsafe. August 17 remains an explicit hole and will not self-heal in the next daily run.
 
+## 8t. The fixed-scope International Stage 0/1 stack is production-adopted, not live-proven
+
+**Measured 2026-08-23 from immutable attempt, suite, and merge receipts.** Exact source tip
+`a6327ccf52499ed8d9ab0c34580fcd013ca7f094` passed integration preflight and **19/19 bounded
+chunks: 4,698 tests, zero failures, errors, or skips**. Attempt `stage1-readiness-0823-a2` then
+published guarded merge `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`; its PASS receipt binds
+source ancestry, `HEAD == master == origin/master`, all three core capture workers, and required
+execution-tape recovery.
+
+This lands the interrupt-cleanup path, repository-owned fixed-scope wrapper sealer, no-argument
+fixed-session runner, and pinned process-local SDK overlay contract. The receipt's authority is
+explicitly **`NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`**: it neither read credential values nor
+authorized an exchange mutation. No current safe candidate, authenticated Stage 0 bootstrap,
+Stage 1 order/cancellation proof, fill, fee, rebate, position, settlement, P&L, or profit evidence
+was created. Software adoption must not be reported as a live lifecycle result.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

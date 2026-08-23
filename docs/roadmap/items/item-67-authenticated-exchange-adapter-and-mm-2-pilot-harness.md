@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-22 - INTERRUPT-SAFE CUMULATIVE TIP PENDING EXACT SUITE AND INTEGRATION]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-23 - FIXED-SCOPE STAGE 0/1 SOFTWARE INTEGRATED; LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -523,3 +523,23 @@ tip must pass its own immutable full suite, guarded integration, capture
 recovery, publication, and production-identity proof. Focused tests on either
 parent commit are not a substitute. No exchange mutation occurred in preparing
 this branch.
+
+## 2026-08-23 production adoption
+
+The exact cumulative source tip
+`a6327ccf52499ed8d9ab0c34580fcd013ca7f094` passed its immutable integration
+preflight and all 19/19 bounded suite chunks: 4,698 tests, zero failures,
+errors, or skips. Guarded merge
+`0af64ecf36287a8e88aa1f85cbfa2ff540adb03b` recovered all three core capture
+workers and the execution-tape producer, then published with local and remote
+master equal. The receipt explicitly grants
+`NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`.
+
+Production now contains the interrupt-cleanup path, repository-owned
+fixed-scope wrapper sealer, no-argument fixed-session launcher and runner, and
+the pinned process-local SDK overlay contract. This closes the software and
+production-adoption blocker only. The unchecked live-evidence bullets remain
+open: no fresh safe candidate, production-bound Stage 0 identity/doctor,
+authenticated bootstrap, supervised Stage 1 cancellation probes, order, fill,
+fee, rebate, position, settlement, or P&L evidence exists. The old prepared
+host templates must not substitute for a newly sealed current attempt.

@@ -169,6 +169,13 @@ exact hash-bound evidence.
   `cfdad9e5225f4dad86eaeddae7631893cd6c5350`, local/remote equality, source
   ancestry, and three-worker capture recovery. The receipt remains explicitly
   `NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`.
+- A second production use completed on 2026-08-23. Immutable attempt
+  `stage1-readiness-0823-a2` passed integration preflight and 19/19 suite
+  chunks at exact source tip `a6327ccf52499ed8d9ab0c34580fcd013ca7f094`,
+  then published guarded merge
+  `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`. Its PASS receipt binds
+  three-worker and required execution-tape recovery, source ancestry,
+  local/remote equality, and the same no-credential/no-live authority.
 
 ## Completion notes
 
