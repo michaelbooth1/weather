@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-23 12:30 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-23 13:25 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -19,16 +19,16 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 | Area | State / next action |
 | --- | --- |
-| Capture | At the last pre-maintenance read, all three streak-critical workers were healthy and the supervised public execution tape was connected and integrity-valid. Complete price-path evidence remains unusable. Any maintenance restart spends capture continuity and requires fresh worker/tape recovery proof. |
-| Production | `master`, checked-out `HEAD`, and `origin/master` are synchronized at `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`. Only the two expected generated location-config files are modified. |
+| Capture | The fresh post-boot proof and subsequent canonical checks show all three streak-critical workers healthy and the supervised public execution tape connected, identity-current, and integrity-valid. The maintenance gap makes the current target date's complete price path unusable; require a later uninterrupted target date rather than weakening that gate. |
+| Production | Dynamic Git/status checks show `master`, checked-out `HEAD`, and `origin/master` synchronized with documentation closeout `33fa374898507adc7231b6ff30af6d148f848556` in history. Only the two expected generated location-config files are modified. |
 | Integration recovery | Three integrations are production-adopted: bootstrap/recovery machinery at `d8e95c04be7c0b2daa351103b19efc1e942bc469`, the bounded morning workflow at `cfdad9e5225f4dad86eaeddae7631893cd6c5350`, and the fixed-scope Stage-0/1 stack at `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`. The last exact tip passed 19/19 chunks before guarded merge, three-worker recovery, execution-tape recovery, and remote acknowledgement. |
 | Morning chain | The 2026-08-23 Stage-A run terminalized at 11:38 for target 2026-08-22. Settlement restore/finalize and every scheduled tail step ran; the chain correctly remained `critical` at the settled-day barrier with seven payload blocks, including exchange-economics/maker-paper/trading evidence and model-performance gates. This is a truthful terminal run, not readiness. |
 | Settlement | August 17 remains an explicit 12-market settlement hole and will not be retried by the ordinary chain. Recover it only through the bounded stop-after-finalize path, then prove normal lock release and real settlement evidence. |
 | Tiering | The canonical 05:00 projection and 06:00 raw-tape tasks are enabled and both produced durable `OK` status on their first post-adoption runs. Scheduler zero alone is not the proof; retain the task-status artifacts and free-space trail. |
 | Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
-| Documentation | The canonical files now reconcile all three pending integration tips and the first bounded morning readback. The transaction is complete only after this roll-free closeout is integrated and published and `weather.operations.documentation_transaction complete` writes the matching content-addressed PASS receipt. |
-| Host safety | A reboot is pending and Windows reports a free-running, unsynchronized clock. Both are hard live-session blockers. Restart only in the operator-selected maintenance window, log in once afterward, and re-prove Git, clock, capture, and execution-tape health before treating the host as ready. |
-| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. No credential value or exchange mutation was authorized by integration, and no order has run. Credential references are prepared host evidence, but fresh economics/paper candidate, public identity, keyless doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
+| Documentation | The three-integration documentation transaction is published at `33fa374898507adc7231b6ff30af6d148f848556`; its content-addressed completion receipt is present and valid. |
+| Host safety | The operator-selected reboot completed at 12:54. The immutable post-boot receipt passes fresh boot, boot recovery, clear pending-reboot state, synchronized Windows time, Git, all three capture workers, and execution-tape supervision without reading credentials or mutating the exchange. A logged-on disconnected operator session is present. |
+| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. All three public sealer inventories pass against current production. No credential value or exchange mutation was authorized by integration, and no order has run. Credential references are prepared, but the accepted economics baseline is still the ineligible legacy US platform; fresh International economics/paper candidate, explicit baseline acceptance, public identity, keyless doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -48,18 +48,21 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Immediate execution order
 
-1. Finish the three-integration documentation transaction through a roll-free
-   documentation merge, publication, and content-addressed completion receipt.
-2. Use the operator-selected maintenance window for the pending reboot. After
-   one login, require a synchronized clock, clean Git identity, and recovered
-   capture plus execution-tape supervision before further preparation.
-3. Recover August 17 separately through bounded stop-after-finalize; require
+1. Protect the post-reboot capture day. Do not run live or heavy preparation in
+   the protected windows, and do not treat today's restart-spent price path as
+   repairable evidence.
+2. Recover August 17 separately through the already reviewed bounded
+   stop-after-finalize path; require
    12/12 real settlements, normal lock release, and current capture.
-4. Prepare a live lifecycle only for an attended, non-protected window. Select
-   a fresh safe candidate first; then bind identity and all three fixed-session
-   launchers and run Stage 0 plus the two Stage 1 modes consecutively.
-5. Let tiering run serially; diagnose durable status, not Scheduler zero.
-6. Keep Stage B and training held until their own preconditions pass.
+3. On a later uninterrupted target date, prepare a live lifecycle only for an
+   attended, non-protected window with no heavy-work overlap. Refresh public
+   International economics and a one-market paper candidate; baseline acceptance
+   remains an explicit informed operator action.
+4. Bind identity and all three current fixed-session launchers, run the keyless
+   doctor, and then run Stage 0 plus the two Stage 1 modes consecutively under
+   their separate literal confirmations.
+5. Let tiering run serially; diagnose durable status, not Scheduler zero. Keep
+   Stage B and training held until their own preconditions pass.
 
 ## Host and workflow state
 
