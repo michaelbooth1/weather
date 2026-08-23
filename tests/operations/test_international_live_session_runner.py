@@ -477,6 +477,58 @@ def test_composer_accepts_exact_0030_toronto_boundary_without_backdating_scope(
     assert result["status"] == "PASS"
 
 
+@pytest.mark.parametrize(
+    ("current", "expected_to_run"),
+    [
+        (datetime.fromisoformat("2026-08-23T08:57:40-04:00"), True),
+        (datetime.fromisoformat("2026-08-23T08:57:40.000001-04:00"), False),
+    ],
+)
+def test_composer_reserves_full_cleanup_grace_before_nine(
+    tmp_path, current, expected_to_run
+):
+    stage = "stage0"
+    attempt, manifest, fresh = session_fixture(tmp_path, stage, now=current)
+    assert runner.COOPERATIVE_CLEANUP_GRACE_SECONDS == (
+        sealer.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+    )
+    assert runner.COOPERATIVE_CLEANUP_GRACE_SECONDS == 20
+
+    if not expected_to_run:
+        with pytest.raises(
+            runner.SessionCompositionError,
+            match="candidate-derived.*00:30-09:00 America/Toronto",
+        ):
+            runner.compose_and_run_live_session(
+                manifest,
+                fresh,
+                expected_session_manifest_sha256=sha(manifest),
+                now=current,
+                seal_function=lambda *_args, **_kwargs: pytest.fail(
+                    "sealer must not run"
+                ),
+                launcher_runner=lambda _path: pytest.fail("launcher must not run"),
+            )
+        assert not (attempt / "inputs/stage0-scope-plan.json").exists()
+        assert not (attempt / "inputs/stage0-seal-spec.json").exists()
+        return
+
+    result = runner.compose_and_run_live_session(
+        manifest,
+        fresh,
+        expected_session_manifest_sha256=sha(manifest),
+        now=current,
+        seal_function=fake_sealer(attempt, stage),
+        launcher_runner=lambda path: (
+            write_execution(attempt, stage, mutation=True)
+            or subprocess.CompletedProcess([str(path)], 0, "", "")
+        ),
+    )
+
+    assert result["launcher_absolute_deadline"] == "2026-08-23T08:59:40-04:00"
+    assert result["cooperative_cleanup_grace_seconds"] == 20
+
+
 @pytest.mark.parametrize("stage", sealer.STAGES)
 @pytest.mark.parametrize(
     "current",
@@ -527,7 +579,7 @@ def test_composer_rechecks_supported_window_at_execution_boundary(tmp_path):
 
     with pytest.raises(
         runner.SessionCompositionError,
-        match="execution boundary.*00:30-09:00 America/Toronto",
+        match="execution and cleanup boundary.*00:30-09:00 America/Toronto",
     ):
         runner.compose_and_run_live_session(
             manifest,

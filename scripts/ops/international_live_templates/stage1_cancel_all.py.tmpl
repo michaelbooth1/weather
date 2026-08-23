@@ -110,33 +110,44 @@ def _assert_window_current() -> None:
     start = datetime.fromisoformat(str(SCOPE["run_not_before_local"]))
     stop = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
     now = datetime.now().astimezone()
+    cleanup_reserve = SCOPE.get("cleanup_reserve_seconds")
     if start.tzinfo is None or stop.tzinfo is None or not start < stop:
         raise RuntimeError("fixed local run window is invalid")
+    if (
+        isinstance(cleanup_reserve, bool)
+        or not isinstance(cleanup_reserve, int)
+        or cleanup_reserve <= 0
+    ):
+        raise RuntimeError("fixed cleanup reserve is invalid")
     if (stop - start).total_seconds() > 30 * 60:
         raise RuntimeError("fixed local run window exceeds 30 minutes")
     local_start = start.astimezone(LIVE_WINDOW_TIMEZONE)
     local_stop = stop.astimezone(LIVE_WINDOW_TIMEZONE)
+    local_contained_end = (
+        stop + timedelta(seconds=cleanup_reserve)
+    ).astimezone(LIVE_WINDOW_TIMEZONE)
     start_wall = (
         local_start.hour,
         local_start.minute,
         local_start.second,
         local_start.microsecond,
     )
-    stop_wall = (
-        local_stop.hour,
-        local_stop.minute,
-        local_stop.second,
-        local_stop.microsecond,
+    contained_end_wall = (
+        local_contained_end.hour,
+        local_contained_end.minute,
+        local_contained_end.second,
+        local_contained_end.microsecond,
     )
     if not (
         local_start.date().isoformat() == SCOPE["target_date"]
         and local_stop.date().isoformat() == SCOPE["target_date"]
+        and local_contained_end.date().isoformat() == SCOPE["target_date"]
         and start_wall >= LIVE_WINDOW_START
-        and stop_wall < LIVE_WINDOW_END
+        and contained_end_wall <= LIVE_WINDOW_END
     ):
         raise RuntimeError(
-            "fixed execution window is outside the supported 00:30-09:00 "
-            "America/Toronto live window"
+            "fixed execution plus cleanup reserve is outside the supported "
+            "00:30-09:00 America/Toronto live window"
         )
     if not start <= now <= stop or (
         now.astimezone(LIVE_WINDOW_TIMEZONE).date().isoformat()
@@ -183,6 +194,9 @@ def _assert_precredential_reserve() -> None:
 
 
 def _display_confirmation_scope() -> str:
+    contained_end = datetime.fromisoformat(
+        str(SCOPE["run_not_after_local"])
+    ) + timedelta(seconds=SCOPE["cleanup_reserve_seconds"])
     payload = {
         "stage": STAGE_NAME,
         "cancellation_mode": CANCELLATION_MODE,
@@ -192,6 +206,8 @@ def _display_confirmation_scope() -> str:
         "requested_budget_pusd": 10,
         "wallet_cap_pusd": 100,
         "cutoff_local": SCOPE["run_not_after_local"],
+        "cleanup_reserve_seconds": SCOPE["cleanup_reserve_seconds"],
+        "contained_process_end_local": contained_end.isoformat(),
     }
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"

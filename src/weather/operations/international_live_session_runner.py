@@ -39,7 +39,9 @@ MAX_SESSION_SECONDS = 120
 MIN_LAUNCH_REMAINING_SECONDS = 90
 LAUNCHER_CLEANUP_MARGIN_SECONDS = 30
 MAX_LAUNCHER_RUNTIME_SECONDS = MAX_SESSION_SECONDS
-COOPERATIVE_CLEANUP_GRACE_SECONDS = 20
+COOPERATIVE_CLEANUP_GRACE_SECONDS = (
+    fixed_sealer.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+)
 
 
 class SessionCompositionError(RuntimeError):
@@ -969,8 +971,8 @@ def compose_and_run_live_session(
         target_date=str(scope["target_date"]),
     ):
         raise SessionCompositionError(
-            "candidate-derived execution window is outside the supported "
-            "00:30-09:00 America/Toronto live window"
+            "candidate-derived execution and cleanup window is outside the "
+            "supported 00:30-09:00 America/Toronto live window"
         )
     if (stop - current).total_seconds() < MIN_LAUNCH_REMAINING_SECONDS:
         raise SessionCompositionError("fresh candidate leaves too little launch time")
@@ -1091,8 +1093,8 @@ def compose_and_run_live_session(
         target_date=str(scope["target_date"]),
     ):
         raise SessionCompositionError(
-            "execution boundary is outside the supported 00:30-09:00 "
-            "America/Toronto live window"
+            "execution and cleanup boundary is outside the supported "
+            "00:30-09:00 America/Toronto live window"
         )
     if _sha256_file(candidate_destination) != candidate_hash:
         raise SessionCompositionError("sealed candidate changed before launch")

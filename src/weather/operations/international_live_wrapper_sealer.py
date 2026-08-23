@@ -43,6 +43,7 @@ MAX_RUN_WINDOW_SECONDS = 30 * 60
 LIVE_WINDOW_TIMEZONE = ZoneInfo("America/Toronto")
 LIVE_WINDOW_START = wall_time(0, 30)
 LIVE_WINDOW_END = wall_time(9, 0)
+LIVE_WINDOW_CLEANUP_RESERVE_SECONDS = 20
 MAX_STAGE1_ORDER_NOTIONAL_PUSD = Decimal("10")
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
@@ -328,7 +329,7 @@ def execution_window_is_supported(
     *,
     target_date: date | str,
 ) -> bool:
-    """Return whether the complete fixed session stays in the supported live window."""
+    """Return whether execution plus its full cleanup reserve stays supported."""
 
     try:
         target = (
@@ -346,13 +347,17 @@ def execution_window_is_supported(
             return False
         local_start = start.astimezone(LIVE_WINDOW_TIMEZONE)
         local_stop = stop.astimezone(LIVE_WINDOW_TIMEZONE)
+        local_contained_end = (
+            stop + timedelta(seconds=LIVE_WINDOW_CLEANUP_RESERVE_SECONDS)
+        ).astimezone(LIVE_WINDOW_TIMEZONE)
     except (TypeError, ValueError, OverflowError):
         return False
     return (
         local_start.date() == target
         and local_stop.date() == target
+        and local_contained_end.date() == target
         and local_start.time() >= LIVE_WINDOW_START
-        and local_stop.time() < LIVE_WINDOW_END
+        and local_contained_end.time() <= LIVE_WINDOW_END
     )
 
 
@@ -1410,8 +1415,8 @@ def _validate_spec(
         raise SealError("reviewed run window is invalid or exceeds 30 minutes")
     if not execution_window_is_supported(start, stop, target_date=target):
         raise SealError(
-            "reviewed run window is outside the supported 00:30-09:00 "
-            "America/Toronto live window"
+            "reviewed execution and cleanup window is outside the supported "
+            "00:30-09:00 America/Toronto live window"
         )
     if not start.astimezone(timezone.utc) <= now_utc <= stop.astimezone(timezone.utc):
         raise SealError("sealer is outside the reviewed run window")
@@ -1629,6 +1634,7 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
         "requested_budget_pusd": scope["requested_budget_pusd"],
         "run_not_before_local": scope["run_not_before_local"],
         "run_not_after_local": scope["run_not_after_local"],
+        "cleanup_reserve_seconds": LIVE_WINDOW_CLEANUP_RESERVE_SECONDS,
         "attempt_root": scope["attempt_root"],
         "expected_lease_workload": scope["lease_workload"],
         "allowed_status_flag_sha256": [

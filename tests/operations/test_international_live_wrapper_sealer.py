@@ -713,7 +713,13 @@ def seal(
     [
         ("2026-08-23T00:29:59-04:00", "2026-08-23T00:31:00-04:00", False),
         ("2026-08-23T00:30:00-04:00", "2026-08-23T00:31:00-04:00", True),
-        ("2026-08-23T08:59:00-04:00", "2026-08-23T08:59:59-04:00", True),
+        ("2026-08-23T08:59:00-04:00", "2026-08-23T08:59:39-04:00", True),
+        ("2026-08-23T08:59:00-04:00", "2026-08-23T08:59:40-04:00", True),
+        (
+            "2026-08-23T08:59:00-04:00",
+            "2026-08-23T08:59:40.000001-04:00",
+            False,
+        ),
         ("2026-08-23T08:59:00-04:00", "2026-08-23T09:00:00-04:00", False),
         ("2026-08-23T09:00:00-04:00", "2026-08-23T09:01:00-04:00", False),
         ("2026-08-23T11:59:00-04:00", "2026-08-23T12:01:00-04:00", False),
@@ -759,6 +765,8 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert '"authenticated_heartbeat_write_expected": True' in wrapper_text
     assert '"cancel_all_cleanup_expected": True' in wrapper_text
     assert '"cancel_all_scope": "ACCOUNT_WIDE"' in wrapper_text
+    assert '"cleanup_reserve_seconds": 20' in wrapper_text
+    assert '"contained_process_end_local"' in wrapper_text
     host_guard = wrapper_text.split("def _assert_host_state()", 1)[1].split(
         "\ndef ", 1
     )[0]
@@ -906,6 +914,8 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert "stage2" not in text.lower()
     assert "_prompt_until(expected_confirmation)" in text
     assert "_assert_window_current()" in text
+    assert '"cleanup_reserve_seconds": 20' in text
+    assert '"contained_process_end_local"' in text
     host_guard = text.split("def _assert_host_state()", 1)[1].split("\ndef ", 1)[0]
     assert "_assert_window_current()" in host_guard
     assert 'ZoneInfo("America/Toronto")' in text

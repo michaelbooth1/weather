@@ -142,13 +142,15 @@ All must be current for the target date and selected market:
    The resulting plan remains non-authorizing; Stage 0, account state, current
    market rules, the literal confirmation, and the
    one-submit adapter capability remain independent mutation gates.
-8. The complete candidate-derived execution window is contained in the
-   supported **[00:30, 09:00) America/Toronto** fixed-session window, holds the
-   ordinary shared workload lease, and overlaps no scheduled heavy job. The end
-   is exclusive: a window ending at or after 09:00 blocks. This keeps every
-   Stage 0/1 session outside both the 12:00-18:00 graded window and the
-   18:00-00:30 near-close window. The existing heavy-workload lease remains an
-   independent enforcement boundary; do not interpret 09:00-12:00 as a
+8. The complete candidate-derived execution window **plus the fixed 20-second
+   cooperative-cleanup reserve** is contained in the supported
+   **[00:30, 09:00) America/Toronto** fixed-session window, holds the ordinary
+   shared workload lease, and overlaps no scheduled heavy job. A sealed
+   execution cutoff of 08:59:40 is the latest allowed value: its reserved
+   contained-process end may equal 09:00, while any later cutoff blocks. This
+   keeps every Stage 0/1 session outside both the 12:00-18:00 graded window and
+   the 18:00-00:30 near-close window. The existing heavy-workload lease remains
+   an independent enforcement boundary; do not interpret 09:00-12:00 as a
    supported live-session gap.
 9. Geographic eligibility passes twice: immediately before any credential
    resolution and submit-adjacent for Stage 1. Query the official public
@@ -301,11 +303,12 @@ in the command line, environment, identity manifest, output path, or shell
 history.
 
 Plan the first lifecycle session so its entire candidate-derived execution
-window is within **[00:30, 09:00) America/Toronto**. Merely avoiding the
-12:00-18:00 graded and 18:00-00:30 near-close windows is insufficient;
-09:00-12:00 is not a supported fixed-session lane, and no heavy scheduled work
-may overlap. After boot and network recovery, log in once so Credential Manager
-and `WeatherOneShotPush` are
+window and fixed 20-second cleanup reserve are within **[00:30, 09:00)
+America/Toronto**. The execution cutoff must be no later than 08:59:40. Merely
+avoiding the 12:00-18:00 graded and 18:00-00:30 near-close windows is
+insufficient; 09:00-12:00 is not a supported fixed-session lane, and no heavy
+scheduled work may overlap. After boot and network recovery, log in once so
+Credential Manager and `WeatherOneShotPush` are
 available, prove master equals origin at the reviewed exact tip, prove all
 capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
@@ -528,8 +531,8 @@ run can never advance.
 The sealer never opens Credential Manager or runs the generated launcher. It
 independently validates the inert SDK overlay helper, candidate semantic hash, scope,
 120-second paper TTL, complete **[00:30, 09:00) America/Toronto** run-window
-containment, all public inputs, every imported
-live-source hash, exact production ancestry, and that every wrapper, receipt,
+containment including the shared 20-second cleanup reserve, all public inputs,
+every imported live-source hash, exact production ancestry, and that every wrapper, receipt,
 sidecar, and runtime output path is new and contained. It creates a fixed
 no-argument Python wrapper, a hash-bound no-argument PowerShell launcher, an
 `international_live_fixed_scope_seal_v0.3` receipt, and its SHA-256 sidecar.
@@ -560,21 +563,25 @@ independently compare the generated launcher's hash with that receipt, then run
 the launcher with no arguments. It passes the reviewed manifest hash and fixed
 candidate path to the composer; no scope or ceiling is accepted at the live
 boundary. Before writing any attempt artifact, the composer derives a
-candidate-bounded window of at most 120 seconds and rejects unless the whole
-window is inside **[00:30, 09:00) America/Toronto**. It repeats that check at
-the execution boundary and requires at least 90 seconds still available
-immediately before launch, then writes an immutable ARMED intent and atomically claims the terminal
-receipt and sidecar paths before the child. The no-argument launcher and parent
+candidate-bounded window of at most 120 seconds and rejects unless that window
+plus the full 20-second cleanup tail is inside **[00:30, 09:00)
+America/Toronto**. It repeats that check at the execution boundary and requires
+at least 90 seconds still available immediately before launch, then writes an
+immutable ARMED intent and atomically claims the terminal receipt and sidecar
+paths before the child. The no-argument launcher and parent
 runner hold deny-write/delete handles for the reviewed runner, production
 sources, public credential inputs, candidate, and complete predecessor lineage;
 the full external SDK overlay used by lazy imports, the interpreter, and the
 status-attestation helper closure. They rehash after acquiring those handles
 and retain them through child exit.
-The parent sends cooperative cleanup at the sealed stop, allows only the fixed
-20-second cleanup grace, and then uses kill-on-close containment if required.
+The parent sends cooperative cleanup at the sealed execution stop, allows only
+the same sealer-owned 20-second cleanup grace already reserved by every window
+check, and then uses kill-on-close containment if required. The reserved end may
+equal 09:00; it must never exceed it.
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
-request, 100 pUSD wallet cap, and cutoff before its literal confirmation. The
+request, 100 pUSD wallet cap, execution cutoff, cleanup reserve, and contained
+process end before its literal confirmation. The
 Stage 0 display also states `order_submit_expected=false`, an authenticated
 heartbeat write is expected, and cancel-all cleanup is expected with
 `ACCOUNT_WIDE` scope so those writes cannot be mistaken for read-only
@@ -828,8 +835,8 @@ Cancel all and do not resume on any of the following:
   truth;
 - unknown order, unexpected partial fill, unbacked sell, or risk-cap breach;
 - cancel-all is not followed by zero open orders;
-- the fixed session leaves **[00:30, 09:00) America/Toronto**, host enters a
-  protected window, or capture health degrades.
+- the execution cutoff plus its full cleanup reserve leaves **[00:30, 09:00)
+  America/Toronto**, host enters a protected window, or capture health degrades.
 - official geoblock state is unavailable/blocked, physical-location eligibility
   is unconfirmed, or endpoint and attended operator attestation disagree.
 
