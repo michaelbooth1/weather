@@ -1,0 +1,529 @@
+"""Sealer-owned template for one supervised International Stage 0 run.
+
+The repository sealer replaces every marker with reviewed public values.  The
+template itself is inert, and the sealed wrapper accepts no arguments.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import msvcrt
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from types import SimpleNamespace
+
+
+TEMPLATE_SEALED = False
+PRODUCTION = Path("__SEAL_PRODUCTION_ROOT__")
+PRODUCTION_PYTHON = Path("__SEAL_PRODUCTION_PYTHON__")
+HARDENING_TIP = "__SEAL_HARDENING_ANCESTOR__"
+SCOPE = "__SEAL_SCOPE__"
+SOURCE_SHA256 = "__SEAL_SOURCE_SHA256__"
+EXECUTION_PHASE = "preflight"
+PRE_CREDENTIAL_RESERVE_SECONDS = 60
+CONFIRMATION_SCOPE_DISPLAY_SHA256 = None
+HOST_ATTESTATIONS = []
+
+ALLOWED_DIRTY_PATHS = {
+    "config/location_market_events.json",
+    "config/locations.json",
+}
+CONDITION_RE = re.compile(r"0x[0-9a-f]{64}")
+SHA256_RE = re.compile(r"[0-9a-f]{64}")
+CORE_WORKERS = {
+    "snapshot_tracker",
+    "market_microstructure",
+    "observation_trigger",
+}
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _run(command: list[str], *, allowed=(0,)) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        command,
+        cwd=PRODUCTION,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode not in allowed:
+        raise RuntimeError(f"sealed public preflight exited {result.returncode}")
+    return result
+
+
+def _git(*args: str, allowed=(0,)) -> subprocess.CompletedProcess[str]:
+    return _run(["git", "-C", str(PRODUCTION), *args], allowed=allowed)
+
+
+def _is_fully_sealed() -> bool:
+    if not TEMPLATE_SEALED or not isinstance(SCOPE, dict) or not isinstance(
+        SOURCE_SHA256, dict
+    ):
+        return False
+    return True
+
+
+def _assert_sealed() -> None:
+    if not _is_fully_sealed():
+        raise RuntimeError("fixed-scope Stage 0 template is not sealed")
+    if not isinstance(SCOPE["allowed_status_flag_sha256"], list):
+        raise RuntimeError("allowed status hashes are not sealed as a list")
+    if any(
+        SHA256_RE.fullmatch(str(value).lower()) is None
+        for value in SCOPE["allowed_status_flag_sha256"]
+    ):
+        raise RuntimeError("allowed status hashes contain an invalid value")
+    condition = str(SCOPE["condition_id"]).lower()
+    token = str(SCOPE["token_id"])
+    if CONDITION_RE.fullmatch(condition) is None:
+        raise RuntimeError("fixed condition id is invalid")
+    if not token.isdigit() or int(token) <= 0:
+        raise RuntimeError("fixed token id is invalid")
+    budget = float(SCOPE["requested_budget_pusd"])
+    if budget != 10:
+        raise RuntimeError("fixed requested budget is not exactly 10 pUSD")
+    _assert_window_current()
+
+
+def _assert_window_current() -> None:
+    start = datetime.fromisoformat(str(SCOPE["run_not_before_local"]))
+    stop = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
+    now = datetime.now().astimezone()
+    if start.tzinfo is None or stop.tzinfo is None or not start < stop:
+        raise RuntimeError("fixed local run window is invalid")
+    if (stop - start).total_seconds() > 30 * 60:
+        raise RuntimeError("fixed local run window exceeds 30 minutes")
+    if not start <= now <= stop or now.date().isoformat() != SCOPE["target_date"]:
+        raise RuntimeError("fixed-scope Stage 0 wrapper is outside its exact window")
+
+
+def _prompt_until(expected: str) -> str:
+    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"])) - timedelta(
+        seconds=PRE_CREDENTIAL_RESERVE_SECONDS
+    )
+    sys.stdout.write(f"Type {expected} to continue: ")
+    sys.stdout.flush()
+    characters: list[str] = []
+    while datetime.now().astimezone() < deadline:
+        if not msvcrt.kbhit():
+            time.sleep(0.05)
+            continue
+        character = msvcrt.getwch()
+        if character in ("\r", "\n"):
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return "".join(characters)
+        if character == "\x03":
+            raise KeyboardInterrupt()
+        if character == "\b":
+            if characters:
+                characters.pop()
+                sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            continue
+        if character.isprintable():
+            characters.append(character)
+            sys.stdout.write(character)
+            sys.stdout.flush()
+    raise TimeoutError("supervised confirmation expired at the sealed deadline")
+
+
+def _assert_precredential_reserve() -> None:
+    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"]))
+    if (deadline - datetime.now().astimezone()).total_seconds() < PRE_CREDENTIAL_RESERVE_SECONDS:
+        raise RuntimeError("sealed Stage 0 pre-credential reserve is exhausted")
+
+
+def _display_confirmation_scope() -> str:
+    payload = {
+        "stage": "stage0",
+        "cancellation_mode": "not_applicable",
+        "target_date": SCOPE["target_date"],
+        "condition_id": SCOPE["condition_id"],
+        "token_id": SCOPE["token_id"],
+        "requested_budget_pusd": 10,
+        "wallet_cap_pusd": 100,
+        "cutoff_local": SCOPE["run_not_after_local"],
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    print(json.dumps({"confirmation_scope": payload}, sort_keys=True))
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _assert_git_and_sources() -> None:
+    if Path(sys.executable).resolve() != PRODUCTION_PYTHON.resolve():
+        raise RuntimeError("fixed-scope wrapper is not using the production interpreter")
+    head = _git("rev-parse", "HEAD").stdout.strip().lower()
+    master = _git("rev-parse", "master").stdout.strip().lower()
+    origin = _git("rev-parse", "origin/master").stdout.strip().lower()
+    branch = _git("branch", "--show-current").stdout.strip()
+    if not (
+        head == master == origin == str(SCOPE["expected_production_tip"]).lower()
+        and branch == "master"
+    ):
+        raise RuntimeError("production HEAD/master/origin or branch changed")
+    tree = _git("rev-parse", "HEAD^{tree}").stdout.strip().lower()
+    if tree != str(SCOPE["expected_production_tree"]).lower():
+        raise RuntimeError("production tree changed after wrapper review")
+    hardening = _git(
+        "merge-base",
+        "--is-ancestor",
+        HARDENING_TIP,
+        head,
+        allowed=(0, 1),
+    )
+    if hardening.returncode != 0:
+        raise RuntimeError("interrupt-cleanup hardening is not integrated")
+    for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
+        if _git("rev-parse", "-q", "--verify", marker, allowed=(0, 1)).returncode == 0:
+            raise RuntimeError("production has an in-progress Git operation")
+    dirty = {
+        line[3:].replace("\\", "/")
+        for line in _git("status", "--porcelain=v1").stdout.splitlines()
+        if line.strip()
+    }
+    if not dirty.issubset(ALLOWED_DIRTY_PATHS):
+        raise RuntimeError("production worktree has unexpected changes")
+    for relative, expected in SOURCE_SHA256.items():
+        path = (PRODUCTION / relative).resolve()
+        if not path.is_file() or _sha256(path) != str(expected).lower():
+            raise RuntimeError("reviewed live source hash changed")
+
+
+def _assert_paths(*, doctor_may_exist: bool = False) -> None:
+    root = Path(str(SCOPE["attempt_root"])).resolve()
+    inputs = {
+        "identity": (
+            Path(str(SCOPE["identity_path"])).resolve(),
+            str(SCOPE["identity_sha256"]).lower(),
+        ),
+        "scope_plan": (
+            Path(str(SCOPE["scope_plan_path"])).resolve(),
+            str(SCOPE["scope_plan_sha256"]).lower(),
+        ),
+        "credential_import_receipt": (
+            Path(str(SCOPE["credential_import_receipt_path"])).resolve(),
+            str(SCOPE["credential_import_receipt_sha256"]).lower(),
+        ),
+        "credential_reference_manifest": (
+            Path(str(SCOPE["credential_reference_manifest_path"])).resolve(),
+            str(SCOPE["credential_reference_manifest_sha256"]).lower(),
+        ),
+    }
+    output_names = (
+        "doctor_receipt_out",
+        "bootstrap_out",
+        "command_receipt_out",
+        "user_stream_journal_out",
+        "wrapper_execution_receipt_out",
+    )
+    outputs = {
+        name: Path(str(SCOPE[name])).resolve()
+        for name in output_names
+    }
+    all_paths = [path for path, _expected in inputs.values()] + list(outputs.values())
+    if len(all_paths) != len(set(all_paths)):
+        raise RuntimeError("fixed input/output paths are not distinct")
+    external_inputs = {
+        inputs["credential_import_receipt"][0],
+        inputs["credential_reference_manifest"][0],
+    }
+    for path in all_paths:
+        if path in external_inputs:
+            continue
+        if root != path and root not in path.parents:
+            raise RuntimeError("fixed path escapes the reviewed attempt root")
+    for path, expected in inputs.values():
+        if (
+            not path.is_file()
+            or SHA256_RE.fullmatch(expected) is None
+            or _sha256(path) != expected
+        ):
+            raise RuntimeError("fixed Stage 0 input is absent or hash-mismatched")
+    if any(
+        path.exists()
+        for name, path in outputs.items()
+        if not (doctor_may_exist and name == "doctor_receipt_out")
+    ):
+        raise RuntimeError("fixed Stage 0 output path already exists")
+
+
+def _assert_host_state() -> None:
+    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / (
+        "System32/WindowsPowerShell/v1.0/powershell.exe"
+    )
+    status_result = _run(
+        [
+            str(powershell),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(PRODUCTION / "scripts" / "ops" / "status.ps1"),
+            "-Json",
+        ],
+        allowed=(0, 2),
+    )
+    status = json.loads(status_result.stdout)
+    observed_flag_hashes = sorted(
+        hashlib.sha256(str(flag).encode("utf-8")).hexdigest()
+        for flag in status.get("flags") or []
+    )
+    if observed_flag_hashes != sorted(SCOPE["allowed_status_flag_sha256"]):
+        raise RuntimeError("production status flags differ from the reviewed set")
+    today = str((status.get("streak") or {}).get("today") or "")
+    if not (today.startswith("ON_TRACK") or today.startswith("CLEAN")):
+        raise RuntimeError("capture day is not healthy")
+    runtime = status.get("capture_runtime") or {}
+    if not CORE_WORKERS.issubset(runtime):
+        raise RuntimeError("core capture runtime status is incomplete")
+    if any(
+        runtime[name].get("parsed") is not True
+        or runtime[name].get("consecutive_errors") != 0
+        or runtime[name].get("last_error_present") is True
+        for name in CORE_WORKERS
+    ):
+        raise RuntimeError("core capture has an unclean current state")
+    tape = status.get("execution_tape") or {}
+    if not all(
+        (
+            tape.get("armed") is True,
+            tape.get("process_healthy") is True,
+            tape.get("capture_state") == "CONNECTED",
+            tape.get("evidence_integrity") == "PASS",
+            float(tape.get("heartbeat_age_seconds")) <= 15,
+        )
+    ):
+        raise RuntimeError("public execution capture is not healthy")
+    if (status.get("clock") or {}).get("synchronized") is not True:
+        raise RuntimeError("host clock is not synchronized")
+    if (status.get("resilience") or {}).get("reboot_pending") is True:
+        raise RuntimeError("host has a pending reboot")
+    lock_path = PRODUCTION / "data" / "logs" / "heavy_workload.lock"
+    try:
+        owner = json.loads(lock_path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("fixed-scope launcher lease record is unavailable") from exc
+    if not (
+        owner.get("workload") == SCOPE["expected_lease_workload"]
+        and int(owner.get("pid")) == os.getppid()
+    ):
+        raise RuntimeError("fixed-scope wrapper does not own the shared launcher lease")
+    HOST_ATTESTATIONS.append(
+        {
+            "checked_at_local": datetime.now().astimezone().isoformat(),
+            "status_json_sha256": hashlib.sha256(
+                status_result.stdout.encode("utf-8")
+            ).hexdigest(),
+            "status_flag_sha256": observed_flag_hashes,
+        }
+    )
+
+
+def _atomic_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _write_execution_receipt(status: str, exception_type: str | None = None) -> None:
+    path = Path(str(SCOPE["wrapper_execution_receipt_out"])).resolve()
+    root = Path(str(SCOPE["attempt_root"])).resolve()
+    if root != path and root not in path.parents:
+        return
+    if path.exists():
+        return
+    artifacts = {}
+    for name in (
+        "doctor_receipt_out",
+        "bootstrap_out",
+        "command_receipt_out",
+        "user_stream_journal_out",
+    ):
+        candidate = Path(str(SCOPE[name])).resolve()
+        if candidate.is_file():
+            artifacts[name] = {"path": str(candidate), "sha256": _sha256(candidate)}
+    command = None
+    command_path = Path(str(SCOPE["command_receipt_out"])).resolve()
+    if command_path.is_file():
+        try:
+            command = json.loads(command_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            command = None
+    _atomic_json(
+        path,
+        {
+            "schema_version": "international_live_fixed_scope_execution_v0.4",
+            "stage": "stage0",
+            "status": status,
+            "finished_at_local": datetime.now().astimezone().isoformat(),
+            "production_tip": SCOPE["expected_production_tip"],
+            "target_date": SCOPE["target_date"],
+            "condition_id": SCOPE["condition_id"],
+            "token_id": SCOPE["token_id"],
+            "requested_budget_pusd": float(SCOPE["requested_budget_pusd"]),
+            "wrapper": {
+                "path": str(Path(__file__).resolve()),
+                "sha256": _sha256(Path(__file__).resolve()),
+            },
+            "phase": EXECUTION_PHASE,
+            "confirmation_scope_display_sha256": CONFIRMATION_SCOPE_DISPLAY_SHA256,
+            "host_attestations": list(HOST_ATTESTATIONS),
+            "credential_values_read_in_memory": (
+                command.get("credential_values_read_in_memory", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "live_mutation_attempted": (
+                command.get("exchange_mutation_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "order_submit_attempted": (
+                command.get("order_submit_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "authenticated_exchange_write_attempted": (
+                command.get("authenticated_exchange_write_attempted", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "exception_type": exception_type,
+            "artifacts": artifacts,
+            "secret_values_redacted": True,
+        },
+    )
+
+
+def main() -> int:
+    global CONFIRMATION_SCOPE_DISPLAY_SHA256, EXECUTION_PHASE
+    if len(sys.argv) != 1:
+        raise RuntimeError("fixed-scope Stage 0 wrapper accepts no arguments")
+    _assert_sealed()
+    _assert_git_and_sources()
+    _assert_paths()
+    _assert_host_state()
+
+    EXECUTION_PHASE = "sdk_overlay_validation"
+    sys.path.insert(0, str(PRODUCTION / "src"))
+    from weather.market.live_sdk_overlay import activate_live_sdk_overlay
+
+    sdk_activation = activate_live_sdk_overlay(
+        SCOPE["sdk_overlay_manifest_path"],
+        SCOPE["sdk_overlay_manifest_sha256"],
+    )
+    from weather.market import mm_live_pilot_cli as live_cli
+    from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
+
+    expected_module = (PRODUCTION / "src/weather/market/mm_live_pilot_cli.py").resolve()
+    if Path(live_cli.__file__).resolve() != expected_module:
+        raise RuntimeError("live pilot module resolved outside the reviewed source")
+    load_stage1_candidate_gate(
+        SCOPE["scope_plan_path"],
+        SCOPE["target_date"],
+        expected_condition_id=SCOPE["condition_id"],
+        expected_token_id=SCOPE["token_id"],
+    )
+    doctor_args = SimpleNamespace(
+        command="doctor",
+        identity=SCOPE["identity_path"],
+        target_date=SCOPE["target_date"],
+        condition_id=SCOPE["condition_id"],
+        token_id=SCOPE["token_id"],
+        budget=SCOPE["requested_budget_pusd"],
+        receipt_out=SCOPE["doctor_receipt_out"],
+        sdk_overlay_activation=sdk_activation,
+        confirmation=live_cli.DOCTOR_CONFIRMATION,
+    )
+    doctor = live_cli.run_doctor(doctor_args)
+    if doctor.get("status") != "PASS" or doctor.get("missing"):
+        raise RuntimeError("fixed-scope keyless doctor did not pass")
+    EXECUTION_PHASE = "supervised_confirmation"
+    CONFIRMATION_SCOPE_DISPLAY_SHA256 = _display_confirmation_scope()
+    expected_confirmation = "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY"
+    if _prompt_until(expected_confirmation).strip() != expected_confirmation:
+        raise RuntimeError("supervised Stage 0 confirmation did not match")
+    _assert_precredential_reserve()
+    _assert_window_current()
+    _assert_git_and_sources()
+    _assert_paths(doctor_may_exist=True)
+    _assert_host_state()
+    load_stage1_candidate_gate(
+        SCOPE["scope_plan_path"],
+        SCOPE["target_date"],
+        expected_condition_id=SCOPE["condition_id"],
+        expected_token_id=SCOPE["token_id"],
+    )
+    EXECUTION_PHASE = "stage0_command"
+    credential_manifest = json.loads(
+        Path(SCOPE["credential_reference_manifest_path"]).read_text(
+            encoding="utf-8-sig"
+        )
+    )
+    args = SimpleNamespace(
+        identity=SCOPE["identity_path"],
+        target_date=SCOPE["target_date"],
+        condition_id=SCOPE["condition_id"],
+        token_id=SCOPE["token_id"],
+        budget=SCOPE["requested_budget_pusd"],
+        credential_resolution_deadline_utc=SCOPE["run_not_after_local"],
+        bootstrap_out=SCOPE["bootstrap_out"],
+        receipt_out=SCOPE["command_receipt_out"],
+        user_stream_journal=SCOPE["user_stream_journal_out"],
+        user_stream_ready_timeout_seconds=45.0,
+        confirmation=expected_confirmation,
+        expected_wallet_address=credential_manifest["wallet_address"],
+    )
+    receipt = live_cli.run_stage0(args)
+    if receipt.get("status") != "PASS" or (receipt.get("cleanup") or {}).get("ok") is not True:
+        raise RuntimeError("fixed-scope Stage 0 did not finish with proved cleanup")
+    EXECUTION_PHASE = "complete"
+    _write_execution_receipt("PASS")
+    print(json.dumps({"status": "PASS", "stage": "stage0"}, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        exit_code = main()
+    except BaseException as exc:
+        if _is_fully_sealed():
+            try:
+                _write_execution_receipt("FAIL", type(exc).__name__)
+            except BaseException:
+                pass
+        print(
+            json.dumps(
+                {
+                    "status": "FAIL",
+                    "stage": "stage0",
+                    "exception_type": type(exc).__name__,
+                    "secret_values_redacted": True,
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    raise SystemExit(exit_code)

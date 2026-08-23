@@ -9,7 +9,6 @@ import pytest
 from weather.market import mm_live_pilot_cli as cli
 from weather.market import mm_live_candidate_cli as candidate_cli
 from weather.market.mm_credentials import STAGE0_AUTHORIZATION
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
 from weather.market.mm_live_lifecycle_probe import CONFIRMATION as STAGE1_CONFIRMATION
 
 
@@ -107,6 +106,13 @@ def context(tmp_path, name="context-stream.jsonl"):
         client=FakeClient(),
         user_stream=stream,
         adapter=adapter,
+        credential_topology={
+            "manifest_wallet_address": ADDRESS,
+            "derived_signer_matches_manifest": True,
+            "api_owner_matches_manifest": True,
+            "order_signer_matches_manifest": True,
+            "funder_matches_identity": True,
+        },
     )
 
 
@@ -119,7 +125,9 @@ def args(tmp_path, command):
         "target_date": "2026-08-14",
         "condition_id": CONDITION_ID,
         "token_id": TOKEN_ID,
-        "budget": 100.0,
+        "budget": 10.0,
+        "expected_wallet_address": ADDRESS,
+        "credential_resolution_deadline_utc": "2099-01-01T00:00:00+00:00",
         "user_stream_journal": str(tmp_path / f"{command}-stream.jsonl"),
         "receipt_out": str(tmp_path / f"{command}-receipt.json"),
         "user_stream_ready_timeout_seconds": 5.0,
@@ -211,6 +219,7 @@ def args(tmp_path, command):
             bootstrap=str(bootstrap),
             candidate_plan=str(candidate),
             cancellation_mode="cancel_all",
+            submit_deadline_utc=(current + timedelta(minutes=2)).isoformat(),
             lifecycle_journal=str(tmp_path / "lifecycle.jsonl"),
             result_out=str(tmp_path / "stage1-result.json"),
         )
@@ -223,12 +232,11 @@ def prepare_args(tmp_path):
         funder_address=ADDRESS,
         wallet_type="deposit_wallet",
         signature_type="POLY_1271",
-        budget=100.0,
+        budget=10.0,
+        wallet_cap=100.0,
         identity_out=str(tmp_path / "identity-prepared.json"),
         receipt_out=str(tmp_path / "identity-receipt.json"),
         confirm_international_platform=True,
-        confirm_physical_location_match=True,
-        confirm_no_circumvention=True,
         confirm_isolated_wallet=True,
         confirmation=cli.IDENTITY_CONFIRMATION,
     )
@@ -241,7 +249,7 @@ def doctor_args(tmp_path, identity_path):
         target_date="2026-08-14",
         condition_id=CONDITION_ID,
         token_id=TOKEN_ID,
-        budget=100.0,
+        budget=10.0,
         receipt_out=str(tmp_path / "doctor-receipt.json"),
         confirmation=cli.DOCTOR_CONFIRMATION,
     )
@@ -257,66 +265,32 @@ def credential_reference_env():
     }
 
 
-def geoblock_evidence(*, blocked=False):
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps(
-                {
-                    "blocked": blocked,
-                    "country": "CH",
-                    "region": "ZH",
-                    "ip": "203.0.113.9",
-                }
-            ).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-    )
-
-
-def test_prepare_identity_fetches_ip_redacted_evidence_and_derives_signature_id(tmp_path):
+def test_prepare_identity_derives_signature_id(tmp_path):
     command_args = prepare_args(tmp_path)
 
-    receipt = cli.run_prepare_identity(
-        command_args,
-        geoblock_collector=geoblock_evidence,
-    )
+    receipt = cli.run_prepare_identity(command_args)
 
     assert receipt["status"] == "PASS"
     identity = json.loads(Path(command_args.identity_out).read_text(encoding="utf-8"))
-    raw = Path(command_args.identity_out).read_text(encoding="utf-8")
     assert identity["platform"] == "polymarket_global"
     assert identity["settlement_unit"] == "pUSD"
     assert identity["signature_type"] == "POLY_1271"
     assert identity["signature_type_id"] == 3
-    assert identity["geographic_eligibility"]["blocked"] is False
-    assert identity["geographic_eligibility"]["requesting_ip_retained"] is False
-    assert "203.0.113.9" not in raw
+    assert identity["pilot_wallet_max_funding_usdc"] == 100.0
+    assert receipt["requested_budget_pusd"] == 10.0
     assert receipt["cleanup"]["reason"] == "read_only_command_no_exchange_authentication"
 
 
-def test_prepare_identity_writes_fail_receipt_but_no_manifest_when_location_blocked(tmp_path):
+def test_prepare_identity_keeps_requested_budget_below_independent_wallet_cap(tmp_path):
     command_args = prepare_args(tmp_path)
+    command_args.budget = 100.0
+    command_args.wallet_cap = 10.0
 
-    with pytest.raises(RuntimeError, match="did not pass"):
-        cli.run_prepare_identity(
-            command_args,
-            geoblock_collector=lambda: geoblock_evidence(blocked=True),
-        )
+    with pytest.raises(RuntimeError, match="10 pUSD.*100 pUSD"):
+        cli.run_prepare_identity(command_args)
 
     assert not Path(command_args.identity_out).exists()
-    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
-    assert receipt["status"] == "FAIL"
-    assert receipt["geographic_eligibility"]["blocked"] is True
-    assert "physical_geo_eligibility" in receipt["missing"]
-
-
+    assert not Path(command_args.receipt_out).exists()
 @pytest.mark.parametrize(
     ("wallet_type", "signature_type", "missing_check"),
     [
@@ -336,7 +310,7 @@ def test_prepare_identity_rejects_non_deposit_wallet_topology(
     command_args.signature_type = signature_type
 
     with pytest.raises(RuntimeError, match="did not pass"):
-        cli.run_prepare_identity(command_args, geoblock_collector=geoblock_evidence)
+        cli.run_prepare_identity(command_args)
 
     receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
     assert receipt["status"] == "FAIL"
@@ -349,10 +323,7 @@ def test_prepare_identity_accepts_existing_gnosis_safe_topology(tmp_path):
     command_args.wallet_type = "gnosis_safe"
     command_args.signature_type = "POLY_GNOSIS_SAFE"
 
-    receipt = cli.run_prepare_identity(
-        command_args,
-        geoblock_collector=geoblock_evidence,
-    )
+    receipt = cli.run_prepare_identity(command_args)
 
     identity = json.loads(Path(command_args.identity_out).read_text(encoding="utf-8"))
     assert receipt["status"] == "PASS"
@@ -361,27 +332,20 @@ def test_prepare_identity_accepts_existing_gnosis_safe_topology(tmp_path):
     assert identity["signature_type_id"] == 2
 
 
-def test_prepare_identity_wrong_confirmation_does_not_fetch_geoblock(tmp_path):
+def test_prepare_identity_wrong_confirmation_writes_nothing(tmp_path):
     command_args = prepare_args(tmp_path)
     command_args.confirmation = "yes"
-    called = False
-
-    def collect():
-        nonlocal called
-        called = True
-        return geoblock_evidence()
 
     with pytest.raises(RuntimeError, match="exact confirmation"):
-        cli.run_prepare_identity(command_args, geoblock_collector=collect)
+        cli.run_prepare_identity(command_args)
 
-    assert called is False
     assert not Path(command_args.identity_out).exists()
     assert not Path(command_args.receipt_out).exists()
 
 
 def test_keyless_doctor_passes_without_resolving_credential_targets(tmp_path):
     prepare = prepare_args(tmp_path)
-    cli.run_prepare_identity(prepare, geoblock_collector=geoblock_evidence)
+    cli.run_prepare_identity(prepare)
     command_args = doctor_args(tmp_path, prepare.identity_out)
     env = credential_reference_env()
 
@@ -402,7 +366,7 @@ def test_keyless_doctor_passes_without_resolving_credential_targets(tmp_path):
 
 def test_keyless_doctor_names_missing_sdk_and_reference_without_reading_secrets(tmp_path):
     prepare = prepare_args(tmp_path)
-    cli.run_prepare_identity(prepare, geoblock_collector=geoblock_evidence)
+    cli.run_prepare_identity(prepare)
     command_args = doctor_args(tmp_path, prepare.identity_out)
     env = credential_reference_env()
     del env["POLYMARKET_API_SECRET_STORAGE_REF"]
@@ -434,7 +398,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
         context_builder=lambda *_args, **_kwargs: live_context,
         stream_waiter=lambda stream, **_kwargs: stream.start(),
         bootstrap_collector=lambda _adapter, stream, *_args, **_kwargs: {
-            "schema_version": "mm_platform_bootstrap_v0.2",
+            "schema_version": "mm_platform_bootstrap_v0.3",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -448,6 +412,11 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     saved_receipt = json.loads(open(command_args.receipt_out, encoding="utf-8").read())
     assert saved_receipt["cleanup"]["zero_open_orders_verified"] is True
     assert saved_receipt["cleanup"]["zero_positions_verified"] is True
+    assert saved_receipt["credential_resolution_attempted"] is True
+    assert saved_receipt["credential_values_read_in_memory"] is True
+    assert saved_receipt["exchange_mutation_attempted"] is True
+    assert saved_receipt["authenticated_exchange_write_attempted"] is True
+    assert saved_receipt["order_submit_attempted"] is False
     final_sha256 = hashlib.sha256(live_context.user_stream.journal_path.read_bytes()).hexdigest()
     assert saved_receipt["cleanup"]["user_stream_journal_sha256"] == final_sha256
     assert saved_receipt["secret_values_redacted"] is True
@@ -456,6 +425,35 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_bootstrap["user_stream"]["transport_stopped_cleanly_after_collection"] is True
     assert saved_bootstrap["user_stream"]["journal_sha256_at_collection"] != final_sha256
     assert saved_bootstrap["user_stream"]["journal_sha256"] == final_sha256
+
+
+def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def interrupt_after_authentication(*_args, **_kwargs):
+        raise KeyboardInterrupt("RAW-STAGE0-INTERRUPT-TEXT")
+
+    with pytest.raises(KeyboardInterrupt, match="RAW-STAGE0-INTERRUPT-TEXT"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=interrupt_after_authentication,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["status"] == "FAIL"
+    assert receipt["exception_type"] == "KeyboardInterrupt"
+    assert receipt["cleanup"]["ok"] is True
+    assert "RAW-STAGE0-INTERRUPT-TEXT" not in raw
+    assert live_context.adapter.cancel_calls == 1
+    assert live_context.user_stream.stopped is True
+    assert live_context.client.closed is True
+    assert not Path(command_args.bootstrap_out).exists()
 
 
 def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_path):
@@ -467,7 +465,7 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
         seen.update(gate=gate, kwargs=kwargs)
         kwargs["journal_path"].write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
         return {
-            "schema_version": "mm_live_lifecycle_probe_v0.1",
+            "schema_version": "mm_live_lifecycle_probe_v0.2",
             "status": "PASS",
             "secret_values_redacted": True,
         }
@@ -486,6 +484,7 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
     assert receipt["status"] == "PASS"
     assert seen["kwargs"]["confirmation"] == STAGE1_CONFIRMATION
     assert seen["kwargs"]["cancellation_mode"] == "cancel_all"
+    assert seen["kwargs"]["submit_deadline_utc"] == command_args.submit_deadline_utc
     assert live_context.adapter.cancel_calls == 1
     assert live_context.user_stream.stopped
     saved_result = json.loads(open(command_args.result_out, encoding="utf-8").read())
@@ -494,6 +493,8 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
     assert saved_result["paper_run_config_sha256"] == "d" * 64
     assert saved_result["paper_quote_intents_sha256"] == "e" * 64
     assert saved_result["paper_quote_row_sha256"] == "f" * 64
+    saved_receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert saved_receipt["credential_values_read_in_memory"] is True
 
 
 def test_stage1_failure_receipt_never_serializes_raw_exception_text(tmp_path):
@@ -517,6 +518,81 @@ def test_stage1_failure_receipt_never_serializes_raw_exception_text(tmp_path):
     assert receipt["exception_type"] == "RuntimeError"
     assert "TOP-SECRET-SDK-TEXT" not in raw
     assert live_context.adapter.cancel_calls == 1
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["exchange_mutation_attempted"] is True
+    assert receipt["order_submit_attempted"] is False
+
+
+def test_stage1_failure_after_submit_start_records_order_attempt(tmp_path):
+    command_args = args(tmp_path, "stage1")
+    live_context = context(tmp_path)
+
+    def fail_after_submit(*_args, journal_path, **_kwargs):
+        Path(journal_path).write_text(
+            '{"event_type":"submit_started"}\n', encoding="utf-8"
+        )
+        raise RuntimeError("post-submit failure")
+
+    with pytest.raises(RuntimeError, match="post-submit failure"):
+        cli.run_stage1(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
+            lifecycle_executor=fail_after_submit,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text())
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["order_submit_attempted"] is True
+
+
+def test_stage1_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage1")
+    live_context = context(tmp_path)
+
+    def interrupt_after_context(*_args, **_kwargs):
+        raise KeyboardInterrupt("RAW-STAGE1-INTERRUPT-TEXT")
+
+    with pytest.raises(KeyboardInterrupt, match="RAW-STAGE1-INTERRUPT-TEXT"):
+        cli.run_stage1(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
+            lifecycle_executor=interrupt_after_context,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["status"] == "FAIL"
+    assert receipt["exception_type"] == "KeyboardInterrupt"
+    assert receipt["cleanup"]["ok"] is True
+    assert "RAW-STAGE1-INTERRUPT-TEXT" not in raw
+    assert live_context.adapter.cancel_calls == 1
+    assert live_context.user_stream.stopped is True
+    assert live_context.client.closed is True
+    assert not Path(command_args.result_out).exists()
+
+
+def test_cleanup_context_continues_after_interrupting_cancel_all(tmp_path):
+    live_context = context(tmp_path)
+    live_context.user_stream.start()
+
+    def interrupting_cancel_all():
+        raise KeyboardInterrupt("RAW-CLEANUP-INTERRUPT-TEXT")
+
+    live_context.adapter.cancel_all = interrupting_cancel_all
+    outcome = cli._cleanup_context(live_context)
+
+    assert outcome["ok"] is False
+    assert outcome["exception_type"] == "KeyboardInterrupt"
+    assert outcome["user_stream_stopped"] is True
+    assert outcome["client_closed"] is True
+    assert live_context.user_stream.stopped is True
+    assert live_context.client.closed is True
 
 
 def test_stage1_rejects_candidate_gate_before_credentials_or_mutation(tmp_path):
@@ -569,7 +645,7 @@ def test_stage1_result_write_failure_still_emits_fail_receipt(
             stream_waiter=lambda stream, **_kwargs: stream.start(),
             bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
             lifecycle_executor=lambda *_args, **_kwargs: {
-                "schema_version": "mm_live_lifecycle_probe_v0.1",
+                "schema_version": "mm_live_lifecycle_probe_v0.2",
                 "status": "PASS",
                 "secret_values_redacted": True,
             },
@@ -585,32 +661,285 @@ def test_stage1_result_write_failure_still_emits_fail_receipt(
 
 def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_path):
     command_args = args(tmp_path, "stage1")
-    cancel_result = tmp_path / "cancel-result.json"
-    dead_result = tmp_path / "dead-result.json"
-    cancel_result.write_text(json.dumps({"mode": "cancel_all"}), encoding="utf-8")
-    dead_result.write_text(json.dumps({"mode": "dead_man"}), encoding="utf-8")
+    attempt = tmp_path / "attempt"
+    attempt.mkdir()
+    cancel_result = attempt / "stage1-cancel-all/result.json"
+    dead_result = attempt / "stage1-dead-man/result.json"
+    cancel_result.parent.mkdir(parents=True)
+    dead_result.parent.mkdir(parents=True)
+    command_args.expected_production_tip = "a" * 40
     command_args.command = "bundle"
     command_args.confirmation = cli.BUNDLE_CONFIRMATION
     command_args.cancel_all_result = str(cancel_result)
     command_args.dead_man_result = str(dead_result)
     command_args.bundle_out = str(tmp_path / "bundle.json")
     command_args.receipt_out = str(tmp_path / "bundle-receipt.json")
+    def add_lineage(mode, result_path):
+        stage = "stage1_cancel_all" if mode == "cancel_all" else "stage1_dead_man"
+        prefix = "cancel_all" if mode == "cancel_all" else "dead_man"
+        stage_folder = "stage1-cancel-all" if mode == "cancel_all" else "stage1-dead-man"
+        wrapper = attempt / "wrappers" / f"{stage_folder}.py"
+        wrapper.parent.mkdir(parents=True, exist_ok=True)
+        wrapper.write_text("# sealed wrapper\n", encoding="utf-8")
+        launcher = attempt / "wrappers" / f"{stage_folder}.ps1"
+        launcher.write_text("# sealed launcher\n", encoding="utf-8")
+        journal = attempt / stage_folder / "lifecycle.jsonl"
+        journal.write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
+        result_path.write_text(
+            json.dumps(
+                {
+                    "mode": mode,
+                    "status": "PASS",
+                    "cancellation_mode": mode,
+                    "journal_path": str(journal.resolve()),
+                    "candidate_plan_sha256": "c" * 64,
+                }
+            ),
+            encoding="utf-8",
+        )
+        seal_path = attempt / "seal" / f"{stage_folder}-seal-receipt.json"
+        seal_path.parent.mkdir(parents=True, exist_ok=True)
+        seal_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "international_live_fixed_scope_seal_v0.3",
+                    "status": "PASS",
+                    "stage": stage,
+                    "production": {"commit": command_args.expected_production_tip},
+                    "scope": {
+                        "target_date": command_args.target_date,
+                        "condition_id": command_args.condition_id,
+                        "token_id": command_args.token_id,
+                        "requested_budget_pusd": command_args.budget,
+                        "cancellation_mode": mode,
+                        "attempt_root": str(attempt.resolve()),
+                    },
+                    "wrapper": {
+                        "path": str(wrapper.resolve()),
+                        "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+                    },
+                    "launcher": {
+                        "path": str(launcher.resolve()),
+                        "sha256": hashlib.sha256(launcher.read_bytes()).hexdigest(),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        command_path = attempt / stage_folder / "command-receipt.json"
+        stream = attempt / stage_folder / "user-stream.jsonl"
+        stream.write_text('{"event_type":"stream_stopped"}\n', encoding="utf-8")
+        command_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": cli.RECEIPT_SCHEMA_VERSION,
+                    "status": "PASS",
+                    "command": "stage1",
+                    "target_date": command_args.target_date,
+                    "condition_id": command_args.condition_id,
+                    "token_id": command_args.token_id,
+                    "requested_budget_pusd": command_args.budget,
+                    "cancellation_mode": mode,
+                    "exchange_mutation_attempted": True,
+                    "order_submit_attempted": True,
+                    "authenticated_exchange_write_attempted": True,
+                    "credential_topology": {
+                        "manifest_wallet_address": ADDRESS,
+                        "derived_signer_matches_manifest": True,
+                        "api_owner_matches_manifest": True,
+                        "order_signer_matches_manifest": True,
+                        "funder_matches_identity": True,
+                    },
+                    "cleanup": {"ok": True},
+                    "exception_type": None,
+                    "paths": {
+                        "result": str(result_path.resolve()),
+                        "receipt": str(command_path.resolve()),
+                        "user_stream_journal": str(stream.resolve()),
+                        "lifecycle_journal": str(journal.resolve()),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        execution_path = attempt / stage_folder / "wrapper-execution-receipt.json"
+        execution_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "international_live_fixed_scope_execution_v0.4",
+                    "status": "PASS",
+                    "stage": stage,
+                    "phase": "complete",
+                    "production_tip": command_args.expected_production_tip,
+                    "target_date": command_args.target_date,
+                    "condition_id": command_args.condition_id,
+                    "token_id": command_args.token_id,
+                    "requested_budget_pusd": command_args.budget,
+                    "cancellation_mode": mode,
+                    "exception_type": None,
+                    "credential_values_read_in_memory": True,
+                    "live_mutation_attempted": True,
+                    "order_submit_attempted": True,
+                    "authenticated_exchange_write_attempted": True,
+                    "wrapper": {
+                        "path": str(wrapper.resolve()),
+                        "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+                    },
+                    "artifacts": {
+                        "result_out": {
+                            "path": str(result_path.resolve()),
+                            "sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
+                        },
+                        "command_receipt_out": {
+                            "path": str(command_path.resolve()),
+                            "sha256": hashlib.sha256(command_path.read_bytes()).hexdigest(),
+                        },
+                        "lifecycle_journal_out": {
+                            "path": str(journal.resolve()),
+                            "sha256": hashlib.sha256(journal.read_bytes()).hexdigest(),
+                        },
+                        "user_stream_journal_out": {
+                            "path": str(stream.resolve()),
+                            "sha256": hashlib.sha256(stream.read_bytes()).hexdigest(),
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        lineage_records = {}
+        lineage_paths = {
+            "session_manifest": attempt / "inputs" / f"{stage}-session-manifest.json",
+            "composition_receipt": attempt / "session" / f"{stage}-composition-receipt.json",
+            "run_intent": attempt / "session" / f"{stage}-run-intent.json",
+        }
+        for role, lineage_path in lineage_paths.items():
+            lineage_path.parent.mkdir(parents=True, exist_ok=True)
+            lineage_path.write_text(json.dumps({"status": "PASS"}), encoding="utf-8")
+            lineage_records[role] = {
+                "path": str(lineage_path.resolve()),
+                "sha256": hashlib.sha256(lineage_path.read_bytes()).hexdigest(),
+            }
+        manifest_sidecar = lineage_paths["session_manifest"].with_suffix(
+            lineage_paths["session_manifest"].suffix + ".sha256"
+        )
+        manifest_sidecar.write_text(
+            f"{lineage_records['session_manifest']['sha256']}  "
+            f"{lineage_paths['session_manifest'].name}\n",
+            encoding="ascii",
+        )
+        lineage_records["session_manifest"].update(
+            {
+                "sidecar_path": str(manifest_sidecar.resolve()),
+                "sidecar_sha256": hashlib.sha256(
+                    manifest_sidecar.read_bytes()
+                ).hexdigest(),
+            }
+        )
+        run_path = attempt / "session" / f"{stage}-run-receipt.json"
+        run_payload = {
+            "schema_version": "international_live_session_run_v0.3",
+            "status": "PASS",
+            "stage": stage,
+            "live_mutation_attempted": True,
+            "order_submit_attempted": True,
+            "authenticated_exchange_write_attempted": True,
+            "credential_topology": {
+                "manifest_wallet_address": ADDRESS,
+                "derived_signer_matches_manifest": True,
+                "api_owner_matches_manifest": True,
+                "order_signer_matches_manifest": True,
+                "funder_matches_identity": True,
+            },
+            "credential_values_read_in_memory": True,
+            "candidate_sha256": "c" * 64,
+            "launcher": {
+                "path": str(launcher.resolve()),
+                "sha256": hashlib.sha256(launcher.read_bytes()).hexdigest(),
+            },
+            "wrapper": {
+                "path": str(wrapper.resolve()),
+                "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+            },
+            "child_execution": {
+                "validation": "PASS",
+                "status": "PASS",
+                "phase": "complete",
+                "path": str(execution_path.resolve()),
+                "sha256": hashlib.sha256(execution_path.read_bytes()).hexdigest(),
+            },
+            "seal_receipt": {
+                "path": str(seal_path.resolve()),
+                "sha256": hashlib.sha256(seal_path.read_bytes()).hexdigest(),
+            },
+            **lineage_records,
+        }
+        run_path.write_text(json.dumps(run_payload), encoding="utf-8")
+        run_path.with_suffix(run_path.suffix + ".sha256").write_text(
+            f"{hashlib.sha256(run_path.read_bytes()).hexdigest()}  {run_path.name}\n",
+            encoding="ascii",
+        )
+        setattr(command_args, f"{prefix}_seal_receipt", str(seal_path))
+        setattr(command_args, f"{prefix}_command_receipt", str(command_path))
+        setattr(command_args, f"{prefix}_execution_receipt", str(execution_path))
+        setattr(command_args, f"{prefix}_run_receipt", str(run_path))
+
+    add_lineage("cancel_all", cancel_result)
+    add_lineage("dead_man", dead_result)
+    cancel_command = Path(command_args.cancel_all_command_receipt)
+    original_command = cancel_command.read_bytes()
+    cancel_command.write_bytes(original_command + b"\n")
+    with pytest.raises(RuntimeError, match="lineage failed"):
+        cli._validate_stage1_bundle_lineage(
+            command_args, "cancel_all", cancel_result
+        )
+    cancel_command.write_bytes(original_command)
+    original_dead_execution = command_args.dead_man_execution_receipt
+    command_args.dead_man_execution_receipt = str(tmp_path / "missing-execution.json")
+    with pytest.raises(RuntimeError, match="cannot read required JSON"):
+        cli._validate_stage1_bundle_lineage(command_args, "dead_man", dead_result)
+    command_args.dead_man_execution_receipt = original_dead_execution
+    cancel_run = Path(command_args.cancel_all_run_receipt)
+    original_run = cancel_run.read_bytes()
+    original_run_sidecar = cancel_run.with_suffix(
+        cancel_run.suffix + ".sha256"
+    ).read_bytes()
+    partial_run = json.loads(original_run)
+    partial_run["child_execution"]["status"] = "UNKNOWN"
+    cancel_run.write_text(json.dumps(partial_run), encoding="utf-8")
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_text(
+        f"{hashlib.sha256(cancel_run.read_bytes()).hexdigest()}  {cancel_run.name}\n",
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeError, match="lineage failed"):
+        cli._validate_stage1_bundle_lineage(
+            command_args, "cancel_all", cancel_result
+        )
+    cancel_run.write_bytes(original_run)
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_bytes(
+        original_run_sidecar
+    )
     seen = {}
 
     def builder(gate, cancel_all, dead_man):
         seen.update(gate=gate, cancel_all=cancel_all, dead_man=dead_man)
         return {
-            "schema_version": "mm_stage1_lifecycle_bundle_v0.1",
+            "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
             "status": "PASS",
         }
 
     receipt = cli.run_bundle(
         command_args,
-        bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
+        bootstrap_loader=lambda *_args, **_kwargs: {
+            "ok": True,
+            "requested_budget_usdc": 10.0,
+            "pilot_wallet_max_funding_usdc": 100.0,
+        },
         bundle_builder=builder,
     )
 
     assert receipt["status"] == "PASS"
+    assert set(receipt["stage1_lineage"]) == {"cancel_all", "dead_man"}
     assert seen["cancel_all"]["mode"] == "cancel_all"
     assert seen["dead_man"]["mode"] == "dead_man"
     assert json.loads(open(command_args.bundle_out, encoding="utf-8").read())["status"] == "PASS"
@@ -702,12 +1031,13 @@ def test_context_wires_only_in_memory_secrets_and_exact_readers(tmp_path):
         return {"token_id": token}
 
     result = cli.build_live_pilot_context(
-        {"identity": "public"},
+        {"identity": "public", "funder_address": ADDRESS},
         token_id=TOKEN_ID,
         condition_id=CONDITION_ID,
         user_stream_journal=tmp_path / "stream.jsonl",
+        expected_wallet_address=client.signer,
         credential_loader=lambda _env: Credentials(),
-        client_builder=lambda credentials, identity: client,
+        client_builder=lambda credentials, identity, **_kwargs: client,
         user_stream_factory=StreamFactory,
         adapter_factory=AdapterFactory,
         position_fetcher=position_fetcher,
@@ -750,12 +1080,13 @@ def test_context_closes_the_unified_client_when_wiring_fails(tmp_path):
     client = Client()
     with pytest.raises(RuntimeError, match="authoritative reader boundary"):
         cli.build_live_pilot_context(
-            {"identity": "public"},
+            {"identity": "public", "funder_address": ADDRESS},
             token_id=TOKEN_ID,
             condition_id=CONDITION_ID,
             user_stream_journal=tmp_path / "failed-stream.jsonl",
+            expected_wallet_address=client.signer,
             credential_loader=lambda _env: Credentials(),
-            client_builder=lambda credentials, identity: client,
+            client_builder=lambda credentials, identity, **_kwargs: client,
             user_stream_factory=lambda **kwargs: FakeStream(kwargs["journal_path"]),
             adapter_factory=Adapter,
             heartbeat_sender_factory=lambda **_kwargs: object(),

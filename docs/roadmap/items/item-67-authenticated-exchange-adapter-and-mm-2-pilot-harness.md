@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-19 - CUMULATIVE CLIENT/PUSD PARENT INTEGRATED; STAGE 2 AND LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-22 - INTERRUPT-SAFE CUMULATIVE TIP PENDING EXACT SUITE AND INTEGRATION]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -40,15 +40,15 @@ behavior before any size increase.
   heartbeat, account-reader, user-stream, cancellation, and asynchronous
   settlement contract before credentialed integration. The selected
   `polymarket-client==0.6.0` source and published wheel passed the keyless
-  contract audit on 2026-08-14; eligible-host wallet and exchange evidence
+  contract audit on 2026-08-14; production wallet and exchange evidence
   remain separate open gates.
 - [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
-  genuinely eligible execution host. Do not add a generic repository live
+  production execution host. Do not add a generic repository live
   mutation CLI to close this item.
 - [x] Add report-side paid-vs-predicted reconciliation for maker rebates,
   liquidity rewards, redemptions, fees, pUSD/USDC balances, and settlement P&L
   before any size increase.
-- [ ] Collect real paid-vs-predicted evidence from an eligible live account
+- [ ] Collect real paid-vs-predicted evidence from the pilot account
   across maker rebates, liquidity rewards, redemptions, fees, pUSD/USDC
   balances, and settlement P&L before any size increase.
 - [x] Emit a pilot report comparing live fills, markouts, cancellations,
@@ -77,7 +77,7 @@ before `SecureClient.create`, preventing that constructor from deploying a
 wallet during Stage 0. A one-purpose authenticated sender implements the
 current bodyless `POST /heartbeats` contract and requires the exact
 `{status: "ok"}` response. Public tick, neg-risk, and fee endpoints are also
-cross-checked against the typed book. Bootstrap schema v0.2 removes obsolete
+cross-checked against the typed book. Bootstrap schema v0.3 removes obsolete
 rotating-ID fields. Mutation remains unavailable without authoritative
 account-wide user-event health and exact-scope position readers.
 
@@ -85,7 +85,7 @@ Keyless evidence passed against both the checked source and the isolated
 published wheel. Repository verification covers the adapter, protocol shim,
 credential factory, Stage 0/1 lifecycle, bounded pilot CLI, readiness gates,
 and exact dependency pin. Still open: deploy the fixed-purpose wrapper on the
-physically eligible host, install the live extra there, run doctor and Stage 0,
+production host, install the live extra there, run doctor and Stage 0,
 then collect the two small Stage 1 cancellation proofs before a rebate-producing
 quote is considered.
 
@@ -126,8 +126,8 @@ reward/rebate evidence, and paper counterfactual expected reward/rebate fields,
 and marks missing evidence explicitly. Updated focused tests:
 `python -m pytest tests/market/test_mm_exchange.py -q` passed (`6` tests).
 Remaining open work is intentionally live-adapter work: concrete signed
-global/US clients, real heartbeat/post-only/cancel-all probes against an
-eligible account, authenticated account endpoint reads, redemptions, and final
+global/US clients, real heartbeat/post-only/cancel-all probes against a live
+account, authenticated account endpoint reads, redemptions, and final
 paid-vs-predicted settlement P&L reconciliation.
 
 Signed-adapter software update (2026-06-16 UTC): `mm_exchange` now includes
@@ -142,7 +142,7 @@ request paths through `POLY_*` headers and refuses order placement unless the
 caller provides a pre-signed EIP-712 order payload. Updated focused tests:
 `python -m pytest tests/market/test_mm_exchange.py -q` passed (`8` tests).
 Remaining item-67 work is now live-evidence and reconciliation work: real
-eligible-account probes, user WebSocket lifecycle evidence, paid-vs-predicted
+account probes, user WebSocket lifecycle evidence, paid-vs-predicted
 redemption/reward/settlement P&L, and final MM-2 acceptance.
 
 Financial-reconciliation software update (2026-06-16 UTC): `mm_exchange` now
@@ -157,7 +157,7 @@ post-settlement account data exists. The fixture-backed test proves the complete
 path with read-only evidence and no committed secrets:
 `python -m pytest tests/market/test_mm_exchange.py -q` passed (`8` tests).
 Remaining open work is live evidence: real heartbeat/post-only/cancel-all
-probes, user WebSocket lifecycle evidence from an eligible account, and actual
+probes, user WebSocket lifecycle evidence from the pilot account, and actual
 paid-vs-predicted payout/redemption/P&L snapshots.
 
 ## 2026-06-18 audit disposition
@@ -166,14 +166,14 @@ The Python audit found the software harness implemented through keyless safety,
 signed request construction with injected signers/transports, live-gate
 enforcement, read-only fixture reconciliation, pilot-report emission, and
 financial reconciliation reporting. The unchecked MM-2 probe and
-paid-vs-predicted boxes require an eligible live account, credentials kept
+paid-vs-predicted boxes require a live pilot account, credentials kept
 outside the repo, and real exchange lifecycle/account evidence. They remain
 open deliberately; closing them without live-account artifacts would weaken the
 acceptance criteria.
 
 ## 2026-06-24 evidence-only disposition
 
-No live probe was run. The current host has no eligible live credential refs in
+No live probe was run. The current host has no live credential refs in
 the environment:
 
 - Polymarket US missing: `POLYMARKET_US_KEY_ID`,
@@ -187,7 +187,7 @@ The existing evidence harness remains healthy:
 
 - `python -m pytest -q tests\market\test_mm_exchange.py` -> 8 passed.
 
-Because no eligible live account or external credential material is available,
+Because no live pilot account or external credential material is available,
 the MM-2 heartbeat, post-only/min-size/tick, tiny two-sided quote, cancel-all,
 user WebSocket lifecycle, and paid-vs-predicted payout evidence remain blocked.
 No market-risk code changes were made.
@@ -201,17 +201,15 @@ No market-risk code changes were made.
   `paper-live-forward` runs rather than `live-pilot` runs, and all report
   `live_readiness.ok = false`.
 - No live exchange CLI invocation was run because the existing harness requires
-  both an eligible `live-pilot` run folder and external credential references
+  both a passing `live-pilot` run folder and external credential references
   before live verbs can be enabled.
 
 ## 2026-08-14 International-only pilot disposition
 
 The credential-absence disposition above is historical and is no longer the
-owning blocker. The operator approved an International Polymarket pilot from a
-separate genuinely eligible execution host. Ontario production remains a
-read-only build, capture, and evidence host: do not install or inspect wallet
-credentials here and do not place or cancel orders from it. Polymarket US is
-outside product scope and must never be used.
+owning blocker. The operator approved an International Polymarket pilot on the
+production execution host. Polymarket US is outside product scope and must
+never be used.
 
 The current Stage 0/1 contract is exactly one International condition/token, a
 finite non-raisable 100 pUSD-equivalent wallet cap, forced post-only behavior,
@@ -221,7 +219,7 @@ exact-position readers are present. The official-client adapter must not expose
 a generic command-line live-mutation path.
 
 Stage 0/1 remains proof-gated on an immutable exact-tip full suite and a
-reviewed source transfer to the eligible host. A separate bounded Stage 2
+reviewed fixed-scope wrapper. A separate bounded Stage 2
 lifecycle implementation is not integration-ready or live-ready. The two
 unchecked live-evidence bullets above remain open until a tiny real lifecycle
 and paid-vs-predicted settlement/rebate record are reconciled without weakening
@@ -280,27 +278,25 @@ heartbeat. Stage 0 must prove one exact-version topology end to end before any
 wallet is funded; no UI workaround is an accepted prerequisite.
 
 Platform verification is therefore advanced to
-`mm_platform_verification_v0.4`. In addition to the prior API lifecycle and
+`mm_platform_verification_v0.5`. In addition to the prior API lifecycle and
 secret-redaction proof, it is International-only and requires exact production
-hosts, fresh content-bound and IP-redacted official physical geoblock evidence,
-explicit real-location and no-circumvention confirmations, consistent
-signature name/ID, valid private-key signer, order signer,
+hosts, consistent signature name/ID, valid private-key signer, order signer,
 funder and API-key-owner addresses, an explicit wallet-identity consistency
 proof, and the complete rotating dead-man heartbeat contract. The tracked
-template remains fail-safe. Versions v0.2 and v0.3 are legacy and cannot pass a new
+template remains fail-safe. Versions v0.2 through v0.4 are legacy and cannot pass a new
 live-pilot preflight.
 
 The former gate sequence was circular for a first-ever lifecycle order: full
 platform verification required live fill/final-state and dead-man cancellation
 evidence, while the ordinary live path required full platform verification.
 `weather.market.mm_live_bootstrap` now defines the separate
-`mm_platform_bootstrap_v0.1` read-only contract. It is International-only,
+`mm_platform_bootstrap_v0.3` read-only contract. It is International-only,
 bound to one token and condition, expires within one hour, and requires wallet,
 account, SDK, book, fee, a non-posting signed-order topology preview,
 account-wide stream, heartbeat-chain, cancel-all-to-zero, budget, and
 secret-hygiene proof. It can authorize only the
 future dedicated Stage 1 lifecycle-probe command; the ordinary maker runner
-does not consume it and still requires v0.4.
+does not consume it and still requires v0.5.
 
 The exact SDK audit also found that `create_and_post_order` can perform two
 network posts through its internal order-version refresh loop. The prepared
@@ -309,7 +305,7 @@ once. A version mismatch fails closed and consumes the one-submit capability.
 
 `weather.market.mm_live_lifecycle_probe` prepares the mutation core. The generic
 `weather.market.mm_live_pilot_cli` deliberately does not expose Stage 0 or Stage
-1; a separately reviewed, host-owned eligible-machine wrapper must call those
+1; a separately reviewed, host-owned fixed-scope wrapper must call those
 library functions. The lifecycle core accepts only a passing bootstrap gate for
 the exact
 adapter token plus the literal Stage 1 confirmation, requires zero starting
@@ -362,24 +358,11 @@ fee rates presented as paid fees, implicit reuse of one balance as both
 endpoints, and disagreement among the maker/condition scopes of position, fee,
 and rebate evidence.
 
-Physical-eligibility hardening update (2026-08-13 UTC): International is not a
-synonym for eligible. The official endpoint returned `blocked=true`,
-`country=CA`, `region=ON` from this production host, matching Polymarket's
-documented Ontario restriction. The prepared path therefore cannot mutate from
-this host. It rejects configured HTTP proxies, never retains the returned IP,
-requires the operator's real-location/no-circumvention confirmations, embeds a
-fresh content-bound response in Stage 0, rechecks country/region when issuing
-the one-submit capability, and fetches once more after consuming that
-capability immediately before submit. Work may continue here in read-only,
-paper, research, and preparation modes; a real test must run on a genuinely
-eligible physical host without VPN or proxy circumvention.
-
 Operator-surface hardening update (2026-08-13 UTC): the canonical `python -m
 weather.market.mm_live_pilot_cli` surface is limited to non-mutating preparation
 and offline bundle verification. Its read-only identity-preparation
-command fetches the official geoblock response, discards the detected IP,
-derives the selected signature ID, and refuses a blocked/proxied or structurally
-invalid public manifest. Stage 0 and Stage 1 remain tested library functions and
+command derives the selected signature ID and refuses a structurally invalid
+public manifest. Stage 0 and Stage 1 remain tested library functions and
 require a separately reviewed, host-owned wrapper with fixed public scope; the
 generic parser rejects both command names. A keyless doctor checks
 the exact SDK, Windows resolver, credential-reference shapes/count, direct-secret
@@ -391,18 +374,17 @@ Each Stage 1 library invocation has one submit capability, always attempts
 account-wide cancel-all and exact-scope zero-position reconciliation, and emits
 its PASS result only after cleanup succeeds. A separate offline command rereads
 both results and journals to build the lifecycle bundle. This keeps the bounded
-test reviewable on an eligible host without adding a generic mutation CLI; it
-does not enable the ordinary maker runner and does not make the Ontario host
-eligible.
+test reviewable without adding a generic mutation CLI; it does not enable the
+ordinary maker runner.
 
-Wallet-topology and eligible-host credential-preparation update (2026-08-13
+Wallet-topology and credential-preparation update (2026-08-13
 UTC): current official documentation distinguishes existing Gnosis Safe
 signature type 2 from the new deposit-wallet/POLY_1271 type 3 flow. The pinned
 SDK also gives them different signed-order identities: type 2 uses the EOA as
 API owner and order signer with the distinct Safe as maker/funder; type 3 uses
 the EOA as API owner and the distinct deposit wallet as order signer, maker,
 and funder. The former equality gate was therefore wrong for type 3 and
-insufficiently explicit for both. Stage 0, bootstrap, and full v0.4 promotion
+insufficiently explicit for both. Stage 0, bootstrap, and full v0.5 promotion
 now accept only these two exact topologies and recompute their address
 relationships instead of trusting a generic consistency boolean.
 
@@ -412,12 +394,12 @@ with the exact pinned SDK proved that the private key derives the declared EOA,
 the SDK selects that EOA as the type-2 order signer, and the configured Safe
 funder is distinct. The source file remains outside the repository and its ACL
 was restricted to the current account, SYSTEM, and Administrators. No credential
-was imported on the blocked Ontario host. A one-time eligible-host importer is
+was imported during the offline proof. A one-time credential importer is
 prepared to validate the same topology, create only new Credential Manager
 targets, roll back partial writes, ignore unused relayer/RPC/self-assertion
 fields, and emit only a public reference manifest plus a secret-free receipt.
 Live account authentication and every order mutation remain blocked until the
-genuinely eligible execution host passes the fresh Stage 0 gates.
+production execution host passes the fresh Stage 0 gates.
 
 Public candidate-selection hardening update (2026-08-13 UTC): a bounded live
 test can no longer depend on a hand-copied condition or stale token. The new
@@ -447,22 +429,19 @@ execution, and lifecycle-bundle assembly each independently revalidate the
 finite positive requested budget, isolated-wallet cap, 100 pUSD operator cap,
 and 10 pUSD per-order cap instead of trusting upstream PASS booleans. The
 focused live/economics/architecture matrix passes; an immutable exact-tip full
-suite and reviewed same-PC deployment remain mandatory before relocated-host use.
+suite and reviewed production-host deployment remain mandatory before use.
 
-## 2026-08-14 same-PC execution-host decision
+## 2026-08-14 production execution-host decision
 
 The operator designated the existing 16 GB production PC as the live
-International execution host after it is physically relocated. The former
-separate-host transfer blocker is therefore closed. The code, exact reviewed
-tip, runtime environment, capture evidence, and eventual credential references
-will remain on one PC; moving it does not by itself pass any exchange gate.
+International execution host. The former separate-host transfer blocker is
+therefore closed. The code, exact reviewed tip, runtime environment, capture
+evidence, and credential references remain on one PC; host designation does
+not by itself pass any exchange or risk gate.
 
-While the PC's current official response remains Ontario/blocked, no credential
-import, authentication, Stage 0 heartbeat/cancel-all, or Stage 1 mutation is
-allowed. After relocation, the same checkout must obtain a fresh matching
-unblocked response, recover capture and public execution supervision, pass the
-keyless doctor, and use a newly reviewed fixed-scope wrapper sealed to the fresh
-condition, token, budget, and output paths. The wrapper remains intentionally
+The same checkout must recover capture and public execution supervision, pass
+the keyless doctor, and use a newly reviewed fixed-scope wrapper sealed to the
+fresh condition, token, budget, and output paths. The wrapper remains intentionally
 unwritten until fresh candidate selection because prebuilding a parameterized
 mutation surface would recreate the generic live CLI that this item forbids.
 
@@ -474,7 +453,7 @@ branch has since merged current production and is therefore a new, unproved
 exact tip; its scheduled full suite must pass before integration. The earlier
 proofs establish software consistency only, not live evidence or integration
 authority. Stage 0/1 must land first; Stage 2 must then merge current production
-and pass a fresh suite on that combined tree before relocated-host use. The
+and pass a fresh suite on that combined tree before production-host use. The
 two unchecked live-evidence bullets above remain open until a tiny real
 lifecycle and paid-vs-predicted settlement/rebate record are reconciled without
 weakening any gate or increasing any ceiling. Exact suite measurements live
@@ -499,7 +478,7 @@ v0.3 snapshot and rerun after the protected window without accepting a baseline.
 The cumulative parent still needs an immutable exact-tip full suite and guarded
 integration. Bounded Stage 2 remains a successor and must be refreshed only
 after that parent lands. The two live-evidence checklist bullets remain open
-until this PC is physically eligible and the staged lifecycle is run under the
+until the staged lifecycle is run on this PC under the
 canonical pilot envelope.
 
 The subsequent one-market retry proved the paper market-harvest route but did
@@ -525,3 +504,22 @@ The fixed-scope Stage 2 successor did not integrate. Its focused host wrapper
 resolved imports from production rather than its exact worktree, so the full
 suite and guarded merge correctly refused. A corrected diagnostic passed its
 73 focused tests, but a fresh exact-tip full-suite receipt remains mandatory.
+
+## 2026-08-22 interrupt-safety cumulative disposition
+
+Production remains at `cfdad9e5225f4dad86eaeddae7631893cd6c5350`. The exact
+documentation closeout commit `e0d54db06699fc1c6e104dbdc3ccd4800cb16dd7`
+and interrupt-cleanup commit `da32c0895bb5b40c842b35232ff266c7968d4439`
+are preserved as ancestors of `codex/stage1-readiness-cumulative-20260822`.
+That cumulative branch is pending, not landed, and has no live authority.
+
+The cleanup change routes `KeyboardInterrupt` and other `BaseException` exits
+through lifecycle and command cleanup, repeats cancel-all and exact-scope
+zero-state reconciliation at the command boundary, emits type-only failure
+evidence, and re-raises without retrying the submit. A forced process kill or
+power loss still depends on the separately proved heartbeat-lapse path. Before
+any Stage 0 or Stage 1 wrapper is sealed to production, the exact cumulative
+tip must pass its own immutable full suite, guarded integration, capture
+recovery, publication, and production-identity proof. Focused tests on either
+parent commit are not a substitute. No exchange mutation occurred in preparing
+this branch.

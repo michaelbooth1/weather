@@ -9,9 +9,6 @@ from weather.market.mm_live_bootstrap import (
     finalize_platform_bootstrap_payload,
     load_platform_bootstrap_gate,
 )
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
-
-
 NOW = "2026-08-13T19:00:00+00:00"
 TARGET_DATE = "2026-08-13"
 ADDRESS = "0x0000000000000000000000000000000000000001"
@@ -20,37 +17,12 @@ CONDITION_ID = "0x" + "1" * 64
 TOKEN_ID = "12345"
 
 
-def geoblock_evidence(*, country="CH", region="ZH", blocked=False):
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps({
-                "blocked": blocked,
-                "country": country,
-                "region": region,
-                "ip": "203.0.113.8",
-            }).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-        now=NOW,
-    )
-
-
 def stage0_identity():
     return {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": geoblock_evidence(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -67,16 +39,13 @@ def stage0_identity():
 
 def bootstrap_payload():
     payload = {
-        "schema_version": "mm_platform_bootstrap_v0.2",
+        "schema_version": "mm_platform_bootstrap_v0.3",
         "status": "PASS",
         "verified_at_utc": NOW,
         "verified_for_target_date": TARGET_DATE,
         "max_age_hours": 1,
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": geoblock_evidence(),
         "api_base_url": "https://polymarket.com",
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
@@ -166,7 +135,6 @@ def bootstrap_payload():
             "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
             "https://docs.polymarket.com/programs/maker-rebates",
             "https://docs.polymarket.com/concepts/pusd",
-            "https://docs.polymarket.com/api-reference/geoblock",
         ],
     }
     payload["account_snapshot"]["snapshot_sha256"] = account_snapshot_sha256(
@@ -604,13 +572,6 @@ def test_bootstrap_gate_accepts_existing_gnosis_safe_topology(tmp_path):
 def test_bootstrap_gate_rejects_us_wrong_market_over_budget_and_secret_material(tmp_path):
     payload = finalized_bootstrap_payload(tmp_path, name="invalid")
     payload["platform"] = "polymarket_us"
-    payload["geographic_eligibility"] = geoblock_evidence(
-        country="US",
-        region="NY",
-        blocked=True,
-    )
-    payload["physical_location_matches_geoblock_confirmed"] = False
-    payload["geoblock_circumvention_absent_confirmed"] = False
     payload["international_platform_confirmed"] = False
     payload["private_key"] = "must-not-appear"
     path = write_payload(tmp_path / "bootstrap_invalid.json", payload)
@@ -626,7 +587,6 @@ def test_bootstrap_gate_rejects_us_wrong_market_over_budget_and_secret_material(
 
     assert not gate["ok"]
     assert "platform_is_international" in gate["missing"]
-    assert "international_jurisdiction_verified" in gate["missing"]
     assert "requested_budget_within_wallet_cap" in gate["missing"]
     assert "market_expected_token_matches" in gate["missing"]
     assert "market_expected_condition_matches" in gate["missing"]

@@ -1,4 +1,4 @@
-# 329. Immutable Overnight Integration Attempt Recovery [PARTIAL 2026-08-21 - CRASH/RECOVERY HARDENED; EXACT SUITE AND LANDING PENDING]
+# 329. Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]
 
 Goal: stop losing entire integration windows when one frozen cumulative tip
 hits a deterministic ratchet, transient host failure, or wrapper defect.
@@ -73,9 +73,9 @@ safe way to create a corrected attempt.
   explicitly non-authorizing reconciliation receipt and exact-task shutdown.
 - [x] Add a read-only downstream gate and bind execution-tape adoption to the
   attempt hashes while retaining the historical suite-gated path.
-- [ ] Pass focused operation tests, documentation audit, roadmap lint,
+- [x] Pass focused operation tests, documentation audit, roadmap lint,
   compileall, and the exact full suite in an admitted host window.
-- [ ] Merge the reviewed branch and explicitly adopt the registrar on the
+- [x] Merge the reviewed branch and explicitly adopt the registrar on the
   production scheduler; editing the scripts does not authorize registration.
 
 Acceptance: after any failed attempt, the evidence stays immutable and the
@@ -158,8 +158,22 @@ exact hash-bound evidence.
   passes, and an independent process-kill state-machine review found no
   remaining blocker. The admitted exact-tip full suite and guarded first
   landing remain deliberately pending tonight.
+- Production adoption completed on 2026-08-22. The bootstrap exact-tip suite
+  passed all 18 chunks and its reviewed retry published merge
+  `d8e95c04be7c0b2daa351103b19efc1e942bc469` with core-capture and required
+  execution-tape recovery proved. The canonical registrar then created the
+  immutable `workflow-minimal-0822-a1` attempt for exact source tip
+  `5d8e94e0d882d13ec3b8bfd71df9f474466d5528`. Its one-chunk integration
+  preflight passed, all 357 tracked pytest files passed in 18/18 bounded
+  chunks, and its PASS merge receipt binds publication of
+  `cfdad9e5225f4dad86eaeddae7631893cd6c5350`, local/remote equality, source
+  ancestry, and three-worker capture recovery. The receipt remains explicitly
+  `NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`.
 
-The implementation is not yet production. A hash-frozen first-landing suite,
-merge gate, and temporary boot guard may be armed from this topic worktree,
-but canonical registrar adoption and downstream authority remain open until
-the exact suite, guarded merge, publication, and recovery evidence all pass.
+## Completion notes
+
+The primary and recovery contracts are now production code, the registrar has
+been exercised through one successful immutable attempt, and the full failure
+matrix remains covered by the focused executable contracts above. Any future
+failed attempt still has to use its exact close/dispatch/successor path; this
+completion does not authorize a generic retry or downstream workload.

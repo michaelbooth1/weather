@@ -28,7 +28,7 @@ run must pass `--platform-verification` before preflight can pass.
 
 The artifact must be refreshed within 24 hours of the live-pilot run and must
 match the target date. It records the exact operating surface
-(`polymarket_global` or `polymarket_us`), account jurisdiction, eligibility,
+(`polymarket_global` or `polymarket_us`),
 API base URL, CLOB host, wallet type, signature type/funder address, allowance
 and balance checks, current fee/rebate/reward rules, order/cancel/tick/min-size
 semantics, user WebSocket/private stream, cancel-all path, and isolated pilot

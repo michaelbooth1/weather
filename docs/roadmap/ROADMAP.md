@@ -76,7 +76,7 @@ infrastructure work remains.
 | 15 | [Reproducible Backfills [COMPLETE]](items/item-15-reproducible-backfills.md) |
 | 16 | [Background Process Management [COMPLETE]](items/item-16-background-process-management.md) |
 | 17 | [Error Handling And Caching [COMPLETE]](items/item-17-error-handling-and-caching.md) |
-| 329 | [Immutable Overnight Integration Attempt Recovery [PARTIAL 2026-08-21 - CRASH/RECOVERY HARDENED; EXACT SUITE AND LANDING PENDING]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
+| 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
 
 ### Market Expansion
 
@@ -185,7 +185,7 @@ infrastructure work remains.
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
 | 66 | [CLOB Book Recon And Reward-Competition Analytics [COMPLETE 2026-06-16 - BOOK RECON LIVE]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
-| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-19 - CUMULATIVE CLIENT/PUSD PARENT INTEGRATED; STAGE 2 AND LIVE EVIDENCE OPEN]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-22 - INTERRUPT-SAFE CUMULATIVE TIP PENDING EXACT SUITE AND INTEGRATION]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 68 | [Information-Event Calendar And Quote-Pull Gates [COMPLETE 2026-06-16 - EVENT GATE LIVE]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
 | 69 | [Multi-Variant Shadow Harness And Experiment Governance [COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE]](items/item-69-multi-variant-shadow-harness-and-experiment-governance.md) |
 | 70 | [Exact-Winner Catch-Up Candidate [COMPLETE 2026-06-16 - WHITELIST ALPHA GUARDRAIL PASSED]](items/item-70-exact-winner-catch-up-candidate.md) |
@@ -351,7 +351,7 @@ infrastructure work remains.
 | 321 | [Model Production Readiness, Evidence Integrity, And Staged Release Program [OPEN 2026-07-16 - BOOTSTRAP SOURCE CONTRACT FIXED; REAL RETRAIN/SHADOW/PAPER/CAPITAL GATES OPEN]](items/item-321-model-production-readiness-evidence-integrity-and-staged-release-program.md) |
 | 322 | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence [PARTIAL 2026-07-16 - INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING]](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | [Shared Forecast Payload CAS And Single-Fetch Fan-Out [PARTIAL 2026-07-15 - CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING]](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
-| 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-21 - TERMINAL MORNING TAIL AND OVERNIGHT HANDOFF REPAIR PREPARED; PRODUCTION PROOF OPEN]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
+| 324 | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-22 - WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED]](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
 | 325 | [Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | [Supervised Continuous Public Execution Tape [PARTIAL 2026-08-15 - ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN]](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | [Paper-Only Market-Harvest Permission Lane [PARTIAL 2026-08-19 - INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN]](items/item-328-paper-only-market-harvest-permission-lane.md) |

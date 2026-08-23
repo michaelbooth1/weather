@@ -1,0 +1,203 @@
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+# The repository sealer replaces every marker. The final launcher has no
+# trigger and no runtime scope, secret, budget, or cap inputs.
+$repo = "__SEAL_PRODUCTION_ROOT__"
+$python = "__SEAL_PRODUCTION_PYTHON__"
+$wrapper = "__SEAL_WRAPPER_PATH__"
+$expectedWrapperSha256 = "__SEAL_WRAPPER_SHA256__"
+$workload = "__SEAL_WORKLOAD__"
+$expectedLeaseScriptSha256 = "__SEAL_WORKLOAD_ADMISSION_SHA256__"
+$credentialManifest = "__SEAL_CREDENTIAL_MANIFEST_PATH__"
+$expectedCredentialManifestSha256 = "__SEAL_CREDENTIAL_MANIFEST_SHA256__"
+$leaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+
+function Get-SealedCredentialEnvironment {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+    )
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+        throw "credential reference manifest is absent"
+    }
+    $observed = (Get-FileHash -LiteralPath $ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($observed -ne $ExpectedSha256.ToLowerInvariant()) {
+        throw "credential reference manifest hash changed"
+    }
+    try { $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json }
+    catch { throw "credential reference manifest is invalid JSON" }
+    $requiredReferences = @(
+        "POLYMARKET_API_KEY_STORAGE_REF",
+        "POLYMARKET_API_SECRET_STORAGE_REF",
+        "POLYMARKET_API_PASSPHRASE_STORAGE_REF",
+        "POLYMARKET_PRIVATE_KEY_STORAGE_REF"
+    )
+    $referenceNames = @($manifest.credential_references.PSObject.Properties.Name | Sort-Object)
+    $expectedNames = @($requiredReferences | Sort-Object)
+    if (
+        [string]$manifest.schema_version -cne "mm_live_credential_reference_manifest_v0.1" -or
+        [string]$manifest.platform -cne "polymarket_global" -or
+        $manifest.secret_values_retained -ne $false -or
+        $referenceNames.Count -ne 4 -or
+        @(Compare-Object $expectedNames $referenceNames).Count -ne 0
+    ) {
+        throw "credential reference manifest contract changed"
+    }
+    $environment = @{}
+    $expectedTargets = @{
+        "POLYMARKET_API_KEY_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/ApiKey"
+        "POLYMARKET_API_SECRET_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/ApiSecret"
+        "POLYMARKET_API_PASSPHRASE_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/Passphrase"
+        "POLYMARKET_PRIVATE_KEY_STORAGE_REF" = "wincred://Weather/Polymarket/InternationalPilot/PrivateKey"
+    }
+    foreach ($name in $requiredReferences) {
+        $value = [string]$manifest.credential_references.$name
+        if ($value -cne [string]$expectedTargets[$name]) {
+            throw "credential reference manifest contains an invalid public reference"
+        }
+        $environment[$name] = $value
+    }
+    $publicNames = @($manifest.public_environment.PSObject.Properties.Name)
+    $funder = [string]$manifest.public_environment.POLYMARKET_FUNDER_ADDRESS
+    if (
+        $publicNames.Count -ne 1 -or
+        $publicNames[0] -cne "POLYMARKET_FUNDER_ADDRESS" -or
+        $funder -notmatch '^0x[0-9a-fA-F]{40}$' -or
+        $funder -ine [string]$manifest.funder_address
+    ) {
+        throw "credential public environment contract changed"
+    }
+    $environment["POLYMARKET_FUNDER_ADDRESS"] = $funder
+    return $environment
+}
+
+function Enter-SealedCredentialEnvironment {
+    param([Parameter(Mandatory = $true)][hashtable]$PublicEnvironment)
+    $directSecretNames = @(
+        "POLYMARKET_API_KEY",
+        "POLYMARKET_API_SECRET",
+        "POLYMARKET_API_PASSPHRASE",
+        "POLYMARKET_PRIVATE_KEY",
+        "POLYMARKET_US_SECRET_KEY"
+    )
+    $allNames = @($PublicEnvironment.Keys) + $directSecretNames
+    $prior = @{}
+    foreach ($name in $allNames) {
+        $prior[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    try {
+        foreach ($name in $directSecretNames) {
+            [Environment]::SetEnvironmentVariable($name, $null, "Process")
+        }
+        foreach ($name in $PublicEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable(
+                $name,
+                [string]$PublicEnvironment[$name],
+                "Process"
+            )
+        }
+    }
+    catch {
+        foreach ($name in $prior.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $prior[$name], "Process")
+        }
+        throw
+    }
+    return $prior
+}
+
+function Exit-SealedCredentialEnvironment {
+    param([Parameter(Mandatory = $true)][hashtable]$PriorEnvironment)
+    foreach ($name in $PriorEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable(
+            $name,
+            $PriorEnvironment[$name],
+            "Process"
+        )
+    }
+}
+
+function Add-SealedReadLock {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)]$Locks
+    )
+    $stream = $null
+    try {
+        $stream = [IO.File]::Open(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try {
+            $observed = -join ($hasher.ComputeHash($stream) | ForEach-Object { $_.ToString("x2") })
+        }
+        finally { $hasher.Dispose() }
+        $stream.Position = 0
+        if ($observed -ne $ExpectedSha256.ToLowerInvariant()) {
+            throw "fixed-scope locked-file hash changed"
+        }
+        [void]$Locks.Add($stream)
+        $stream = $null
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+if ($MyInvocation.UnboundArguments.Count -ne 0) {
+    throw "fixed-scope launcher accepts no arguments"
+}
+foreach ($path in @($python, $wrapper, $leaseScript, $credentialManifest)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "fixed-scope launcher dependency is absent"
+    }
+}
+$lockedFiles = [Collections.Generic.List[IDisposable]]::new()
+try {
+    Add-SealedReadLock -Path $wrapper -ExpectedSha256 $expectedWrapperSha256 -Locks $lockedFiles
+    Add-SealedReadLock -Path $leaseScript -ExpectedSha256 $expectedLeaseScriptSha256 -Locks $lockedFiles
+    Add-SealedReadLock -Path $credentialManifest -ExpectedSha256 $expectedCredentialManifestSha256 -Locks $lockedFiles
+    $sealedCredentialEnvironment = Get-SealedCredentialEnvironment `
+        -ManifestPath $credentialManifest `
+        -ExpectedSha256 $expectedCredentialManifestSha256
+
+    . $leaseScript
+    $lease = $null
+    $priorCredentialEnvironment = $null
+    $exitCode = 1
+    try {
+        $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload $workload
+        if ($null -eq $lease) {
+            throw "shared workload lease is busy"
+        }
+        $priorCredentialEnvironment = Enter-SealedCredentialEnvironment `
+            -PublicEnvironment $sealedCredentialEnvironment
+        & $python $wrapper
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        if ($null -ne $priorCredentialEnvironment) {
+            Exit-SealedCredentialEnvironment -PriorEnvironment $priorCredentialEnvironment
+        }
+        if ($null -ne $lease) {
+            Exit-WeatherHeavyWorkloadLease -Lease $lease
+        }
+    }
+}
+finally {
+    for ($index = $lockedFiles.Count - 1; $index -ge 0; $index--) {
+        $lockedFiles[$index].Dispose()
+    }
+}
+if ($exitCode -ne 0) {
+    Write-Error "fixed-scope wrapper failed with exit $exitCode" -ErrorAction Continue
+}
+exit $exitCode

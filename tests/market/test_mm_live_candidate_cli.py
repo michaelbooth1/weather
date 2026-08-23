@@ -290,6 +290,9 @@ def test_selector_can_refresh_the_exact_bootstrap_scope(tmp_path):
     assert gate["paper_quote_row_sha256"] == plan["selected"][
         "paper_quote_proof"
     ]["quote_row_sha256"]
+    assert gate["stage1_intent"] == plan["selected"]["stage1_intent"]
+    assert gate["tick_size"] == plan["selected"]["tick_size"]
+    assert gate["order_min_size"] == plan["selected"]["order_min_size"]
 
 
 def test_stage1_gate_rejects_a_tampered_candidate_plan(tmp_path):

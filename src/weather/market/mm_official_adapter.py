@@ -21,12 +21,6 @@ from urllib.request import Request, urlopen
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.mm_policy import bool_value
-from weather.market.mm_geoblock import (
-    collect_official_geoblock_evidence,
-    geoblock_evidence_gate,
-)
-
-
 OFFICIAL_CLOB_DISTRIBUTION = "polymarket-client"
 OFFICIAL_CLOB_VERSION = "0.6.0"
 MAX_STAGE1_ORDER_NOTIONAL = Decimal("10")
@@ -616,13 +610,13 @@ class OfficialPolymarketGlobalAdapter:
         sdk_version=None,
         authoritative_readers_verified=False,
         monotonic_clock=None,
+        utc_clock=None,
         sleeper=None,
         heartbeat_max_age_seconds=7.5,
         market_rules_max_age_seconds=10.0,
         max_order_notional=10.0,
         cancel_verify_attempts=20,
         cancel_verify_interval_seconds=0.25,
-        geoblock_checker=None,
     ):
         self.sdk_version = require_official_clob_version(sdk_version)
         self.client = client
@@ -640,6 +634,7 @@ class OfficialPolymarketGlobalAdapter:
         self.market_rule_reader = market_rule_reader
         self.authoritative_readers_verified = bool(authoritative_readers_verified)
         self.monotonic_clock = monotonic_clock or time.monotonic
+        self.utc_clock = utc_clock or (lambda: datetime.now(timezone.utc))
         self.sleeper = sleeper or time.sleep
         self.heartbeat_max_age_seconds = _required_number(
             heartbeat_max_age_seconds,
@@ -662,7 +657,6 @@ class OfficialPolymarketGlobalAdapter:
             0.0,
             float(cancel_verify_interval_seconds),
         )
-        self.geoblock_checker = geoblock_checker or collect_official_geoblock_evidence
         self.supports_trading = bool(
             self.token_id
             and user_event_reader
@@ -682,10 +676,8 @@ class OfficialPolymarketGlobalAdapter:
         self._stage1_capability = None
         self._stage1_capability_consumed = False
         self._stage1_authorization_sha256 = None
-        self._stage1_geoblock_country = None
-        self._stage1_geoblock_region = None
         self._stage1_signature_type_id = None
-        self._last_geoblock_gate = None
+        self._stage1_submit_deadline_utc = None
         self._probe = {
             "sdk_version_verified": True,
             "heartbeat_acknowledged": False,
@@ -694,7 +686,7 @@ class OfficialPolymarketGlobalAdapter:
             "post_only_forced": True,
         }
 
-    def authorize_stage1_lifecycle(self, bootstrap_gate):
+    def authorize_stage1_lifecycle(self, bootstrap_gate, *, submit_deadline_utc=None):
         """Issue one opaque, single-submit capability bound to observed Stage 0."""
 
         gate = dict(bootstrap_gate or {})
@@ -705,11 +697,18 @@ class OfficialPolymarketGlobalAdapter:
         except (InvalidOperation, TypeError, ValueError):
             requested_budget = wallet_cap = None
         operator_cap = Decimal(str(MAX_OPERATOR_PILOT_BUDGET_USDC))
+        try:
+            submit_deadline = datetime.fromisoformat(
+                str(submit_deadline_utc).replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("Stage 1 capability submit deadline is invalid") from exc
+        current_utc = self.utc_clock().astimezone(timezone.utc)
         binding = {
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
             "ok": gate.get("ok") is True,
-            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.2",
+            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.3",
             "status": gate.get("status") == "PASS",
             "platform": gate.get("platform") == "polymarket_global",
             "settlement_unit": gate.get("settlement_unit") == "pUSD",
@@ -720,8 +719,6 @@ class OfficialPolymarketGlobalAdapter:
             ),
             "missing": gate.get("missing") == [],
             "account_snapshot": len(str(gate.get("account_snapshot_sha256") or "")) == 64,
-            "geoblock_evidence": len(str(gate.get("geoblock_evidence_sha256") or "")) == 64,
-            "geoblock_country": bool(str(gate.get("geoblock_country") or "").strip()),
             "token": str(gate.get("token_id") or "") == str(self.token_id or ""),
             "condition": str(gate.get("condition_id") or "").lower()
             == str(self.condition_id or "").lower(),
@@ -741,6 +738,7 @@ class OfficialPolymarketGlobalAdapter:
                 and wallet_cap is not None
                 and requested_budget <= wallet_cap
             ),
+            "submit_deadline": current_utc < submit_deadline,
         }
         missing = [name for name, valid in binding.items() if not valid]
         if missing:
@@ -749,59 +747,23 @@ class OfficialPolymarketGlobalAdapter:
             )
         if self._stage1_capability is not None:
             raise RuntimeError("official adapter Stage 1 authorization is single-use per adapter")
-        current_geo = self._require_current_geo_eligibility(
-            expected_country=gate.get("geoblock_country"),
-            expected_region=gate.get("geoblock_region"),
-        )
         self._stage1_capability = object()
         self._stage1_capability_consumed = False
-        self._stage1_authorization_sha256 = _official_event_hash(gate)
-        self._stage1_geoblock_country = current_geo["country"]
-        self._stage1_geoblock_region = current_geo["region"]
+        self._stage1_authorization_sha256 = _official_event_hash(
+            {
+                "bootstrap_gate": gate,
+                "submit_deadline_utc": submit_deadline.isoformat(),
+            }
+        )
         self._stage1_signature_type_id = int(gate.get("signature_type_id"))
+        self._stage1_submit_deadline_utc = submit_deadline
         self._probe.update({
             "stage1_capability_issued": True,
             "stage1_capability_consumed": False,
             "stage1_bootstrap_sha256": self._stage1_authorization_sha256,
-            "stage1_geoblock_evidence_sha256": current_geo["evidence_sha256"],
+            "stage1_submit_deadline_utc": submit_deadline.isoformat(),
         })
         return self._stage1_capability
-
-    def _require_current_geo_eligibility(self, *, expected_country=None, expected_region=None):
-        """Fetch and validate current physical eligibility without retaining an IP."""
-
-        try:
-            evidence = self.geoblock_checker()
-        except Exception as exc:
-            self._probe["geoblock_error"] = type(exc).__name__
-            raise RuntimeError("current official geoblock proof is unavailable") from exc
-        gate = geoblock_evidence_gate(evidence)
-        self._last_geoblock_gate = gate
-        if not gate["ok"]:
-            self._probe["geoblock_blocked"] = True
-            self._probe["geoblock_country"] = gate.get("country")
-            self._probe["geoblock_region"] = gate.get("region")
-            raise RuntimeError(
-                "current official geoblock proof blocks order mutation: "
-                + ", ".join(gate["missing"])
-            )
-        if (
-            expected_country is not None
-            and str(gate.get("country") or "").upper()
-            != str(expected_country or "").upper()
-        ):
-            raise RuntimeError("current geoblock country differs from the authorized bootstrap")
-        if (
-            expected_region is not None
-            and str(gate.get("region") or "").upper()
-            != str(expected_region or "").upper()
-        ):
-            raise RuntimeError("current geoblock region differs from the authorized bootstrap")
-        self._probe["geoblock_blocked"] = False
-        self._probe["geoblock_country"] = gate.get("country")
-        self._probe["geoblock_region"] = gate.get("region")
-        self._probe["geoblock_evidence_sha256"] = gate.get("evidence_sha256")
-        return gate
 
     def diagnostics(self):
         blockers = []
@@ -834,21 +796,16 @@ class OfficialPolymarketGlobalAdapter:
                 self._stage1_capability is not None
                 and not self._stage1_capability_consumed
             ),
-            "geoblock_checked": self._last_geoblock_gate is not None,
-            "geoblock_country": (
-                self._last_geoblock_gate or {}
-            ).get("country"),
-            "geoblock_region": (
-                self._last_geoblock_gate or {}
-            ).get("region"),
-            "geoblock_allows_orders": (
-                self._last_geoblock_gate or {}
-            ).get("ok") is True,
-            "geoblock_evidence_sha256": (
-                self._last_geoblock_gate or {}
-            ).get("evidence_sha256"),
-            "stage1_geoblock_evidence_sha256": self._probe.get(
-                "stage1_geoblock_evidence_sha256"
+            "submit_deadline_utc": (
+                self._stage1_submit_deadline_utc.isoformat()
+                if self._stage1_submit_deadline_utc is not None
+                else None
+            ),
+            "network_submit_boundary_utc": self._probe.get(
+                "network_submit_boundary_utc"
+            ),
+            "network_submit_deadline_passed": self._probe.get(
+                "network_submit_deadline_passed"
             ),
             "sdk_distribution": OFFICIAL_CLOB_DISTRIBUTION,
             "sdk_version": self.sdk_version,
@@ -1333,10 +1290,6 @@ class OfficialPolymarketGlobalAdapter:
             )
         self._stage1_capability_consumed = True
         self._probe["stage1_capability_consumed"] = True
-        self._require_current_geo_eligibility(
-            expected_country=self._stage1_geoblock_country,
-            expected_region=self._stage1_geoblock_region,
-        )
         expiration = int(intent.get("expiration") or 0)
         # Do not use place_limit_order. The unified client convenience method
         # may mutate token allowances before retrying. Signing is local; the
@@ -1357,6 +1310,14 @@ class OfficialPolymarketGlobalAdapter:
         self._probe["submitted_signed_order_sha256"] = signed_proof[
             "signed_order_sha256"
         ]
+        submit_boundary = self.utc_clock().astimezone(timezone.utc)
+        self._probe["network_submit_boundary_utc"] = submit_boundary.isoformat()
+        self._probe["network_submit_deadline_passed"] = bool(
+            self._stage1_submit_deadline_utc is not None
+            and submit_boundary < self._stage1_submit_deadline_utc
+        )
+        if not self._probe["network_submit_deadline_passed"]:
+            raise RuntimeError("Stage 1 network submit deadline expired after signing")
         try:
             response = self.client.post_order(signed_order)
         except Exception:

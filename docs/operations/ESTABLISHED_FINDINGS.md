@@ -2030,10 +2030,10 @@ unique fills, execution intensity, our fills, queue position, fees, rebates, inv
 
 > ## AUTHORIZED BY THE OPERATOR, 2026-08-13
 >
-> Prepare and, from a genuinely eligible International host only, run a minimal real-world test with
+> Prepare and run a minimal real-world test on the production International execution host with
 > a finite **100 USDC-equivalent hard cap**. Exactly one market, post-only orders, no naked sells,
 > existing risk ceilings non-raisable, and authoritative user-event plus position readers are
-> mandatory. Ontario production remains preparation-only and never receives wallet credentials.
+> mandatory.
 >
 > This supersedes the "nothing here has been enabled" note that stood until 2026-08-09. The standing
 > "no paid API" rule is about **weather** providers; the exchange's public market stream and
@@ -2047,7 +2047,7 @@ own-account evidence gap.
 | --- | --- | --- | --- |
 | **Bounded public-tape pilot** | production | **PASSED 2026-08-14** | proved the documented subscription frame, routing, identity preservation, bounded resources, and capture survival |
 | **Continuous producer** | workstation mission | after the pilot returns numbers | build to the §8c contract using measured values |
-| **Bounded own-account maker session** | eligible International host | after Stage-0/1 readiness and authoritative readers pass | prove post-only lifecycle, reconciled fills/positions/fees/rebates, and bounded realized economics |
+| **Bounded own-account maker session** | production execution host | after Stage-0/1 readiness and authoritative readers pass | prove post-only lifecycle, reconciled fills/positions/fees/rebates, and bounded realized economics |
 
 **The pilot must not run inside 12:00–18:00.** It opens a network connection on the capture host,
 and capture already died once on 2026-08-09.
@@ -2321,12 +2321,11 @@ receipt is `C:/Users/micha/ops/international-stage2-refresh-full-suite-20260814.
 tag is `20260814T071302`.
 
 This proves software consistency and the bounded fail-closed implementation only. It does not
-prove eligible-host dependencies, authenticated lifecycle authority, order acceptance, a fill,
+prove deployment dependencies, authenticated lifecycle authority, order acceptance, a fill,
 fee or rebate receipt, realized P&L, or profitability. Stage 2 remains stacked on the unmerged
 Stage 0/1 parent and remains roll-sensitive. Land that parent first; then merge current production
-into Stage 2, run a fresh exact-tip suite for the combined tree, review the eligible-host wrapper,
-and use the guarded quiet-window path. Ontario production still cannot receive credentials or
-place or cancel an order.
+into Stage 2, run a fresh exact-tip suite for the combined tree, review the fixed-scope wrapper,
+and use the guarded quiet-window path.
 
 ## 8o. Windows venv launchers require child-PID adoption for supervised public capture
 

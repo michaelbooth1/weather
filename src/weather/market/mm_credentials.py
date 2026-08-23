@@ -23,7 +23,6 @@ from weather.market.mm_official_transport import fetch_wallet_deployed
 from weather.market.market_making_preflight import (
     INTERNATIONAL_SETTLEMENT_UNIT,
     contains_secret_material,
-    international_jurisdiction,
     pilot_wallet_signature_topology,
     valid_evm_address,
 )
@@ -38,16 +37,13 @@ REFERENCE_ENV = {
 }
 FUNDER_ENV = "POLYMARKET_FUNDER_ADDRESS"
 WINCRED_SCHEME = "wincred"
-STAGE0_IDENTITY_SCHEMA_VERSION = "mm_stage0_client_identity_v0.1"
+STAGE0_IDENTITY_SCHEMA_VERSION = "mm_stage0_client_identity_v0.2"
 STAGE0_AUTHORIZATION = "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY"
 STAGE0_IDENTITY_KEYS = {
     "schema_version",
     "operator_authorization",
     "platform",
     "international_platform_confirmed",
-    "physical_location_matches_geoblock_confirmed",
-    "geoblock_circumvention_absent_confirmed",
-    "geographic_eligibility",
     "clob_host",
     "settlement_unit",
     "chain_id",
@@ -292,7 +288,6 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
         "schema": identity.get("schema_version") == STAGE0_IDENTITY_SCHEMA_VERSION,
         "authorization": identity.get("operator_authorization") == STAGE0_AUTHORIZATION,
         "platform": identity.get("platform") == "polymarket_global",
-        "physical_geo_eligibility": international_jurisdiction(identity, now=now),
         "international_confirmed": identity.get("international_platform_confirmed") is True,
         "host": str(identity.get("clob_host") or "").rstrip("/").lower()
         == "https://clob.polymarket.com",
@@ -325,7 +320,6 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
         "signature_type": identity.get("signature_type"),
         "signature_type_id": identity.get("signature_type_id"),
         "pilot_wallet_max_funding_usdc": wallet_cap,
-        "geographic_eligibility": identity.get("geographic_eligibility"),
         "identity": identity,
     }
 
@@ -337,6 +331,8 @@ def build_unified_clob_client(
     client_factory=None,
     api_creds_factory=None,
     wallet_deployed_reader=None,
+    expected_signer_address=None,
+    account_deriver=None,
     now=None,
 ):
     """Construct the pinned unified client after a no-deploy preflight.
@@ -348,6 +344,20 @@ def build_unified_clob_client(
     before client construction is allowed.
     """
 
+    expected_signer = str(expected_signer_address or "").lower()
+    if not valid_evm_address(expected_signer):
+        raise RuntimeError("Stage 0 requires the sealed public signer address")
+    if account_deriver is None:
+        from eth_account import Account
+
+        def account_deriver(key):
+            return Account.from_key(key).address
+    try:
+        derived_signer = str(account_deriver(credentials.private_key)).lower()
+    except Exception as exc:
+        raise RuntimeError("current private signer could not be derived") from exc
+    if derived_signer != expected_signer:
+        raise RuntimeError("current private signer differs from the sealed manifest")
     identity_gate = stage0_client_identity_gate(
         stage0_identity,
         expected_funder=credentials.funder,
@@ -391,6 +401,7 @@ def build_unified_clob_client(
         valid_evm_address(observed_wallet),
         valid_evm_address(observed_signer),
         observed_signer != observed_wallet,
+        observed_signer == expected_signer == derived_signer,
         observed_wallet_type == expected_wallet_type,
     ))
     if not topology_valid:

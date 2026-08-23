@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-21 23:03 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-22 14:32 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -19,25 +19,21 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 | Area | State / next action |
 | --- | --- |
-| Capture | The three streak-critical workers are healthy. The supervised public execution tape is connected and integrity-valid. Preserve the graded and near-close windows. |
-| Production | `master`, checked-out `HEAD`, and `origin/master` are synchronized at baseline `a76ec7b5599d499011054f98e43564ad0563a58f`. Only the two expected generated location-config files are modified. |
-| First landing | The immutable-attempt redesign has undergone repeated independent review. It is not production until tonight's frozen exact-tip suite and guarded merge pass. |
-| Tonight's suite | `WeatherIntegrationRecoveryBootstrapSuiteFixed0822` runs the frozen target worktree at 00:35. The complete exact-tip suite is still pending; focused checks are not a substitute. |
-| Tonight's merge | `WeatherIntegrationRecoveryBootstrapMergeFixed0822` starts at 01:30, may wait at most 60 minutes for that exact suite to finish, and invokes the hash-frozen quiet wrapper only after a correlated PASS. It must stage without committing, prove core capture plus any affected execution tape, record documentation, publish through `WeatherOneShotPush`, and verify `origin/master`. |
-| Crash recovery | `WeatherBootRecovery` is temporarily bound to the frozen target script with its exact SHA256 and a zero-delay startup trigger for this first landing. Pending reboot signals remain, but no reboot is authorized during the run. Task Scheduler startup ordering is not absolute; retained markers and nonzero recovery keep ambiguous states fail-closed. |
-| Lean workflow repair | Branch `codex/overnight-workflow-minimal-20260822` contains only the integration machinery, final non-live lock/backfill/tiering hardening, and audited overnight/morning repairs. It excludes the unrelated live-maker successor and its unavailable optional SDK. It must first absorb the published first-landing merge commit, then pass a fresh immutable preflight/full suite and separate guarded merge. |
-| Morning chain | Three consecutive Stage-A runs reached the 11:55 teardown without a terminal manifest. The repair isolates and bounds the tail, omits four duplicate growing replays with explicit WARN evidence, fixes D/D-1 and launcher recovery, and makes manifest publication fail closed. Stage B moves to an exact 00:35 topology but remains disabled pending its established monolithic resource proof. |
-| Host safety | Five hash-bound active-hours tasks protect the pending-reboot window and restore policy at 11:56/11:58. The guaranteed-fail 05:00/06:00 tiering definitions are held Disabled until the lean repair lands and the canonical registrars can replace them. |
-| Documentation | The existing documentation transaction is COMPLETE and hash-consistent. A successful merge begins a new exact transaction before publication; a hard kill leaves content-addressed evidence for reviewed resume. |
-| Live money | No live-money test is authorized or ready. The code must first pass the full suite, land, recover capture, publish, and produce complete evidence; location, credential, lifecycle, economics, and release gates remain separate. |
+| Capture | The three streak-critical workers are healthy and the current graded day is on track. The supervised public execution tape is connected and integrity-valid, but complete price-path evidence is not currently usable. Preserve the graded and near-close windows. |
+| Production | `master`, checked-out `HEAD`, and `origin/master` are synchronized at `cfdad9e5225f4dad86eaeddae7631893cd6c5350`. Only the two expected generated location-config files are modified. |
+| Integration recovery | The bootstrap machinery landed as merge `d8e95c04be7c0b2daa351103b19efc1e942bc469`; the repaired lean workflow then passed its immutable preflight, exact 18/18-chunk suite, guarded merge, capture recovery, and remote acknowledgement as `cfdad9e5225f4dad86eaeddae7631893cd6c5350`. The canonical immutable-attempt registrar is now production-adopted. |
+| Morning chain | The first post-adoption 09:30 Stage-A run published a terminal `COMPLETED` manifest at 11:30, inside its SLA. The formerly unbounded fleet tail completed quickly with every scheduled omission explicit. This is terminal-tail proof, not a clean soak: stale locks were repaired and the barrier correctly blocked on exchange-economics and maker-paper evidence. |
+| Settlement | August 17 remains an explicit 12-market settlement hole and will not be retried by the ordinary chain. Recover it only through the bounded stop-after-finalize path, then prove normal lock release and real settlement evidence. |
+| Tiering | The canonical 05:00 projection and 06:00 raw-tape tasks are enabled and both produced durable `OK` status on their first post-adoption runs. Scheduler zero alone is not the proof; retain the task-status artifacts and free-space trail. |
+| Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
+| Documentation | Commit `e0d54db06699fc1c6e104dbdc3ccd4800cb16dd7` reconciles the two exact integration commits, their receipts, and the first morning readback. It is preserved as an exact ancestor of the pending Stage-1 cumulative branch, not landed production documentation. `weather.operations.documentation_transaction status` and its matching content-addressed receipt remain the authority for the ignored closeout transaction. |
+| Host safety | The temporary active-hours package protected the reboot-pending morning and restored the normal graded-window policy at 11:56/11:58 without initiating a reboot. A reboot is still pending and is not authorized during protected capture. |
+| Live money | The operator has authorized a bounded first live test, but no exchange mutation has run. Interrupt cleanup commit `da32c0895bb5b40c842b35232ff266c7968d4439` is combined with the documentation closeout only on `codex/stage1-readiness-cumulative-20260822`; that cumulative tip is pending exact-suite proof and guarded integration, not landed. Stage 0, fresh candidate, fixed-scope wrapper, runtime, economics, and account evidence remain separate gates. |
 
-## Closed decisions — do not relitigate without new evidence
+## Closed decisions -- do not relitigate without new evidence
 
 - International Polymarket only. Never use Polymarket US for a new probe,
   credential path, readiness decision, or mutation.
-- No credential access or order mutation from the current Ontario location.
-  Physical relocation changes nothing until a fresh official response matches
-  the real location and no-circumvention confirmation.
 - The first live test is a plumbing/evidence probe: one market, finite
   non-raisable 100 pUSD-equivalent wallet cap, post-only, no naked sells, and
   every existing lower ceiling.
@@ -52,44 +48,38 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Immediate execution order
 
-1. Keep production, the frozen target worktree, the active RDP session, task
-   definitions, and `WeatherOneShotPush` unchanged through tonight's attempt.
-2. Let the 00:35 exact-tip bounded suite finish. Treat any missing, partial,
-   stale, mismatched, or non-PASS evidence as refusal.
-3. At 01:30, let the hash-bound gate wait only for that exact running suite.
-   Merge only inside 01:00–04:00 and publish only after exact recovery proof.
-4. After the first landing is published, merge that exact new production
-   baseline into the lean repair worktree, regenerate its dynamic docs, and
-   review the resulting full tip.
-5. Create a new immutable attempt for that descendant tip, run its exact
-   preflight/full suite, and merge only before the 03:40 reserve when every
-   receipt passes. Otherwise leave the morning chain/tiering held safely.
-6. Only after production adoption, recover August 17 through the bounded
-   stop-after-finalize path and re-register/retry tiering serially. Do not infer
-   trading readiness from either integration PASS.
+1. Inside protected capture, do not mutate production Git, Scheduler, reboot,
+   or heavy work. Preparing or pushing a topic is not runtime adoption.
+2. Publish `codex/stage1-readiness-cumulative-20260822`, then run its immutable
+   exact-tip suite overnight. Parent or focused results cannot prove this tip.
+3. After PASS, use only the guarded integration path; require capture recovery,
+   `HEAD == master == origin/master`, and immutable receipts.
+4. Only after that exact production adoption, bind Stage 0 and the fixed-scope
+   wrapper to the production identity and a fresh candidate.
+5. Recover August 17 separately through bounded stop-after-finalize; require
+   12/12 real settlements, normal lock release, and current capture.
+6. Let tiering run serially; diagnose durable status, not Scheduler zero.
+7. Keep Stage B and training held until their own preconditions pass.
 
 ## Host and workflow state
 
-- The old `WeatherIntegrationRecoveryBootstrapSuite0822` and
-  `WeatherIntegrationRecoveryBootstrapMerge0822` definitions are superseded;
-  only the exact `Fixed0822` pair may be enabled for tonight.
-- `WeatherEveningEvidenceRefresh`, `WeatherDataMirror`, training, and merge
-  queue drivers remain disabled where required. No competing heavy or merge
-  task may be introduced before this attempt finishes.
-- `WeatherClobTiering` and `WeatherClobRawTapeTiering` are explicitly held with
-  immutable receipt SHA256
-  `6D89D7353EC9FE85AEF7B60598637B6496C50F0B9E3C56443F9055E32F9BFC6B`.
-- Active-hours registration receipt SHA256 is
-  `17C06172F88C5B619DD20A406AE9F11AAE2A92DEEF45DE5D1EA0CC3FED432E06`.
-- AC sleep is disabled and wake timers are available. The interactive `micha`
-  RDP session must remain logged on because `WeatherOneShotPush` intentionally
-  uses the credential-bearing interactive token.
+- `codex/stage1-readiness-cumulative-20260822` preserves exact commits
+  `e0d54db06699fc1c6e104dbdc3ccd4800cb16dd7` and
+  `da32c0895bb5b40c842b35232ff266c7968d4439`; it is pending and has no
+  production authority. `workflow-minimal-0822-a1` remains retained PASS evidence.
+- The earlier fixed bootstrap pair is spent evidence. Its initial merge task
+  refused before production mutation; the reviewed retry produced the pushed
+  report that binds the actual first landing.
+- `WeatherClobTiering` and `WeatherClobRawTapeTiering` are recurring, enabled,
+  and bound to the canonical 05:00/06:00 topology without late catch-up.
+- `WeatherEveningEvidenceRefresh`, `WeatherTrainingWindow`, the mirror, and
+  legacy merge-queue drivers remain disabled where required.
 - Disabled tasks, Scheduler result zero, and mutable latest reports are not
   outcome evidence. Require immutable receipts, exact hashes, ancestry, and
   current worker identity.
 
 ## Update this file when
 
-Rewrite after tonight's integration result, execution-evidence recovery, fresh
-candidate selection, eligible-location readiness, or a live lifecycle result.
-Remove superseded state rather than appending another handoff.
+Rewrite after cumulative Stage-1 integration, August 17 recovery, a new Stage-A
+soak, Stage-B proof or enablement, fresh candidate selection, action-time
+eligibility, or a live lifecycle result. Remove superseded state.

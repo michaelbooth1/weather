@@ -1,4 +1,4 @@
-# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-21 - TERMINAL MORNING TAIL AND OVERNIGHT HANDOFF REPAIR PREPARED; PRODUCTION PROOF OPEN]
+# 324. Bounded Daily Settlement Refresh Resource Admission And Step Isolation [PARTIAL 2026-08-22 - WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED]
 
 Goal: keep the scheduled settlement refresh inside explicit per-step memory,
 physical-RAM, commit, runtime, and input-size budgets so truth finalization can
@@ -320,7 +320,7 @@ not lock ownership.
   during release.
 - [x] Give direct recovery and tiering launches kill-on-close child-tree
   containment, bounded runtimes, atomic latest status, and append-only history.
-- [ ] Pass the combined immutable full suite and guarded production adoption.
+- [x] Pass the combined immutable full suite and guarded production adoption.
 - [ ] Recover August 17 through the new bounded path and prove normal lock
   release, 12/12 real settlement, current capture, and no downstream work.
 
@@ -356,7 +356,7 @@ after Stage A had already produced current trading evidence.
   disabled-by-default 00:35 contract whose target is independently derived
   from the expected prior morning, whose wrapper tears down by 09:00, and whose
   Scheduler limit leaves cleanup margin.
-- [ ] Pass focused composition tests, the exact full suite, and guarded
+- [x] Pass focused composition tests, the exact full suite, and guarded
   production integration.
 - [ ] Obtain a representative scheduled 09:30 receipt that terminalizes before
   11:55 and a separately authorized Stage-B resource proof before enabling its
@@ -366,3 +366,36 @@ These changes make refusal and timeout terminal and attributable. They do not
 claim that the omitted historical/trust/runtime-identity/MM-taker work ran,
 that Stage B is resource-safe to enable, or that the representative scheduled
 soak has passed.
+
+## 2026-08-22 production adoption and first scheduled readback
+
+The workflow repair passed its immutable integration preflight and all 357
+tracked pytest files in 18/18 bounded chunks, then published source tip
+`5d8e94e0d882d13ec3b8bfd71df9f474466d5528` through guarded merge
+`cfdad9e5225f4dad86eaeddae7631893cd6c5350`. The PASS merge receipt binds the
+exact suite, local/remote master equality, source ancestry, and current
+three-worker capture recovery.
+
+The first production 09:30 run on that code published
+`daily_refresh_stage_manifest_v0.1` with `status=COMPLETED`,
+`inside_sla=true`, and completion at 11:30 local after 7,229.282 seconds. The
+formerly unbounded `fleet_observability` tail returned `ok` in 13.777 seconds.
+Its scheduled payload records `SKIPPED` for the historical audit, trust replay,
+runtime-identity replay, and duplicate trading replay instead of presenting
+those omitted evidence families as current. The Stage-A trigger disposition is
+terminal `SKIPPED` because the scheduled task deliberately disables the held
+Stage-B trigger.
+
+This readback proves that the repaired scheduled tail terminalizes before the
+11:55 teardown; it is not yet the clean representative soak required by
+acceptance. The run repaired two stale locks and its settled-day barrier
+correctly remained `BLOCK` on exchange-economics and maker-paper evidence, so
+Task Scheduler returned 2. Stage B remains disabled and still lacks its
+separately authorized monolithic resource proof. The compound Stage-A/Stage-B
+checkbox above therefore remains open.
+
+The canonical projection and raw-tape tiering tasks also produced durable
+`OK` status at 05:00 and 06:00 within their respective runtime bounds and
+without reaching a hard stop. August 17 settlement recovery remains open; no
+ordinary chain result or successful tiering receipt substitutes for the
+required bounded 12-market backfill proof.

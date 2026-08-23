@@ -9,13 +9,17 @@ from pathlib import Path
 
 from weather.market.market_making_evidence import EVIDENCE_MODE_ACTIVE_DAY
 from weather.market.market_making_preflight import load_platform_verification_gate
-from weather.market.market_making_run_constants import DEFAULT_PLATFORM_VERIFICATION, DEFAULT_RUNS_ROOT
+from weather.market.market_making_run_constants import (
+    DEFAULT_PLATFORM_VERIFICATION,
+    DEFAULT_RUNS_ROOT,
+    PLATFORM_VERIFICATION_SCHEMA_VERSION,
+)
 from weather.market.market_making_run_support import load_live_readiness
 from weather.market.mm_policy import bool_value, maybe_float, parse_time
 from weather.paths import data_path, relative_to_repo
 
 
-SCHEMA_VERSION = "mm_live_readiness_v0.2"
+SCHEMA_VERSION = "mm_live_readiness_v0.3"
 DEFAULT_BACKTEST_ROOT = data_path("backtest")
 DEFAULT_STATUS_PATH = DEFAULT_RUNS_ROOT / "daily_roll_status.json"
 DEFAULT_LIVE_READINESS = DEFAULT_BACKTEST_ROOT / "live_readiness.json"
@@ -144,10 +148,10 @@ ACTION_METADATA = {
         "category": "operator_controls",
         "safe_next_step": "create live_readiness.json only after wallet, allowance, heartbeat, user stream, and cancel-all proofs exist",
     },
-    "platform_verification_v0_4_passes": {
+    "platform_verification_passes": {
         "priority": 91,
         "category": "platform_verification",
-        "safe_next_step": "refresh platform verification v0.4 with content-bound Stage 1 lifecycle, International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
+        "safe_next_step": f"refresh {PLATFORM_VERIFICATION_SCHEMA_VERSION} with content-bound Stage 1 lifecycle, International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
     },
 }
 
@@ -1156,7 +1160,7 @@ def build_readiness_snapshot(
             remediation="create a live-readiness JSON only after wallet, allowance, heartbeat, user-stream, and cancel-all readiness are proven",
         ),
         _gate_with_details(
-            "platform_verification_v0_4_passes",
+            "platform_verification_passes",
             platform_gate.get("ok"),
             "platform/account/API verification passes for the target date",
             "platform/account/API verification is missing, stale, or failing for the target date",
@@ -1166,7 +1170,7 @@ def build_readiness_snapshot(
                 "missing": platform_gate.get("missing") or [],
                 "reason": platform_gate.get("reason"),
             },
-            remediation="refresh mm_platform_verification_v0.4 with fresh official physical geoblock, International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
+            remediation=f"refresh {PLATFORM_VERIFICATION_SCHEMA_VERSION} with International wallet-identity, heartbeat-chain, maker-only, private-stream, cancel-all, and secret-redaction proofs",
         ),
     ]
 

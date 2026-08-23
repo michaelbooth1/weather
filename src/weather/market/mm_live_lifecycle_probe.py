@@ -1,7 +1,7 @@
 """Dedicated first-order lifecycle probe for International Polymarket.
 
 This module accepts an already-authenticated, fail-closed adapter plus a passing
-``mm_platform_bootstrap_v0.2`` gate. The bounded operator CLI wires that narrow
+``mm_platform_bootstrap_v0.3`` gate. The bounded operator CLI wires that narrow
 surface to credential references; the ordinary maker runner never calls it.
 """
 
@@ -12,7 +12,7 @@ import json
 import os
 import time
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
@@ -24,9 +24,9 @@ from weather.market.mm_official_adapter import (
 )
 
 
-SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.1"
+SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.2"
 JOURNAL_SCHEMA_VERSION = "mm_live_lifecycle_probe_journal_v0.1"
-LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.1"
+LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.2"
 CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE"
 CANCELLATION_MODES = {"cancel_all", "dead_man"}
 OFFICIAL_HEARTBEAT_INTERVAL_SECONDS = 5.0
@@ -149,7 +149,7 @@ def _validate_bootstrap_binding(adapter, bootstrap_gate):
     required = {
         "required": bootstrap_gate.get("required") is True,
         "ok": bootstrap_gate.get("ok") is True,
-        "schema": bootstrap_gate.get("schema_version") == "mm_platform_bootstrap_v0.2",
+        "schema": bootstrap_gate.get("schema_version") == "mm_platform_bootstrap_v0.3",
         "status": bootstrap_gate.get("status") == "PASS",
         "platform": bootstrap_gate.get("platform") == "polymarket_global",
         "settlement_unit": bootstrap_gate.get("settlement_unit") == "pUSD",
@@ -160,12 +160,6 @@ def _validate_bootstrap_binding(adapter, bootstrap_gate):
         ),
         "missing": bootstrap_gate.get("missing") == [],
         "account_snapshot": len(str(bootstrap_gate.get("account_snapshot_sha256") or "")) == 64,
-        "geoblock_evidence": len(
-            str(bootstrap_gate.get("geoblock_evidence_sha256") or "")
-        ) == 64,
-        "geoblock_country": bool(
-            str(bootstrap_gate.get("geoblock_country") or "").strip()
-        ),
         "token": str(getattr(adapter, "token_id", ""))
         == str(bootstrap_gate.get("token_id") or ""),
         "token_format": str(bootstrap_gate.get("token_id") or "").isdigit()
@@ -229,6 +223,12 @@ def execute_stage1_lifecycle_probe(
     dead_man_timeout_seconds=15.0,
     poll_interval_seconds=0.25,
     heartbeat_interval_seconds=OFFICIAL_HEARTBEAT_INTERVAL_SECONDS,
+    submit_deadline_utc=None,
+    utc_clock=None,
+    pre_submit_attestor=None,
+    expected_candidate_intent=None,
+    expected_candidate_tick_size=None,
+    expected_candidate_order_min_size=None,
 ):
     """Place one minimum-tick order and prove one cancellation mechanism.
 
@@ -257,8 +257,20 @@ def execute_stage1_lifecycle_probe(
         + OFFICIAL_DEAD_MAN_MAX_CHECK_DELAY_SECONDS
     ):
         raise RuntimeError("Stage 1 dead-man observation window must be at least 15 seconds")
+    submit_deadline = None
+    if submit_deadline_utc is not None:
+        try:
+            submit_deadline = datetime.fromisoformat(
+                str(submit_deadline_utc).replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise RuntimeError("Stage 1 submit deadline is invalid") from exc
+        if submit_deadline.tzinfo is None:
+            raise RuntimeError("Stage 1 submit deadline must be timezone-aware")
+        submit_deadline = submit_deadline.astimezone(timezone.utc)
 
     clock = monotonic_clock or time.monotonic
+    wall_clock = utc_clock or (lambda: datetime.now(timezone.utc))
     sleep = sleeper or time.sleep
     poll_interval = max(0.01, float(poll_interval_seconds))
     journal = LifecycleProbeJournal(journal_path)
@@ -272,9 +284,6 @@ def execute_stage1_lifecycle_probe(
         condition_id=bootstrap_gate.get("condition_id"),
         token_id=bootstrap_gate.get("token_id"),
         requested_budget_usdc=bootstrap_gate.get("requested_budget_usdc"),
-        geoblock_country=bootstrap_gate.get("geoblock_country"),
-        geoblock_region=bootstrap_gate.get("geoblock_region"),
-        geoblock_evidence_sha256=bootstrap_gate.get("geoblock_evidence_sha256"),
         confirmation_matched=True,
         secret_values_redacted=True,
     )
@@ -304,7 +313,10 @@ def execute_stage1_lifecycle_probe(
     phase = "heartbeat"
     try:
         phase = "stage1_capability"
-        stage1_capability = adapter.authorize_stage1_lifecycle(bootstrap_gate)
+        stage1_capability = adapter.authorize_stage1_lifecycle(
+            bootstrap_gate,
+            submit_deadline_utc=submit_deadline.isoformat(),
+        )
         journal.record(
             "stage1_capability_issued",
             bootstrap_sha256=bootstrap_hash,
@@ -325,11 +337,35 @@ def execute_stage1_lifecycle_probe(
             raise RuntimeError("fresh market rules do not match the bootstrap token")
         intent = _minimum_probe_intent(rules)
         notional = Decimal(str(intent["price"])) * Decimal(str(intent["size"]))
+        candidate_intent = dict(expected_candidate_intent or {})
+        try:
+            candidate_price = Decimal(str(candidate_intent.get("price")))
+            candidate_size = Decimal(str(candidate_intent.get("size")))
+            candidate_notional = Decimal(
+                str(candidate_intent.get("notional_pusd"))
+            )
+            candidate_tick = Decimal(str(expected_candidate_tick_size))
+            candidate_minimum = Decimal(str(expected_candidate_order_min_size))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise RuntimeError("Stage 1 candidate intent binding is invalid") from exc
+        if not all(
+            (
+                candidate_intent.get("side") == "BUY",
+                candidate_intent.get("post_only") is True,
+                candidate_price == Decimal(str(intent["price"])),
+                candidate_size == Decimal(str(intent["size"])),
+                candidate_notional == notional,
+                candidate_tick == Decimal(str(rules["tick_size"])),
+                candidate_minimum == Decimal(str(rules["min_order_size"])),
+            )
+        ):
+            raise RuntimeError("fresh rules no longer match the sealed candidate intent")
         requested_budget = Decimal(str(bootstrap_gate["requested_budget_usdc"]))
         if notional > requested_budget:
             raise RuntimeError("minimum valid probe order exceeds the requested pilot budget")
         journal.record(
             "intent_prepared",
+            cancellation_mode=cancellation_mode,
             token_id=intent["token_id"],
             side=intent["side"],
             price=intent["price"],
@@ -338,18 +374,46 @@ def execute_stage1_lifecycle_probe(
             post_only_required=True,
         )
         phase = "placement"
+        if pre_submit_attestor is not None:
+            if not callable(pre_submit_attestor):
+                raise RuntimeError("Stage 1 pre-submit host attestor is invalid")
+            pre_submit_attestor()
+            journal.record("host_state_attested", cancellation_mode=cancellation_mode)
+        if submit_deadline is None or wall_clock().astimezone(timezone.utc) >= submit_deadline:
+            raise RuntimeError("Stage 1 submit deadline has expired")
+        journal.record(
+            "submit_deadline_verified",
+            cancellation_mode=cancellation_mode,
+            submit_deadline_utc=submit_deadline.isoformat(),
+        )
+        journal.record("submit_started", cancellation_mode=cancellation_mode)
         response = adapter.place_order(intent, stage1_capability=stage1_capability)
-        geo_diagnostics = adapter.diagnostics()
-        if not all((
-            geo_diagnostics.get("geoblock_allows_orders") is True,
-            str(geo_diagnostics.get("geoblock_country") or "").upper()
-            == str(bootstrap_gate.get("geoblock_country") or "").upper(),
-            str(geo_diagnostics.get("geoblock_region") or "").upper()
-            == str(bootstrap_gate.get("geoblock_region") or "").upper(),
-            len(str(geo_diagnostics.get("geoblock_evidence_sha256") or "")) == 64,
-            len(str(geo_diagnostics.get("stage1_geoblock_evidence_sha256") or "")) == 64,
-        )):
-            raise RuntimeError("Stage 1 placement lacks current official geoblock evidence")
+        submit_diagnostics = adapter.diagnostics()
+        try:
+            network_boundary = datetime.fromisoformat(
+                str(submit_diagnostics["network_submit_boundary_utc"]).replace(
+                    "Z", "+00:00"
+                )
+            ).astimezone(timezone.utc)
+            adapter_deadline = datetime.fromisoformat(
+                str(submit_diagnostics["submit_deadline_utc"]).replace(
+                    "Z", "+00:00"
+                )
+            ).astimezone(timezone.utc)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RuntimeError("Stage 1 adapter omitted network-boundary timing") from exc
+        if not (
+            submit_diagnostics.get("network_submit_deadline_passed") is True
+            and adapter_deadline == submit_deadline
+            and network_boundary < submit_deadline
+        ):
+            raise RuntimeError("Stage 1 network submit crossed its sealed deadline")
+        journal.record(
+            "network_submit_boundary_verified",
+            cancellation_mode=cancellation_mode,
+            submit_deadline_utc=submit_deadline.isoformat(),
+            network_submit_boundary_utc=network_boundary.isoformat(),
+        )
         order_id = _order_id(response)
         if not order_id:
             raise RuntimeError("Stage 1 placement response did not carry an order id")
@@ -357,14 +421,6 @@ def execute_stage1_lifecycle_probe(
             "order_accepted",
             order_id=order_id,
             placement_status=str(_value(response, "status") or "").lower(),
-            geoblock_country=geo_diagnostics["geoblock_country"],
-            geoblock_region=geo_diagnostics["geoblock_region"],
-            capability_geoblock_evidence_sha256=geo_diagnostics[
-                "stage1_geoblock_evidence_sha256"
-            ],
-            submission_geoblock_evidence_sha256=geo_diagnostics[
-                "geoblock_evidence_sha256"
-            ],
         )
 
         phase = "authoritative_order_observation"
@@ -492,14 +548,6 @@ def execute_stage1_lifecycle_probe(
             "order_notional_usdc": float(notional),
             "order_id": order_id,
             "placement_status": str(_value(response, "status") or "").lower(),
-            "geoblock_country": geo_diagnostics["geoblock_country"],
-            "geoblock_region": geo_diagnostics["geoblock_region"],
-            "capability_geoblock_evidence_sha256": geo_diagnostics[
-                "stage1_geoblock_evidence_sha256"
-            ],
-            "submission_geoblock_evidence_sha256": geo_diagnostics[
-                "geoblock_evidence_sha256"
-            ],
             "open_order_observed": observed_open,
             "authoritative_user_event_observed": observed_user_event,
             "cancellation_observed": cancellation_observed,
@@ -522,7 +570,7 @@ def execute_stage1_lifecycle_probe(
         )
         result["journal_sha256"] = journal.sha256()
         return result
-    except Exception as exc:
+    except BaseException as exc:
         cleanup_succeeded = False
         cleanup_zero_open_orders = False
         cleanup_zero_positions = False
@@ -532,7 +580,7 @@ def execute_stage1_lifecycle_probe(
             cleanup_positions, _ = _verified_exact_positions(adapter)
             cleanup_zero_positions = not bool(cleanup_positions)
             cleanup_succeeded = cleanup_zero_open_orders and cleanup_zero_positions
-        except Exception:
+        except BaseException:
             cleanup_succeeded = False
         try:
             journal.record(
@@ -545,7 +593,7 @@ def execute_stage1_lifecycle_probe(
                 cleanup_zero_open_orders=cleanup_zero_open_orders,
                 cleanup_zero_positions=cleanup_zero_positions,
             )
-        except Exception:
+        except BaseException:
             pass
         raise
 
@@ -577,6 +625,9 @@ def _verified_probe_journal(result):
         "stage1_capability_issued",
         "heartbeat_acknowledged",
         "intent_prepared",
+        "submit_deadline_verified",
+        "submit_started",
+        "network_submit_boundary_verified",
         "order_accepted",
         "order_observed",
         "cancellation_started",
@@ -595,10 +646,34 @@ def _verified_probe_journal(result):
     bootstrap_sha256 = str(result.get("bootstrap_sha256") or "")
     authorized = matching("probe_authorized")
     starts = matching("starting_state_verified")
+    intents = matching("intent_prepared")
+    deadlines = matching("submit_deadline_verified")
+    submits = matching("submit_started")
+    boundaries = matching("network_submit_boundary_verified")
     accepted = matching("order_accepted")
     observed = matching("order_observed")
     cancelled = matching("cancellation_verified")
     passed = matching("probe_passed")
+    intent_row = intents[0] if len(intents) == 1 else {}
+    deadline_row = deadlines[0] if len(deadlines) == 1 else {}
+    submit_row = submits[0] if len(submits) == 1 else {}
+    boundary_row = boundaries[0] if len(boundaries) == 1 else {}
+    try:
+        deadline_utc = datetime.fromisoformat(
+            str(deadline_row.get("submit_deadline_utc")).replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        boundary_utc = datetime.fromisoformat(
+            str(boundary_row.get("network_submit_boundary_utc")).replace(
+                "Z", "+00:00"
+            )
+        ).astimezone(timezone.utc)
+    except (IndexError, TypeError, ValueError):
+        deadline_utc = boundary_utc = datetime.max.replace(tzinfo=timezone.utc)
+    event_index = {
+        event_type: event_types.index(event_type)
+        for event_type in required_types
+        if event_types.count(event_type) == 1
+    }
     valid = all((
         len(authorized) == 1,
         authorized[0].get("bootstrap_sha256") == bootstrap_sha256,
@@ -606,7 +681,36 @@ def _verified_probe_journal(result):
         len(starts) == 1,
         starts[0].get("zero_open_orders") is True,
         starts[0].get("zero_positions") is True,
-        any(row.get("order_id") == order_id for row in accepted),
+        len(intents) == 1,
+        intent_row.get("cancellation_mode") == mode,
+        len(deadlines) == 1,
+        deadline_row.get("cancellation_mode") == mode,
+        len(submits) == 1,
+        submit_row.get("cancellation_mode") == mode,
+        len(boundaries) == 1,
+        boundary_row.get("cancellation_mode") == mode,
+        boundary_row.get("submit_deadline_utc")
+        == deadline_row.get("submit_deadline_utc"),
+        boundary_utc < deadline_utc,
+        len(accepted) == 1,
+        accepted[0].get("order_id") == order_id,
+        all(
+            name in event_index
+            for name in (
+                "intent_prepared",
+                "submit_deadline_verified",
+                "submit_started",
+                "network_submit_boundary_verified",
+                "order_accepted",
+            )
+        ),
+        (
+            event_index.get("intent_prepared", -1)
+            < event_index.get("submit_deadline_verified", -1)
+            < event_index.get("submit_started", -1)
+            < event_index.get("network_submit_boundary_verified", -1)
+            < event_index.get("order_accepted", -1)
+        ),
         any(
             row.get("order_id") == order_id
             and row.get("open_order_observed") is True
@@ -678,16 +782,6 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
             == str(bootstrap_gate.get("condition_id") or "").lower(),
             "token": str(result.get("token_id") or "")
             == str(bootstrap_gate.get("token_id") or ""),
-            "country": str(result.get("geoblock_country") or "").upper()
-            == str(bootstrap_gate.get("geoblock_country") or "").upper(),
-            "region": str(result.get("geoblock_region") or "").upper()
-            == str(bootstrap_gate.get("geoblock_region") or "").upper(),
-            "capability_geo_hash": len(
-                str(result.get("capability_geoblock_evidence_sha256") or "")
-            ) == 64,
-            "submission_geo_hash": len(
-                str(result.get("submission_geoblock_evidence_sha256") or "")
-            ) == 64,
             "heartbeat": result.get("heartbeat_acknowledged") is True,
             "starting_orders": result.get("starting_zero_open_orders_verified") is True,
             "starting_positions": result.get("starting_zero_positions_verified") is True,
@@ -748,8 +842,6 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
         "token_id": bootstrap_gate.get("token_id"),
         "funder_address": bootstrap_gate.get("funder_address"),
         "requested_budget_usdc": float(requested_budget),
-        "geoblock_country": bootstrap_gate.get("geoblock_country"),
-        "geoblock_region": bootstrap_gate.get("geoblock_region"),
         "lifecycle_results": results,
         "journal_evidence": journal_evidence,
         "derived_platform_evidence": {

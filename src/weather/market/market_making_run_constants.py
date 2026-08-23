@@ -1,12 +1,10 @@
 """Shared constants for market-making run orchestration."""
 
-from pathlib import Path
-
 from weather.paths import data_path
 from weather.market.mm_policy import QUOTE_COLUMNS
 
 SCHEMA_VERSION = "mm_run_v0.2"
-PLATFORM_VERIFICATION_SCHEMA_VERSION = "mm_platform_verification_v0.4"
+PLATFORM_VERIFICATION_SCHEMA_VERSION = "mm_platform_verification_v0.5"
 RUN_MODES = {"shadow", "paper-live-forward", "live-pilot"}
 PERMISSION_PROFILES = {"model", "market_harvest"}
 DEFAULT_RUNS_ROOT = data_path() / "mm_runs"

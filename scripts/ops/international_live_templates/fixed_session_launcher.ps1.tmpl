@@ -1,0 +1,109 @@
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+$repo = "__SESSION_REPO_ROOT__"
+$python = "__SESSION_PYTHON__"
+$expectedPythonSha256 = "__SESSION_PYTHON_SHA256__"
+$runnerSource = "__SESSION_RUNNER_SOURCE__"
+$expectedRunnerSha256 = "__SESSION_RUNNER_SHA256__"
+$manifest = "__SESSION_MANIFEST__"
+$expectedManifestSha256 = "__SESSION_MANIFEST_SHA256__"
+$candidate = "__SESSION_CANDIDATE_INBOX__"
+$manifestSidecar = "__SESSION_MANIFEST_SIDECAR__"
+$expectedManifestSidecarSha256 = "__SESSION_MANIFEST_SIDECAR_SHA256__"
+
+if ($MyInvocation.UnboundArguments.Count -ne 0) {
+    throw "fixed session launcher accepts no arguments"
+}
+foreach ($path in @($python, $runnerSource, $manifest, $manifestSidecar, $candidate)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "fixed session launcher dependency is absent"
+    }
+}
+function Add-LockedExactFile {
+    param([string]$Path, [AllowNull()][string]$ExpectedSha256)
+    $stream = $null
+    try {
+        $stream = [IO.File]::Open(
+            $Path,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        if ($null -ne $ExpectedSha256) {
+            $hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+                $observed = -join ($hasher.ComputeHash($stream) | ForEach-Object { $_.ToString("x2") })
+            }
+            finally { $hasher.Dispose() }
+            $stream.Position = 0
+            if ($observed -ne $ExpectedSha256) {
+                throw "fixed session locked-file hash changed"
+            }
+        }
+        [void]$lockedFiles.Add($stream)
+        $stream = $null
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+$lockedFiles = [Collections.Generic.List[IDisposable]]::new()
+$priorFixedSessionSrc = $env:WEATHER_FIXED_SESSION_SRC
+try {
+    Add-LockedExactFile -Path $python -ExpectedSha256 $expectedPythonSha256
+    Add-LockedExactFile -Path $runnerSource -ExpectedSha256 $expectedRunnerSha256
+    Add-LockedExactFile -Path $manifest -ExpectedSha256 $expectedManifestSha256
+    Add-LockedExactFile -Path $manifestSidecar -ExpectedSha256 $expectedManifestSidecarSha256
+    $manifestPayload = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+    if ([string]$manifestPayload.production_python_sha256 -cne $expectedPythonSha256) {
+        throw "session manifest interpreter hash differs from launcher review"
+    }
+    foreach ($property in $manifestPayload.session_bootstrap_sha256.psobject.Properties) {
+        Add-LockedExactFile `
+            -Path (Join-Path $repo $property.Name) `
+            -ExpectedSha256 ([string]$property.Value).ToLowerInvariant()
+    }
+    foreach ($property in $manifestPayload.source_sha256.psobject.Properties) {
+        Add-LockedExactFile `
+            -Path (Join-Path $repo $property.Name) `
+            -ExpectedSha256 ([string]$property.Value).ToLowerInvariant()
+    }
+    foreach ($property in $manifestPayload.inputs.psobject.Properties) {
+        Add-LockedExactFile `
+            -Path ([string]$property.Value.path) `
+            -ExpectedSha256 ([string]$property.Value.sha256).ToLowerInvariant()
+    }
+    $attemptRoot = [string]$manifestPayload.scope.attempt_root
+    foreach ($existing in Get-ChildItem -LiteralPath $attemptRoot -File -Recurse -Force) {
+        if ($lockedFiles.Count -eq 0 -or $existing.FullName -notin @(
+            $lockedFiles | ForEach-Object { $_.Name }
+        )) {
+            Add-LockedExactFile -Path $existing.FullName -ExpectedSha256 $null
+        }
+    }
+    $env:WEATHER_FIXED_SESSION_SRC = Join-Path $repo "src"
+    Push-Location -LiteralPath $repo
+    try {
+        & $python -I -c "import os,runpy,sys;sys.path.insert(0,os.environ['WEATHER_FIXED_SESSION_SRC']);runpy.run_module('weather.operations.international_live_session_runner',run_name='__main__')" `
+            --session-manifest $manifest `
+            --expected-session-manifest-sha256 $expectedManifestSha256 `
+            --candidate $candidate
+        $exitCode = $LASTEXITCODE
+    }
+    finally { Pop-Location }
+}
+finally {
+    for ($index = $lockedFiles.Count - 1; $index -ge 0; $index--) {
+        $lockedFiles[$index].Dispose()
+    }
+    if ($null -eq $priorFixedSessionSrc) {
+        Remove-Item Env:WEATHER_FIXED_SESSION_SRC -ErrorAction SilentlyContinue
+    }
+    else { $env:WEATHER_FIXED_SESSION_SRC = $priorFixedSessionSrc }
+}
+exit $exitCode

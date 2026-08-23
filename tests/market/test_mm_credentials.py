@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from weather.market.mm_credentials import (
@@ -8,9 +6,6 @@ from weather.market.mm_credentials import (
     load_global_credential_bundle,
     parse_wincred_reference,
 )
-from weather.market.mm_geoblock import collect_official_geoblock_evidence
-
-
 REFERENCES = {
     "POLYMARKET_API_KEY_STORAGE_REF": "wincred://Weather/Polymarket/ApiKey",
     "POLYMARKET_API_SECRET_STORAGE_REF": "wincred://Weather/Polymarket/ApiSecret",
@@ -18,27 +13,7 @@ REFERENCES = {
     "POLYMARKET_PRIVATE_KEY_STORAGE_REF": "wincred://Weather/Polymarket/PrivateKey",
     "POLYMARKET_FUNDER_ADDRESS": "0x0000000000000000000000000000000000000001",
 }
-
-
-def eligible_geoblock():
-    class Response:
-        status = 200
-
-        def read(self, _limit):
-            return json.dumps({
-                "blocked": False,
-                "country": "CH",
-                "region": "ZH",
-                "ip": "203.0.113.8",
-            }).encode("utf-8")
-
-        def close(self):
-            pass
-
-    return collect_official_geoblock_evidence(
-        opener=lambda _request, timeout: Response(),
-        proxy_detector=lambda: {},
-    )
+SIGNER = "0x" + "2" * 40
 
 
 def test_wincred_reference_parser_rejects_embedded_material():
@@ -117,13 +92,10 @@ def test_unified_client_factory_requires_deployed_wallet_and_verifies_topology()
         return True
 
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -142,6 +114,8 @@ def test_unified_client_factory_requires_deployed_wallet_and_verifies_topology()
         client_factory=client_factory,
         api_creds_factory=api_creds_factory,
         wallet_deployed_reader=wallet_deployed_reader,
+        expected_signer_address=SIGNER,
+        account_deriver=lambda _key: SIGNER,
     )
 
     assert client.wallet_type == "DEPOSIT_WALLET"
@@ -168,6 +142,8 @@ def test_unified_client_factory_requires_deployed_wallet_and_verifies_topology()
         client_factory=client_factory,
         api_creds_factory=api_creds_factory,
         wallet_deployed_reader=wallet_deployed_reader,
+        expected_signer_address=SIGNER,
+        account_deriver=lambda _key: SIGNER,
     )
     assert captured["deployment"][1] == 2
 
@@ -181,13 +157,10 @@ def test_unified_client_factory_refuses_to_invoke_sdk_for_an_unproven_wallet():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -209,6 +182,31 @@ def test_unified_client_factory_refuses_to_invoke_sdk_for_an_unproven_wallet():
             client_factory=lambda **kwargs: invoked.append(kwargs),
             api_creds_factory=lambda **kwargs: kwargs,
             wallet_deployed_reader=lambda _wallet, _signature_type: False,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
+        )
+
+    assert invoked == []
+
+
+def test_unified_client_refuses_rotated_private_signer_before_any_sdk_or_write():
+    values = {
+        "Weather/Polymarket/ApiKey": "api-key-value",
+        "Weather/Polymarket/ApiSecret": "api-secret-value",
+        "Weather/Polymarket/Passphrase": "passphrase-value",
+        "Weather/Polymarket/PrivateKey": "rotated-private-key",
+    }
+    bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
+    invoked = []
+
+    with pytest.raises(RuntimeError, match="differs from the sealed manifest"):
+        build_unified_clob_client(
+            bundle,
+            {},
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: "0x" + "3" * 40,
+            client_factory=lambda **kwargs: invoked.append(kwargs),
+            wallet_deployed_reader=lambda *_args: invoked.append("deployment"),
         )
 
     assert invoked == []
@@ -223,13 +221,10 @@ def test_unified_client_factory_closes_an_unexpected_sdk_topology():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -260,6 +255,8 @@ def test_unified_client_factory_closes_an_unexpected_sdk_topology():
             client_factory=lambda **_kwargs: client,
             api_creds_factory=lambda **kwargs: kwargs,
             wallet_deployed_reader=lambda _wallet, _signature_type: True,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
         )
 
     assert client.closed is True
@@ -274,13 +271,10 @@ def test_stage0_identity_rejects_missing_topology_and_secret_fields():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.1",
+        "schema_version": "mm_stage0_client_identity_v0.2",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
-        "physical_location_matches_geoblock_confirmed": True,
-        "geoblock_circumvention_absent_confirmed": True,
-        "geographic_eligibility": eligible_geoblock(),
         "clob_host": "https://clob.polymarket.com",
         "settlement_unit": "pUSD",
         "chain_id": 137,
@@ -304,6 +298,8 @@ def test_stage0_identity_rejects_missing_topology_and_secret_fields():
             client_factory=lambda **_kwargs: object(),
             api_creds_factory=lambda **_kwargs: object(),
             wallet_deployed_reader=lambda _wallet, _signature_type: True,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
         )
 
 
@@ -323,4 +319,6 @@ def test_unified_client_factory_rejects_bootstrap_gate_in_place_of_stage0_identi
             client_factory=lambda **_kwargs: object(),
             api_creds_factory=lambda **_kwargs: object(),
             wallet_deployed_reader=lambda _wallet, _signature_type: True,
+            expected_signer_address=SIGNER,
+            account_deriver=lambda _key: SIGNER,
         )

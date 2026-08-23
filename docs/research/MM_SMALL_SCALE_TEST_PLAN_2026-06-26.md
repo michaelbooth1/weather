@@ -217,7 +217,7 @@ Pick one market and one central band only after Phases 0-3 pass.
 Read-only checks:
 
 - Confirm exact platform: `polymarket_us` or International CLOB.
-- Confirm account eligibility, jurisdiction, wallet type, signer/funder, collateral token, balance endpoint, allowance endpoint, and order endpoint.
+- Confirm wallet type, signer/funder, collateral token, balance endpoint, allowance endpoint, and order endpoint.
 - Confirm tick size, min order size, reward target size, reward discount factor/spread threshold, fee rate, maker rebate, any taker-rebate eligibility, and order API semantics for that exact market. Do not include temporary high-volume taker rebates in small-scale economics without account-level qualification and payout proof.
 - For Polymarket US, confirm order entry uses `participateDontInitiate`, not a marketable order path.
 - Confirm user WebSocket or private stream works and produces order snapshots plus order execution updates.

@@ -271,13 +271,6 @@ A market maker does not need to beat the market everywhere. It needs:
   at 500 req / 10s). A 12-event fleet quoting ~6 bands each at 10s cadence
   is ~300 requests / 10s including cancels.
 
-**Jurisdiction/account note (hard gate for live orders):** Polymarket now
-operates a separate US-regulated platform (docs.polymarket.us) alongside the
-global one; terms, fees, and rewards may differ. Ontario residents have
-historically been restricted on the global platform. Confirm account
-eligibility and choose the operating entity/wallet before MM-2. None of the
-technical plan changes; live deployment waits on this.
-
 ### 2B. Strategy design: informed maker, binary settlement
 
 The Avellaneda-Stoikov frame (reservation price + spread from inventory and
@@ -351,8 +344,7 @@ volatility) adapts with weather-specific twists:
   formulas against the sampled books, including competitor size), and
   rebate share (our simulated maker volume vs observed taker volume).
 - Acceptance to MM-2: simulated P&L (markout + rewards + rebates) positive
-  over >= 14 days under the pessimistic fill rule, with model gates honored;
-  plus the jurisdiction gate cleared.
+  over >= 14 days under the pessimistic fill rule, with model gates honored.
 
 **Phase MM-2: Live, harvest mode (minimum risk, market-mid-anchored).**
 
@@ -413,7 +405,6 @@ Now        MM-0 book recorder + token-id persistence        (days)
            ... runs unattended; recon report after 7 days ...
 Next       Step 1A morning-forecast calibration pull        (replay-gated)
            MM-1 shadow quote engine + pessimistic fill sim  (1-2 weeks)
-           Jurisdiction/account resolution                  (parallel)
 Then       MM-2 live harvest on 2-3 events (~$500 capital)
            Step 1A/34 per-market calibration as days accrue (calendar-gated)
 Later      MM-3 model-skewed MM, mandate tied to gauntlet
@@ -652,8 +643,7 @@ commitment:
 - [ ] Cancel-all and manual pause paths tested; runbook written (start,
       stop, flatten, redeem, reconcile).
 
-**Account, capital, compliance**
-- [ ] Jurisdiction/eligibility resolved; operating wallet chosen.
+**Account and capital**
 - [ ] Dedicated wallet funded with isolated risk capital (~$500 for the
       2-3 event pilot; never the full bankroll), allowances set, API creds
       derived and stored outside the repo.
@@ -676,8 +666,7 @@ Week 1      Stage 0 build + token persistence; recorder running under
 Week 2      7-day tape -> Stage 1 recon report; quote engine + policy v0
             shadow-quoting; first replay paper results on frozen days
 Weeks 3-4   Live-forward paper trading nightly; policy iteration weekly;
-            Step 1A morning calibration through the pinned gate;
-            jurisdiction/account workstream in parallel
+            Step 1A morning calibration through the pinned gate
 Week 5+     Go-Live Gate review. If green: MM-2 day-one protocol, then the
             2-3 event live pilot at min size (~$500 capital)
 Week 7+     If MM-2 acceptance holds 14 days: begin MM-3 on any
@@ -685,8 +674,8 @@ Week 7+     If MM-2 acceptance holds 14 days: begin MM-3 on any
 ```
 
 The honest expectation: roughly two weeks of building, then the calendar is
-owned by evidence accrual - 14 clean paper days plus however long the
-jurisdiction question takes. Real-money testing earlier than ~5 weeks out
+owned by evidence accrual, including 14 clean paper days. Real-money testing
+earlier than ~5 weeks out
 would mean skipping a gate, and every gate exists because some measured
 fact (toxic flow, thin liquidity, print risk, silent loop death) says
 skipping it is how this loses money.
