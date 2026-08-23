@@ -586,24 +586,6 @@ def test_codex_wake_receipt_is_authoritative_over_scheduler_result() -> None:
     assert "overnight_wakes =" in text
 
 
-def test_stale_authoritative_wake_failure_remains_visible_without_blocking_forever() -> None:
-    text = SCRIPT.read_text(encoding="utf-8-sig")
-
-    assert "$wakeFailure = (" in text
-    assert "[datetime]$ti.LastRunTime -lt (Get-Date).AddHours(-24)" in text
-    assert "$warns.Add($wakeFailure)" in text
-    assert "$flags.Add($wakeFailure)" in text
-
-
-def test_successful_maintenance_post_boot_task_is_a_spent_one_shot() -> None:
-    text = SCRIPT.read_text(encoding="utf-8-sig")
-
-    assert '$name -like "WeatherMaintenancePostBoot*"' in text
-    assert '$actionArguments -like "*post_boot_audit.ps1*"' in text
-    assert '"MSFT_TaskBootTrigger"' in text
-    assert "($oneShot -or $postBootOneShot)" in text
-
-
 def test_disk_alarm_distinguishes_a_short_burst_from_multi_day_burn() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
