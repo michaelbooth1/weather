@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
 from weather.operations import international_live_wrapper_sealer as sealer
 
@@ -490,7 +491,7 @@ def test_composer_reserves_full_cleanup_grace_before_nine(
     stage = "stage0"
     attempt, manifest, fresh = session_fixture(tmp_path, stage, now=current)
     assert runner.COOPERATIVE_CLEANUP_GRACE_SECONDS == (
-        sealer.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+        time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
     )
     assert runner.COOPERATIVE_CLEANUP_GRACE_SECONDS == 20
 

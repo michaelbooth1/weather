@@ -8,13 +8,13 @@ import json
 import os
 import re
 import subprocess
-from datetime import date, datetime, time as wall_time, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
-from zoneinfo import ZoneInfo
 
 from weather.paths import REPO_ROOT
+from weather.operations import international_live_time_window as live_time_window
 from weather.operations.international_live_lineage import (
     CREDENTIAL_TOPOLOGY_KEYS,
     EXPECTED_CREDENTIAL_IMPORT_CHECKS,
@@ -33,17 +33,11 @@ from weather.schema_registry import schema_version
 SPEC_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal_spec")
 RECEIPT_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal")
 INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_inventory")
-REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = (
-    "da32c0895bb5b40c842b35232ff266c7968d4439"
-)
+REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = "da32c0895bb5b40c842b35232ff266c7968d4439"
 CANDIDATE_SCHEMA_VERSION = "mm_live_market_candidate_plan_v0.2"
 MAX_CANDIDATE_AGE_SECONDS = 300
 MAX_PAPER_QUOTE_TTL_SECONDS = 120
 MAX_RUN_WINDOW_SECONDS = 30 * 60
-LIVE_WINDOW_TIMEZONE = ZoneInfo("America/Toronto")
-LIVE_WINDOW_START = wall_time(0, 30)
-LIVE_WINDOW_END = wall_time(9, 0)
-LIVE_WINDOW_CLEANUP_RESERVE_SECONDS = 20
 MAX_STAGE1_ORDER_NOTIONAL_PUSD = Decimal("10")
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
@@ -63,20 +57,12 @@ TEMPLATE_MARKER_RE = re.compile(r"__SEAL_[A-Z0-9_]+__")
 STAGES = ("stage0", "stage1_cancel_all", "stage1_dead_man")
 PYTHON_TEMPLATE_PATHS = {
     "stage0": "scripts/ops/international_live_templates/stage0.py.tmpl",
-    "stage1_cancel_all": (
-        "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl"
-    ),
-    "stage1_dead_man": (
-        "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl"
-    ),
+    "stage1_cancel_all": "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl",
+    "stage1_dead_man": "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl",
 }
-LAUNCHER_TEMPLATE_PATH = (
-    "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
-)
+LAUNCHER_TEMPLATE_PATH = "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
 WORKLOAD_ADMISSION_PATH = "scripts/ops/workload_admission.ps1"
-SDK_OVERLAY_MANIFEST_PATH = (
-    "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
-)
+SDK_OVERLAY_MANIFEST_PATH = "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
 SDK_OVERLAY_MODULE_PATH = "src/weather/market/live_sdk_overlay.py"
 LIVE_SOURCE_PATHS = {
     "stage0": (
@@ -321,44 +307,6 @@ def _parse_aware(value: Any, *, label: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise SealError(f"{label} must be timezone-aware")
     return parsed
-
-
-def execution_window_is_supported(
-    start: datetime,
-    stop: datetime,
-    *,
-    target_date: date | str,
-) -> bool:
-    """Return whether execution plus its full cleanup reserve stays supported."""
-
-    try:
-        target = (
-            target_date
-            if type(target_date) is date
-            else date.fromisoformat(str(target_date))
-        )
-        if (
-            start.tzinfo is None
-            or start.utcoffset() is None
-            or stop.tzinfo is None
-            or stop.utcoffset() is None
-            or not start.astimezone(timezone.utc) < stop.astimezone(timezone.utc)
-        ):
-            return False
-        local_start = start.astimezone(LIVE_WINDOW_TIMEZONE)
-        local_stop = stop.astimezone(LIVE_WINDOW_TIMEZONE)
-        local_contained_end = (
-            stop + timedelta(seconds=LIVE_WINDOW_CLEANUP_RESERVE_SECONDS)
-        ).astimezone(LIVE_WINDOW_TIMEZONE)
-    except (TypeError, ValueError, OverflowError):
-        return False
-    return (
-        local_start.date() == target
-        and local_stop.date() == target
-        and local_contained_end.date() == target
-        and local_start.time() >= LIVE_WINDOW_START
-        and local_contained_end.time() <= LIVE_WINDOW_END
-    )
 
 
 def _parse_decimal(value: Any, *, label: str) -> Decimal:
@@ -1413,14 +1361,14 @@ def _validate_spec(
         raise SealError("prepared_at_local is not current")
     if not start < stop or (stop - start).total_seconds() > MAX_RUN_WINDOW_SECONDS:
         raise SealError("reviewed run window is invalid or exceeds 30 minutes")
-    if not execution_window_is_supported(start, stop, target_date=target):
+    if not live_time_window.execution_window_is_supported(start, stop, target_date=target):
         raise SealError(
             "reviewed execution and cleanup window is outside the supported "
             "00:30-09:00 America/Toronto live window"
         )
     if not start.astimezone(timezone.utc) <= now_utc <= stop.astimezone(timezone.utc):
         raise SealError("sealer is outside the reviewed run window")
-    if prepared.astimezone(LIVE_WINDOW_TIMEZONE).date() != target:
+    if prepared.astimezone(live_time_window.LIVE_WINDOW_TIMEZONE).date() != target:
         raise SealError("reviewed timestamps do not share the target local date")
     workload = str(scope["lease_workload"] or "")
     if WORKLOAD_RE.fullmatch(workload) is None:
@@ -1634,7 +1582,7 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
         "requested_budget_pusd": scope["requested_budget_pusd"],
         "run_not_before_local": scope["run_not_before_local"],
         "run_not_after_local": scope["run_not_after_local"],
-        "cleanup_reserve_seconds": LIVE_WINDOW_CLEANUP_RESERVE_SECONDS,
+        "cleanup_reserve_seconds": live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS,
         "attempt_root": scope["attempt_root"],
         "expected_lease_workload": scope["lease_workload"],
         "allowed_status_flag_sha256": [

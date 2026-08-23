@@ -21,6 +21,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from weather.operations import international_live_time_window as live_time_window
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
 from weather.operations.live_path_security import (
     canonical_windows_powershell,
@@ -40,7 +41,7 @@ MIN_LAUNCH_REMAINING_SECONDS = 90
 LAUNCHER_CLEANUP_MARGIN_SECONDS = 30
 MAX_LAUNCHER_RUNTIME_SECONDS = MAX_SESSION_SECONDS
 COOPERATIVE_CLEANUP_GRACE_SECONDS = (
-    fixed_sealer.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+    live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
 )
 
 
@@ -965,7 +966,7 @@ def compose_and_run_live_session(
         current + timedelta(seconds=int(scope["max_session_seconds"])),
         expires.astimezone(current.tzinfo),
     )
-    if not fixed_sealer.execution_window_is_supported(
+    if not live_time_window.execution_window_is_supported(
         current,
         stop,
         target_date=str(scope["target_date"]),
@@ -1087,7 +1088,7 @@ def compose_and_run_live_session(
         if clock is not None
         else (datetime.now().astimezone() if now is None else current)
     )
-    if not fixed_sealer.execution_window_is_supported(
+    if not live_time_window.execution_window_is_supported(
         launch_now,
         stop,
         target_date=str(scope["target_date"]),

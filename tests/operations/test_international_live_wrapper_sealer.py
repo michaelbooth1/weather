@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_wrapper_sealer as sealer
 
 
@@ -730,7 +731,7 @@ def seal(
 def test_supported_execution_window_has_exact_toronto_boundaries(
     start, stop, expected
 ):
-    assert sealer.execution_window_is_supported(
+    assert time_window.execution_window_is_supported(
         datetime.fromisoformat(start),
         datetime.fromisoformat(stop),
         target_date="2026-08-23",

@@ -83,6 +83,7 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     )
     assert {
         "src/weather/operations/international_live_session_runner.py",
+        "src/weather/operations/international_live_time_window.py",
         "src/weather/operations/international_live_wrapper_sealer.py",
         "src/weather/operations/live_path_security.py",
     }.issubset(receipt["session_bootstrap_sha256"])
