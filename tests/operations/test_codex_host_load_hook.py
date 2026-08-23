@@ -30,6 +30,9 @@ def test_hook_installer_covers_unified_exec_at_the_user_layer():
     assert 'commandWindows = "py -3' in text
     assert "pre_tool_use_host_load.py" in text
     assert "Refusing to overwrite existing Codex hooks" in text
+    assert "[System.Text.UTF8Encoding]::new($false)" in text
+    assert "WriteAllText($tempPath, $json, $utf8NoBom)" in text
+    assert "unexpectedly contains a UTF-8 BOM" in text
 
 
 def test_protected_window_denies_even_focused_pytest_and_compileall():

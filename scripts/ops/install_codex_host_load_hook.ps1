@@ -45,11 +45,23 @@ $payload = [ordered]@{
 
 $tempPath = "{0}.{1}.tmp" -f $hookPath, [guid]::NewGuid().ToString("N")
 try {
-    $payload | ConvertTo-Json -Depth 8 | Out-File -LiteralPath $tempPath -Encoding utf8
+    $json = ($payload | ConvertTo-Json -Depth 8) + [Environment]::NewLine
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($tempPath, $json, $utf8NoBom)
     Move-Item -LiteralPath $tempPath -Destination $hookPath
 }
 finally {
     if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
+}
+
+$installedBytes = [System.IO.File]::ReadAllBytes($hookPath)
+if (
+    $installedBytes.Length -ge 3 -and
+    $installedBytes[0] -eq 0xEF -and
+    $installedBytes[1] -eq 0xBB -and
+    $installedBytes[2] -eq 0xBF
+) {
+    throw "Codex hook readback unexpectedly contains a UTF-8 BOM"
 }
 
 $installed = Get-Content -Raw -LiteralPath $hookPath | ConvertFrom-Json
