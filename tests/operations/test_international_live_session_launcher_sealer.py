@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import shutil
@@ -332,6 +333,9 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
 
 
 def build_manifest(prepared, **overrides):
+    workload = launcher_sealer._canonical_lease_workload(
+        prepared["attempt"], "stage0"
+    )
     arguments = {
         "stage": "stage0",
         "discovery_plan_path": prepared["discovery"],
@@ -343,7 +347,7 @@ def build_manifest(prepared, **overrides):
             "credential_manifest"
         ],
         "attempt_root": prepared["attempt"],
-        "lease_workload": "InternationalLive-stage0-attempt1",
+        "lease_workload": workload,
         "production_root": prepared["production"],
         "now": NOW,
         "inventory_builder": prepared["inventory"],
@@ -377,13 +381,16 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     assert manifest["manifest_sha256"] == runner._canonical_payload_sha256(
         manifest
     )
+    expected_workload = launcher_sealer._canonical_lease_workload(
+        prepared["attempt"], "stage0"
+    )
     assert manifest["scope"] == {
         "target_date": NOW.date().isoformat(),
         "condition_id": CONDITION,
         "token_id": TOKEN,
         "requested_budget_pusd": 10,
         "attempt_root": str(prepared["attempt"].resolve()),
-        "lease_workload": "InternationalLive-stage0-attempt1",
+        "lease_workload": expected_workload,
         "max_session_seconds": 120,
     }
     assert set(manifest["inputs"]) == {
@@ -431,6 +438,24 @@ def test_manifest_builder_rejects_constrained_or_expired_discovery_before_writes
     assert list(prepared["attempt"].rglob("*.*")) == []
 
 
+def test_manifest_builder_rejects_secret_material_in_discovery_before_writes(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    payload = json.loads(prepared["discovery"].read_text(encoding="utf-8"))
+    payload["api_secret"] = "must-not-be-read-as-a-public-plan"
+    payload["plan_sha256"] = fixed_sealer._canonical_payload_sha256(
+        payload, omit="plan_sha256"
+    )
+    write_json(prepared["discovery"], payload)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="secret material",
+    ):
+        build_manifest(prepared)
+
+    assert list(prepared["attempt"].rglob("*.*")) == []
+
+
 def test_manifest_builder_rejects_inventory_drift_before_writes(tmp_path):
     prepared = manifest_builder_fixture(tmp_path)
     inventory = prepared["inventory"]("stage0", prepared["production"])
@@ -445,6 +470,42 @@ def test_manifest_builder_rejects_inventory_drift_before_writes(tmp_path):
             prepared,
             inventory_builder=lambda _stage, _root: inventory,
         )
+
+    assert list(prepared["attempt"].rglob("*.*")) == []
+
+
+def test_manifest_builder_rechecks_inventory_immediately_before_publication(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    relative = next(iter(fixed_sealer.LIVE_SOURCE_PATHS["stage0"]))
+    calls = 0
+
+    def mutate_on_final_check(_production):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            (prepared["production"] / relative).write_text(
+                "changed after initial inventory validation\n",
+                encoding="utf-8",
+            )
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="source hash changed",
+    ):
+        build_manifest(prepared, git_state_validator=mutate_on_final_check)
+
+    assert calls == 2
+    assert list(prepared["attempt"].rglob("*.*")) == []
+
+
+def test_manifest_builder_rejects_noncanonical_lease_workload_before_writes(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="canonical unique attempt workload",
+    ):
+        build_manifest(prepared, lease_workload="InternationalLive-reused")
 
     assert list(prepared["attempt"].rglob("*.*")) == []
 
@@ -515,6 +576,7 @@ def test_attempt_initializer_creates_only_private_canonical_directories(tmp_path
 
     assert receipt["status"] == "PASS"
     assert set(receipt["directories"]) == {"inputs", "incoming", "session"}
+    assert set(receipt["lease_workloads"]) == set(fixed_sealer.STAGES)
     assert list(attempt.rglob("*.*")) == []
     with pytest.raises(
         launcher_sealer.SessionLauncherSealError,
@@ -526,6 +588,22 @@ def test_attempt_initializer_creates_only_private_canonical_directories(tmp_path
             directory_creator=creator,
             attempt_root_validator=lambda _path: {"status": "PASS"},
         )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows ACL contract")
+def test_default_attempt_initializer_applies_the_private_acl(tmp_path):
+    production = tmp_path / "production"
+    production.mkdir()
+    attempt = tmp_path / "secure-attempt"
+
+    receipt = launcher_sealer.initialize_private_attempt_root(
+        attempt,
+        production_root=production,
+    )
+
+    assert receipt["status"] == "PASS"
+    assert receipt["security"]["broad_write_count"] == 0
+    assert receipt["security"]["current_user_write"] is True
 
 
 def test_manifest_cli_has_no_typed_scope_or_ceiling_override_surface():

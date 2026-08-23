@@ -1,4 +1,4 @@
-"""Prepare one no-argument launcher for a reviewed fixed live-session manifest."""
+"""Prepare private fixed-session manifests and reviewed no-argument launchers."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ FIXED_SESSION_SECONDS = MAX_SESSION_SECONDS
 ATTEMPT_DIRECTORIES = ("inputs", "incoming", "session")
 STAGED_INPUT_LAYOUTS = {
     "stage0": {
-        "identity": "inputs/stage0-identity.json",
+        "identity": fixed_sealer.INPUT_LAYOUTS["stage0"]["identity"],
         "credential_import_receipt": (
             "inputs/stage0-credential-import-receipt.json"
         ),
@@ -61,7 +61,7 @@ STAGED_INPUT_LAYOUTS = {
         "build_receipt": "inputs/stage0-session-manifest-build-receipt.json",
     },
     "stage1_cancel_all": {
-        "identity": "inputs/stage1-identity.json",
+        "identity": fixed_sealer.INPUT_LAYOUTS["stage1_cancel_all"]["identity"],
         "credential_import_receipt": (
             "inputs/stage1-cancel-all-credential-import-receipt.json"
         ),
@@ -77,7 +77,7 @@ STAGED_INPUT_LAYOUTS = {
         ),
     },
     "stage1_dead_man": {
-        "identity": "inputs/stage1-dead-man-identity.json",
+        "identity": fixed_sealer.INPUT_LAYOUTS["stage1_dead_man"]["identity"],
         "credential_import_receipt": (
             "inputs/stage1-dead-man-credential-import-receipt.json"
         ),
@@ -115,6 +115,17 @@ def _is_within(root: Path, path: Path) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _canonical_lease_workload(attempt_root: Path, stage: str) -> str:
+    root_text = os.path.normcase(str(attempt_root.resolve()))
+    root_hash = hashlib.sha256(root_text.encode("utf-8")).hexdigest()[:12]
+    workload = f"InternationalLive-{stage}-{attempt_root.name}-{root_hash}"
+    if fixed_sealer.WORKLOAD_RE.fullmatch(workload) is None:
+        raise SessionLauncherSealError(
+            "attempt basename cannot form a canonical lease workload"
+        )
+    return workload
 
 
 def _require_exact_object(
@@ -175,7 +186,7 @@ $inherit=[Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInher
 $propagate=[Security.AccessControl.PropagationFlags]::None
 foreach($sidText in @($current.Value,'S-1-5-18','S-1-5-32-544')){
   $sid=New-Object Security.Principal.SecurityIdentifier($sidText)
-  $rule=New-Object Security.AccessControl.FileSystemAccessRule(
+  $rule=[Security.AccessControl.FileSystemAccessRule]::new(
     $sid,
     [Security.AccessControl.FileSystemRights]::FullControl,
     $inherit,
@@ -257,6 +268,10 @@ def initialize_private_attempt_root(
         "status": "PASS",
         "attempt_root": str(root),
         "directories": directories,
+        "lease_workloads": {
+            stage: _canonical_lease_workload(root, stage)
+            for stage in fixed_sealer.STAGES
+        },
         "security": security,
         "live_mutation_attempted": False,
         "credential_values_read_in_memory": False,
@@ -427,6 +442,10 @@ def _validate_discovery_plan(
     now: datetime,
 ) -> dict[str, str]:
     payload, raw = _read_json_object(path, label="discovery plan")
+    from weather.market.mm_credentials import contains_secret_material
+
+    if contains_secret_material(payload):
+        raise SessionLauncherSealError("discovery plan contains secret material")
     selected = payload.get("selected")
     policy = payload.get("selection_policy")
     if not isinstance(selected, dict) or not isinstance(policy, dict):
@@ -544,12 +563,14 @@ def _load_reviewed_status_flags(path: Path) -> list[dict[str, str]]:
     return normalized
 
 
-def _assert_unique_workload(attempt_root: Path, workload: str) -> None:
-    if fixed_sealer.WORKLOAD_RE.fullmatch(workload) is None:
-        raise SessionLauncherSealError("lease workload name is invalid")
-    for stage in fixed_sealer.STAGES:
+def _assert_unique_workload(attempt_root: Path, stage: str, workload: str) -> None:
+    if workload != _canonical_lease_workload(attempt_root, stage):
+        raise SessionLauncherSealError(
+            "lease workload is not the canonical unique attempt workload"
+        )
+    for existing_stage in fixed_sealer.STAGES:
         manifest_path = (
-            attempt_root / "inputs" / f"{stage}-session-manifest.json"
+            attempt_root / "inputs" / f"{existing_stage}-session-manifest.json"
         )
         if not manifest_path.exists():
             continue
@@ -611,7 +632,7 @@ def prepare_fixed_session_manifest(
             raise SessionLauncherSealError(
                 "attempt child-directory security validation did not pass"
             )
-    _assert_unique_workload(root, str(lease_workload))
+    _assert_unique_workload(root, stage, str(lease_workload))
 
     inventory = inventory_builder(stage, production)
     reviewed_inventory = _validate_public_inventory(
@@ -761,6 +782,14 @@ def prepare_fixed_session_manifest(
         f"{manifest_raw_sha256}  {manifest_path.name}\n".encode("ascii")
     )
 
+    final_inventory = _validate_public_inventory(
+        stage,
+        production,
+        inventory,
+        git_state_validator=git_state_validator,
+    )
+    if final_inventory != reviewed_inventory:
+        raise SessionLauncherSealError("public inventory changed before publication")
     for role, record in staged.items():
         if _sha(Path(record["source_path"])) != record["sha256"]:
             raise SessionLauncherSealError(f"{role} source changed before staging")
