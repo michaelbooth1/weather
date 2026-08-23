@@ -8,10 +8,11 @@ import json
 import os
 import re
 import subprocess
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time as wall_time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 from weather.paths import REPO_ROOT
 from weather.operations.international_live_lineage import (
@@ -39,6 +40,9 @@ CANDIDATE_SCHEMA_VERSION = "mm_live_market_candidate_plan_v0.2"
 MAX_CANDIDATE_AGE_SECONDS = 300
 MAX_PAPER_QUOTE_TTL_SECONDS = 120
 MAX_RUN_WINDOW_SECONDS = 30 * 60
+LIVE_WINDOW_TIMEZONE = ZoneInfo("America/Toronto")
+LIVE_WINDOW_START = wall_time(0, 30)
+LIVE_WINDOW_END = wall_time(9, 0)
 MAX_STAGE1_ORDER_NOTIONAL_PUSD = Decimal("10")
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
@@ -316,6 +320,40 @@ def _parse_aware(value: Any, *, label: str) -> datetime:
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise SealError(f"{label} must be timezone-aware")
     return parsed
+
+
+def execution_window_is_supported(
+    start: datetime,
+    stop: datetime,
+    *,
+    target_date: date | str,
+) -> bool:
+    """Return whether the complete fixed session stays in the supported live window."""
+
+    try:
+        target = (
+            target_date
+            if type(target_date) is date
+            else date.fromisoformat(str(target_date))
+        )
+        if (
+            start.tzinfo is None
+            or start.utcoffset() is None
+            or stop.tzinfo is None
+            or stop.utcoffset() is None
+            or not start.astimezone(timezone.utc) < stop.astimezone(timezone.utc)
+        ):
+            return False
+        local_start = start.astimezone(LIVE_WINDOW_TIMEZONE)
+        local_stop = stop.astimezone(LIVE_WINDOW_TIMEZONE)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return (
+        local_start.date() == target
+        and local_stop.date() == target
+        and local_start.time() >= LIVE_WINDOW_START
+        and local_stop.time() < LIVE_WINDOW_END
+    )
 
 
 def _parse_decimal(value: Any, *, label: str) -> Decimal:
@@ -721,14 +759,17 @@ def _validate_identity(
         wallet_cap = Decimal(str(payload.get("pilot_wallet_max_funding_usdc")))
     except (InvalidOperation, TypeError, ValueError):
         wallet_cap = Decimal("-1")
-    from weather.market.mm_credentials import stage0_client_identity_gate
+    from weather.market.mm_credentials import (
+        STAGE0_IDENTITY_SCHEMA_VERSION,
+        stage0_client_identity_gate,
+    )
 
     gate = stage0_client_identity_gate(
         payload,
         expected_funder=str(expected_reference["funder_address"]),
     )
     if (
-        payload.get("schema_version") != "mm_stage0_client_identity_v0.2"
+        payload.get("schema_version") != STAGE0_IDENTITY_SCHEMA_VERSION
         or payload.get("platform") != "polymarket_global"
         or wallet_cap != FIRST_TEST_WALLET_CAP_PUSD
         or requested_budget != FIRST_TEST_REQUESTED_BUDGET_PUSD
@@ -1367,9 +1408,14 @@ def _validate_spec(
         raise SealError("prepared_at_local is not current")
     if not start < stop or (stop - start).total_seconds() > MAX_RUN_WINDOW_SECONDS:
         raise SealError("reviewed run window is invalid or exceeds 30 minutes")
+    if not execution_window_is_supported(start, stop, target_date=target):
+        raise SealError(
+            "reviewed run window is outside the supported 00:30-09:00 "
+            "America/Toronto live window"
+        )
     if not start.astimezone(timezone.utc) <= now_utc <= stop.astimezone(timezone.utc):
         raise SealError("sealer is outside the reviewed run window")
-    if start.date() != target or stop.date() != target or prepared.date() != target:
+    if prepared.astimezone(LIVE_WINDOW_TIMEZONE).date() != target:
         raise SealError("reviewed timestamps do not share the target local date")
     workload = str(scope["lease_workload"] or "")
     if WORKLOAD_RE.fullmatch(workload) is None:

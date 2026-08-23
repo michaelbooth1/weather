@@ -92,8 +92,8 @@ def test_unified_client_factory_requires_deployed_wallet_and_verifies_topology()
         return True
 
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.2",
-        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "schema_version": "mm_stage0_client_identity_v0.3",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
         "clob_host": "https://clob.polymarket.com",
@@ -157,8 +157,8 @@ def test_unified_client_factory_refuses_to_invoke_sdk_for_an_unproven_wallet():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.2",
-        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "schema_version": "mm_stage0_client_identity_v0.3",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
         "clob_host": "https://clob.polymarket.com",
@@ -221,8 +221,8 @@ def test_unified_client_factory_closes_an_unexpected_sdk_topology():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.2",
-        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "schema_version": "mm_stage0_client_identity_v0.3",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
         "clob_host": "https://clob.polymarket.com",
@@ -271,8 +271,8 @@ def test_stage0_identity_rejects_missing_topology_and_secret_fields():
     }
     bundle = load_global_credential_bundle(REFERENCES, wincred_reader=values.__getitem__)
     identity = {
-        "schema_version": "mm_stage0_client_identity_v0.2",
-        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "schema_version": "mm_stage0_client_identity_v0.3",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
         "clob_host": "https://clob.polymarket.com",

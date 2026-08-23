@@ -1310,11 +1310,17 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_stage0_client_identity",
-        "mm_stage0_client_identity_v0.2",
+        "mm_stage0_client_identity_v0.3",
         "weather.market.mm_credentials",
         "active",
-        "Public International SDK, signature, funder, isolation, and wallet-cap manifest used only to construct the client that collects Stage 0 evidence.",
-        supersedes=("mm_stage0_client_identity_v0.1",),
+        "Public International SDK, signature, funder, isolation, wallet-cap, and truthful no-order authenticated-write authorization manifest used only to construct the client that collects Stage 0 evidence.",
+        supersedes=("mm_stage0_client_identity_v0.2",),
+    ),
+    SchemaSpec(
+        "mm_stage0_client_identity_v0_2_legacy",
+        "mm_stage0_client_identity_v0.2",
+        "weather.market.mm_credentials",
+        "legacy",
     ),
     SchemaSpec(
         "mm_stage0_client_identity_v0_1_legacy",

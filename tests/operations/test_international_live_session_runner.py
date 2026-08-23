@@ -96,12 +96,18 @@ def candidate(now=NOW, *, remaining_seconds=120):
     return payload
 
 
-def session_fixture(tmp_path: Path, stage: str, *, remaining_seconds=120):
+def session_fixture(
+    tmp_path: Path,
+    stage: str,
+    *,
+    remaining_seconds=120,
+    now: datetime = NOW,
+):
     attempt = tmp_path / "attempt"
     attempt.mkdir()
     identity = write(
         attempt / sealer.INPUT_LAYOUTS[stage]["identity"],
-        {"schema_version": "mm_stage0_client_identity_v0.2"},
+        {"schema_version": "mm_stage0_client_identity_v0.3"},
     )
     credential = write(tmp_path / "credential.json", {"status": "PASS"})
     references = write(
@@ -153,7 +159,7 @@ def session_fixture(tmp_path: Path, stage: str, *, remaining_seconds=120):
             "python": str(production_python),
         },
         "scope": {
-            "target_date": NOW.date().isoformat(),
+            "target_date": now.date().isoformat(),
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -189,7 +195,7 @@ def session_fixture(tmp_path: Path, stage: str, *, remaining_seconds=120):
     )
     source_candidate = write(
         tmp_path / f"fresh-{stage}.json",
-        candidate(remaining_seconds=remaining_seconds),
+        candidate(now=now, remaining_seconds=remaining_seconds),
     )
     return attempt, manifest, source_candidate
 
@@ -445,6 +451,93 @@ def test_composer_accepts_only_manifest_and_fresh_candidate_for_each_stage(
     assert len(launched) == 1
     assert (attempt / "session" / f"{stage}-composition-receipt.json").is_file()
     assert (attempt / "session" / f"{stage}-run-receipt.json").is_file()
+
+
+def test_composer_accepts_exact_0030_toronto_boundary_without_backdating_scope(
+    tmp_path,
+):
+    stage = "stage0"
+    current = datetime.fromisoformat("2026-08-23T00:30:00-04:00")
+    attempt, manifest, fresh = session_fixture(tmp_path, stage, now=current)
+
+    result = runner.compose_and_run_live_session(
+        manifest,
+        fresh,
+        expected_session_manifest_sha256=sha(manifest),
+        now=current,
+        seal_function=fake_sealer(attempt, stage),
+        launcher_runner=lambda path: (
+            write_execution(attempt, stage, mutation=True)
+            or subprocess.CompletedProcess([str(path)], 0, "", "")
+        ),
+    )
+
+    spec = json.loads((attempt / "inputs/stage0-seal-spec.json").read_text())
+    assert spec["scope"]["run_not_before_local"] == current.isoformat()
+    assert result["status"] == "PASS"
+
+
+@pytest.mark.parametrize("stage", sealer.STAGES)
+@pytest.mark.parametrize(
+    "current",
+    [
+        datetime.fromisoformat("2026-08-23T00:29:00-04:00"),
+        datetime.fromisoformat("2026-08-23T08:59:00-04:00"),
+        datetime.fromisoformat("2026-08-23T09:00:00-04:00"),
+        datetime.fromisoformat("2026-08-23T12:00:00-04:00"),
+        datetime.fromisoformat("2026-08-23T18:00:00-04:00"),
+    ],
+)
+def test_composer_refuses_ineligible_toronto_window_before_attempt_writes(
+    tmp_path, stage, current
+):
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        stage,
+        now=current,
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="candidate-derived.*00:30-09:00 America/Toronto",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            seal_function=lambda *_args, **_kwargs: pytest.fail(
+                "sealer must not run"
+            ),
+            launcher_runner=lambda _path: pytest.fail("launcher must not run"),
+        )
+
+    candidate_role = "scope_plan" if stage == "stage0" else "candidate_plan"
+    assert not (attempt / sealer.INPUT_LAYOUTS[stage][candidate_role]).exists()
+    assert not (attempt / "inputs" / f"{stage}-seal-spec.json").exists()
+    assert not (attempt / "session" / f"{stage}-composition-receipt.json").exists()
+    assert not (attempt / "session" / f"{stage}-run-intent.json").exists()
+    assert not (attempt / sealer.OUTPUT_LAYOUTS[stage]["python_wrapper"]).exists()
+
+
+def test_composer_rechecks_supported_window_at_execution_boundary(tmp_path):
+    stage = "stage1_cancel_all"
+    current = datetime.fromisoformat("2026-08-23T08:57:00-04:00")
+    attempt, manifest, fresh = session_fixture(tmp_path, stage, now=current)
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="execution boundary.*00:30-09:00 America/Toronto",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            clock=lambda: datetime.fromisoformat("2026-08-23T09:00:00-04:00"),
+            seal_function=fake_sealer(attempt, stage),
+            launcher_runner=lambda _path: pytest.fail("launcher must not run"),
+        )
 
 
 def test_composer_refuses_candidate_without_launch_reserve(tmp_path):

@@ -427,6 +427,28 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_bootstrap["user_stream"]["journal_sha256"] == final_sha256
 
 
+def test_retired_stage0_read_only_literal_stops_before_credential_resolution(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    command_args.confirmation = "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY"
+    context_calls = []
+
+    with pytest.raises(
+        RuntimeError,
+        match="exact heartbeat/account-wide-cancel-all/no-order confirmation token",
+    ):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: context_calls.append(True),
+        )
+
+    assert context_calls == []
+    assert not Path(command_args.bootstrap_out).exists()
+    assert not Path(command_args.receipt_out).exists()
+    assert not Path(command_args.user_stream_journal).exists()
+
+
 def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
     tmp_path,
 ):

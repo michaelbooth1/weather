@@ -963,6 +963,15 @@ def compose_and_run_live_session(
         current + timedelta(seconds=int(scope["max_session_seconds"])),
         expires.astimezone(current.tzinfo),
     )
+    if not fixed_sealer.execution_window_is_supported(
+        current,
+        stop,
+        target_date=str(scope["target_date"]),
+    ):
+        raise SessionCompositionError(
+            "candidate-derived execution window is outside the supported "
+            "00:30-09:00 America/Toronto live window"
+        )
     if (stop - current).total_seconds() < MIN_LAUNCH_REMAINING_SECONDS:
         raise SessionCompositionError("fresh candidate leaves too little launch time")
     candidate_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -985,7 +994,7 @@ def compose_and_run_live_session(
             "condition_id": scope["condition_id"],
             "token_id": scope["token_id"],
             "requested_budget_pusd": scope["requested_budget_pusd"],
-            "run_not_before_local": (current - timedelta(seconds=1)).isoformat(),
+            "run_not_before_local": current.isoformat(),
             "run_not_after_local": stop.isoformat(),
             "attempt_root": str(attempt_root),
             "lease_workload": scope["lease_workload"],
@@ -1076,6 +1085,15 @@ def compose_and_run_live_session(
         if clock is not None
         else (datetime.now().astimezone() if now is None else current)
     )
+    if not fixed_sealer.execution_window_is_supported(
+        launch_now,
+        stop,
+        target_date=str(scope["target_date"]),
+    ):
+        raise SessionCompositionError(
+            "execution boundary is outside the supported 00:30-09:00 "
+            "America/Toronto live window"
+        )
     if _sha256_file(candidate_destination) != candidate_hash:
         raise SessionCompositionError("sealed candidate changed before launch")
     launch_candidate = fixed_sealer._validate_candidate(

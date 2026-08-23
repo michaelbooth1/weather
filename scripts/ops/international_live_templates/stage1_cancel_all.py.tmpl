@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 
 TEMPLATE_SEALED = False
@@ -31,6 +32,9 @@ EXECUTION_PHASE = "preflight"
 PRE_CREDENTIAL_RESERVE_SECONDS = 60
 CONFIRMATION_SCOPE_DISPLAY_SHA256 = None
 HOST_ATTESTATIONS = []
+LIVE_WINDOW_TIMEZONE = ZoneInfo("America/Toronto")
+LIVE_WINDOW_START = (0, 30, 0, 0)
+LIVE_WINDOW_END = (9, 0, 0, 0)
 
 ALLOWED_DIRTY_PATHS = {
     "config/location_market_events.json",
@@ -110,7 +114,34 @@ def _assert_window_current() -> None:
         raise RuntimeError("fixed local run window is invalid")
     if (stop - start).total_seconds() > 30 * 60:
         raise RuntimeError("fixed local run window exceeds 30 minutes")
-    if not start <= now <= stop or now.date().isoformat() != SCOPE["target_date"]:
+    local_start = start.astimezone(LIVE_WINDOW_TIMEZONE)
+    local_stop = stop.astimezone(LIVE_WINDOW_TIMEZONE)
+    start_wall = (
+        local_start.hour,
+        local_start.minute,
+        local_start.second,
+        local_start.microsecond,
+    )
+    stop_wall = (
+        local_stop.hour,
+        local_stop.minute,
+        local_stop.second,
+        local_stop.microsecond,
+    )
+    if not (
+        local_start.date().isoformat() == SCOPE["target_date"]
+        and local_stop.date().isoformat() == SCOPE["target_date"]
+        and start_wall >= LIVE_WINDOW_START
+        and stop_wall < LIVE_WINDOW_END
+    ):
+        raise RuntimeError(
+            "fixed execution window is outside the supported 00:30-09:00 "
+            "America/Toronto live window"
+        )
+    if not start <= now <= stop or (
+        now.astimezone(LIVE_WINDOW_TIMEZONE).date().isoformat()
+        != SCOPE["target_date"]
+    ):
         raise RuntimeError("fixed-scope Stage 1 wrapper is outside its exact window")
 
 
@@ -617,6 +648,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
 
 
 def _assert_host_state() -> None:
+    _assert_window_current()
     powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / (
         "System32/WindowsPowerShell/v1.0/powershell.exe"
     )

@@ -84,10 +84,11 @@ All must be current for the target date and selected market:
    `cmdkey /pass`, PowerShell history, a scheduled-task argument, or a reference
    URI. The loader does not print target names or resolved values.
 5. The official International CLOB client `polymarket-client==0.6.0` is
-   installed from the `live` dependency extra and wrapped by a tested adapter.
-   Its pinned client owns post-only placement, CLOB account reads,
-   cancellation, and dead-man heartbeats. The existing hand-built request-plan
-   adapter remains diagnostic and cannot authorize capital.
+   supplied only by the sealed, validated process-local external SDK overlay
+   and wrapped by a tested adapter; it is not installed into the shared
+   production venv. Its pinned client owns post-only placement, CLOB account
+   reads, cancellation, and dead-man heartbeats. The existing hand-built
+   request-plan adapter remains diagnostic and cannot authorize capital.
    `SecureClient.create` may deploy a missing default deposit wallet, so the
    wrapper must first prove the exact supplied Safe/deposit wallet already
    exists through the public relayer `/deployed` endpoint. Placement stays
@@ -123,7 +124,13 @@ All must be current for the target date and selected market:
    The resulting plan remains non-authorizing; Stage 0, account state, current
    market rules, the literal confirmation, and the
    one-submit adapter capability remain independent mutation gates.
-8. The session is outside the host's protected 12:00-18:00 local capture window.
+8. The complete candidate-derived execution window is contained in the
+   supported **00:30-09:00 America/Toronto** fixed-session window. The end is
+   exclusive: a window ending at or after 09:00 blocks. This keeps every
+   Stage 0/1 session outside both the 12:00-18:00 graded window and the
+   18:00-00:30 near-close window. The existing heavy-workload lease remains an
+   independent enforcement boundary; do not interpret 09:00-12:00 as a
+   supported live-session gap.
 
 ## Staged protocol
 
@@ -135,11 +142,15 @@ receipts therefore record `order_submit_attempted=false` separately from
 `authenticated_exchange_write_attempted=true`; generic exchange mutation is
 also true. Calling Stage 0 fully read-only is incorrect.
 
-- Fill the public `mm_stage0_client_identity_v0.2` manifest. It binds only the
+- Fill the public `mm_stage0_client_identity_v0.3` manifest. It binds only the
   International platform, chain, pinned SDK, public wallet topology,
-  isolated-wallet declaration, and capital cap. It exists to construct the
-  authenticated client needed to collect Stage 0; it is not evidence that any
-  account check passed and cannot authorize an order.
+  isolated-wallet declaration, capital cap, and the literal
+  `INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER`.
+  The literal means no order submit while allowing the required authenticated
+  heartbeat and unconditional account-wide cancel-all cleanup writes; it does
+  not mean read-only. The manifest exists to
+  construct the authenticated client needed to collect Stage 0; it is not
+  evidence that any account check passed and cannot authorize an order.
 - Authenticate and subscribe to the entire user account stream.
 - Require the reader thread to remain active. A historical PONG from a stopped
   or failed reader is not liveness, and ordinary account events do not satisfy
@@ -172,10 +183,15 @@ also true. Calling Stage 0 fully read-only is incorrect.
 - The immediate response must be successful, carry an order ID, report `live`,
   and carry no trade IDs or transaction hashes. Any other response is an
   ambiguous or taker-like outcome: send cancel-all, reconcile, and stop.
-- Intentionally stop heartbeats once from that fresh acknowledgment, observe
-  automatic cancellation no earlier than the documented ten-second timeout and
-  within the timeout-plus-five-second cancellation-check window, then query
-  until the order is absent. If this is not proven, stop the pilot.
+- Intentionally stop heartbeats once from that fresh acknowledgment and probe
+  for automatic cancellation no earlier than 10 seconds and no later than 15
+  seconds, then query until the order is absent. This is a fail-closed empirical
+  lifecycle check, not a guaranteed current venue SLA: the current official
+  heartbeat endpoint documents the bodyless request and acknowledgment but
+  omits a cancellation timeout, while the official agent-skills guidance still
+  states 10 seconds plus a five-second buffer alongside obsolete heartbeat-ID
+  examples. If the 10-15 second observation is not proven, cancel all,
+  reconcile, stop, and do not let the attempt authorize Stage 2.
 - Repeat with one order, invoke cancel-all, and require zero open orders.
 
 This stage is a successful live test even if no fill occurs.
@@ -253,9 +269,11 @@ and book selection must be rerun for the live session. Never put a secret value
 in the command line, environment, identity manifest, output path, or shell
 history.
 
-Plan the first lifecycle session outside both the 12:00-18:00 graded window and
-the 18:00-00:30 near-close protection window. After boot and network recovery,
-log in once so Credential Manager and `WeatherOneShotPush` are
+Plan the first lifecycle session so its entire candidate-derived execution
+window is within **[00:30, 09:00) America/Toronto**. Merely avoiding the
+12:00-18:00 graded and 18:00-00:30 near-close windows is insufficient;
+09:00-12:00 is not a supported fixed-session lane. After boot and network
+recovery, log in once so Credential Manager and `WeatherOneShotPush` are
 available, prove master equals origin at the reviewed exact tip, prove all
 capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
@@ -398,36 +416,28 @@ credentials themselves. Do not install the live extra into the shared production
 venv. The repository manifest instead validates the complete fixed external
 SDK overlay and all 34 offline wheels before and after process-local import; the
 runtime rejects any version or import origin other than the pinned 0.6.0 tree.
-After a successful import, independent
-keyless doctor, and operator verification of the external source's retained
+After a successful import, independent verification of the public receipt and
+reference manifest, and operator verification of the external source's retained
 copy, delete the source credential file using the approved secure-deletion
 procedure. The importer never deletes it automatically.
 
-Run the keyless doctor before Stage 0. It validates the exact SDK version,
-Windows resolver availability, reference URI shapes and completeness, direct-
-secret absence, public-funder/identity equality, target/condition/token formats,
-and the requested budget without opening Credential Manager or authenticating to
-the exchange. Its receipt contains counts and gate names, never reference targets:
+The canonical keyless doctor runs inside each sealed fixed-scope wrapper before
+the supervised prompt and before credential resolution. The hash-bound
+PowerShell launcher validates the public credential-reference manifest and
+stages only its reference names in the child process; the Python doctor then
+validates the exact SDK version, Windows resolver availability, reference URI
+shapes and completeness, direct-secret absence, public-funder/identity equality,
+target/condition/token formats, and requested budget without opening Credential
+Manager or authenticating to the exchange. Its receipt contains counts and gate
+names, never reference targets. Do not invoke the standalone `doctor` command
+from a clean shell: references are deliberately not persisted, and operators
+must not manually set or persist them to make that command pass. Do not proceed
+unless the wrapper's doctor receipt is `PASS` with an empty `missing` list.
 
-```powershell
-.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli doctor `
-  --identity C:\pilot\identity.json `
-  --target-date $pilotTargetDate `
-  --condition-id $pilotConditionId `
-  --token-id $pilotTokenId `
-  --budget 10 `
-  --sdk-overlay-manifest .\scripts\ops\international_live_templates\sdk_overlay_manifest.json `
-  --sdk-overlay-manifest-sha256 <reviewed-manifest-sha256> `
-  --receipt-out C:\pilot\doctor-receipt.json `
-  --confirmation INTERNATIONAL_POLYMARKET_STAGE0_KEYLESS_DOCTOR
-```
-
-Do not proceed unless the doctor receipt is `PASS` with an empty `missing` list.
-
-Prepare the identity and run the keyless doctor only after the surrounding
-setup is complete. The final Stage 0, both Stage 1 modes, and bundle construction
-should be prepared in advance and run consecutively; an expired bootstrap is a
-stop, not a reason to edit timestamps or reuse an earlier gate.
+Prepare the identity only after the surrounding setup is complete. The final
+Stage 0, both Stage 1 modes, and bundle construction should be prepared in
+advance and run consecutively; an expired bootstrap is a stop, not a reason to
+edit timestamps or reuse an earlier gate.
 
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
@@ -471,7 +481,8 @@ run can never advance.
 
 The sealer never opens Credential Manager or runs the generated launcher. It
 independently validates the inert SDK overlay helper, candidate semantic hash, scope,
-120-second paper TTL, run-window containment, all public inputs, every imported
+120-second paper TTL, complete **[00:30, 09:00) America/Toronto** run-window
+containment, all public inputs, every imported
 live-source hash, exact production ancestry, and that every wrapper, receipt,
 sidecar, and runtime output path is new and contained. It creates a fixed
 no-argument Python wrapper, a hash-bound no-argument PowerShell launcher, an
@@ -498,9 +509,11 @@ Write the newly selected candidate only to the review receipt's fixed inbox,
 independently compare the generated launcher's hash with that receipt, then run
 the launcher with no arguments. It passes the reviewed manifest hash and fixed
 candidate path to the composer; no scope or ceiling is accepted at the live
-boundary. The composer derives a candidate-bounded window of at most 120
-seconds, requires at least 90 seconds still available immediately before
-launch, writes an immutable ARMED intent, and atomically claims the terminal
+boundary. Before writing any attempt artifact, the composer derives a
+candidate-bounded window of at most 120 seconds and rejects unless the whole
+window is inside **[00:30, 09:00) America/Toronto**. It repeats that check at
+the execution boundary and requires at least 90 seconds still available
+immediately before launch, then writes an immutable ARMED intent and atomically claims the terminal
 receipt and sidecar paths before the child. The no-argument launcher and parent
 runner hold deny-write/delete handles for the reviewed runner, production
 sources, public credential inputs, candidate, and complete predecessor lineage;
@@ -512,10 +525,15 @@ The parent sends cooperative cleanup at the sealed stop, allows only the fixed
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
 request, 100 pUSD wallet cap, and cutoff before its literal confirmation. The
+Stage 0 display also states `order_submit_expected=false`, an authenticated
+heartbeat write is expected, and cancel-all cleanup is expected with
+`ACCOUNT_WIDE` scope so those writes cannot be mistaken for read-only
+activity. The
 prompt is bounded to preserve a 60-second pre-credential reserve. After
 confirmation it rechecks Git/source identity, host/capture/status/clock/reboot
-state, the full current window, and the candidate before credential resolution.
-Stage 1 repeats host attestation submit-adjacent, checks the cutoff before the
+state, the full Toronto-supported window, and the candidate before credential
+resolution. The window guard also runs inside every host attestation. Stage 1
+therefore repeats it submit-adjacent, checks the cutoff before the
 adapter call, and binds the deadline into its one-use capability; the adapter
 checks again after signing immediately before the actual `post_order` network
 boundary. A hash-bound journal proves that ordering.
@@ -696,8 +714,12 @@ The 2026-08-14 migration pins the official unified
 against the exact client construction, typed account readers, local limit-order
 signing, single-order post, cancellation, and L2 HMAC contracts. Current
 heartbeat documentation defines a bodyless `POST /heartbeats` with the exact
-`{status: "ok"}` acknowledgment. Because the unified SDK does not expose that
-REST method, `weather.market.mm_official_transport` provides only that one
+`{status: "ok"}` acknowledgment but does not state a cancellation timeout.
+Official agent-skills guidance retains the empirical 10-second timeout plus up
+to five seconds of buffer while also showing obsolete heartbeat-ID examples;
+therefore the pilot keeps its 10-15 second observation as a fail-closed probe,
+not a venue guarantee. Because the unified SDK does not expose the current REST
+method, `weather.market.mm_official_transport` provides only that one
 authenticated request; it is intentionally not a generic secret-bearing HTTP
 client.
 
@@ -714,11 +736,11 @@ permission for an automatic approval or retry.
 
 The direct account-wide WebSocket reader remains the authoritative user-event
 boundary, while the unified SDK owns authenticated REST reads and order
-signing/submission. Before any credentialed Stage 0/1 session, the exact wheel
-must be installed through the `live` extra in this checkout, the fixed-scope
-host wrapper must pass the keyless doctor, and the production-host Stage 0
-proof must pass. The successful source/wheel audit is not wallet or
-exchange evidence.
+signing/submission. Before any credentialed Stage 0/1 session, the fixed-scope
+wrapper must validate the sealed external wheel closure, activate that exact
+overlay process-locally, pass the keyless doctor, and obtain the production-host
+Stage 0 proof. Installing the live extra into the shared checkout remains
+forbidden. The successful source/wheel audit is not wallet or exchange evidence.
 
 The supplied Safe wallet's local cryptographic topology is proven, but its live
 exchange behavior is still unproven. Stage 0 must show that the exact signer,
@@ -756,7 +778,8 @@ Cancel all and do not resume on any of the following:
   truth;
 - unknown order, unexpected partial fill, unbacked sell, or risk-cap breach;
 - cancel-all is not followed by zero open orders;
-- host enters the protected capture window or capture health degrades.
+- the fixed session leaves **[00:30, 09:00) America/Toronto**, host enters a
+  protected window, or capture health degrades.
 
 ## Decision after the pilot
 

@@ -194,8 +194,8 @@ def prepare(
         },
     )
     identity_payload = {
-        "schema_version": "mm_stage0_client_identity_v0.2",
-        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "schema_version": "mm_stage0_client_identity_v0.3",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
         "clob_host": "https://clob.polymarket.com",
@@ -686,10 +686,16 @@ def prepare(
     return production, attempt, spec_path, spec
 
 
-def seal(spec_path: Path, production: Path, git: GitStub | None = None):
+def seal(
+    spec_path: Path,
+    production: Path,
+    git: GitStub | None = None,
+    *,
+    now: datetime = NOW,
+):
     return sealer.seal_fixed_scope(
         spec_path,
-        now=NOW,
+        now=now,
         git_runner=git or GitStub(),
         powershell_parser=lambda _source: None,
         sdk_validator=lambda _path, _sha: {"status": "PASS"},
@@ -700,6 +706,29 @@ def seal(spec_path: Path, production: Path, git: GitStub | None = None):
         template_root=production,
         sealer_repo_root=production,
     )
+
+
+@pytest.mark.parametrize(
+    ("start", "stop", "expected"),
+    [
+        ("2026-08-23T00:29:59-04:00", "2026-08-23T00:31:00-04:00", False),
+        ("2026-08-23T00:30:00-04:00", "2026-08-23T00:31:00-04:00", True),
+        ("2026-08-23T08:59:00-04:00", "2026-08-23T08:59:59-04:00", True),
+        ("2026-08-23T08:59:00-04:00", "2026-08-23T09:00:00-04:00", False),
+        ("2026-08-23T09:00:00-04:00", "2026-08-23T09:01:00-04:00", False),
+        ("2026-08-23T11:59:00-04:00", "2026-08-23T12:01:00-04:00", False),
+        ("2026-08-23T17:59:00-04:00", "2026-08-23T18:01:00-04:00", False),
+        ("2026-08-23T23:59:00-04:00", "2026-08-24T00:01:00-04:00", False),
+    ],
+)
+def test_supported_execution_window_has_exact_toronto_boundaries(
+    start, stop, expected
+):
+    assert sealer.execution_window_is_supported(
+        datetime.fromisoformat(start),
+        datetime.fromisoformat(stop),
+        target_date="2026-08-23",
+    ) is expected
 
 
 def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
@@ -721,8 +750,29 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "live_cli.run_stage0(" in wrapper_text
     assert "live_cli.run_stage1(" not in wrapper_text
     assert "_prompt_until(expected_confirmation)" in wrapper_text
+    assert (
+        "INTERNATIONAL_POLYMARKET_STAGE0_"
+        "HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
+        in wrapper_text
+    )
+    assert '"order_submit_expected": False' in wrapper_text
+    assert '"authenticated_heartbeat_write_expected": True' in wrapper_text
+    assert '"cancel_all_cleanup_expected": True' in wrapper_text
+    assert '"cancel_all_scope": "ACCOUNT_WIDE"' in wrapper_text
+    host_guard = wrapper_text.split("def _assert_host_state()", 1)[1].split(
+        "\ndef ", 1
+    )[0]
+    assert "_assert_window_current()" in host_guard
+    assert 'ZoneInfo("America/Toronto")' in wrapper_text
     assert wrapper_text.count("load_stage1_candidate_gate(") == 2
     assert "activate_live_sdk_overlay(" in wrapper_text
+    main_body = wrapper_text.split("def main()", 1)[1]
+    assert main_body.index("live_cli.run_doctor(") < main_body.index(
+        "_prompt_until(expected_confirmation)"
+    )
+    assert main_body.index("_prompt_until(expected_confirmation)") < main_body.index(
+        "live_cli.run_stage0("
+    )
     assert wrapper_text.split("def main()", 1)[1].count("_assert_host_state()") == 2
     launcher_text = launcher.read_text(encoding="utf-8-sig")
     assert "param()" in launcher_text
@@ -739,6 +789,36 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     )
     assert not (attempt / "stage0/bootstrap.json").exists()
     assert not (attempt / "stage0/command-receipt.json").exists()
+
+
+@pytest.mark.parametrize(
+    "current",
+    [
+        datetime.fromisoformat("2026-08-23T00:29:30-04:00"),
+        datetime.fromisoformat("2026-08-23T08:59:30-04:00"),
+        datetime.fromisoformat("2026-08-23T12:00:00-04:00"),
+        datetime.fromisoformat("2026-08-23T18:00:00-04:00"),
+        datetime.fromisoformat("2026-08-23T23:59:00-04:00"),
+    ],
+)
+def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current):
+    production, attempt, spec_path, spec = prepare(
+        tmp_path,
+        candidate=candidate_payload(current),
+    )
+    spec["prepared_at_local"] = current.isoformat()
+    spec["scope"].update(
+        target_date=current.date().isoformat(),
+        run_not_before_local=(current - timedelta(seconds=5)).isoformat(),
+        run_not_after_local=(current + timedelta(seconds=60)).isoformat(),
+    )
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="00:30-09:00 America/Toronto"):
+        seal(spec_path, production, now=current)
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
 
 
 def test_seal_refuses_to_overwrite_a_spent_namespace(tmp_path):
@@ -826,6 +906,9 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert "stage2" not in text.lower()
     assert "_prompt_until(expected_confirmation)" in text
     assert "_assert_window_current()" in text
+    host_guard = text.split("def _assert_host_state()", 1)[1].split("\ndef ", 1)[0]
+    assert "_assert_window_current()" in host_guard
+    assert 'ZoneInfo("America/Toronto")' in text
     assert "activate_live_sdk_overlay(" in text
     assert text.split("def main()", 1)[1].count("_assert_host_state()") == 2
     assert "pre_submit_attestor=_assert_host_state" in text
@@ -852,6 +935,9 @@ def test_stage1_dead_man_seal_is_distinct_and_fixed(tmp_path):
     assert '"stage": STAGE_NAME' in text
     assert '"stage": "stage1_cancel_all"' not in text
     assert "submit_deadline_utc=SCOPE[\"run_not_after_local\"]" in text
+    assert 'float(result.get("cancellation_elapsed_seconds")) >= 10' in text
+    assert 'float(result.get("cancellation_elapsed_seconds")) <= 15' in text
+    assert "cancel_all" in text
     receipt = json.loads(
         (attempt / "seal/stage1-dead-man-seal-receipt.json").read_text(
             encoding="utf-8"
