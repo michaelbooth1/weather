@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-23 12:15 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-23 12:30 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -22,7 +22,7 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Capture | At the last pre-maintenance read, all three streak-critical workers were healthy and the supervised public execution tape was connected and integrity-valid. Complete price-path evidence remains unusable. Any maintenance restart spends capture continuity and requires fresh worker/tape recovery proof. |
 | Production | `master`, checked-out `HEAD`, and `origin/master` are synchronized at `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`. Only the two expected generated location-config files are modified. |
 | Integration recovery | Three integrations are production-adopted: bootstrap/recovery machinery at `d8e95c04be7c0b2daa351103b19efc1e942bc469`, the bounded morning workflow at `cfdad9e5225f4dad86eaeddae7631893cd6c5350`, and the fixed-scope Stage-0/1 stack at `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`. The last exact tip passed 19/19 chunks before guarded merge, three-worker recovery, execution-tape recovery, and remote acknowledgement. |
-| Morning chain | The first post-adoption 09:30 Stage-A run published a terminal `COMPLETED` manifest at 11:30, inside its SLA. The formerly unbounded fleet tail completed quickly with every scheduled omission explicit. This is terminal-tail proof, not a clean soak: stale locks were repaired and the barrier correctly blocked on exchange-economics and maker-paper evidence. |
+| Morning chain | The 2026-08-23 Stage-A run terminalized at 11:38 for target 2026-08-22. Settlement restore/finalize and every scheduled tail step ran; the chain correctly remained `critical` at the settled-day barrier with seven payload blocks, including exchange-economics/maker-paper/trading evidence and model-performance gates. This is a truthful terminal run, not readiness. |
 | Settlement | August 17 remains an explicit 12-market settlement hole and will not be retried by the ordinary chain. Recover it only through the bounded stop-after-finalize path, then prove normal lock release and real settlement evidence. |
 | Tiering | The canonical 05:00 projection and 06:00 raw-tape tasks are enabled and both produced durable `OK` status on their first post-adoption runs. Scheduler zero alone is not the proof; retain the task-status artifacts and free-space trail. |
 | Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
