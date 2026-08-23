@@ -1,21 +1,21 @@
 """Fail-closed health proof for the three streak-critical capture workers.
 
-Unlike process-command-line inspection, this works for S4U-owned workers whose command
-lines are hidden from an interactive session.  A worker is healthy only when its status,
-single-writer lock, live PID, fresh heartbeat, and loaded-source identity all agree.
+The proof runs in the S4U recovery context so it can re-observe each worker's
+OS command and creation token. A worker is healthy only when its status,
+single-writer lock, exact process instance, fresh heartbeat, and loaded-source
+identity all agree.
 """
 
 from __future__ import annotations
 
 import argparse
-import ctypes
 import json
-import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from weather.operations.supervisor import commands_match_exact, observe_process
 from weather.paths import REPO_ROOT
 from weather.runtime_identity import current_identity_for, identities_match
 from weather.schema_registry import schema_version
@@ -27,24 +27,33 @@ class WorkerSpec:
     status_file: str
     lock_file: str
     max_age_seconds: float
+    command_markers: tuple[str, ...]
 
 
 WORKERS = (
     # The normal snapshot loop can sleep for almost its full 10-minute cadence.
     # Keep recovery stricter than the 15-minute capture-gap objective while not
     # declaring a healthy, identity-current sleeping worker stale mid-cycle.
-    WorkerSpec("snapshot_tracker", "loop_status.json", ".loop_status.json.writer.lock", 720.0),
+    WorkerSpec(
+        "snapshot_tracker",
+        "loop_status.json",
+        ".loop_status.json.writer.lock",
+        720.0,
+        ("-m", "weather.collection.snapshot_tracker", "--loop"),
+    ),
     WorkerSpec(
         "market_microstructure",
         "clob_loop_status.json",
         ".clob_loop_status.json.writer.lock",
         180.0,
+        ("-m", "weather.market.market_microstructure", "loop"),
     ),
     WorkerSpec(
         "observation_trigger",
         "observation_trigger_status.json",
         ".observation_trigger_status.json.writer.lock",
         180.0,
+        ("-m", "weather.operations.observation_trigger", "loop"),
     ),
 )
 
@@ -64,30 +73,29 @@ def _parse_datetime(value: Any) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def process_is_alive(pid: int) -> bool:
-    if pid <= 0:
+def _contains_markers(values: object, markers: tuple[str, ...]) -> bool:
+    if not isinstance(values, (list, tuple)):
         return False
-    if os.name == "nt":
-        process_query_limited_information = 0x1000
-        handle = ctypes.windll.kernel32.OpenProcess(  # type: ignore[attr-defined]
-            process_query_limited_information, False, pid
-        )
-        if not handle:
-            return False
-        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
-        return True
+    text = [str(value) for value in values]
+    width = len(markers)
+    return any(
+        tuple(text[index : index + width]) == markers
+        for index in range(len(text) - width + 1)
+    )
+
+
+def _integer(value: object) -> int:
     try:
-        os.kill(pid, 0)
-    except (OSError, ValueError):
-        return False
-    return True
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def check_capture_recovery(
     repo_root: Path,
     *,
     now: datetime | None = None,
-    process_alive: Callable[[int], bool] = process_is_alive,
+    process_observer: Callable[[object], Mapping[str, Any]] = observe_process,
     current_identity: Callable[..., Mapping[str, Any]] = current_identity_for,
 ) -> dict[str, Any]:
     root = Path(repo_root).resolve()
@@ -122,8 +130,68 @@ def check_capture_recovery(
             reasons.append("invalid_status_pid")
         if lock_pid != pid:
             reasons.append("writer_lock_pid_mismatch")
-        if not process_alive(pid):
+        status_managed = status.get("managed_process")
+        lock_managed = lock.get("managed_process")
+        expected_command: list[str] | None = None
+        managed_identity_matches = False
+        if not isinstance(status_managed, dict) or not status_managed.get(
+            "verified_at_capture"
+        ):
+            reasons.append("managed_process_identity_missing")
+        else:
+            raw_expected = status_managed.get("expected_command")
+            if isinstance(raw_expected, list) and _contains_markers(
+                raw_expected, spec.command_markers
+            ):
+                expected_command = [str(value) for value in raw_expected]
+            else:
+                reasons.append("managed_process_expected_command_invalid")
+        if not isinstance(lock_managed, dict) or not lock_managed.get(
+            "verified_at_capture"
+        ):
+            reasons.append("writer_lock_process_identity_missing")
+        elif isinstance(status_managed, dict):
+            managed_identity_matches = bool(
+                _integer(status_managed.get("pid")) == pid
+                and _integer(lock_managed.get("pid")) == pid
+                and status_managed.get("creation_time_token")
+                == lock_managed.get("creation_time_token")
+                and status_managed.get("expected_command")
+                == lock_managed.get("expected_command")
+            )
+            if not managed_identity_matches:
+                reasons.append("status_lock_process_identity_mismatch")
+
+        try:
+            observation = dict(process_observer(pid))
+        except (OSError, TypeError, ValueError):
+            observation = {"state": "unknown", "pid": pid, "inspectable": False}
+        process_state = str(observation.get("state") or "unknown")
+        process_inspectable = bool(observation.get("inspectable"))
+        creation_token_matches = bool(
+            isinstance(status_managed, dict)
+            and status_managed.get("creation_time_token")
+            and observation.get("creation_time_token")
+            == status_managed.get("creation_time_token")
+        )
+        command_matches = bool(
+            expected_command
+            and commands_match_exact(observation.get("argv"), expected_command)
+        )
+        if process_state == "not_found":
             reasons.append("pid_not_alive")
+        elif process_state != "running":
+            reasons.append("process_identity_unknown")
+        if process_state == "running" and not process_inspectable:
+            reasons.append("process_identity_uninspectable")
+        if (
+            process_state == "running"
+            and process_inspectable
+            and not creation_token_matches
+        ):
+            reasons.append("process_creation_token_mismatch")
+        if process_state == "running" and process_inspectable and not command_matches:
+            reasons.append("process_command_mismatch")
 
         heartbeat: datetime | None = None
         age_seconds: float | None = None
@@ -158,6 +226,11 @@ def check_capture_recovery(
                 "ok": not reasons,
                 "pid": pid,
                 "lock_pid": lock_pid,
+                "process_state": process_state,
+                "process_identity_inspectable": process_inspectable,
+                "process_creation_token_matches": creation_token_matches,
+                "process_command_matches": command_matches,
+                "status_lock_process_identity_matches": managed_identity_matches,
                 "last_heartbeat": heartbeat.isoformat() if heartbeat else None,
                 "heartbeat_age_seconds": age_seconds,
                 "max_age_seconds": spec.max_age_seconds,

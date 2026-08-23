@@ -117,6 +117,12 @@ Resource headroom and time-window checks remain mandatory and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
 
+`install_codex_host_load_hook.ps1` owns the production host's user-layer
+PreToolUse guard. It must never overwrite an existing `~/.codex/hooks.json`,
+must point at the repository-owned policy script, and must state that Codex
+requires review/trust on the next session. The hook is prevention at launch;
+the one-minute S4U memory/process guard remains the enforcement backstop.
+
 One-date settlement backfills must use the canonical bounded daily-refresh
 slice ending at `market_day_labels_finalize`; never run the remaining chain and
 kill it after settlement. Lock ownership is PID plus creation identity, not

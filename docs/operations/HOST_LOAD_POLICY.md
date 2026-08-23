@@ -207,13 +207,14 @@ useful work before capture is stopped. The independent
    09:30–11:55 exception. Bounded test suites additionally kill their complete
    Job-owned child tree at 09:00 rather than merely checking the start time.
 3. **Memory budget for any single ad-hoc job: 8 GB private bytes.** The
-   `WeatherMemoryCommitGuard` task (every 5 min) warns when available physical
-   RAM is below 1.5 GiB and records the top working-set processes. It also
-   warns at 85% commit and kills the largest ad-hoc python offender above 8 GB
-   at 92% commit. Physical-RAM pressure is warning-only: every kill decision
-   remains commit-based, and the guard never touches `-m weather.*` module
-   processes. Agents running unbounded materializations must chunk or spill to
-   disk instead.
+   `WeatherMemoryCommitGuard` task runs every minute. It warns when available
+   physical RAM is below 1.5 GiB and records the top working-set processes. It
+   warns at 85% commit and, at 92%, terminates the largest eligible ungoverned
+   Python or aggregate Codex/ChatGPT process tree above 8 GB. Physical-RAM
+   pressure is warning-only: every emergency memory kill remains commit-based.
+   Production `-m weather.*` workers are excluded by process ancestry and
+   command identity. Agents running unbounded materializations must chunk or
+   spill to disk instead.
 4. **Orphaned ad-hoc python is killed on sight** (30-minute grace). Every
    guard run sweeps for `python -` / `python -c` processes whose parent is
    gone: a stdin or inline job's script and output have no owner once its
@@ -227,6 +228,34 @@ useful work before capture is stopped. The independent
    down evidence at 09:00 and settlement at 11:55. Stage B therefore releases
    the host before the 09:30 Stage-A exception, and Stage A cannot cross into
    the graded window.
+6. **Codex verification is serial and time-gated.** The OS guard terminates
+   recognized Codex-owned pytest, compileall, inline/bare Python, and recursive
+   data-scan tool trees outside 00:30–09:00, and retains at most one such tree
+   inside the window. A user-layer `PreToolUse` hook rejects these commands
+   before launch and rejects a direct unbounded pytest run at every hour. Full
+   suites use the repository-owned 25-file bounded wrapper. Never use
+   `Promise.all`, parallel subagents, or parallel tool calls for verification
+   on this host. Hook trust is useful defense-in-depth, not authority to weaken
+   the S4U watchdog. Install the user-layer hook with
+   `scripts/ops/install_codex_host_load_hook.ps1`; Codex must review/trust its
+   exact definition on the next session.
+
+Incident-bearing watchdog samples append to
+`data/logs/memory_commit_guard_history.jsonl` without raw command lines. The
+mutable latest JSON remains the monitor input; it is not incident history.
+
+## Incident 2026-08-23: concurrent Codex verification and unclean reset
+
+The prior session issued 387 shell calls in 39 minutes across concurrent
+agents, including 42 pytest/compile invocations during the graded window and
+one explicit four-way verification launch. Windows retained up to five
+concurrent Codex shells. A DNS/network failure began during that load and all
+three capture paths degraded before the operator reset the host at 14:53.
+
+This was not a recorded OOM: the memory guard sampled successfully without a
+threshold event and Windows emitted no Resource Exhaustion Detector record.
+The complete evidence boundary, timeline, and prevention rationale are in
+[the incident trace](codex-host-overload-2026-08-23.md).
 
 ## Incident 2026-07-12 (why this policy exists)
 

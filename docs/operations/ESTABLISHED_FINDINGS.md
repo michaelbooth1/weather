@@ -2491,6 +2491,41 @@ authorized an exchange mutation. No current safe candidate, authenticated Stage 
 Stage 1 order/cancellation proof, fill, fee, rebate, position, settlement, P&L, or profit evidence
 was created. Software adoption must not be reported as a live lifecycle result.
 
+## 8u. The 2026-08-23 Codex incident was abandoned agent load, not a proven OOM
+
+**Measured from session rollouts, executor records, Windows process telemetry,
+event logs, and capture sidecars.** Four recursive commands yielded control
+after 10–30 seconds while their JavaScript callers discarded the returned
+executor session IDs. They actually continued for **64.592–120.296 seconds**.
+The last ran `Get-ChildItem .. -Recurse` across every worktree and production
+`data/` for **95.359 seconds**, about 65 seconds after its tool wrapper returned,
+while three pytest commands overlapped.
+
+From 14:11 through 14:36 the session launched **36 pytest, three compileall,
+three py_compile, and four documentation-audit commands** inside the protected
+window. Executor concurrency peaked at **four**, once through explicit
+`Promise.all` and once through the unowned scan plus three pytest runs.
+
+Windows NCSI lost Internet reachability on DNS-probe failure at 14:22.
+Observation died at 14:37; fleet-wide CLOB and snapshot network timeouts began
+at 14:38. The operator reset the unresponsive host and Windows booted at 14:53
+with Kernel-Power 41/EventLog 6008 and no clean shutdown.
+
+**Do not call this OOM.** The five-minute memory guard completed without its
+1.5-GiB physical or 85%-commit warning, and Windows emitted no resource-
+exhaustion event. The evidence also does not identify Codex as the cause of the
+DNS failure. What is established is prohibited recursive and concurrent agent
+load plus a contemporaneous network failure.
+
+Two guards false-passed or could not act. The watchdog's 92% kill path was
+unreachable because the 85% warning changed `action` before the action branch
+tested for `none`; it also omitted pytest and non-Python Codex trees. After the
+reset, boot recovery reported capture recovered from stale PID/lock/heartbeat
+state without revalidating the OS process creation token or command, even
+though CLOB never recovered. The repaired contracts use a one-minute OS
+backstop, a user-layer Codex pre-tool hook, and PID-reuse-resistant boot proof;
+see [the incident trace](codex-host-overload-2026-08-23.md).
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
