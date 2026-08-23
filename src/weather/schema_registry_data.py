@@ -1489,6 +1489,13 @@ REGISTERED_SCHEMAS = (
         "Initial self-hashed session manifest before independent launcher authority, sequencing, and conservative launch reserve.",
     ),
     SchemaSpec(
+        "international_live_session_manifest_build",
+        "international_live_session_manifest_build_v0.1",
+        "weather.operations.international_live_session_launcher_sealer",
+        "active",
+        "Secret-free receipt for exclusive canonical public-input staging and fixed-session manifest publication from a reviewed discovery plan.",
+    ),
+    SchemaSpec(
         "international_live_session_composition",
         "international_live_session_composition_v0.2",
         "weather.operations.international_live_session_runner",

@@ -25,12 +25,12 @@ no Stage 0 or Stage 1 session has run.
 
 **Stage 0/1 execution is currently HOLD.** Before the first session, land and
 re-prove the explicit 00:30-09:00 live-window guard, the truthful Stage 0
-authenticated-write confirmation contract, the canonical fixed-session
-manifest builder, and a non-circular staged-readiness policy or receipt approved
-by the operator. Current physical-location eligibility is also unresolved: the
-repository identifies this as an Ontario host, while the venue blocks Ontario
-order placement. Inventory PASS proves public source and template identity
-only; it is not temporal, geographic, or trading authorization.
+authenticated-write confirmation contract, and a non-circular staged-readiness
+policy or receipt approved by the operator. Current physical-location eligibility
+is also unresolved: the repository identifies this as an Ontario host, while the
+venue blocks Ontario order placement. The fixed-session manifest builder below
+is public preparation only. Inventory or manifest-build PASS is not temporal,
+geographic, credential, exchange-mutation, or trading authorization.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -323,8 +323,11 @@ without VPN/proxy circumvention; otherwise move no money and keep the system in
 paper/read-only mode.
 
 Discover the exact Stage 0/1 scope from fresh public data and a successful
-one-market paper tick before creating the identity. Do not hand-pick a
-condition/token pair or retain one from a prior day. The first unconstrained
+one-market paper tick. The identity and public credential receipt/reference
+sources in the next subsection do not bind a market; prepare them first, then
+return here and run discovery, the keyless doctor, and all three manifest builds
+without pausing past the plan expiry. Do not hand-pick a condition/token pair or
+retain one from a prior day. The first unconstrained
 selector output is **discovery only**: it supplies a reviewed scope for identity
 and session-manifest preparation, but its null `expected_bootstrap_scope` means
 the sealer correctly refuses it as a live candidate.
@@ -338,9 +341,25 @@ trading authorization:
 ```powershell
 $pilotTargetDate = "replace-with-target-date"
 $pilotMarketId = "replace-with-one-built-in-market-id"
+$pilotAttemptId = "pilot-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
+$pilotPublicRoot = "C:\pilot-public"
+$pilotAttemptsParent = "C:\pilot-attempts" # must already exist as a non-reparse directory
+$pilotAttemptRoot = Join-Path $pilotAttemptsParent $pilotAttemptId
+$pilotDiscoveryPlan = Join-Path $pilotPublicRoot ($pilotAttemptId + "-discovery.json")
+$pilotIdentitySource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity.json")
+$pilotIdentityReceipt = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity-receipt.json")
+$pilotCredentialManifestSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-references.json")
+$pilotCredentialReceiptSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-import-receipt.json")
 $paperRunId = "pilot-paper-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
 $paperRunsRoot = "C:\pilot\paper-runs"
 $paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRunId)
+
+New-Item -ItemType Directory -Path $pilotPublicRoot -Force | Out-Null
+$attemptInit = .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer init-attempt `
+  --attempt-root $pilotAttemptRoot | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $attemptInit.status -ne "PASS") {
+  throw "private fixed-session attempt initialization blocked"
+}
 
 .\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
   --locations .\config\locations.json `
@@ -369,9 +388,9 @@ $paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRun
   --target-date $pilotTargetDate `
   --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
   --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
-  --plan-out C:\pilot\stage1-candidate-discovery.json
+  --plan-out $pilotDiscoveryPlan
 
-$pilotPlan = Get-Content -LiteralPath C:\pilot\stage1-candidate-discovery.json -Raw | ConvertFrom-Json
+$pilotPlan = Get-Content -LiteralPath $pilotDiscoveryPlan -Raw | ConvertFrom-Json
 if (
   $pilotPlan.status -ne "PASS" -or
   $pilotPlan.selection_is_trading_authorization -or
@@ -400,7 +419,8 @@ intent is only a far-from-mid lifecycle probe and will normally not qualify for
 liquidity rewards or provide maker-fill economics evidence. Stage 2 must use a
 separate current quote decision after Stage 1 passes.
 
-Next create the public identity. The command derives the numeric signature ID
+Prepare the public identity before starting the expiring discovery sequence
+above. The command derives the numeric signature ID
 and writes no identity if any public gate fails. Only these two documented
 topologies are accepted:
 
@@ -427,8 +447,8 @@ $pilotSignatureType = "POLY_GNOSIS_SAFE"
   --signature-type $pilotSignatureType `
   --budget 10 `
   --wallet-cap 100 `
-  --identity-out C:\pilot\identity.json `
-  --receipt-out C:\pilot\identity-receipt.json `
+  --identity-out $pilotIdentitySource `
+  --receipt-out $pilotIdentityReceipt `
   --confirm-international-platform `
   --confirm-isolated-wallet `
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
@@ -445,8 +465,8 @@ emits only a public reference manifest and secret-free receipt:
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
   --source-env C:\secure\pilot.env.txt `
-  --manifest-out C:\pilot\credential-references.json `
-  --receipt-out C:\pilot\credential-import-receipt.json `
+  --manifest-out $pilotCredentialManifestSource `
+  --receipt-out $pilotCredentialReceiptSource `
   --confirm-source-acl-private `
   --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
 ```
@@ -490,94 +510,171 @@ edit timestamps or reuse an earlier gate.
 
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
-The repository-owned sealer is the only supported way to create the external
-fixed-scope Stage 0, Stage 1 cancel-all, and distinct Stage 1 dead-man wrappers. First inventory the exact
-production Git, template, and source hashes; this command writes nothing and
-returns `BLOCK` until the interrupt-cleanup hardening commit is an ancestor:
+The repository-owned manifest builder and sealers are the only supported path.
+The builder rereads the current public inventory, requires synchronized
+production `master`, derives the Git tree, interpreter, template, complete live
+source, and session-bootstrap hashes, and hardcodes 10 pUSD and 120 seconds. It
+accepts no typed target, condition, token, budget, duration, output, or candidate
+override. Scope comes only from the still-current, unconstrained, self-hashed,
+non-authorizing discovery plan. It never opens Credential Manager or calls the
+exchange.
+
+The earlier `init-attempt` command creates a new external root with ACL
+inheritance disabled and FullControl granted only to the current user, SYSTEM,
+and Administrators, then validates the root plus `inputs`, `incoming`, and
+`session`. A pre-existing root is spent and cannot be adopted. `prepare-manifest`
+exclusively copies the reviewed public source files byte-for-byte into these
+stage-specific canonical names:
+
+| Stage | Identity | Import receipt | Reference manifest | Discovery copy | Manifest / build receipt | Candidate inbox |
+| --- | --- | --- | --- | --- | --- | --- |
+| `stage0` | `inputs/stage0-identity.json` | `inputs/stage0-credential-import-receipt.json` | `inputs/stage0-credential-reference-manifest.json` | `inputs/stage0-discovery-plan.json` | `inputs/stage0-session-manifest.json` / `inputs/stage0-session-manifest-build-receipt.json` | `incoming/fresh-stage0-candidate.json` |
+| `stage1_cancel_all` | `inputs/stage1-identity.json` | `inputs/stage1-cancel-all-credential-import-receipt.json` | `inputs/stage1-cancel-all-credential-reference-manifest.json` | `inputs/stage1-cancel-all-discovery-plan.json` | `inputs/stage1_cancel_all-session-manifest.json` / `inputs/stage1-cancel-all-session-manifest-build-receipt.json` | `incoming/fresh-stage1_cancel_all-candidate.json` |
+| `stage1_dead_man` | `inputs/stage1-dead-man-identity.json` | `inputs/stage1-dead-man-credential-import-receipt.json` | `inputs/stage1-dead-man-credential-reference-manifest.json` | `inputs/stage1-dead-man-discovery-plan.json` | `inputs/stage1_dead_man-session-manifest.json` / `inputs/stage1-dead-man-session-manifest-build-receipt.json` | `incoming/fresh-stage1_dead_man-candidate.json` |
+
+Each copy, manifest, raw sidecar, and build receipt is exclusive-new. A partial
+failure spends that stage namespace. The optional
+`--reviewed-status-flags-json` source must be a JSON list whose rows have exactly
+`sha256` and a 12-500 character `review`; it is also copied to the corresponding
+stage-specific `inputs/*-reviewed-status-flags.json`. Omit the option only when
+the reviewed list is empty.
+
+Prepare all three manifests from the same reviewed discovery plan while it is
+still current. The distinct workload strings prevent one stage from reusing
+another stage's host lease:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.operations.international_live_wrapper_sealer inventory `
-  --stage stage0
+$pilotManifestStages = @(
+  [pscustomobject]@{ Stage = "stage0"; Workload = $attemptInit.lease_workloads.stage0 },
+  [pscustomobject]@{ Stage = "stage1_cancel_all"; Workload = $attemptInit.lease_workloads.stage1_cancel_all },
+  [pscustomobject]@{ Stage = "stage1_dead_man"; Workload = $attemptInit.lease_workloads.stage1_dead_man }
+)
+
+foreach ($row in $pilotManifestStages) {
+  .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-manifest `
+    --stage $row.Stage `
+    --discovery-plan $pilotDiscoveryPlan `
+    --identity-source $pilotIdentitySource `
+    --credential-import-receipt-source $pilotCredentialReceiptSource `
+    --credential-reference-manifest-source $pilotCredentialManifestSource `
+    --attempt-root $pilotAttemptRoot `
+    --lease-workload $row.Workload
+  if ($LASTEXITCODE -ne 0) { throw "fixed-session manifest preparation blocked for $($row.Stage)" }
+}
 ```
 
-Author one reviewed
-`international_live_fixed_scope_seal_spec_v0.2` JSON object with the inventory
-hashes, synchronized `master` commit/tree, explicit budget, exact scope, current
-candidate hash, no-more-than-30-minute window, new attempt root, public input
-hashes, and item-by-item reviews for any accepted status-flag hashes. Inputs use
-the canonical paths under `inputs/` from the sealer contract; credential
-evidence is represented only by public receipt/manifest paths and hashes. Then
-seal it:
-
-The top-level keys are exactly `schema_version`, `stage`, `prepared_at_local`,
-`production`, `scope`, `inputs`, `reviewed_status_flags`, `template_sha256`, and
-`source_sha256`. `production` binds `root`, `branch`, `commit`, `tree`, and
-`python`; `scope` binds the target, condition, token, budget, window, attempt
-root, and lease workload. Stage 0 inputs are `identity`, `scope_plan`,
-`credential_import_receipt`, and `credential_reference_manifest`; each Stage 1
-mode additionally binds `bootstrap`, `stage0_receipt`, `stage0_seal_receipt`,
-`stage0_run_receipt` and its sidecar, `stage0_wrapper_execution_receipt`, and its
-own fresh `candidate_plan`. Every
-input record has only `path` and `sha256`. Dead-man additionally requires the
-complete validated cancel-all seal, run receipt and sidecar, execution receipt,
-command receipt, result, and lifecycle journal; a failed or unknown cancel-all
-run can never advance.
+Each output manifest is `international_live_fixed_session_manifest_v0.2`; its
+`manifest_sha256` is the semantic hash, while the adjacent `.sha256` binds the
+exact pretty-printed bytes. Independently inspect each staged copy, build
+receipt, semantic hash, raw hash, and sidecar. Record the three reviewed raw
+hashes out of band; do not pipe `Get-FileHash` directly into launcher creation.
+Then turn each reviewed raw hash into a no-argument outer launcher:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.operations.international_live_wrapper_sealer seal `
-  --spec C:\pilot\inputs\stage0-seal-spec.json
+$stage0ManifestSha256 = "replace-with-independently-reviewed-stage0-raw-sha256"
+$cancelAllManifestSha256 = "replace-with-independently-reviewed-cancel-all-raw-sha256"
+$deadManManifestSha256 = "replace-with-independently-reviewed-dead-man-raw-sha256"
+
+.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
+  --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage0-session-manifest.json") `
+  --expected-session-manifest-sha256 $stage0ManifestSha256
+
+.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
+  --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage1_cancel_all-session-manifest.json") `
+  --expected-session-manifest-sha256 $cancelAllManifestSha256
+
+.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
+  --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage1_dead_man-session-manifest.json") `
+  --expected-session-manifest-sha256 $deadManManifestSha256
 ```
 
-The sealer never opens Credential Manager or runs the generated launcher. It
-independently validates the inert SDK overlay helper, candidate semantic hash, scope,
-120-second paper TTL, complete **[00:30, 09:00) America/Toronto** run-window
-containment including the shared 20-second cleanup reserve, all public inputs,
-every imported live-source hash, exact production ancestry, and that every wrapper, receipt,
-sidecar, and runtime output path is new and contained. It creates a fixed
-no-argument Python wrapper, a hash-bound no-argument PowerShell launcher, an
+The outer session launcher composes the candidate-bounded seal spec and invokes
+the fixed-scope sealer; operators do not hand-author or directly invoke that
+inner surface. The sealer never opens Credential Manager or runs the generated
+launcher. It independently validates the inert SDK overlay helper, candidate
+semantic hash, 120-second paper TTL, complete **[00:30, 09:00)
+America/Toronto** containment including the shared 20-second cleanup reserve,
+all public inputs, every imported live-source hash, exact production ancestry,
+and new contained output paths. It creates a fixed no-argument Python wrapper,
+a hash-bound inner PowerShell launcher, an
 `international_live_fixed_scope_seal_v0.3` receipt, and its SHA-256 sidecar.
-Each Stage 1 mode uses a separate fresh spec and candidate, plus the exact
-successful Stage 0 bootstrap, command, seal, wrapper execution, parent run
-receipt, and sidecar lineage. A partial or failed seal
-spends that attempt namespace; create a new attempt instead of overwriting it.
+Each Stage 1 mode also requires the exact successful predecessor lineage. A
+partial or failed build, seal, or run spends that stage namespace; create a new
+attempt rather than overwriting it.
 
-Because the candidate lasts at most 120 seconds, the normal path is a
-pre-reviewed `international_live_fixed_session_manifest_v0.2` plus its adjacent
-raw-file SHA-256 sidecar. The manifest also binds the production interpreter
-hash and the exact session-runner bootstrap closure reported by inventory.
-Before candidate selection, turn that independently
-reviewed raw hash into a no-argument launcher and immutable review receipt:
-
-Until the repository-owned manifest builder is integrated and documented with
-its complete command, stop here. Do not hand-author the manifest from tests or
-host-local examples.
+The discovery plan is not the candidate. Immediately before Stage 0, create a
+new paper run and a new constrained selector output at the outer launcher's
+fixed inbox. This is the required discovery-then-fresh-candidate sequence:
 
 ```powershell
-.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer `
-  --session-manifest C:\pilot\inputs\stage0-session-manifest.json `
-  --expected-session-manifest-sha256 <independently-reviewed-raw-sha256>
+$stage0ReviewPath = Join-Path $pilotAttemptRoot "session\stage0-launcher-review.json"
+$stage0Review = Get-Content -LiteralPath $stage0ReviewPath -Raw | ConvertFrom-Json
+if ($stage0Review.status -ne "PASS" -or -not $stage0Review.no_argument_surface) {
+  throw "Stage 0 outer-launcher review did not pass"
+}
+$observedStage0LauncherHash = (Get-FileHash -LiteralPath $stage0Review.launcher.path -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($observedStage0LauncherHash -ne $stage0Review.launcher.sha256) {
+  throw "Stage 0 outer launcher differs from its immutable review"
+}
+
+$freshStage0PaperRunId = "pilot-stage0-paper-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
+$freshStage0PaperFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $freshStage0PaperRunId)
+.\venv\Scripts\python.exe -m weather.market.market_making_run `
+  --date $pilotTargetDate `
+  --budget-usdc 25 `
+  --mode paper-live-forward `
+  --permission-profile market_harvest `
+  --markets $pilotMarketId `
+  --exchange-economics-snapshot C:\pilot\exchange-economics.json `
+  --runs-root $paperRunsRoot `
+  --run-id $freshStage0PaperRunId `
+  --once
+
+.\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
+  --economics-snapshot C:\pilot\exchange-economics.json `
+  --target-date $pilotTargetDate `
+  --paper-run-config (Join-Path $freshStage0PaperFolder "run_config.json") `
+  --paper-quote-intents (Join-Path $freshStage0PaperFolder "quote_intents_long.csv") `
+  --expected-condition-id $pilotConditionId `
+  --expected-token-id $pilotTokenId `
+  --plan-out ([string]$stage0Review.candidate_inbox)
+
+$stage0Candidate = Get-Content -LiteralPath $stage0Review.candidate_inbox -Raw | ConvertFrom-Json
+if (
+  $stage0Candidate.status -ne "PASS" -or
+  $stage0Candidate.selection_is_trading_authorization -or
+  $stage0Candidate.selection_policy.expected_bootstrap_scope.condition_id -ne $pilotConditionId -or
+  [string]$stage0Candidate.selection_policy.expected_bootstrap_scope.token_id -ne $pilotTokenId -or
+  [DateTimeOffset]::Parse($stage0Candidate.expires_at_utc) -le [DateTimeOffset]::UtcNow
+) {
+  throw "fresh Stage 0 constrained candidate did not pass exact scope"
+}
+
+# Do not cross this boundary while any HOLD in this runbook remains unresolved.
+# After dated operator approval clears every HOLD, invoke only the reviewed path:
+& ([string]$stage0Review.launcher.path)
 ```
 
-Write the newly selected candidate only to the review receipt's fixed inbox,
-independently compare the generated launcher's hash with that receipt, then run
-the launcher with no arguments. It passes the reviewed manifest hash and fixed
-candidate path to the composer; no scope or ceiling is accepted at the live
-boundary. Before writing any attempt artifact, the composer derives a
-candidate-bounded window of at most 120 seconds and rejects unless that window
-plus the full 20-second cleanup tail is inside **[00:30, 09:00)
-America/Toronto**. It repeats that check at the execution boundary and requires
-at least 90 seconds still available immediately before launch, then writes an
-immutable ARMED intent and atomically claims the terminal receipt and sidecar
-paths before the child. The no-argument launcher and parent
-runner hold deny-write/delete handles for the reviewed runner, production
-sources, public credential inputs, candidate, and complete predecessor lineage;
-the full external SDK overlay used by lazy imports, the interpreter, and the
-status-attestation helper closure. They rehash after acquiring those handles
-and retain them through child exit.
-The parent sends cooperative cleanup at the sealed execution stop, allows only
-the same sealer-owned 20-second cleanup grace already reserved by every window
-check, and then uses kill-on-close containment if required. The reserved end may
-equal 09:00; it must never exceed it.
+Repeat that fresh paper tick and constrained selector with the cancel-all review
+receipt and then the dead-man review receipt immediately before those stages;
+never copy or rename the Stage 0 candidate. Refresh the economics snapshot first
+if its two-hour gate has expired. The launcher passes only the reviewed manifest
+hash and fixed candidate path to the composer; no scope or ceiling is accepted at
+the live boundary. Before writing candidate/spec/composition/intent artifacts,
+the composer derives a candidate-bounded window of at most 120 seconds and
+rejects unless that window plus the full 20-second cleanup tail is contained in
+**[00:30, 09:00) America/Toronto**. It repeats the check at the execution
+boundary and requires at least 90 seconds still available immediately before
+launch, then writes an immutable ARMED intent and atomically claims the terminal
+receipt and sidecar paths. The no-argument launcher and parent runner hold
+deny-write/delete handles for the reviewed runner, production sources, public
+credential inputs, candidate, complete predecessor lineage, external SDK
+overlay, interpreter, and status-attestation helper closure. They rehash after
+acquiring those handles and retain them through child exit. The parent sends
+cooperative cleanup at the sealed execution stop, allows only the same
+sealer-owned 20-second grace already reserved by every window check, and then
+uses kill-on-close containment if required. The reserved end may equal 09:00;
+it must never exceed it.
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
 request, 100 pUSD wallet cap, execution cutoff, cleanup reserve, and contained
