@@ -26,10 +26,9 @@ no Stage 0 or Stage 1 session has run.
 **Stage 0/1 execution is currently HOLD.** Before the first session, land and
 re-prove the explicit 00:30-09:00 live-window guard, the truthful Stage 0
 authenticated-write confirmation contract, the canonical fixed-session
-manifest builder, and a non-circular staged-readiness policy or receipt approved
-by the operator. The fixed-session manifest builder below is public preparation
-only. Inventory or manifest-build PASS is not temporal, credential,
-exchange-mutation, or trading authorization.
+manifest builder, and the dated Stage 0/1-only substitute-gate decision below.
+The fixed-session manifest builder and operator decision are preparation only.
+Neither is temporal, credential, exchange-mutation, or trading authorization.
 
 **Geographic eligibility is an action-time fact, not a repository or timezone
 inference.** This repository does not assert the operator's or execution host's
@@ -112,18 +111,21 @@ All must be current for the target date and selected market:
    exact `{status: "ok"}` acknowledgment within 7.5 seconds, and matching
    book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
    seconds.
-6. **Unresolved staged-readiness contract: HOLD.** The general readiness
-   prerequisite is circular for the evidence-generating probes because
-   `mm_platform_verification_v0.5` embeds both Stage 1 lifecycle proofs. Do not
-   silently waive it. Before Stage 0/1, either adopt a dated operator decision
-   naming the exact non-circular substitute gates or bind a public
-   `stage01_probe_readiness` receipt. At minimum that contract must require the
-   exact current production inventory, public credential references, target-date
-   public book/paper/International economics, current market rules, fixed 10/100
-   pUSD caps, host/fleet/capture/tape/clock/reboot health, zero account state,
-   Stage 0 bootstrap before Stage 1, and the stage-specific confirmations. The
-   ordinary maker-run live-readiness, target-date data-layer, production release,
-   full risk, and v0.5 platform gates remain unchanged for Stage 2.
+6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; production
+   adoption pending.** The general readiness prerequisite is circular for the
+   evidence-generating probes because `mm_platform_verification_v0.5` embeds
+   both Stage 1 lifecycle proofs. For Stage 0/1 only, the operator approved the
+   following exact non-circular substitute gates: current exact-tip production
+   inventory; public credential references; target-date public book, paper, and
+   International economics evidence; current market rules; fixed non-raisable
+   10 pUSD order and 100 pUSD wallet caps; host, fleet, capture, tape, clock,
+   reboot, and workload-lease health; zero unknown open orders and zero starting
+   positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
+   eligibility; and every stage-specific, hash-bound attended confirmation.
+   This decision is not self-executing and cannot clear the HOLD until this
+   complete branch lands and receives exact-tip reproof. The ordinary maker-run
+   live-readiness, target-date data-layer, production release, full risk, and
+   v0.5 platform gates remain unchanged for Stage 2.
 7. A simultaneous one-market paper counterfactual has quote permission and is
    writing auditable artifacts. The separately authorized route is:
 
