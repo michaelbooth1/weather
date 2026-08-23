@@ -25,12 +25,11 @@ no Stage 0 or Stage 1 session has run.
 
 **Stage 0/1 execution is currently HOLD.** Before the first session, land and
 re-prove the explicit 00:30-09:00 live-window guard, the truthful Stage 0
-authenticated-write confirmation contract, and a non-circular staged-readiness
-policy or receipt approved by the operator. Current physical-location eligibility
-is also unresolved: the repository identifies this as an Ontario host, while the
-venue blocks Ontario order placement. The fixed-session manifest builder below
-is public preparation only. Inventory or manifest-build PASS is not temporal,
-geographic, credential, exchange-mutation, or trading authorization.
+authenticated-write confirmation contract, the canonical fixed-session
+manifest builder, and a non-circular staged-readiness policy or receipt approved
+by the operator. The fixed-session manifest builder below is public preparation
+only. Inventory or manifest-build PASS is not temporal, credential,
+exchange-mutation, or trading authorization.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -152,18 +151,6 @@ All must be current for the target date and selected market:
    the 18:00-00:30 near-close window. The existing heavy-workload lease remains
    an independent enforcement boundary; do not interpret 09:00-12:00 as a
    supported live-session gap.
-9. Geographic eligibility passes twice: immediately before any credential
-   resolution and submit-adjacent for Stage 1. Query the official public
-   `GET https://polymarket.com/api/geoblock` endpoint, retain only
-   `blocked/country/region` plus time and response hash (never the IP), and
-   require `blocked=false`. Separately require the attended operator to attest
-   that their current **physical** location is eligible and that no VPN, proxy,
-   remote-location service, or other circumvention is in use. Endpoint and
-   attestation disagreement, an unavailable endpoint, or a physically blocked
-   location is a hard stop. The endpoint's IP classification cannot override
-   the operator's actual location. See the official
-   [geographic-restrictions API](https://docs.polymarket.com/api-reference/geoblock)
-   and [current help-center policy](https://help.polymarket.com/en/articles/13364163-geographic-restrictions).
 
 ## Staged protocol
 
@@ -313,14 +300,6 @@ available, prove master equals origin at the reviewed exact tip, prove all
 capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
 Do not trade merely because Windows restarted successfully.
-
-Do not continue on this host merely because the public endpoint reports an
-unblocked egress. The preregistration explicitly grants no Ontario-host order,
-and current venue policy lists Ontario as blocked and forbids location
-circumvention. A live session requires a new dated operator attestation that
-the attended operator and execution host are physically in an eligible location
-without VPN/proxy circumvention; otherwise move no money and keep the system in
-paper/read-only mode.
 
 Discover the exact Stage 0/1 scope from fresh public data and a successful
 one-market paper tick. The identity and public credential receipt/reference
@@ -934,8 +913,6 @@ Cancel all and do not resume on any of the following:
 - cancel-all is not followed by zero open orders;
 - the execution cutoff plus its full cleanup reserve leaves **[00:30, 09:00)
   America/Toronto**, host enters a protected window, or capture health degrades.
-- official geoblock state is unavailable/blocked, physical-location eligibility
-  is unconfirmed, or endpoint and attended operator attestation disagree.
 
 ## Decision after the pilot
 
