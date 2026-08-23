@@ -6,7 +6,7 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$TaskName = "WeatherMemoryCommitGuard",
-    [int]$IntervalMinutes = 5
+    [int]$IntervalMinutes = 1
 )
 
 $script = Join-Path $RepoRoot "scripts\ops\memory_commit_guard.ps1"
@@ -45,7 +45,7 @@ Register-ScheduledTask `
     -Trigger $trigger `
     -Settings $settings `
     -Principal $principal `
-    -Description "Warns below 1.5 GiB available physical RAM and at 85% commit; kills runaway ad-hoc python jobs (>8GB private) at 92% commit. Never touches -m weather.* processes." `
+    -Description "Every minute, blocks concurrent/out-of-window Codex heavy tool trees; warns below 1.5 GiB RAM or at 85% commit; terminates eligible >8 GiB jobs at 92%." `
     -Force | Out-Null
 
 # Make the repetition indefinite (empty duration = repeat forever).

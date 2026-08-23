@@ -29,6 +29,13 @@ still the primary package contract. CI uses Python 3.11 on Ubuntu, so production
 modules must remain cross-platform even though scheduled operations are Windows
 specific.
 
+On the 16 GB production capture host, the commands above are not authority to
+run a direct full suite or parallel verification. Focused tests run serially
+only inside 00:30–09:00; the full suite uses
+`scripts/ops/bounded_worktree_test_suite.ps1` with its 25-file chunks and
+workload lease. The user-layer Codex hook rejects direct unbounded pytest at
+every hour and rejects pytest/compileall outside that window.
+
 ## Focused verification matrix
 
 | Change | Minimum focused verification |
