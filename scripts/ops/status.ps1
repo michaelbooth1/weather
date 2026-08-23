@@ -2075,19 +2075,6 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
-    # A maintenance post-boot proof is also a one-shot even though Task Scheduler
-    # represents it with a Boot trigger rather than a Time trigger. The hash-bound
-    # wrapper disables itself after publishing its terminal receipt so it cannot run
-    # again on an unrelated reboot. Keep this classification narrow: recurring boot
-    # recovery remains anomalous if it is disabled.
-    $postBootOneShot = (
-        $name -like "WeatherMaintenancePostBoot*" -and
-        $actionArguments -like "*post_boot_audit.ps1*" -and
-        @($_.Triggers | Where-Object {
-                $null -ne $_.CimClass -and
-                [string]$_.CimClass.CimClassName -eq "MSFT_TaskBootTrigger"
-            }).Count -eq 1
-    )
     $wakeReceiptState = Get-WeatherCodexWakeReceiptState `
         -TaskName $name -ActionArguments $actionArguments -TaskInfo $ti
     if ($wakeReceiptState.recognized) { $overnightWakeState.Add($wakeReceiptState) }
@@ -2424,20 +2411,10 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
             )
         }
         elseif ($wakeReceiptState.status -eq "FAIL") {
-            $wakeFailure = (
+            $flags.Add(
                 "$name authoritative wake receipt is FAIL: $($wakeReceiptState.detail); " +
                 "review $($wakeReceiptState.receipt_path)"
             )
-            # A completed wake failure is urgent for one operating day, then remains
-            # visible as historical evidence without blocking every later live-readiness
-            # digest forever. This matches the existing spent one-shot disposition below;
-            # an invalid or missing authoritative receipt never receives the age demotion.
-            if ([datetime]$ti.LastRunTime -lt (Get-Date).AddHours(-24)) {
-                $warns.Add($wakeFailure)
-            }
-            else {
-                $flags.Add($wakeFailure)
-            }
         }
         else {
             $warns.Add(
@@ -2454,10 +2431,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # later boot. On 2026-08-05 that raised three simultaneous "unexpectedly DISABLED" flags
         # for three tasks that had each done exactly what they were built to do. Same lesson as
         # the spent-FAILED case below: a monitor that flags success trains us to ignore it.
-        $selfDisarmed = (
-            ($oneShot -or $postBootOneShot) -and -not $ti.NextRunTime -and
-            $res -eq "0x0" -and $ti.LastRunTime
-        )
+        $selfDisarmed = ($oneShot -and -not $ti.NextRunTime -and $res -eq "0x0" -and $ti.LastRunTime)
         # Expected-disabled is checked FIRST. A spent one-shot that is ALSO deliberately
         # disabled (WeatherOneShotMirror, 2026-08-12) matched $selfDisarmed and reported
         # "self-disarmed cleanly", which is a different claim from "an operator turned this
