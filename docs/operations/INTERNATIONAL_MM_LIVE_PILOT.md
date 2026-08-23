@@ -301,14 +301,14 @@ capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
 Do not trade merely because Windows restarted successfully.
 
-Discover the exact Stage 0/1 scope from fresh public data and a successful
-one-market paper tick. The identity and public credential receipt/reference
-sources in the next subsection do not bind a market; prepare them first, then
-return here and run discovery, the keyless doctor, and all three manifest builds
-without pausing past the plan expiry. Do not hand-pick a condition/token pair or
-retain one from a prior day. The first unconstrained
-selector output is **discovery only**: it supplies a reviewed scope for identity
-and session-manifest preparation, but its null `expected_bootstrap_scope` means
+Prepare the identity and public credential receipt/reference sources first;
+they do not bind a market. Only after both preparations pass, discover the
+exact Stage 0/1 scope from fresh public data and a successful one-market paper
+tick, then run all three manifest builds without pausing past the plan expiry.
+The canonical keyless doctor runs later, only inside each sealed wrapper. Do not
+hand-pick a condition/token pair or retain one from a prior day. The first unconstrained
+selector output is **discovery only**: it supplies a reviewed scope for
+session-manifest preparation, but its null `expected_bootstrap_scope` means
 the sealer correctly refuses it as a live candidate.
 The metadata refresh's `--metadata-only` mode leaves the tracked location
 registry byte-for-byte unchanged. The selector authenticates nowhere and can
@@ -339,6 +339,81 @@ $attemptInit = .\venv\Scripts\python.exe -m weather.operations.international_liv
 if ($LASTEXITCODE -ne 0 -or $attemptInit.status -ne "PASS") {
   throw "private fixed-session attempt initialization blocked"
 }
+```
+
+Prepare the public identity now, before starting the expiring discovery
+sequence. The command derives the numeric signature ID and writes no identity
+if any public gate fails. Only these two documented topologies are accepted:
+
+| Wallet class | Signature | EOA/API owner | Order signer | Funder/maker |
+| --- | --- | --- | --- | --- |
+| Existing Gnosis Safe | `POLY_GNOSIS_SAFE` / `2` | private-key EOA | same EOA | distinct Safe |
+| New deposit wallet | `POLY_1271` / `3` | private-key EOA | deposit wallet | same deposit wallet |
+
+The supplied funded-wallet configuration declares the first topology. Offline
+validation on 2026-08-13 with the exact pinned SDK proved that its private key
+derives its public EOA, that the SDK selects that EOA as the type-2 order signer,
+and that the configured Safe funder is distinct. This is not exchange
+authentication or order evidence; Stage 0 must still prove it against live
+account reads on the production host. Do not switch topology after a failed probe:
+
+```powershell
+$pilotFunderAddress = "replace-with-public-funder-address"
+$pilotWalletType = "gnosis_safe"
+$pilotSignatureType = "POLY_GNOSIS_SAFE"
+
+.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli prepare-identity `
+  --funder-address $pilotFunderAddress `
+  --wallet-type $pilotWalletType `
+  --signature-type $pilotSignatureType `
+  --budget 10 `
+  --wallet-cap 100 `
+  --identity-out $pilotIdentitySource `
+  --receipt-out $pilotIdentityReceipt `
+  --confirm-international-platform `
+  --confirm-isolated-wallet `
+  --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
+```
+
+Only after identity preparation passes, provision the four secret values as
+Windows Credential Manager generic credentials. If an external source file is
+used, keep it outside the repository and remove inherited broad ACLs. The
+importer validates the private key/address and exact wallet/signature topology,
+refuses existing fixed targets, rolls back partial writes, ignores unrelated
+relayer/RPC/live-flag fields, and emits only a public reference manifest and
+secret-free receipt:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
+  --source-env C:\secure\pilot.env.txt `
+  --manifest-out $pilotCredentialManifestSource `
+  --receipt-out $pilotCredentialReceiptSource `
+  --confirm-source-acl-private `
+  --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
+```
+
+Do not proceed unless the receipt is `PASS`, reports exactly four entries, and
+has no rollback. Do not persist its references in User or Machine environment.
+The hash-sealed launcher parses the public reference manifest, sets the five
+required values only in its child-process scope, clears all direct-secret names,
+and restores its own prior process environment afterward. The required variables are
+`POLYMARKET_API_KEY_STORAGE_REF`,
+`POLYMARKET_API_SECRET_STORAGE_REF`,
+`POLYMARKET_API_PASSPHRASE_STORAGE_REF`,
+`POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
+`POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
+credentials themselves. Do not install the live extra into the shared production
+venv. The repository manifest instead validates the complete fixed external
+SDK overlay and all 34 offline wheels before and after process-local import; the
+runtime rejects any version or import origin other than the pinned 0.6.0 tree.
+After a successful import, independent verification of the public receipt and
+reference manifest, and operator verification of the external source's retained
+copy, delete the source credential file using the approved secure-deletion
+procedure. The importer never deletes it automatically.
+
+Only now start the expiring discovery and manifest-build sequence:
+
+```powershell
 
 .\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
   --locations .\config\locations.json `
@@ -381,8 +456,9 @@ $pilotConditionId = [string]$pilotPlan.selected.condition_id
 $pilotTokenId = [string]$pilotPlan.selected.token_id
 ```
 
-The discovery plan is never supplied to the sealer. After the three exact-scope
-session manifests and outer launchers are independently reviewed, run a **new**
+The manifest builder stages the unconstrained discovery plan, but the fixed-scope
+sealer never accepts it as a live candidate. After the three exact-scope session
+manifests and outer launchers are independently reviewed, run a **new**
 one-market paper tick and selector immediately before Stage 0, using new output
 paths plus `--expected-condition-id $pilotConditionId` and
 `--expected-token-id $pilotTokenId`, and write that constrained plan only to the
@@ -398,92 +474,8 @@ intent is only a far-from-mid lifecycle probe and will normally not qualify for
 liquidity rewards or provide maker-fill economics evidence. Stage 2 must use a
 separate current quote decision after Stage 1 passes.
 
-Prepare the public identity before starting the expiring discovery sequence
-above. The command derives the numeric signature ID
-and writes no identity if any public gate fails. Only these two documented
-topologies are accepted:
-
-| Wallet class | Signature | EOA/API owner | Order signer | Funder/maker |
-| --- | --- | --- | --- | --- |
-| Existing Gnosis Safe | `POLY_GNOSIS_SAFE` / `2` | private-key EOA | same EOA | distinct Safe |
-| New deposit wallet | `POLY_1271` / `3` | private-key EOA | deposit wallet | same deposit wallet |
-
-The supplied funded-wallet configuration declares the first topology. Offline
-validation on 2026-08-13 with the exact pinned SDK proved that its private key
-derives its public EOA, that the SDK selects that EOA as the type-2 order signer,
-and that the configured Safe funder is distinct. This is not exchange
-authentication or order evidence; Stage 0 must still prove it against live
-account reads on the production host. Do not switch topology after a failed probe:
-
-```powershell
-$pilotFunderAddress = "replace-with-public-funder-address"
-$pilotWalletType = "gnosis_safe"
-$pilotSignatureType = "POLY_GNOSIS_SAFE"
-
-.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli prepare-identity `
-  --funder-address $pilotFunderAddress `
-  --wallet-type $pilotWalletType `
-  --signature-type $pilotSignatureType `
-  --budget 10 `
-  --wallet-cap 100 `
-  --identity-out $pilotIdentitySource `
-  --receipt-out $pilotIdentityReceipt `
-  --confirm-international-platform `
-  --confirm-isolated-wallet `
-  --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
-```
-
-Only after identity preparation passes, provision the four secret
-values as Windows Credential Manager generic credentials. If an external
-source file is used, keep it outside the repository, remove inherited broad
-ACLs. The importer validates the private
-key/address and exact wallet/signature topology, refuses existing fixed targets,
-rolls back partial writes, ignores unrelated relayer/RPC/live-flag fields, and
-emits only a public reference manifest and secret-free receipt:
-
-```powershell
-.\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
-  --source-env C:\secure\pilot.env.txt `
-  --manifest-out $pilotCredentialManifestSource `
-  --receipt-out $pilotCredentialReceiptSource `
-  --confirm-source-acl-private `
-  --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
-```
-
-Do not proceed unless the receipt is `PASS`, reports exactly four entries, and
-has no rollback. Do not persist its references in User or Machine environment.
-The hash-sealed launcher parses the public reference manifest, sets the five
-required values only in its child-process scope, clears all direct-secret names,
-and restores its own prior process environment afterward. The required variables are
-`POLYMARKET_API_KEY_STORAGE_REF`,
-`POLYMARKET_API_SECRET_STORAGE_REF`,
-`POLYMARKET_API_PASSPHRASE_STORAGE_REF`,
-`POLYMARKET_PRIVATE_KEY_STORAGE_REF`, and the public
-`POLYMARKET_FUNDER_ADDRESS`. The first four values must be references, not the
-credentials themselves. Do not install the live extra into the shared production
-venv. The repository manifest instead validates the complete fixed external
-SDK overlay and all 34 offline wheels before and after process-local import; the
-runtime rejects any version or import origin other than the pinned 0.6.0 tree.
-After a successful import, independent verification of the public receipt and
-reference manifest, and operator verification of the external source's retained
-copy, delete the source credential file using the approved secure-deletion
-procedure. The importer never deletes it automatically.
-
-The canonical keyless doctor runs inside each sealed fixed-scope wrapper before
-the supervised prompt and before credential resolution. The hash-bound
-PowerShell launcher validates the public credential-reference manifest and
-stages only its reference names in the child process; the Python doctor then
-validates the exact SDK version, Windows resolver availability, reference URI
-shapes and completeness, direct-secret absence, public-funder/identity equality,
-target/condition/token formats, and requested budget without opening Credential
-Manager or authenticating to the exchange. Its receipt contains counts and gate
-names, never reference targets. Do not invoke the standalone `doctor` command
-from a clean shell: references are deliberately not persisted, and operators
-must not manually set or persist them to make that command pass. Do not proceed
-unless the wrapper's doctor receipt is `PASS` with an empty `missing` list.
-
-Prepare the identity only after the surrounding setup is complete. The final
-Stage 0, both Stage 1 modes, and bundle construction should be prepared in
+With identity and public credential preparation complete, prepare the final
+Stage 0, both Stage 1 modes, and bundle construction in
 advance and run consecutively; an expired bootstrap is a stop, not a reason to
 edit timestamps or reuse an earlier gate.
 
@@ -494,9 +486,11 @@ The builder rereads the current public inventory, requires synchronized
 production `master`, derives the Git tree, interpreter, template, complete live
 source, and session-bootstrap hashes, and hardcodes 10 pUSD and 120 seconds. It
 accepts no typed target, condition, token, budget, duration, output, or candidate
-override. Scope comes only from the still-current, unconstrained, self-hashed,
-non-authorizing discovery plan. It never opens Credential Manager or calls the
-exchange.
+override. Scope comes only from the complete candidate-discovery gate after it
+revalidates the still-current, unconstrained, self-hashed, non-authorizing
+International/pUSD plan, economics PASS, paper permission and no-mutation
+evidence, evidence hashes and row count, and current book/risk/intent contract.
+It never opens Credential Manager or calls the exchange.
 
 The earlier `init-attempt` command creates a new external root with ACL
 inheritance disabled and FullControl granted only to the current user, SYSTEM,
@@ -545,27 +539,56 @@ foreach ($row in $pilotManifestStages) {
 Each output manifest is `international_live_fixed_session_manifest_v0.2`; its
 `manifest_sha256` is the semantic hash, while the adjacent `.sha256` binds the
 exact pretty-printed bytes. Independently inspect each staged copy, build
-receipt, semantic hash, raw hash, and sidecar. Record the three reviewed raw
-hashes out of band; do not pipe `Get-FileHash` directly into launcher creation.
-Then turn each reviewed raw hash into a no-argument outer launcher:
+receipt, semantic hash, raw hash, and sidecar. Record six reviewed raw hashes
+out of band: all three manifests and all three canonical build receipts. Do not
+pipe `Get-FileHash` directly into launcher creation. Then turn each reviewed
+manifest/receipt pair into a no-argument outer launcher:
 
 ```powershell
 $stage0ManifestSha256 = "replace-with-independently-reviewed-stage0-raw-sha256"
 $cancelAllManifestSha256 = "replace-with-independently-reviewed-cancel-all-raw-sha256"
 $deadManManifestSha256 = "replace-with-independently-reviewed-dead-man-raw-sha256"
+$stage0BuildReceiptSha256 = "replace-with-independently-reviewed-stage0-build-receipt-sha256"
+$cancelAllBuildReceiptSha256 = "replace-with-independently-reviewed-cancel-all-build-receipt-sha256"
+$deadManBuildReceiptSha256 = "replace-with-independently-reviewed-dead-man-build-receipt-sha256"
 
 .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
   --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage0-session-manifest.json") `
-  --expected-session-manifest-sha256 $stage0ManifestSha256
+  --expected-session-manifest-sha256 $stage0ManifestSha256 `
+  --expected-manifest-build-receipt-sha256 $stage0BuildReceiptSha256
 
 .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
   --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage1_cancel_all-session-manifest.json") `
-  --expected-session-manifest-sha256 $cancelAllManifestSha256
+  --expected-session-manifest-sha256 $cancelAllManifestSha256 `
+  --expected-manifest-build-receipt-sha256 $cancelAllBuildReceiptSha256
 
 .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
   --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage1_dead_man-session-manifest.json") `
-  --expected-session-manifest-sha256 $deadManManifestSha256
+  --expected-session-manifest-sha256 $deadManManifestSha256 `
+  --expected-manifest-build-receipt-sha256 $deadManBuildReceiptSha256
 ```
+
+Launcher preparation derives the build-receipt path from the stage; there is no
+path override. It validates the receipt's exact manifest raw/semantic hashes,
+sidecar, production, scope, staged public-input hashes, canonical paths, fixed
+10 pUSD/120-second limits, and no-credential/no-live-mutation facts. The
+launcher review records the canonical receipt path/hash, and the launcher locks
+that exact receipt through child exit. A hand-authored manifest and recomputed
+sidecar are unsupported and cannot produce a launcher without the matching
+canonical builder receipt.
+
+The canonical keyless doctor runs inside each sealed fixed-scope wrapper before
+the supervised prompt and before credential resolution. The hash-bound
+PowerShell launcher validates the public credential-reference manifest and
+stages only its reference names in the child process; the Python doctor then
+validates the exact SDK version, Windows resolver availability, reference URI
+shapes and completeness, direct-secret absence, public-funder/identity equality,
+target/condition/token formats, and requested budget without opening Credential
+Manager or authenticating to the exchange. Its receipt contains counts and gate
+names, never reference targets. Do not invoke the standalone `doctor` command:
+references are deliberately not persisted, and operators must not manually set
+or persist them to make that command pass. Do not proceed unless the wrapper's
+doctor receipt is `PASS` with an empty `missing` list.
 
 The outer session launcher composes the candidate-bounded seal spec and invokes
 the fixed-scope sealer; operators do not hand-author or directly invoke that

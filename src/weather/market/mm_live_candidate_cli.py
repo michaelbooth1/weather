@@ -95,8 +95,11 @@ def _parse_utc(value):
 
 
 def _is_sha256(value):
-    text = str(value or "").lower()
-    return len(text) == 64 and all(character in "0123456789abcdef" for character in text)
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _scan_hashed_csv(path, visitor):
@@ -130,7 +133,7 @@ def _load_paper_quote_evidence(
     config_raw = Path(run_config_path).read_bytes()
     try:
         config = json.loads(config_raw.decode("utf-8-sig"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, ValueError) as exc:
         raise RuntimeError("paper run config is invalid JSON") from exc
     if not isinstance(config, dict):
         raise RuntimeError("paper run config must be a JSON object")
@@ -186,6 +189,13 @@ def _load_paper_quote_evidence(
         ask_size = _decimal(row.get("ask_size"))
         quote_risk = _decimal(row.get("quote_risk_usdc"))
         row_budget = _decimal(row.get("run_budget_usdc"))
+        expected_quote_risk = (
+            (
+                bid * bid_size + (Decimal("1") - ask) * ask_size
+            ).quantize(Decimal("0.000001"))
+            if all(value is not None for value in (bid, bid_size, ask, ask_size))
+            else None
+        )
         token = str(row.get("clob_token_id") or "")
         condition = str(row.get("condition_id") or "").lower()
         row_checks = all((
@@ -213,9 +223,10 @@ def _load_paper_quote_evidence(
             len(condition) == 66 and condition.startswith("0x")
             and all(character in "0123456789abcdef" for character in condition[2:]),
             bid is not None and ask is not None and Decimal("0") < bid < ask < Decimal("1"),
-            bid_size is not None and bid_size > 0,
-            ask_size is not None and ask_size > 0,
+            bid_size is not None and Decimal("0") < bid_size <= MAX_PAPER_QUOTE_SIZE,
+            ask_size is not None and Decimal("0") < ask_size <= MAX_PAPER_QUOTE_SIZE,
             quote_risk is not None and Decimal("0") < quote_risk <= MAX_BAND_NOTIONAL_PUSD,
+            quote_risk == expected_quote_risk,
             row_budget is not None and row_budget == budget,
             quote_risk is not None and budget is not None and quote_risk <= budget,
             row.get("expected_reward_score") in {"0", "0.0", "0.00"},
@@ -503,26 +514,46 @@ def select_live_pilot_candidate(
     return base
 
 
-def load_stage1_candidate_gate(
+def _load_candidate_plan_gate(
     plan_path,
-    target_date,
     *,
-    expected_condition_id,
-    expected_token_id,
+    target_date=None,
+    expected_condition_id=None,
+    expected_token_id=None,
+    require_unconstrained=False,
     now=None,
 ):
     raw = Path(plan_path).read_bytes()
     try:
         payload = json.loads(raw.decode("utf-8-sig"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Stage 1 candidate plan is invalid JSON") from exc
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise RuntimeError("candidate plan is invalid JSON") from exc
     if not isinstance(payload, dict):
-        raise RuntimeError("Stage 1 candidate plan must be a JSON object")
-    selected = dict(payload.get("selected") or {})
-    paper = dict(selected.get("paper_quote_proof") or {})
-    intent = dict(selected.get("stage1_intent") or {})
-    condition = str(expected_condition_id or "").lower()
-    token = str(expected_token_id or "")
+        raise RuntimeError("candidate plan must be a JSON object")
+    from weather.market.mm_credentials import contains_secret_material
+
+    selected_value = payload.get("selected")
+    selected = dict(selected_value) if isinstance(selected_value, dict) else {}
+    paper_value = selected.get("paper_quote_proof")
+    paper = dict(paper_value) if isinstance(paper_value, dict) else {}
+    intent_value = selected.get("stage1_intent")
+    intent = dict(intent_value) if isinstance(intent_value, dict) else {}
+    evidence_value = payload.get("paper_quote_evidence")
+    evidence = dict(evidence_value) if isinstance(evidence_value, dict) else {}
+    policy_value = payload.get("selection_policy")
+    policy = dict(policy_value) if isinstance(policy_value, dict) else {}
+    expected_scope_value = policy.get("expected_bootstrap_scope")
+    expected_scope = (
+        dict(expected_scope_value) if isinstance(expected_scope_value, dict) else {}
+    )
+    selected_condition = str(selected.get("condition_id") or "").lower()
+    selected_token = str(selected.get("token_id") or "")
+    condition = (
+        selected_condition
+        if require_unconstrained
+        else str(expected_condition_id or "").lower()
+    )
+    token = selected_token if require_unconstrained else str(expected_token_id or "")
     current = utc_now(now)
     try:
         created = _parse_utc(payload.get("created_at_utc"))
@@ -547,114 +578,328 @@ def load_stage1_candidate_gate(
     paper_bid_size = _decimal(paper.get("bid_size"))
     paper_ask_size = _decimal(paper.get("ask_size"))
     paper_risk = _decimal(paper.get("quote_risk_pusd"))
-    evidence = dict(payload.get("paper_quote_evidence") or {})
-    policy = dict(payload.get("selection_policy") or {})
-    expected_scope = dict(policy.get("expected_bootstrap_scope") or {})
-    expected_effective_expiry = min(
-        created + timedelta(seconds=MAX_PLAN_AGE_SECONDS),
-        paper_expires,
+    midpoint = _decimal(selected.get("midpoint"))
+    best_bid_depth = _decimal(selected.get("best_bid_depth"))
+    best_ask_depth = _decimal(selected.get("best_ask_depth"))
+    fee_rate = _decimal(selected.get("fee_rate"))
+    rebate_rate = _decimal(selected.get("maker_rebate_rate"))
+    reward_min_size = _decimal(selected.get("reward_min_size"))
+    reward_max_spread = _decimal(selected.get("reward_max_spread_cents"))
+    economics_hash_value = payload.get("exchange_economics_sha256")
+    economics_hash = (
+        economics_hash_value if isinstance(economics_hash_value, str) else ""
     )
-    expected_paper_expiry = (
-        paper_generated + timedelta(seconds=float(paper_ttl))
-        if paper_ttl is not None
-        else datetime.min.replace(tzinfo=timezone.utc)
+    economics_id = str(payload.get("exchange_economics_snapshot_id") or "")
+    try:
+        canonical_target = ensure_date(payload.get("target_date")).isoformat()
+    except (TypeError, ValueError):
+        canonical_target = ""
+    expected_target = (
+        ensure_date(target_date).isoformat() if target_date is not None else canonical_target
+    )
+    invalid_timestamp = datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        expected_effective_expiry = min(
+            created + timedelta(seconds=MAX_PLAN_AGE_SECONDS),
+            paper_expires,
+        )
+    except OverflowError:
+        expected_effective_expiry = invalid_timestamp
+    try:
+        expected_paper_expiry = (
+            paper_generated + timedelta(seconds=float(paper_ttl))
+            if paper_ttl is not None
+            and Decimal("0") < paper_ttl <= MAX_PAPER_QUOTE_TTL_SECONDS
+            else invalid_timestamp
+        )
+    except OverflowError:
+        expected_paper_expiry = invalid_timestamp
+    top_level_keys = {
+        "schema_version", "status", "created_at_utc", "expires_at_utc",
+        "target_date", "platform", "settlement_unit",
+        "exchange_economics_snapshot_id", "exchange_economics_sha256",
+        "economics_gate_ok", "economics_gate_missing",
+        "selection_is_trading_authorization", "secret_values_retained",
+        "selection_policy", "paper_quote_evidence", "candidate_count",
+        "selected", "alternates", "missing", "plan_sha256",
+    }
+    selected_keys = {
+        "location_id", "event_date", "event_slug", "question", "condition_id",
+        "token_id", "outcome_index", "best_bid", "best_ask", "midpoint",
+        "spread", "best_bid_depth", "best_ask_depth", "order_min_size",
+        "tick_size", "neg_risk", "fee_rate", "maker_rebate_rate",
+        "reward_min_size", "reward_max_spread_cents",
+        "current_book_within_reward_spread",
+        "lifecycle_probe_reward_min_size_met", "book_sha256", "stage1_intent",
+        "paper_quote_proof",
+    }
+    paper_keys = {
+        "run_id", "market_id", "target_date", "condition_id", "token_id",
+        "range_label", "exchange_economics_snapshot_id",
+        "exchange_economics_hash", "policy_hash", "generated_at_utc",
+        "expires_at_utc", "quote_ttl_seconds", "bid_price", "bid_size",
+        "ask_price", "ask_size", "quote_risk_pusd", "quote_permission",
+        "live_trade_permission", "two_sided_post_only_intent",
+        "reward_and_rebate_assumed_zero", "quote_row_sha256",
+    }
+    policy_keys = {
+        "built_in_locations_only", "positive_fee_and_rebate_required",
+        "midpoint_interval", "max_spread",
+        "minimum_tick_buy_must_be_nonmarketable",
+        "book_tick_min_size_and_neg_risk_must_be_current",
+        "plan_max_age_seconds", "max_single_order_notional_pusd",
+        "successful_current_market_harvest_quote_required",
+        "expected_bootstrap_scope", "ranking",
+    }
+    evidence_keys = {
+        "run_config_sha256", "quote_intents_sha256", "quote_intents_row_count",
+        "market_id", "run_id",
+    }
+    intent_keys = {"side", "price", "size", "notional_pusd", "post_only"}
+    midpoint_interval = policy.get("midpoint_interval")
+    alternates = payload.get("alternates")
+    candidate_count = payload.get("candidate_count")
+    row_count = evidence.get("quote_intents_row_count")
+    outcome_index = selected.get("outcome_index")
+    reward_spread_met = (
+        reward_max_spread is not None
+        and spread is not None
+        and spread * 100 <= reward_max_spread
+    )
+    reward_size_met = (
+        reward_min_size is not None
+        and min_size is not None
+        and min_size >= reward_min_size
+    )
+    scope_contract = (
+        expected_scope_value is not None
+        and isinstance(expected_scope_value, dict)
+        and set(expected_scope_value) == {"condition_id", "token_id"}
+    )
+    if require_unconstrained:
+        scope_contract = scope_contract and all(
+            expected_scope.get(field) is None for field in ("condition_id", "token_id")
+        )
+        scope_check_name = "unconstrained_scope"
+    else:
+        scope_contract = scope_contract and (
+            str(expected_scope.get("condition_id") or "").lower() == condition
+            and str(expected_scope.get("token_id") or "") == token
+        )
+        scope_check_name = "constrained_scope"
+    paper_quote_shape = (
+        paper_bid is not None
+        and paper_ask is not None
+        and Decimal("0") < paper_bid < paper_ask < Decimal("1")
+        and paper_bid_size is not None
+        and Decimal("0") < paper_bid_size <= MAX_PAPER_QUOTE_SIZE
+        and paper_ask_size is not None
+        and Decimal("0") < paper_ask_size <= MAX_PAPER_QUOTE_SIZE
+        and paper_risk is not None
+        and Decimal("0") < paper_risk <= MAX_BAND_NOTIONAL_PUSD
+        and paper_risk
+        == (
+            paper_bid * paper_bid_size
+            + (Decimal("1") - paper_ask) * paper_ask_size
+        ).quantize(Decimal("0.000001"))
+        and min_size is not None
+        and paper_bid_size >= min_size
+        and paper_ask_size >= min_size
+        and tick_size is not None
+        and tick_size > 0
+        and paper_bid % tick_size == 0
+        and paper_ask % tick_size == 0
+        and best_ask is not None
+        and paper_bid < best_ask
+        and best_bid is not None
+        and paper_ask > best_bid
+    )
+    current_book = (
+        best_bid is not None
+        and best_ask is not None
+        and Decimal("0") < best_bid < best_ask < Decimal("1")
+        and spread is not None
+        and Decimal("0") < spread <= MAX_BOOK_SPREAD
+        and midpoint is not None
+        and midpoint == (best_bid + best_ask) / 2
+        and spread == best_ask - best_bid
+        and MIN_MIDPOINT <= midpoint <= MAX_MIDPOINT
+        and best_bid_depth is not None
+        and best_bid_depth > 0
+        and best_ask_depth is not None
+        and best_ask_depth > 0
+    )
+    current_book_rules = (
+        tick_size is not None
+        and Decimal("0") < tick_size < Decimal("1")
+        and min_size is not None
+        and min_size > 0
+        and isinstance(selected.get("neg_risk"), bool)
+        and fee_rate is not None
+        and fee_rate > 0
+        and rebate_rate is not None
+        and rebate_rate > 0
+        and tick_size * min_size <= MAX_SINGLE_ORDER_NOTIONAL
+        and _is_sha256(selected.get("book_sha256"))
+        and (reward_min_size is None or reward_min_size > 0)
+        and (reward_max_spread is None or reward_max_spread > 0)
+        and selected.get("current_book_within_reward_spread") is reward_spread_met
+        and selected.get("lifecycle_probe_reward_min_size_met") is reward_size_met
+    )
+    intent_ok = (
+        intent.get("side") == "BUY"
+        and intent.get("post_only") is True
+        and price is not None
+        and price == tick_size
+        and size is not None
+        and size == min_size
+        and best_ask is not None
+        and price < best_ask
+        and notional is not None
+        and Decimal("0") < notional <= MAX_SINGLE_ORDER_NOTIONAL
+        and notional == price * size
     )
     checks = {
+        "exact_schema_shape": (
+            isinstance(selected_value, dict)
+            and isinstance(paper_value, dict)
+            and isinstance(intent_value, dict)
+            and isinstance(evidence_value, dict)
+            and isinstance(policy_value, dict)
+            and set(payload) == top_level_keys
+            and set(selected) == selected_keys
+            and set(paper) == paper_keys
+            and set(policy) == policy_keys
+            and set(evidence) == evidence_keys
+            and set(intent) == intent_keys
+        ),
         "schema": payload.get("schema_version") == SCHEMA_VERSION,
         "status": payload.get("status") == "PASS",
         "plan_hash": payload.get("plan_sha256") == candidate_plan_sha256(payload),
         "platform": payload.get("platform") == PLATFORM,
         "settlement_unit": payload.get("settlement_unit") == SETTLEMENT_UNIT,
-        "target_date": payload.get("target_date") == ensure_date(target_date).isoformat(),
+        "target_date": (
+            payload.get("target_date") == canonical_target == expected_target
+            and paper.get("target_date") == expected_target
+            and selected.get("event_date") == expected_target
+        ),
         "non_authorizing": payload.get("selection_is_trading_authorization") is False,
-        "economics": payload.get("economics_gate_ok") is True,
+        "secret_free": (
+            payload.get("secret_values_retained") is False
+            and not contains_secret_material(payload)
+        ),
+        "economics": (
+            payload.get("economics_gate_ok") is True
+            and payload.get("economics_gate_missing") == []
+            and len(economics_hash) == 32
+            and all(character in "0123456789abcdef" for character in economics_hash)
+            and economics_id == f"xecon-{economics_hash[:16]}"
+        ),
         "created": created <= current,
-        "current": current <= expires and current <= paper_expires,
+        "current": current < expires and current < paper_expires,
         "expiry_contract": expires == expected_effective_expiry,
         "paper_expiry_contract": paper_expires == expected_paper_expiry,
         "paper_generated_before_plan": paper_generated <= created,
         "paper_ttl": paper_ttl is not None
         and Decimal("0") < paper_ttl <= MAX_PAPER_QUOTE_TTL_SECONDS,
-        "condition": str(selected.get("condition_id") or "").lower() == condition,
-        "token": str(selected.get("token_id") or "") == token,
+        "condition": selected_condition == condition,
+        "token": selected_token == token,
         "scope_format": (
             len(condition) == 66
             and condition.startswith("0x")
             and all(character in "0123456789abcdef" for character in condition[2:])
-            and token.isdigit()
-            and int(token) > 0
+            and bool(token)
+            and token[0] in "123456789"
+            and all(character in "0123456789" for character in token)
         ),
-        "constrained_scope": (
-            str(expected_scope.get("condition_id") or "").lower() == condition
-            and str(expected_scope.get("token_id") or "") == token
+        scope_check_name: scope_contract,
+        "selection_policy": (
+            policy.get("built_in_locations_only") is True
+            and policy.get("positive_fee_and_rebate_required") is True
+            and isinstance(midpoint_interval, list)
+            and len(midpoint_interval) == 2
+            and [_decimal(value) for value in midpoint_interval]
+            == [MIN_MIDPOINT, MAX_MIDPOINT]
+            and _decimal(policy.get("max_spread")) == MAX_BOOK_SPREAD
+            and policy.get("minimum_tick_buy_must_be_nonmarketable") is True
+            and policy.get("book_tick_min_size_and_neg_risk_must_be_current") is True
+            and policy.get("plan_max_age_seconds") == MAX_PLAN_AGE_SECONDS
+            and _decimal(policy.get("max_single_order_notional_pusd"))
+            == MAX_SINGLE_ORDER_NOTIONAL
+            and policy.get("successful_current_market_harvest_quote_required") is True
+            and policy.get("ranking")
+            == "spread_asc_then_best_level_depth_desc_then_midpoint_distance"
         ),
-        "paper_condition": str(paper.get("condition_id") or "").lower() == condition,
-        "paper_token": str(paper.get("token_id") or "") == token,
-        "paper_run": str(paper.get("run_id") or "") == str(evidence.get("run_id") or ""),
+        "selected_scope": (
+            selected.get("condition_id") == condition
+            and selected.get("token_id") == token
+            and selected.get("location_id") in {spec.id for spec in BUILTIN_SPECS}
+            and isinstance(selected.get("event_slug"), str)
+            and bool(selected.get("event_slug").strip())
+            and isinstance(selected.get("question"), str)
+            and bool(selected.get("question").strip())
+            and isinstance(outcome_index, int)
+            and not isinstance(outcome_index, bool)
+            and outcome_index >= 0
+        ),
+        "candidate_set": (
+            isinstance(candidate_count, int)
+            and not isinstance(candidate_count, bool)
+            and candidate_count >= 1
+            and isinstance(alternates, list)
+            and len(alternates) <= MAX_ALTERNATES
+            and candidate_count >= 1 + len(alternates)
+            and payload.get("missing") == []
+        ),
+        "paper_condition": paper.get("condition_id") == condition,
+        "paper_token": paper.get("token_id") == token,
+        "paper_run": (
+            isinstance(paper.get("run_id"), str)
+            and bool(paper.get("run_id").strip())
+            and isinstance(evidence.get("run_id"), str)
+            and paper.get("run_id") == evidence.get("run_id")
+        ),
         "paper_market": str(paper.get("market_id") or "")
         == str(evidence.get("market_id") or "")
         == str(selected.get("location_id") or ""),
         "paper_economics": (
             paper.get("exchange_economics_snapshot_id")
-            == payload.get("exchange_economics_snapshot_id")
+            == economics_id
             and paper.get("exchange_economics_hash")
-            == payload.get("exchange_economics_sha256")
+            == economics_hash
         ),
-        "paper_policy": bool(str(paper.get("policy_hash") or "")),
+        "paper_policy": (
+            isinstance(paper.get("policy_hash"), str)
+            and bool(paper.get("policy_hash").strip())
+        ),
         "paper_permission": paper.get("quote_permission") is True,
         "paper_mutation_disabled": paper.get("live_trade_permission") is False,
         "paper_two_sided": paper.get("two_sided_post_only_intent") is True,
         "paper_zero_reward_assumption": paper.get("reward_and_rebate_assumed_zero") is True,
-        "paper_quote_shape": all((
-            paper_bid is not None,
-            paper_ask is not None,
-            Decimal("0") < paper_bid < paper_ask < Decimal("1"),
-            paper_bid_size is not None and paper_bid_size > 0,
-            paper_ask_size is not None and paper_ask_size > 0,
-            paper_risk is not None
-            and Decimal("0") < paper_risk <= MAX_BAND_NOTIONAL_PUSD,
-            min_size is not None,
-            paper_bid_size is not None and min_size is not None
-            and paper_bid_size >= min_size,
-            paper_ask_size is not None and min_size is not None
-            and paper_ask_size >= min_size,
-            tick_size is not None,
-            paper_bid is not None and tick_size is not None
-            and paper_bid % tick_size == 0,
-            paper_ask is not None and tick_size is not None
-            and paper_ask % tick_size == 0,
-            best_ask is not None and paper_bid is not None and paper_bid < best_ask,
-            best_bid is not None and paper_ask is not None and paper_ask > best_bid,
-        )),
+        "paper_quote_shape": paper_quote_shape,
         "paper_hashes": all(
             _is_sha256(evidence.get(field))
             for field in ("run_config_sha256", "quote_intents_sha256")
         ) and _is_sha256(paper.get("quote_row_sha256"))
-        and int(evidence.get("quote_intents_row_count") or 0) > 0,
-        "current_book": all((
-            best_bid is not None,
-            best_ask is not None,
-            Decimal("0") < best_bid < best_ask < Decimal("1"),
-            spread is not None and Decimal("0") < spread <= MAX_BOOK_SPREAD,
-        )),
-        "intent": all((
-            intent.get("side") == "BUY",
-            intent.get("post_only") is True,
-            price is not None and tick_size is not None and price == tick_size,
-            size is not None and min_size is not None and size == min_size,
-            best_ask is not None and price is not None and price < best_ask,
-            notional is not None and Decimal("0") < notional <= MAX_SINGLE_ORDER_NOTIONAL,
-        )),
+        and isinstance(row_count, int)
+        and not isinstance(row_count, bool)
+        and row_count > 0,
+        "current_book": current_book,
+        "current_book_rules": current_book_rules,
+        "intent": intent_ok,
     }
     missing = [name for name, valid in checks.items() if not valid]
     if missing:
-        raise RuntimeError("Stage 1 candidate gate failed: " + ", ".join(missing))
+        label = "candidate discovery" if require_unconstrained else "Stage 1 candidate"
+        raise RuntimeError(f"{label} gate failed: " + ", ".join(missing))
     return {
         "ok": True,
         "plan_sha256": hashlib.sha256(raw).hexdigest(),
         "semantic_plan_sha256": payload["plan_sha256"],
+        "target_date": expected_target,
         "condition_id": condition,
         "token_id": token,
+        "created_at_utc": created.isoformat(),
         "expires_at_utc": expires.isoformat(),
         "paper_quote_expires_at_utc": paper_expires.isoformat(),
         "paper_run_config_sha256": evidence["run_config_sha256"],
@@ -664,6 +909,33 @@ def load_stage1_candidate_gate(
         "tick_size": float(tick_size),
         "order_min_size": float(min_size),
     }
+
+
+def load_candidate_discovery_gate(plan_path, *, now=None):
+    """Load one complete, current, unconstrained public discovery plan."""
+
+    return _load_candidate_plan_gate(
+        plan_path,
+        require_unconstrained=True,
+        now=now,
+    )
+
+
+def load_stage1_candidate_gate(
+    plan_path,
+    target_date,
+    *,
+    expected_condition_id,
+    expected_token_id,
+    now=None,
+):
+    return _load_candidate_plan_gate(
+        plan_path,
+        target_date=target_date,
+        expected_condition_id=expected_condition_id,
+        expected_token_id=expected_token_id,
+        now=now,
+    )
 
 
 def build_parser():

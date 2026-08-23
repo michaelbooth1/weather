@@ -1541,10 +1541,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "international_live_session_launcher_review",
-        "international_live_session_launcher_review_v0.1",
+        "international_live_session_launcher_review_v0.2",
         "weather.operations.international_live_session_launcher_sealer",
         "active",
-        "Secret-free review receipt for a no-argument launcher bound to one raw session-manifest hash and fixed fresh-candidate inbox.",
+        "Secret-free review receipt for a no-argument launcher bound to canonical manifest-builder provenance, one raw and semantic session-manifest hash, and a fixed fresh-candidate inbox.",
+        supersedes=("international_live_session_launcher_review_v0.1",),
+    ),
+    SchemaSpec(
+        "international_live_session_launcher_review_legacy",
+        "international_live_session_launcher_review_v0.1",
+        "weather.operations.international_live_session_launcher_sealer",
+        "legacy",
+        "Initial launcher review receipt before canonical manifest-builder receipt provenance was required.",
     ),
     SchemaSpec(
         "mm_platform_verification",

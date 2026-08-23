@@ -14,11 +14,13 @@ $expectedManifestSha256 = "__SESSION_MANIFEST_SHA256__"
 $candidate = "__SESSION_CANDIDATE_INBOX__"
 $manifestSidecar = "__SESSION_MANIFEST_SIDECAR__"
 $expectedManifestSidecarSha256 = "__SESSION_MANIFEST_SIDECAR_SHA256__"
+$manifestBuildReceipt = "__SESSION_MANIFEST_BUILD_RECEIPT__"
+$expectedManifestBuildReceiptSha256 = "__SESSION_MANIFEST_BUILD_RECEIPT_SHA256__"
 
 if ($MyInvocation.UnboundArguments.Count -ne 0) {
     throw "fixed session launcher accepts no arguments"
 }
-foreach ($path in @($python, $runnerSource, $manifest, $manifestSidecar, $candidate)) {
+foreach ($path in @($python, $runnerSource, $manifest, $manifestSidecar, $manifestBuildReceipt, $candidate)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "fixed session launcher dependency is absent"
     }
@@ -59,6 +61,7 @@ try {
     Add-LockedExactFile -Path $runnerSource -ExpectedSha256 $expectedRunnerSha256
     Add-LockedExactFile -Path $manifest -ExpectedSha256 $expectedManifestSha256
     Add-LockedExactFile -Path $manifestSidecar -ExpectedSha256 $expectedManifestSidecarSha256
+    Add-LockedExactFile -Path $manifestBuildReceipt -ExpectedSha256 $expectedManifestBuildReceiptSha256
     $manifestPayload = Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
     if ([string]$manifestPayload.production_python_sha256 -cne $expectedPythonSha256) {
         throw "session manifest interpreter hash differs from launcher review"

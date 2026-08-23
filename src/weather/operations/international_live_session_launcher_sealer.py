@@ -8,11 +8,12 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from weather.market.mm_live_candidate_cli import load_candidate_discovery_gate
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
 from weather.operations.international_live_session_runner import (
     MAX_SESSION_SECONDS,
@@ -43,6 +44,9 @@ TEMPLATE_PATH = (
 RUNNER_SOURCE = REPO_ROOT / "src/weather/operations/international_live_session_runner.py"
 MANIFEST_BUILD_SCHEMA_VERSION = schema_version(
     "international_live_session_manifest_build"
+)
+LAUNCHER_REVIEW_SCHEMA_VERSION = schema_version(
+    "international_live_session_launcher_review"
 )
 FIXED_SESSION_BUDGET_PUSD = Decimal("10")
 FIXED_SESSION_SECONDS = MAX_SESSION_SECONDS
@@ -436,98 +440,6 @@ def _parse_aware_utc(value: Any, *, label: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _validate_discovery_plan(
-    path: Path,
-    *,
-    now: datetime,
-) -> dict[str, str]:
-    payload, raw = _read_json_object(path, label="discovery plan")
-    from weather.market.mm_credentials import contains_secret_material
-
-    if contains_secret_material(payload):
-        raise SessionLauncherSealError("discovery plan contains secret material")
-    selected = payload.get("selected")
-    policy = payload.get("selection_policy")
-    if not isinstance(selected, dict) or not isinstance(policy, dict):
-        raise SessionLauncherSealError("discovery plan has no selected public scope")
-    expected_scope = policy.get("expected_bootstrap_scope")
-    if not isinstance(expected_scope, dict) or set(expected_scope) != {
-        "condition_id",
-        "token_id",
-    }:
-        raise SessionLauncherSealError(
-            "discovery plan expected-bootstrap scope is malformed"
-        )
-    created = _parse_aware_utc(payload.get("created_at_utc"), label="plan creation")
-    expires = _parse_aware_utc(payload.get("expires_at_utc"), label="plan expiry")
-    current = now.astimezone(timezone.utc)
-    condition = str(selected.get("condition_id") or "").lower()
-    token = str(selected.get("token_id") or "")
-    target = str(payload.get("target_date") or "")
-    try:
-        canonical_target = date.fromisoformat(target).isoformat()
-    except ValueError as exc:
-        raise SessionLauncherSealError("discovery target date is invalid") from exc
-    semantic_hash = _require_sha256(
-        payload.get("plan_sha256"), label="discovery semantic hash"
-    )
-    observed_semantic_hash = fixed_sealer._canonical_payload_sha256(
-        payload, omit="plan_sha256"
-    )
-    paper = selected.get("paper_quote_proof")
-    if not isinstance(paper, dict):
-        raise SessionLauncherSealError("discovery plan has no paper quote proof")
-    paper_generated = _parse_aware_utc(
-        paper.get("generated_at_utc"), label="paper quote creation"
-    )
-    paper_expires = _parse_aware_utc(
-        paper.get("expires_at_utc"), label="paper quote expiry"
-    )
-    try:
-        paper_ttl = Decimal(str(paper.get("quote_ttl_seconds")))
-    except (InvalidOperation, TypeError, ValueError) as exc:
-        raise SessionLauncherSealError("paper quote TTL is invalid") from exc
-    expected_paper_expiry = paper_generated + timedelta(seconds=float(paper_ttl))
-    expected_expiry = min(
-        created + timedelta(seconds=fixed_sealer.MAX_CANDIDATE_AGE_SECONDS),
-        paper_expires,
-    )
-    if not all(
-        (
-            payload.get("schema_version") == fixed_sealer.CANDIDATE_SCHEMA_VERSION,
-            payload.get("status") == "PASS",
-            payload.get("platform") == "polymarket_global",
-            payload.get("settlement_unit") == "pUSD",
-            payload.get("selection_is_trading_authorization") is False,
-            payload.get("secret_values_retained") is False,
-            semantic_hash == observed_semantic_hash,
-            created <= current <= expires,
-            paper_generated <= created,
-            Decimal("0") < paper_ttl <= fixed_sealer.MAX_PAPER_QUOTE_TTL_SECONDS,
-            paper_expires == expected_paper_expiry,
-            expires == expected_expiry,
-            canonical_target == target,
-            fixed_sealer.CONDITION_RE.fullmatch(condition) is not None,
-            fixed_sealer.TOKEN_RE.fullmatch(token) is not None,
-            expected_scope["condition_id"] is None,
-            expected_scope["token_id"] is None,
-            str(paper.get("condition_id") or "").lower() == condition,
-            str(paper.get("token_id") or "") == token,
-        )
-    ):
-        raise SessionLauncherSealError(
-            "discovery plan is not a current, unconstrained, non-authorizing PASS"
-        )
-    return {
-        "target_date": target,
-        "condition_id": condition,
-        "token_id": token,
-        "sha256": hashlib.sha256(raw).hexdigest(),
-        "semantic_sha256": semantic_hash,
-        "expires_at_utc": expires.isoformat(),
-    }
-
-
 def _load_reviewed_status_flags(path: Path) -> list[dict[str, str]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
@@ -680,10 +592,16 @@ def prepare_fixed_session_manifest(
         }
         pending_writes.append((destination, raw))
 
-    discovery = _validate_discovery_plan(
-        Path(staged["discovery_plan"]["source_path"]), now=current
-    )
-    if discovery["sha256"] != staged["discovery_plan"]["sha256"]:
+    try:
+        discovery = load_candidate_discovery_gate(
+            Path(staged["discovery_plan"]["source_path"]),
+            now=current,
+        )
+    except RuntimeError as exc:
+        raise SessionLauncherSealError(
+            f"discovery plan failed complete candidate gate: {exc}"
+        ) from exc
+    if discovery["plan_sha256"] != staged["discovery_plan"]["sha256"]:
         raise SessionLauncherSealError("discovery plan changed during validation")
     reference_payload = fixed_sealer._validate_credential_reference_manifest(
         Path(staged["credential_reference_manifest"]["source_path"])
@@ -815,8 +733,8 @@ def prepare_fixed_session_manifest(
         "scope": manifest["scope"],
         "staged_public_inputs": dict(sorted(staged.items())),
         "discovery": {
-            "sha256": discovery["sha256"],
-            "semantic_sha256": discovery["semantic_sha256"],
+            "sha256": discovery["plan_sha256"],
+            "semantic_sha256": discovery["semantic_plan_sha256"],
             "expires_at_utc": discovery["expires_at_utc"],
             "unconstrained_discovery_only": True,
         },
@@ -839,6 +757,227 @@ def prepare_fixed_session_manifest(
     return build_receipt
 
 
+def _validate_manifest_build_receipt(
+    *,
+    stage: str,
+    attempt_root: Path,
+    production_root: Path,
+    manifest_path: Path,
+    manifest: Mapping[str, Any],
+    manifest_raw_sha256: str,
+    sidecar_path: Path,
+    expected_receipt_sha256: str,
+) -> dict[str, str]:
+    """Validate the canonical builder receipt and every public staged binding."""
+
+    layout = STAGED_INPUT_LAYOUTS[stage]
+    expected_path = (attempt_root / layout["build_receipt"]).resolve()
+    try:
+        receipt_path = validate_contained_regular_file(attempt_root, expected_path)
+    except Exception as exc:
+        raise SessionLauncherSealError(
+            "canonical session manifest build receipt is absent or redirected"
+        ) from exc
+    expected_hash = _require_sha256(
+        expected_receipt_sha256,
+        label="reviewed session manifest build receipt hash",
+    )
+    observed_hash = _sha(receipt_path)
+    if observed_hash != expected_hash:
+        raise SessionLauncherSealError(
+            "reviewed session manifest build receipt hash changed"
+        )
+    receipt, receipt_raw = _read_json_object(
+        receipt_path,
+        label="session manifest build receipt",
+    )
+    if receipt_raw != _canonical_json(receipt):
+        raise SessionLauncherSealError(
+            "session manifest build receipt bytes are not canonical"
+        )
+    _require_exact_object(
+        receipt,
+        {
+            "schema_version", "status", "stage", "prepared_at_local",
+            "production", "scope", "staged_public_inputs", "discovery",
+            "session_manifest", "session_manifest_sidecar", "fixed_budget_pusd",
+            "fixed_max_session_seconds", "live_mutation_attempted",
+            "credential_values_read_in_memory", "build_receipt_path",
+        },
+        label="session manifest build receipt",
+    )
+    prepared = _parse_aware_utc(
+        receipt["prepared_at_local"],
+        label="session manifest build receipt preparation",
+    )
+    manifest_record = _require_exact_object(
+        receipt["session_manifest"],
+        {"path", "sha256", "semantic_sha256"},
+        label="session manifest build receipt manifest",
+    )
+    sidecar_record = _require_exact_object(
+        receipt["session_manifest_sidecar"],
+        {"path", "sha256"},
+        label="session manifest build receipt sidecar",
+    )
+    discovery_record = _require_exact_object(
+        receipt["discovery"],
+        {"sha256", "semantic_sha256", "expires_at_utc", "unconstrained_discovery_only"},
+        label="session manifest build receipt discovery",
+    )
+    _require_exact_object(
+        manifest,
+        {
+            "schema_version", "manifest_sha256", "stage", "production", "scope",
+            "inputs", "reviewed_status_flags", "template_sha256", "source_sha256",
+            "production_python_sha256", "session_bootstrap_sha256",
+        },
+        label="session manifest",
+    )
+    production = _require_exact_object(
+        manifest["production"],
+        {"root", "branch", "commit", "tree", "python"},
+        label="session manifest production",
+    )
+    scope = _require_exact_object(
+        manifest["scope"],
+        {
+            "target_date", "condition_id", "token_id", "requested_budget_pusd",
+            "attempt_root", "lease_workload", "max_session_seconds",
+        },
+        label="session manifest scope",
+    )
+    inputs = _require_exact_object(
+        manifest["inputs"],
+        {"identity", "credential_import_receipt", "credential_reference_manifest"},
+        label="session manifest inputs",
+    )
+    if not all(
+        (
+            receipt["schema_version"] == MANIFEST_BUILD_SCHEMA_VERSION,
+            receipt["status"] == "PASS",
+            receipt["stage"] == stage,
+            receipt["production"] == production,
+            receipt["scope"] == scope,
+            type(receipt["fixed_budget_pusd"]) is int,
+            receipt["fixed_budget_pusd"] == int(FIXED_SESSION_BUDGET_PUSD),
+            type(receipt["fixed_max_session_seconds"]) is int,
+            receipt["fixed_max_session_seconds"] == FIXED_SESSION_SECONDS,
+            receipt["live_mutation_attempted"] is False,
+            receipt["credential_values_read_in_memory"] is False,
+            Path(str(receipt["build_receipt_path"])).resolve() == receipt_path,
+            manifest["schema_version"] == SESSION_SCHEMA_VERSION,
+            manifest["stage"] == stage,
+            manifest["manifest_sha256"] == _canonical_payload_sha256(manifest),
+            manifest_path.read_bytes() == _canonical_json(manifest),
+            Path(str(production["root"])).resolve() == production_root,
+            production["branch"] == "master",
+            Path(str(scope["attempt_root"])).resolve() == attempt_root,
+            scope["lease_workload"] == _canonical_lease_workload(attempt_root, stage),
+            type(scope["requested_budget_pusd"]) is int,
+            scope["requested_budget_pusd"] == int(FIXED_SESSION_BUDGET_PUSD),
+            type(scope["max_session_seconds"]) is int,
+            scope["max_session_seconds"] == FIXED_SESSION_SECONDS,
+            manifest_record["path"] == str(manifest_path),
+            manifest_record["sha256"] == manifest_raw_sha256,
+            manifest_record["semantic_sha256"] == manifest["manifest_sha256"],
+            sidecar_record["path"] == str(sidecar_path),
+            sidecar_record["sha256"] == _sha(sidecar_path),
+        )
+    ):
+        raise SessionLauncherSealError(
+            "session manifest build receipt does not exactly bind the manifest"
+        )
+
+    staged_value = receipt["staged_public_inputs"]
+    if not isinstance(staged_value, dict):
+        raise SessionLauncherSealError("staged public inputs are not an object")
+    required_roles = {
+        "identity", "credential_import_receipt",
+        "credential_reference_manifest", "discovery_plan",
+    }
+    if not required_roles.issubset(staged_value) or not set(staged_value).issubset(
+        required_roles | {"reviewed_status_flags"}
+    ):
+        raise SessionLauncherSealError("staged public input roles are not exact")
+    staged: dict[str, Mapping[str, Any]] = {}
+    for role, value in staged_value.items():
+        record = _require_exact_object(
+            value,
+            {"source_path", "path", "sha256", "bytes"},
+            label=f"staged public input {role}",
+        )
+        expected_staged_path = (attempt_root / layout[role]).resolve()
+        staged_path = validate_contained_regular_file(attempt_root, expected_staged_path)
+        digest = _require_sha256(record["sha256"], label=f"staged public input {role} hash")
+        source_path = Path(str(record["source_path"]))
+        if not all(
+            (
+                Path(str(record["path"])).resolve() == staged_path,
+                source_path.is_absolute(),
+                not _same_path(source_path, staged_path),
+                not _same_path(source_path, production_root),
+                not _is_within(production_root, source_path),
+                _sha(staged_path) == digest,
+                isinstance(record["bytes"], int),
+                not isinstance(record["bytes"], bool),
+                record["bytes"] == staged_path.stat().st_size,
+            )
+        ):
+            raise SessionLauncherSealError(f"staged public input {role} changed")
+        staged[role] = record
+
+    for role in ("identity", "credential_import_receipt", "credential_reference_manifest"):
+        manifest_input = _require_exact_object(
+            inputs[role],
+            {"path", "sha256"},
+            label=f"session manifest input {role}",
+        )
+        if manifest_input != {
+            "path": staged[role]["path"],
+            "sha256": staged[role]["sha256"],
+        }:
+            raise SessionLauncherSealError(
+                f"session manifest input {role} differs from its staged receipt"
+            )
+
+    discovery_path = Path(str(staged["discovery_plan"]["path"]))
+    try:
+        discovery = load_candidate_discovery_gate(discovery_path, now=prepared)
+    except RuntimeError as exc:
+        raise SessionLauncherSealError(
+            "staged discovery does not satisfy the canonical builder receipt"
+        ) from exc
+    if not all(
+        (
+            discovery_record["sha256"] == discovery["plan_sha256"]
+            == staged["discovery_plan"]["sha256"],
+            discovery_record["semantic_sha256"]
+            == discovery["semantic_plan_sha256"],
+            discovery_record["expires_at_utc"] == discovery["expires_at_utc"],
+            discovery_record["unconstrained_discovery_only"] is True,
+            scope["target_date"] == discovery["target_date"],
+            scope["condition_id"] == discovery["condition_id"],
+            scope["token_id"] == discovery["token_id"],
+        )
+    ):
+        raise SessionLauncherSealError(
+            "session manifest scope differs from its staged discovery"
+        )
+
+    status_flags = manifest["reviewed_status_flags"]
+    if not isinstance(status_flags, list):
+        raise SessionLauncherSealError("session reviewed status flags are not a list")
+    if "reviewed_status_flags" in staged:
+        if _load_reviewed_status_flags(
+            Path(str(staged["reviewed_status_flags"]["path"]))
+        ) != status_flags:
+            raise SessionLauncherSealError("reviewed status flags changed after staging")
+    elif status_flags:
+        raise SessionLauncherSealError("reviewed status flags have no staged source")
+    return {"path": str(receipt_path), "sha256": observed_hash}
+
+
 def _ps(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -853,6 +992,7 @@ def _replace(source: str, marker: str, value: str) -> str:
 def prepare_fixed_session_launcher(
     session_manifest_path: str | Path,
     expected_session_manifest_sha256: str,
+    expected_manifest_build_receipt_sha256: str,
     *,
     repo_root: str | Path = REPO_ROOT,
     template_path: str | Path = TEMPLATE_PATH,
@@ -869,6 +1009,8 @@ def prepare_fixed_session_launcher(
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise SessionLauncherSealError("session manifest is unreadable") from exc
     observed_hash = hashlib.sha256(raw).hexdigest()
+    if not isinstance(manifest, dict):
+        raise SessionLauncherSealError("session manifest is not a JSON object")
     if observed_hash != str(expected_session_manifest_sha256).lower():
         raise SessionLauncherSealError("reviewed session manifest hash changed")
     sidecar = manifest_path.with_suffix(manifest_path.suffix + ".sha256")
@@ -878,6 +1020,8 @@ def prepare_fixed_session_launcher(
     if manifest.get("schema_version") != SESSION_SCHEMA_VERSION:
         raise SessionLauncherSealError("session manifest schema is unsupported")
     stage = str(manifest.get("stage") or "")
+    if stage not in fixed_sealer.STAGES:
+        raise SessionLauncherSealError("session manifest stage is unsupported")
     scope = manifest.get("scope") or {}
     raw_attempt_root = Path(str(scope.get("attempt_root") or ""))
     if attempt_root_validator(raw_attempt_root).get("status") != "PASS":
@@ -890,6 +1034,16 @@ def prepare_fixed_session_launcher(
     production = manifest.get("production") or {}
     if Path(str(production.get("root") or "")).resolve() != root:
         raise SessionLauncherSealError("launcher repository differs from reviewed production")
+    build_receipt = _validate_manifest_build_receipt(
+        stage=stage,
+        attempt_root=attempt_root,
+        production_root=root,
+        manifest_path=manifest_path,
+        manifest=manifest,
+        manifest_raw_sha256=observed_hash,
+        sidecar_path=sidecar,
+        expected_receipt_sha256=expected_manifest_build_receipt_sha256,
+    )
     python = validate_regular_nonreparse_file(str(production.get("python") or ""))
     if python != (root / "venv/Scripts/python.exe").resolve() or not python.is_file():
         raise SessionLauncherSealError("reviewed production interpreter is unavailable")
@@ -930,6 +1084,8 @@ def prepare_fixed_session_launcher(
         "__SESSION_MANIFEST_SHA256__": observed_hash,
         "__SESSION_MANIFEST_SIDECAR__": str(sidecar),
         "__SESSION_MANIFEST_SIDECAR_SHA256__": _sha(sidecar),
+        "__SESSION_MANIFEST_BUILD_RECEIPT__": build_receipt["path"],
+        "__SESSION_MANIFEST_BUILD_RECEIPT_SHA256__": build_receipt["sha256"],
         "__SESSION_CANDIDATE_INBOX__": str(candidate.resolve()),
     }
     for marker, value in replacements.items():
@@ -937,15 +1093,17 @@ def prepare_fixed_session_launcher(
     powershell_parser(rendered)
     launcher_raw = rendered.encode("utf-8-sig")
     receipt = {
-        "schema_version": "international_live_session_launcher_review_v0.1",
+        "schema_version": LAUNCHER_REVIEW_SCHEMA_VERSION,
         "status": "PASS",
         "stage": stage,
         "session_manifest": {
             "path": str(manifest_path),
             "sha256": observed_hash,
+            "semantic_sha256": manifest["manifest_sha256"],
             "sidecar_path": str(sidecar),
             "sidecar_sha256": _sha(sidecar),
         },
+        "manifest_build_receipt": build_receipt,
         "candidate_inbox": str(candidate.resolve()),
         "launcher": {
             "path": str(launcher.resolve()),
@@ -1001,6 +1159,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     launcher.add_argument("--session-manifest", required=True)
     launcher.add_argument("--expected-session-manifest-sha256", required=True)
+    launcher.add_argument(
+        "--expected-manifest-build-receipt-sha256",
+        required=True,
+    )
     return parser
 
 
@@ -1032,6 +1194,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = prepare_fixed_session_launcher(
                 args.session_manifest,
                 args.expected_session_manifest_sha256,
+                args.expected_manifest_build_receipt_sha256,
             )
     except Exception as exc:
         print(
