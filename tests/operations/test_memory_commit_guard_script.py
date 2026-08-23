@@ -56,6 +56,11 @@ def test_memory_guard_attributes_and_reaps_codex_heavy_tool_trees():
     assert "Test-GovernedWeatherProcess" in block
     assert "Get-ChildItem" in block
     assert "-Recurse" in block
+    assert "daily_refresh|score_all" in block
+    assert "Get-ProcessTreePrivateBytes" in block
+    assert "$agentTreeBytes" in block
+    assert "$MinKillPrivateBytes" in block
+    assert "Stop-VerifiedProcessTree $target $allProcesses $reason $true" in block
 
 
 def test_memory_guard_preserves_event_history_without_raw_commands():

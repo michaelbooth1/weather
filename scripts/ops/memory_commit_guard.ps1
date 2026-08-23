@@ -83,6 +83,7 @@ function Test-AgentHeavyProcess($ProcessRow) {
     if ($agentShellNames -contains $name) {
         $normalized = $cmd.Replace('/', '\')
         return ($cmd -match '(?i)(?:^|\s)-m\s+(?:pytest|compileall|coverage|tox|nox)(?:\s|$)') -or
+            ($cmd -match '(?i)(?:^|\s)-m\s+weather\.[^\s]*(?:retrain|training|replay|backtest|daily_refresh|score_all)') -or
             (($cmd -match '(?i)Get-ChildItem') -and ($cmd -match '(?i)-Recurse')) -or
             (($cmd -match '(?i)(?:^|[\s;&|])rg(?:\.exe)?(?:\s|$)') -and
                 ($normalized -match '(?i)(?:^|[\s"''])(?:\.\\)?data(?:\\|[\s"''])'))
@@ -128,10 +129,15 @@ function Get-ProcessTreeRows($RootRow, $AllProcesses) {
     return @($selected.Values)
 }
 
-function Stop-VerifiedProcessTree($RootRow, $AllProcesses, [string]$Reason) {
+function Stop-VerifiedProcessTree(
+    $RootRow,
+    $AllProcesses,
+    [string]$Reason,
+    [bool]$AllowWeatherDescendants = $false
+) {
     $tree = @(Get-ProcessTreeRows $RootRow $AllProcesses)
     $governed = @($tree | Where-Object { Test-GovernedWeatherProcess $_ })
-    if ($governed.Count -gt 0) {
+    if (-not $AllowWeatherDescendants -and $governed.Count -gt 0) {
         Write-GuardLog "CRITICAL" ("refusing agent-tree termination for pid {0}: tree contains {1} governed weather process(es)" -f $RootRow.ProcessId, $governed.Count)
         return $false
     }
@@ -178,6 +184,15 @@ function Stop-VerifiedProcessTree($RootRow, $AllProcesses, [string]$Reason) {
     return $ok
 }
 
+function Get-ProcessTreePrivateBytes($RootRow, $AllProcesses, $RuntimeByPid) {
+    $privateBytes = [long]0
+    foreach ($member in @(Get-ProcessTreeRows $RootRow $AllProcesses)) {
+        $runtime = $RuntimeByPid[[uint32]$member.ProcessId]
+        if ($runtime) { $privateBytes += [long]$runtime.PrivateMemorySize64 }
+    }
+    return $privateBytes
+}
+
 $os = Get-CimInstance Win32_OperatingSystem
 $commitTotalMB = [double]$os.TotalVirtualMemorySize / 1024.0
 $commitUsedMB = ([double]$os.TotalVirtualMemorySize - [double]$os.FreeVirtualMemory) / 1024.0
@@ -207,6 +222,7 @@ $status = @{
     actions = @()
     agent_heavy_process_count = 0
     agent_heavy_workload_count = 0
+    agent_heavy_max_private_mb = 0
     agent_heavy_window_allowed = $false
 }
 
@@ -236,21 +252,44 @@ $agentHeavyRows = @($allProcesses | Where-Object {
 $status.agent_heavy_process_count = $agentHeavyRows.Count
 $status.agent_heavy_workload_count = $heavyToolRoots.Count
 
-$agentTargets = @()
+$agentTreeBytes = @{}
+foreach ($entry in $heavyToolRoots.GetEnumerator()) {
+    $agentTreeBytes[$entry.Key] = Get-ProcessTreePrivateBytes $entry.Value $allProcesses $runtimeByPid
+}
+if ($agentTreeBytes.Count -gt 0) {
+    $status.agent_heavy_max_private_mb = [math]::Round(
+        (($agentTreeBytes.Values | Measure-Object -Maximum).Maximum / 1MB),
+        0
+    )
+}
+
+$agentTargetMap = @{}
 if (-not $agentHeavyWindowAllowed) {
-    $agentTargets = @($heavyToolRoots.Values)
+    foreach ($entry in $heavyToolRoots.GetEnumerator()) { $agentTargetMap[$entry.Key] = $entry.Value }
 }
 elseif ($heavyToolRoots.Count -gt $MaxConcurrentAgentHeavyWorkloads) {
     $orderedRoots = @($heavyToolRoots.Values | Sort-Object CreationDate, ProcessId)
-    $agentTargets = @($orderedRoots | Select-Object -Skip $MaxConcurrentAgentHeavyWorkloads)
+    foreach ($root in @($orderedRoots | Select-Object -Skip $MaxConcurrentAgentHeavyWorkloads)) {
+        $key = "{0}|{1}" -f $root.ProcessId, ([datetime]$root.CreationDate).ToUniversalTime().Ticks
+        $agentTargetMap[$key] = $root
+    }
 }
-foreach ($target in $agentTargets) {
-    $reason = if ($agentHeavyWindowAllowed) {
+foreach ($entry in $heavyToolRoots.GetEnumerator()) {
+    if ([long]$agentTreeBytes[$entry.Key] -ge $MinKillPrivateBytes) {
+        $agentTargetMap[$entry.Key] = $entry.Value
+    }
+}
+foreach ($entry in $agentTargetMap.GetEnumerator()) {
+    $target = $entry.Value
+    $treePrivateMB = [math]::Round(([long]$agentTreeBytes[$entry.Key] / 1MB), 0)
+    $reason = if ([long]$agentTreeBytes[$entry.Key] -ge $MinKillPrivateBytes) {
+        "Codex tool tree exceeds the $([math]::Round($MinKillPrivateBytes / 1MB, 0)) MB private budget (observed ${treePrivateMB} MB)"
+    } elseif ($agentHeavyWindowAllowed) {
         "Codex heavy-workload concurrency exceeds $MaxConcurrentAgentHeavyWorkloads"
     } else {
         "Codex heavy workload is outside the 00:30-09:00 host window"
     }
-    if (Stop-VerifiedProcessTree $target $allProcesses $reason) {
+    if (Stop-VerifiedProcessTree $target $allProcesses $reason $true) {
         $action = "killed_agent_tree_pid_$($target.ProcessId)"
         $guardActions.Add($action)
         $terminationPerformed = $true
@@ -353,7 +392,6 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
     # Codex/ChatGPT root and treat the tree as one offender.
     foreach ($root in @($allProcesses | Where-Object { $agentRootNames -contains ([string]$_.Name).ToLowerInvariant() })) {
         $tree = @(Get-ProcessTreeRows $root $allProcesses)
-        if (@($tree | Where-Object { Test-GovernedWeatherProcess $_ }).Count -gt 0) { continue }
         $privateBytes = [long]0
         foreach ($member in $tree) {
             $runtime = $runtimeByPid[[uint32]$member.ProcessId]
@@ -375,7 +413,8 @@ if ($commitPercent -ge $ActPercent -and -not $terminationPerformed) {
     if ($null -ne $target) {
         $reason = "commit at {0}%: {1} pid {2} private {3} MB" -f `
             [math]::Round($commitPercent, 1), $target.Kind, $target.Id, $target.PrivateMB
-        if (Stop-VerifiedProcessTree $target.RootRow $allProcesses $reason) {
+        $allowWeather = $target.Kind -eq "agent_tree"
+        if (Stop-VerifiedProcessTree $target.RootRow $allProcesses $reason $allowWeather) {
             $guardActions.Add("killed_$($target.Kind)_pid_$($target.Id)")
             $terminationPerformed = $true
         }
@@ -447,6 +486,7 @@ if ($status.physical_warning -or $status.memory_warning -or $guardActions.Count 
         agent_heavy_window_allowed = $status.agent_heavy_window_allowed
         agent_heavy_process_count = $status.agent_heavy_process_count
         agent_heavy_workload_count = $status.agent_heavy_workload_count
+        agent_heavy_max_private_mb = $status.agent_heavy_max_private_mb
         actions = @($guardActions)
     }
     Add-Content -LiteralPath $historyPath -Value ($history | ConvertTo-Json -Compress) -Encoding utf8

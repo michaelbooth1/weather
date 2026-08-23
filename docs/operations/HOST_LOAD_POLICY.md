@@ -231,7 +231,9 @@ useful work before capture is stopped. The independent
 6. **Codex verification is serial and time-gated.** The OS guard terminates
    recognized Codex-owned pytest, compileall, inline/bare Python, and recursive
    data-scan tool trees outside 00:30–09:00, and retains at most one such tree
-   inside the window. A user-layer `PreToolUse` hook rejects these commands
+   inside the window. A Codex-owned tool tree is independently terminated when
+   its aggregate private bytes reach the 8 GB per-job ceiling; this does not
+   wait for global commit to reach 92%. A user-layer `PreToolUse` hook rejects these commands
    before launch and rejects a direct unbounded pytest run at every hour. Full
    suites use the repository-owned 25-file bounded wrapper. Never use
    `Promise.all`, parallel subagents, or parallel tool calls for verification
