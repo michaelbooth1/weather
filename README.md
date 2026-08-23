@@ -91,6 +91,13 @@ baseline. Missing, stale, US-platform, or contradictory evidence produces
 APPROVAL`, never trading authority. It has no order, cancel, credential,
 promotion, or risk-setting controls.
 
+That verdict applies to the ordinary Stage 2 maker run. The prerequisite Stage
+0/1 account and cancellation probes generate the v0.5 platform lifecycle
+evidence that the ordinary readiness gate consumes, so they cannot claim the
+general Control Room verdict in advance. They remain `HOLD` until a dated
+operator decision or a dedicated public staged-readiness receipt names their
+exact non-circular substitute gates; ordinary Stage 2 gates are not weakened.
+
 The **Roadmap** presents all active `OPEN` and `PARTIAL` work from the canonical
 roadmap index, separates dependency-held items from work with a clear path, and
 surfaces roadmap-integrity failures. Legacy or unknown query routes fall back

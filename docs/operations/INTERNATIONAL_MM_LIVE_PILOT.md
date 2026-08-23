@@ -16,13 +16,19 @@ The claim boundary and frozen economics decision rule are preregistered in
 
 ## Current production disposition
 
-As of 2026-08-19, the cumulative paper/client/pUSD parent is integrated at
-merge `3c326ac1c03b415877da33dc254b39d32f576de4` after an exact 4,489-test
-suite and guarded capture recovery. The fixed-scope Stage 2 successor is not
-integrated: its host focused wrapper resolved imports from production rather
-than its exact worktree, so the full suite and merge correctly refused. No
-current candidate or trading authorization exists. A corrected focused
-diagnostic is not a replacement for a new immutable full-suite receipt.
+The fixed-scope Stage 0/1 sealer, session runner, process-local pinned SDK
+overlay, and interrupt-cleanup path are integrated production software. Read
+the exact current production tip from Git and
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated hash copied here.
+Their integration receipts grant no credential or live-exchange authority, and
+no Stage 0 or Stage 1 session has run.
+
+**Stage 0/1 execution is currently HOLD.** Before the first session, land and
+re-prove the explicit 00:30-09:00 live-window guard, the truthful Stage 0
+authenticated-write confirmation contract, the canonical fixed-session
+manifest builder, and a non-circular staged-readiness policy or receipt approved
+by the operator. Inventory PASS proves public source and template identity only;
+it is not temporal eligibility or authorization.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -96,8 +102,18 @@ All must be current for the target date and selected market:
    exact `{status: "ok"}` acknowledgment within 7.5 seconds, and matching
    book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
    seconds.
-6. Current live-readiness, data-layer, fleet, risk, release, and explicit
-   confirmation gates all pass without overrides or exceptions.
+6. **Unresolved staged-readiness contract: HOLD.** The general readiness
+   prerequisite is circular for the evidence-generating probes because
+   `mm_platform_verification_v0.5` embeds both Stage 1 lifecycle proofs. Do not
+   silently waive it. Before Stage 0/1, either adopt a dated operator decision
+   naming the exact non-circular substitute gates or bind a public
+   `stage01_probe_readiness` receipt. At minimum that contract must require the
+   exact current production inventory, public credential references, target-date
+   public book/paper/International economics, current market rules, fixed 10/100
+   pUSD caps, host/fleet/capture/tape/clock/reboot health, zero account state,
+   Stage 0 bootstrap before Stage 1, and the stage-specific confirmations. The
+   ordinary maker-run live-readiness, target-date data-layer, production release,
+   full risk, and v0.5 platform gates remain unchanged for Stage 2.
 7. A simultaneous one-market paper counterfactual has quote permission and is
    writing auditable artifacts. The separately authorized route is:
 
@@ -123,7 +139,11 @@ All must be current for the target date and selected market:
    The resulting plan remains non-authorizing; Stage 0, account state, current
    market rules, the literal confirmation, and the
    one-submit adapter capability remain independent mutation gates.
-8. The session is outside the host's protected 12:00-18:00 local capture window.
+8. The entire supported session window is contained in **00:30-09:00
+   America/Toronto**, holds the ordinary shared workload lease, and overlaps no
+   scheduled heavy job. The launcher lease already refuses later hours; do not
+   infer that 09:00-12:00 is available merely because it precedes the graded
+   capture window.
 
 ## Staged protocol
 
@@ -253,17 +273,20 @@ and book selection must be rerun for the live session. Never put a secret value
 in the command line, environment, identity manifest, output path, or shell
 history.
 
-Plan the first lifecycle session outside both the 12:00-18:00 graded window and
-the 18:00-00:30 near-close protection window. After boot and network recovery,
+Plan the first lifecycle session entirely inside 00:30-09:00 local, with no
+heavy scheduled work overlapping it. After boot and network recovery,
 log in once so Credential Manager and `WeatherOneShotPush` are
 available, prove master equals origin at the reviewed exact tip, prove all
 capture workers and the public execution-tape producer recovered, clear the
 pending reboot state, and ensure no heavy scheduled job can overlap the session.
 Do not trade merely because Windows restarted successfully.
 
-Select the exact Stage 1 market from fresh public data and a successful
+Discover the exact Stage 0/1 scope from fresh public data and a successful
 one-market paper tick before creating the identity. Do not hand-pick a
-condition/token pair or retain one from a prior day.
+condition/token pair or retain one from a prior day. The first unconstrained
+selector output is **discovery only**: it supplies a reviewed scope for identity
+and session-manifest preparation, but its null `expected_bootstrap_scope` means
+the sealer correctly refuses it as a live candidate.
 The metadata refresh's `--metadata-only` mode leaves the tracked location
 registry byte-for-byte unchanged. The selector authenticates nowhere and can
 neither place nor cancel an order; it requires a passing content-bound
@@ -305,9 +328,9 @@ $paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRun
   --target-date $pilotTargetDate `
   --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
   --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
-  --plan-out C:\pilot\stage1-candidate.json
+  --plan-out C:\pilot\stage1-candidate-discovery.json
 
-$pilotPlan = Get-Content -LiteralPath C:\pilot\stage1-candidate.json -Raw | ConvertFrom-Json
+$pilotPlan = Get-Content -LiteralPath C:\pilot\stage1-candidate-discovery.json -Raw | ConvertFrom-Json
 if (
   $pilotPlan.status -ne "PASS" -or
   $pilotPlan.selection_is_trading_authorization -or
@@ -319,14 +342,17 @@ $pilotConditionId = [string]$pilotPlan.selected.condition_id
 $pilotTokenId = [string]$pilotPlan.selected.token_id
 ```
 
-The plan expires at the earlier of five minutes or the selected paper row's
-quote TTL (currently at most 120 seconds). If it expires, run a new one-market
-paper tick and selector with new output paths; refresh the economics snapshot
-too when its own gate expires. After Stage 0, repeat the paper tick and selector
-immediately before Stage 1 with `--expected-condition-id $pilotConditionId` and
-`--expected-token-id $pilotTokenId`. That constrained refresh must select the
-exact Stage 0 scope or block; it cannot silently switch markets after the
-authenticated bootstrap.
+The discovery plan is never supplied to the sealer. After the three exact-scope
+session manifests and outer launchers are independently reviewed, run a **new**
+one-market paper tick and selector immediately before Stage 0, using new output
+paths plus `--expected-condition-id $pilotConditionId` and
+`--expected-token-id $pilotTokenId`, and write that constrained plan only to the
+Stage 0 launcher's fixed candidate inbox. Repeat a new paper tick and the same
+constrained selector immediately before each Stage 1 mode. Every plan expires
+at the earlier of five minutes or the selected paper row's quote TTL (currently
+at most 120 seconds); refresh the economics snapshot too when its own gate
+expires. A constrained refresh must select the exact reviewed scope or block;
+it cannot silently switch markets after discovery or authenticated bootstrap.
 Stage 0 still rereads the exact book and fails closed on any condition, token,
 min-size, tick, neg-risk, fee, or closed-state drift. The plan's minimum-tick
 intent is only a far-from-mid lifecycle probe and will normally not qualify for
@@ -487,6 +513,10 @@ raw-file SHA-256 sidecar. The manifest also binds the production interpreter
 hash and the exact session-runner bootstrap closure reported by inventory.
 Before candidate selection, turn that independently
 reviewed raw hash into a no-argument launcher and immutable review receipt:
+
+Until the repository-owned manifest builder is integrated and documented with
+its complete command, stop here. Do not hand-author the manifest from tests or
+host-local examples.
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer `
