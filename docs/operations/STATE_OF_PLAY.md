@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-23 19:10 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-23 19:20 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -81,9 +81,13 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
   so the day can be used for live-test preparation. Scope waives the ordinary
   01:00-04:00 merge timing and pre-merge Python/pytest verification for this
   exact attempt; focused and 25-file suites are recorded `NOT_RUN_OWNER_WAIVER`.
-  The host guard will not be disabled or bypassed. Static diff review,
-  canonical roll verdict, guarded `quiet_window_merge.ps1 -Force`, automatic
-  rollback, worker recovery, and remote-master acknowledgement remain required.
+  At 19:15 the ordinary `-Force` path stopped before mutation because the
+  protected-window and workload-lease gates are deliberately harder. The owner
+  then explicitly approved one dated bypass, bound in code to this branch
+  lineage and synchronized baseline. The S4U process guard remains enabled;
+  an attended operator invocation runs outside the Codex-owned process tree.
+  Static diff review, canonical roll verdict, guarded merge rollback, worker
+  recovery, and remote-master acknowledgement remain required.
 - `WeatherClobTiering` and `WeatherClobRawTapeTiering` are recurring, enabled,
   and bound to the canonical 05:00/06:00 topology without late catch-up.
 - `WeatherEveningEvidenceRefresh`, `WeatherTrainingWindow`, the mirror, and

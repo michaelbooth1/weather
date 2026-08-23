@@ -9,8 +9,20 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
     [CmdletBinding()]
     param(
         [datetime]$Now = (Get-Date),
-        [switch]$AllowStageAWindow
+        [switch]$AllowStageAWindow,
+        [string]$OwnerApprovedException = ""
     )
+
+    if ($OwnerApprovedException) {
+        if (
+            $OwnerApprovedException -cne
+                "OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823" -or
+            $Now.ToString("yyyy-MM-dd") -cne "2026-08-23"
+        ) {
+            throw "owner-approved workload exception is invalid or expired"
+        }
+        return "owner_approved_merge_20260823"
+    }
 
     $localMinute = ($Now.Hour * 60) + $Now.Minute
     if ($localMinute -ge 30 -and $localMinute -lt (9 * 60)) {
@@ -32,11 +44,16 @@ function Enter-WeatherHeavyWorkloadLease {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Workload,
-        [switch]$AllowStageAWindow
+        [switch]$AllowStageAWindow,
+        [string]$OwnerApprovedException = ""
     )
 
+    if ($OwnerApprovedException -and $Workload -cne "quiet_window_merge") {
+        throw "owner-approved workload exception is restricted to quiet_window_merge"
+    }
     $policyWindow = Get-WeatherHeavyWorkloadPolicyWindow `
-        -AllowStageAWindow:$AllowStageAWindow
+        -AllowStageAWindow:$AllowStageAWindow `
+        -OwnerApprovedException $OwnerApprovedException
     if ($null -eq $policyWindow) {
         throw (
             "heavy workload '{0}' is outside the 00:30-09:00 window; " +
