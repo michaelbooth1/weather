@@ -123,3 +123,21 @@ not preserve per-process CPU or disk utilization at the peak, and there is no
 memory-pressure event. Therefore the defensible conclusion is **uncontrolled
 concurrent agent load plus a contemporaneous network failure**, not a more
 specific hardware or OOM mechanism.
+
+## Adoption and recovery
+
+At 15:30 local, `WeatherMemoryCommitGuard` was re-registered as S4U/Limited
+with `PT1M` repetition, `IgnoreNew`, and the repository-owned action. Its first
+new-policy sample recorded 44.1% commit, 9,091 MiB free physical memory, zero
+agent-heavy processes, and no action. The user hook was installed at
+`C:/Users/micha/.codex/hooks.json` with SHA-256
+`1DFB2466A4D736909E70F706F33B65BE0C50086B1CA4ED8F7584128CCF293FD3` and awaits
+Codex's next-session trust review.
+
+The old CLOB writer-lock PID had been reused by Intel `jhi_service.exe`.
+Managed-process creation tokens proved the current process was unrelated and
+the CLOB process inventory was empty, so the stale lock was preserved under
+`data/snapshots/_retired_writer_locks/` rather than deleted. The supported
+detached start then reached a new PID, clean useful iterations, and
+`RUNNING/noop`. The hardened recovery checker subsequently passed all three
+workers against their exact live OS creation tokens and commands.
