@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-23 18:25 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-23 19:10 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
@@ -26,7 +26,7 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
 | Documentation | The three-integration documentation transaction is published at `33fa374898507adc7231b6ff30af6d148f848556`; its content-addressed completion receipt is present and valid. |
 | Host safety | Two reboots occurred. The 12:54 maintenance reboot was planned and clean; the 14:53 reset was unclean after yielded recursive Codex scans, parallel protected-window verification, and a contemporaneous DNS/network failure. This was not a recorded OOM. The S4U guard now runs every minute and terminates out-of-window/concurrent Codex heavy trees; the user-layer PreToolUse hook is installed, trusted, and confirmed active across a fresh Codex session. |
-| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. All three public sealer inventories pass against current production. The operator approved the exact Stage 0/1-only non-circular substitute gates on 2026-08-23, but execution remains `HOLD` until the cumulative explicit 00:30-09:00 guard, truthful authenticated-write confirmation, canonical session-manifest builder, provenance hardening, and dated decision land and receive exact-tip reproof. Geographic eligibility remains an action-time check and must not be inferred from repository timezone; VPN/proxy circumvention is forbidden. No credential value or exchange mutation was authorized by integration, and no order has run. Fresh International economics/paper candidate, explicit baseline acceptance, public identity, credential import/doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
+| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. All three public sealer inventories pass against current production. The operator approved the exact Stage 0/1-only non-circular substitute gates on 2026-08-23, but execution remains `HOLD` until the cumulative explicit 00:30-09:00 guard, truthful authenticated-write confirmation, canonical session-manifest builder, provenance hardening, and dated decision land and receive exact-tip reproof. Geographic eligibility remains an action-time check and must not be inferred from repository timezone; VPN/proxy circumvention is forbidden. Two credential-import attempts wrote zero entries: after obsolete source metadata was removed, the importer falsely reported an unparseable key because it had not activated the existing sealed SDK overlay and `eth_account` is intentionally absent from the shared environment. The isolated fail-closed repair is pending allowed-window tests and adoption; key validity and target occupancy remain unproved. No exchange mutation or order has run. Fresh International economics/paper candidate, explicit baseline acceptance, public identity, successful credential import/doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -76,6 +76,14 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 - The earlier fixed bootstrap pair is spent evidence. Its initial merge task
   refused before production mutation; the reviewed retry produced the pushed
   report that binds the actual first landing.
+- **Recorded immediate-integration exception (2026-08-23):** the repository
+  owner explicitly ordered `codex/live-readiness-closure-20260823` merged now
+  so the day can be used for live-test preparation. Scope waives the ordinary
+  01:00-04:00 merge timing and pre-merge Python/pytest verification for this
+  exact attempt; focused and 25-file suites are recorded `NOT_RUN_OWNER_WAIVER`.
+  The host guard will not be disabled or bypassed. Static diff review,
+  canonical roll verdict, guarded `quiet_window_merge.ps1 -Force`, automatic
+  rollback, worker recovery, and remote-master acknowledgement remain required.
 - `WeatherClobTiering` and `WeatherClobRawTapeTiering` are recurring, enabled,
   and bound to the canonical 05:00/06:00 topology without late catch-up.
 - `WeatherEveningEvidenceRefresh`, `WeatherTrainingWindow`, the mirror, and

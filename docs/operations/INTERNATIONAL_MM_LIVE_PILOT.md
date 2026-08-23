@@ -408,13 +408,17 @@ used, keep it outside the repository and remove inherited broad ACLs. The
 importer validates the private key/address and exact wallet/signature topology,
 refuses existing fixed targets, rolls back partial writes, ignores unrelated
 relayer/RPC/live-flag fields, and emits only a public reference manifest and
-secret-free receipt:
+secret-free receipt. It activates the same complete hash-pinned process-local
+SDK overlay used by the live wrappers before deriving the signer; the shared
+production environment intentionally does not supply `eth_account`:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
   --source-env C:\secure\pilot.env.txt `
   --manifest-out $pilotCredentialManifestSource `
   --receipt-out $pilotCredentialReceiptSource `
+  --sdk-overlay-manifest .\scripts\ops\international_live_templates\sdk_overlay_manifest.json `
+  --sdk-overlay-manifest-sha256 2044d0570d38c34057c520ab19bfcc114c751fe8c76f97091b605acc1deecd13 `
   --confirm-source-acl-private `
   --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
 ```
