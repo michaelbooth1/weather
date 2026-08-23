@@ -28,7 +28,7 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
 | Documentation | The three-integration documentation transaction is published at `33fa374898507adc7231b6ff30af6d148f848556`; its content-addressed completion receipt is present and valid. |
 | Host safety | The operator-selected reboot completed at 12:54. The immutable post-boot receipt passes fresh boot, boot recovery, clear pending-reboot state, synchronized Windows time, Git, all three capture workers, and execution-tape supervision without reading credentials or mutating the exchange. A logged-on disconnected operator session is present. |
-| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. All three public sealer inventories pass against current production. No credential value or exchange mutation was authorized by integration, and no order has run. Credential references are prepared, but the accepted economics baseline is still the ineligible legacy US platform; fresh International economics/paper candidate, explicit baseline acceptance, public identity, keyless doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
+| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. All three public sealer inventories pass against current production, but Stage 0/1 execution remains `HOLD` until the explicit 00:30-09:00 guard, truthful authenticated-write confirmation, canonical session-manifest builder, and a dated non-circular staged-readiness policy/receipt land and receive exact-tip reproof. No credential value or exchange mutation was authorized by integration, and no order has run. Credential references are prepared, but the accepted economics baseline is still the ineligible legacy US platform; fresh International economics/paper candidate, explicit baseline acceptance, public identity, keyless doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -58,7 +58,8 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
    attended, non-protected window with no heavy-work overlap. Refresh public
    International economics and a one-market paper candidate; baseline acceptance
    remains an explicit informed operator action.
-4. Bind identity and all three current fixed-session launchers, run the keyless
+4. After the live-session hardening is integrated and re-inventoried, bind
+   identity and all three current fixed-session launchers, run the keyless
    doctor, and then run Stage 0 plus the two Stage 1 modes consecutively under
    their separate literal confirmations.
 5. Let tiering run serially; diagnose durable status, not Scheduler zero. Keep
