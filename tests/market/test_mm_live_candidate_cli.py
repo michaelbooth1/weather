@@ -113,7 +113,10 @@ def write_paper_evidence(tmp_path, snapshot, *, quote_permission=True):
                 "bid_size": 5,
                 "ask_price": ask,
                 "ask_size": 5,
-                "quote_risk_usdc": 5,
+                "quote_risk_usdc": round(
+                    bid * 5 + (1 - ask) * 5,
+                    6,
+                ),
                 "run_budget_usdc": 25,
                 "expected_reward_score": 0,
                 "expected_rebate_value": 0,
@@ -339,6 +342,139 @@ def test_stage1_gate_rejects_an_unconstrained_prebootstrap_plan(tmp_path):
             expected_token_id="101",
             now=NOW,
         )
+
+
+def test_discovery_gate_accepts_only_the_complete_unconstrained_plan(tmp_path):
+    snapshot = write_snapshot(tmp_path / "economics.json")
+    output = tmp_path / "candidate.json"
+    plan = select(
+        snapshot,
+        TARGET_DATE,
+        output,
+        tmp_path=tmp_path,
+        now=NOW,
+        book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+    )
+
+    gate = candidate_cli.load_candidate_discovery_gate(output, now=NOW)
+
+    assert gate["ok"] is True
+    assert gate["target_date"] == TARGET_DATE
+    assert gate["condition_id"] == CONDITION
+    assert gate["token_id"] == "101"
+    assert gate["plan_sha256"] == candidate_cli.hashlib.sha256(
+        output.read_bytes()
+    ).hexdigest()
+    assert gate["semantic_plan_sha256"] == plan["plan_sha256"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "missing_check"),
+    [
+        (
+            lambda payload: payload["selected"]["paper_quote_proof"].update(
+                {"quote_permission": False}
+            ),
+            "paper_permission",
+        ),
+        (
+            lambda payload: payload["selected"].update({"fee_rate": 0}),
+            "current_book_rules",
+        ),
+        (
+            lambda payload: payload["selected"].update(
+                {"book_sha256": "fabricated"}
+            ),
+            "current_book_rules",
+        ),
+        (lambda payload: payload.update({"unexpected": True}), "exact_schema_shape"),
+        (
+            lambda payload: payload.update(
+                {"paper_quote_evidence": list(payload["paper_quote_evidence"].items())}
+            ),
+            "exact_schema_shape",
+        ),
+        (lambda payload: payload.update({"platform": "polymarket_us"}), "platform"),
+        (lambda payload: payload.update({"settlement_unit": "USDC.e"}), "settlement_unit"),
+        (
+            lambda payload: payload.update(
+                {"economics_gate_missing": ["fabricated-pass"]}
+            ),
+            "economics",
+        ),
+        (
+            lambda payload: payload.update(
+                {"expires_at_utc": payload["created_at_utc"]}
+            ),
+            "current|expiry_contract",
+        ),
+        (
+            lambda payload: payload["selected"]["paper_quote_proof"].update(
+                {"live_trade_permission": True}
+            ),
+            "paper_mutation_disabled",
+        ),
+        (
+            lambda payload: payload["paper_quote_evidence"].update(
+                {"quote_intents_row_count": 0}
+            ),
+            "paper_hashes",
+        ),
+        (
+            lambda payload: payload["selected"].update({"midpoint": 0.4}),
+            "current_book",
+        ),
+        (
+            lambda payload: payload["selected"].update({"tick_size": 0.02}),
+            "paper_quote_shape|current_book_rules|intent",
+        ),
+        (
+            lambda payload: payload["selected"]["stage1_intent"].update(
+                {"notional_pusd": 0.04}
+            ),
+            "intent",
+        ),
+        (
+            lambda payload: payload["selected"]["paper_quote_proof"].update(
+                {"quote_risk_pusd": 1}
+            ),
+            "paper_quote_shape",
+        ),
+        (
+            lambda payload: payload["selected"]["paper_quote_proof"].update(
+                {"condition_id": "0x" + "9" * 64}
+            ),
+            "paper_condition",
+        ),
+        (
+            lambda payload: payload["selection_policy"][
+                "expected_bootstrap_scope"
+            ].update({"condition_id": CONDITION, "token_id": "101"}),
+            "unconstrained_scope",
+        ),
+    ],
+)
+def test_discovery_gate_rejects_rehashed_contract_fabrication(
+    tmp_path,
+    mutation,
+    missing_check,
+):
+    snapshot = write_snapshot(tmp_path / "economics.json")
+    output = tmp_path / "candidate.json"
+    plan = select(
+        snapshot,
+        TARGET_DATE,
+        output,
+        tmp_path=tmp_path,
+        now=NOW,
+        book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+    )
+    mutation(plan)
+    plan["plan_sha256"] = candidate_cli.candidate_plan_sha256(plan)
+    output.write_text(json.dumps(plan), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=missing_check):
+        candidate_cli.load_candidate_discovery_gate(output, now=NOW)
 
 
 @pytest.mark.parametrize(

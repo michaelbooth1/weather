@@ -14,6 +14,7 @@ from weather.market.mm_credentials import (
     STAGE0_AUTHORIZATION,
     STAGE0_IDENTITY_SCHEMA_VERSION,
 )
+from weather.market import mm_live_candidate_cli as candidate_cli
 from weather.operations import international_live_session_launcher_sealer as launcher_sealer
 from weather.operations import international_live_session_runner as runner
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
@@ -30,48 +31,23 @@ def sha(path: Path) -> str:
 
 
 def fixture(tmp_path: Path):
-    repo = tmp_path / "production"
-    python = repo / "venv/Scripts/python.exe"
-    python.parent.mkdir(parents=True)
-    python.write_bytes(b"not invoked in preparation tests")
-    source = repo / "src/weather/operations/international_live_session_runner.py"
-    source.parent.mkdir(parents=True)
-    source.write_text("# reviewed runner source\n", encoding="utf-8")
-    for relative in runner.SESSION_BOOTSTRAP_PATHS:
-        bootstrap_source = repo / relative
-        bootstrap_source.parent.mkdir(parents=True, exist_ok=True)
-        if not bootstrap_source.exists():
-            bootstrap_source.write_text(
-                f"# reviewed {relative}\n", encoding="utf-8"
-            )
-    template = repo / "scripts/ops/international_live_templates/fixed_session_launcher.ps1.tmpl"
-    template.parent.mkdir(parents=True)
-    shutil.copyfile(launcher_sealer.TEMPLATE_PATH, template)
-    attempt = tmp_path / "attempt"
-    attempt.mkdir()
-    manifest = attempt / "inputs/stage0-session-manifest.json"
-    manifest.parent.mkdir(parents=True)
-    payload = {
-        "schema_version": runner.SESSION_SCHEMA_VERSION,
-        "stage": "stage0",
-        "production": {"root": str(repo.resolve()), "python": str(python.resolve())},
-        "scope": {"attempt_root": str(attempt.resolve())},
-        "production_python_sha256": sha(python),
-        "session_bootstrap_sha256": {
-            relative: sha(repo / relative)
-            for relative in runner.SESSION_BOOTSTRAP_PATHS
-        },
-    }
-    manifest.write_text(json.dumps(payload), encoding="utf-8")
-    sidecar = manifest.with_suffix(manifest.suffix + ".sha256")
-    sidecar.write_text(f"{sha(manifest)}  {manifest.name}\n", encoding="ascii")
-    return repo, template, attempt, manifest
+    prepared = manifest_builder_fixture(tmp_path)
+    build_receipt = build_manifest(prepared)
+    manifest = Path(build_receipt["session_manifest"]["path"])
+    return (
+        prepared["production"],
+        prepared["outer_template"],
+        prepared["attempt"],
+        manifest,
+        Path(build_receipt["build_receipt_path"]),
+    )
 
 
-def prepare(repo, template, manifest):
+def prepare(repo, template, manifest, build_receipt):
     return launcher_sealer.prepare_fixed_session_launcher(
         manifest,
         sha(manifest),
+        sha(build_receipt),
         repo_root=repo,
         template_path=template,
         powershell_parser=lambda _source: None,
@@ -80,17 +56,19 @@ def prepare(repo, template, manifest):
 
 
 def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_path):
-    repo, template, attempt, manifest = fixture(tmp_path)
+    repo, template, attempt, manifest, build_receipt = fixture(tmp_path)
 
-    receipt = prepare(repo, template, manifest)
+    receipt = prepare(repo, template, manifest, build_receipt)
 
     launcher = Path(receipt["launcher"]["path"])
     text = launcher.read_text(encoding="utf-8-sig")
     assert receipt["status"] == "PASS"
+    assert receipt["schema_version"] == launcher_sealer.LAUNCHER_REVIEW_SCHEMA_VERSION
     assert receipt["no_argument_surface"] is True
     assert "param()" in text
     assert "$MyInvocation.UnboundArguments.Count -ne 0" in text
     assert sha(manifest) in text
+    assert sha(build_receipt) in text
     assert "--expected-session-manifest-sha256" in text
     assert "[IO.FileShare]::Read" in text
     assert "source_sha256.psobject.Properties" in text
@@ -109,11 +87,18 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
         "src/weather/operations/live_path_security.py",
     }.issubset(receipt["session_bootstrap_sha256"])
     assert (attempt / "session/stage0-launcher-review.json.sha256").is_file()
+    assert receipt["manifest_build_receipt"] == {
+        "path": str(build_receipt.resolve()),
+        "sha256": sha(build_receipt),
+    }
+    assert receipt["session_manifest"]["semantic_sha256"] == json.loads(
+        manifest.read_text(encoding="utf-8")
+    )["manifest_sha256"]
 
 
 def test_no_argument_launcher_rejects_manifest_and_sidecar_rewrite(tmp_path):
-    repo, template, attempt, manifest = fixture(tmp_path)
-    receipt = prepare(repo, template, manifest)
+    repo, template, attempt, manifest, build_receipt = fixture(tmp_path)
+    receipt = prepare(repo, template, manifest, build_receipt)
     candidate = attempt / "incoming/fresh-stage0-candidate.json"
     candidate.write_text("{}", encoding="utf-8")
     payload = json.loads(manifest.read_text())
@@ -158,36 +143,103 @@ def discovery_payload(*, constrained: bool = False) -> dict:
     paper_generated = NOW.astimezone(timezone.utc) - timedelta(seconds=10)
     expires = paper_generated + timedelta(seconds=120)
     payload = {
-        "schema_version": fixed_sealer.CANDIDATE_SCHEMA_VERSION,
+        "schema_version": candidate_cli.SCHEMA_VERSION,
         "status": "PASS",
         "created_at_utc": created.isoformat(),
         "expires_at_utc": expires.isoformat(),
         "target_date": NOW.date().isoformat(),
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
+        "exchange_economics_snapshot_id": "xecon-" + "e" * 16,
+        "exchange_economics_sha256": "e" * 32,
+        "economics_gate_ok": True,
+        "economics_gate_missing": [],
         "selection_is_trading_authorization": False,
         "secret_values_retained": False,
         "selection_policy": {
+            "built_in_locations_only": True,
+            "positive_fee_and_rebate_required": True,
+            "midpoint_interval": [0.2, 0.8],
+            "max_spread": 0.05,
+            "minimum_tick_buy_must_be_nonmarketable": True,
+            "book_tick_min_size_and_neg_risk_must_be_current": True,
+            "plan_max_age_seconds": 300,
+            "max_single_order_notional_pusd": 10,
+            "successful_current_market_harvest_quote_required": True,
             "expected_bootstrap_scope": {
                 "condition_id": CONDITION if constrained else None,
                 "token_id": TOKEN if constrained else None,
-            }
+            },
+            "ranking": "spread_asc_then_best_level_depth_desc_then_midpoint_distance",
         },
+        "paper_quote_evidence": {
+            "run_config_sha256": "a" * 64,
+            "quote_intents_sha256": "b" * 64,
+            "quote_intents_row_count": 1,
+            "market_id": "toronto",
+            "run_id": "paper-run-1",
+        },
+        "candidate_count": 1,
         "selected": {
+            "location_id": "toronto",
+            "event_date": NOW.date().isoformat(),
+            "event_slug": "toronto-high-temperature-test",
+            "question": "Will Toronto reach the selected high-temperature range?",
             "condition_id": CONDITION,
             "token_id": TOKEN,
+            "outcome_index": 0,
+            "best_bid": 0.32,
+            "best_ask": 0.33,
+            "midpoint": 0.325,
+            "spread": 0.01,
+            "best_bid_depth": 100,
+            "best_ask_depth": 100,
+            "order_min_size": 5,
+            "tick_size": 0.01,
+            "neg_risk": False,
+            "fee_rate": 0.05,
+            "maker_rebate_rate": 0.25,
+            "reward_min_size": 20,
+            "reward_max_spread_cents": 4.5,
+            "current_book_within_reward_spread": True,
+            "lifecycle_probe_reward_min_size_met": False,
+            "book_sha256": "c" * 64,
+            "stage1_intent": {
+                "side": "BUY",
+                "price": 0.01,
+                "size": 5,
+                "notional_pusd": 0.05,
+                "post_only": True,
+            },
             "paper_quote_proof": {
+                "run_id": "paper-run-1",
+                "market_id": "toronto",
+                "target_date": NOW.date().isoformat(),
                 "condition_id": CONDITION,
                 "token_id": TOKEN,
+                "range_label": "test-range",
+                "exchange_economics_snapshot_id": "xecon-" + "e" * 16,
+                "exchange_economics_hash": "e" * 32,
+                "policy_hash": "paper-policy-hash",
                 "generated_at_utc": paper_generated.isoformat(),
                 "expires_at_utc": expires.isoformat(),
                 "quote_ttl_seconds": 120,
+                "bid_price": 0.31,
+                "bid_size": 5,
+                "ask_price": 0.34,
+                "ask_size": 5,
+                "quote_risk_pusd": 4.85,
+                "quote_permission": True,
+                "live_trade_permission": False,
+                "two_sided_post_only_intent": True,
+                "reward_and_rebate_assumed_zero": True,
+                "quote_row_sha256": "d" * 64,
             },
         },
+        "alternates": [],
+        "missing": [],
     }
-    payload["plan_sha256"] = fixed_sealer._canonical_payload_sha256(
-        payload, omit="plan_sha256"
-    )
+    payload["plan_sha256"] = candidate_cli.candidate_plan_sha256(payload)
     return payload
 
 
@@ -418,6 +470,7 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     launcher_receipt = launcher_sealer.prepare_fixed_session_launcher(
         manifest_path,
         sha(manifest_path),
+        sha(Path(receipt["build_receipt_path"])),
         repo_root=prepared["production"],
         template_path=prepared["outer_template"],
         powershell_parser=lambda _source: None,
@@ -428,6 +481,88 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     )
     assert launcher_receipt["status"] == "PASS"
     assert launcher_receipt["session_manifest"]["sha256"] == sha(manifest_path)
+
+
+def test_launcher_rejects_rehashed_manifest_not_bound_by_builder_receipt(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    build_receipt = build_manifest(prepared)
+    manifest_path = Path(build_receipt["session_manifest"]["path"])
+    receipt_path = Path(build_receipt["build_receipt_path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["reviewed_status_flags"] = [
+        {
+            "sha256": "f" * 64,
+            "review": "Hand-authored review cannot replace builder provenance.",
+        }
+    ]
+    manifest["manifest_sha256"] = runner._canonical_payload_sha256(manifest)
+    manifest_path.write_bytes(launcher_sealer._canonical_json(manifest))
+    manifest_path.with_suffix(manifest_path.suffix + ".sha256").write_text(
+        f"{sha(manifest_path)}  {manifest_path.name}\n",
+        encoding="ascii",
+    )
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="does not exactly bind",
+    ):
+        prepare(
+            prepared["production"],
+            prepared["outer_template"],
+            manifest_path,
+            receipt_path,
+        )
+
+    assert list((prepared["attempt"] / "session").glob("*")) == []
+
+
+def test_launcher_rejects_missing_canonical_builder_receipt(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    build_receipt = build_manifest(prepared)
+    manifest_path = Path(build_receipt["session_manifest"]["path"])
+    Path(build_receipt["build_receipt_path"]).unlink()
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="build receipt is absent",
+    ):
+        launcher_sealer.prepare_fixed_session_launcher(
+            manifest_path,
+            sha(manifest_path),
+            "0" * 64,
+            repo_root=prepared["production"],
+            template_path=prepared["outer_template"],
+            powershell_parser=lambda _source: None,
+            attempt_root_validator=lambda path: {
+                "status": "PASS",
+                "path": str(path),
+            },
+        )
+
+    assert list((prepared["attempt"] / "session").glob("*")) == []
+
+
+def test_launcher_rejects_semantically_tampered_builder_receipt(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    build_receipt = build_manifest(prepared)
+    manifest_path = Path(build_receipt["session_manifest"]["path"])
+    receipt_path = Path(build_receipt["build_receipt_path"])
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["fixed_budget_pusd"] = 11
+    receipt_path.write_bytes(launcher_sealer._canonical_json(payload))
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="does not exactly bind",
+    ):
+        prepare(
+            prepared["production"],
+            prepared["outer_template"],
+            manifest_path,
+            receipt_path,
+        )
+
+    assert list((prepared["attempt"] / "session").glob("*")) == []
 
 
 def test_manifest_builder_rejects_constrained_or_expired_discovery_before_writes(tmp_path):
@@ -453,7 +588,7 @@ def test_manifest_builder_rejects_secret_material_in_discovery_before_writes(tmp
 
     with pytest.raises(
         launcher_sealer.SessionLauncherSealError,
-        match="secret material",
+        match="secret_free",
     ):
         build_manifest(prepared)
 
@@ -638,3 +773,26 @@ def test_manifest_cli_has_no_typed_scope_or_ceiling_override_surface():
     assert not hasattr(args, "token_id")
     assert not hasattr(args, "budget")
     assert not hasattr(args, "max_session_seconds")
+
+    launcher_args = parser.parse_args(
+        [
+            "prepare-launcher",
+            "--session-manifest",
+            "manifest.json",
+            "--expected-session-manifest-sha256",
+            "a" * 64,
+            "--expected-manifest-build-receipt-sha256",
+            "b" * 64,
+        ]
+    )
+    assert launcher_args.expected_manifest_build_receipt_sha256 == "b" * 64
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            [
+                "prepare-launcher",
+                "--session-manifest",
+                "manifest.json",
+                "--expected-session-manifest-sha256",
+                "a" * 64,
+            ]
+        )
