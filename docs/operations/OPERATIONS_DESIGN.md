@@ -68,9 +68,13 @@ replaces its task with the supplied parameters.
    .\venv\Scripts\python.exe -m weather.operations.execution_tape_supervisor status
    ```
 
-4. Open the dashboard with `scripts/launch/start_weather_dashboard.cmd` or
+4. Run `python -m weather.operations.capture_recovery_check --json`. A worker
+   passes only when status and writer-lock managed-process identities agree
+   with the live OS creation token and exact code-owned command. PID liveness,
+   a fresh stale heartbeat, or an uninspectable process fails closed.
+5. Open the dashboard with `scripts/launch/start_weather_dashboard.cmd` or
    `scripts/launch/start_weather_dashboard.ps1`.
-5. Confirm the Control Room at `http://localhost:8501/?market=control` reports
+6. Confirm the Control Room at `http://localhost:8501/?market=control` reports
    current runtime identity and fresh capture. This view is read-only.
 
 ## Loop Outputs

@@ -92,6 +92,13 @@ machine-local state.
   [the host load policy](docs/operations/HOST_LOAD_POLICY.md) and use its repository-owned
   workload admission path. Do not treat a roll-free diff as permission to consume protected
   capture resources.
+- Codex verification on the production host is serial as well as time-gated.
+  Never launch pytest, compileall, replay, training, or bulk scans through
+  parallel agents or parallel tool calls. A direct full pytest run is forbidden
+  at every hour; use the repository-owned 25-file bounded suite in the
+  00:30–09:00 admitted window. The user-layer Codex hook and one-minute S4U
+  guard enforce the host load policy; do not bypass either control, and always
+  retain and poll or terminate any yielded executor session ID.
 - Build repository-owned paths with `weather.paths`; do not make runtime code
   depend on the current working directory.
 
