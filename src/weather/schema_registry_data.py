@@ -1310,11 +1310,17 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_stage0_client_identity",
-        "mm_stage0_client_identity_v0.2",
+        "mm_stage0_client_identity_v0.3",
         "weather.market.mm_credentials",
         "active",
-        "Public International SDK, signature, funder, isolation, and wallet-cap manifest used only to construct the client that collects Stage 0 evidence.",
-        supersedes=("mm_stage0_client_identity_v0.1",),
+        "Public International SDK, signature, funder, isolation, wallet-cap, and truthful no-order authenticated-write authorization manifest used only to construct the client that collects Stage 0 evidence.",
+        supersedes=("mm_stage0_client_identity_v0.2",),
+    ),
+    SchemaSpec(
+        "mm_stage0_client_identity_v0_2_legacy",
+        "mm_stage0_client_identity_v0.2",
+        "weather.market.mm_credentials",
+        "legacy",
     ),
     SchemaSpec(
         "mm_stage0_client_identity_v0_1_legacy",
@@ -1483,6 +1489,13 @@ REGISTERED_SCHEMAS = (
         "Initial self-hashed session manifest before independent launcher authority, sequencing, and conservative launch reserve.",
     ),
     SchemaSpec(
+        "international_live_session_manifest_build",
+        "international_live_session_manifest_build_v0.1",
+        "weather.operations.international_live_session_launcher_sealer",
+        "active",
+        "Secret-free receipt for exclusive canonical public-input staging and fixed-session manifest publication from a reviewed discovery plan.",
+    ),
+    SchemaSpec(
         "international_live_session_composition",
         "international_live_session_composition_v0.2",
         "weather.operations.international_live_session_runner",
@@ -1528,10 +1541,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "international_live_session_launcher_review",
-        "international_live_session_launcher_review_v0.1",
+        "international_live_session_launcher_review_v0.2",
         "weather.operations.international_live_session_launcher_sealer",
         "active",
-        "Secret-free review receipt for a no-argument launcher bound to one raw session-manifest hash and fixed fresh-candidate inbox.",
+        "Secret-free review receipt for a no-argument launcher bound to canonical manifest-builder provenance, one raw and semantic session-manifest hash, and a fixed fresh-candidate inbox.",
+        supersedes=("international_live_session_launcher_review_v0.1",),
+    ),
+    SchemaSpec(
+        "international_live_session_launcher_review_legacy",
+        "international_live_session_launcher_review_v0.1",
+        "weather.operations.international_live_session_launcher_sealer",
+        "legacy",
+        "Initial launcher review receipt before canonical manifest-builder receipt provenance was required.",
     ),
     SchemaSpec(
         "mm_platform_verification",

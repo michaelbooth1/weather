@@ -176,6 +176,27 @@ def test_validation_failure_records_check_names_without_secret_values(tmp_path):
     assert "fixture-private-key" not in raw
 
 
+def test_validator_dependency_failure_is_not_reported_as_a_bad_key(tmp_path):
+    args = import_args(
+        tmp_path,
+        account_deriver=lambda _key: (_ for _ in ()).throw(
+            importer.CredentialValidationDependencyError("dependency unavailable")
+        ),
+        credential_exists=lambda _target: False,
+        credential_writer=lambda _target, _value: None,
+        credential_deleter=lambda _target: None,
+    )
+
+    with pytest.raises(importer.CredentialValidationDependencyError):
+        importer.import_live_pilot_credentials(**args)
+
+    raw = Path(args["receipt_path"]).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["missing"] == []
+    assert receipt["exception_type"] == "CredentialValidationDependencyError"
+    assert "fixture-private-key" not in raw
+
+
 def test_wrong_confirmation_or_repo_local_source_stops_before_vault(tmp_path):
     called = False
     args = import_args(tmp_path)
@@ -201,7 +222,23 @@ def test_wrong_confirmation_or_repo_local_source_stops_before_vault(tmp_path):
     assert called is False
 
 
-def test_main_never_prints_raw_exception_text(monkeypatch, capsys):
+def test_main_activates_sealed_overlay_and_never_prints_raw_exception_text(
+    monkeypatch,
+    capsys,
+):
+    activation = []
+    monkeypatch.setattr(
+        importer,
+        "_activate_sdk_overlay",
+        lambda path, digest: (
+            activation.append((path, digest))
+            or {
+                "status": "PASS",
+                "process_path_activated": True,
+                "shared_environment_mutated": False,
+            }
+        ),
+    )
     monkeypatch.setattr(
         importer,
         "import_live_pilot_credentials",
@@ -214,11 +251,14 @@ def test_main_never_prints_raw_exception_text(monkeypatch, capsys):
         "--source-env", "outside.env",
         "--manifest-out", "refs.json",
         "--receipt-out", "receipt.json",
+        "--sdk-overlay-manifest", "sealed-sdk.json",
+        "--sdk-overlay-manifest-sha256", "a" * 64,
         "--confirm-source-acl-private",
         "--confirmation", importer.CONFIRMATION,
     ])
 
     assert status == 1
+    assert activation == [("sealed-sdk.json", "a" * 64)]
     stderr = capsys.readouterr().err
     assert "RuntimeError" in stderr
     assert "RAW-SOURCE-SECRET" not in stderr

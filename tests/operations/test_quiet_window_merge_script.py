@@ -24,6 +24,24 @@ def test_quiet_merge_can_bind_a_reviewed_exact_tip() -> None:
     assert "& git merge --no-commit --no-ff $mergeTarget" in script
 
 
+def test_owner_protected_window_exception_is_dated_and_exactly_bound() -> None:
+    script = _script_text()
+
+    assert '[string]$OwnerApprovedException = ""' in script
+    assert "OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823" in script
+    assert "71f7e46690e822a498f80412c11d550bcee949d2" in script
+    assert "9d54f94760855a5f91ac603f3f14b02ba06ae239" in script
+    assert "3e2de64fb02e98e3016c71163bd7b297cf72488bbdfa593b38b237441f396389" in script
+    assert 'ToString("yyyy-MM-dd") -cne "2026-08-23"' in script
+    assert '$Branch -cne "origin/codex/live-readiness-closure-20260823"' in script
+    assert "-not $Force" in script
+    assert "git -C $repo merge-base --is-ancestor $authorizedRoot $ExpectedTip" in script
+    assert "-not $ownerProtectedWindowException" in script
+    assert '-OwnerApprovedException $OwnerApprovedException' in script
+    assert 'Join-Path $repo "scripts\\ops\\workload_admission.ps1"' in script
+    assert "owner-approved workload admission source changed" in script
+
+
 def test_quiet_merge_serializes_before_git_mutation_and_rechecks_baseline() -> None:
     script = _script_text()
 

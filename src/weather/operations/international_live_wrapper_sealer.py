@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from weather.paths import REPO_ROOT
+from weather.operations import international_live_time_window as live_time_window
 from weather.operations.international_live_lineage import (
     CREDENTIAL_TOPOLOGY_KEYS,
     EXPECTED_CREDENTIAL_IMPORT_CHECKS,
@@ -32,9 +33,7 @@ from weather.schema_registry import schema_version
 SPEC_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal_spec")
 RECEIPT_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal")
 INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_inventory")
-REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = (
-    "da32c0895bb5b40c842b35232ff266c7968d4439"
-)
+REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = "da32c0895bb5b40c842b35232ff266c7968d4439"
 CANDIDATE_SCHEMA_VERSION = "mm_live_market_candidate_plan_v0.2"
 MAX_CANDIDATE_AGE_SECONDS = 300
 MAX_PAPER_QUOTE_TTL_SECONDS = 120
@@ -58,20 +57,12 @@ TEMPLATE_MARKER_RE = re.compile(r"__SEAL_[A-Z0-9_]+__")
 STAGES = ("stage0", "stage1_cancel_all", "stage1_dead_man")
 PYTHON_TEMPLATE_PATHS = {
     "stage0": "scripts/ops/international_live_templates/stage0.py.tmpl",
-    "stage1_cancel_all": (
-        "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl"
-    ),
-    "stage1_dead_man": (
-        "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl"
-    ),
+    "stage1_cancel_all": "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl",
+    "stage1_dead_man": "scripts/ops/international_live_templates/stage1_cancel_all.py.tmpl",
 }
-LAUNCHER_TEMPLATE_PATH = (
-    "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
-)
+LAUNCHER_TEMPLATE_PATH = "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
 WORKLOAD_ADMISSION_PATH = "scripts/ops/workload_admission.ps1"
-SDK_OVERLAY_MANIFEST_PATH = (
-    "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
-)
+SDK_OVERLAY_MANIFEST_PATH = "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
 SDK_OVERLAY_MODULE_PATH = "src/weather/market/live_sdk_overlay.py"
 LIVE_SOURCE_PATHS = {
     "stage0": (
@@ -721,14 +712,17 @@ def _validate_identity(
         wallet_cap = Decimal(str(payload.get("pilot_wallet_max_funding_usdc")))
     except (InvalidOperation, TypeError, ValueError):
         wallet_cap = Decimal("-1")
-    from weather.market.mm_credentials import stage0_client_identity_gate
+    from weather.market.mm_credentials import (
+        STAGE0_IDENTITY_SCHEMA_VERSION,
+        stage0_client_identity_gate,
+    )
 
     gate = stage0_client_identity_gate(
         payload,
         expected_funder=str(expected_reference["funder_address"]),
     )
     if (
-        payload.get("schema_version") != "mm_stage0_client_identity_v0.2"
+        payload.get("schema_version") != STAGE0_IDENTITY_SCHEMA_VERSION
         or payload.get("platform") != "polymarket_global"
         or wallet_cap != FIRST_TEST_WALLET_CAP_PUSD
         or requested_budget != FIRST_TEST_REQUESTED_BUDGET_PUSD
@@ -1367,9 +1361,14 @@ def _validate_spec(
         raise SealError("prepared_at_local is not current")
     if not start < stop or (stop - start).total_seconds() > MAX_RUN_WINDOW_SECONDS:
         raise SealError("reviewed run window is invalid or exceeds 30 minutes")
+    if not live_time_window.execution_window_is_supported(start, stop, target_date=target):
+        raise SealError(
+            "reviewed execution and cleanup window is outside the supported "
+            "00:30-09:00 America/Toronto live window"
+        )
     if not start.astimezone(timezone.utc) <= now_utc <= stop.astimezone(timezone.utc):
         raise SealError("sealer is outside the reviewed run window")
-    if start.date() != target or stop.date() != target or prepared.date() != target:
+    if prepared.astimezone(live_time_window.LIVE_WINDOW_TIMEZONE).date() != target:
         raise SealError("reviewed timestamps do not share the target local date")
     workload = str(scope["lease_workload"] or "")
     if WORKLOAD_RE.fullmatch(workload) is None:
@@ -1583,6 +1582,7 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
         "requested_budget_pusd": scope["requested_budget_pusd"],
         "run_not_before_local": scope["run_not_before_local"],
         "run_not_after_local": scope["run_not_after_local"],
+        "cleanup_reserve_seconds": live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS,
         "attempt_root": scope["attempt_root"],
         "expected_lease_workload": scope["lease_workload"],
         "allowed_status_flag_sha256": [

@@ -21,6 +21,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+from weather.operations import international_live_time_window as live_time_window
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
 from weather.operations.live_path_security import (
     canonical_windows_powershell,
@@ -39,7 +40,9 @@ MAX_SESSION_SECONDS = 120
 MIN_LAUNCH_REMAINING_SECONDS = 90
 LAUNCHER_CLEANUP_MARGIN_SECONDS = 30
 MAX_LAUNCHER_RUNTIME_SECONDS = MAX_SESSION_SECONDS
-COOPERATIVE_CLEANUP_GRACE_SECONDS = 20
+COOPERATIVE_CLEANUP_GRACE_SECONDS = (
+    live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+)
 
 
 class SessionCompositionError(RuntimeError):
@@ -963,6 +966,15 @@ def compose_and_run_live_session(
         current + timedelta(seconds=int(scope["max_session_seconds"])),
         expires.astimezone(current.tzinfo),
     )
+    if not live_time_window.execution_window_is_supported(
+        current,
+        stop,
+        target_date=str(scope["target_date"]),
+    ):
+        raise SessionCompositionError(
+            "candidate-derived execution and cleanup window is outside the "
+            "supported 00:30-09:00 America/Toronto live window"
+        )
     if (stop - current).total_seconds() < MIN_LAUNCH_REMAINING_SECONDS:
         raise SessionCompositionError("fresh candidate leaves too little launch time")
     candidate_destination.parent.mkdir(parents=True, exist_ok=True)
@@ -985,7 +997,7 @@ def compose_and_run_live_session(
             "condition_id": scope["condition_id"],
             "token_id": scope["token_id"],
             "requested_budget_pusd": scope["requested_budget_pusd"],
-            "run_not_before_local": (current - timedelta(seconds=1)).isoformat(),
+            "run_not_before_local": current.isoformat(),
             "run_not_after_local": stop.isoformat(),
             "attempt_root": str(attempt_root),
             "lease_workload": scope["lease_workload"],
@@ -1076,6 +1088,15 @@ def compose_and_run_live_session(
         if clock is not None
         else (datetime.now().astimezone() if now is None else current)
     )
+    if not live_time_window.execution_window_is_supported(
+        launch_now,
+        stop,
+        target_date=str(scope["target_date"]),
+    ):
+        raise SessionCompositionError(
+            "execution and cleanup boundary is outside the supported "
+            "00:30-09:00 America/Toronto live window"
+        )
     if _sha256_file(candidate_destination) != candidate_hash:
         raise SessionCompositionError("sealed candidate changed before launch")
     launch_candidate = fixed_sealer._validate_candidate(

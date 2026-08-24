@@ -94,7 +94,7 @@ def test_forced_tiering_cannot_bypass_protected_host_window() -> None:
         assert "-Forced cannot bypass host policy" in text
 
 
-def test_shared_lease_owns_the_heavy_window_and_only_stage_a_exception() -> None:
+def test_shared_lease_owns_the_heavy_window_and_exact_dated_exceptions() -> None:
     text = LEASE_SCRIPT.read_text(encoding="utf-8-sig")
 
     assert "$localMinute -ge 30 -and $localMinute -lt (9 * 60)" in text
@@ -102,6 +102,10 @@ def test_shared_lease_owns_the_heavy_window_and_only_stage_a_exception() -> None
     assert "$localMinute -lt (11 * 60 + 55)" in text
     assert "AllowStageAWindow" in text
     assert "only the explicit Stage-A lane" in text
+    assert "OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823" in text
+    assert "owner_approved_merge_20260823" in text
+    assert 'Workload -cne "quiet_window_merge"' in text
+    assert 'ToString("yyyy-MM-dd") -cne "2026-08-23"' in text
 
 
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
@@ -127,3 +131,37 @@ $stageA = Get-WeatherHeavyWorkloadPolicyWindow -Now '2026-08-14T10:00:00' `
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == '{"denied":true,"stage_a":"stage_a"}'
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_policy_accepts_only_the_exact_dated_owner_merge_exception() -> None:
+    env = os.environ.copy()
+    env["WEATHER_LEASE_SCRIPT"] = str(LEASE_SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$accepted = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-08-23T19:00:00' `
+    -OwnerApprovedException 'OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823'
+$expired = $false
+try {
+    Get-WeatherHeavyWorkloadPolicyWindow `
+        -Now '2026-08-24T00:31:00' `
+        -OwnerApprovedException 'OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823'
+}
+catch { $expired = $true }
+[pscustomobject]@{ accepted = $accepted; expired = $expired } |
+    ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        '{"accepted":"owner_approved_merge_20260823","expired":true}'
+    )

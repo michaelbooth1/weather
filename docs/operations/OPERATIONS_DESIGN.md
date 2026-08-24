@@ -129,8 +129,12 @@ breaking, refuses an unproven stop, and readopts changed code. While the
 Windows venv executable launches a distinct base-interpreter child, startup
 admits that child only when its direct parent, complete command, creation token,
 status owner, and writer-lock owner all agree; lifecycle ownership then follows
-the child rather than the transient launcher. While the
-producer is armed or still active, `roll_verdict.ps1` and
+the child rather than the transient launcher. When the supervisor computes
+recovery history, a pre-launch start refusal with no
+launched PID is not a recovery and does not reset backoff. A failed launched
+child and a failed restart remain countable because either can have mutated or
+thrashed a process; outcome-less legacy recovery records remain countable.
+While the producer is armed or still active, `roll_verdict.ps1` and
 `staleness_sweep.ps1` require its live import closure; an unarmed or cleanly
 stopped optional producer cannot make unrelated merge verdicts undecidable.
 `status.ps1` treats process/lock/identity loss and evidence-integrity loss as

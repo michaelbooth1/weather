@@ -145,23 +145,42 @@ def args(tmp_path, command):
         paper_generated = current - timedelta(seconds=2)
         created = current - timedelta(seconds=1)
         paper_expires = paper_generated + timedelta(seconds=120)
+        economics_hash = "c" * 32
+        economics_id = f"xecon-{economics_hash[:16]}"
         candidate_payload = {
             "schema_version": candidate_cli.SCHEMA_VERSION,
             "status": "PASS",
             "created_at_utc": created.isoformat(),
             "expires_at_utc": paper_expires.isoformat(),
             "target_date": "2026-08-14",
-            "platform": "polymarket_global",
-            "settlement_unit": "pUSD",
+            "platform": candidate_cli.PLATFORM,
+            "settlement_unit": candidate_cli.SETTLEMENT_UNIT,
+            "exchange_economics_snapshot_id": economics_id,
+            "exchange_economics_sha256": economics_hash,
             "economics_gate_ok": True,
-            "exchange_economics_snapshot_id": "xecon-test",
-            "exchange_economics_sha256": "economics-hash",
+            "economics_gate_missing": [],
             "selection_is_trading_authorization": False,
+            "secret_values_retained": False,
             "selection_policy": {
+                "built_in_locations_only": True,
+                "positive_fee_and_rebate_required": True,
+                "midpoint_interval": [
+                    float(candidate_cli.MIN_MIDPOINT),
+                    float(candidate_cli.MAX_MIDPOINT),
+                ],
+                "max_spread": float(candidate_cli.MAX_BOOK_SPREAD),
+                "minimum_tick_buy_must_be_nonmarketable": True,
+                "book_tick_min_size_and_neg_risk_must_be_current": True,
+                "plan_max_age_seconds": candidate_cli.MAX_PLAN_AGE_SECONDS,
+                "max_single_order_notional_pusd": float(
+                    candidate_cli.MAX_SINGLE_ORDER_NOTIONAL
+                ),
+                "successful_current_market_harvest_quote_required": True,
                 "expected_bootstrap_scope": {
                     "condition_id": CONDITION_ID,
                     "token_id": TOKEN_ID,
                 },
+                "ranking": "spread_asc_then_best_level_depth_desc_then_midpoint_distance",
             },
             "paper_quote_evidence": {
                 "run_config_sha256": "d" * 64,
@@ -170,15 +189,31 @@ def args(tmp_path, command):
                 "run_id": "paper-run-1",
                 "market_id": "toronto",
             },
+            "candidate_count": 1,
             "selected": {
                 "location_id": "toronto",
+                "event_date": "2026-08-14",
+                "event_slug": "toronto-high-temperature-test",
+                "question": "Will Toronto reach the selected high-temperature range?",
                 "condition_id": CONDITION_ID,
                 "token_id": TOKEN_ID,
+                "outcome_index": 0,
                 "best_bid": 0.49,
                 "best_ask": 0.50,
+                "midpoint": 0.495,
                 "spread": 0.01,
+                "best_bid_depth": 100.0,
+                "best_ask_depth": 100.0,
                 "tick_size": 0.01,
                 "order_min_size": 5.0,
+                "neg_risk": False,
+                "fee_rate": 0.05,
+                "maker_rebate_rate": 0.25,
+                "reward_min_size": 20.0,
+                "reward_max_spread_cents": 4.5,
+                "current_book_within_reward_spread": True,
+                "lifecycle_probe_reward_min_size_met": False,
+                "book_sha256": "c" * 64,
                 "stage1_intent": {
                     "side": "BUY",
                     "price": 0.01,
@@ -189,10 +224,12 @@ def args(tmp_path, command):
                 "paper_quote_proof": {
                     "run_id": "paper-run-1",
                     "market_id": "toronto",
+                    "target_date": "2026-08-14",
                     "condition_id": CONDITION_ID,
                     "token_id": TOKEN_ID,
-                    "exchange_economics_snapshot_id": "xecon-test",
-                    "exchange_economics_hash": "economics-hash",
+                    "range_label": "test-range",
+                    "exchange_economics_snapshot_id": economics_id,
+                    "exchange_economics_hash": economics_hash,
                     "policy_hash": "paper-policy-hash",
                     "generated_at_utc": paper_generated.isoformat(),
                     "expires_at_utc": paper_expires.isoformat(),
@@ -201,7 +238,7 @@ def args(tmp_path, command):
                     "bid_size": 5.0,
                     "ask_price": 0.51,
                     "ask_size": 5.0,
-                    "quote_risk_pusd": 5.0,
+                    "quote_risk_pusd": 4.85,
                     "quote_permission": True,
                     "live_trade_permission": False,
                     "two_sided_post_only_intent": True,
@@ -209,6 +246,8 @@ def args(tmp_path, command):
                     "quote_row_sha256": "f" * 64,
                 },
             },
+            "alternates": [],
+            "missing": [],
         }
         candidate_payload["plan_sha256"] = candidate_cli.candidate_plan_sha256(
             candidate_payload
@@ -425,6 +464,28 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_bootstrap["user_stream"]["transport_stopped_cleanly_after_collection"] is True
     assert saved_bootstrap["user_stream"]["journal_sha256_at_collection"] != final_sha256
     assert saved_bootstrap["user_stream"]["journal_sha256"] == final_sha256
+
+
+def test_retired_stage0_read_only_literal_stops_before_credential_resolution(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    command_args.confirmation = "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY"
+    context_calls = []
+
+    with pytest.raises(
+        RuntimeError,
+        match="exact heartbeat/account-wide-cancel-all/no-order confirmation token",
+    ):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: context_calls.append(True),
+        )
+
+    assert context_calls == []
+    assert not Path(command_args.bootstrap_out).exists()
+    assert not Path(command_args.receipt_out).exists()
+    assert not Path(command_args.user_stream_journal).exists()
 
 
 def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(

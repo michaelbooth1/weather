@@ -3,7 +3,7 @@
 #
 #   .\scripts\ops\quiet_window_merge.ps1 -Branch origin/codex/... `
 #       [-ExpectedTip <full-commit-sha>] [-ExpectedBaseline <full-master-sha>] `
-#       [-Force] [-DryRun]
+#       [-Force] [-DryRun] [-OwnerApprovedException <one-time-token>]
 #
 # Why this exists: merging a branch that touches modules the capture loops have imported
 # makes the supervisors readopt the new code (STALE_CODE restart). If that code is bad,
@@ -21,6 +21,7 @@ param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$AttemptReportPath = "",
     [string]$ExpectedSelfSha256 = "",
+    [string]$OwnerApprovedException = "",
     [switch]$Force,
     [switch]$DryRun,
     [int]$SettleSeconds = 300,
@@ -40,7 +41,26 @@ if ($ExpectedSelfSha256) {
 }
 $repo = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $py = Join-Path $repo "venv\Scripts\python.exe"
-$workloadLeaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+if ($OwnerApprovedException) {
+    if (
+        $OwnerApprovedException -cne
+            "OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823" -or
+        (Get-Date).ToString("yyyy-MM-dd") -cne "2026-08-23"
+    ) {
+        throw "owner-approved protected-window exception is invalid or expired"
+    }
+    $workloadLeaseScript = Join-Path $PSScriptRoot "workload_admission.ps1"
+    $expectedWorkloadLeaseSha256 =
+        "3e2de64fb02e98e3016c71163bd7b297cf72488bbdfa593b38b237441f396389"
+    $actualWorkloadLeaseSha256 =
+        (Get-FileHash -LiteralPath $workloadLeaseScript -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+    if ($actualWorkloadLeaseSha256 -cne $expectedWorkloadLeaseSha256) {
+        throw "owner-approved workload admission source changed"
+    }
+}
+else {
+    $workloadLeaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+}
 . $workloadLeaseScript
 $reportPath = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 $historyPath = Join-Path $repo "data\alerts\quiet_window_merge_history.jsonl"
@@ -371,13 +391,44 @@ if ($ExpectedBaseline -and $ExpectedBaseline -notmatch '^[0-9a-f]{40}$') {
     Fail "ExpectedBaseline must be a full 40-character hexadecimal commit SHA"
 }
 
+$ownerProtectedWindowException = $false
+if ($OwnerApprovedException) {
+    $authorizedRoot = "71f7e46690e822a498f80412c11d550bcee949d2"
+    $authorizedBaseline = "9d54f94760855a5f91ac603f3f14b02ba06ae239"
+    $ownerAncestorExit = 1
+    if ($ExpectedTip -match '^[0-9a-f]{40}$') {
+        & git -C $repo merge-base --is-ancestor $authorizedRoot $ExpectedTip
+        $ownerAncestorExit = $LASTEXITCODE
+    }
+    if (
+        $OwnerApprovedException -cne
+            "OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823" -or
+        -not $Force -or
+        (Get-Date).ToString("yyyy-MM-dd") -cne "2026-08-23" -or
+        $Branch -cne "origin/codex/live-readiness-closure-20260823" -or
+        $ExpectedBaseline -cne $authorizedBaseline -or
+        $ownerAncestorExit -ne 0
+    ) {
+        Fail "owner-approved protected-window exception is invalid, unbound, or expired"
+    }
+    $ownerProtectedWindowException = $true
+    Note "one-time repository-owner protected-window exception accepted for exact branch lineage and baseline"
+}
+
 # The broad host windows do not depend on the roll verdict. Refuse them before
 # taking the shared lease, then serialize the verdict and every subsequent Git,
 # recovery, documentation, and publication decision under that one OS handle.
 $h = (Get-Date).Hour + ((Get-Date).Minute / 60.0)
-if ($h -ge 12 -and $h -lt 18) { Fail "inside the 12:00-18:00 graded capture window - never merge here" }
-if ($h -ge 18 -or $h -lt 0.5) { Fail ("inside the 18:00-00:30 protected near-close window (now {0:N2}) - no heavy work here" -f $h) }
-$workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload "quiet_window_merge"
+if (-not $ownerProtectedWindowException -and $h -ge 12 -and $h -lt 18) {
+    Fail "inside the 12:00-18:00 graded capture window - never merge here"
+}
+if (-not $ownerProtectedWindowException -and ($h -ge 18 -or $h -lt 0.5)) {
+    Fail ("inside the 18:00-00:30 protected near-close window (now {0:N2}) - no heavy work here" -f $h)
+}
+$workloadLease = Enter-WeatherHeavyWorkloadLease `
+    -RepoRoot $repo `
+    -Workload "quiet_window_merge" `
+    -OwnerApprovedException $OwnerApprovedException
 if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
 try {
 

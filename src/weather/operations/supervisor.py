@@ -447,6 +447,26 @@ def _recovery_event(event: dict[str, Any]) -> bool:
         return False
     if str(event.get("action") or "").lower() not in {"start", "restart"}:
         return False
+    # The diagnostics stream records intended recovery actions even when no
+    # recovery occurred.  In particular, a transient status/lock disagreement
+    # can emit ``action=start`` while the managed-start preflight correctly
+    # refuses to create a second writer.  Counting that failed, no-mutation
+    # attempt resets exponential backoff and can then block a later benign
+    # STALE_CODE re-adoption for an hour.  Keep outcome-less legacy events,
+    # failed launches (which can thrash a child), and failed restarts (whose
+    # stop may already have mutated the worker) countable.  Exclude only an
+    # explicitly refused start for which no child was launched.
+    start = event.get("start")
+    if (
+        str(event.get("action") or "").lower() == "start"
+        and isinstance(start, dict)
+        and start.get("started") is False
+        and not any(
+            start.get(key)
+            for key in ("launched_pid", "pid", "managed_process", "launched_process")
+        )
+    ):
+        return False
     cause = str(event.get("restart_cause") or "").lower()
     if cause in _BENIGN_RESTART_CAUSES:
         return False
@@ -548,6 +568,9 @@ def recovery_history_cache_path(diagnostics_path: str | Path) -> Path:
     )
 
 
+RECOVERY_HISTORY_CACHE_FORMAT_VERSION = 2
+
+
 def _rotated_sidecar_can_contain_window_events(
     path: Path,
     *,
@@ -580,7 +603,7 @@ def _cached_rotated_recovery_events(
     indexed_paths: set[str] = set()
     if (
         isinstance(payload, dict)
-        and payload.get("format_version") == 1
+        and payload.get("format_version") == RECOVERY_HISTORY_CACHE_FORMAT_VERSION
         and payload.get("diagnostics_path") == str(diagnostics_path)
     ):
         raw_indexed_paths = payload.get("indexed_rotated_paths")
@@ -596,6 +619,11 @@ def _cached_rotated_recovery_events(
             raw_events = []
         for row in raw_events:
             if not isinstance(row, dict) or not isinstance(row.get("event"), dict):
+                continue
+            # Reclassify cached rows with the current recovery contract.  A
+            # cache created before a no-launch accounting repair must not keep
+            # poisoning the circuit until its 24-hour window expires.
+            if not _recovery_event(row["event"]):
                 continue
             event_time = parse_iso_datetime(row.get("time"))
             if event_time is None:
@@ -627,7 +655,7 @@ def _cached_rotated_recovery_events(
         cached_events.extend(_recovery_events_from_path(path))
         indexed_paths.add(str(path))
     cache_payload = {
-        "format_version": 1,
+        "format_version": RECOVERY_HISTORY_CACHE_FORMAT_VERSION,
         "diagnostics_path": str(diagnostics_path),
         "indexed_rotated_paths": sorted(indexed_paths),
         "events": [

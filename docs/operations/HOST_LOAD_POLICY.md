@@ -206,6 +206,12 @@ useful work before capture is stopped. The independent
    window. Only the settlement Stage-A wrapper can request the explicit
    09:30–11:55 exception. Bounded test suites additionally kill their complete
    Job-owned child tree at 09:00 rather than merely checking the start time.
+   One repository-owner exception on 2026-08-23 permits only the exact
+   `codex/live-readiness-closure-20260823` lineage rooted at
+   `71f7e46690e822a498f80412c11d550bcee949d2`, against production baseline
+   `9d54f94760855a5f91ac603f3f14b02ba06ae239`, to acquire the merge lease in
+   the protected window under the literal dated token. The code path expires
+   with that local date and grants no reusable authority.
 3. **Memory budget for any single ad-hoc job: 8 GB private bytes.** The
    `WeatherMemoryCommitGuard` task runs every minute. It warns when available
    physical RAM is below 1.5 GiB and records the top working-set processes. It

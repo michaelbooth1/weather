@@ -2,8 +2,8 @@
 
 Status: preregistered design; no live result. International Polymarket only.
 This document narrows how the approved bounded pilot may be interpreted. It
-does not authorize an order, override a gate, or permit this Ontario host to
-submit one.
+does not authorize an order, override a gate, or establish the operator's or
+execution host's action-time geographic eligibility.
 
 All trading, balance, fee, and rebate outcomes are measured in native pUSD.
 Compatibility field names containing `_usdc` denote dollar-scale amounts only;

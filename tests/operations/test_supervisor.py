@@ -325,6 +325,116 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertEqual(circuit["action"], "circuit_open")
         self.assertEqual(circuit["recent_recovery_count"], 2)
 
+    def test_failed_no_mutation_attempts_do_not_poison_recovery_backoff(self):
+        now = datetime(2026, 8, 23, 23, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            spec = supervisor.SupervisorSpec(
+                name="execution_tape",
+                module="weather.example",
+                status_path=root / "status.json",
+                diagnostics_path=diagnostics_path,
+                console_log_path=root / "console.log",
+                restart_budget=2,
+                restart_backoff_base_seconds=60,
+            )
+            events = [
+                # Legacy successful events have no explicit outcome and remain
+                # countable for backward-compatible 24-hour history.
+                {
+                    "time": (now - timedelta(minutes=10)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "start",
+                    "restart_cause": "UNKNOWN",
+                },
+                {
+                    "time": (now - timedelta(minutes=1)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "start",
+                    "restart_cause": "UNKNOWN",
+                    "exit_code": 1,
+                    "start": {"started": False, "reason": "writer still alive"},
+                },
+                {
+                    "time": (now - timedelta(seconds=30)).isoformat(),
+                    "supervisor": "ensure",
+                    "action": "start",
+                    "restart_cause": "UNKNOWN",
+                    "start": {"started": False},
+                },
+            ]
+            diagnostics_path.write_text(
+                "\n".join(json.dumps(event) for event in events) + "\n",
+                encoding="utf-8",
+            )
+            guard = supervisor.supervisor_recovery_guard(spec, "restart", now=now)
+
+        self.assertEqual(guard["recent_recovery_count"], 1)
+        self.assertTrue(guard["allowed"])
+        self.assertEqual(guard["reason"], "within_restart_budget")
+
+    def test_failed_launched_start_and_failed_restart_remain_recovery_events(self):
+        legacy = {"supervisor": "ensure", "action": "start"}
+        launched = {
+            "supervisor": "ensure",
+            "action": "start",
+            "exit_code": 1,
+            "start": {"started": False, "launched_pid": 4321},
+        }
+        restarted = {
+            "supervisor": "ensure",
+            "action": "restart",
+            "exit_code": 1,
+            "start": {"started": False},
+        }
+
+        self.assertTrue(supervisor._recovery_event(legacy))
+        self.assertTrue(supervisor._recovery_event(launched))
+        self.assertTrue(supervisor._recovery_event(restarted))
+
+    def test_cached_no_launch_attempt_is_reclassified(self):
+        now = datetime(2026, 8, 23, 23, 24, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            diagnostics_path = root / "diagnostics.jsonl"
+            diagnostics_path.write_text("", encoding="utf-8")
+            cache_path = supervisor.recovery_history_cache_path(diagnostics_path)
+            cached_source_path = root / "diagnostics.1.jsonl"
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "format_version": supervisor.RECOVERY_HISTORY_CACHE_FORMAT_VERSION,
+                        "diagnostics_path": str(diagnostics_path),
+                        "indexed_rotated_paths": [str(cached_source_path)],
+                        "events": [
+                            {
+                                "source_path": str(cached_source_path),
+                                "line": 1,
+                                "time": (now - timedelta(minutes=1)).isoformat(),
+                                "event": {
+                                    "time": (now - timedelta(minutes=1)).isoformat(),
+                                    "supervisor": "ensure",
+                                    "action": "start",
+                                    "restart_cause": "UNKNOWN",
+                                    "exit_code": 1,
+                                    "start": {"started": False},
+                                },
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            events = supervisor.recent_recovery_events(
+                diagnostics_path,
+                now=now,
+                window_hours=24,
+            )
+
+        self.assertEqual(events, [])
+
     def test_diagnostics_rotation_does_not_reset_restart_budget(self):
         now = datetime(2026, 8, 9, 14, 30, tzinfo=timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
@@ -364,6 +474,10 @@ class TestSupervisorPrimitives(unittest.TestCase):
         self.assertIsNotNone(rotated)
         self.assertEqual(after["recent_recovery_count"], 1)
         self.assertEqual(after["action"], "circuit_open")
+        self.assertEqual(
+            cache["format_version"],
+            supervisor.RECOVERY_HISTORY_CACHE_FORMAT_VERSION,
+        )
         self.assertIn(str(rotated), cache["indexed_rotated_paths"])
 
     def test_restart_budget_skips_rotated_archives_older_than_window(self):

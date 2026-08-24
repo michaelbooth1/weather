@@ -1,14 +1,12 @@
 # State of play
 
-**Last rewritten: 2026-08-23 15:59 America/Toronto.** Read this first, then
+**Last rewritten: 2026-08-23 19:52 America/Toronto.** Read this first, then
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
 measurement, or research work.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** This page answers
-> what is happening now. Quantitative evidence belongs in
-> `ESTABLISHED_FINDINGS`; false claims in `RETRACTED_AND_FALSE_LEADS`; durable
-> invariants in `AGENT_CONTEXT`; cross-host mechanics in
-> `DELEGATION_CONTRACT`. Do not cite this page as quantitative evidence.
+> **REWRITTEN, never appended. Capped at about 90 lines.** Quantitative evidence
+> belongs in `ESTABLISHED_FINDINGS`; false claims in `RETRACTED_AND_FALSE_LEADS`;
+> durable invariants and delegation mechanics in their canonical files.
 
 **Objectives:** protect irreplaceable capture and settlement; determine whether
 International maker spread plus paid rebates exceeds adverse selection,
@@ -28,7 +26,7 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 | Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
 | Documentation | The three-integration documentation transaction is published at `33fa374898507adc7231b6ff30af6d148f848556`; its content-addressed completion receipt is present and valid. |
 | Host safety | Two reboots occurred. The 12:54 maintenance reboot was planned and clean; the 14:53 reset was unclean after yielded recursive Codex scans, parallel protected-window verification, and a contemporaneous DNS/network failure. This was not a recorded OOM. The S4U guard now runs every minute and terminates out-of-window/concurrent Codex heavy trees; the user-layer PreToolUse hook is installed, trusted, and confirmed active across a fresh Codex session. |
-| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. All three public sealer inventories pass against current production, but Stage 0/1 execution remains `HOLD` until the explicit 00:30-09:00 guard, truthful authenticated-write confirmation, canonical session-manifest builder, and a dated non-circular staged-readiness policy/receipt land and receive exact-tip reproof. No credential value or exchange mutation was authorized by integration, and no order has run. Credential references are prepared, but the accepted economics baseline is still the ineligible legacy US platform; fresh International economics/paper candidate, explicit baseline acceptance, public identity, keyless doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
+| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, and interrupt cleanup are production software. All three public sealer inventories pass against current production. The operator approved the exact Stage 0/1-only non-circular substitute gates on 2026-08-23, but execution remains `HOLD` until the cumulative explicit 00:30-09:00 guard, truthful authenticated-write confirmation, canonical session-manifest builder, provenance hardening, and dated decision land and receive exact-tip reproof. Geographic eligibility remains an action-time check and must not be inferred from repository timezone; VPN/proxy circumvention is forbidden. Two credential-import attempts wrote zero entries: after obsolete source metadata was removed, the importer falsely reported an unparseable key because it had not activated the existing sealed SDK overlay and `eth_account` is intentionally absent from the shared environment. The isolated fail-closed repair is pending allowed-window tests and adoption; key validity and target occupancy remain unproved. No exchange mutation or order has run. Fresh International economics/paper candidate, explicit baseline acceptance, public identity, successful credential import/doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -45,6 +43,8 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
   readers, risk, or post-only enforcement to manufacture permission.
 - No alpha and no paid weather provider. Economics baseline acceptance remains
   an explicit informed operator action and is never scheduled automatically.
+- No order from a blocked jurisdiction or location circumvention. An unblocked
+  egress response cannot override the operator's or host's physical location.
 
 ## Immediate execution order
 
@@ -58,11 +58,13 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
    attended, non-protected window with no heavy-work overlap. Refresh public
    International economics and a one-market paper candidate; baseline acceptance
    remains an explicit informed operator action.
-4. After the live-session hardening is integrated and re-inventoried, bind
+4. Require an eligible physical location, fresh official geoblock result, and
+   attended no-circumvention attestation; otherwise stop at paper/read-only.
+5. After the live-session hardening is integrated and re-inventoried, bind
    identity and all three current fixed-session launchers, run the keyless
    doctor, and then run Stage 0 plus the two Stage 1 modes consecutively under
    their separate literal confirmations.
-5. Let tiering run serially; diagnose durable status, not Scheduler zero. Keep
+6. Let tiering run serially; diagnose durable status, not Scheduler zero. Keep
    Stage B and training held until their own preconditions pass.
 
 ## Host and workflow state
@@ -74,6 +76,24 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 - The earlier fixed bootstrap pair is spent evidence. Its initial merge task
   refused before production mutation; the reviewed retry produced the pushed
   report that binds the actual first landing.
+- **Recorded immediate-integration exception (2026-08-23):** the repository
+  owner explicitly ordered `codex/live-readiness-closure-20260823` merged now
+  so the day can be used for live-test preparation. Scope waives the ordinary
+  01:00-04:00 merge timing and pre-merge Python/pytest verification for this
+  exact attempt; focused and 25-file suites are recorded `NOT_RUN_OWNER_WAIVER`.
+  At 19:15 the ordinary `-Force` path stopped before mutation because the
+  protected-window and workload-lease gates are deliberately harder. The owner
+  then explicitly approved one dated bypass, bound in code to this branch
+  lineage and synchronized baseline. The S4U process guard remains enabled;
+  an attended operator invocation runs outside the Codex-owned process tree.
+  The first guarded attempt remained unpublished and rolled back cleanly after
+  the execution-tape worker stayed on stale code: its one-minute supervisor ran,
+  but six explicitly failed/no-mutation starts were incorrectly counted as
+  recoveries and imposed a 3,600-second backoff. The reviewed repair excludes
+  only refused starts that launched no child while preserving failed-launch,
+  failed-restart, legacy-history, and ordinary restart-budget protection. A
+  fresh immutable guarded attempt, worker
+  recovery, and remote-master acknowledgement remain required.
 - `WeatherClobTiering` and `WeatherClobRawTapeTiering` are recurring, enabled,
   and bound to the canonical 05:00/06:00 topology without late catch-up.
 - `WeatherEveningEvidenceRefresh`, `WeatherTrainingWindow`, the mirror, and
@@ -84,6 +104,5 @@ forecast as a quote-centre and risk-control input. **We do not beat the market.*
 
 ## Update this file when
 
-Rewrite after cumulative Stage-1 integration, August 17 recovery, a new Stage-A
-soak, Stage-B proof or enablement, fresh candidate selection, action-time
-eligibility, or a live lifecycle result. Remove superseded state.
+Rewrite after Stage-1 integration, August 17 recovery, a new Stage-A soak,
+Stage-B proof, fresh eligibility/candidate evidence, or a live lifecycle result.

@@ -2260,7 +2260,7 @@ dedicated live-pilot policy module. Capability, lifecycle, and bundle boundaries
 the 100 pUSD wallet/request ceiling, and reported lifecycle orders cannot exceed 10 pUSD. The
 post-push verdict is still roll-sensitive through the live CLOB loop and schema registries. This
 cumulative exact tip supersedes the standalone economics branch as the preferred integration
-target, but does not authorize an out-of-window merge or an Ontario-host order.
+target, but does not authorize an out-of-window merge or an order from a blocked location.
 
 **Failed-tip packaging refusal measured 2026-08-14 08:40 local.** The S4U/Limited immutable
 bundle task for obsolete failed tip `904ce2d824fe48071062eb9a769d6a5e921b4dba` ran once and

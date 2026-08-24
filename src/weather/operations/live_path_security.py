@@ -24,6 +24,7 @@ SESSION_BOOTSTRAP_PATHS = (
     "src/weather/operations/__init__.py",
     "src/weather/operations/international_live_session_runner.py",
     "src/weather/operations/international_live_lineage.py",
+    "src/weather/operations/international_live_time_window.py",
     "src/weather/operations/international_live_wrapper_sealer.py",
     "src/weather/operations/live_path_security.py",
 )

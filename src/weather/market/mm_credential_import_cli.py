@@ -4,6 +4,10 @@ The source file must remain outside the repository. Secret values are never
 accepted as arguments, printed, or written to the public reference manifest or
 receipt. The live trading commands continue to consume only ``wincred://``
 references and a public funder address.
+
+The CLI activates the already sealed, hash-pinned process-local live SDK
+overlay before deriving the signer. The shared production environment remains
+unchanged and is not expected to contain the live SDK dependencies.
 """
 
 from __future__ import annotations
@@ -101,6 +105,10 @@ class CredentialSourceValidationError(RuntimeError):
         )
 
 
+class CredentialValidationDependencyError(RuntimeError):
+    """Raised when the sealed offline validator is not available."""
+
+
 def _is_within(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -168,9 +176,14 @@ def _parse_source(path: Path) -> dict:
 
 
 def _derive_account_address(private_key):
-    from eth_account import Account
+    try:
+        from eth_account import Account
 
-    return Account.from_key(private_key).address
+        return Account.from_key(private_key).address
+    except ImportError as exc:
+        raise CredentialValidationDependencyError(
+            "sealed private-key validator dependency is unavailable"
+        ) from exc
 
 
 def _validated_bundle(values, *, account_deriver):
@@ -196,6 +209,8 @@ def _validated_bundle(values, *, account_deriver):
     derived_address = None
     try:
         derived_address = str(account_deriver(values["POLYMM_PRIVATE_KEY"]))
+    except CredentialValidationDependencyError:
+        raise
     except Exception:
         pass
     checks["private_key_parseable"] = valid_evm_address(derived_address)
@@ -356,14 +371,33 @@ def build_parser():
     parser.add_argument("--source-env", required=True)
     parser.add_argument("--manifest-out", required=True)
     parser.add_argument("--receipt-out", required=True)
+    parser.add_argument("--sdk-overlay-manifest", required=True)
+    parser.add_argument("--sdk-overlay-manifest-sha256", required=True)
     parser.add_argument("--confirm-source-acl-private", action="store_true")
     parser.add_argument("--confirmation", required=True)
     return parser
 
 
+def _activate_sdk_overlay(manifest_path, expected_manifest_sha256):
+    from weather.market.live_sdk_overlay import activate_live_sdk_overlay
+
+    return activate_live_sdk_overlay(manifest_path, expected_manifest_sha256)
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
+        sdk_activation = _activate_sdk_overlay(
+            args.sdk_overlay_manifest,
+            args.sdk_overlay_manifest_sha256,
+        )
+        if (
+            not isinstance(sdk_activation, dict)
+            or sdk_activation.get("status") != "PASS"
+            or sdk_activation.get("process_path_activated") is not True
+            or sdk_activation.get("shared_environment_mutated") is not False
+        ):
+            raise RuntimeError("sealed SDK overlay activation did not pass")
         result = import_live_pilot_credentials(
             args.source_env,
             args.manifest_out,

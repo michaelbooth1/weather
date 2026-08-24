@@ -19,8 +19,8 @@ TOKEN_ID = "12345"
 
 def stage0_identity():
     return {
-        "schema_version": "mm_stage0_client_identity_v0.2",
-        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_READ_ONLY",
+        "schema_version": "mm_stage0_client_identity_v0.3",
+        "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
         "clob_host": "https://clob.polymarket.com",
@@ -179,7 +179,9 @@ def finalized_bootstrap_payload(tmp_path, *, name="stage0", payload=None):
     )
 
 
-def test_bootstrap_gate_accepts_fresh_exact_international_read_only_proof(tmp_path):
+def test_bootstrap_gate_accepts_fresh_exact_no_order_authenticated_write_proof(
+    tmp_path,
+):
     path = write_payload(
         tmp_path / "bootstrap.json",
         finalized_bootstrap_payload(tmp_path),

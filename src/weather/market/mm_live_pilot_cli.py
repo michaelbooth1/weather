@@ -750,7 +750,10 @@ def run_stage0(
     bootstrap_finalizer=finalize_platform_bootstrap_payload,
 ) -> dict:
     if args.confirmation != STAGE0_AUTHORIZATION:
-        raise RuntimeError("Stage 0 requires the exact read-only confirmation token")
+        raise RuntimeError(
+            "Stage 0 requires the exact heartbeat/account-wide-cancel-all/"
+            "no-order confirmation token"
+        )
     stage0_budget = _validate_budget(args.budget)
     if stage0_budget != 10.0:
         raise RuntimeError("first Stage 0 requires exactly 10 pUSD")

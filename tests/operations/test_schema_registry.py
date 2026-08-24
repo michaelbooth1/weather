@@ -357,6 +357,10 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("market_hour_kind_bias"), "market_hour_kind_bias_v1")
         self.assertEqual(schema_version("live_forward_gate"), "live_forward_gate_v0.2")
         self.assertEqual(schema_version("mm_live_readiness"), "mm_live_readiness_v0.3")
+        self.assertEqual(
+            schema_version("mm_stage0_client_identity"),
+            "mm_stage0_client_identity_v0.3",
+        )
         self.assertEqual(schema_version("market_making_daily_roll"), "market_making_daily_roll_v0.2")
         self.assertEqual(schema_version("early_hour_market_guardrail"), "early_hour_market_guardrail_v0.1")
         self.assertEqual(schema_version("early_hour_market_guardrail_shadow"), "early_hour_market_guardrail_shadow_v0.1")
