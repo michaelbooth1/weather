@@ -47,16 +47,14 @@ function Invoke-WeatherPreparationGitLine {
 function Get-WeatherPreparationRemoteTip {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$OriginUrl,
         [Parameter(Mandatory = $true)][string]$RemoteRef,
         [switch]$AllowMissing
     )
 
-    $rows = @(& git -C $Root ls-remote --heads origin $RemoteRef)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not query the exact origin ref."
-    }
-    return Resolve-WeatherIntegrationRemoteTipRows `
-        -Rows $rows -ExpectedRemoteRef $RemoteRef -AllowMissing:$AllowMissing
+    return Get-WeatherIntegrationCanonicalRemoteTip `
+        -Root $Root -ExpectedUrl $OriginUrl -RemoteRef $RemoteRef `
+        -AllowMissing:$AllowMissing -Label "exact canonical origin ref query"
 }
 
 $RepoRoot = Resolve-WeatherIntegrationPath -Path $RepoRoot
@@ -89,6 +87,7 @@ $closureReceiptSha256 = $null
 $closureFailure = $null
 $failureReceiptWritten = $false
 $preparationMutex = $null
+$originUrl = $null
 
 try {
     if ($AttemptId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$') {
@@ -213,6 +212,12 @@ try {
     }
 
     $stage = "validate_production_baseline"
+    $originUrl = Get-WeatherIntegrationCanonicalOriginUrl -Root $RepoRoot
+    $worktreeOriginUrl = Get-WeatherIntegrationCanonicalOriginUrl `
+        -Root $WorktreeRoot
+    if ($worktreeOriginUrl -cne $originUrl) {
+        throw "Production and suite worktree origin URLs do not identify the same repository."
+    }
     $productionBranch = Invoke-WeatherPreparationGitLine `
         -Root $RepoRoot -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD") `
         -Label "the production branch"
@@ -223,12 +228,14 @@ try {
         -Root $RepoRoot -Arguments @("rev-parse", "master") `
         -Label "local master").ToLowerInvariant()
     $liveMasterTip = Get-WeatherPreparationRemoteTip `
-        -Root $RepoRoot -RemoteRef "refs/heads/master"
-    & git -C $RepoRoot fetch --no-tags origin `
-        "refs/heads/master:refs/remotes/origin/master"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not refresh origin/master from the live exact master ref."
-    }
+        -Root $RepoRoot -OriginUrl $originUrl -RemoteRef "refs/heads/master"
+    Invoke-WeatherIntegrationBoundedRemoteGit `
+        -Root $RepoRoot `
+        -Arguments @(
+            "fetch", "--no-tags", $originUrl,
+            "refs/heads/master:refs/remotes/origin/master"
+        ) `
+        -Label "live exact origin/master refresh" | Out-Null
     $originMasterTip = (Invoke-WeatherPreparationGitLine `
         -Root $RepoRoot -Arguments @("rev-parse", "origin/master") `
         -Label "origin/master").ToLowerInvariant()
@@ -253,6 +260,7 @@ try {
         preparer = $PSCommandPath
         readiness = Join-Path $RepoRoot "scripts\ops\assert_integration_attempt_ready.ps1"
         contract = Join-Path $RepoRoot "scripts\ops\integration_attempt_contract.ps1"
+        remote_git = Join-Path $RepoRoot "scripts\ops\integration_attempt_remote_git.ps1"
         preparation_contract = Join-Path $RepoRoot "scripts\ops\integration_attempt_preparation_contract.ps1"
         quiet_merge_preflight = Join-Path $RepoRoot "scripts\ops\integration_attempt_quiet_merge_preflight.ps1"
         creator = Join-Path $RepoRoot "scripts\ops\new_integration_attempt.ps1"
@@ -292,6 +300,7 @@ try {
         }
         publication = [ordered]@{
             remote = "origin"
+            origin_url = $originUrl
             remote_ref = $remoteRef
             exact_non_force_refspec = $exactRefspec
         }
@@ -365,6 +374,7 @@ try {
         [string]$creatorPreflightPlan.attempt_id -ne $AttemptId -or
         [string]$creatorPreflightPlan.expected_tip -ne $ExpectedTip -or
         [string]$creatorPreflightPlan.production_baseline -ne $masterTip -or
+        [string]$creatorPreflightPlan.origin_url -cne $originUrl -or
         [int]$creatorPreflightPlan.expected_test_file_count -le 0) {
         throw "Creator preflight plan did not bind the exact prepared attempt."
     }
@@ -372,8 +382,15 @@ try {
     $stage = "publish_exact_topic"
     # The credible-window assertion above must remain before this boundary.
     # This exact refspec is intentionally non-force and carries no movable lhs.
+    Assert-WeatherIntegrationCanonicalOriginUrl `
+        -Root $RepoRoot -ExpectedUrl $originUrl `
+        -Phase "pre-publication production repository" | Out-Null
+    Assert-WeatherIntegrationCanonicalOriginUrl `
+        -Root $WorktreeRoot -ExpectedUrl $originUrl `
+        -Phase "pre-publication suite worktree" | Out-Null
     $remoteTipBefore = Get-WeatherPreparationRemoteTip `
-        -Root $WorktreeRoot -RemoteRef $remoteRef -AllowMissing
+        -Root $WorktreeRoot -OriginUrl $originUrl `
+        -RemoteRef $remoteRef -AllowMissing
     $remoteLookupCompleted = $true
     # Network/validation latency consumes the original lead. Reassert after
     # the live lookup and immediately before the only push boundary.
@@ -384,24 +401,28 @@ try {
         -MinimumLeadMinutes 10
     if ($remoteTipBefore -ne $ExpectedTip) {
         $pushAttempted = $true
-        & git -C $WorktreeRoot push origin $exactRefspec
-        if ($LASTEXITCODE -ne 0) {
-            throw "Exact reviewed topic publication failed in the interactive credential context."
-        }
+        Invoke-WeatherIntegrationBoundedRemoteGit `
+            -Root $WorktreeRoot `
+            -Arguments @("push", $originUrl, $exactRefspec) `
+            -TimeoutSeconds 180 `
+            -Label "exact reviewed topic publication" | Out-Null
         $pushPerformed = $true
     }
     $remoteTipAfter = Get-WeatherPreparationRemoteTip `
-        -Root $WorktreeRoot -RemoteRef $remoteRef
+        -Root $WorktreeRoot -OriginUrl $originUrl -RemoteRef $remoteRef
     if ($remoteTipAfter -ne $ExpectedTip) {
         throw "Live origin did not acknowledge the exact reviewed topic tip."
     }
 
     $stage = "refresh_remote_tracking_ref"
+    Assert-WeatherIntegrationCanonicalOriginUrl `
+        -Root $RepoRoot -ExpectedUrl $originUrl `
+        -Phase "post-publication remote-tracking refresh" | Out-Null
     $fetchRefspec = "${remoteRef}:refs/remotes/origin/$topicBranch"
-    & git -C $RepoRoot fetch --no-tags origin $fetchRefspec
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not refresh the exact local remote-tracking topic ref."
-    }
+    Invoke-WeatherIntegrationBoundedRemoteGit `
+        -Root $RepoRoot `
+        -Arguments @("fetch", "--no-tags", $originUrl, $fetchRefspec) `
+        -Label "exact topic remote-tracking refresh" | Out-Null
     $trackingTip = (Invoke-WeatherPreparationGitLine `
         -Root $RepoRoot -Arguments @("rev-parse", $BranchRef) `
         -Label "the refreshed remote-tracking topic ref").ToLowerInvariant()

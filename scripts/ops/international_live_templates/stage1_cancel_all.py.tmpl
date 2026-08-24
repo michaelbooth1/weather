@@ -42,6 +42,7 @@ ALLOWED_DIRTY_PATHS = {
 }
 CONDITION_RE = re.compile(r"0x[0-9a-f]{64}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+GIT_OID_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 CORE_WORKERS = {
     "snapshot_tracker",
     "market_microstructure",
@@ -64,6 +65,7 @@ def _run(command: list[str], *, allowed=(0,)) -> subprocess.CompletedProcess[str
         text=True,
         capture_output=True,
         check=False,
+        timeout=10,
     )
     if result.returncode not in allowed:
         raise RuntimeError(f"sealed public preflight exited {result.returncode}")
@@ -222,9 +224,32 @@ def _assert_git_and_sources() -> None:
     head = _git("rev-parse", "HEAD").stdout.strip().lower()
     master = _git("rev-parse", "master").stdout.strip().lower()
     origin = _git("rev-parse", "origin/master").stdout.strip().lower()
+    remote_rows = [
+        line.split()
+        for line in _git(
+            "ls-remote",
+            "--exit-code",
+            "--refs",
+            "origin",
+            "refs/heads/master",
+        ).stdout.splitlines()
+        if line.strip()
+    ]
+    if not (
+        len(remote_rows) == 1
+        and len(remote_rows[0]) == 2
+        and remote_rows[0][1] == "refs/heads/master"
+        and GIT_OID_RE.fullmatch(remote_rows[0][0].lower()) is not None
+    ):
+        raise RuntimeError("live origin master proof is malformed or unavailable")
+    remote_master = remote_rows[0][0].lower()
     branch = _git("branch", "--show-current").stdout.strip()
     if not (
-        head == master == origin == str(SCOPE["expected_production_tip"]).lower()
+        head
+        == master
+        == origin
+        == remote_master
+        == str(SCOPE["expected_production_tip"]).lower()
         and branch == "master"
     ):
         raise RuntimeError("production HEAD/master/origin or branch changed")
@@ -291,6 +316,8 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
     }
     output_names = (
         "doctor_receipt_out",
+        "geography_precredential_receipt_out",
+        "geography_presubmit_receipt_out",
         "result_out",
         "command_receipt_out",
         "user_stream_journal_out",
@@ -369,6 +396,12 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
     seal_reference = seal.get("credential_reference_manifest") or {}
     execution_wrapper = execution.get("wrapper") or {}
     artifacts = execution.get("artifacts") or {}
+    stage0_geography_artifact = (
+        artifacts.get("geography_precredential_receipt_out") or {}
+    )
+    stage0_premutation_geography_artifact = (
+        artifacts.get("geography_premutation_receipt_out") or {}
+    )
     bootstrap_artifact = artifacts.get("bootstrap_out") or {}
     command_artifact = artifacts.get("command_receipt_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
@@ -386,7 +419,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             float(seal_scope.get("requested_budget_pusd"))
             == float(SCOPE["requested_budget_pusd"]),
             execution.get("schema_version")
-            == "international_live_fixed_scope_execution_v0.4",
+            == "international_live_fixed_scope_execution_v0.5",
             execution.get("status") == "PASS",
             execution.get("stage") == "stage0",
             execution.get("phase") == "complete",
@@ -414,10 +447,44 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             set(artifacts)
             == {
                 "doctor_receipt_out",
+                "geography_precredential_receipt_out",
+                "geography_premutation_receipt_out",
                 "bootstrap_out",
                 "command_receipt_out",
                 "user_stream_journal_out",
             },
+            Path(str(stage0_geography_artifact.get("path") or "")).resolve()
+            == (root / "stage0/geography-precredential-receipt.json").resolve(),
+            Path(str(stage0_geography_artifact.get("path") or "")).is_file(),
+            (
+                _sha256(Path(str(stage0_geography_artifact.get("path"))))
+                == stage0_geography_artifact.get("sha256")
+                if stage0_geography_artifact.get("path")
+                and Path(str(stage0_geography_artifact.get("path"))).is_file()
+                else False
+            ),
+            Path(
+                str(stage0_premutation_geography_artifact.get("path") or "")
+            ).resolve()
+            == (root / "stage0/geography-premutation-receipt.json").resolve(),
+            Path(
+                str(stage0_premutation_geography_artifact.get("path") or "")
+            ).is_file(),
+            (
+                _sha256(
+                    Path(str(stage0_premutation_geography_artifact.get("path")))
+                )
+                == stage0_premutation_geography_artifact.get("sha256")
+                if stage0_premutation_geography_artifact.get("path")
+                and Path(
+                    str(stage0_premutation_geography_artifact.get("path"))
+                ).is_file()
+                else False
+            ),
+            (stage0.get("mutation_geographic_eligibility") or {}).get("path")
+            == stage0_premutation_geography_artifact.get("path"),
+            (stage0.get("mutation_geographic_eligibility") or {}).get("sha256")
+            == stage0_premutation_geography_artifact.get("sha256"),
             seal_credential.get("path")
             == str(inputs["credential_import_receipt"][0]),
             seal_credential.get("sha256")
@@ -516,10 +583,39 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             )
         )
         prior_artifacts = prior_execution.get("artifacts") or {}
+        prior_geography_precredential = (
+            prior_artifacts.get("geography_precredential_receipt_out") or {}
+        )
+        prior_geography_presubmit = (
+            prior_artifacts.get("geography_presubmit_receipt_out") or {}
+        )
         prior_result_artifact = prior_artifacts.get("result_out") or {}
         prior_command_artifact = prior_artifacts.get("command_receipt_out") or {}
         prior_journal_artifact = prior_artifacts.get("lifecycle_journal_out") or {}
         prior_stream_artifact = prior_artifacts.get("user_stream_journal_out") or {}
+        try:
+            prior_stream_rows = [
+                json.loads(line)
+                for line in Path(
+                    str(prior_stream_artifact.get("path") or "")
+                ).read_text(encoding="utf-8").splitlines()
+                if line
+            ]
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            prior_stream_rows = []
+        prior_stream_terminal_stop = bool(
+            prior_stream_rows
+            and prior_stream_rows[-1].get("event_type") == "stream_stopped"
+            and sum(
+                row.get("event_type") == "stream_stopped"
+                for row in prior_stream_rows
+            )
+            == 1
+            and all(
+                row.get("schema_version") == "mm_user_stream_journal_v0.1"
+                for row in prior_stream_rows
+            )
+        )
         prior_lineage_ok = True
         prior_root = Path(str(prior_scope.get("attempt_root") or "")).resolve()
         prior_expected = {
@@ -581,7 +677,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 ).resolve(),
                 prior_lineage_ok,
                 prior_execution.get("schema_version")
-                == "international_live_fixed_scope_execution_v0.4",
+                == "international_live_fixed_scope_execution_v0.5",
                 prior_execution.get("status") == "PASS",
                 prior_execution.get("phase") == "complete",
                 prior_execution.get("stage") == "stage1_cancel_all",
@@ -599,11 +695,45 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 set(prior_artifacts)
                 == {
                     "doctor_receipt_out",
+                    "geography_precredential_receipt_out",
+                    "geography_presubmit_receipt_out",
                     "result_out",
                     "command_receipt_out",
                     "user_stream_journal_out",
                     "lifecycle_journal_out",
                 },
+                Path(
+                    str(prior_geography_precredential.get("path") or "")
+                ).resolve()
+                == (
+                    prior_root
+                    / "stage1-cancel-all/geography-precredential-receipt.json"
+                ).resolve(),
+                Path(
+                    str(prior_geography_precredential.get("path") or "")
+                ).is_file(),
+                (
+                    _sha256(Path(str(prior_geography_precredential.get("path"))))
+                    == prior_geography_precredential.get("sha256")
+                    if prior_geography_precredential.get("path")
+                    and Path(
+                        str(prior_geography_precredential.get("path"))
+                    ).is_file()
+                    else False
+                ),
+                Path(str(prior_geography_presubmit.get("path") or "")).resolve()
+                == (
+                    prior_root
+                    / "stage1-cancel-all/geography-presubmit-receipt.json"
+                ).resolve(),
+                Path(str(prior_geography_presubmit.get("path") or "")).is_file(),
+                (
+                    _sha256(Path(str(prior_geography_presubmit.get("path"))))
+                    == prior_geography_presubmit.get("sha256")
+                    if prior_geography_presubmit.get("path")
+                    and Path(str(prior_geography_presubmit.get("path"))).is_file()
+                    else False
+                ),
                 prior_result_artifact.get("path")
                 == str(inputs["cancel_all_result"][0]),
                 prior_result_artifact.get("sha256")
@@ -618,6 +748,14 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 == inputs["cancel_all_lifecycle_journal"][1],
                 bool(prior_stream_artifact.get("path")),
                 Path(str(prior_stream_artifact.get("path") or "")).is_file(),
+                (
+                    _sha256(Path(str(prior_stream_artifact.get("path"))))
+                    == prior_stream_artifact.get("sha256")
+                    if prior_stream_artifact.get("path")
+                    and Path(str(prior_stream_artifact.get("path"))).is_file()
+                    else False
+                ),
+                prior_stream_terminal_stop,
                 prior_command.get("status") == "PASS",
                 prior_command.get("command") == "stage1",
                 prior_command.get("cancellation_mode") == "cancel_all",
@@ -638,7 +776,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 == str(SCOPE["condition_id"]).lower(),
                 str(prior_command.get("token_id") or "") == str(SCOPE["token_id"]),
                 (prior_command.get("cleanup") or {}).get("ok") is True,
-                prior_result.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
+                prior_result.get("schema_version") == "mm_live_lifecycle_probe_v0.3",
                 prior_result.get("status") == "PASS",
                 prior_result.get("cancellation_mode") == "cancel_all",
                 str(prior_result.get("condition_id") or "").lower()
@@ -646,11 +784,52 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 str(prior_result.get("token_id") or "") == str(SCOPE["token_id"]),
                 prior_result.get("candidate_plan_sha256")
                 == (prior_inputs.get("candidate_plan") or {}).get("sha256"),
+                prior_result.get("submit_boundary_heartbeat_acknowledged") is True,
+                prior_result.get("submit_boundary_market_rules_verified") is True,
+                prior_result.get(
+                    "submit_boundary_geography_before_heartbeat_verified"
+                )
+                is True,
+                prior_result.get(
+                    "post_sign_order_placement_boundary_verified"
+                )
+                is True,
                 bool(str(prior_result.get("order_id") or "")),
                 prior_result.get("zero_open_orders_verified") is True,
                 prior_result.get("zero_positions_verified") is True,
                 prior_result.get("no_trade_lifecycle_event_observed") is True,
+                prior_result.get("terminal_rest_order_verified") is True,
+                prior_result.get("terminal_rest_zero_matched_verified") is True,
+                prior_result.get("account_trades_rest_verified") is True,
+                prior_result.get("scoped_account_trade_count") == 0,
+                prior_result.get("post_cancel_quiescence_seconds") == 2.0,
+                prior_result.get("collateral_no_fill_reconciliation_verified")
+                is True,
+                len(
+                    str(
+                        prior_result.get("submit_collateral_snapshot_sha256")
+                        or ""
+                    )
+                )
+                == 64,
+                prior_result.get("submit_collateral_snapshot_sha256")
+                == prior_result.get("post_cancel_collateral_snapshot_sha256"),
+                10
+                <= float(prior_result.get("submit_collateral_balance_usdc"))
+                <= 100,
+                float(prior_result.get("submit_collateral_allowance_usdc")) >= 10,
                 prior_result.get("cancel_response_present") is True,
+                Path(
+                    str(prior_result.get("user_stream_journal_path") or "")
+                ).resolve()
+                == Path(str(prior_stream_artifact.get("path") or "")).resolve(),
+                prior_result.get("user_stream_journal_sha256")
+                == prior_stream_artifact.get("sha256"),
+                prior_result.get("cleanup_final_user_stream_journal_sha256")
+                == prior_stream_artifact.get("sha256"),
+                type(prior_result.get("user_stream_scoped_order_event_count"))
+                is int,
+                prior_result.get("user_stream_scoped_order_event_count") >= 2,
                 prior_result.get("journal_sha256")
                 == inputs["cancel_all_lifecycle_journal"][1],
                 prior_run_sidecar
@@ -747,6 +926,33 @@ def _atomic_json(path: Path, payload: dict) -> None:
         os.fsync(handle.fileno())
 
 
+def _run_geography_check(output_name: str) -> dict:
+    from weather.market import mm_geographic_eligibility as geography
+
+    expected_module = (
+        PRODUCTION / "src/weather/market/mm_geographic_eligibility.py"
+    ).resolve()
+    if Path(geography.__file__).resolve() != expected_module:
+        raise RuntimeError("geographic eligibility module resolved outside reviewed source")
+    confirmation = geography.PHYSICAL_LOCATION_CONFIRMATION
+    if _prompt_until(confirmation).strip() != confirmation:
+        raise RuntimeError("physical-location/no-circumvention confirmation did not match")
+    receipt = geography.check_geographic_eligibility(
+        SCOPE[output_name],
+        confirmation=confirmation,
+        physical_location_eligible=True,
+        no_circumvention=True,
+    )
+    if receipt.get("status") != "PASS" or receipt.get("eligible") is not True:
+        raise RuntimeError("geographic eligibility did not pass exactly")
+    return receipt
+
+
+def _pre_submit_attestor() -> dict:
+    _assert_host_state()
+    return _run_geography_check("geography_presubmit_receipt_out")
+
+
 def _write_execution_receipt(status: str, exception_type: str | None = None) -> None:
     path = Path(str(SCOPE["wrapper_execution_receipt_out"])).resolve()
     root = Path(str(SCOPE["attempt_root"])).resolve()
@@ -757,6 +963,8 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     artifacts = {}
     for name in (
         "doctor_receipt_out",
+        "geography_precredential_receipt_out",
+        "geography_presubmit_receipt_out",
         "result_out",
         "command_receipt_out",
         "user_stream_journal_out",
@@ -787,7 +995,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.4",
+            "schema_version": "international_live_fixed_scope_execution_v0.5",
             "stage": STAGE_NAME,
             "status": status,
             "finished_at_local": datetime.now().astimezone().isoformat(),
@@ -846,6 +1054,9 @@ def main() -> int:
     )
     from weather.market import mm_live_pilot_cli as live_cli
     from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
+    from weather.market.mm_live_lifecycle_probe import (
+        verify_stage1_user_stream_journal,
+    )
 
     expected_module = (PRODUCTION / "src/weather/market/mm_live_pilot_cli.py").resolve()
     if Path(live_cli.__file__).resolve() != expected_module:
@@ -880,6 +1091,8 @@ def main() -> int:
         expected_condition_id=SCOPE["condition_id"],
         expected_token_id=SCOPE["token_id"],
     )
+    EXECUTION_PHASE = "stage1_geography_gate"
+    _run_geography_check("geography_precredential_receipt_out")
     EXECUTION_PHASE = "stage1_command"
     credential_manifest = json.loads(
         Path(SCOPE["credential_reference_manifest_path"]).read_text(
@@ -897,7 +1110,7 @@ def main() -> int:
         cancellation_mode=CANCELLATION_MODE,
         submit_deadline_utc=SCOPE["run_not_after_local"],
         credential_resolution_deadline_utc=SCOPE["run_not_after_local"],
-        pre_submit_attestor=_assert_host_state,
+        pre_submit_attestor=_pre_submit_attestor,
         lifecycle_journal=SCOPE["lifecycle_journal_out"],
         result_out=SCOPE["result_out"],
         receipt_out=SCOPE["command_receipt_out"],
@@ -912,6 +1125,8 @@ def main() -> int:
     result_path = Path(str(SCOPE["result_out"])).resolve()
     result = json.loads(result_path.read_text(encoding="utf-8-sig"))
     lifecycle_path = Path(str(SCOPE["lifecycle_journal_out"])).resolve()
+    stream_path = Path(str(SCOPE["user_stream_journal_out"])).resolve()
+    final_stream_evidence = verify_stage1_user_stream_journal(stream_path, result)
     if not all(
         (
             result.get("status") == "PASS",
@@ -919,9 +1134,34 @@ def main() -> int:
             result.get("zero_open_orders_verified") is True,
             result.get("zero_positions_verified") is True,
             result.get("no_trade_lifecycle_event_observed") is True,
+            result.get("submit_boundary_heartbeat_acknowledged") is True,
+            result.get("submit_boundary_market_rules_verified") is True,
+            result.get("submit_boundary_geography_before_heartbeat_verified") is True,
+            result.get("post_sign_order_placement_boundary_verified") is True,
+            result.get("terminal_rest_order_verified") is True,
+            result.get("terminal_rest_zero_matched_verified") is True,
+            result.get("account_trades_rest_verified") is True,
+            result.get("scoped_account_trade_count") == 0,
+            result.get("post_cancel_quiescence_seconds") == 2.0,
+            result.get("collateral_no_fill_reconciliation_verified") is True,
+            len(str(result.get("submit_collateral_snapshot_sha256") or "")) == 64,
+            result.get("submit_collateral_snapshot_sha256")
+            == result.get("post_cancel_collateral_snapshot_sha256"),
+            10 <= float(result.get("submit_collateral_balance_usdc")) <= 100,
+            float(result.get("submit_collateral_allowance_usdc")) >= 10,
             result.get("candidate_plan_sha256")
             == str(SCOPE["candidate_plan_sha256"]).lower(),
             result.get("journal_sha256") == _sha256(lifecycle_path),
+            Path(str(result.get("user_stream_journal_path") or "")).resolve()
+            == stream_path,
+            result.get("user_stream_journal_sha256") == _sha256(stream_path),
+            result.get("cleanup_final_user_stream_journal_sha256")
+            == _sha256(stream_path),
+            final_stream_evidence.get("sha256")
+            == result.get("user_stream_journal_sha256"),
+            final_stream_evidence.get("terminal_stream_stopped_verified") is True,
+            type(result.get("user_stream_scoped_order_event_count")) is int,
+            result.get("user_stream_scoped_order_event_count") >= 2,
         )
     ):
         raise RuntimeError("fixed-scope Stage 1 result failed host postconditions")

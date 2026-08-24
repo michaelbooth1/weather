@@ -10,6 +10,7 @@ PREPARER = OPS / "prepare_integration_attempt.ps1"
 READINESS = OPS / "assert_integration_attempt_ready.ps1"
 PREPARATION_CONTRACT = OPS / "integration_attempt_preparation_contract.ps1"
 ATTEMPT_CONTRACT = OPS / "integration_attempt_contract.ps1"
+REMOTE_GIT = OPS / "integration_attempt_remote_git.ps1"
 CREATOR = OPS / "new_integration_attempt.ps1"
 REGISTRAR = OPS / "register_integration_attempt.ps1"
 ACTIVATOR = OPS / "activate_integration_attempt.ps1"
@@ -43,7 +44,7 @@ def test_preparer_checks_credible_schedule_before_exact_non_force_push() -> None
 
     schedule_gate = script.index("Assert-WeatherIntegrationPreparationSchedule")
     creator_preflight = script.index('-Label "integration attempt creator preflight"')
-    push = script.index("& git -C $WorktreeRoot push origin $exactRefspec")
+    push = script.index('-Label "exact reviewed topic publication"')
     creator = script.index('-Label "integration attempt creator"')
     registrar = script.index('-Label "integration attempt registrar"')
     readiness = script.index('-Label "integration attempt readiness assertion"')
@@ -57,11 +58,13 @@ def test_preparer_checks_credible_schedule_before_exact_non_force_push() -> None
     assert '$exactRefspec = "${ExpectedTip}:$remoteRef"' in script
     assert "push --force" not in script.lower()
     assert "push -f" not in script.lower()
-    assert "ls-remote --heads origin $RemoteRef" in script
+    assert "Get-WeatherIntegrationCanonicalRemoteTip" in script
     assert '-RemoteRef "refs/heads/master"' in script
     assert '"refs/heads/master:refs/remotes/origin/master"' in script
+    assert "origin_url = $originUrl" in script
+    assert "Assert-WeatherIntegrationCanonicalOriginUrl" in script
     assert "$masterTip -ne $liveMasterTip" in script
-    assert 'fetch --no-tags origin $fetchRefspec' in script
+    assert '@("fetch", "--no-tags", $originUrl, $fetchRefspec)' in script
     assert 'schema = "weather_integration_attempt_preparation_intent_v1"' in script
     assert 'schema = "weather_integration_attempt_preparation_receipt_v1"' in script
     assert 'status = "FAIL"' in script
@@ -140,9 +143,10 @@ def test_final_readiness_requires_every_live_and_immutable_binding() -> None:
         "successor_expected_tip",
         "successor_manifest_sha256",
         "Get-WeatherIntegrationFileSha256 -Path $claimPath",
-        "ls-remote --heads origin $remoteRef",
-        'ls-remote --heads origin "refs/heads/master"',
+        "Get-WeatherIntegrationCanonicalRemoteTip",
+        'RemoteRef "refs/heads/master"',
         "Live origin master changed after the attempt baseline was frozen",
+        "Assert-WeatherIntegrationOriginIdentity",
         'rev-parse", [string]$manifest.branch_ref',
         "Assert-WeatherIntegrationGitBaseline",
         "worktree list --porcelain",
@@ -205,6 +209,8 @@ def test_composite_registration_is_disabled_before_any_scheduler_mutation() -> N
     assert registrar.index("$mergeSettingsParameters.Disable = $true") < first_register
     assert "[switch]$StageDisabled" in registrar
     assert "staged_disabled = [bool]$StageDisabled" in registrar
+    assert "Assert-WeatherIntegrationRegistrationPreparationState" in registrar
+    assert "Assert-WeatherIntegrationPreparationExecutionAuthorization" not in registrar
     assert '"-StageDisabled"' in preparer
     assert '"-StagedDisabled"' in preparer
     assert preparer.index('-Label "integration attempt readiness assertion"') < preparer.index(
@@ -230,6 +236,79 @@ def test_composite_registration_is_disabled_before_any_scheduler_mutation() -> N
         activation = wrapper.index("Assert-WeatherIntegrationActivationReceipt")
         terminal = wrapper.index("Assert-WeatherIntegrationAttemptNotTerminal")
         assert manifest < authorization < activation < terminal
+
+
+def test_disabled_registration_requires_planned_but_absent_execution_authority(
+    tmp_path: Path,
+) -> None:
+    attempt_root = tmp_path / "attempt-a1"
+    preparation_root = Path(str(attempt_root) + ".preparation")
+    preparation_root.mkdir()
+    manifest_path = attempt_root / "manifest.json"
+    intent_path = preparation_root / "preparation-intent.json"
+    intent_path.write_text('{"status":"PREPARED"}\n', encoding="utf-8")
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+$intentSha = Get-WeatherIntegrationFileSha256 -Path $env:WEATHER_INTENT_PATH
+$plan = Get-WeatherIntegrationPreparationAuthorizationPlan `
+    -AttemptRoot $env:WEATHER_ATTEMPT_ROOT `
+    -AttemptId 'attempt-a1' `
+    -ManifestPath $env:WEATHER_MANIFEST_PATH `
+    -ExpectedTip ('1' * 40) `
+    -PreparationIntentPath $env:WEATHER_INTENT_PATH `
+    -PreparationIntentSha256 $intentSha `
+    -SuiteTaskName 'WeatherIntegrationSuite_attempt-a1' `
+    -MergeTaskName 'WeatherIntegrationMerge_attempt-a1'
+$contract = [pscustomobject]@{
+    AttemptRoot = $env:WEATHER_ATTEMPT_ROOT
+    ManifestPath = $env:WEATHER_MANIFEST_PATH
+    Manifest = [pscustomobject]@{
+        attempt_id = 'attempt-a1'
+        expected_tip = ('1' * 40)
+        schedule = [pscustomobject]@{
+            suite_task_name = 'WeatherIntegrationSuite_attempt-a1'
+            merge_task_name = 'WeatherIntegrationMerge_attempt-a1'
+        }
+        authorization = [pscustomobject]@{
+            preparation = [pscustomobject]@{
+                required = $true
+                execution_authorization_path = $plan.Path
+                execution_authorization_sha256 = $plan.Sha256
+                preparation_intent_path = $env:WEATHER_INTENT_PATH
+                preparation_intent_sha256 = $intentSha
+            }
+        }
+    }
+}
+$staged = Assert-WeatherIntegrationRegistrationPreparationState `
+    -AttemptContract $contract
+if (-not [bool]$staged.Required -or [bool]$staged.Present) {
+    throw 'disabled staging did not accept the planned absent token'
+}
+Write-WeatherIntegrationImmutableJson -Path $plan.Path -Payload $plan.Payload
+$prematureAccepted = $false
+try {
+    Assert-WeatherIntegrationRegistrationPreparationState `
+        -AttemptContract $contract | Out-Null
+    $prematureAccepted = $true
+}
+catch { }
+if ($prematureAccepted) {
+    throw 'disabled staging accepted a pre-existing execution token'
+}
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_ATTEMPT_CONTRACT=str(ATTEMPT_CONTRACT),
+        WEATHER_ATTEMPT_ROOT=str(attempt_root),
+        WEATHER_MANIFEST_PATH=str(manifest_path),
+        WEATHER_INTENT_PATH=str(intent_path),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
 
 
 def test_activation_terminal_checks_are_inside_mutex_and_receipt_failure_rolls_back() -> None:
@@ -259,9 +338,9 @@ def test_activation_revalidates_mutable_premises_before_enable() -> None:
 
     revalidation = activator.index('$stage = "revalidate_mutable_readiness"')
     freshness = activator.index("[TimeSpan]::FromMinutes(2)", revalidation)
-    topic = activator.index("ls-remote --heads origin $topicRemoteRef", revalidation)
+    topic = activator.index("activation live canonical origin topic query", revalidation)
     master = activator.index(
-        'ls-remote --heads origin "refs/heads/master"', revalidation
+        "activation live canonical origin/master query", revalidation
     )
     baseline = activator.index("Assert-WeatherIntegrationGitBaseline", revalidation)
     worktree_inventory = activator.index("worktree list --porcelain", revalidation)
@@ -353,8 +432,15 @@ $remote = Resolve-WeatherIntegrationRemoteTipRows `
     -ExpectedRemoteRef 'refs/heads/codex/test'
 $missing = Resolve-WeatherIntegrationRemoteTipRows `
     -Rows @() -ExpectedRemoteRef 'refs/heads/codex/missing' -AllowMissing
+$protectedAccepted = $false
+try {
+    Get-WeatherIntegrationTopicBranchName -BranchRef 'origin/master' | Out-Null
+    $protectedAccepted = $true
+}
+catch { }
 if ($valid.minimum_lead_minutes -ne 10 -or $lateAccepted -or
     $remote -ne ('1' * 40) -or $null -ne $missing -or
+    $protectedAccepted -or
     (Get-WeatherIntegrationTopicBranchName -BranchRef 'origin/codex/test') -cne 'codex/test') {
     throw 'Preparation helper contract did not enforce its exact boundary.'
 }
@@ -370,6 +456,58 @@ if ($valid.minimum_lead_minutes -ne 10 -or $lateAccepted -or
     assert result.stdout.strip() == "OK"
 
 
+def test_production_branch_is_rejected_before_the_publication_boundary() -> None:
+    preparer = PREPARER.read_text(encoding="utf-8-sig")
+    creator = CREATOR.read_text(encoding="utf-8-sig")
+    topic_validation = preparer.index(
+        "$topicBranch = Get-WeatherIntegrationTopicBranchName"
+    )
+    push = preparer.index('-Label "exact reviewed topic publication"')
+    assert topic_validation < push
+    assert 'never a production branch' in creator
+    assert creator.index('never a production branch') < creator.index(
+        'if ($ExpectedTip -notmatch'
+    )
+
+
+def test_schedule_clock_stays_local_but_receipt_evidence_uses_offsets() -> None:
+    readiness = READINESS.read_text(encoding="utf-8-sig")
+    activation = ACTIVATOR.read_text(encoding="utf-8-sig")
+    assert (
+        "$scheduleCheckedAt = ConvertFrom-WeatherIntegrationLocalTimestamp"
+        in readiness
+    )
+    assert (
+        "$schedulerBoundaryCheckedAt = "
+        "ConvertFrom-WeatherIntegrationEvidenceTimestamp"
+        in readiness
+    )
+    assert (
+        "$readinessCheckedAt = ConvertFrom-WeatherIntegrationEvidenceTimestamp"
+        in activation
+    )
+
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+$first = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+    -Value '2026-08-24T16:27:55.1170635-04:00' -Label 'first'
+$second = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+    -Value '2026-08-24T20:27:56.1170635Z' -Label 'second'
+if ($first.UtcDateTime -ge $second.UtcDateTime -or
+    ($second - $first) -ne [TimeSpan]::FromSeconds(1)) {
+    throw 'Offset-bearing evidence timestamps did not compare by instant.'
+}
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_ATTEMPT_CONTRACT=str(ATTEMPT_CONTRACT),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
+
+
 def test_collision_gate_uses_exact_task_paths_and_conservative_running_windows() -> None:
     contract = PREPARATION_CONTRACT.read_text(encoding="utf-8-sig")
 
@@ -378,10 +516,23 @@ def test_collision_gate_uses_exact_task_paths_and_conservative_running_windows()
     assert "-TaskPath ([string]$task.TaskPath)" in contract
     assert '$taskState -in @("Running", "Queued")' in contract
     assert '$taskState -notin @("Ready", "Disabled")' in contract
-    assert '$taskState -eq "Disabled" -or -not $settingsEnabled' in contract
+    disabled_branch = contract.index(
+        'if ($taskState -eq "Disabled" -or -not $settingsEnabled)'
+    )
+    receipt_gate = contract.index(
+        "Assert-WeatherIntegrationDisabledTaskRetirementEvidence", disabled_branch
+    )
+    disabled_continue = contract.index("continue", disabled_branch)
+    assert disabled_branch < receipt_gate < disabled_continue
+    assert '"AllowDemandStart"' in contract
+    assert "@demand-start-enabled" in contract
+    assert "@disabled-without-valid-retirement-receipt" in contract
+    assert "Assert-WeatherIntegrationTaskRetirementReceipt" in contract
+    assert "Assert-WeatherIntegrationFailClosureReceipt" in contract
     assert "$conflictStart.AddHours(4)" in contract
     assert "$conflictStart -le $MergeAtLocal" in contract
     assert "$SuiteAtLocal -le $conflictEnd" in contract
+    assert "retire_integration_attempt_tasks.ps1" in contract
 
 
 def test_collision_gate_fails_closed_for_running_queued_and_unknown_states() -> None:
@@ -396,12 +547,28 @@ function Get-ScheduledTaskInfo {
     param([string]$TaskName, [string]$TaskPath, $ErrorAction)
     return [pscustomobject]@{ NextRunTime = $global:nextRun }
 }
-function New-TestTask([string]$Name, [string]$State, [bool]$Enabled, [string]$Arguments) {
+$global:retirementReceiptValid = $false
+function Assert-WeatherIntegrationDisabledTaskRetirementEvidence {
+    param([object]$Task)
+    if (-not $global:retirementReceiptValid) {
+        throw 'synthetic missing or invalid retirement receipt'
+    }
+}
+function New-TestTask(
+    [string]$Name,
+    [string]$State,
+    [bool]$Enabled,
+    [string]$Arguments,
+    [bool]$AllowDemandStart = $false
+) {
     return [pscustomobject]@{
         TaskName = $Name
         TaskPath = '\'
         State = $State
-        Settings = [pscustomobject]@{ Enabled = $Enabled }
+        Settings = [pscustomobject]@{
+            Enabled = $Enabled
+            AllowDemandStart = $AllowDemandStart
+        }
         Actions = @([pscustomobject]@{ Arguments = $Arguments })
     }
 }
@@ -411,7 +578,9 @@ foreach ($case in @(
     [pscustomobject]@{ Task = (New-TestTask 'WeatherIntegrationSuite_old' 'Running' $false ''); Label = 'running disabled' },
     [pscustomobject]@{ Task = (New-TestTask 'WeatherMergeSensitiveDriver' 'Queued' $false ''); Label = 'queued disabled' },
     [pscustomobject]@{ Task = (New-TestTask 'weathermERgesensitivedriver' 'Running' $false ''); Label = 'case-variant sensitive driver' },
-    [pscustomobject]@{ Task = (New-TestTask 'WeatherMergeSensitiveDriver' 'Unknown' $true ''); Label = 'unknown' }
+    [pscustomobject]@{ Task = (New-TestTask 'WeatherMergeSensitiveDriver' 'Unknown' $true ''); Label = 'unknown' },
+    [pscustomobject]@{ Task = (New-TestTask 'WeatherIntegrationSuite_manual' 'Ready' $true '' $true); Label = 'manual resurrection' },
+    [pscustomobject]@{ Task = (New-TestTask 'WeatherIntegrationRecoveryBootstrapMergeFixed0822' 'Ready' $true 'quiet_window_merge.ps1' $true); Label = 'legacy quiet manual resurrection' }
 )) {
     $global:tasks = @($case.Task)
     $blocked = $false
@@ -422,10 +591,96 @@ foreach ($case in @(
     catch { $blocked = $true }
     if (-not $blocked) { throw "$($case.Label) task bypassed collision gate" }
 }
+$global:tasks = @(
+    (New-TestTask 'WeatherIntegrationSuite_old' 'Ready' $true '' $true),
+    (New-TestTask 'WeatherIntegrationRecoveryBootstrapMergeFixed0822' 'Ready' $true 'quiet_window_merge.ps1' $true)
+)
+$aggregateFailure = ''
+try {
+    Assert-WeatherIntegrationNoActiveAttemptCollision `
+        -SuiteAtLocal $suite -MergeAtLocal $merge
+}
+catch { $aggregateFailure = $_.Exception.Message }
+if ($aggregateFailure -notlike '*WeatherIntegrationSuite_old@demand-start-enabled*' -or
+    $aggregateFailure -notlike '*WeatherIntegrationRecoveryBootstrapMergeFixed0822@demand-start-enabled*' -or
+    $aggregateFailure -notlike '*reviewed cleanup for a legacy non-attempt task*') {
+    throw 'Collision gate hid one of multiple exact legacy blockers.'
+}
+$global:tasks = @(
+    New-TestTask 'WeatherIntegrationSuite_retired' 'Disabled' $false '' $true
+)
+$disabledFailure = ''
+try {
+    Assert-WeatherIntegrationNoActiveAttemptCollision `
+        -SuiteAtLocal $suite -MergeAtLocal $merge
+}
+catch { $disabledFailure = $_.Exception.Message }
+if ($disabledFailure -notlike
+    '*WeatherIntegrationSuite_retired@disabled-without-valid-retirement-receipt*') {
+    throw 'Disabled demand-start task escaped without a valid retirement receipt.'
+}
+$global:retirementReceiptValid = $true
+Assert-WeatherIntegrationNoActiveAttemptCollision `
+    -SuiteAtLocal $suite -MergeAtLocal $merge
+$global:retirementReceiptValid = $false
 $global:tasks = @(New-TestTask 'WeatherIntegrationSuite_spent' 'Ready' $true '')
 $global:nextRun = $null
 Assert-WeatherIntegrationNoActiveAttemptCollision `
     -SuiteAtLocal $suite -MergeAtLocal $merge
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_ATTEMPT_CONTRACT=str(ATTEMPT_CONTRACT),
+        WEATHER_PREPARATION_CONTRACT=str(PREPARATION_CONTRACT),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
+
+
+def test_collision_gate_handles_non_exec_actions_without_arguments() -> None:
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+. $env:WEATHER_PREPARATION_CONTRACT
+$global:tasks = @()
+$global:nextRun = $null
+$global:taskInfoCalls = 0
+function Get-ScheduledTask { param($ErrorAction) return @($global:tasks) }
+function Get-ScheduledTaskInfo {
+    param([string]$TaskName, [string]$TaskPath, $ErrorAction)
+    $global:taskInfoCalls++
+    return [pscustomobject]@{ NextRunTime = $global:nextRun }
+}
+function New-NonExecTask([string]$Name) {
+    return [pscustomobject]@{
+        TaskName = $Name
+        TaskPath = '\'
+        State = 'Ready'
+        Settings = [pscustomobject]@{ Enabled = $true }
+        Actions = @([pscustomobject]@{ ClassId = '{00000000-0000-0000-0000-000000000000}' })
+    }
+}
+$suite = [datetime]'2026-08-25T00:40:00'
+$merge = [datetime]'2026-08-25T01:20:00'
+$global:tasks = @(New-NonExecTask 'BenignComHandlerTask')
+Assert-WeatherIntegrationNoActiveAttemptCollision `
+    -SuiteAtLocal $suite -MergeAtLocal $merge
+if ($global:taskInfoCalls -ne 0) {
+    throw 'benign non-Exec action was treated as protected merge work'
+}
+$global:tasks = @(New-NonExecTask 'WeatherMergeSensitiveDriver')
+$global:nextRun = $suite.AddMinutes(5)
+$blocked = $false
+try {
+    Assert-WeatherIntegrationNoActiveAttemptCollision `
+        -SuiteAtLocal $suite -MergeAtLocal $merge
+}
+catch { $blocked = $true }
+if (-not $blocked -or $global:taskInfoCalls -ne 1) {
+    throw 'non-Exec sensitive driver bypassed collision protection'
+}
 'OK'
 """
     result = _powershell(
@@ -498,11 +753,629 @@ if (-not $failedClosed) {
     assert result.stdout.strip() == "OK"
 
 
-def test_attempt_closure_refuses_queued_instances_as_nonterminal() -> None:
+def test_attempt_closure_requires_exact_provably_terminal_states() -> None:
     contract = ATTEMPT_CONTRACT.read_text(encoding="utf-8-sig")
 
-    assert '[string]$task.State -in @("Running", "Queued")' in contract
-    assert "still running or queued and may not be disabled" in contract
+    assert '[string]$task.State -notin @("Ready", "Disabled")' in contract
+    assert "not provably terminal and may not be disabled" in contract
+
+
+def test_attempt_wrappers_bind_frozen_date_and_disallow_demand_start() -> None:
+    contract = ATTEMPT_CONTRACT.read_text(encoding="utf-8-sig")
+    registrar = REGISTRAR.read_text(encoding="utf-8-sig")
+    suite = SUITE.read_text(encoding="utf-8-sig")
+    merge = MERGE.read_text(encoding="utf-8-sig")
+
+    assert "$script:WeatherIntegrationAttemptLegacyTaskBindingContract" in contract
+    assert "DisallowDemandStart = $true" in registrar
+    assert "Integration-attempt suite may run only on its immutable scheduled local date" in suite
+    assert "Integration-attempt merge may run only on its immutable scheduled local date" in merge
+
+
+def test_remote_git_is_noninteractive_bounded_and_kills_on_timeout(
+    tmp_path: Path,
+) -> None:
+    helper = REMOTE_GIT.read_text(encoding="utf-8-sig")
+    assert 'GIT_TERMINAL_PROMPT = "0"' in helper
+    assert 'GCM_INTERACTIVE = "Never"' in helper
+    assert "ReadToEndAsync()" in helper
+    assert "WaitForExit($TimeoutSeconds * 1000)" in helper
+    assert 'Arguments = "/PID $processId /T /F"' in helper
+    assert "[int]$killer.ExitCode -ne 0" in helper
+    assert "timed-out parent did not prove exit" in helper
+    assert "termination could not be proved" in helper
+    assert '@("ls-remote", "fetch", "push")' in helper
+
+    descendant = tmp_path / "bounded-descendant.ps1"
+    descendant.write_text(
+        "Start-Sleep -Seconds 4\n"
+        "[IO.File]::WriteAllText($env:WEATHER_DESCENDANT_MARKER, 'escaped')\n",
+        encoding="utf-8",
+    )
+    parent = tmp_path / "bounded-parent.ps1"
+    parent.write_text(
+        "param([string]$DescendantScript)\n"
+        "$powershell = Join-Path $PSHOME 'powershell.exe'\n"
+        "Start-Process -FilePath $powershell -WindowStyle Hidden "
+        "-ArgumentList @('-NoProfile', '-NonInteractive', '-File', $DescendantScript)\n"
+        "Start-Sleep -Seconds 20\n",
+        encoding="utf-8",
+    )
+    marker = tmp_path / "escaped-descendant.txt"
+
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_REMOTE_GIT
+$powershell = Join-Path $PSHOME 'powershell.exe'
+$failureClosed = $false
+try {
+    Invoke-WeatherIntegrationBoundedProcess `
+        -Executable $powershell `
+        -Arguments @('-NoProfile', '-NonInteractive', '-Command', 'exit 23') `
+        -WorkingDirectory $env:WEATHER_ROOT `
+        -TimeoutSeconds 5 `
+        -Label 'synthetic failure' | Out-Null
+}
+catch {
+    $failureClosed = $_.Exception.Message -like '*exit code 23*'
+}
+$started = Get-Date
+$timeoutClosed = $false
+try {
+    Invoke-WeatherIntegrationBoundedProcess `
+        -Executable $powershell `
+        -Arguments @(
+            '-NoProfile', '-NonInteractive', '-File', $env:WEATHER_PARENT_SCRIPT,
+            '-DescendantScript', $env:WEATHER_DESCENDANT_SCRIPT
+        ) `
+        -WorkingDirectory $env:WEATHER_ROOT `
+        -TimeoutSeconds 1 `
+        -Label 'synthetic timeout' | Out-Null
+}
+catch {
+    $timeoutClosed = (
+        $_.Exception.Message -like '*timed out after 1 seconds*' -and
+        $_.Exception.Message -like '*proved its child process tree was terminated*'
+    )
+}
+$elapsed = ((Get-Date) - $started).TotalSeconds
+Start-Sleep -Seconds 5
+$descendantEscaped = Test-Path -LiteralPath $env:WEATHER_DESCENDANT_MARKER
+if (-not $failureClosed -or -not $timeoutClosed -or $elapsed -gt 8 -or
+    $descendantEscaped) {
+    throw "Bounded process contract failed: failure=$failureClosed timeout=$timeoutClosed elapsed=$elapsed"
+}
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_REMOTE_GIT=str(REMOTE_GIT),
+        WEATHER_ROOT=str(ROOT),
+        WEATHER_PARENT_SCRIPT=str(parent),
+        WEATHER_DESCENDANT_SCRIPT=str(descendant),
+        WEATHER_DESCENDANT_MARKER=str(marker),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
+
+
+def test_frozen_origin_url_rejects_fork_substitution(tmp_path: Path) -> None:
+    repo = tmp_path / "origin-binding"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", str(repo)], check=True, capture_output=True, text=True
+    )
+    expected = "https://github.com/michaelbooth1/weather.git"
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "remote.origin.url", expected],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_REMOTE_GIT
+Assert-WeatherIntegrationCanonicalOriginUrl `
+    -Root $env:WEATHER_TEST_REPO `
+    -ExpectedUrl 'https://github.com/michaelbooth1/weather.git' `
+    -Phase 'test initial binding' | Out-Null
+& git -C $env:WEATHER_TEST_REPO config remote.origin.url `
+    'https://github.com/substituted-fork/weather.git'
+if ($LASTEXITCODE -ne 0) { throw 'Could not apply synthetic fork substitution.' }
+$substitutionAccepted = $false
+try {
+    Assert-WeatherIntegrationCanonicalOriginUrl `
+        -Root $env:WEATHER_TEST_REPO `
+        -ExpectedUrl 'https://github.com/michaelbooth1/weather.git' `
+        -Phase 'test substituted binding' | Out-Null
+    $substitutionAccepted = $true
+}
+catch { }
+if ($substitutionAccepted) { throw 'A substituted origin fork was accepted.' }
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_REMOTE_GIT=str(REMOTE_GIT),
+        WEATHER_TEST_REPO=str(repo),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
+
+
+def test_frozen_origin_rejects_pushurl_and_url_rewrites_in_effective_config(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "origin-routing"
+    repo.mkdir()
+    subprocess.run(
+        ["git", "init", "-q", str(repo)], check=True, capture_output=True, text=True
+    )
+    expected = "https://github.com/michaelbooth1/weather.git"
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "remote.origin.url", expected],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_REMOTE_GIT
+function Assert-Rejected([string]$ExpectedFragment) {
+    $accepted = $false
+    try {
+        Assert-WeatherIntegrationCanonicalOriginUrl `
+            -Root $env:WEATHER_TEST_REPO `
+            -ExpectedUrl 'https://github.com/michaelbooth1/weather.git' `
+            -Phase 'synthetic routing substitution' | Out-Null
+        $accepted = $true
+    }
+    catch {
+        if ($_.Exception.Message -notlike "*$ExpectedFragment*") { throw }
+    }
+    if ($accepted) { throw "Unsafe Git routing config was accepted: $ExpectedFragment" }
+}
+& git -C $env:WEATHER_TEST_REPO config remote.origin.pushurl `
+    'https://github.com/substituted-fork/weather.git'
+if ($LASTEXITCODE -ne 0) { throw 'Could not configure synthetic pushurl.' }
+Assert-Rejected 'pushurl'
+& git -C $env:WEATHER_TEST_REPO config --unset-all remote.origin.pushurl
+if ($LASTEXITCODE -ne 0) { throw 'Could not remove synthetic pushurl.' }
+& git -C $env:WEATHER_TEST_REPO config `
+    'url.https://github.com/substituted-fork/.pushInsteadOf' `
+    'https://github.com/'
+if ($LASTEXITCODE -ne 0) { throw 'Could not configure synthetic pushInsteadOf.' }
+Assert-Rejected 'insteadOf/pushInsteadOf'
+& git -C $env:WEATHER_TEST_REPO config --unset-all `
+    'url.https://github.com/substituted-fork/.pushInsteadOf'
+if ($LASTEXITCODE -ne 0) { throw 'Could not remove synthetic pushInsteadOf.' }
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_REMOTE_GIT=str(REMOTE_GIT),
+        WEATHER_TEST_REPO=str(repo),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
+
+    isolated_global = tmp_path / "synthetic-global.gitconfig"
+    subprocess.run(
+        [
+            "git",
+            "config",
+            "--file",
+            str(isolated_global),
+            "url.https://github.com/substituted-global/.insteadOf",
+            "https://github.com/",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    global_result = _powershell(
+        r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_REMOTE_GIT
+Assert-WeatherIntegrationCanonicalOriginUrl `
+    -Root $env:WEATHER_TEST_REPO `
+    -ExpectedUrl 'https://github.com/michaelbooth1/weather.git' `
+    -Phase 'synthetic global rewrite' | Out-Null
+""",
+        WEATHER_REMOTE_GIT=str(REMOTE_GIT),
+        WEATHER_TEST_REPO=str(repo),
+        GIT_CONFIG_GLOBAL=str(isolated_global),
+    )
+    assert global_result.returncode != 0
+    assert "insteadOf/pushInsteadOf" in global_result.stderr
+
+
+def test_origin_identity_is_frozen_and_rechecked_at_every_live_boundary() -> None:
+    preparer = PREPARER.read_text(encoding="utf-8-sig")
+    creator = CREATOR.read_text(encoding="utf-8-sig")
+    readiness = READINESS.read_text(encoding="utf-8-sig")
+    activation = ACTIVATOR.read_text(encoding="utf-8-sig")
+    contract = ATTEMPT_CONTRACT.read_text(encoding="utf-8-sig")
+    merge = MERGE.read_text(encoding="utf-8-sig")
+    closer = (OPS / "close_integration_attempt.ps1").read_text(encoding="utf-8-sig")
+    quiet_merge = (OPS / "quiet_window_merge.ps1").read_text(encoding="utf-8-sig")
+
+    assert "origin_url = $originUrl" in preparer
+    assert "origin_url = $originUrl" in creator
+    assert '"remote", "origin_url", "remote_ref"' in readiness
+    assert "Assert-WeatherIntegrationOriginIdentity" in readiness
+    assert "Assert-WeatherIntegrationOriginIdentity" in activation
+    assert "Assert-WeatherIntegrationOriginIdentity" in contract
+    assert "Assert-WeatherIntegrationOriginIdentity" in closer
+    assert '"-ExpectedOriginUrl", $ExpectedOriginUrl' in merge
+    assert "-ExpectedOriginUrl ([string]$manifest.baseline.origin_url)" in merge
+    assert "RequireLiveOrigin requires the frozen canonical origin URL" in quiet_merge
+    assert "remote.origin.pushurl" in REMOTE_GIT.read_text(encoding="utf-8-sig")
+    assert "url.*.insteadOf/pushInsteadOf" in REMOTE_GIT.read_text(encoding="utf-8-sig")
+    assert "Get-WeatherIntegrationCanonicalRemoteTip" in quiet_merge
+    start_push = quiet_merge.index("Start-ScheduledTask -TaskName WeatherOneShotPush")
+    immediate_identity = quiet_merge.index(
+        "quiet-window immediate pre-push origin identity"
+    )
+    canonical_ack = quiet_merge.index(
+        "quiet-window post-push canonical origin/master verification"
+    )
+    pushed_receipt = quiet_merge.index('$publicationAcknowledged = $true')
+    assert immediate_identity < start_push < canonical_ack < pushed_receipt
+
+
+def test_real_credential_reconcile_a1_v1_registration_evidence_flows_real_readers(
+    tmp_path: Path,
+) -> None:
+    fixture = (
+        ROOT
+        / "tests"
+        / "fixtures"
+        / "operations"
+        / "credential_reconcile_0824_a1_registration_v1.json"
+    )
+    evidence = json.loads(fixture.read_text(encoding="utf-8"))
+    assert evidence["source"].startswith("production credential-reconcile-0824-a1")
+    assert evidence["intent"]["schema"] == (
+        "weather_integration_attempt_registration_intent_v1"
+    )
+    assert evidence["receipt"]["schema"] == (
+        "weather_integration_attempt_registration_receipt_v1"
+    )
+    assert evidence["intent"]["suite"]["settings"]["allow_demand_start"] is True
+    assert evidence["intent"]["merge"]["settings"]["allow_demand_start"] is True
+    assert evidence["receipt"]["suite"]["registered"] is True
+    assert evidence["receipt"]["merge"]["registered"] is True
+    assert evidence["closure"]["schema"] == (
+        "weather_integration_attempt_closure_receipt_v1"
+    )
+    assert evidence["closure"]["status"] == "FAIL"
+
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+$fixture = Get-Content -LiteralPath $env:WEATHER_V1_FIXTURE -Raw | ConvertFrom-Json
+$attemptRoot = [IO.Path]::GetFullPath($env:WEATHER_V1_ATTEMPT_ROOT)
+[IO.Directory]::CreateDirectory($attemptRoot) | Out-Null
+$suiteScript = Join-Path $env:WEATHER_ROOT 'scripts\ops\integration_attempt_suite.ps1'
+$mergeScript = Join-Path $env:WEATHER_ROOT 'scripts\ops\integration_attempt_merge.ps1'
+$manifestPath = Join-Path $attemptRoot 'manifest.json'
+$intentPath = Join-Path $attemptRoot 'registration-intent.json'
+$receiptPath = Join-Path $attemptRoot 'registration-receipt.json'
+$closurePath = Join-Path $attemptRoot 'closure-receipt.json'
+$manifestSha = ('c' * 64)
+$manifest = [pscustomobject]@{
+    attempt_id = [string]$fixture.intent.attempt_id
+    attempt_root = $attemptRoot
+    repo_root = $env:WEATHER_ROOT
+    expected_tip = [string]$fixture.closure.expected_tip
+    baseline = [pscustomobject]@{
+        master = [string]$fixture.closure.post_disable_proof.master
+        origin_master = [string]$fixture.closure.post_disable_proof.origin_master
+    }
+    schedule = [pscustomobject]@{
+        suite_task_name = [string]$fixture.intent.suite.task_name
+        merge_task_name = [string]$fixture.intent.merge.task_name
+        suite_at_local = [string]$fixture.intent.suite.trigger.at_local
+        merge_at_local = [string]$fixture.intent.merge.trigger.at_local
+    }
+    orchestration = [pscustomobject]@{
+        attempt_suite = [pscustomobject]@{
+            path = $suiteScript
+            sha256 = [string]$fixture.intent.suite.script_sha256
+        }
+        attempt_merge = [pscustomobject]@{
+            path = $mergeScript
+            sha256 = [string]$fixture.intent.merge.script_sha256
+        }
+    }
+    evidence = [pscustomobject]@{
+        registration_intent = $intentPath
+        registration_receipt = $receiptPath
+        closure_receipt = $closurePath
+    }
+}
+$attempt = [pscustomobject]@{
+    Manifest = $manifest
+    ManifestPath = $manifestPath
+    ManifestSha256 = $manifestSha
+    AttemptRoot = $attemptRoot
+}
+$intent = $fixture.intent
+$receipt = $fixture.receipt
+$intent.intent_path = $intentPath
+$intent.manifest_path = $manifestPath
+$intent.manifest_sha256 = $manifestSha
+$receipt.manifest_path = $manifestPath
+$receipt.manifest_sha256 = $manifestSha
+$receipt.registration_intent_path = $intentPath
+foreach ($role in @('suite', 'merge')) {
+    $expected = Get-WeatherIntegrationExpectedTaskBinding `
+        -AttemptContract $attempt -Role $role `
+        -UserId ([string]$intent.principal.user_id) `
+        -BindingContract ([string]$intent.binding_contract)
+    $intent.$role.arguments = [string]$expected.arguments
+    $intent.$role.working_directory = [string]$expected.working_directory
+    $receipt.$role.arguments = [string]$expected.arguments
+    $receipt.$role.working_directory = [string]$expected.working_directory
+}
+$encoding = New-Object Text.UTF8Encoding($false)
+[IO.File]::WriteAllText(
+    $intentPath,
+    ($intent | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+$receipt.registration_intent_sha256 = Get-WeatherIntegrationFileSha256 -Path $intentPath
+[IO.File]::WriteAllText(
+    $receiptPath,
+    ($receipt | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+$intentResult = Assert-WeatherIntegrationRegistrationIntent `
+    -AttemptContract $attempt
+$receiptResult = Assert-WeatherIntegrationRegistrationReceipt `
+    -AttemptContract $attempt -RequirePass
+if ([string]$intentResult.Intent.schema -ne
+        $script:WeatherIntegrationAttemptLegacyRegistrationIntentSchema -or
+    [string]$receiptResult.Receipt.schema -ne
+        $script:WeatherIntegrationAttemptLegacyRegistrationReceiptSchema -or
+    -not [bool]$receiptResult.Intent.suite.settings.allow_demand_start -or
+    -not [bool]$receiptResult.Intent.merge.settings.allow_demand_start) {
+    throw 'The real historical v1 evidence did not survive the production readers.'
+}
+$intent.suite.settings.allow_demand_start = $false
+[IO.File]::WriteAllText(
+    $intentPath,
+    ($intent | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+$tamperAccepted = $false
+try {
+    Assert-WeatherIntegrationRegistrationReceipt `
+        -AttemptContract $attempt -RequirePass | Out-Null
+    $tamperAccepted = $true
+}
+catch { }
+if ($tamperAccepted) { throw 'Tampered historical v1 intent was accepted.' }
+$intent.suite.settings.allow_demand_start = $true
+[IO.File]::WriteAllText(
+    $intentPath,
+    ($intent | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+$receipt.registration_intent_sha256 = Get-WeatherIntegrationFileSha256 -Path $intentPath
+[IO.File]::WriteAllText(
+    $receiptPath,
+    ($receipt | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+$closure = $fixture.closure
+$closure.manifest_path = $manifestPath
+$closure.manifest_sha256 = $manifestSha
+$closure.registration_evidence.registration_intent_path = $intentPath
+$closure.registration_evidence.registration_intent_sha256 = `
+    Get-WeatherIntegrationFileSha256 -Path $intentPath
+$closure.registration_evidence.registration_receipt_path = $receiptPath
+$closure.registration_evidence.registration_receipt_sha256 = `
+    Get-WeatherIntegrationFileSha256 -Path $receiptPath
+foreach ($row in @($closure.preserved_evidence)) {
+    $leaf = Split-Path -Leaf ([string]$row.path)
+    $portablePath = Join-Path $attemptRoot $leaf
+    if ($leaf -eq 'registration-intent.json') {
+        $portablePath = $intentPath
+    }
+    elseif ($leaf -eq 'registration-receipt.json') {
+        $portablePath = $receiptPath
+    }
+    else {
+        [IO.File]::WriteAllText(
+            $portablePath, "portable historical evidence: $leaf", $encoding
+        )
+    }
+    $row.path = $portablePath
+    $row.sha256 = Get-WeatherIntegrationFileSha256 -Path $portablePath
+}
+[IO.File]::WriteAllText(
+    $closurePath,
+    ($closure | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+# The reader below is the production closure reader. Only the CIM-rich
+# Scheduler-object comparator is isolated because this test has no Scheduler.
+function Assert-WeatherIntegrationScheduledTaskObject {
+    param([object]$Task, [object]$BindingEvidence, [string]$Role)
+    return $Task
+}
+foreach ($role in @('suite', 'merge')) {
+    $taskName = if ($role -eq 'suite') {
+        [string]$manifest.schedule.suite_task_name
+    }
+    else { [string]$manifest.schedule.merge_task_name }
+    $task = [pscustomobject]@{
+        TaskName = $taskName
+        TaskPath = '\'
+        State = 'Disabled'
+        Settings = [pscustomobject]@{ Enabled = $false }
+    }
+    Assert-WeatherIntegrationFailClosureReceipt `
+        -AttemptContract $attempt -Task $task -Role $role | Out-Null
+}
+$fullPreservedEvidence = @($closure.preserved_evidence)
+$manifest.evidence.registration_receipt = Join-Path $attemptRoot 'missing-registration-receipt.json'
+$closure.registration_evidence.registration_receipt_path = `
+    [string]$manifest.evidence.registration_receipt
+$closure.registration_evidence.registration_receipt_sha256 = $null
+$closure.preserved_evidence = @($fullPreservedEvidence | Where-Object {
+    (Split-Path -Leaf ([string]$_.path)) -ne 'registration-receipt.json'
+})
+[IO.File]::WriteAllText(
+    $closurePath,
+    ($closure | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+Assert-WeatherIntegrationFailClosureReceipt `
+    -AttemptContract $attempt `
+    -Task ([pscustomobject]@{
+        TaskName = [string]$manifest.schedule.suite_task_name
+        TaskPath = '\'
+        State = 'Disabled'
+        Settings = [pscustomobject]@{ Enabled = $false }
+    }) `
+    -Role suite | Out-Null
+$manifest.evidence.registration_receipt = $receiptPath
+$closure.registration_evidence.registration_receipt_path = $receiptPath
+$closure.registration_evidence.registration_receipt_sha256 = `
+    Get-WeatherIntegrationFileSha256 -Path $receiptPath
+$closure.preserved_evidence = $fullPreservedEvidence
+$closure.tasks = @($closure.tasks[0])
+[IO.File]::WriteAllText(
+    $closurePath,
+    ($closure | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+$corruptClosureAccepted = $false
+try {
+    Assert-WeatherIntegrationFailClosureReceipt `
+        -AttemptContract $attempt `
+        -Task ([pscustomobject]@{
+            TaskName = [string]$manifest.schedule.suite_task_name
+            TaskPath = '\'
+            State = 'Disabled'
+            Settings = [pscustomobject]@{ Enabled = $false }
+        }) `
+        -Role suite | Out-Null
+    $corruptClosureAccepted = $true
+}
+catch { }
+if ($corruptClosureAccepted) { throw 'Corrupt historical FAIL closure was accepted.' }
+$mergeReceiptPath = Join-Path $attemptRoot 'merge-receipt.json'
+$manifest.evidence | Add-Member `
+    -NotePropertyName merge_receipt -NotePropertyValue $mergeReceiptPath
+[IO.File]::WriteAllText(
+    $mergeReceiptPath,
+    ([ordered]@{
+        schema = $script:WeatherIntegrationAttemptMergeReceiptSchema
+        status = 'PASS'
+        manifest_sha256 = $manifestSha
+    } | ConvertTo-Json -Depth 5) + [Environment]::NewLine,
+    $encoding
+)
+$retirementPath = Join-Path $attemptRoot 'task-retirement-receipt.json'
+$preDisable = @()
+$postDisable = @()
+foreach ($role in @('suite', 'merge')) {
+    $taskName = if ($role -eq 'suite') {
+        [string]$manifest.schedule.suite_task_name
+    }
+    else { [string]$manifest.schedule.merge_task_name }
+    $preDisable += [ordered]@{
+        role = $role
+        task_name = $taskName
+        state = 'Ready'
+        enabled = $true
+        allow_demand_start = $true
+        last_run_time = '2026-08-24T00:30:00-04:00'
+        last_task_result = 0
+    }
+    $postDisable += [ordered]@{
+        task_name = $taskName
+        exists = $true
+        disabled = $true
+        last_task_result = 0
+    }
+}
+$retirement = [ordered]@{
+    schema = $script:WeatherIntegrationTaskRetirementReceiptSchema
+    status = 'PASS'
+    classification = 'SUCCESSFUL_ATTEMPT_TASKS_RETIRED'
+    attempt_id = [string]$manifest.attempt_id
+    manifest_path = $manifestPath
+    manifest_sha256 = $manifestSha
+    merge_receipt_path = $mergeReceiptPath
+    merge_receipt_sha256 = Get-WeatherIntegrationFileSha256 -Path $mergeReceiptPath
+    retired_at_local = '2026-08-24T04:00:00-04:00'
+    review_reference = 'portable real-v1 reader regression'
+    confirmation = $script:WeatherIntegrationTaskRetirementConfirmation
+    pre_disable = $preDisable
+    post_disable = $postDisable
+    safety = [ordered]@{
+        authority = 'NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY'
+        credential_value_access_authorized = $false
+        live_exchange_mutation_authorized = $false
+    }
+}
+[IO.File]::WriteAllText(
+    $retirementPath,
+    ($retirement | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+foreach ($role in @('suite', 'merge')) {
+    $taskName = if ($role -eq 'suite') {
+        [string]$manifest.schedule.suite_task_name
+    }
+    else { [string]$manifest.schedule.merge_task_name }
+    Assert-WeatherIntegrationTaskRetirementReceipt `
+        -AttemptContract $attempt `
+        -Task ([pscustomobject]@{
+            TaskName = $taskName
+            TaskPath = '\'
+            State = 'Disabled'
+            Settings = [pscustomobject]@{ Enabled = $false }
+        }) `
+        -Role $role | Out-Null
+}
+$retirement.post_disable = @($retirement.post_disable[0])
+[IO.File]::WriteAllText(
+    $retirementPath,
+    ($retirement | ConvertTo-Json -Depth 20) + [Environment]::NewLine,
+    $encoding
+)
+$partialRetirementAccepted = $false
+try {
+    Assert-WeatherIntegrationTaskRetirementReceipt `
+        -AttemptContract $attempt `
+        -Task ([pscustomobject]@{
+            TaskName = [string]$manifest.schedule.suite_task_name
+            TaskPath = '\'
+            State = 'Disabled'
+            Settings = [pscustomobject]@{ Enabled = $false }
+        }) `
+        -Role suite | Out-Null
+    $partialRetirementAccepted = $true
+}
+catch { }
+if ($partialRetirementAccepted) { throw 'Partial task retirement was accepted.' }
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_ATTEMPT_CONTRACT=str(ATTEMPT_CONTRACT),
+        WEATHER_V1_FIXTURE=str(fixture),
+        WEATHER_ROOT=str(ROOT),
+        WEATHER_V1_ATTEMPT_ROOT=str(tmp_path / "historical-a1"),
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
 
 
 def test_preparation_schedule_reserve_has_deterministic_boundaries() -> None:
@@ -607,7 +1480,7 @@ def test_expired_preparation_fails_before_git_or_scheduler_and_is_durable(
 
 
 def test_new_preparation_powershell_sources_parse_without_execution() -> None:
-    paths = (PREPARER, READINESS, ACTIVATOR, PREPARATION_CONTRACT)
+    paths = (PREPARER, READINESS, ACTIVATOR, PREPARATION_CONTRACT, REMOTE_GIT)
     command = r"""
 $errors = New-Object System.Collections.Generic.List[string]
 foreach ($path in @($env:WEATHER_PREPARATION_PARSE_PATHS -split [IO.Path]::PathSeparator)) {

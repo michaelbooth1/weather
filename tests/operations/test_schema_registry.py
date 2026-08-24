@@ -14,6 +14,48 @@ from weather.schema_registry_data import INTENTIONAL_SCHEMA_VERSION_ALIASES  # n
 
 
 class TestSchemaRegistry(unittest.TestCase):
+    def test_live_lifecycle_schema_versions_are_advanced_with_legacy_entries(self):
+        self.assertEqual(
+            schema_version("mm_platform_verification"),
+            "mm_platform_verification_v0.6",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_verification_v0_5_legacy"),
+            "mm_platform_verification_v0.5",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_bootstrap"),
+            "mm_platform_bootstrap_v0.4",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_bootstrap_v0_3_legacy"),
+            "mm_platform_bootstrap_v0.3",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe"),
+            "mm_live_lifecycle_probe_v0.3",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe_v0_2_legacy"),
+            "mm_live_lifecycle_probe_v0.2",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe_journal"),
+            "mm_live_lifecycle_probe_journal_v0.2",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe_journal_v0_1_legacy"),
+            "mm_live_lifecycle_probe_journal_v0.1",
+        )
+        self.assertEqual(
+            schema_version("mm_stage1_lifecycle_bundle"),
+            "mm_stage1_lifecycle_bundle_v0.3",
+        )
+        self.assertEqual(
+            schema_version("mm_stage1_lifecycle_bundle_v0_2_legacy"),
+            "mm_stage1_lifecycle_bundle_v0.2",
+        )
+
     def test_registry_lookup_returns_public_versions(self):
         self.assertEqual(
             schema_version("residual_distribution_v1"),

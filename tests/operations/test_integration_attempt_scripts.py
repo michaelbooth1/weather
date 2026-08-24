@@ -12,6 +12,7 @@ SCRIPTS = {
     name: OPS / name
     for name in (
         "integration_attempt_contract.ps1",
+        "integration_attempt_remote_git.ps1",
         "integration_attempt_preparation_contract.ps1",
         "prepare_integration_attempt.ps1",
         "assert_integration_attempt_ready.ps1",
@@ -20,6 +21,8 @@ SCRIPTS = {
         "integration_attempt_merge.ps1",
         "register_integration_attempt.ps1",
         "close_integration_attempt.ps1",
+        "retire_integration_attempt_tasks.ps1",
+        "retire_legacy_integration_bootstrap_task.ps1",
         "dispatch_integration_attempt_recovery.ps1",
         "assert_integration_attempt_success.ps1",
         "reconcile_integration_attempt.ps1",
@@ -178,6 +181,55 @@ def test_attempt_merge_consumes_exact_receipts_and_preserves_quiet_merge() -> No
     assert "checked-out branch master with HEAD == master == origin/master" in downstream
     assert "published integration tip is not in current master history" in downstream
     assert "capture_recovery_check" in downstream
+
+
+def test_successful_attempt_task_retirement_is_exact_reviewed_and_non_live() -> None:
+    retirement = _text("retire_integration_attempt_tasks.ps1")
+    contract = _text("integration_attempt_contract.ps1")
+
+    assert "ExpectedManifestSha256" in retirement
+    assert "ExpectedMergeReceiptSha256" in retirement
+    assert "Assert-WeatherIntegrationMergeReceipt" in retirement
+    assert "Assert-WeatherIntegrationSuiteReceipt" in retirement
+    assert retirement.count("Assert-WeatherIntegrationRetirementTask") >= 5
+    assert 'State -notin @("Ready", "Disabled")' in retirement
+    assert "LastTaskResult -ne 0" in retirement
+    assert "RETIRE_EXACT_TERMINAL_INTEGRATION_TASKS" in contract
+    assert "PreflightOnly" in retirement
+    assert retirement.index("if ($PreflightOnly.IsPresent)") < retirement.index(
+        "Disable-WeatherIntegrationAttemptTasks"
+    )
+    assert 'LockLeaf "integration_attempt_terminal.lock"' in retirement
+    assert "Disable-WeatherIntegrationAttemptTasks" in retirement
+    assert "task-retirement-receipt.json" in retirement
+    assert "Write-WeatherIntegrationImmutableJson" in retirement
+    assert "Assert-WeatherIntegrationTaskRetirementReceipt" in retirement
+    assert "Assert-WeatherIntegrationTaskRetirementReceipt" in contract
+    assert "Assert-WeatherIntegrationFailClosureReceipt" in contract
+    assert "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" in retirement
+    assert "credential_value_access_authorized = $false" in retirement
+    assert "live_exchange_mutation_authorized = $false" in retirement
+    assert "Start-ScheduledTask" not in retirement
+    assert "Unregister-ScheduledTask" not in retirement
+
+    legacy = _text("retire_legacy_integration_bootstrap_task.ps1")
+    assert "ExpectedTaskXmlSha256" in legacy
+    assert "ExpectedLastRunTime" in legacy
+    assert "ExpectedLastTaskResult" in legacy
+    assert "Export-ScheduledTask" in contract
+    assert "Get-WeatherIntegrationScheduledTaskSnapshot" in legacy
+    assert "RETIRE_EXACT_EXPIRED_LEGACY_INTEGRATION_TASK" in contract
+    assert "PreflightOnly" in legacy
+    assert legacy.index("if ($PreflightOnly.IsPresent)") < legacy.index(
+        "Disable-ScheduledTask"
+    )
+    assert 'LockLeaf "integration_attempt_terminal.lock"' in legacy
+    assert "weather_legacy_integration_bootstrap_task_retirement_v1" in contract
+    assert "Write-WeatherIntegrationImmutableJson" in legacy
+    assert "Assert-WeatherLegacyBootstrapRetirementReceipt" in legacy
+    assert "Assert-WeatherLegacyBootstrapRetirementReceipt" in contract
+    assert "Start-ScheduledTask" not in legacy
+    assert "Unregister-ScheduledTask" not in legacy
 
 
 def test_attempt_registrar_is_unique_unattended_and_does_not_start_work() -> None:
@@ -879,7 +931,7 @@ Write-WeatherIntegrationImmutableJson `
     assert json.loads(target.read_text(encoding="utf-8"))["writer"] in {"one", "two"}
 
 
-def test_suite_wait_decision_waits_for_running_task_and_fails_only_at_deadline() -> None:
+def test_suite_wait_decision_bounds_running_pass_from_receipt_completion() -> None:
     env = os.environ.copy()
     env["WEATHER_ATTEMPT_CONTRACT"] = str(SCRIPTS["integration_attempt_contract.ps1"])
     script = r"""
@@ -890,8 +942,11 @@ $deadline = [datetime]'2026-08-21T03:40:00'
 $cases = @(
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $false -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $false -Now $deadline -Deadline $deadline
-    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline -Deadline $deadline
-    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline.AddSeconds(120) -Deadline $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1).AddMinutes(5) -Deadline $deadline -PassReceiptCompletedAt $today.AddHours(1).AddMinutes(5)
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1).AddMinutes(6) -Deadline $deadline -PassReceiptCompletedAt $today.AddHours(1).AddMinutes(5)
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1).AddMinutes(7) -Deadline $deadline -PassReceiptCompletedAt $today.AddHours(1).AddMinutes(5)
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline -Deadline $deadline -PassReceiptCompletedAt $deadline
+    Get-WeatherIntegrationSuiteWaitDecision -TaskState Running -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $deadline.AddSeconds(120) -Deadline $deadline -PassReceiptCompletedAt $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Disabled -LastRunTime $today.AddDays(-1) -LastTaskResult 267011 -ReceiptExists $false -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 0 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
     Get-WeatherIntegrationSuiteWaitDecision -TaskState Ready -LastRunTime $today.AddMinutes(30) -LastTaskResult 267009 -ReceiptExists $true -ReceiptStatus PASS -Now $today.AddHours(1) -Deadline $deadline
@@ -919,6 +974,9 @@ $cases = @(
         "WAIT",
         "STOP",
         "WAIT",
+        "WAIT",
+        "STOP",
+        "WAIT",
         "STOP",
         "FAIL",
         "READY",
@@ -931,6 +989,41 @@ $cases = @(
         "FAIL",
         "FAIL",
     ]
+
+
+def test_suite_receipt_offset_timestamp_flows_into_merge_wait_as_local_time() -> None:
+    merge_script = SCRIPTS["integration_attempt_merge.ps1"].read_text(
+        encoding="utf-8-sig"
+    )
+    assert "$validatedPassReceipt.CompletedAtLocal" in merge_script
+    assert ").LocalDateTime" in merge_script
+
+    env = os.environ.copy()
+    env["WEATHER_ATTEMPT_CONTRACT"] = str(
+        SCRIPTS["integration_attempt_contract.ps1"]
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+$completed = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+    -Value '2026-08-24T03:04:05.1234567-04:00' `
+    -Label 'suite receipt completed_at_local'
+$local = $completed.LocalDateTime
+if ($local -ne [datetime]'2026-08-24T03:04:05.1234567') {
+    throw 'Suite receipt timestamp did not retain its local wall clock.'
+}
+'OK'
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
 
 
 def test_log_verdict_helper_executes_and_rejects_false_chunk_ratios(

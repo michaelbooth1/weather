@@ -42,10 +42,13 @@ function Read-WeatherClosureQuietReport {
     }
     $reportSha256 = Get-WeatherIntegrationFileSha256 -Path $reportPath
     $report = Read-WeatherIntegrationSharedJson -Path $reportPath
+    $originUrlProperty = $attempt.baseline.PSObject.Properties["origin_url"]
     if ([string]$report.schema -ne "quiet_window_merge_report_v0.2" -or
         [string]$report.branch -ne [string]$attempt.branch_ref -or
         [string]$report.expected_tip -ne [string]$attempt.expected_tip -or
         [string]$report.expected_baseline -ne [string]$attempt.baseline.master -or
+        ($null -ne $originUrlProperty -and
+            [string]$report.origin_url -cne [string]$originUrlProperty.Value) -or
         (-not [string]::IsNullOrWhiteSpace([string]$report.baseline_commit) -and
             [string]$report.baseline_commit -ne [string]$attempt.baseline.master) -or
         (-not [string]::IsNullOrWhiteSpace([string]$report.resolved_branch_tip) -and
@@ -151,6 +154,9 @@ function Assert-WeatherClosureNonIntegratedState {
 
     $attempt = $AttemptContract.Manifest
     $root = Resolve-WeatherIntegrationPath -Path ([string]$attempt.repo_root)
+    Assert-WeatherIntegrationOriginIdentity `
+        -AttemptContract $AttemptContract `
+        -Phase "retry-authorizing closure" | Out-Null
     $markerPath = Join-Path $root "data\alerts\quiet_window_merge_in_progress.json"
     if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
         throw "This attempt has an active interrupted quiet-merge marker. Run boot/merge recovery to a terminal report before closure."
@@ -167,11 +173,19 @@ function Assert-WeatherClosureNonIntegratedState {
         throw "Production has an in-progress merge; ordinary FAIL closure is unsafe."
     }
 
-    & git -C $root fetch --no-tags origin `
-        "refs/heads/master:refs/remotes/origin/master"
-    if ($LASTEXITCODE -ne 0) {
-        throw "Live origin/master could not be refreshed; retry-authorizing closure is refused."
+    $originUrlProperty = $attempt.baseline.PSObject.Properties["origin_url"]
+    $fetchRemote = if ($null -ne $originUrlProperty -and
+        -not [string]::IsNullOrWhiteSpace([string]$originUrlProperty.Value)) {
+        [string]$originUrlProperty.Value
     }
+    else { "origin" }
+    Invoke-WeatherIntegrationBoundedRemoteGit `
+        -Root $root `
+        -Arguments @(
+            "fetch", "--no-tags", $fetchRemote,
+            "refs/heads/master:refs/remotes/origin/master"
+        ) `
+        -Label "retry-authorizing closure origin/master refresh" | Out-Null
 
     $productionBranch = Invoke-WeatherClosureGitLine `
         -Root $root -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD") `
@@ -249,12 +263,15 @@ try {
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
     $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
+    $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
     if ([string]$mergeReceipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
         [string]$mergeReceipt.attempt_id -ne [string]$manifest.attempt_id -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$mergeReceipt.manifest_path) -Right $contract.ManifestPath) -or
         [string]$mergeReceipt.manifest_sha256 -ne [string]$contract.ManifestSha256 -or
         [string]$mergeReceipt.source_tip -ne [string]$manifest.expected_tip -or
         [string]$mergeReceipt.branch_ref -ne [string]$manifest.branch_ref -or
+        ($null -ne $originUrlProperty -and
+            [string]$mergeReceipt.origin_url -cne [string]$originUrlProperty.Value) -or
         [string]$mergeReceipt.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
         [bool]$mergeReceipt.safety.credential_value_access_authorized -or
         [bool]$mergeReceipt.safety.live_exchange_mutation_authorized) {
@@ -277,10 +294,13 @@ $activeMarkerPath = Join-Path $repoRoot "data\alerts\quiet_window_merge_in_progr
 $activeMarker = $null
 if (Test-Path -LiteralPath $activeMarkerPath -PathType Leaf) {
     $activeMarker = Read-WeatherIntegrationSharedJson -Path $activeMarkerPath
+    $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
     if ([string]$activeMarker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
         [string]$activeMarker.branch -ne [string]$manifest.branch_ref -or
         [string]$activeMarker.expected_tip -ne [string]$manifest.expected_tip -or
-        [string]$activeMarker.expected_baseline -ne [string]$manifest.baseline.master) {
+        [string]$activeMarker.expected_baseline -ne [string]$manifest.baseline.master -or
+        ($null -ne $originUrlProperty -and
+            [string]$activeMarker.origin_url -cne [string]$originUrlProperty.Value)) {
         throw "A different or malformed quiet-merge recovery marker is active; closure cannot race it."
     }
 }

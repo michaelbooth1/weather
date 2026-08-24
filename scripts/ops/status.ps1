@@ -2875,6 +2875,131 @@ $mustRemainDisabled = [System.Collections.Generic.HashSet[string]]::new(
 )
 [void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapSuite0822")
 [void]$mustRemainDisabled.Add("WeatherIntegrationRecoveryBootstrapMerge0822")
+
+function Get-WeatherMaintenancePostBootReceiptState {
+    param(
+        [Parameter(Mandatory = $true)][object]$Task,
+        [Parameter(Mandatory = $true)][object]$TaskInfo,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot
+    )
+
+    $name = [string]$Task.TaskName
+    if ($name -cnotmatch '^WeatherMaintenancePostBoot(?<suffix>[0-9]{4})$') {
+        return [pscustomobject]@{ recognized = $false; valid = $false }
+    }
+    try {
+        $actions = @($Task.Actions)
+        $triggers = @($Task.Triggers)
+        if ([string]$Task.TaskPath -cne "\" -or
+            [string]$Task.State -cne "Disabled" -or
+            [bool]$Task.Settings.Enabled -or
+            [string]$Task.Principal.LogonType -cne "S4U" -or
+            [string]$Task.Principal.RunLevel -cne "Highest" -or
+            $actions.Count -ne 1 -or $triggers.Count -ne 1 -or
+            [string]$actions[0].Execute -ine (Join-Path $PSHOME "powershell.exe") -or
+            [string]$actions[0].WorkingDirectory -ine $RepositoryRoot -or
+            [string]$triggers[0].CimClass.CimClassName -cne "MSFT_TaskBootTrigger" -or
+            [int]$TaskInfo.LastTaskResult -ne 0 -or
+            $null -ne $TaskInfo.NextRunTime) {
+            throw "task definition or terminal Scheduler state changed"
+        }
+        $argumentMatch = [regex]::Match(
+            [string]$actions[0].Arguments,
+            '(?i)^-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "([^"]+\\post_boot_audit\.ps1)" -ExpectedSelfSha256 ([0-9a-f]{64})$'
+        )
+        if (-not $argumentMatch.Success) {
+            throw "task action is not the exact hash-bound post-boot wrapper"
+        }
+        $wrapperPath = [IO.Path]::GetFullPath($argumentMatch.Groups[1].Value)
+        $expectedWrapperSha256 = $argumentMatch.Groups[2].Value.ToLowerInvariant()
+        $wrapperParent = Split-Path -Parent $wrapperPath
+        $expectedOpsRoot = [IO.Path]::GetFullPath(
+            (Join-Path $env:USERPROFILE "ops")
+        ).TrimEnd('\')
+        if (-not $wrapperParent.StartsWith(
+                "$expectedOpsRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+            throw "post-boot wrapper is outside the current user's ops root"
+        }
+        $parentLeaf = Split-Path -Leaf $wrapperParent
+        $taskSuffix = [regex]::Match(
+            $name, '^WeatherMaintenancePostBoot(?<suffix>[0-9]{4})$'
+        ).Groups['suffix'].Value
+        $folderMatch = [regex]::Match(
+            $parentLeaf, '^maintenance-(?<date>[0-9]{8})$'
+        )
+        if (-not $folderMatch.Success -or
+            -not $folderMatch.Groups['date'].Value.EndsWith($taskSuffix)) {
+            throw "wrapper is outside its exact dated maintenance directory"
+        }
+        $receiptPath = Join-Path $wrapperParent "post-boot-receipt.json"
+        $sidecarPath = "$receiptPath.sha256"
+        foreach ($path in @($wrapperPath, $receiptPath, $sidecarPath)) {
+            $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+            if ($item.PSIsContainer -or
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw "post-boot evidence path is not a plain file"
+            }
+        }
+        $wrapperSha256 = (Get-FileHash -LiteralPath $wrapperPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        $receiptSha256 = (Get-FileHash -LiteralPath $receiptPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($wrapperSha256 -cne $expectedWrapperSha256) {
+            throw "post-boot wrapper hash changed"
+        }
+        $sidecarText = (Get-Content -LiteralPath $sidecarPath -Raw -ErrorAction Stop).Trim()
+        $sidecarMatch = [regex]::Match(
+            $sidecarText,
+            '^(?<sha>[0-9a-f]{64})  (?<path>.+)$',
+            [Text.RegularExpressions.RegexOptions]::IgnoreCase
+        )
+        if (-not $sidecarMatch.Success -or
+            $sidecarMatch.Groups['sha'].Value.ToLowerInvariant() -cne $receiptSha256 -or
+            [IO.Path]::GetFullPath($sidecarMatch.Groups['path'].Value) -ine $receiptPath) {
+            throw "post-boot receipt sidecar is not an exact content binding"
+        }
+        $receipt = Get-Content -LiteralPath $receiptPath -Raw -ErrorAction Stop |
+            ConvertFrom-Json -ErrorAction Stop
+        $finishedAt = [DateTimeOffset]::Parse([string]$receipt.finished_at_local)
+        $lastRunAt = [DateTimeOffset]$TaskInfo.LastRunTime
+        if ([string]$receipt.schema_version -cne
+                "weather_maintenance_post_boot_receipt_v0.2" -or
+            [string]$receipt.status -cne "PASS" -or
+            [IO.Path]::GetFullPath([string]$receipt.wrapper_path) -ine $wrapperPath -or
+            [string]$receipt.wrapper_sha256 -cne $wrapperSha256 -or
+            -not [bool]$receipt.task.ok -or
+            [string]$receipt.task.state -cne "Running" -or
+            [string]$receipt.task.logon_type -cne "S4U" -or
+            [string]$receipt.task.run_level -cne "Highest" -or
+            -not [bool]$receipt.boot.after_authorization -or
+            -not [bool]$receipt.boot.fresh -or
+            -not [bool]$receipt.boot_recovery.ok -or
+            -not [bool]$receipt.boot_record.ok -or
+            -not [bool]$receipt.reboot.clear -or
+            -not [bool]$receipt.clock.synchronized -or
+            -not [bool]$receipt.git.ok -or
+            -not [bool]$receipt.capture.ok -or
+            -not [bool]$receipt.execution_tape.ok -or
+            [bool]$receipt.credential_value_read -or
+            [bool]$receipt.live_exchange_mutation_attempted -or
+            [math]::Abs(($finishedAt - $lastRunAt).TotalMinutes) -gt 30) {
+            throw "post-boot receipt does not prove the exact successful terminal run"
+        }
+        return [pscustomobject]@{
+            recognized = $true
+            valid = $true
+            receipt_path = $receiptPath
+            receipt_sha256 = $receiptSha256
+            finished_at_local = $finishedAt.ToString("o")
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            recognized = $true
+            valid = $false
+            detail = [string]$_.Exception.Message
+        }
+    }
+}
+
 $taskCount = 0
 $interactiveTasks = 0
 $evidenceRefreshHeld = $false
@@ -3085,6 +3210,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
     $wakeReceiptState = Get-WeatherCodexWakeReceiptState `
         -TaskName $name -ActionArguments $actionArguments -TaskInfo $ti
+    $maintenancePostBootState = Get-WeatherMaintenancePostBootReceiptState `
+        -Task $_ -TaskInfo $ti -RepositoryRoot $repo
     if ($wakeReceiptState.recognized) { $overnightWakeState.Add($wakeReceiptState) }
     $completeAuditReceipt = $null
     $auditReportPath = $null
@@ -3562,6 +3689,19 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         # off" and points at the wrong artifact. Deliberate beats incidental.
         $onDemandCompleted = ($noTriggers -and $res -eq "0x0" -and $ti.LastRunTime)
         if ($expDisabled -contains $name) { }
+        elseif ([bool]$maintenancePostBootState.recognized -and
+            [bool]$maintenancePostBootState.valid) {
+            $warns.Add(
+                "$name has exact PASS post-boot evidence and is intentionally " +
+                "self-retired; $($maintenancePostBootState.receipt_path)"
+            )
+        }
+        elseif ([bool]$maintenancePostBootState.recognized) {
+            $flags.Add(
+                "$name disabled post-boot evidence is invalid: " +
+                "$($maintenancePostBootState.detail)"
+            )
+        }
         elseif ($integratedExactTipMerge) {
             $warns.Add("$name is disabled and retained as spent exact-tip merge evidence; $integratedExactTip is already in production history")
         }

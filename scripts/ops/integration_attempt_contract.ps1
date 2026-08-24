@@ -1,16 +1,29 @@
 Set-StrictMode -Version Latest
 
+. (Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1")
+
 $script:WeatherIntegrationAttemptManifestSchema = "weather_integration_attempt_manifest_v1"
 $script:WeatherIntegrationAttemptSuiteReceiptSchema = "weather_integration_attempt_suite_receipt_v1"
 $script:WeatherIntegrationAttemptMergeReceiptSchema = "weather_integration_attempt_merge_receipt_v1"
-$script:WeatherIntegrationAttemptRegistrationReceiptSchema = "weather_integration_attempt_registration_receipt_v1"
-$script:WeatherIntegrationAttemptRegistrationIntentSchema = "weather_integration_attempt_registration_intent_v1"
-$script:WeatherIntegrationAttemptTaskBindingContract = "weather_integration_attempt_exact_task_binding_v1"
+$script:WeatherIntegrationAttemptRegistrationReceiptSchema = "weather_integration_attempt_registration_receipt_v2"
+$script:WeatherIntegrationAttemptRegistrationIntentSchema = "weather_integration_attempt_registration_intent_v2"
+$script:WeatherIntegrationAttemptTaskBindingContract = "weather_integration_attempt_exact_task_binding_v2"
+$script:WeatherIntegrationAttemptLegacyRegistrationReceiptSchema = "weather_integration_attempt_registration_receipt_v1"
+$script:WeatherIntegrationAttemptLegacyRegistrationIntentSchema = "weather_integration_attempt_registration_intent_v1"
+$script:WeatherIntegrationAttemptLegacyTaskBindingContract = "weather_integration_attempt_exact_task_binding_v1"
 $script:WeatherIntegrationAttemptClosureReceiptSchema = "weather_integration_attempt_closure_receipt_v1"
 $script:WeatherIntegrationAttemptSuccessorClaimSchema = "weather_integration_attempt_successor_claim_v1"
 $script:WeatherIntegrationAttemptRecoveryDispatchSchema = "weather_integration_attempt_recovery_dispatch_v1"
 $script:WeatherIntegrationAttemptReconciliationReceiptSchema = "weather_integration_attempt_reconciliation_receipt_v1"
 $script:WeatherIntegrationAttemptPreparationAuthorizationSchema = "weather_integration_attempt_preparation_authorization_v1"
+$script:WeatherIntegrationTaskRetirementReceiptSchema =
+    "weather_integration_attempt_task_retirement_receipt_v1"
+$script:WeatherIntegrationTaskRetirementConfirmation =
+    "RETIRE_EXACT_TERMINAL_INTEGRATION_TASKS"
+$script:WeatherLegacyBootstrapRetirementSchema =
+    "weather_legacy_integration_bootstrap_task_retirement_v1"
+$script:WeatherLegacyBootstrapRetirementConfirmation =
+    "RETIRE_EXACT_EXPIRED_LEGACY_INTEGRATION_TASK"
 
 function Get-WeatherIntegrationFileSha256 {
     param(
@@ -275,6 +288,29 @@ function Resolve-WeatherIntegrationPath {
     return [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
 }
 
+function Get-WeatherLegacyBootstrapTaskXmlSha256 {
+    param([Parameter(Mandatory = $true)][string]$Xml)
+
+    # Export-ScheduledTask adds Settings/Enabled after disable. Remove only
+    # that task-level switch so the frozen XML identity survives retirement;
+    # trigger-level Enabled values remain bound.
+    $settingsEnabled = New-Object Text.RegularExpressions.Regex(
+        '(<Settings>.*?)(^[ \t]*<Enabled>(?:true|false)</Enabled>\r?\n)(.*?</Settings>)',
+        ([Text.RegularExpressions.RegexOptions]::Singleline -bor
+            [Text.RegularExpressions.RegexOptions]::Multiline)
+    )
+    if ($Xml -notmatch '<Settings>') {
+        throw "Legacy bootstrap task XML lacks its Settings block."
+    }
+    $canonicalXml = $settingsEnabled.Replace($Xml, '${1}${3}', 1)
+    $hash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [Text.Encoding]::UTF8.GetBytes($canonicalXml)
+        return (([BitConverter]::ToString($hash.ComputeHash($bytes))) -replace '-', '').ToLowerInvariant()
+    }
+    finally { $hash.Dispose() }
+}
+
 function Test-WeatherIntegrationPathEqual {
     param(
         [Parameter(Mandatory = $true)]
@@ -457,6 +493,29 @@ function Assert-WeatherIntegrationPreparationExecutionAuthorization {
     }
 }
 
+function Assert-WeatherIntegrationRegistrationPreparationState {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract
+    )
+
+    # Registration is the disabled-staging step.  The manifest must already
+    # bind the deterministic execution-authorization plan, but readiness has
+    # not run yet and therefore the token must not exist.  Requiring the token
+    # here creates an impossible registrar -> readiness dependency; accepting
+    # a pre-existing token would let stale authority cross into a new staging
+    # transaction.
+    $authorization = Assert-WeatherIntegrationPreparationExecutionAuthorization `
+        -AttemptContract $AttemptContract `
+        -AllowMissing
+    if (-not [bool]$authorization.Required) {
+        throw "New integration-attempt registration requires a manifest-bound composite preparation authorization plan."
+    }
+    if ([bool]$authorization.Present) {
+        throw "Disabled integration-attempt registration must precede execution authorization creation."
+    }
+    return $authorization
+}
+
 function Assert-WeatherIntegrationActivationReceipt {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract
@@ -524,6 +583,9 @@ function Assert-WeatherIntegrationActivationReceipt {
         [string]$receipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256 -or
         [string]$receipt.branch_ref -cne [string]$manifest.branch_ref -or
         [string]$receipt.expected_tip -ne [string]$manifest.expected_tip -or
+        [string]$receipt.origin_url -cne [string]$manifest.baseline.origin_url -or
+        [string]$readinessReceipt.remote.origin_url -cne
+            [string]$manifest.baseline.origin_url -or
         -not (Test-WeatherIntegrationPathEqual `
             -Left ([string]$receipt.preparation_intent_path) -Right $intentPath) -or
         [string]$receipt.preparation_intent_sha256 -ne
@@ -614,11 +676,18 @@ function Get-WeatherIntegrationExpectedTaskBinding {
         [Parameter(Mandatory = $true)][object]$AttemptContract,
         [Parameter(Mandatory = $true)][ValidateSet("suite", "merge")][string]$Role,
         [Parameter(Mandatory = $true)][string]$UserId,
+        [string]$BindingContract = $script:WeatherIntegrationAttemptTaskBindingContract,
         [string]$PowerShellExecutable = (Join-Path $PSHOME "powershell.exe")
     )
 
     if ([string]::IsNullOrWhiteSpace($UserId)) {
         throw "Integration-attempt task binding requires a non-empty principal user id."
+    }
+    if ($BindingContract -notin @(
+            $script:WeatherIntegrationAttemptTaskBindingContract,
+            $script:WeatherIntegrationAttemptLegacyTaskBindingContract
+        )) {
+        throw "Integration-attempt task binding contract is unsupported: $BindingContract"
     }
     $manifest = $AttemptContract.Manifest
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
@@ -680,7 +749,13 @@ function Get-WeatherIntegrationExpectedTaskBinding {
         settings = [pscustomobject][ordered]@{
             multiple_instances = "IgnoreNew"
             compatibility = "Win7"
-            allow_demand_start = $true
+            # These immutable one-shots may run only from their exact frozen
+            # Scheduler trigger.  A later manual Start-ScheduledTask must not
+            # resurrect a missed or closed attempt.
+            allow_demand_start = (
+                $BindingContract -eq
+                    $script:WeatherIntegrationAttemptLegacyTaskBindingContract
+            )
             allow_hard_terminate = $true
             delete_expired_task_after = ""
             execution_time_limit = $executionTimeLimit
@@ -742,7 +817,8 @@ function Assert-WeatherIntegrationTaskBindingRecord {
         [Parameter(Mandatory = $true)][object]$AttemptContract,
         [Parameter(Mandatory = $true)][ValidateSet("suite", "merge")][string]$Role,
         [Parameter(Mandatory = $true)][object]$Record,
-        [Parameter(Mandatory = $true)][string]$UserId
+        [Parameter(Mandatory = $true)][string]$UserId,
+        [string]$BindingContract = $script:WeatherIntegrationAttemptTaskBindingContract
     )
 
     Assert-WeatherIntegrationRequiredProperties `
@@ -768,7 +844,8 @@ function Assert-WeatherIntegrationTaskBindingRecord {
     $expected = Get-WeatherIntegrationExpectedTaskBinding `
         -AttemptContract $AttemptContract `
         -Role $Role `
-        -UserId $UserId
+        -UserId $UserId `
+        -BindingContract $BindingContract
     if ([string]$Record.task_name -ne [string]$expected.task_name -or
         [string]$Record.task_path -ne [string]$expected.task_path -or
         [string]$Record.description -ne [string]$expected.description -or
@@ -793,7 +870,8 @@ function Assert-WeatherIntegrationTaskBindingRecord {
     }
     if ([string]$Record.settings.multiple_instances -ne "IgnoreNew" -or
         [string]$Record.settings.compatibility -ne "Win7" -or
-        -not [bool]$Record.settings.allow_demand_start -or
+        [bool]$Record.settings.allow_demand_start -ne
+            [bool]$expected.settings.allow_demand_start -or
         -not [bool]$Record.settings.allow_hard_terminate -or
         -not [string]::IsNullOrEmpty([string]$Record.settings.delete_expired_task_after) -or
         [string]$Record.settings.execution_time_limit -ne [string]$expected.settings.execution_time_limit -or
@@ -852,9 +930,20 @@ function Assert-WeatherIntegrationRegistrationIntent {
         -Object $intent.safety `
         -Names @("credential_value_access_authorized", "live_exchange_mutation_authorized") `
         -Label "Registration intent safety boundary"
-    if ([string]$intent.schema -ne $script:WeatherIntegrationAttemptRegistrationIntentSchema -or
+    $currentContract = (
+        [string]$intent.schema -eq
+            $script:WeatherIntegrationAttemptRegistrationIntentSchema -and
+        [string]$intent.binding_contract -eq
+            $script:WeatherIntegrationAttemptTaskBindingContract
+    )
+    $legacyContract = (
+        [string]$intent.schema -eq
+            $script:WeatherIntegrationAttemptLegacyRegistrationIntentSchema -and
+        [string]$intent.binding_contract -eq
+            $script:WeatherIntegrationAttemptLegacyTaskBindingContract
+    )
+    if (-not ($currentContract -or $legacyContract) -or
         [string]$intent.status -ne "PREPARED" -or
-        [string]$intent.binding_contract -ne $script:WeatherIntegrationAttemptTaskBindingContract -or
         [string]$intent.attempt_id -ne [string]$AttemptContract.Manifest.attempt_id -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$intent.intent_path) -Right $intentPath) -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$intent.manifest_path) -Right $AttemptContract.ManifestPath) -or
@@ -878,12 +967,14 @@ function Assert-WeatherIntegrationRegistrationIntent {
         -AttemptContract $AttemptContract `
         -Role "suite" `
         -Record $intent.suite `
-        -UserId ([string]$intent.principal.user_id) | Out-Null
+        -UserId ([string]$intent.principal.user_id) `
+        -BindingContract ([string]$intent.binding_contract) | Out-Null
     Assert-WeatherIntegrationTaskBindingRecord `
         -AttemptContract $AttemptContract `
         -Role "merge" `
         -Record $intent.merge `
-        -UserId ([string]$intent.principal.user_id) | Out-Null
+        -UserId ([string]$intent.principal.user_id) `
+        -BindingContract ([string]$intent.binding_contract) | Out-Null
     if ([string]$intent.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
         [bool]$intent.safety.credential_value_access_authorized -or
         [bool]$intent.safety.live_exchange_mutation_authorized) {
@@ -924,8 +1015,19 @@ function Assert-WeatherIntegrationRegistrationReceipt {
         -Object $receipt.safety `
         -Names @("credential_value_access_authorized", "live_exchange_mutation_authorized") `
         -Label "Registration receipt safety boundary"
-    if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptRegistrationReceiptSchema -or
-        [string]$receipt.binding_contract -ne $script:WeatherIntegrationAttemptTaskBindingContract -or
+    $currentContract = (
+        [string]$receipt.schema -eq
+            $script:WeatherIntegrationAttemptRegistrationReceiptSchema -and
+        [string]$receipt.binding_contract -eq
+            $script:WeatherIntegrationAttemptTaskBindingContract
+    )
+    $legacyContract = (
+        [string]$receipt.schema -eq
+            $script:WeatherIntegrationAttemptLegacyRegistrationReceiptSchema -and
+        [string]$receipt.binding_contract -eq
+            $script:WeatherIntegrationAttemptLegacyTaskBindingContract
+    )
+    if (-not ($currentContract -or $legacyContract) -or
         [string]$receipt.attempt_id -ne [string]$AttemptContract.Manifest.attempt_id -or
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.manifest_path) -Right $AttemptContract.ManifestPath) -or
         [string]$receipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256) {
@@ -956,6 +1058,10 @@ function Assert-WeatherIntegrationRegistrationReceipt {
     $intentContract = Assert-WeatherIntegrationRegistrationIntent `
         -AttemptContract $AttemptContract `
         -ExpectedSha256 ([string]$receipt.registration_intent_sha256)
+    if ([string]$receipt.binding_contract -ne
+        [string]$intentContract.Intent.binding_contract) {
+        throw "Registration receipt and intent use different task binding contracts."
+    }
     $preparedAt = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
         -Value ([string]$intentContract.Intent.prepared_at_local) `
         -Label "registration intent prepared_at_local"
@@ -986,7 +1092,8 @@ function Assert-WeatherIntegrationRegistrationReceipt {
             -AttemptContract $AttemptContract `
             -Role $role `
             -Record $record `
-            -UserId ([string]$receipt.principal.user_id) | Out-Null
+            -UserId ([string]$receipt.principal.user_id) `
+            -BindingContract ([string]$receipt.binding_contract) | Out-Null
         $intentRecord = $intentContract.Intent.PSObject.Properties[$role].Value
         if ([string]$record.arguments -ne [string]$intentRecord.arguments -or
             [string]$record.trigger_at_local -ne [string]$intentRecord.trigger.at_local -or
@@ -1198,7 +1305,7 @@ function Get-WeatherIntegrationRepairAllowedPatterns {
         }
         "orchestration_wrapper" {
             @(
-                '^scripts/ops/(integration_attempt_contract|integration_attempt_preparation_contract|prepare_integration_attempt|assert_integration_attempt_ready|new_integration_attempt|register_integration_attempt|close_integration_attempt|dispatch_integration_attempt_recovery|integration_attempt_suite|integration_attempt_merge|assert_integration_attempt_success|reconcile_integration_attempt|bounded_worktree_test_suite|quiet_window_merge|boot_recovery|register_boot_recovery)\.ps1$',
+                '^scripts/ops/(integration_attempt_contract|integration_attempt_remote_git|integration_attempt_preparation_contract|integration_attempt_quiet_merge_preflight|prepare_integration_attempt|assert_integration_attempt_ready|activate_integration_attempt|new_integration_attempt|register_integration_attempt|close_integration_attempt|retire_integration_attempt_tasks|dispatch_integration_attempt_recovery|integration_attempt_suite|integration_attempt_merge|assert_integration_attempt_success|reconcile_integration_attempt|bounded_worktree_test_suite|quiet_window_merge|boot_recovery|register_boot_recovery)\.ps1$',
                 '^tests/operations/test_(integration_attempt_scripts|integration_attempt_preparation_scripts|integration_attempt_registration_safety|integration_attempt_evidence_recovery_hardening|bounded_worktree_test_suite_script|suite_gated_quiet_merge_script|quiet_window_merge_script|boot_recovery_script|register_boot_recovery_script|host_task_wrappers|status_script)\.py$',
                 '^docs/operations/(INTEGRATION_ATTEMPT_RUNBOOK|OPERATIONS_DESIGN)\.md$',
                 '^docs/ops/streak-soak\.md$',
@@ -1218,23 +1325,42 @@ function Get-WeatherIntegrationSuiteWaitDecision {
         [Parameter(Mandatory = $true)][bool]$ReceiptExists,
         [AllowEmptyString()][string]$ReceiptStatus = "",
         [Parameter(Mandatory = $true)][datetime]$Now,
-        [Parameter(Mandatory = $true)][datetime]$Deadline
+        [Parameter(Mandatory = $true)][datetime]$Deadline,
+        [datetime]$PassReceiptCompletedAt = [datetime]::MinValue
     )
 
     if ($ReceiptExists -and $ReceiptStatus -eq "FAIL") {
         return [pscustomobject]@{ Action = "FAIL"; Reason = "suite emitted an immutable FAIL receipt" }
     }
     if ($TaskState -eq "Running") {
-        if ($Now -ge $Deadline) {
-            if ($ReceiptExists -and $ReceiptStatus -eq "PASS" -and
-                $Now -lt $Deadline.AddSeconds(120)) {
+        if ($ReceiptExists -and $ReceiptStatus -eq "PASS") {
+            if ($PassReceiptCompletedAt -eq [datetime]::MinValue -or
+                $PassReceiptCompletedAt -gt $Now) {
+                return [pscustomobject]@{
+                    Action = "FAIL"
+                    Reason = "suite PASS receipt has no valid completion time for its task-exit grace"
+                }
+            }
+            $graceUntil = $PassReceiptCompletedAt.AddSeconds(120)
+            $maximumGraceUntil = $Deadline.AddSeconds(120)
+            if ($graceUntil -gt $maximumGraceUntil) {
+                $graceUntil = $maximumGraceUntil
+            }
+            if ($Now -lt $graceUntil) {
                 return [pscustomobject]@{
                     Action = "WAIT"
                     Reason = "suite emitted PASS and has a bounded two-minute task-exit grace"
                     PassExitGrace = $true
-                    GraceUntil = $Deadline.AddSeconds(120)
+                    GraceStartedAt = $PassReceiptCompletedAt
+                    GraceUntil = $graceUntil
                 }
             }
+            return [pscustomobject]@{
+                Action = "STOP"
+                Reason = "suite remained running past its PASS-receipt task-exit grace"
+            }
+        }
+        if ($Now -ge $Deadline) {
             return [pscustomobject]@{ Action = "STOP"; Reason = "suite remained running through the merge-wait deadline" }
         }
         return [pscustomobject]@{ Action = "WAIT"; Reason = "suite task is still running" }
@@ -1384,16 +1510,31 @@ function Assert-WeatherIntegrationLiveOriginBaseline {
 
     $manifest = $AttemptContract.Manifest
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
+    $originIdentity = Assert-WeatherIntegrationOriginIdentity `
+        -AttemptContract $AttemptContract -Phase $Phase
     $branchRef = [string]$manifest.branch_ref
     if ($branchRef -cnotmatch '^origin/(?<topic>[A-Za-z0-9][A-Za-z0-9._/-]{0,192})$') {
         throw "$Phase cannot derive an exact live topic ref from $branchRef."
     }
+    if ([string]$Matches.topic -cin @("master", "main")) {
+        throw "$Phase refuses to use a production branch as an integration topic."
+    }
     $topicRef = "refs/heads/$([string]$Matches.topic)"
     $wantedRefs = @("refs/heads/master", $topicRef)
-    $rows = @(& git -C $repoRoot ls-remote --heads origin @wantedRefs)
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Phase could not query the live origin refs."
+    $remoteQuery = if ([bool]$originIdentity.Legacy) {
+        Invoke-WeatherIntegrationBoundedRemoteGit `
+            -Root $repoRoot `
+            -Arguments (@("ls-remote", "--heads", "origin") + $wantedRefs) `
+            -Label "$Phase legacy live origin query"
     }
+    else {
+        Invoke-WeatherIntegrationCanonicalLsRemote `
+            -Root $repoRoot `
+            -ExpectedUrl ([string]$originIdentity.OriginUrl) `
+            -RemoteRefs $wantedRefs `
+            -Label "$Phase live canonical origin query"
+    }
+    $rows = @($remoteQuery.StdoutLines)
     $observed = @{}
     foreach ($row in $rows) {
         $columns = @(([string]$row).Trim() -split "`t")
@@ -1412,11 +1553,17 @@ function Assert-WeatherIntegrationLiveOriginBaseline {
         throw "$Phase live origin no longer matches the frozen baseline/topic."
     }
     if ($RefreshTrackingMaster) {
-        & git -C $repoRoot fetch --no-tags origin `
-            "refs/heads/master:refs/remotes/origin/master"
-        if ($LASTEXITCODE -ne 0) {
-            throw "$Phase could not refresh origin/master from the live remote."
+        $fetchRemote = if ([bool]$originIdentity.Legacy) {
+            "origin"
         }
+        else { [string]$originIdentity.OriginUrl }
+        Invoke-WeatherIntegrationBoundedRemoteGit `
+            -Root $repoRoot `
+            -Arguments @(
+                "fetch", "--no-tags", $fetchRemote,
+                "refs/heads/master:refs/remotes/origin/master"
+            ) `
+            -Label "$Phase origin/master refresh" | Out-Null
         $trackingRows = @(& git -C $repoRoot rev-parse origin/master)
         if ($LASTEXITCODE -ne 0 -or $trackingRows.Count -ne 1 -or
             ([string]$trackingRows[0]).Trim().ToLowerInvariant() -ne
@@ -1430,6 +1577,30 @@ function Assert-WeatherIntegrationLiveOriginBaseline {
         Topic = [string]$observed[$topicRef]
         TrackingMasterRefreshed = [bool]$RefreshTrackingMaster
     }
+}
+
+function Assert-WeatherIntegrationOriginIdentity {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+
+    $manifest = $AttemptContract.Manifest
+    $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
+    if ($null -eq $originUrlProperty -or
+        [string]::IsNullOrWhiteSpace([string]$originUrlProperty.Value)) {
+        $preparationProperty = $manifest.authorization.PSObject.Properties["preparation"]
+        if ($null -ne $preparationProperty -and $null -ne $preparationProperty.Value) {
+            throw "$Phase composite attempt is missing its frozen origin URL."
+        }
+        return [pscustomobject]@{ Legacy = $true; OriginUrl = $null }
+    }
+    $originUrl = [string]$originUrlProperty.Value
+    Assert-WeatherIntegrationCanonicalOriginUrl `
+        -Root ([string]$manifest.repo_root) `
+        -ExpectedUrl $originUrl `
+        -Phase $Phase | Out-Null
+    return [pscustomobject]@{ Legacy = $false; OriginUrl = $originUrl }
 }
 
 function Assert-WeatherIntegrationEvidencePath {
@@ -1476,7 +1647,8 @@ function Assert-WeatherIntegrationAttemptManifest {
     if ([string]$manifest.expected_tip -notmatch '^[0-9a-f]{40}$') {
         throw "Attempt expected tip must be a lowercase 40-character commit id."
     }
-    if ([string]$manifest.branch_ref -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$') {
+    if ([string]$manifest.branch_ref -cnotmatch '^origin/(?<topic>[A-Za-z0-9][A-Za-z0-9._/-]{0,192})$' -or
+        [string]$Matches.topic -cin @("master", "main")) {
         throw "Attempt branch ref is missing or unsafe: $($manifest.branch_ref)"
     }
     if ([string]::IsNullOrWhiteSpace([string]$manifest.authorization.review_reference)) {
@@ -1510,6 +1682,15 @@ function Assert-WeatherIntegrationAttemptManifest {
     if ([string]$manifest.baseline.master -notmatch '^[0-9a-f]{40}$' -or
         [string]$manifest.baseline.master -ne [string]$manifest.baseline.origin_master) {
         throw "Attempt baseline does not bind equal production and origin tips."
+    }
+    $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
+    if ($null -ne $originUrlProperty) {
+        $originUrl = [string]$originUrlProperty.Value
+        if ([string]::IsNullOrWhiteSpace($originUrl) -or
+            (ConvertTo-WeatherIntegrationCanonicalOriginUrl -Url $originUrl) -cne
+                $originUrl) {
+            throw "Attempt baseline origin URL is absent or non-canonical."
+        }
     }
     $expectedTestFileCount = [int]$manifest.suite.expected_test_file_count
     $maxFilesPerChunk = [int]$manifest.suite.max_files_per_chunk
@@ -1584,7 +1765,10 @@ function Disable-WeatherIntegrationAttemptTasks {
     if (Test-Path -LiteralPath $registrationReceiptPath -PathType Leaf) {
         try {
             $registrationReceipt = Read-WeatherIntegrationSharedJson -Path $registrationReceiptPath
-            if ([string]$registrationReceipt.schema -ne $script:WeatherIntegrationAttemptRegistrationReceiptSchema -or
+            if ([string]$registrationReceipt.schema -notin @(
+                    $script:WeatherIntegrationAttemptRegistrationReceiptSchema,
+                    $script:WeatherIntegrationAttemptLegacyRegistrationReceiptSchema
+                ) -or
                 [string]$registrationReceipt.attempt_id -ne [string]$manifest.attempt_id -or
                 -not (Test-WeatherIntegrationPathEqual -Left ([string]$registrationReceipt.manifest_path) -Right $AttemptContract.ManifestPath) -or
                 [string]$registrationReceipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256) {
@@ -1592,7 +1776,10 @@ function Disable-WeatherIntegrationAttemptTasks {
             }
             $bindingContractProperty = $registrationReceipt.PSObject.Properties["binding_contract"]
             if ($null -ne $bindingContractProperty -and
-                [string]$bindingContractProperty.Value -eq $script:WeatherIntegrationAttemptTaskBindingContract) {
+                [string]$bindingContractProperty.Value -in @(
+                    $script:WeatherIntegrationAttemptTaskBindingContract,
+                    $script:WeatherIntegrationAttemptLegacyTaskBindingContract
+                )) {
                 $strictRegistration = Assert-WeatherIntegrationRegistrationReceipt -AttemptContract $AttemptContract
                 $strictBindingSource = "registration_receipt"
             }
@@ -1632,8 +1819,12 @@ function Disable-WeatherIntegrationAttemptTasks {
             throw "Refusing to disable ambiguous attempt task name: $($spec.name)"
         }
         $task = $taskMatches[0]
-        if ([string]$task.State -in @("Running", "Queued")) {
-            throw "Attempt task is still running or queued and may not be disabled: $($spec.name)"
+        if ([string]$task.State -notin @("Ready", "Disabled")) {
+            # Do not turn an unknown/future Scheduler state into terminal
+            # closure evidence.  In particular, disabling an ambiguously
+            # observed task could hide a live process while authorizing a
+            # successor attempt.
+            throw "Attempt task is not provably terminal and may not be disabled: $($spec.name) state=$($task.State)"
         }
         if ($null -eq $registrationReceipt -and $null -eq $strictRegistration) {
             throw "Refusing to disable an existing task without its immutable registration receipt or pre-registration intent: $($spec.name)"
@@ -1893,6 +2084,22 @@ function Assert-WeatherIntegrationOrchestrationFiles {
             throw "Attempt orchestration file changed after freeze: attempt_activator"
         }
     }
+    $remoteGitProperty = $manifest.orchestration.PSObject.Properties["remote_git"]
+    $preparationProperty = $manifest.authorization.PSObject.Properties["preparation"]
+    if ($null -eq $remoteGitProperty -and $null -ne $preparationProperty -and
+        $null -ne $preparationProperty.Value) {
+        throw "A composite integration attempt is missing the remote_git orchestration binding."
+    }
+    if ($null -ne $remoteGitProperty) {
+        $remoteGitPath = Join-Path $repoRoot "scripts\ops\integration_attempt_remote_git.ps1"
+        $remoteGitRecord = $remoteGitProperty.Value
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$remoteGitRecord.path) -Right $remoteGitPath) -or
+            [string]$remoteGitRecord.sha256 -ne
+                (Get-WeatherIntegrationFileSha256 -Path $remoteGitPath)) {
+            throw "Attempt orchestration file changed after freeze: remote_git"
+        }
+    }
 }
 
 function Assert-WeatherIntegrationSuiteReceipt {
@@ -1926,6 +2133,11 @@ function Assert-WeatherIntegrationSuiteReceipt {
     if ([string]$receipt.branch_ref -ne [string]$manifest.branch_ref) {
         throw "Suite receipt branch does not match the manifest."
     }
+    $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
+    if ($null -ne $originUrlProperty -and
+        [string]$receipt.origin_url -cne [string]$originUrlProperty.Value) {
+        throw "Suite receipt origin URL does not match the manifest."
+    }
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.worktree_root) -Right ([string]$manifest.worktree_root))) {
         throw "Suite receipt worktree does not match the manifest."
     }
@@ -1934,6 +2146,15 @@ function Assert-WeatherIntegrationSuiteReceipt {
         [bool]$receipt.safety.credential_value_access_authorized -or
         [bool]$receipt.safety.live_exchange_mutation_authorized) {
         throw "Suite receipt is missing full-suite proof or violates the attempt safety boundary."
+    }
+    $startedAt = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.started_at_local) `
+        -Label "suite receipt started_at_local"
+    $completedAt = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.completed_at_local) `
+        -Label "suite receipt completed_at_local"
+    if ($completedAt -lt $startedAt) {
+        throw "Suite receipt completion precedes its start."
     }
 
     foreach ($logName in @("preflight", "full_suite")) {
@@ -1982,6 +2203,8 @@ function Assert-WeatherIntegrationSuiteReceipt {
         Receipt = $receipt
         ReceiptPath = Resolve-WeatherIntegrationPath -Path $receiptPath
         ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+        StartedAtLocal = $startedAt
+        CompletedAtLocal = $completedAt
     }
 }
 
@@ -2046,9 +2269,12 @@ function Assert-WeatherIntegrationMergeReceipt {
     if ([string]$receipt.status -ne "PASS") {
         throw "Integration-attempt merge receipt is not PASS: $($receipt.status)"
     }
+    $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
     if ([string]$receipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256 -or
         [string]$receipt.source_tip -ne [string]$manifest.expected_tip -or
-        [string]$receipt.branch_ref -ne [string]$manifest.branch_ref) {
+        [string]$receipt.branch_ref -ne [string]$manifest.branch_ref -or
+        ($null -ne $originUrlProperty -and
+            [string]$receipt.origin_url -cne [string]$originUrlProperty.Value)) {
         throw "Merge receipt identity does not match the immutable attempt manifest."
     }
     if (-not [bool]$receipt.origin_master_verified -or
@@ -2085,10 +2311,13 @@ function Assert-WeatherIntegrationMergeReceipt {
         throw "Immutable quiet-merge report hash does not match the merge receipt."
     }
     $quietReport = Read-WeatherIntegrationSharedJson -Path $quietReportPath
+    $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
     if ([string]$quietReport.schema -ne "quiet_window_merge_report_v0.2" -or
         -not [bool]$quietReport.ok -or [string]$quietReport.stage -ne "pushed" -or
         [string]$quietReport.expected_tip -ne [string]$manifest.expected_tip -or
         [string]$quietReport.expected_baseline -ne [string]$manifest.baseline.master -or
+        ($null -ne $originUrlProperty -and
+            [string]$quietReport.origin_url -cne [string]$originUrlProperty.Value) -or
         [string]$quietReport.baseline_commit -ne [string]$manifest.baseline.master -or
         [string]$quietReport.resolved_branch_tip -ne [string]$manifest.expected_tip -or
         [string]$quietReport.branch -ne [string]$manifest.branch_ref -or
@@ -2118,6 +2347,468 @@ function Assert-WeatherIntegrationMergeReceipt {
         ReceiptSha256 = $actualReceiptSha256
         QuietReport = $quietReport
         QuietReportSha256 = $quietReportSha256
+    }
+}
+
+function Assert-WeatherIntegrationTaskRetirementReceipt {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][object]$Task,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("suite", "merge")][string]$Role
+    )
+
+    $receiptPath = Join-Path (
+        Resolve-WeatherIntegrationPath -Path $AttemptContract.AttemptRoot
+    ) "task-retirement-receipt.json"
+    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt `
+        -Names @(
+            "schema", "status", "classification", "attempt_id",
+            "manifest_path", "manifest_sha256", "merge_receipt_path",
+            "merge_receipt_sha256", "retired_at_local", "review_reference",
+            "confirmation", "pre_disable", "post_disable", "safety"
+        ) `
+        -Label "Attempt task-retirement receipt"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "authority", "credential_value_access_authorized",
+            "live_exchange_mutation_authorized"
+        ) `
+        -Label "Attempt task-retirement safety boundary"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "credential_value_access_authorized",
+            "live_exchange_mutation_authorized"
+        ) `
+        -Label "Attempt task-retirement safety boundary"
+    if ([string]$receipt.schema -ne
+            $script:WeatherIntegrationTaskRetirementReceiptSchema -or
+        [string]$receipt.status -ne "PASS" -or
+        [string]$receipt.classification -ne
+            "SUCCESSFUL_ATTEMPT_TASKS_RETIRED" -or
+        [string]$receipt.attempt_id -ne
+            [string]$AttemptContract.Manifest.attempt_id -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.manifest_path) `
+            -Right $AttemptContract.ManifestPath) -or
+        [string]$receipt.manifest_sha256 -ne
+            [string]$AttemptContract.ManifestSha256 -or
+        [string]::IsNullOrWhiteSpace([string]$receipt.review_reference) -or
+        [string]$receipt.confirmation -cne
+            $script:WeatherIntegrationTaskRetirementConfirmation -or
+        [string]$receipt.safety.authority -ne
+            "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        [bool]$receipt.safety.credential_value_access_authorized -or
+        [bool]$receipt.safety.live_exchange_mutation_authorized) {
+        throw "Attempt task-retirement receipt does not bind this exact safe retirement."
+    }
+    ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.retired_at_local) `
+        -Label "task-retirement receipt retired_at_local" | Out-Null
+
+    $expectedMergePath = Resolve-WeatherIntegrationPath `
+        -Path ([string]$AttemptContract.Manifest.evidence.merge_receipt)
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.merge_receipt_path) `
+            -Right $expectedMergePath) -or
+        [string]$receipt.merge_receipt_sha256 -notmatch '^[0-9a-f]{64}$' -or
+        (Get-WeatherIntegrationFileSha256 -Path $expectedMergePath) -ne
+            [string]$receipt.merge_receipt_sha256) {
+        throw "Attempt task-retirement receipt lost its immutable PASS merge binding."
+    }
+    $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $expectedMergePath
+    if ([string]$mergeReceipt.schema -ne
+            $script:WeatherIntegrationAttemptMergeReceiptSchema -or
+        [string]$mergeReceipt.status -ne "PASS" -or
+        [string]$mergeReceipt.manifest_sha256 -ne
+            [string]$AttemptContract.ManifestSha256) {
+        throw "Attempt task-retirement receipt does not reference a PASS merge receipt."
+    }
+
+    $preRows = @($receipt.pre_disable)
+    $postRows = @($receipt.post_disable)
+    if ($preRows.Count -ne 2 -or $postRows.Count -ne 2) {
+        throw "Attempt task-retirement receipt must prove exactly two task roles."
+    }
+    foreach ($expectedRole in @("suite", "merge")) {
+        $expectedName = if ($expectedRole -eq "suite") {
+            [string]$AttemptContract.Manifest.schedule.suite_task_name
+        }
+        else { [string]$AttemptContract.Manifest.schedule.merge_task_name }
+        $pre = @($preRows | Where-Object {
+            [string]$_.role -ceq $expectedRole -and
+            [string]$_.task_name -ceq $expectedName
+        })
+        $post = @($postRows | Where-Object {
+            [string]$_.task_name -ceq $expectedName
+        })
+        if ($pre.Count -ne 1 -or $post.Count -ne 1) {
+            throw "Attempt task-retirement receipt lost exact $expectedRole task evidence."
+        }
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $pre[0] `
+            -Names @(
+                "role", "task_name", "state", "enabled",
+                "allow_demand_start", "last_run_time", "last_task_result"
+            ) `
+            -Label "$expectedRole pre-disable retirement evidence"
+        Assert-WeatherIntegrationBooleanProperties `
+            -Object $pre[0] -Names @("enabled", "allow_demand_start") `
+            -Label "$expectedRole pre-disable retirement evidence"
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $post[0] `
+            -Names @("task_name", "exists", "disabled", "last_task_result") `
+            -Label "$expectedRole post-disable retirement evidence"
+        Assert-WeatherIntegrationBooleanProperties `
+            -Object $post[0] -Names @("exists", "disabled") `
+            -Label "$expectedRole post-disable retirement evidence"
+        if ([string]$pre[0].state -notin @("Ready", "Disabled") -or
+            [int]$pre[0].last_task_result -ne 0 -or
+            -not [bool]$post[0].exists -or
+            -not [bool]$post[0].disabled -or
+            [int]$post[0].last_task_result -ne 0) {
+            throw "Attempt task-retirement receipt does not prove terminal $expectedRole state."
+        }
+    }
+
+    $expectedCurrentTaskName = if ($Role -eq "suite") {
+        [string]$AttemptContract.Manifest.schedule.suite_task_name
+    }
+    else { [string]$AttemptContract.Manifest.schedule.merge_task_name }
+    if ([string]$Task.TaskName -cne $expectedCurrentTaskName -or
+        [string]$Task.TaskPath -cne "\" -or
+        [string]$Task.State -ne "Disabled" -or
+        $null -eq $Task.Settings.PSObject.Properties["Enabled"] -or
+        [bool]$Task.Settings.Enabled) {
+        throw "Current $Role task is not the exact Disabled retired task."
+    }
+    $registration = Assert-WeatherIntegrationRegistrationReceipt `
+        -AttemptContract $AttemptContract -RequirePass
+    Assert-WeatherIntegrationScheduledTaskObject `
+        -Task $Task -BindingEvidence $registration.Intent -Role $Role | Out-Null
+    return [pscustomobject]@{
+        Receipt = $receipt
+        ReceiptPath = Resolve-WeatherIntegrationPath -Path $receiptPath
+        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+    }
+}
+
+function Assert-WeatherIntegrationFailClosureReceipt {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][object]$Task,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("suite", "merge")][string]$Role
+    )
+
+    $closurePath = Resolve-WeatherIntegrationPath `
+        -Path ([string]$AttemptContract.Manifest.evidence.closure_receipt)
+    $receipt = Read-WeatherIntegrationSharedJson -Path $closurePath
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt `
+        -Names @(
+            "schema", "status", "classification", "attempt_id",
+            "manifest_path", "manifest_sha256", "expected_tip",
+            "closed_at_local", "reason", "review_reference", "tasks",
+            "post_disable_proof", "registration_evidence",
+            "preserved_evidence", "safety"
+        ) `
+        -Label "Integration-attempt FAIL closure receipt"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.post_disable_proof `
+        -Names @(
+            "tasks_terminal_and_disabled", "merge_head_absent",
+            "checked_out_branch", "head", "master", "origin_master",
+            "source_in_master", "source_in_origin"
+        ) `
+        -Label "Integration-attempt FAIL closure proof"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt.post_disable_proof `
+        -Names @(
+            "tasks_terminal_and_disabled", "merge_head_absent",
+            "source_in_master", "source_in_origin"
+        ) `
+        -Label "Integration-attempt FAIL closure proof"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.registration_evidence `
+        -Names @(
+            "registration_intent_path", "registration_intent_sha256",
+            "registration_receipt_path", "registration_receipt_sha256"
+        ) `
+        -Label "Integration-attempt FAIL closure registration evidence"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "authority", "credential_value_access_authorized",
+            "live_exchange_mutation_authorized"
+        ) `
+        -Label "Integration-attempt FAIL closure safety boundary"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "credential_value_access_authorized",
+            "live_exchange_mutation_authorized"
+        ) `
+        -Label "Integration-attempt FAIL closure safety boundary"
+    $manifest = $AttemptContract.Manifest
+    if ([string]$receipt.schema -ne
+            $script:WeatherIntegrationAttemptClosureReceiptSchema -or
+        [string]$receipt.status -ne "FAIL" -or
+        [string]$receipt.classification -ne "ABANDONED" -or
+        [string]$receipt.attempt_id -cne [string]$manifest.attempt_id -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.manifest_path) `
+            -Right $AttemptContract.ManifestPath) -or
+        [string]$receipt.manifest_sha256 -ne
+            [string]$AttemptContract.ManifestSha256 -or
+        [string]$receipt.expected_tip -ne [string]$manifest.expected_tip -or
+        [string]::IsNullOrWhiteSpace([string]$receipt.reason) -or
+        [string]::IsNullOrWhiteSpace([string]$receipt.review_reference) -or
+        -not [bool]$receipt.post_disable_proof.tasks_terminal_and_disabled -or
+        -not [bool]$receipt.post_disable_proof.merge_head_absent -or
+        [string]$receipt.post_disable_proof.checked_out_branch -ne "master" -or
+        [string]$receipt.post_disable_proof.head -ne
+            [string]$manifest.baseline.master -or
+        [string]$receipt.post_disable_proof.master -ne
+            [string]$manifest.baseline.master -or
+        [string]$receipt.post_disable_proof.origin_master -ne
+            [string]$manifest.baseline.origin_master -or
+        [bool]$receipt.post_disable_proof.source_in_master -or
+        [bool]$receipt.post_disable_proof.source_in_origin -or
+        [string]$receipt.safety.authority -ne
+            "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        [bool]$receipt.safety.credential_value_access_authorized -or
+        [bool]$receipt.safety.live_exchange_mutation_authorized) {
+        throw "FAIL closure receipt does not prove this exact non-integrated attempt."
+    }
+    ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.closed_at_local) `
+        -Label "FAIL closure closed_at_local" | Out-Null
+
+    # Closure can be the recovery authority for a registrar crash after the
+    # immutable intent and one task were written but before a usable receipt
+    # existed. The intent is therefore mandatory and fully validated; a later
+    # receipt is bound byte-for-byte when present but is not trusted to prove
+    # task identity.
+    $registrationIntent = Assert-WeatherIntegrationRegistrationIntent `
+        -AttemptContract $AttemptContract
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.registration_evidence.registration_intent_path) `
+            -Right $registrationIntent.IntentPath) -or
+        [string]$receipt.registration_evidence.registration_intent_sha256 -ne
+            [string]$registrationIntent.IntentSha256) {
+        throw "FAIL closure receipt lost its immutable registration evidence."
+    }
+    $registrationReceiptPath = Resolve-WeatherIntegrationPath `
+        -Path ([string]$manifest.evidence.registration_receipt)
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.registration_evidence.registration_receipt_path) `
+            -Right $registrationReceiptPath)) {
+        throw "FAIL closure receipt uses a non-canonical registration-receipt path."
+    }
+    $registrationReceiptExists = Test-Path `
+        -LiteralPath $registrationReceiptPath -PathType Leaf
+    $registrationReceiptSha256 = [string]$receipt.registration_evidence.registration_receipt_sha256
+    if ($registrationReceiptExists) {
+        if ($registrationReceiptSha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-WeatherIntegrationFileSha256 -Path $registrationReceiptPath) -ne
+                $registrationReceiptSha256) {
+            throw "FAIL closure receipt lost its preserved registrar output."
+        }
+    }
+    elseif (-not [string]::IsNullOrEmpty($registrationReceiptSha256)) {
+        throw "FAIL closure claims a registration receipt that is absent."
+    }
+    $preserved = @($receipt.preserved_evidence)
+    if ($preserved.Count -lt 1) {
+        throw "FAIL closure receipt has no complete preserved-evidence set."
+    }
+    foreach ($row in $preserved) {
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $row -Names @("path", "sha256") `
+            -Label "FAIL closure preserved evidence"
+        if ([string]$row.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-WeatherIntegrationFileSha256 -Path ([string]$row.path)) -ne
+                [string]$row.sha256) {
+            throw "FAIL closure preserved evidence changed: $($row.path)"
+        }
+    }
+    $requiredPreservedEvidence = @(
+        [pscustomobject]@{
+            Path = $registrationIntent.IntentPath
+            Sha256 = $registrationIntent.IntentSha256
+        }
+    )
+    if ($registrationReceiptExists) {
+        $requiredPreservedEvidence += [pscustomobject]@{
+            Path = $registrationReceiptPath
+            Sha256 = $registrationReceiptSha256
+        }
+    }
+    foreach ($required in $requiredPreservedEvidence) {
+        $matches = @($preserved | Where-Object {
+            (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$_.path) -Right $required.Path) -and
+            [string]$_.sha256 -eq [string]$required.Sha256
+        })
+        if ($matches.Count -ne 1) {
+            throw "FAIL closure did not preserve exact registration evidence."
+        }
+    }
+
+    $taskRows = @($receipt.tasks)
+    if ($taskRows.Count -ne 2) {
+        throw "FAIL closure receipt must account for exactly two attempt tasks."
+    }
+    foreach ($expectedRole in @("suite", "merge")) {
+        $expectedName = if ($expectedRole -eq "suite") {
+            [string]$manifest.schedule.suite_task_name
+        }
+        else { [string]$manifest.schedule.merge_task_name }
+        $rows = @($taskRows | Where-Object {
+            [string]$_.task_name -ceq $expectedName
+        })
+        if ($rows.Count -ne 1) {
+            throw "FAIL closure receipt lost exact $expectedRole task accounting."
+        }
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $rows[0] `
+            -Names @("task_name", "exists", "disabled") `
+            -Label "$expectedRole FAIL closure task evidence"
+        Assert-WeatherIntegrationBooleanProperties `
+            -Object $rows[0] -Names @("exists", "disabled") `
+            -Label "$expectedRole FAIL closure task evidence"
+        if ([bool]$rows[0].exists -ne [bool]$rows[0].disabled) {
+            throw "FAIL closure task evidence is not absent or exactly Disabled."
+        }
+    }
+    $expectedCurrentTaskName = if ($Role -eq "suite") {
+        [string]$manifest.schedule.suite_task_name
+    }
+    else { [string]$manifest.schedule.merge_task_name }
+    $currentRow = @($taskRows | Where-Object {
+        [string]$_.task_name -ceq $expectedCurrentTaskName
+    })
+    if ($currentRow.Count -ne 1 -or -not [bool]$currentRow[0].exists -or
+        -not [bool]$currentRow[0].disabled -or
+        [string]$Task.TaskName -cne $expectedCurrentTaskName -or
+        [string]$Task.TaskPath -cne "\" -or
+        [string]$Task.State -ne "Disabled" -or
+        $null -eq $Task.Settings.PSObject.Properties["Enabled"] -or
+        [bool]$Task.Settings.Enabled) {
+        throw "Current task does not match the exact Disabled FAIL closure evidence."
+    }
+    Assert-WeatherIntegrationScheduledTaskObject `
+        -Task $Task -BindingEvidence $registrationIntent.Intent -Role $Role | Out-Null
+    return [pscustomobject]@{
+        Receipt = $receipt
+        ReceiptPath = $closurePath
+        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $closurePath
+    }
+}
+
+function Assert-WeatherLegacyBootstrapRetirementReceipt {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][object]$Task
+    )
+
+    $taskName = [string]$Task.TaskName
+    if ($taskName -cnotin @(
+            "WeatherIntegrationRecoveryBootstrapSuiteFixed0822",
+            "WeatherIntegrationRecoveryBootstrapMergeFixed0822"
+        ) -or
+        [string]$Task.TaskPath -cne "\" -or
+        [string]$Task.State -ne "Disabled" -or
+        $null -eq $Task.Settings.PSObject.Properties["Enabled"] -or
+        [bool]$Task.Settings.Enabled) {
+        throw "Legacy retirement evidence requires one exact Disabled bootstrap task."
+    }
+    $repoRoot = Resolve-WeatherIntegrationPath -Path $RepositoryRoot
+    $receiptPath = Join-Path $repoRoot (
+        "data\integration_attempts\legacy-task-retirements\$taskName.json"
+    )
+    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt `
+        -Names @(
+            "schema", "status", "classification", "task_name",
+            "task_xml_sha256", "trigger_at", "last_run_time",
+            "last_task_result", "retired_at_local", "review_reference",
+            "confirmation", "state", "enabled", "safety"
+        ) `
+        -Label "Legacy bootstrap task-retirement receipt"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt -Names @("enabled") `
+        -Label "Legacy bootstrap task-retirement receipt"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "authority", "credential_value_access_authorized",
+            "live_exchange_mutation_authorized"
+        ) `
+        -Label "Legacy bootstrap task-retirement safety boundary"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "credential_value_access_authorized",
+            "live_exchange_mutation_authorized"
+        ) `
+        -Label "Legacy bootstrap task-retirement safety boundary"
+    if ([string]$receipt.schema -ne
+            $script:WeatherLegacyBootstrapRetirementSchema -or
+        [string]$receipt.status -ne "PASS" -or
+        [string]$receipt.classification -ne
+            "EXPIRED_LEGACY_BOOTSTRAP_TASK_RETIRED" -or
+        [string]$receipt.task_name -cne $taskName -or
+        [string]$receipt.task_xml_sha256 -notmatch '^[0-9a-f]{64}$' -or
+        [string]$receipt.state -ne "Disabled" -or
+        [bool]$receipt.enabled -or
+        [string]::IsNullOrWhiteSpace([string]$receipt.review_reference) -or
+        [string]$receipt.confirmation -cne
+            $script:WeatherLegacyBootstrapRetirementConfirmation -or
+        [string]$receipt.safety.authority -ne
+            "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        [bool]$receipt.safety.credential_value_access_authorized -or
+        [bool]$receipt.safety.live_exchange_mutation_authorized) {
+        throw "Legacy bootstrap task-retirement receipt is not exact and safe."
+    }
+    $receiptTrigger = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.trigger_at) -Label "legacy retirement trigger_at"
+    $receiptLastRun = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.last_run_time) -Label "legacy retirement last_run_time"
+    ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.retired_at_local) `
+        -Label "legacy retirement retired_at_local" | Out-Null
+    $xml = Export-ScheduledTask `
+        -TaskName $taskName -TaskPath "\" -ErrorAction Stop
+    if ((Get-WeatherLegacyBootstrapTaskXmlSha256 -Xml $xml) -ne
+        [string]$receipt.task_xml_sha256) {
+        throw "Legacy bootstrap task changed after its retirement receipt."
+    }
+    $info = Get-ScheduledTaskInfo `
+        -TaskName $taskName -TaskPath "\" -ErrorAction Stop
+    if ([datetime]$info.LastRunTime -ne $receiptLastRun.LocalDateTime -or
+        [int]$info.LastTaskResult -ne [int]$receipt.last_task_result) {
+        throw "Legacy bootstrap task terminal result changed after retirement."
+    }
+    $triggers = @($Task.Triggers)
+    if ($triggers.Count -ne 1) {
+        throw "Legacy bootstrap retired task no longer has one exact trigger."
+    }
+    try { $taskTrigger = [DateTimeOffset]::Parse([string]$triggers[0].StartBoundary) }
+    catch { throw "Legacy bootstrap retired task trigger is unreadable." }
+    if ($taskTrigger -ne $receiptTrigger -or $taskTrigger -ge [DateTimeOffset]::Now) {
+        throw "Legacy bootstrap retired task trigger disagrees with its receipt."
+    }
+    return [pscustomobject]@{
+        Receipt = $receipt
+        ReceiptPath = Resolve-WeatherIntegrationPath -Path $receiptPath
+        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
     }
 }
 

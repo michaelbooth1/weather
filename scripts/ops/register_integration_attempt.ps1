@@ -25,12 +25,8 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
 $preparationAuthorization = `
-    Assert-WeatherIntegrationPreparationExecutionAuthorization `
+    Assert-WeatherIntegrationRegistrationPreparationState `
         -AttemptContract $contract
-if (-not [bool]$preparationAuthorization.Required -or
-    -not [bool]$preparationAuthorization.Present) {
-    throw "New integration-attempt registration requires exact composite preparation authorization."
-}
 if (-not $StageDisabled) {
     throw "Integration-attempt tasks must be registered through the disabled staging transaction."
 }
@@ -148,6 +144,7 @@ $suiteSettingsParameters = @{
     MultipleInstances = "IgnoreNew"
     ExecutionTimeLimit = (New-TimeSpan -Hours 8)
     WakeToRun = $true
+    DisallowDemandStart = $true
     AllowStartIfOnBatteries = $true
     DontStopIfGoingOnBatteries = $true
 }
@@ -155,6 +152,7 @@ $mergeSettingsParameters = @{
     MultipleInstances = "IgnoreNew"
     ExecutionTimeLimit = (New-TimeSpan -Hours 4)
     WakeToRun = $true
+    DisallowDemandStart = $true
     AllowStartIfOnBatteries = $true
     DontStopIfGoingOnBatteries = $true
 }

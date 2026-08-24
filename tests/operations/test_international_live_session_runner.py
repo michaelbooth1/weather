@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from weather.market import mm_geographic_eligibility as geography
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
 from weather.operations import international_live_wrapper_sealer as sealer
@@ -50,7 +51,96 @@ def write(path: Path, payload) -> Path:
     return path
 
 
-def candidate(now=NOW, *, remaining_seconds=120):
+def write_geography(path: Path) -> Path:
+    checked = NOW.astimezone(timezone.utc)
+    decision = {"blocked": False, "country": "GB", "region": "ENG"}
+    payload = {
+        "agreement": True,
+        "blocker_code": None,
+        "checked_at_utc": geography._iso_utc(checked),
+        "eligible": True,
+        "endpoint": geography.GEOBLOCK_ENDPOINT,
+        "fresh_until_utc": geography._iso_utc(
+            checked + timedelta(seconds=geography.MAX_RECEIPT_AGE_SECONDS)
+        ),
+        "freshness_max_age_seconds": geography.MAX_RECEIPT_AGE_SECONDS,
+        "official": {
+            **decision,
+            "decision_sha256": geography._canonical_digest(decision),
+        },
+        "operator_attestation": {
+            "confirmation": geography.PHYSICAL_LOCATION_CONFIRMATION,
+            "no_circumvention": True,
+            "physical_location_eligible": True,
+        },
+        "privacy": {
+            "source_address_retained": False,
+            "secret_values_retained": False,
+        },
+        "receipt_payload_sha256": None,
+        "response_binding": {
+            "body_bytes": 80,
+            "redacted_body_sha256": geography._canonical_digest(decision),
+            "content_type": "application/json",
+            "final_url": geography.GEOBLOCK_ENDPOINT,
+            "http_status": 200,
+        },
+        "schema_version": geography.RECEIPT_SCHEMA_VERSION,
+        "status": "PASS",
+    }
+    payload["receipt_payload_sha256"] = geography._payload_digest(payload)
+    return write(path, payload)
+
+
+class LaunchGitStub:
+    def __init__(self, *, origin_commit=None, remote_commit=None, remote_failure=False):
+        self.commit = "a" * 40
+        self.tree = "b" * 40
+        self.origin_commit = origin_commit or self.commit
+        self.remote_commit = remote_commit or self.commit
+        self.remote_failure = remote_failure
+        self.calls = []
+
+    def __call__(self, _root: Path, args):
+        command = tuple(args)
+        self.calls.append(command)
+        if command == ("rev-parse", "--show-object-format"):
+            return subprocess.CompletedProcess(args, 0, "sha1\n", "")
+        if command in (("rev-parse", "HEAD"), ("rev-parse", "master")):
+            return subprocess.CompletedProcess(args, 0, self.commit + "\n", "")
+        if command == ("rev-parse", "origin/master"):
+            return subprocess.CompletedProcess(args, 0, self.origin_commit + "\n", "")
+        if command == ("rev-parse", "HEAD^{tree}"):
+            return subprocess.CompletedProcess(args, 0, self.tree + "\n", "")
+        if command == ("branch", "--show-current"):
+            return subprocess.CompletedProcess(args, 0, "master\n", "")
+        if command == (
+            "ls-remote",
+            "--exit-code",
+            "--refs",
+            "origin",
+            sealer.REMOTE_MASTER_REF,
+        ):
+            return subprocess.CompletedProcess(
+                args,
+                2 if self.remote_failure else 0,
+                (
+                    ""
+                    if self.remote_failure
+                    else f"{self.remote_commit}\t{sealer.REMOTE_MASTER_REF}\n"
+                ),
+                "",
+            )
+        if command[:2] == ("merge-base", "--is-ancestor"):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if command == ("status", "--porcelain=v1", "--untracked-files=all"):
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if command[:3] == ("rev-parse", "-q", "--verify"):
+            return subprocess.CompletedProcess(args, 1, "", "")
+        raise AssertionError(f"unexpected Git command: {command}")
+
+
+def candidate(now=NOW, *, remaining_seconds=120, economics_acceptance=None):
     current = now.astimezone(timezone.utc)
     paper_generated = current
     created = current
@@ -61,6 +151,9 @@ def candidate(now=NOW, *, remaining_seconds=120):
         "created_at_utc": created.isoformat(),
         "expires_at_utc": expires.isoformat(),
         "target_date": now.date().isoformat(),
+        "exchange_economics_snapshot_id": "xecon-" + "e" * 16,
+        "exchange_economics_sha256": "e" * 32,
+        "economics_acceptance": economics_acceptance,
         "selection_is_trading_authorization": False,
         "selection_policy": {
             "expected_bootstrap_scope": {
@@ -73,6 +166,8 @@ def candidate(now=NOW, *, remaining_seconds=120):
             "token_id": TOKEN,
             "tick_size": 0.01,
             "order_min_size": 5,
+            "fee_rate": 0.05,
+            "neg_risk": False,
             "stage1_intent": {
                 "side": "BUY",
                 "price": 0.01,
@@ -115,6 +210,34 @@ def session_fixture(
         tmp_path / "references.json",
         {"status": "PASS", "wallet_address": WALLET},
     )
+    accepted_economics = write(
+        attempt / sealer.INPUT_LAYOUTS[stage]["accepted_economics_snapshot"],
+        {"status": "PASS", "accepted": True},
+    )
+    economics_drift = write(
+        attempt / sealer.INPUT_LAYOUTS[stage]["economics_drift_report"],
+        {"status": "PASS", "rescore_required": False},
+    )
+    acknowledgment = sealer.economics_acceptance_acknowledgment(
+        now.date().isoformat(),
+        CONDITION,
+        TOKEN,
+        accepted_snapshot_file_sha256=sha(accepted_economics),
+        drift_report_file_sha256=sha(economics_drift),
+    )
+    economics_acceptance = {
+        "accepted_at_utc": now.astimezone(timezone.utc).isoformat(),
+        "accepted_snapshot_file_sha256": sha(accepted_economics),
+        "accepted_snapshot_id": "xecon-" + "e" * 16,
+        "accepted_snapshot_sha256": "e" * 32,
+        "drift_generated_at_utc": now.astimezone(timezone.utc).isoformat(),
+        "drift_report_file_sha256": sha(economics_drift),
+        "drift_status": "PASS",
+        "operator_acknowledgment": acknowledgment,
+        "operator_acknowledgment_matches_candidate": True,
+        "required_operator_acknowledgment": acknowledgment,
+        "rescore_required": False,
+    }
     reviewed_source = write(tmp_path / "production/source", {"reviewed": True})
     production_python = tmp_path / "production/venv/Scripts/python.exe"
     production_python.parent.mkdir(parents=True, exist_ok=True)
@@ -178,7 +301,16 @@ def session_fixture(
                 "path": str(references.resolve()),
                 "sha256": sha(references),
             },
+            "accepted_economics_snapshot": {
+                "path": str(accepted_economics.resolve()),
+                "sha256": sha(accepted_economics),
+            },
+            "economics_drift_report": {
+                "path": str(economics_drift.resolve()),
+                "sha256": sha(economics_drift),
+            },
         },
+        "economics_acceptance": economics_acceptance,
         "reviewed_status_flags": [],
         "template_sha256": {"python": "c" * 64, "launcher": "d" * 64},
         "source_sha256": {"source": sha(reviewed_source)},
@@ -196,7 +328,11 @@ def session_fixture(
     )
     source_candidate = write(
         tmp_path / f"fresh-{stage}.json",
-        candidate(now=now, remaining_seconds=remaining_seconds),
+        candidate(
+            now=now,
+            remaining_seconds=remaining_seconds,
+            economics_acceptance=economics_acceptance,
+        ),
     )
     return attempt, manifest, source_candidate
 
@@ -272,12 +408,49 @@ def write_execution(
     path = attempt / sealer.OUTPUT_LAYOUTS[stage]["wrapper_execution_receipt"]
     layout = sealer.OUTPUT_LAYOUTS[stage]
     doctor = write(attempt / layout["doctor_receipt"], {"status": "PASS"})
+    geography_precredential = write_geography(
+        attempt / layout["geography_precredential_receipt"]
+    )
     stream = attempt / layout["user_stream_journal"]
     stream.parent.mkdir(parents=True, exist_ok=True)
-    stream.write_text('{"event_type":"stream_stopped"}\n', encoding="utf-8")
+    if stage == "stage0":
+        stream.write_text('{"event_type":"stream_stopped"}\n', encoding="utf-8")
+    else:
+        mode = "cancel_all" if stage == "stage1_cancel_all" else "dead_man"
+        order_id = f"{mode}-order"
+        stream.write_text(
+            "".join(
+                json.dumps(row, separators=(",", ":")) + "\n"
+                for row in (
+                    {
+                        "schema_version": "mm_user_stream_journal_v0.1",
+                        "event_type": "user_event",
+                        "payload": {"orderID": order_id, "status": "live"},
+                    },
+                    {
+                        "schema_version": "mm_user_stream_journal_v0.1",
+                        "event_type": "user_event",
+                        "payload": {
+                            "orderID": order_id,
+                            "status": "canceled",
+                            "size_matched": "0",
+                        },
+                    },
+                    {
+                        "schema_version": "mm_user_stream_journal_v0.1",
+                        "event_type": "stream_stopped",
+                    },
+                )
+            ),
+            encoding="utf-8",
+        )
     command_path = attempt / layout["command_receipt"]
     artifacts = {
         "doctor_receipt_out": {"path": str(doctor.resolve()), "sha256": sha(doctor)},
+        "geography_precredential_receipt_out": {
+            "path": str(geography_precredential.resolve()),
+            "sha256": sha(geography_precredential),
+        },
         "user_stream_journal_out": {
             "path": str(stream.resolve()),
             "sha256": sha(stream),
@@ -288,13 +461,49 @@ def write_execution(
         "user_stream_journal": str(stream.resolve()),
     }
     if stage == "stage0":
-        bootstrap = write(attempt / layout["bootstrap"], {"status": "PASS"})
+        geography_premutation = write_geography(
+            attempt / layout["geography_premutation_receipt"]
+        )
+        geography_payload = json.loads(geography_premutation.read_text())
+        bootstrap = write(
+            attempt / layout["bootstrap"],
+            {
+                "schema_version": "mm_platform_bootstrap_v0.4",
+                "status": "PASS",
+                "mutation_geographic_eligibility": {
+                    key: geography_payload[key]
+                    for key in (
+                        "status",
+                        "eligible",
+                        "endpoint",
+                        "receipt_payload_sha256",
+                        "checked_at_utc",
+                        "fresh_until_utc",
+                        "freshness_max_age_seconds",
+                    )
+                },
+            },
+        )
         artifacts["bootstrap_out"] = {
             "path": str(bootstrap.resolve()),
             "sha256": sha(bootstrap),
         }
+        artifacts["geography_premutation_receipt_out"] = {
+            "path": str(geography_premutation.resolve()),
+            "sha256": sha(geography_premutation),
+        }
         command_paths["bootstrap"] = str(bootstrap.resolve())
+        command_paths["geography_premutation_receipt"] = str(
+            geography_premutation.resolve()
+        )
     else:
+        geography_presubmit = write_geography(
+            attempt / layout["geography_presubmit_receipt"]
+        )
+        artifacts["geography_presubmit_receipt_out"] = {
+            "path": str(geography_presubmit.resolve()),
+            "sha256": sha(geography_presubmit),
+        }
         candidate_path = attempt / sealer.INPUT_LAYOUTS[stage]["candidate_plan"]
         candidate_payload = json.loads(candidate_path.read_text())
         journal = attempt / layout["lifecycle_journal"]
@@ -304,7 +513,7 @@ def write_execution(
         result = write(
             attempt / layout["result"],
             {
-                "schema_version": "mm_live_lifecycle_probe_v0.2",
+                "schema_version": "mm_live_lifecycle_probe_v0.3",
                 "status": "PASS",
                 "platform": "polymarket_global",
                 "settlement_unit": "pUSD",
@@ -313,9 +522,17 @@ def write_execution(
                 "token_id": TOKEN,
                 "candidate_plan_sha256": sha(candidate_path),
                 "candidate_semantic_plan_sha256": candidate_payload["plan_sha256"],
-                "bootstrap_schema_version": "mm_platform_bootstrap_v0.3",
+                "bootstrap_schema_version": "mm_platform_bootstrap_v0.4",
                 "bootstrap_sha256": sha(attempt / "stage0/bootstrap.json"),
                 "heartbeat_acknowledged": True,
+                "submit_boundary_heartbeat_acknowledged": True,
+                "submit_boundary_market_rules_verified": True,
+                "submit_boundary_geography_before_heartbeat_verified": True,
+                "post_sign_order_placement_boundary_verified": True,
+                "candidate_fee_rate": 0.05,
+                "current_fee_rate_bps": 500,
+                "candidate_neg_risk": False,
+                "current_neg_risk": False,
                 "starting_zero_open_orders_verified": True,
                 "starting_zero_positions_verified": True,
                 "intent": {
@@ -333,7 +550,22 @@ def write_execution(
                 "zero_open_orders_verified": True,
                 "zero_positions_verified": True,
                 "no_trade_lifecycle_event_observed": True,
+                "terminal_rest_order_verified": True,
+                "terminal_rest_zero_matched_verified": True,
+                "account_trades_rest_verified": True,
+                "scoped_account_trade_count": 0,
+                "post_cancel_quiescence_seconds": 2.0,
+                "submit_collateral_balance_usdc": 100.0,
+                "submit_collateral_allowance_usdc": 100.0,
+                "submit_collateral_snapshot_sha256": "a" * 64,
+                "post_cancel_collateral_snapshot_sha256": "a" * 64,
+                "collateral_no_fill_reconciliation_verified": True,
                 "terminal_user_event_observed": True,
+                "user_stream_journal_path": str(stream.resolve()),
+                "user_stream_journal_sha256": sha(stream),
+                "cleanup_final_user_stream_journal_sha256": sha(stream),
+                "user_stream_journal_row_count": 3,
+                "user_stream_scoped_order_event_count": 2,
                 "secret_values_redacted": True,
                 "cancel_response_present": mode == "cancel_all",
                 "cancellation_elapsed_seconds": 0 if mode == "cancel_all" else 12,
@@ -378,6 +610,10 @@ def write_execution(
     }
     if stage == "stage0":
         command["exchange_mutation_attempted"] = True
+        command["mutation_geographic_eligibility"] = {
+            "path": artifacts["geography_premutation_receipt_out"]["path"],
+            "sha256": artifacts["geography_premutation_receipt_out"]["sha256"],
+        }
     else:
         command["cancellation_mode"] = mode
         command["exchange_mutation_attempted"] = True
@@ -399,7 +635,7 @@ def write_execution(
     write(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.4",
+            "schema_version": sealer.EXECUTION_SCHEMA_VERSION,
             "status": status,
             "stage": stage,
             "phase": "complete" if status == "PASS" else "stage1_command",
@@ -476,6 +712,67 @@ def test_composer_accepts_exact_0030_toronto_boundary_without_backdating_scope(
     spec = json.loads((attempt / "inputs/stage0-seal-spec.json").read_text())
     assert spec["scope"]["run_not_before_local"] == current.isoformat()
     assert result["status"] == "PASS"
+
+
+def test_launch_boundary_refuses_stale_cached_origin_despite_matching_live_remote(
+    tmp_path,
+):
+    production = {
+        "root": str(tmp_path),
+        "branch": "master",
+        "commit": "a" * 40,
+        "tree": "b" * 40,
+        "python": str(tmp_path / "python.exe"),
+    }
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="live remote production equality failed",
+    ):
+        runner._verify_launch_git_state(
+            production,
+            git_runner=LaunchGitStub(
+                origin_commit="c" * 40,
+                remote_commit="a" * 40,
+            ),
+        )
+
+
+def test_launch_boundary_refuses_live_remote_lookup_failure(tmp_path):
+    production = {
+        "root": str(tmp_path),
+        "branch": "master",
+        "commit": "a" * 40,
+        "tree": "b" * 40,
+        "python": str(tmp_path / "python.exe"),
+    }
+    git = LaunchGitStub(remote_failure=True)
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="live remote production equality failed",
+    ):
+        runner._verify_launch_git_state(
+            production,
+            git_runner=git,
+        )
+
+    assert (
+        "ls-remote",
+        "--exit-code",
+        "--refs",
+        "origin",
+        sealer.REMOTE_MASTER_REF,
+    ) in git.calls
+
+
+def test_live_remote_proof_is_on_the_launch_action_path():
+    source = Path(runner.__file__).read_text(encoding="utf-8")
+    compose = source[source.index("def compose_and_run_live_session(") :]
+
+    assert compose.index("_verify_launch_git_state(") < compose.index(
+        "launcher_timeout_seconds = min("
+    ) < compose.index("process = launcher_runner(")
 
 
 @pytest.mark.parametrize(

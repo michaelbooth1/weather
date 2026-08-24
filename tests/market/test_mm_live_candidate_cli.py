@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from weather.market.exchange_economics import build_snapshot_payload
+from weather.market.exchange_economics import (
+    accept_snapshot_baseline,
+    build_snapshot_payload,
+)
 from weather.market import mm_live_candidate_cli as candidate_cli
 
 
@@ -125,12 +128,49 @@ def write_paper_evidence(tmp_path, snapshot, *, quote_permission=True):
     return config, quote_path
 
 
+def write_acceptance_evidence(tmp_path, snapshot):
+    accepted = tmp_path / "accepted-economics.json"
+    drift = tmp_path / "economics-drift.json"
+    try:
+        accept_snapshot_baseline(
+            snapshot_path=snapshot,
+            accepted_snapshot_path=accepted,
+            drift_report_path=drift,
+            target_date=TARGET_DATE,
+            now=NOW,
+            max_age_hours=2,
+            acknowledge_payout_asset_conflict=True,
+        )
+    except ValueError:
+        accepted.write_text("{}", encoding="utf-8")
+        drift.write_text("{}", encoding="utf-8")
+    return accepted, drift
+
+
 def select(snapshot, target_date, output, *, tmp_path, **kwargs):
     config, quotes = write_paper_evidence(tmp_path, snapshot)
+    accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
+    if "economics_baseline_acknowledgment" not in kwargs:
+        token = str(kwargs.get("expected_token_id") or "101")
+        kwargs["economics_baseline_acknowledgment"] = (
+            candidate_cli.economics_acceptance_acknowledgment(
+                target_date,
+                CONDITION,
+                token,
+                accepted_snapshot_file_sha256=candidate_cli.hashlib.sha256(
+                    accepted.read_bytes()
+                ).hexdigest(),
+                drift_report_file_sha256=candidate_cli.hashlib.sha256(
+                    drift.read_bytes()
+                ).hexdigest(),
+            )
+        )
     return candidate_cli.select_live_pilot_candidate(
         snapshot,
         target_date,
         output,
+        accepted_economics_snapshot=accepted,
+        economics_drift_report=drift,
         paper_run_config=config,
         paper_quote_intents=quotes,
         **kwargs,
@@ -179,6 +219,102 @@ def test_selector_binds_current_economics_and_nonmarketable_stage1_intent(tmp_pa
     assert plan["plan_sha256"] == candidate_cli.candidate_plan_sha256(plan)
     saved = json.loads(output.read_text(encoding="utf-8"))
     assert saved == plan
+
+
+def test_selector_requires_candidate_date_and_evidence_bound_acceptance(tmp_path):
+    snapshot = write_snapshot(tmp_path / "economics.json")
+    accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
+    config, quotes = write_paper_evidence(tmp_path, snapshot)
+    preview_path = tmp_path / "candidate-review.json"
+
+    preview = candidate_cli.select_live_pilot_candidate(
+        snapshot,
+        TARGET_DATE,
+        preview_path,
+        accepted_economics_snapshot=accepted,
+        economics_drift_report=drift,
+        paper_run_config=config,
+        paper_quote_intents=quotes,
+        now=NOW,
+        book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+    )
+
+    assert preview["status"] == "BLOCK"
+    assert preview["missing"] == [
+        "explicit_candidate_economics_baseline_acknowledgment"
+    ]
+    required = preview["economics_acceptance"][
+        "required_operator_acknowledgment"
+    ]
+    assert TARGET_DATE in required
+    assert CONDITION in required
+    assert "|101|" in required
+    assert preview["economics_acceptance"]["operator_acknowledgment"] is None
+
+    approved = candidate_cli.select_live_pilot_candidate(
+        snapshot,
+        TARGET_DATE,
+        tmp_path / "candidate-approved.json",
+        accepted_economics_snapshot=accepted,
+        economics_drift_report=drift,
+        economics_baseline_acknowledgment=required,
+        paper_run_config=config,
+        paper_quote_intents=quotes,
+        now=NOW,
+        book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+    )
+
+    assert approved["status"] == "PASS"
+    assert approved["economics_acceptance"][
+        "operator_acknowledgment_matches_candidate"
+    ] is True
+    assert approved["economics_acceptance"]["operator_acknowledgment"] == required
+
+
+def test_selector_rejects_a_fabricated_drift_pass(tmp_path):
+    snapshot = write_snapshot(tmp_path / "economics.json")
+    accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
+    drift_payload = json.loads(drift.read_text(encoding="utf-8"))
+    drift_payload["accepted_snapshot_hash"] = "f" * 32
+    drift.write_text(json.dumps(drift_payload), encoding="utf-8")
+    config, quotes = write_paper_evidence(tmp_path, snapshot)
+
+    with pytest.raises(RuntimeError, match="drift_identity"):
+        candidate_cli.select_live_pilot_candidate(
+            snapshot,
+            TARGET_DATE,
+            tmp_path / "candidate.json",
+            accepted_economics_snapshot=accepted,
+            economics_drift_report=drift,
+            paper_run_config=config,
+            paper_quote_intents=quotes,
+            now=NOW,
+            book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+        )
+
+
+def test_selector_rejects_drift_report_that_predates_human_acceptance(tmp_path):
+    snapshot = write_snapshot(tmp_path / "economics.json")
+    accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
+    accepted_payload = json.loads(accepted.read_text(encoding="utf-8"))
+    drift_payload = json.loads(drift.read_text(encoding="utf-8"))
+    drift_payload["generated_at_utc"] = "2026-08-13T23:59:59+00:00"
+    assert drift_payload["generated_at_utc"] < accepted_payload["accepted_at_utc"]
+    drift.write_text(json.dumps(drift_payload), encoding="utf-8")
+    config, quotes = write_paper_evidence(tmp_path, snapshot)
+
+    with pytest.raises(RuntimeError, match="drift_timestamp"):
+        candidate_cli.select_live_pilot_candidate(
+            snapshot,
+            TARGET_DATE,
+            tmp_path / "candidate.json",
+            accepted_economics_snapshot=accepted,
+            economics_drift_report=drift,
+            paper_run_config=config,
+            paper_quote_intents=quotes,
+            now=NOW,
+            book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+        )
 
 
 def test_selector_blocks_extreme_crossed_or_wrong_condition_books(tmp_path):
@@ -239,6 +375,7 @@ def test_selector_rejects_paper_run_without_quote_permission(tmp_path):
         snapshot,
         quote_permission=False,
     )
+    accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
     called = False
 
     def read_books(_tokens):
@@ -251,6 +388,8 @@ def test_selector_rejects_paper_run_without_quote_permission(tmp_path):
             snapshot,
             TARGET_DATE,
             tmp_path / "candidate.json",
+            accepted_economics_snapshot=accepted,
+            economics_drift_report=drift,
             paper_run_config=config,
             paper_quote_intents=quotes,
             now=NOW,
@@ -296,6 +435,8 @@ def test_selector_can_refresh_the_exact_bootstrap_scope(tmp_path):
     assert gate["stage1_intent"] == plan["selected"]["stage1_intent"]
     assert gate["tick_size"] == plan["selected"]["tick_size"]
     assert gate["order_min_size"] == plan["selected"]["order_min_size"]
+    assert gate["fee_rate"] == plan["selected"]["fee_rate"]
+    assert gate["neg_risk"] is plan["selected"]["neg_risk"]
 
 
 def test_stage1_gate_rejects_a_tampered_candidate_plan(tmp_path):
@@ -561,6 +702,8 @@ def test_main_never_prints_raw_network_exception(monkeypatch, capsys):
 
     status = candidate_cli.main([
         "--economics-snapshot", "economics.json",
+        "--accepted-economics-snapshot", "accepted-economics.json",
+        "--economics-drift-report", "economics-drift.json",
         "--target-date", TARGET_DATE,
         "--paper-run-config", "run-config.json",
         "--paper-quote-intents", "quotes.csv",

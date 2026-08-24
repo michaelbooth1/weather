@@ -52,7 +52,7 @@ def official_stage1_gate(adapter, snapshot_character="b"):
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.3",
+        "schema_version": "mm_platform_bootstrap_v0.4",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
@@ -509,12 +509,18 @@ class TestMMExchange(unittest.TestCase):
             heartbeat_sender=None,
             market_rule_reader=None,
             utc_clock=None,
+            user_event_health_reader=None,
+            heartbeat_max_age_seconds=7.5,
+            market_rules_max_age_seconds=10.0,
         ):
             return OfficialPolymarketGlobalAdapter(
                 bound_client,
                 token_id="token-80",
                 user_event_reader=lambda: [{"event_type": "order", "id": "order-1"}],
-                user_event_health_reader=lambda: {"state": "SUBSCRIPTION_PROVEN"},
+                user_event_health_reader=(
+                    user_event_health_reader
+                    or (lambda: {"state": "SUBSCRIPTION_PROVEN"})
+                ),
                 position_reader=lambda: [{"asset": "token-80", "size": "5"}],
                 rebate_reader=lambda: [{
                     "date": "2026-08-13",
@@ -538,6 +544,8 @@ class TestMMExchange(unittest.TestCase):
                 authoritative_readers_verified=True,
                 monotonic_clock=lambda: clock[0],
                 utc_clock=utc_clock,
+                heartbeat_max_age_seconds=heartbeat_max_age_seconds,
+                market_rules_max_age_seconds=market_rules_max_age_seconds,
             )
 
         adapter = make_adapter(client)
@@ -693,6 +701,7 @@ class TestMMExchange(unittest.TestCase):
             "size": 5,
             "side": "BUY",
         }
+        geography_fresh_until = "2099-01-01T00:00:00+00:00"
         oversized_budget_adapter = make_adapter(FakeClient())
         oversized_budget_gate = official_stage1_gate(oversized_budget_adapter)
         oversized_budget_gate["requested_budget_usdc"] = 100.01
@@ -715,6 +724,7 @@ class TestMMExchange(unittest.TestCase):
             wrong_signer_adapter.place_order(
                 valid_intent,
                 stage1_capability=wrong_signer_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
             )
         self.assertFalse(any(
             call[0] == "post_order"
@@ -764,6 +774,7 @@ class TestMMExchange(unittest.TestCase):
             stopped_stream_adapter.place_order(
                 valid_intent,
                 stage1_capability=stopped_stream_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
             )
         self.assertFalse(any(
             call[0] == "post_order"
@@ -783,11 +794,40 @@ class TestMMExchange(unittest.TestCase):
             closed_only_adapter.place_order(
                 valid_intent,
                 stage1_capability=closed_only_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
             )
         self.assertFalse(any(
             call[0] == "post_order"
             for call in closed_only_client.calls
         ))
+
+        slow_closed_only_client = FakeClient()
+
+        def slow_closed_only_read():
+            clock[0] += 8
+            return False
+
+        slow_closed_only_client.get_closed_only_mode = slow_closed_only_read
+        slow_closed_only_adapter = make_adapter(slow_closed_only_client)
+        slow_closed_only_adapter.heartbeat()
+        slow_closed_only_adapter.refresh_market_rules()
+        slow_closed_only_capability = slow_closed_only_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(
+                slow_closed_only_adapter,
+                snapshot_character="4",
+            ),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
+        )
+        with self.assertRaisesRegex(RuntimeError, "fresh heartbeat"):
+            slow_closed_only_adapter.place_order(
+                valid_intent,
+                stage1_capability=slow_closed_only_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
+            )
+        self.assertFalse(
+            any(call[0] == "post_order" for call in slow_closed_only_client.calls)
+        )
+        clock[0] -= 8
 
         with self.assertRaisesRegex(RuntimeError, "Stage 1 lifecycle capability"):
             adapter.place_order(valid_intent)
@@ -795,8 +835,15 @@ class TestMMExchange(unittest.TestCase):
             official_stage1_gate(adapter),
             submit_deadline_utc="2099-01-01T00:00:00+00:00",
         )
-        response = adapter.place_order(valid_intent, stage1_capability=capability)
+        response = adapter.place_order(
+            valid_intent,
+            stage1_capability=capability,
+            geographic_eligibility_fresh_until_utc=geography_fresh_until,
+        )
         self.assertTrue(response["ok"])
+        self.assertTrue(
+            adapter.diagnostics()["post_sign_order_placement_boundary_verified"]
+        )
         post_call = next(call for call in client.calls if call[0] == "post_order")
         self.assertTrue(post_call[1]["post_only"])
         self.assertEqual(post_call[1]["order_type"], "GTC")
@@ -829,9 +876,126 @@ class TestMMExchange(unittest.TestCase):
             slow_adapter.place_order(
                 valid_intent,
                 stage1_capability=slow_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
             )
         self.assertFalse(
             any(call[0] == "post_order" for call in slow_client.calls)
+        )
+
+        deadline_clock[0] = datetime(2026, 8, 22, tzinfo=timezone.utc)
+        slow_geography_client = SlowSigningClient()
+        slow_geography_adapter = make_adapter(
+            slow_geography_client,
+            utc_clock=lambda: deadline_clock[0],
+        )
+        slow_geography_adapter.heartbeat()
+        slow_geography_adapter.refresh_market_rules()
+        slow_geography_capability = (
+            slow_geography_adapter.authorize_stage1_lifecycle(
+                official_stage1_gate(
+                    slow_geography_adapter,
+                    snapshot_character="8",
+                ),
+                submit_deadline_utc="2026-08-22T00:00:10+00:00",
+            )
+        )
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "geographic eligibility expired after signing",
+        ):
+            slow_geography_adapter.place_order(
+                valid_intent,
+                stage1_capability=slow_geography_capability,
+                geographic_eligibility_fresh_until_utc=(
+                    "2026-08-22T00:00:01+00:00"
+                ),
+            )
+        self.assertFalse(
+            any(
+                call[0] == "post_order"
+                for call in slow_geography_client.calls
+            )
+        )
+
+        signing_clock_baseline = clock[0]
+
+        class SlowMonotonicSigningClient(FakeClient):
+            def __init__(self, *, advance_seconds, after_sign=None):
+                super().__init__()
+                self.advance_seconds = advance_seconds
+                self.after_sign = after_sign
+
+            def create_limit_order(self, **order):
+                signed = super().create_limit_order(**order)
+                clock[0] += self.advance_seconds
+                if self.after_sign is not None:
+                    self.after_sign()
+                return signed
+
+        stale_heartbeat_client = SlowMonotonicSigningClient(advance_seconds=8)
+        stale_heartbeat_adapter = make_adapter(stale_heartbeat_client)
+        stale_heartbeat_adapter.heartbeat()
+        stale_heartbeat_adapter.refresh_market_rules()
+        stale_heartbeat_capability = stale_heartbeat_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(stale_heartbeat_adapter, snapshot_character="4"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
+        )
+        with self.assertRaisesRegex(RuntimeError, "fresh heartbeat"):
+            stale_heartbeat_adapter.place_order(
+                valid_intent,
+                stage1_capability=stale_heartbeat_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
+            )
+        self.assertFalse(
+            any(call[0] == "post_order" for call in stale_heartbeat_client.calls)
+        )
+        clock[0] = signing_clock_baseline
+
+        stale_rules_client = SlowMonotonicSigningClient(advance_seconds=11)
+        stale_rules_adapter = make_adapter(
+            stale_rules_client,
+            heartbeat_max_age_seconds=20,
+        )
+        stale_rules_adapter.heartbeat()
+        stale_rules_adapter.refresh_market_rules()
+        stale_rules_capability = stale_rules_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(stale_rules_adapter, snapshot_character="5"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
+        )
+        with self.assertRaisesRegex(RuntimeError, "fresh market-rules"):
+            stale_rules_adapter.place_order(
+                valid_intent,
+                stage1_capability=stale_rules_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
+            )
+        self.assertFalse(
+            any(call[0] == "post_order" for call in stale_rules_client.calls)
+        )
+        clock[0] = signing_clock_baseline
+
+        stream_health = {"state": "SUBSCRIPTION_PROVEN"}
+        failed_stream_client = SlowMonotonicSigningClient(
+            advance_seconds=0,
+            after_sign=lambda: stream_health.update(state="FAILED"),
+        )
+        failed_stream_adapter = make_adapter(
+            failed_stream_client,
+            user_event_health_reader=lambda: dict(stream_health),
+        )
+        failed_stream_adapter.heartbeat()
+        failed_stream_adapter.refresh_market_rules()
+        failed_stream_capability = failed_stream_adapter.authorize_stage1_lifecycle(
+            official_stage1_gate(failed_stream_adapter, snapshot_character="6"),
+            submit_deadline_utc="2099-01-01T00:00:00+00:00",
+        )
+        with self.assertRaisesRegex(RuntimeError, "user-event stream is not active"):
+            failed_stream_adapter.place_order(
+                valid_intent,
+                stage1_capability=failed_stream_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
+            )
+        self.assertFalse(
+            any(call[0] == "post_order" for call in failed_stream_client.calls)
         )
 
         with self.assertRaisesRegex(RuntimeError, "below the current market minimum"):
@@ -905,6 +1069,7 @@ class TestMMExchange(unittest.TestCase):
             unsafe_adapter.place_order(
                 valid_intent,
                 stage1_capability=unsafe_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
             )
         self.assertTrue(
             unsafe_adapter.probe_evidence()["cancel_all_zero_open_orders_verified"]
@@ -929,6 +1094,7 @@ class TestMMExchange(unittest.TestCase):
             settlement_hash_adapter.place_order(
                 valid_intent,
                 stage1_capability=settlement_hash_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
             )
         self.assertTrue(
             settlement_hash_adapter.probe_evidence()[
@@ -954,6 +1120,7 @@ class TestMMExchange(unittest.TestCase):
             malformed_success_adapter.place_order(
                 valid_intent,
                 stage1_capability=malformed_success_capability,
+                geographic_eligibility_fresh_until_utc=geography_fresh_until,
             )
         self.assertTrue(
             malformed_success_adapter.probe_evidence()[
@@ -985,6 +1152,32 @@ class TestMMExchange(unittest.TestCase):
         adapter.cancel_all()
         self.assertTrue(adapter.probe_evidence()["cancel_all_zero_open_orders_verified"])
         self.assertTrue(adapter.diagnostics()["secret_values_redacted"])
+
+    def test_official_global_adapter_can_force_uncached_collateral_refresh(self):
+        class Client:
+            def __init__(self):
+                self.calls = 0
+
+            def get_balance_allowance(self, *, asset_type):
+                self.calls += 1
+                return {
+                    "balance": str(self.calls * 10_000_000),
+                    "allowances": {"exchange": "100000000"},
+                }
+
+        client = Client()
+        adapter = OfficialPolymarketGlobalAdapter(
+            client,
+            sdk_version="0.6.0",
+        )
+
+        self.assertEqual(adapter.balances()["balance"], "10000000")
+        refreshed = adapter.refresh_balance_allowance()
+
+        self.assertEqual(client.calls, 2)
+        self.assertEqual(refreshed["balance"], "20000000")
+        self.assertEqual(adapter.balances()["balance"], "20000000")
+        self.assertEqual(client.calls, 2)
 
     def test_fixture_reconciliation_appends_lifecycle_fills_and_report(self):
         with tempfile.TemporaryDirectory() as tmp:

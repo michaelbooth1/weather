@@ -381,6 +381,13 @@ then require the observed tasks to match it. Recovery uses that same full
 identity when the receipt is valid and falls back to the manifest-derived
 intent if the registrar died before publishing a receipt or left it torn;
 action-only reconstruction is not sufficient.
+Repository identity is likewise frozen as an effective transport boundary.
+Current attempts reject an origin push URL and every effective Git URL rewrite
+rule, use the exact canonical HTTPS URL for topic publication and fetch, and
+perform live ref queries in a repository-free process with system/global Git
+configuration disabled. The reviewed credential-bearing master push is not
+accepted as publication evidence until a separate canonical-URL query observes
+the exact merge commit.
 The frozen orchestration identity includes `boot_recovery.ps1` and
 `register_boot_recovery.ps1`, preventing a startup-trigger delay or registration
 drift from escaping the immutable attempt boundary. The boot registrar accepts
@@ -634,11 +641,15 @@ non-running suite that started but produced no receipt and a non-running merge
 task whose trigger passed without a receipt are distinct actionable failures.
 A disabled never-run suite fails the merge wait immediately, while a terminal
 PASS observed during Task Scheduler's short running-to-ready transition gets a
-two-minute exit grace at the 03:40 reserve. A non-running task whose Scheduler
+two-minute exit grace from its validated immutable receipt completion time,
+independent of the later 03:40 reserve. A non-running task whose Scheduler
 result still carries a transient running/not-run code may proceed only from an
 immutable PASS into the complete receipt/task-time validation, with the
 disagreement recorded. Other non-terminal states wait only until the reserve,
-then the exact task is stopped and must reach `Ready` or `Disabled`. Status
+then the exact task is stopped and must reach `Ready` or `Disabled`. Canonical
+close/rollback accepts only those two exact terminal states. Both attempt tasks
+disallow demand start and both wrappers bind execution to the manifest's local
+calendar date, so a missed one-shot cannot be manually resurrected later. Status
 rechecks receipt existence after its task-state sample so a receipt published
 mid-scan cannot create a false interrupted-suite alert. Suite evidence
 timestamps are invariant-culture. If

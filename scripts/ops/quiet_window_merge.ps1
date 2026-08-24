@@ -18,6 +18,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Branch,
     [string]$ExpectedTip = "",
     [string]$ExpectedBaseline = "",
+    [string]$ExpectedOriginUrl = "",
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [string]$AttemptReportPath = "",
     [string]$ExpectedSelfSha256 = "",
@@ -30,6 +31,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1")
 $ExpectedSelfSha256 = $ExpectedSelfSha256.Trim().ToLowerInvariant()
 if ($ExpectedSelfSha256) {
     if ($ExpectedSelfSha256 -notmatch '^[0-9a-f]{64}$') {
@@ -41,6 +43,14 @@ if ($ExpectedSelfSha256) {
     }
 }
 $repo = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
+if ($RequireLiveOrigin -and [string]::IsNullOrWhiteSpace($ExpectedOriginUrl)) {
+    throw "RequireLiveOrigin requires the frozen canonical origin URL."
+}
+if (-not [string]::IsNullOrWhiteSpace($ExpectedOriginUrl)) {
+    Assert-WeatherIntegrationCanonicalOriginUrl `
+        -Root $repo -ExpectedUrl $ExpectedOriginUrl `
+        -Phase "quiet-window merge" | Out-Null
+}
 $py = Join-Path $repo "venv\Scripts\python.exe"
 if ($OwnerApprovedException) {
     if (
@@ -100,6 +110,7 @@ function Save-Report($ok, $stage, $detail) {
         schema = "quiet_window_merge_report_v0.2"
         ts = (Get-Date).ToString("o"); repo_root = $repo; branch = $Branch; ok = $ok
         expected_tip = $ExpectedTip; expected_baseline = $ExpectedBaseline
+        origin_url = $ExpectedOriginUrl
         resolved_branch_tip = $resolvedBranchTip
         baseline_commit = $baselineCommit
         pre_merge_commit = $preMerge
@@ -235,6 +246,7 @@ function Write-QuietMergeMarker {
         branch = $Branch
         expected_tip = $ExpectedTip
         expected_baseline = $ExpectedBaseline
+        origin_url = $ExpectedOriginUrl
         resolved_branch_tip = $resolvedBranchTip
         baseline_commit = $baselineCommit
         pre_merge_commit = $preMerge
@@ -566,9 +578,23 @@ if ($unexpected.Count -gt 0) {
 # exactly the way push does. That is survivable -- the local refs are what we merge -- but
 # it means merging whatever copy of the branch was last fetched, so say so rather than
 # letting a stale merge look like a fresh one.
-$gitFetchExit = Invoke-GitAllowingNativeStderr { & git fetch origin --prune | Out-Null }
+$gitFetchExit = 0
+try {
+    $fetchRemote = if (-not [string]::IsNullOrWhiteSpace($ExpectedOriginUrl)) {
+        $ExpectedOriginUrl
+    }
+    else { "origin" }
+    Invoke-WeatherIntegrationBoundedRemoteGit `
+        -Root $repo `
+        -Arguments @("fetch", $fetchRemote, "--prune") `
+        -Label "quiet-window live origin refresh" | Out-Null
+}
+catch {
+    $gitFetchExit = 1
+    $gitFetchFailure = $_.Exception.Message
+}
 if ($gitFetchExit -ne 0 -and $RequireLiveOrigin) {
-    Fail "manifest-bound integration requires a successful live origin refresh immediately before merge"
+    Fail "manifest-bound integration requires a successful live origin refresh immediately before merge: $gitFetchFailure"
 }
 if ($gitFetchExit -ne 0) { Note "WARNING: git fetch failed (no credential vault under S4U?); merging the last-fetched copy of $Branch" }
 $branchCommitRef = "{0}^{{commit}}" -f $Branch
@@ -1171,6 +1197,11 @@ catch {
 # context, and origin/master is the acknowledgement that the immutable merge commit landed.
 $prePublicationFailure = $null
 try {
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedOriginUrl)) {
+        Assert-WeatherIntegrationCanonicalOriginUrl `
+            -Root $repo -ExpectedUrl $ExpectedOriginUrl `
+            -Phase "quiet-window pre-publication boundary" | Out-Null
+    }
     $finalHead = (& git rev-parse HEAD).Trim().ToLowerInvariant()
     $finalMaster = (& git rev-parse master).Trim().ToLowerInvariant()
     $finalOriginMaster = (& git rev-parse origin/master).Trim().ToLowerInvariant()
@@ -1243,6 +1274,21 @@ catch {
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task binding changed before publication; commit $mergeCommit is local"
     exit 3
 }
+if (-not [string]::IsNullOrWhiteSpace($ExpectedOriginUrl)) {
+    try {
+        Assert-WeatherIntegrationCanonicalOriginUrl `
+            -Root $repo -ExpectedUrl $ExpectedOriginUrl `
+            -Phase "quiet-window immediate pre-push origin identity" | Out-Null
+    }
+    catch {
+        Note "canonical origin identity changed before WeatherOneShotPush: $($_.Exception.Message)"
+        Save-Report -ok $true -stage "merged_unpushed" -detail (
+            "canonical origin identity changed at the exact publication boundary; " +
+            "commit $mergeCommit is local"
+        )
+        exit 3
+    }
+}
 Note "capture healthy after the roll; handing $mergeCommit to WeatherOneShotPush"
 try { Start-ScheduledTask -TaskName WeatherOneShotPush -ErrorAction Stop }
 catch {
@@ -1259,6 +1305,25 @@ if (-not $pushed) {
     Note "WeatherOneShotPush did not publish within 3 min. Merge is committed locally and capture is healthy."
     Save-Report -ok $true -stage "merged_unpushed" -detail "push task did not acknowledge commit $mergeCommit"
     exit 3
+}
+$canonicalPublishedTip = $null
+if (-not [string]::IsNullOrWhiteSpace($ExpectedOriginUrl)) {
+    try {
+        $canonicalPublishedTip = Get-WeatherIntegrationCanonicalRemoteTip `
+            -Root $repo -ExpectedUrl $ExpectedOriginUrl `
+            -RemoteRef "refs/heads/master" `
+            -Label "quiet-window post-push canonical origin/master verification"
+    }
+    catch {
+        Note "WeatherOneShotPush canonical origin verification failed: $($_.Exception.Message)"
+    }
+    if ($canonicalPublishedTip -ne $mergeCommit) {
+        Save-Report -ok $true -stage "merged_unpushed" -detail (
+            "push task updated local origin/master but config-independent canonical " +
+            "origin/master did not prove commit $mergeCommit"
+        )
+        exit 3
+    }
 }
 $publicationAcknowledged = $true
 try {

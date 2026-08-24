@@ -45,7 +45,8 @@ def test_registrar_journals_before_mutation_and_binds_complete_task_identity() -
     assert registrar.index("Write-WeatherIntegrationImmutableJson -Path $registrationIntentPath") < registrar.index(
         "Register-ScheduledTask"
     )
-    assert registrar.count("-WakeToRun") == 2
+    assert registrar.count("WakeToRun = $true") == 2
+    assert registrar.count("DisallowDemandStart = $true") == 2
     # Omission at creation deliberately preserves the missed-one-shot policy;
     # the shared live validator proves the resulting setting is false.
     assert "StartWhenAvailable" not in registrar
@@ -193,7 +194,7 @@ function New-ExactTask {
         Settings = [pscustomobject]@{
             MultipleInstances = 'IgnoreNew'
             Compatibility = 'Win7'
-            AllowDemandStart = $true
+            AllowDemandStart = $false
             AllowHardTerminate = $true
             DeleteExpiredTaskAfter = ''
             ExecutionTimeLimit = 'PT8H'
@@ -228,6 +229,7 @@ Assert-WeatherIntegrationScheduledTaskObject `
 $cases = @(
     [pscustomobject]@{ Name = 'wake'; Mutate = { param($t) $t.Settings.WakeToRun = $false } },
     [pscustomobject]@{ Name = 'late-start'; Mutate = { param($t) $t.Settings.StartWhenAvailable = $true } },
+    [pscustomobject]@{ Name = 'demand-start'; Mutate = { param($t) $t.Settings.AllowDemandStart = $true } },
     [pscustomobject]@{ Name = 'parallel'; Mutate = { param($t) $t.Settings.MultipleInstances = 'Parallel' } },
     [pscustomobject]@{ Name = 'limit'; Mutate = { param($t) $t.Settings.ExecutionTimeLimit = 'PT7H' } },
     [pscustomobject]@{ Name = 'restart'; Mutate = { param($t) $t.Settings.RestartCount = 1 } },
@@ -361,6 +363,7 @@ function New-CrashTask([object]$record) {
         [Globalization.CultureInfo]::InvariantCulture
     )
     return [pscustomobject]@{
+        TaskName = [string]$record.task_name
         State = 'Ready'
         TaskPath = '\'
         Description = [string]$record.description
@@ -397,7 +400,7 @@ function New-CrashTask([object]$record) {
         Settings = [pscustomobject]@{
             MultipleInstances = 'IgnoreNew'
             Compatibility = 'Win7'
-            AllowDemandStart = $true
+            AllowDemandStart = $false
             AllowHardTerminate = $true
             DeleteExpiredTaskAfter = ''
             ExecutionTimeLimit = [string]$record.settings.execution_time_limit
@@ -431,10 +434,15 @@ $global:crashTasks = @{
 }
 function Get-ScheduledTask {
     param([string]$TaskName, $ErrorAction)
+    if (-not $PSBoundParameters.ContainsKey('TaskName')) {
+        return @($global:crashTasks.Values)
+    }
     return $global:crashTasks[$TaskName]
 }
+$global:disableCalls = 0
 function Disable-ScheduledTask {
     param([string]$TaskName, [string]$TaskPath, $ErrorAction)
+    $global:disableCalls += 1
     $global:crashTasks[$TaskName].State = 'Disabled'
     return $global:crashTasks[$TaskName]
 }
@@ -445,6 +453,16 @@ function Get-ScheduledTaskInfo {
         LastTaskResult = 0x41303
     }
 }
+$global:crashTasks['WeatherIntegrationSuite_crash-test'].State = 'Unknown'
+$unknownRejected = $false
+try {
+    Disable-WeatherIntegrationAttemptTasks -AttemptContract $contract | Out-Null
+}
+catch { $unknownRejected = $true }
+if (-not $unknownRejected -or $global:disableCalls -ne 0) {
+    throw 'Unknown Scheduler state was disabled or certified as terminal.'
+}
+$global:crashTasks['WeatherIntegrationSuite_crash-test'].State = 'Ready'
 $evidence = @(Disable-WeatherIntegrationAttemptTasks -AttemptContract $contract)
 if ($evidence.Count -ne 2 -or
     @($evidence | Where-Object { -not $_.disabled }).Count -ne 0 -or

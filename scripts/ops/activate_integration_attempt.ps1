@@ -93,7 +93,9 @@ try {
             -Left ([string]$readinessReceipt.preparation_intent_path) `
             -Right $resolvedIntentPath) -or
         [string]$readinessReceipt.preparation_intent_sha256 -ne
-            $ExpectedPreparationIntentSha256.ToLowerInvariant()) {
+            $ExpectedPreparationIntentSha256.ToLowerInvariant() -or
+        [string]$readinessReceipt.remote.origin_url -cne
+            [string]$manifest.baseline.origin_url) {
         throw "Activation requires the exact immutable preparation READY receipt."
     }
     $authorization = Assert-WeatherIntegrationPreparationExecutionAuthorization `
@@ -118,8 +120,8 @@ try {
         -Now (Get-Date) -MinimumLeadMinutes 5 | Out-Null
 
     $stage = "revalidate_mutable_readiness"
-    $activationNow = Get-Date
-    $readinessCheckedAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+    $activationNow = [DateTimeOffset]::Now
+    $readinessCheckedAt = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
         -Value ([string]$readinessReceipt.checked_at_local) `
         -Label "readiness checked_at_local"
     if ($readinessCheckedAt -gt $activationNow -or
@@ -128,24 +130,22 @@ try {
         throw "Readiness receipt is older than the two-minute activation transaction boundary."
     }
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
+    Assert-WeatherIntegrationOriginIdentity `
+        -AttemptContract $contract -Phase "integration activation" | Out-Null
     $topicBranch = Get-WeatherIntegrationTopicBranchName `
         -BranchRef ([string]$manifest.branch_ref)
     $topicRemoteRef = "refs/heads/$topicBranch"
-    $topicRows = @(& git -C $repoRoot ls-remote --heads origin $topicRemoteRef)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Activation could not query the live origin topic ref."
-    }
-    $liveTopicTip = Resolve-WeatherIntegrationRemoteTipRows `
-        -Rows $topicRows -ExpectedRemoteRef $topicRemoteRef
+    $liveTopicTip = Get-WeatherIntegrationCanonicalRemoteTip `
+        -Root $repoRoot -ExpectedUrl ([string]$manifest.baseline.origin_url) `
+        -RemoteRef $topicRemoteRef `
+        -Label "activation live canonical origin topic query"
     if ($liveTopicTip -ne [string]$manifest.expected_tip) {
         throw "Live origin topic changed after final readiness."
     }
-    $masterRows = @(& git -C $repoRoot ls-remote --heads origin "refs/heads/master")
-    if ($LASTEXITCODE -ne 0) {
-        throw "Activation could not query live origin master."
-    }
-    $liveMasterTip = Resolve-WeatherIntegrationRemoteTipRows `
-        -Rows $masterRows -ExpectedRemoteRef "refs/heads/master"
+    $liveMasterTip = Get-WeatherIntegrationCanonicalRemoteTip `
+        -Root $repoRoot -ExpectedUrl ([string]$manifest.baseline.origin_url) `
+        -RemoteRef "refs/heads/master" `
+        -Label "activation live canonical origin/master query"
     if ($liveMasterTip -ne [string]$manifest.baseline.master) {
         throw "Live origin master changed after final readiness."
     }
@@ -276,6 +276,7 @@ try {
         preparation_intent_sha256 = $ExpectedPreparationIntentSha256.ToLowerInvariant()
         branch_ref = [string]$manifest.branch_ref
         expected_tip = [string]$manifest.expected_tip
+        origin_url = [string]$manifest.baseline.origin_url
         readiness_receipt_path = $resolvedReadinessReceiptPath
         readiness_receipt_sha256 = $ExpectedReadinessReceiptSha256.ToLowerInvariant()
         execution_authorization_path = [string]$authorization.Path

@@ -60,6 +60,26 @@ def test_disabled_on_demand_success_is_not_an_unexpected_disable():
     assert "completed an on-demand run" in text
 
 
+def test_self_retired_post_boot_maintenance_requires_exact_pass_receipt():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert "Get-WeatherMaintenancePostBootReceiptState" in text
+    assert "^WeatherMaintenancePostBoot(?<suffix>[0-9]{4})$" in text
+    assert 'Join-Path $env:USERPROFILE "ops"' in text
+    assert "^maintenance-(?<date>[0-9]{8})$" in text
+    assert '"weather_maintenance_post_boot_receipt_v0.2"' in text
+    assert "receipt.wrapper_sha256 -cne $wrapperSha256" in text
+    assert "receipt.boot_recovery.ok" in text
+    assert "receipt.boot_record.ok" in text
+    assert "receipt.clock.synchronized" in text
+    assert "receipt.capture.ok" in text
+    assert "receipt.execution_tape.ok" in text
+    assert "receipt.credential_value_read" in text
+    assert "receipt.live_exchange_mutation_attempted" in text
+    assert "has exact PASS post-boot evidence and is intentionally" in text
+    assert "disabled post-boot evidence is invalid" in text
+
+
 def test_exact_tip_merge_is_spent_only_when_tip_is_integrated() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

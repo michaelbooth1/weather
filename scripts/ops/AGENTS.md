@@ -56,11 +56,41 @@ These instructions apply to `scripts/ops/`.
   cannot bypass final receipt handling or canonical closure.
 - Every new integration attempt requires the preparer's exact authorization;
   explicit `preparation: null` is not legacy compatibility. Registration is
-  always staged Disabled. Activation accepts only a fresh readiness receipt,
+  always staged Disabled while the manifest-bound execution token is still
+  absent; readiness creates it only after exact disabled-task attestation.
+  Activation accepts only a fresh readiness receipt and that token,
   then repeats live topic/master, clean worktree, baseline, and quiet-merge
   preflight checks before enabling either task. Suite, merge, and closure must
   refresh their load-bearing remote refs successfully; a fetch failure is a
   blocker, never permission to consume stale tracking state.
+- Current attempts require one canonical GitHub HTTPS origin with no
+  `remote.origin.pushurl` and no effective `url.*.insteadOf` or
+  `url.*.pushInsteadOf` rule in any Git config scope. Live ref evidence must use
+  the repository-independent canonical query helper, and production publication
+  is not proved by a locally advanced `origin/master` alone.
+- Integration suite and merge tasks are exact-date, non-demand-startable
+  one-shots. Their wrappers reject a different local calendar date, and
+  closure may disable/certify only exact `Ready` or `Disabled` task states.
+  Missed or ambiguously observed attempts require review and a successor.
+- Historical v1 PASS attempts may still have `AllowDemandStart` tasks after
+  their one-shot trigger. Never relabel those attempts FAIL, delete their
+  evidence, or ignore them in collision checks. Retire only their exact task
+  pair with `retire_integration_attempt_tasks.ps1`; it requires the immutable
+  PASS merge receipt, successful receipt-correlated Scheduler results, a review
+  reference, and the exact retirement literal before disabling either task.
+  Disabled demand-startable tasks remain collision blockers until the exact
+  two-task retirement receipt validates, or until an exact immutable FAIL
+  closure proves the attempt was abandoned and both tasks terminalized. The
+  retirement writer must read its create-only receipt back before success;
+  partial, missing, or corrupt retirement evidence never authorizes a successor.
+  Its preflight mode is read-only. Invoking the mutating mode still requires
+  explicit user authority over the host Scheduler.
+- The two 2026-08-22 bootstrap tasks predate attempt manifests and are not
+  eligible for the PASS-attempt retirement path. Their narrowly allowlisted
+  `retire_legacy_integration_bootstrap_task.ps1` path requires the complete
+  exported-task XML hash, exact terminal run time/result, expired trigger,
+  review reference, and a separate literal. Never generalize that exception to
+  a task-name glob or use it to retire a future/running task.
 - Generic one-shots always register
   `one_shot_guarded_launcher.ps1`, never a mission payload directly. Manifest
   v0.4 binds the launcher, payload and ordered arguments, validator,
@@ -79,13 +109,14 @@ These instructions apply to `scripts/ops/`.
   must distinguish a currently running suite, a suite that ran without a
   receipt, a suite that never ran, and a merge trigger that passed without a
   receipt. Closing a crashed attempt may disable only its exact hash-bound,
-  non-running tasks; it never deletes or replaces them.
+  provably `Ready` or already `Disabled` tasks; it never deletes or replaces
+  them.
 - An integration merge consumer may wait without a workload lease for its
   exact suite task to reach terminal evidence, but only through the documented
   03:40 merge reserve. A running suite is not a failure before that deadline;
   terminal FAIL evidence and a disabled never-run suite are. A PASS receipt
   observed while Task Scheduler still reports Running receives only a bounded
-  two-minute exit grace. A non-running task with immutable PASS and a stale
+  two-minute exit grace measured from the validated receipt completion time. A non-running task with immutable PASS and a stale
   Scheduler transient result records the disagreement and proceeds only to the
   full receipt/task-time checks; other nonzero results fail. At the deadline or
   grace expiry the consumer re-verifies and stops only its own exact hash-bound

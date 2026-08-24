@@ -58,6 +58,8 @@ merge.
 | `integration_attempt_suite.ps1` | Run the deterministic integration preflight and then the exact full suite under bounded child-tree containment. |
 | `integration_attempt_merge.ps1` | Require the suite task and immutable PASS receipt, then invoke `quiet_window_merge.ps1` and preserve its report. |
 | `close_integration_attempt.ps1` | Disable the exact non-running attempt tasks and emit a closure receipt when a task crashed or the attempt is abandoned. |
+| `retire_integration_attempt_tasks.ps1` | Disable only the exact receipt-bound task pair of an already successful historical attempt; preserve PASS and emit a separate immutable retirement receipt. |
+| `retire_legacy_integration_bootstrap_task.ps1` | Narrowly retire one of the two expired pre-manifest bootstrap tasks using its complete XML hash and exact terminal run evidence. |
 | `dispatch_integration_attempt_recovery.ps1` | Bind a reviewed failure class to the closure hash and emit one machine-readable successor instruction; it edits no source and touches no task. |
 | `assert_integration_attempt_success.ps1` | Revalidate manifest, receipt hashes, current `master == origin/master`, ancestry, and all three capture workers before downstream work. |
 
@@ -106,7 +108,8 @@ publication and fetch so every premise, including `origin/<topic-branch>`, is
 checked again immediately before immutable manifest creation. It freezes a sibling
 `preparation-intent.json`, publishes only
 `<exact-sha>:refs/heads/<topic-branch>` without force, verifies the exact live
-`ls-remote` result, refreshes `origin/<topic-branch>`, and only then invokes the
+`ls-remote` result against the frozen URL, refreshes `origin/<topic-branch>`, and
+only then invokes the
 creator and registrar below. The registrar creates both tasks Disabled. Its
 final assertion independently revalidates the remote, manifest (including the
 predecessor's single successor claim), clean worktree, live production
@@ -136,24 +139,44 @@ The creator, registrar, closer, readiness, and activator entry points run in con
 Windows PowerShell child processes, so any child `exit` becomes a checked
 result and cannot bypass the preparer's receipt or closure path.
 
+The frozen repository identity is a transport contract, not merely the text of
+`remote.origin.url`. Current attempts refuse any effective
+`remote.origin.pushurl`, `url.*.insteadOf`, or `url.*.pushInsteadOf` rule from
+system, global, local, worktree, or command scope. Exact live ref checks run
+outside a repository with system/global Git configuration disabled and use the
+canonical HTTPS URL directly. Topic publication and fetch use that URL rather
+than the symbolic remote name. The credential-bearing production push remains
+the reviewed `WeatherOneShotPush` task, but a merge cannot record `pushed`
+until an independent post-push canonical-URL query proves the exact new master
+tip. Every bounded remote child timeout invokes Windows tree termination and
+accepts cleanup only after `taskkill` exits successfully and the parent exit is
+observed; an unproved descendant teardown is a distinct fail-closed error.
+
 The creator and registrar remain canonical internal primitives, but they are
 not standalone operator shortcuts. Every new manifest requires
 `-RequirePreparationAuthorization` plus the exact preparer-created intent path
-and hash. Every registration requires the corresponding execution
-authorization and `-StageDisabled`. Omitting any of those values is a hard
-failure. A reviewed bootstrap of the preparer itself must use the already
+and hash. Every registration requires `-StageDisabled`, a valid
+manifest-bound execution-authorization plan, and proof that its token does not
+exist yet. Readiness creates that token only after disabled registration is
+fully attested; activation and both runtime wrappers then require it. Omitting
+any of those values or presenting a premature token is a hard failure. A
+reviewed bootstrap of the preparer itself must use the already
 production-adopted predecessor workflow; not-yet-landed bytes cannot attest
 themselves. After this contract is production-adopted, use the preparer command
 above for every new attempt rather than reconstructing its internal calls.
 
 The suite trigger must be inside 00:30-09:00. The merge trigger must be inside
-01:00-03:40 and at least 30 minutes after the suite trigger. The merge task does
-not fail merely because a valid suite is still running at its trigger: it waits
+01:00-03:40 and at least 30 minutes after the suite trigger. Both tasks disallow
+demand start, and both wrappers reject any local calendar date other than the
+immutable manifest date. A missed one-shot therefore requires closure and a
+reviewed successor; it cannot be resurrected manually on a later day. The merge
+task does not fail merely because a valid suite is still running at its trigger: it waits
 without holding the heavy-work lease until the suite reaches terminal evidence,
 or until the 03:40 merge reserve. A terminal FAIL stops immediately. If the
 suite task is disabled without a receipt, the consumer fails immediately
-instead of waiting out the window. A PASS receipt observed while Task Scheduler
-still reports `Running` gets a bounded two-minute task-exit grace. If the task
+instead of waiting out the window. A validated PASS receipt observed while Task Scheduler
+still reports `Running` gets a bounded two-minute task-exit grace measured
+from the receipt's immutable completion time, not from the 03:40 reserve. If the task
 is `Queued`, `Unknown`, or otherwise non-terminal, the consumer keeps waiting
 before the reserve but cannot consume PASS evidence from that state. If the
 task is already terminal but its result still carries Scheduler's transient
@@ -169,6 +192,8 @@ be closed immediately for a reviewed next-window successor.
 Trigger times inside an invalid or ambiguous daylight-saving wall-clock hour
 are refused at creation, manifest validation, and registration. Manifest
 schedule values are local wall clocks and may not carry `Z` or a numeric offset.
+Canonical close/rollback also accepts only exact `Ready` or `Disabled` task
+states; `Queued`, `Running`, `Unknown`, and future states are not terminal proof.
 
 The manifest freezes hashes for every repository-owned PowerShell dependency
 used by registration, suite containment, workload admission, roll verdict,
@@ -308,6 +333,46 @@ If registration created an exact task but its confirming read failed, the
 receipt can say `registered = false` while the task exists. The closer still
 disables that task only when every intent-bound identity field matches, and
 records the registration-receipt disagreement instead of leaving an armed task.
+
+Successful historical v1 attempts are not failure-closed with the command
+above. Their already-passed triggers can remain `Ready` and enabled with
+`AllowDemandStart`, so they are both a manual-resurrection risk and an honest
+collision blocker for a new attempt. Retire each exact pair separately:
+
+```powershell
+.\scripts\ops\retire_integration_attempt_tasks.ps1 `
+  -ManifestPath <successful-manifest.json> `
+  -ExpectedManifestSha256 <manifest-sha256> `
+  -ExpectedMergeReceiptSha256 <pass-merge-receipt-sha256> `
+  -ReviewReference <operator-or-agent-review> `
+  -Confirmation RETIRE_EXACT_TERMINAL_INTEGRATION_TASKS
+```
+
+Use `-PreflightOnly` first for a read-only report. The mutating mode revalidates
+the immutable PASS merge and suite receipts, exact v1 registration binding,
+terminal `Ready`/`Disabled` state, result zero, and receipt-correlated last-run
+times under the terminal mutex. It disables rather than deletes the tasks and
+writes `task-retirement-receipt.json`; it does not rewrite the PASS receipt or
+grant credential/exchange authority. The writer immediately reads that receipt
+back through the production validator. The preparation collision gate ignores a
+disabled demand-startable v1 task only when the current task still matches its
+registration and either the exact two-task PASS retirement receipt or an exact
+immutable FAIL closure validates. A missing, corrupt, one-task-only, or
+wrong-attempt receipt remains a blocker. New v2 tasks disallow demand start and
+therefore cannot be resurrected after their one-shot date even if the harmless
+expired definition remains enabled. Scheduler retirement still requires
+explicit user authority.
+
+The two `WeatherIntegrationRecoveryBootstrap*Fixed0822` tasks predate attempt
+manifests. The ordinary retirement script must reject them. If either remains
+enabled, the preparation collision gate names it as a blocker. Use the separate
+legacy bootstrap retirement script only with its reviewed exported-XML SHA-256,
+exact last-run timestamp/result, and
+`RETIRE_EXACT_EXPIRED_LEGACY_INTEGRATION_TASK`. It allowlists only those two
+names, requires one expired trigger and terminal state, disables rather than
+deletes, and records then reads back a separate immutable receipt. Disabled
+legacy tasks with no valid exact receipt remain collision blockers. This is a bounded migration
+exception, not a generic old-task cleanup mechanism.
 
 Hash that closure receipt, classify the failure, and write the reviewed dispatch:
 

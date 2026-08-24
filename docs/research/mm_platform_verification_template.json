@@ -1,5 +1,5 @@
 {
-  "schema_version": "mm_platform_verification_v0.5",
+  "schema_version": "mm_platform_verification_v0.6",
   "status": "TEMPLATE_FAIL_SAFE",
   "verified_at_utc": null,
   "docs_checked_at_utc": null,
@@ -48,17 +48,47 @@
   },
   "stage1_lifecycle_bundle_sha256": null,
   "stage1_lifecycle_bundle": {
-    "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
+    "schema_version": "mm_stage1_lifecycle_bundle_v0.3",
     "status": "TEMPLATE_FAIL_SAFE",
+    "created_at_utc": null,
+    "platform": "polymarket_global",
     "settlement_unit": "pUSD",
     "bundle_sha256": null,
+    "bootstrap_schema_version": "mm_platform_bootstrap_v0.4",
     "bootstrap_sha256": null,
     "condition_id": null,
     "token_id": null,
     "funder_address": null,
     "requested_budget_usdc": null,
-    "lifecycle_results": {},
-    "derived_platform_evidence": {}
+    "lifecycle_results": {
+      "cancel_all": {},
+      "dead_man": {}
+    },
+    "journal_evidence": {
+      "cancel_all": {},
+      "dead_man": {}
+    },
+    "user_stream_journal_evidence": {
+      "cancel_all": {},
+      "dead_man": {}
+    },
+    "derived_platform_evidence": {
+      "starting_open_orders_rest_verified": false,
+      "order_update_verified": false,
+      "fill_event_verified": false,
+      "no_fill_lifecycle_verified": false,
+      "final_state_reconciliation_verified": false,
+      "terminal_order_rest_verified": false,
+      "account_trades_rest_verified": false,
+      "final_user_stream_journals_verified": false,
+      "action_time_collateral_verified": false,
+      "no_fill_collateral_reconciliation_verified": false,
+      "cancel_all_request_verified": false,
+      "cancel_all_zero_open_orders_verified": false,
+      "dead_man_automatic_cancel_verified": false,
+      "heartbeat_acknowledgment_verified": false
+    },
+    "secret_values_redacted": false
   },
   "fees_verified": false,
   "fee_model": {
@@ -83,7 +113,12 @@
     "order_update_verified": false,
     "fill_event_verified": false,
     "no_fill_lifecycle_verified": false,
-    "final_state_reconciliation_verified": false
+    "final_state_reconciliation_verified": false,
+    "terminal_order_rest_verified": false,
+    "account_trades_rest_verified": false,
+    "final_user_stream_journals_verified": false,
+    "action_time_collateral_verified": false,
+    "no_fill_collateral_reconciliation_verified": false
   },
   "cancel_all_verified": false,
   "cancel_all": {

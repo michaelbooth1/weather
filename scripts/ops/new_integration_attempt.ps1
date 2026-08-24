@@ -52,12 +52,16 @@ $RepoRoot = Resolve-WeatherIntegrationPath -Path $RepoRoot
 $WorktreeRoot = Resolve-WeatherIntegrationPath -Path $WorktreeRoot
 $AttemptRoot = Resolve-WeatherIntegrationPath -Path $AttemptRoot
 $ExpectedTip = $ExpectedTip.ToLowerInvariant()
+$originUrl = Get-WeatherIntegrationCanonicalOriginUrl -Root $RepoRoot
 
 if ($AttemptId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$') {
     throw "AttemptId must contain 1-48 safe task-name characters."
 }
 if ($BranchRef -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$') {
     throw "BranchRef contains unsupported characters."
+}
+if ($BranchRef -cin @("origin/master", "origin/main", "master", "main")) {
+    throw "BranchRef must name an origin topic branch, never a production branch."
 }
 if ($ExpectedTip -notmatch '^[0-9a-f]{40}$') {
     throw "ExpectedTip must be a full 40-character commit id."
@@ -308,6 +312,7 @@ elseif (-not [string]::IsNullOrWhiteSpace($PreparationIntentPath) -or
 }
 $orchestrationPaths = [ordered]@{
     contract = Join-Path $RepoRoot "scripts\ops\integration_attempt_contract.ps1"
+    remote_git = Join-Path $RepoRoot "scripts\ops\integration_attempt_remote_git.ps1"
     attempt_creator = Join-Path $RepoRoot "scripts\ops\new_integration_attempt.ps1"
     attempt_registrar = Join-Path $RepoRoot "scripts\ops\register_integration_attempt.ps1"
     attempt_activator = Join-Path $RepoRoot "scripts\ops\activate_integration_attempt.ps1"
@@ -345,6 +350,7 @@ if ($PreflightOnly) {
         attempt_id = $AttemptId
         expected_tip = $ExpectedTip
         production_baseline = $masterTip
+        origin_url = $originUrl
         expected_test_file_count = $expectedTestFileCount
         expected_chunk_count = $expectedChunkCount
         repair_class = $RepairClass
@@ -371,6 +377,7 @@ $manifest = [ordered]@{
     baseline = [ordered]@{
         master = $masterTip
         origin_master = $originMasterTip
+        origin_url = $originUrl
     }
     authorization = [ordered]@{
         review_reference = $ReviewReference

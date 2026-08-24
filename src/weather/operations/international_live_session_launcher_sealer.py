@@ -13,7 +13,10 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
-from weather.market.mm_live_candidate_cli import load_candidate_discovery_gate
+from weather.market.mm_live_candidate_cli import (
+    load_candidate_discovery_gate,
+    validate_bound_economics_acceptance_files,
+)
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
 from weather.operations.international_live_session_runner import (
     MAX_SESSION_SECONDS,
@@ -60,6 +63,12 @@ STAGED_INPUT_LAYOUTS = {
         "credential_reference_manifest": (
             "inputs/stage0-credential-reference-manifest.json"
         ),
+        "accepted_economics_snapshot": fixed_sealer.INPUT_LAYOUTS["stage0"][
+            "accepted_economics_snapshot"
+        ],
+        "economics_drift_report": fixed_sealer.INPUT_LAYOUTS["stage0"][
+            "economics_drift_report"
+        ],
         "discovery_plan": "inputs/stage0-discovery-plan.json",
         "reviewed_status_flags": "inputs/stage0-reviewed-status-flags.json",
         "build_receipt": "inputs/stage0-session-manifest-build-receipt.json",
@@ -72,6 +81,12 @@ STAGED_INPUT_LAYOUTS = {
         "credential_reference_manifest": (
             "inputs/stage1-cancel-all-credential-reference-manifest.json"
         ),
+        "accepted_economics_snapshot": fixed_sealer.INPUT_LAYOUTS[
+            "stage1_cancel_all"
+        ]["accepted_economics_snapshot"],
+        "economics_drift_report": fixed_sealer.INPUT_LAYOUTS[
+            "stage1_cancel_all"
+        ]["economics_drift_report"],
         "discovery_plan": "inputs/stage1-cancel-all-discovery-plan.json",
         "reviewed_status_flags": (
             "inputs/stage1-cancel-all-reviewed-status-flags.json"
@@ -88,6 +103,12 @@ STAGED_INPUT_LAYOUTS = {
         "credential_reference_manifest": (
             "inputs/stage1-dead-man-credential-reference-manifest.json"
         ),
+        "accepted_economics_snapshot": fixed_sealer.INPUT_LAYOUTS[
+            "stage1_dead_man"
+        ]["accepted_economics_snapshot"],
+        "economics_drift_report": fixed_sealer.INPUT_LAYOUTS[
+            "stage1_dead_man"
+        ]["economics_drift_report"],
         "discovery_plan": "inputs/stage1-dead-man-discovery-plan.json",
         "reviewed_status_flags": (
             "inputs/stage1-dead-man-reviewed-status-flags.json"
@@ -320,6 +341,11 @@ def _validate_public_inventory(
             "root",
             "branch",
             "commit",
+            "local_master",
+            "cached_origin_master",
+            "remote_master",
+            "remote_master_ref",
+            "live_remote_master_equal",
             "tree",
             "object_format",
             "python",
@@ -342,6 +368,11 @@ def _validate_public_inventory(
         (
             _same_path(root, production_root),
             production["branch"] == "master",
+            production["local_master"] == commit,
+            production["cached_origin_master"] == commit,
+            production["remote_master"] == commit,
+            production["remote_master_ref"] == fixed_sealer.REMOTE_MASTER_REF,
+            production["live_remote_master_equal"] is True,
             production["interrupt_cleanup_ancestor_integrated"] is True,
             oid_length is not None,
             fixed_sealer.GIT_OID_RE.fullmatch(commit) is not None,
@@ -506,6 +537,8 @@ def prepare_fixed_session_manifest(
     identity_source_path: str | Path,
     credential_import_receipt_source_path: str | Path,
     credential_reference_manifest_source_path: str | Path,
+    accepted_economics_snapshot_source_path: str | Path,
+    economics_drift_report_source_path: str | Path,
     attempt_root: str | Path,
     lease_workload: str,
     reviewed_status_flags_path: str | Path | None = None,
@@ -558,6 +591,8 @@ def prepare_fixed_session_manifest(
         "identity": identity_source_path,
         "credential_import_receipt": credential_import_receipt_source_path,
         "credential_reference_manifest": credential_reference_manifest_source_path,
+        "accepted_economics_snapshot": accepted_economics_snapshot_source_path,
+        "economics_drift_report": economics_drift_report_source_path,
         "discovery_plan": discovery_plan_path,
     }
     staged: dict[str, dict[str, Any]] = {}
@@ -603,12 +638,35 @@ def prepare_fixed_session_manifest(
         ) from exc
     if discovery["plan_sha256"] != staged["discovery_plan"]["sha256"]:
         raise SessionLauncherSealError("discovery plan changed during validation")
+    try:
+        validate_bound_economics_acceptance_files(
+            Path(staged["accepted_economics_snapshot"]["source_path"]),
+            Path(staged["economics_drift_report"]["source_path"]),
+            discovery["economics_acceptance"],
+            target_date=discovery["target_date"],
+            current_snapshot_id=discovery["economics_acceptance"][
+                "accepted_snapshot_id"
+            ],
+            current_snapshot_sha256=discovery["economics_acceptance"][
+                "accepted_snapshot_sha256"
+            ],
+        )
+    except RuntimeError as exc:
+        raise SessionLauncherSealError(
+            "discovery plan economics acceptance does not match its source evidence"
+        ) from exc
     reference_payload = fixed_sealer._validate_credential_reference_manifest(
         Path(staged["credential_reference_manifest"]["source_path"])
     )
-    fixed_sealer._validate_credential_import_receipt(
-        Path(staged["credential_import_receipt"]["source_path"])
-    )
+    try:
+        fixed_sealer._validate_credential_import_receipt(
+            Path(staged["credential_import_receipt"]["source_path"]),
+            required_mode=fixed_sealer.FIRST_SESSION_CREDENTIAL_MODE,
+        )
+    except fixed_sealer.SealError as exc:
+        raise SessionLauncherSealError(
+            "first-session manifest requires compare-only credential evidence"
+        ) from exc
     fixed_sealer._validate_identity(
         Path(staged["identity"]["source_path"]),
         requested_budget=FIXED_SESSION_BUDGET_PUSD,
@@ -681,8 +739,11 @@ def prepare_fixed_session_manifest(
                 "identity",
                 "credential_import_receipt",
                 "credential_reference_manifest",
+                "accepted_economics_snapshot",
+                "economics_drift_report",
             )
         },
+        "economics_acceptance": discovery["economics_acceptance"],
         "reviewed_status_flags": reviewed_status_flags,
         "template_sha256": reviewed_inventory["template_sha256"],
         "source_sha256": reviewed_inventory["source_sha256"],
@@ -829,7 +890,8 @@ def _validate_manifest_build_receipt(
         manifest,
         {
             "schema_version", "manifest_sha256", "stage", "production", "scope",
-            "inputs", "reviewed_status_flags", "template_sha256", "source_sha256",
+            "inputs", "economics_acceptance", "reviewed_status_flags",
+            "template_sha256", "source_sha256",
             "production_python_sha256", "session_bootstrap_sha256",
         },
         label="session manifest",
@@ -849,7 +911,11 @@ def _validate_manifest_build_receipt(
     )
     inputs = _require_exact_object(
         manifest["inputs"],
-        {"identity", "credential_import_receipt", "credential_reference_manifest"},
+        {
+            "identity", "credential_import_receipt",
+            "credential_reference_manifest", "accepted_economics_snapshot",
+            "economics_drift_report",
+        },
         label="session manifest inputs",
     )
     if not all(
@@ -894,7 +960,8 @@ def _validate_manifest_build_receipt(
         raise SessionLauncherSealError("staged public inputs are not an object")
     required_roles = {
         "identity", "credential_import_receipt",
-        "credential_reference_manifest", "discovery_plan",
+        "credential_reference_manifest", "accepted_economics_snapshot",
+        "economics_drift_report", "discovery_plan",
     }
     if not required_roles.issubset(staged_value) or not set(staged_value).issubset(
         required_roles | {"reviewed_status_flags"}
@@ -927,7 +994,10 @@ def _validate_manifest_build_receipt(
             raise SessionLauncherSealError(f"staged public input {role} changed")
         staged[role] = record
 
-    for role in ("identity", "credential_import_receipt", "credential_reference_manifest"):
+    for role in (
+        "identity", "credential_import_receipt", "credential_reference_manifest",
+        "accepted_economics_snapshot", "economics_drift_report",
+    ):
         manifest_input = _require_exact_object(
             inputs[role],
             {"path", "sha256"},
@@ -940,6 +1010,16 @@ def _validate_manifest_build_receipt(
             raise SessionLauncherSealError(
                 f"session manifest input {role} differs from its staged receipt"
             )
+
+    try:
+        fixed_sealer._validate_credential_import_receipt(
+            Path(str(staged["credential_import_receipt"]["path"])),
+            required_mode=fixed_sealer.FIRST_SESSION_CREDENTIAL_MODE,
+        )
+    except fixed_sealer.SealError as exc:
+        raise SessionLauncherSealError(
+            "staged first-session credential evidence is not compare-only"
+        ) from exc
 
     discovery_path = Path(str(staged["discovery_plan"]["path"]))
     try:
@@ -959,11 +1039,30 @@ def _validate_manifest_build_receipt(
             scope["target_date"] == discovery["target_date"],
             scope["condition_id"] == discovery["condition_id"],
             scope["token_id"] == discovery["token_id"],
+            manifest["economics_acceptance"]
+            == discovery["economics_acceptance"],
         )
     ):
         raise SessionLauncherSealError(
             "session manifest scope differs from its staged discovery"
         )
+    try:
+        validate_bound_economics_acceptance_files(
+            Path(str(staged["accepted_economics_snapshot"]["path"])),
+            Path(str(staged["economics_drift_report"]["path"])),
+            manifest["economics_acceptance"],
+            target_date=scope["target_date"],
+            current_snapshot_id=discovery["economics_acceptance"][
+                "accepted_snapshot_id"
+            ],
+            current_snapshot_sha256=discovery["economics_acceptance"][
+                "accepted_snapshot_sha256"
+            ],
+        )
+    except RuntimeError as exc:
+        raise SessionLauncherSealError(
+            "staged economics acceptance evidence differs from the manifest"
+        ) from exc
 
     status_flags = manifest["reviewed_status_flags"]
     if not isinstance(status_flags, list):
@@ -1148,8 +1247,17 @@ def build_parser() -> argparse.ArgumentParser:
     manifest.add_argument("--stage", choices=fixed_sealer.STAGES, required=True)
     manifest.add_argument("--discovery-plan", required=True)
     manifest.add_argument("--identity-source", required=True)
-    manifest.add_argument("--credential-import-receipt-source", required=True)
+    manifest.add_argument(
+        "--credential-import-receipt-source",
+        required=True,
+        help=(
+            "v0.2 compare-only receipt proving all four existing fixed entries "
+            "with zero credential-store mutation"
+        ),
+    )
     manifest.add_argument("--credential-reference-manifest-source", required=True)
+    manifest.add_argument("--accepted-economics-snapshot-source", required=True)
+    manifest.add_argument("--economics-drift-report-source", required=True)
     manifest.add_argument("--attempt-root", required=True)
     manifest.add_argument("--lease-workload", required=True)
     manifest.add_argument("--reviewed-status-flags-json")
@@ -1185,6 +1293,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 credential_reference_manifest_source_path=(
                     args.credential_reference_manifest_source
+                ),
+                accepted_economics_snapshot_source_path=(
+                    args.accepted_economics_snapshot_source
+                ),
+                economics_drift_report_source_path=(
+                    args.economics_drift_report_source
                 ),
                 attempt_root=args.attempt_root,
                 lease_workload=args.lease_workload,

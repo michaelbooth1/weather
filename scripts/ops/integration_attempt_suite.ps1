@@ -186,6 +186,12 @@ if (-not (Test-Path -LiteralPath $powerShellExecutable -PathType Leaf)) {
 }
 
 $localNow = Get-Date
+$suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+    -Value ([string]$manifest.schedule.suite_at_local) `
+    -Label "suite_at_local"
+if ($localNow.Date -ne $suiteAt.Date) {
+    throw "Integration-attempt suite may run only on its immutable scheduled local date."
+}
 $localMinute = ($localNow.Hour * 60) + $localNow.Minute
 if ($localMinute -lt 30 -or $localMinute -ge (9 * 60)) {
     throw "Integration-attempt suite must start inside the 00:30-09:00 heavy-work window."
@@ -279,6 +285,7 @@ finally {
         registration_intent_sha256 = $suiteTaskBinding.RegistrationIntentSha256
         branch_ref = [string]$manifest.branch_ref
         expected_tip = [string]$manifest.expected_tip
+        origin_url = [string]$manifest.baseline.origin_url
         worktree_root = [string]$manifest.worktree_root
         started_at_local = $startedAt
         completed_at_local = (Get-Date).ToString("o")

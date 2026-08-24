@@ -79,7 +79,11 @@ function Assert-WeatherIntegrationSuiteTask {
         throw ("Suite task result is 0x{0:X}, not success." -f [int]$taskInfo.LastTaskResult)
     }
 
-    $receiptStarted = [datetime]::Parse([string]$SuiteReceiptContract.Receipt.started_at_local)
+    $receiptStarted = (
+        ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+            -Value ([string]$SuiteReceiptContract.Receipt.started_at_local) `
+            -Label "suite receipt started_at_local"
+    ).LocalDateTime
     if ([math]::Abs(($receiptStarted - [datetime]$taskInfo.LastRunTime).TotalMinutes) -gt 5) {
         throw "Suite task LastRunTime does not correlate to the immutable receipt."
     }
@@ -114,8 +118,16 @@ function Wait-WeatherIntegrationSuiteTerminal {
         }
         $receiptExists = Test-Path -LiteralPath $receiptPath -PathType Leaf
         $receiptStatus = ""
+        $passReceiptCompletedAt = [datetime]::MinValue
         if ($receiptExists) {
             $receiptStatus = [string](Read-WeatherIntegrationSharedJson -Path $receiptPath).status
+            if ($receiptStatus -eq "PASS") {
+                $validatedPassReceipt = Assert-WeatherIntegrationSuiteReceipt `
+                    -AttemptContract $AttemptContract
+                $passReceiptCompletedAt = (
+                    $validatedPassReceipt.CompletedAtLocal
+                ).LocalDateTime
+            }
         }
         $now = Get-Date
         $decision = Get-WeatherIntegrationSuiteWaitDecision `
@@ -125,12 +137,14 @@ function Wait-WeatherIntegrationSuiteTerminal {
             -ReceiptExists ([bool]$receiptExists) `
             -ReceiptStatus $receiptStatus `
             -Now $now `
-            -Deadline $deadline
+            -Deadline $deadline `
+            -PassReceiptCompletedAt $passReceiptCompletedAt
         $passExitGraceProperty = $decision.PSObject.Properties["PassExitGrace"]
         if ($null -ne $passExitGraceProperty -and [bool]$passExitGraceProperty.Value -and
             $null -eq $script:suitePassExitGraceEvidence) {
             $script:suitePassExitGraceEvidence = [ordered]@{
                 observed_at_local = $now.ToString("o")
+                receipt_completed_at_local = ([datetime]$decision.GraceStartedAt).ToString("o")
                 task_name = [string]$manifest.schedule.suite_task_name
                 reason = [string]$decision.Reason
                 grace_until_local = ([datetime]$decision.GraceUntil).ToString("o")
@@ -220,6 +234,7 @@ function Invoke-WeatherQuietMergeChild {
         [Parameter(Mandatory = $true)][string]$Branch,
         [Parameter(Mandatory = $true)][string]$ExpectedTip,
         [Parameter(Mandatory = $true)][string]$ExpectedBaseline,
+        [Parameter(Mandatory = $true)][string]$ExpectedOriginUrl,
         [Parameter(Mandatory = $true)][string]$AttemptReportPath,
         [Parameter(Mandatory = $true)][string]$ExpectedQuietMergeSha256
     )
@@ -232,6 +247,7 @@ function Invoke-WeatherQuietMergeChild {
         "-Branch", $Branch,
         "-ExpectedTip", $ExpectedTip,
         "-ExpectedBaseline", $ExpectedBaseline,
+        "-ExpectedOriginUrl", $ExpectedOriginUrl,
         "-RepoRoot", $RepoRoot,
         "-AttemptReportPath", $AttemptReportPath,
         "-ExpectedSelfSha256", $ExpectedQuietMergeSha256,
@@ -280,6 +296,7 @@ function Get-WeatherIntegrationRecoverableActiveMarker {
     $markerRaw = Read-WeatherIntegrationSharedText -Path $markerPath
     try { $marker = $markerRaw | ConvertFrom-Json }
     catch { throw "Active quiet-merge marker JSON is unreadable after child failure." }
+    $originUrlProperty = $attempt.baseline.PSObject.Properties["origin_url"]
     Assert-WeatherIntegrationBooleanProperties `
         -Object $marker `
         -Names @("execution_tape_readoption_expected") `
@@ -293,6 +310,8 @@ function Get-WeatherIntegrationRecoverableActiveMarker {
         [string]$marker.branch -ne [string]$attempt.branch_ref -or
         [string]$marker.expected_tip -ne [string]$attempt.expected_tip -or
         [string]$marker.expected_baseline -ne [string]$attempt.baseline.master -or
+        ($null -ne $originUrlProperty -and
+            [string]$marker.origin_url -cne [string]$originUrlProperty.Value) -or
         [string]$marker.resolved_branch_tip -ne [string]$attempt.expected_tip -or
         [string]$marker.baseline_commit -ne [string]$attempt.baseline.master -or
         [string]$marker.pre_merge_commit -notmatch '^[0-9a-f]{40}$' -or
@@ -418,6 +437,12 @@ $deferredMergeReceiptMarker = $null
 $preserveQuietReportForReconciliation = $false
 
 try {
+    $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value ([string]$manifest.schedule.merge_at_local) `
+        -Label "merge_at_local"
+    if ($startedAt.Date -ne $mergeAt.Date) {
+        throw "Integration-attempt merge may run only on its immutable scheduled local date."
+    }
     $localMinute = ($startedAt.Hour * 60) + $startedAt.Minute
     if ($localMinute -lt 60 -or $localMinute -ge 240) {
         throw "Integration-attempt merge must start inside the 01:00-04:00 quiet window."
@@ -467,6 +492,7 @@ try {
         -Branch ([string]$manifest.branch_ref) `
         -ExpectedTip ([string]$manifest.expected_tip) `
         -ExpectedBaseline ([string]$manifest.baseline.master) `
+        -ExpectedOriginUrl ([string]$manifest.baseline.origin_url) `
         -AttemptReportPath $attemptQuietReportPath `
         -ExpectedQuietMergeSha256 ([string]$manifest.orchestration.quiet_merge.sha256)
     if ($quietMergeExitCode -ne 0) {
@@ -477,7 +503,11 @@ try {
     }
     $quietReport = Read-WeatherIntegrationSharedJson -Path $quietReportPath
     $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $quietReportPath
-    $quietReportTimestamp = [datetime]::Parse([string]$quietReport.ts)
+    $quietReportTimestamp = (
+        ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+            -Value ([string]$quietReport.ts) `
+            -Label "quiet merge report ts"
+    ).LocalDateTime
     if ($quietReportTimestamp -lt $startedAt.AddSeconds(-5)) {
         throw "Quiet merge report predates this attempt."
     }
@@ -492,6 +522,7 @@ try {
     if ([string]$quietReport.branch -ne [string]$manifest.branch_ref -or
         [string]$quietReport.expected_tip -ne [string]$manifest.expected_tip -or
         [string]$quietReport.expected_baseline -ne [string]$manifest.baseline.master -or
+        [string]$quietReport.origin_url -cne [string]$manifest.baseline.origin_url -or
         [string]$quietReport.baseline_commit -ne [string]$manifest.baseline.master -or
         [string]$quietReport.pre_merge_commit -notmatch '^[0-9a-f]{40}$' -or
         [string]$quietReport.resolved_branch_tip -ne [string]$manifest.expected_tip) {
@@ -576,10 +607,15 @@ catch {
     if (Test-Path -LiteralPath $quietReportPath -PathType Leaf) {
         try {
             $candidateReport = Read-WeatherIntegrationSharedJson -Path $quietReportPath
-            $candidateTimestamp = [datetime]::Parse([string]$candidateReport.ts)
+            $candidateTimestamp = (
+                ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+                    -Value ([string]$candidateReport.ts) `
+                    -Label "candidate quiet merge report ts"
+            ).LocalDateTime
             if ($candidateTimestamp -ge $startedAt.AddSeconds(-5) -and
                 [string]$candidateReport.branch -eq [string]$manifest.branch_ref -and
                 [string]$candidateReport.expected_tip -eq [string]$manifest.expected_tip -and
+                [string]$candidateReport.origin_url -ceq [string]$manifest.baseline.origin_url -and
                 [string]$candidateReport.expected_baseline -eq [string]$manifest.baseline.master) {
                 $quietReport = $candidateReport
                 $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $attemptQuietReportPath
@@ -597,6 +633,7 @@ catch {
             [bool]$quietReport.execution_tape_recovery_proved) -and
         [string]$quietReport.branch -eq [string]$manifest.branch_ref -and
         [string]$quietReport.expected_tip -eq [string]$manifest.expected_tip -and
+        [string]$quietReport.origin_url -ceq [string]$manifest.baseline.origin_url -and
         [string]$quietReport.expected_baseline -eq [string]$manifest.baseline.master -and
         [string]$quietReport.baseline_commit -eq [string]$manifest.baseline.master -and
         [string]$quietReport.resolved_branch_tip -eq [string]$manifest.expected_tip -and
@@ -661,6 +698,7 @@ finally {
         manifest_sha256 = $contract.ManifestSha256
         branch_ref = [string]$manifest.branch_ref
         source_tip = [string]$manifest.expected_tip
+        origin_url = [string]$manifest.baseline.origin_url
         suite_receipt_path = [string]$manifest.evidence.suite_receipt
         suite_receipt_sha256 = $suiteReceiptSha256
         started_at_local = $startedAt.ToString("o")

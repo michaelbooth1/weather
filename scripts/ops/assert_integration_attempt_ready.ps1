@@ -90,7 +90,7 @@ try {
         -Label "Integration preparation schedule"
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent.publication `
-        -Names @("remote", "remote_ref", "exact_non_force_refspec") `
+        -Names @("remote", "origin_url", "remote_ref", "exact_non_force_refspec") `
         -Label "Integration preparation publication"
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent.authorization `
@@ -219,6 +219,7 @@ try {
         preparer = Join-Path $repoRoot "scripts\ops\prepare_integration_attempt.ps1"
         readiness = Join-Path $repoRoot "scripts\ops\assert_integration_attempt_ready.ps1"
         contract = Join-Path $repoRoot "scripts\ops\integration_attempt_contract.ps1"
+        remote_git = Join-Path $repoRoot "scripts\ops\integration_attempt_remote_git.ps1"
         preparation_contract = Join-Path $repoRoot "scripts\ops\integration_attempt_preparation_contract.ps1"
         quiet_merge_preflight = Join-Path $repoRoot "scripts\ops\integration_attempt_quiet_merge_preflight.ps1"
         creator = Join-Path $repoRoot "scripts\ops\new_integration_attempt.ps1"
@@ -244,16 +245,18 @@ try {
     $remoteRef = "refs/heads/$topicBranch"
     $expectedRefspec = "$($manifest.expected_tip):$remoteRef"
     if ([string]$intent.publication.remote -ne "origin" -or
+        [string]$intent.publication.origin_url -cne
+            [string]$manifest.baseline.origin_url -or
         [string]$intent.publication.remote_ref -cne $remoteRef -or
         [string]$intent.publication.exact_non_force_refspec -cne $expectedRefspec) {
-        throw "Preparation publication intent does not bind the exact non-force topic refspec."
+        throw "Preparation publication intent does not bind the repository identity and exact non-force topic refspec."
     }
-    $remoteRows = @(& git -C $repoRoot ls-remote --heads origin $remoteRef)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not query the live origin topic ref."
-    }
-    $remoteTip = Resolve-WeatherIntegrationRemoteTipRows `
-        -Rows $remoteRows -ExpectedRemoteRef $remoteRef
+    Assert-WeatherIntegrationOriginIdentity `
+        -AttemptContract $contract `
+        -Phase "integration preparation readiness" | Out-Null
+    $remoteTip = Get-WeatherIntegrationCanonicalRemoteTip `
+        -Root $repoRoot -ExpectedUrl ([string]$manifest.baseline.origin_url) `
+        -RemoteRef $remoteRef -Label "readiness live canonical origin topic query"
     if ($remoteTip -ne [string]$manifest.expected_tip) {
         throw "Live origin topic tip does not match the immutable attempt."
     }
@@ -263,12 +266,10 @@ try {
     if ($trackingTip -ne [string]$manifest.expected_tip) {
         throw "Local remote-tracking topic ref does not match the live exact tip."
     }
-    $liveMasterRows = @(& git -C $repoRoot ls-remote --heads origin "refs/heads/master")
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not query the live exact origin master ref."
-    }
-    $liveMasterTip = Resolve-WeatherIntegrationRemoteTipRows `
-        -Rows $liveMasterRows -ExpectedRemoteRef "refs/heads/master"
+    $liveMasterTip = Get-WeatherIntegrationCanonicalRemoteTip `
+        -Root $repoRoot -ExpectedUrl ([string]$manifest.baseline.origin_url) `
+        -RemoteRef "refs/heads/master" `
+        -Label "readiness live canonical origin/master query"
     if ($liveMasterTip -ne [string]$manifest.baseline.master) {
         throw "Live origin master changed after the attempt baseline was frozen."
     }
@@ -316,18 +317,19 @@ try {
     Assert-WeatherIntegrationBooleanProperties `
         -Object $registration.Receipt -Names @("staged_disabled") `
         -Label "Prepared-attempt registration receipt"
-    $schedulerBoundaryCheckedAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+    $schedulerBoundaryCheckedAt = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
         -Value ([string]$registration.Receipt.scheduler_boundary_checked_at_local) `
         -Label "registration scheduler boundary"
+    $registrationCheckedAtOffset = [DateTimeOffset]$RegistrationCheckedAtLocal
     if (-not [bool]$registration.Receipt.staged_disabled -or
         [int]$registration.Receipt.minimum_suite_lead_minutes -ne 10 -or
-        $schedulerBoundaryCheckedAt -lt $RegistrationCheckedAtLocal) {
+        $schedulerBoundaryCheckedAt -lt $registrationCheckedAtOffset) {
         throw "Registration receipt does not prove disabled staging at the preparer's ten-minute Scheduler boundary."
     }
     Assert-WeatherIntegrationPreparationSchedule `
         -SuiteAtLocal $intentSuiteAt `
         -MergeAtLocal $intentMergeAt `
-        -Now $schedulerBoundaryCheckedAt `
+        -Now $schedulerBoundaryCheckedAt.LocalDateTime `
         -MinimumLeadMinutes 10 | Out-Null
 
     $stage = "validate_absent_runtime_evidence"
@@ -457,6 +459,7 @@ try {
         }
         remote = [ordered]@{
             name = "origin"
+            origin_url = [string]$manifest.baseline.origin_url
             ref = "refs/heads/$topicBranch"
             tip = $remoteTip
             remote_tracking_ref = [string]$manifest.branch_ref

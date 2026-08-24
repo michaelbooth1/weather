@@ -26,6 +26,84 @@ function Enter-WeatherIntegrationPreparationMutex {
     }
 }
 
+function Get-WeatherIntegrationTaskManifestBinding {
+    param([Parameter(Mandatory = $true)][object]$Task)
+
+    $actions = @($Task.Actions)
+    if ($actions.Count -ne 1) {
+        throw "Retired integration task must retain one exact executable action."
+    }
+    $argumentsProperty = $actions[0].PSObject.Properties["Arguments"]
+    if ($null -eq $argumentsProperty) {
+        throw "Retired integration task action has no immutable arguments."
+    }
+    $arguments = [string]$argumentsProperty.Value
+    $pathMatches = [regex]::Matches(
+        $arguments,
+        '(?i)(?:^|\s)-ManifestPath\s+(?:"(?<quoted>[^"]+)"|(?<bare>[^\s"]+))(?=\s|$)'
+    )
+    $hashMatches = [regex]::Matches(
+        $arguments,
+        '(?i)(?:^|\s)-ExpectedManifestSha256\s+(?<hash>[0-9a-f]{64})(?=\s|$)'
+    )
+    if ($pathMatches.Count -ne 1 -or $hashMatches.Count -ne 1) {
+        throw "Retired integration task action lost its exact manifest binding."
+    }
+    $pathMatch = $pathMatches[0]
+    $manifestPath = if ($pathMatch.Groups["quoted"].Success) {
+        [string]$pathMatch.Groups["quoted"].Value
+    }
+    else { [string]$pathMatch.Groups["bare"].Value }
+    return [pscustomobject]@{
+        ManifestPath = Resolve-WeatherIntegrationPath -Path $manifestPath
+        ManifestSha256 = ([string]$hashMatches[0].Groups["hash"].Value).ToLowerInvariant()
+    }
+}
+
+function Assert-WeatherIntegrationDisabledTaskRetirementEvidence {
+    param([Parameter(Mandatory = $true)][object]$Task)
+
+    $taskName = [string]$Task.TaskName
+    if ($taskName -match '^WeatherIntegration(?<role>Suite|Merge)_(?<attempt>[A-Za-z0-9][A-Za-z0-9._-]{0,47})$') {
+        $role = if ([string]$Matches.role -ceq "Suite") { "suite" } else { "merge" }
+        $attemptId = [string]$Matches.attempt
+        $binding = Get-WeatherIntegrationTaskManifestBinding -Task $Task
+        $contract = Assert-WeatherIntegrationAttemptManifest `
+            -ManifestPath $binding.ManifestPath `
+            -ExpectedSha256 $binding.ManifestSha256
+        if ([string]$contract.Manifest.attempt_id -cne $attemptId) {
+            throw "Retired task name and manifest attempt id disagree."
+        }
+        $retirementFailure = $null
+        try {
+            Assert-WeatherIntegrationTaskRetirementReceipt `
+                -AttemptContract $contract -Task $Task -Role $role | Out-Null
+            return
+        }
+        catch { $retirementFailure = $_.Exception.Message }
+        try {
+            Assert-WeatherIntegrationFailClosureReceipt `
+                -AttemptContract $contract -Task $Task -Role $role | Out-Null
+            return
+        }
+        catch {
+            throw (
+                "Disabled attempt task has neither exact PASS retirement nor " +
+                "exact FAIL closure evidence. retirement=$retirementFailure; " +
+                "closure=$($_.Exception.Message)"
+            )
+        }
+    }
+    if ($taskName -cmatch
+        '^WeatherIntegrationRecoveryBootstrap(?:Suite|Merge)Fixed0822$') {
+        $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        Assert-WeatherLegacyBootstrapRetirementReceipt `
+            -RepositoryRoot $repositoryRoot -Task $Task | Out-Null
+        return
+    }
+    throw "Disabled task is not an exact supported retirement identity."
+}
+
 function Assert-WeatherIntegrationNoActiveAttemptCollision {
     param(
         [Parameter(Mandatory = $true)][datetime]$SuiteAtLocal,
@@ -39,7 +117,9 @@ function Assert-WeatherIntegrationNoActiveAttemptCollision {
     $tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
         $isOwnExactTask = ([string]$_.TaskPath -ieq "\" -and
             $ownTaskNames -icontains [string]$_.TaskName)
-        [string]$_.TaskName -match '^WeatherIntegration(?:Suite|Merge)_' -and
+        ([string]$_.TaskName -match '^WeatherIntegration(?:Suite|Merge)_' -or
+            [string]$_.TaskName -match
+                '^WeatherIntegrationRecoveryBootstrap(?:Suite|Merge)Fixed[0-9]+$') -and
         -not $isOwnExactTask
     })
     $active = New-Object System.Collections.Generic.List[string]
@@ -53,7 +133,32 @@ function Assert-WeatherIntegrationNoActiveAttemptCollision {
             $active.Add("$([string]$task.TaskPath)$([string]$task.TaskName)@$taskState")
             continue
         }
-        if ($taskState -eq "Disabled" -or -not $settingsEnabled) { continue }
+        $allowDemandStartProperty = $task.Settings.PSObject.Properties[
+            "AllowDemandStart"
+        ]
+        if ($taskState -eq "Disabled" -or -not $settingsEnabled) {
+            if ($null -eq $allowDemandStartProperty -or
+                [bool]$allowDemandStartProperty.Value) {
+                try {
+                    Assert-WeatherIntegrationDisabledTaskRetirementEvidence `
+                        -Task $task
+                }
+                catch {
+                    $active.Add(
+                        "$([string]$task.TaskPath)$([string]$task.TaskName)" +
+                        "@disabled-without-valid-retirement-receipt"
+                    )
+                }
+            }
+            continue
+        }
+        if ($null -eq $allowDemandStartProperty -or
+            [bool]$allowDemandStartProperty.Value) {
+            $active.Add(
+                "$([string]$task.TaskPath)$([string]$task.TaskName)@demand-start-enabled"
+            )
+            continue
+        }
         $info = Get-ScheduledTaskInfo `
             -TaskName ([string]$task.TaskName) `
             -TaskPath ([string]$task.TaskPath) `
@@ -62,16 +167,18 @@ function Assert-WeatherIntegrationNoActiveAttemptCollision {
             $active.Add("$([string]$task.TaskPath)$([string]$task.TaskName)")
         }
     }
-    if ($active.Count -gt 0) {
-        $names = @($active | Sort-Object -Unique)
-        throw "An enabled integration attempt already exists: $($names -join ', '). Close it before preparing another schedule."
-    }
+    $activeNames = @($active | Sort-Object -Unique)
 
     $quietConflicts = New-Object System.Collections.Generic.List[string]
     foreach ($task in @(Get-ScheduledTask -ErrorAction Stop)) {
         if ([string]$task.TaskPath -ieq "\" -and
             $ownTaskNames -icontains [string]$task.TaskName) { continue }
-        $arguments = @($task.Actions | ForEach-Object { [string]$_.Arguments }) -join " "
+        $arguments = @($task.Actions | ForEach-Object {
+            if ($null -eq $_) { return "" }
+            $argumentsProperty = $_.PSObject.Properties["Arguments"]
+            if ($null -eq $argumentsProperty) { return "" }
+            [string]$argumentsProperty.Value
+        }) -join " "
         $isSensitiveDriver = ([string]$task.TaskName -ieq "WeatherMergeSensitiveDriver")
         $isQuietMerge = ($arguments -match
             '(?i)(quiet_window_merge|suite_gated_quiet_merge|integration_attempt_merge)\.ps1')
@@ -123,8 +230,17 @@ function Assert-WeatherIntegrationNoActiveAttemptCollision {
             )
         }
     }
-    if ($quietConflicts.Count -gt 0) {
-        throw "Prepared integration schedule overlaps protected merge work: $($quietConflicts -join ', ')."
+    $allConflicts = @(
+        @($activeNames) + @($quietConflicts) |
+            Sort-Object -Unique
+    )
+    if ($allConflicts.Count -gt 0) {
+        throw (
+            "Integration preparation is blocked by enabled attempt or protected merge work: " +
+            "$($allConflicts -join ', '). Close a failed attempt, retire a successful " +
+            "historical task pair with retire_integration_attempt_tasks.ps1, or obtain " +
+            "reviewed cleanup for a legacy non-attempt task before preparing another schedule."
+        )
     }
 }
 
@@ -250,6 +366,9 @@ function Get-WeatherIntegrationTopicBranchName {
         $branchName.EndsWith(".") -or $branchName.EndsWith("/") -or
         $branchName.Contains("//") -or $branchName.EndsWith(".lock")) {
         throw "BranchRef contains a Git-unsafe topic branch name."
+    }
+    if ($branchName -cin @("master", "main")) {
+        throw "BranchRef must name a topic branch, never a production branch."
     }
     return $branchName
 }
