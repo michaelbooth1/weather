@@ -295,13 +295,16 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
     credential_receipt = write_json(
         sources / "credential-import-receipt.json",
         {
-            "schema_version": "mm_live_credential_import_receipt_v0.1",
+            "schema_version": "mm_live_credential_import_receipt_v0.2",
             "status": "PASS",
             "platform": "polymarket_global",
             "source_outside_repository_verified": True,
             "source_acl_private_confirmed": True,
             "credential_value_count_expected": 4,
             "credential_value_count_written": 4,
+            "credential_mode": "create_new",
+            "credential_value_count_existing_exact_verified": 0,
+            "credential_store_mutation_attempted": True,
             "credential_values_retained": False,
             "ignored_source_key_count": 0,
             "checks": {

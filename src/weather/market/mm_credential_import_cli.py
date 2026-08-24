@@ -1,4 +1,4 @@
-"""One-time import of live-pilot secrets into Credential Manager.
+"""Create or exactly verify live-pilot secrets in Credential Manager.
 
 The source file must remain outside the repository. Secret values are never
 accepted as arguments, printed, or written to the public reference manifest or
@@ -13,6 +13,7 @@ unchanged and is not expected to contain the live SDK dependencies.
 from __future__ import annotations
 
 import argparse
+import hmac
 import os
 import sys
 from pathlib import Path
@@ -23,6 +24,7 @@ from weather.market.mm_credentials import (
     FUNDER_ENV,
     REFERENCE_ENV,
     delete_windows_generic_credential,
+    resolve_credential_reference,
     windows_generic_credential_exists,
     write_windows_generic_credential,
 )
@@ -31,6 +33,9 @@ from weather.schema_registry import schema_version
 
 
 CONFIRMATION = "INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS"
+VERIFY_EXISTING_EXACT_CONFIRMATION = (
+    "INTERNATIONAL_POLYMARKET_VERIFY_EXISTING_EXACT_CREDENTIALS"
+)
 MANIFEST_SCHEMA_VERSION = schema_version("mm_live_credential_reference_manifest")
 RECEIPT_SCHEMA_VERSION = schema_version("mm_live_credential_import_receipt")
 MAX_SOURCE_BYTES = 65_536
@@ -186,6 +191,21 @@ def _derive_account_address(private_key):
         ) from exc
 
 
+def _read_windows_generic_credential_by_target(target):
+    return resolve_credential_reference(f"wincred://{target}")
+
+
+def _secret_values_match(actual, expected):
+    if not isinstance(actual, str) or not isinstance(expected, str):
+        return False
+    try:
+        actual_bytes = actual.encode("utf-8")
+        expected_bytes = expected.encode("utf-8")
+    except UnicodeError:
+        return False
+    return hmac.compare_digest(actual_bytes, expected_bytes)
+
+
 def _validated_bundle(values, *, account_deriver):
     signature_value = str(values["POLYMM_SIGNATURE_TYPE"]).strip().upper()
     topology = SIGNATURE_TOPOLOGIES.get(signature_value)
@@ -246,13 +266,20 @@ def import_live_pilot_credentials(
     platform_name=os.name,
     account_deriver=_derive_account_address,
     credential_exists=windows_generic_credential_exists,
+    credential_reader=_read_windows_generic_credential_by_target,
     credential_writer=write_windows_generic_credential,
     credential_deleter=delete_windows_generic_credential,
+    verify_existing_exact=False,
 ):
-    """Validate and atomically import four secrets into new fixed targets."""
+    """Create four fixed credentials or verify that all four already match."""
 
-    if confirmation != CONFIRMATION:
-        raise RuntimeError("credential import requires the exact confirmation token")
+    expected_confirmation = (
+        VERIFY_EXISTING_EXACT_CONFIRMATION
+        if verify_existing_exact
+        else CONFIRMATION
+    )
+    if confirmation != expected_confirmation:
+        raise RuntimeError("credential preparation requires the exact confirmation token")
     if not source_acl_private_confirmed:
         raise RuntimeError("credential import requires private source ACL confirmation")
     source, manifest_out, receipt_out = _new_external_paths(
@@ -269,6 +296,11 @@ def import_live_pilot_credentials(
         "source_acl_private_confirmed": True,
         "credential_value_count_expected": len(WINCRED_TARGETS),
         "credential_value_count_written": 0,
+        "credential_mode": (
+            "verify_existing_exact" if verify_existing_exact else "create_new"
+        ),
+        "credential_value_count_existing_exact_verified": 0,
+        "credential_store_mutation_attempted": False,
         "credential_values_retained": False,
         "ignored_source_key_count": 0,
         "checks": {},
@@ -280,6 +312,7 @@ def import_live_pilot_credentials(
     created_targets = []
     operation_error = None
     manifest = None
+    manifest_written = False
     try:
         if platform_name != "nt":
             raise RuntimeError("credential import is supported only on Windows")
@@ -293,16 +326,46 @@ def import_live_pilot_credentials(
             set(values).intersection(IGNORED_SOURCE_KEYS)
         )
         existing = [
-            field for field, target in WINCRED_TARGETS.items()
-            if credential_exists(target)
+            bool(credential_exists(target)) for target in WINCRED_TARGETS.values()
         ]
-        if existing:
-            receipt["missing"] = ["fixed_credential_targets_are_new"]
-            raise RuntimeError("one or more fixed credential targets already exist")
-        for field, target in WINCRED_TARGETS.items():
-            credential_writer(target, getattr(bundle, field))
-            created_targets.append(target)
-        receipt["credential_value_count_written"] = len(created_targets)
+        if verify_existing_exact:
+            if not all(existing):
+                receipt["missing"] = [
+                    "fixed_credential_targets_all_exist_and_match_source"
+                ]
+                raise RuntimeError(
+                    "fixed credential targets could not be verified exactly"
+                )
+            comparisons = []
+            for field, target in WINCRED_TARGETS.items():
+                try:
+                    actual_value = credential_reader(target)
+                    matches = _secret_values_match(
+                        actual_value,
+                        getattr(bundle, field),
+                    )
+                except Exception:
+                    matches = False
+                comparisons.append(matches)
+            if not all(comparisons):
+                receipt["missing"] = [
+                    "fixed_credential_targets_all_exist_and_match_source"
+                ]
+                raise RuntimeError(
+                    "fixed credential targets could not be verified exactly"
+                )
+            receipt["credential_value_count_existing_exact_verified"] = len(
+                comparisons
+            )
+        else:
+            if any(existing):
+                receipt["missing"] = ["fixed_credential_targets_are_new"]
+                raise RuntimeError("one or more fixed credential targets already exist")
+            receipt["credential_store_mutation_attempted"] = True
+            for field, target in WINCRED_TARGETS.items():
+                credential_writer(target, getattr(bundle, field))
+                created_targets.append(target)
+            receipt["credential_value_count_written"] = len(created_targets)
         manifest = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
             "platform": "polymarket_global",
@@ -322,6 +385,7 @@ def import_live_pilot_credentials(
             "ignored_relayers_rpc_and_self_assertions": True,
         }
         write_json_atomic(manifest_out, manifest, trailing_newline=True)
+        manifest_written = True
         receipt["status"] = "PASS"
     except Exception as exc:
         if isinstance(exc, CredentialSourceValidationError):
@@ -339,11 +403,17 @@ def import_live_pilot_credentials(
         receipt["rollback_ok"] = rollback_ok
         receipt["credential_value_count_written"] = 0 if rollback_ok else len(created_targets)
         try:
-            if manifest_out.exists():
+            if manifest_written and manifest_out.exists():
                 manifest_out.unlink()
         except OSError:
             rollback_ok = False
             receipt["rollback_ok"] = False
+    if operation_error is not None:
+        try:
+            if manifest_written and manifest_out.exists():
+                manifest_out.unlink()
+        except OSError:
+            pass
     if operation_error is not None:
         receipt["exception_type"] = type(operation_error).__name__
     try:
@@ -356,7 +426,7 @@ def import_live_pilot_credentials(
                 except Exception:
                     pass
         try:
-            if manifest_out.exists():
+            if manifest_written and manifest_out.exists():
                 manifest_out.unlink()
         except OSError:
             pass
@@ -374,6 +444,7 @@ def build_parser():
     parser.add_argument("--sdk-overlay-manifest", required=True)
     parser.add_argument("--sdk-overlay-manifest-sha256", required=True)
     parser.add_argument("--confirm-source-acl-private", action="store_true")
+    parser.add_argument("--verify-existing-exact", action="store_true")
     parser.add_argument("--confirmation", required=True)
     return parser
 
@@ -404,14 +475,17 @@ def main(argv=None):
             args.receipt_out,
             confirmation=args.confirmation,
             source_acl_private_confirmed=args.confirm_source_acl_private,
+            verify_existing_exact=args.verify_existing_exact,
         )
     except Exception as exc:
         print(f"credential import failed: {type(exc).__name__}", file=sys.stderr)
         return 1
-    print(
-        "credential import PASS: "
-        f"{result['receipt']['credential_value_count_written']} entries"
+    receipt = result["receipt"]
+    prepared_count = (
+        receipt["credential_value_count_written"]
+        + receipt["credential_value_count_existing_exact_verified"]
     )
+    print(f"credential preparation PASS: {prepared_count} entries")
     return 0
 
 

@@ -543,3 +543,22 @@ open: no fresh safe candidate, production-bound Stage 0 identity/doctor,
 authenticated bootstrap, supervised Stage 1 cancellation probes, order, fill,
 fee, rebate, position, settlement, or P&L evidence exists. The old prepared
 host templates must not substitute for a newly sealed current attempt.
+
+## 2026-08-23 credential reconciliation repair
+
+The owner-approved live-readiness closure subsequently landed at
+`4feef39a44f920affcb05387a8882fb5f735cfa0` with capture and execution-tape
+recovery plus remote acknowledgement. An attended credential-import attempt
+then passed every offline source, signer, and topology check but refused before
+mutation because one or more fixed Credential Manager entries already existed;
+it wrote and overwrote zero entries.
+
+The follow-up repair adds an explicit compare-only mode with a separate literal
+confirmation. It requires all four fixed entries to exist and match the
+independently retained source, reads and compares every value only in-process,
+and never calls the writer or deleter. A versioned secret-free receipt
+distinguishes four new writes from four exact existing-value verifications, and
+the fixed-scope sealer accepts only either truthful all-four tuple. This local
+vault proof remains separate from authenticated doctor, account, eligibility,
+candidate, Stage 0/1, and live lifecycle evidence; no exchange call or order is
+part of credential reconciliation.
