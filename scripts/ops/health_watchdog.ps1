@@ -65,6 +65,7 @@ function Get-FlagClass($text) {
     if ($text -match "LOW RAM") { return "memory" }
     if ($text -match "LOW DISK") { return "capacity" }
     if ($text -match "SETTLEMENT HOLE") { return "settlement" }
+    if ($text -match "DOCUMENTATION TRANSACTION") { return "documentation" }
     if ($text -match "mirror") { return "durability" }
     if ($text -match "REBOOT PENDING|logon-dependent") { return "resilience" }
     if ($text -match "streak checker failed|BLIND") { return "observability" }
@@ -75,6 +76,7 @@ $actionWindow = @{
     memory        = "NOW - memory pressure is the streak's primary failure mode"
     capacity      = "any time; tiering/cleanup is memory-light"
     settlement    = "tonight - scripts\ops\chain_recovery_run.ps1 -ResumeFrom <failed step> -TargetDate <date> -Refetch, in the quiet window"
+    documentation = "NOW - finish and publish the hash-bound closeout; its recorded deadline is 09:00"
     durability    = "any time; mirror runs nightly 04:30"
     resilience    = "any time, but a reboot must not happen before it is fixed"
     observability = "NOW - nothing else is watching while this is broken"
@@ -89,6 +91,7 @@ foreach ($f in @($status.flags)) {
         "memory" { if ($inCapture) { "CRITICAL" } else { "HIGH" } }
         "observability" { "HIGH" }
         "capacity" { "HIGH" }
+        "documentation" { "HIGH" }
         # A settlement hole is not a scheduled-job hiccup. The evidence is already lost
         # for that date and no future run reclaims it, so this outranks anything whose
         # cost is bounded by "wait for the next run". It escalates with age because each

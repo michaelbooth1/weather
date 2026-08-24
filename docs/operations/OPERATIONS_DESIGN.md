@@ -396,6 +396,194 @@ either terminal receipt at entry. The reconciler also holds the same
 receipt write, and marker cleanup; publication resume additionally enforces the
 heavy-work time window before using that already-held mutation mutex.
 
+Host-local one-shot maintenance tasks that are not integration attempts use
+the generic one-shot contract. The Scheduler action is never the mission
+payload. It is always `scripts/ops/one_shot_guarded_launcher.ps1`, invoked by
+the current `$PSHOME\powershell.exe` with only the exact canonical manifest
+path and reviewed hash. Manifest v0.4 separately binds `payload_file` and its
+ordered `payload_arguments`; argument encoding is bounded and rejects tokens
+that Windows PowerShell cannot represent unambiguously. The manifest also
+binds the exact task name/path, working directory, offset-bearing one-shot
+trigger, S4U/Limited principal, fail-closed settings, admission window,
+current Windows boot identity, and unique local dependency paths and SHA-256
+values.
+
+Every dependency list contains the guarded launcher, payload,
+`one_shot_readiness.ps1`, and `windows_kill_on_close_job.ps1` exactly once.
+Heavy one-shots also contain `workload_admission.ps1` exactly once. The
+launcher holds a shared registry-lock handle across execution, performs the
+execution-mode readiness assertion, then reopens every dependency in canonical
+path order, rehashes it from that handle, and retains handles that deny write
+or delete through payload teardown. It acquires the shared heavy-work lease
+when required and starts the payload suspended inside a kill-on-close Windows
+Job. It retains that Job until the payload exits or the absolute reviewed
+teardown deadline is reached. Killing the launcher therefore tears down the
+payload's whole descendant tree; concurrent source replacement cannot swap in
+post-validation bytes, and no mission-specific wrapper can forget readiness,
+lease, containment, or deadline enforcement. Manifests are limited to 32
+dependencies, 4 MiB per dependency, and an 8 MiB aggregate hash budget.
+
+Pre-trigger readiness additionally means Scheduler still describes an
+executable future one-shot: the task is enabled in `Ready` state, has never
+previously run, uses the exact reviewed principal and settings, its sole time
+trigger has no repetition interval, Scheduler failure restart,
+`StartWhenAvailable`, demand start, idle gating, and network gating are off,
+wake and battery continuity are on, and
+`Get-ScheduledTaskInfo.NextRunTime` is non-null, strictly future, and the same
+instant as the manifest trigger. Stable blockers
+distinguish `TASK_NOT_READY`, `TASK_REPETITION_CONFIGURED`,
+`TASK_NEXT_RUN_UNAVAILABLE`, `TASK_NEXT_RUN_MISMATCH`, and
+`TASK_NEXT_RUN_NOT_FUTURE`; `TASK_ACTION_MISMATCH` covers any executable,
+argument, working-directory, or action-file drift, and `TASK_ALREADY_RAN`
+marks spent evidence. A spent, retargeted, interactive-only, elevated,
+late-catching, disabled, repeating, or expired task cannot look ready merely
+because part of its metadata still matches. Heavy work must fit entirely
+inside its same-date 00:30-09:00 admission window, including its maximum
+Scheduler runtime. Trigger and admission timestamps must carry the Scheduler
+host's configured local offset at each instant; a foreign numeric offset cannot
+disguise a protected-window execution. This scheduling-zone check says nothing
+about the host's physical location or trading-jurisdiction eligibility.
+
+`-Mode Inspect` is the pre-trigger status gate described above. `-Mode Assert`
+is retained as the library/diagnostic execution-entry check: Scheduler must
+report the task as `Running`, `LastRunTime` must correlate to the reviewed
+trigger, and assertion must occur within ten minutes of that trigger and before
+teardown. The registered task itself calls only the guarded launcher, which
+performs the same execution-mode check while holding the registry lock.
+Runtime assertion deliberately does not require a future `NextRunTime`, which
+a running one-shot normally lacks. Assert emits one compact machine-readable
+result and exits `2` whenever execution is blocked; Inspect emits the same
+result but exits `0`, allowing status callers to surface every blocker without
+mistaking validator execution for task readiness.
+`-Mode InspectActive` is the read-only status form for an already-running task:
+its start must correlate to the ten-minute entry window, while the observation
+may occur later within the reviewed maximum runtime and teardown deadline.
+`-Mode InspectAuto` selects pre-trigger versus active semantics from the
+validator's single exact Scheduler snapshot and is the status/watchdog entry;
+it avoids a separate task-state query racing the validation query. A reboot after
+review produces `STALE_BOOT_IDENTITY`; any changed dependency produces
+`STALE_DEPENDENCY_HASH`. Both may be reported together, along with task
+identity, action, trigger, availability, or manifest-integrity blockers. The
+manifest has this exact shape; paths are canonical absolute local paths, the
+trigger carries its numeric offset, the boot timestamp is UTC `Z`, and hashes
+are lowercase:
+
+```json
+{
+  "schema_version": "weather_one_shot_readiness_manifest_v0.4",
+  "task": {
+    "task_name": "WeatherExampleOneShot",
+    "task_path": "\\",
+    "executable": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+    "arguments_template": "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"C:\\repo\\scripts\\ops\\one_shot_guarded_launcher.ps1\" -ReadinessManifestPath \"{READINESS_MANIFEST_PATH}\" -ExpectedReadinessManifestSha256 {EXPECTED_READINESS_MANIFEST_SHA256}",
+    "working_directory": "C:\\Users\\micha\\Desktop\\github\\weather",
+    "action_file": "C:\\repo\\scripts\\ops\\one_shot_guarded_launcher.ps1",
+    "payload_file": "C:\\repo\\scripts\\ops\\example_one_shot_payload.ps1",
+    "payload_arguments": ["-TargetDate", "2026-08-17"],
+    "trigger_at_local": "2026-08-25T01:15:00-04:00"
+  },
+  "principal": {
+    "user_id": "micha",
+    "logon_type": "S4U",
+    "run_level": "Limited"
+  },
+  "settings": {
+    "multiple_instances": "IgnoreNew",
+    "execution_time_limit": "PT2H",
+    "start_when_available": false,
+    "allow_demand_start": false,
+    "wake_to_run": true,
+    "restart_count": 0,
+    "restart_interval": "",
+    "allow_start_if_on_batteries": true,
+    "stop_if_going_on_batteries": false,
+    "run_only_if_idle": false,
+    "run_only_if_network_available": false
+  },
+  "admission": {
+    "workload_class": "heavy",
+    "earliest_at_local": "2026-08-25T00:30:00-04:00",
+    "teardown_deadline_at_local": "2026-08-25T04:00:00-04:00"
+  },
+  "boot_identity": {
+    "last_boot_up_time_utc": "2026-08-24T18:53:27.0000000Z"
+  },
+  "dependencies": [
+    {
+      "path": "C:\\repo\\scripts\\ops\\one_shot_guarded_launcher.ps1",
+      "sha256": "<64-lowercase-hex>"
+    },
+    {
+      "path": "C:\\repo\\scripts\\ops\\one_shot_readiness.ps1",
+      "sha256": "<64-lowercase-hex>"
+    },
+    {
+      "path": "C:\\repo\\scripts\\ops\\example_one_shot_payload.ps1",
+      "sha256": "<64-lowercase-hex>"
+    },
+    {
+      "path": "C:\\repo\\scripts\\ops\\windows_kill_on_close_job.ps1",
+      "sha256": "<64-lowercase-hex>"
+    },
+    {
+      "path": "C:\\repo\\scripts\\ops\\workload_admission.ps1",
+      "sha256": "<64-lowercase-hex>"
+    }
+  ]
+}
+```
+
+The `-04:00` values above are illustrative for a Scheduler host configured to
+that offset on the example date; manifest authors must use the actual host-local
+offset and an unambiguous wall clock.
+
+The caller supplies the reviewed manifest SHA-256 for a read-only pre-trigger
+inspection:
+
+```powershell
+.\scripts\ops\one_shot_readiness.ps1 `
+  -Mode Inspect `
+  -ManifestPath <canonical-active-manifest.json> `
+  -ExpectedManifestSha256 <reviewed-sha256>
+```
+
+The active registry is an explicit create-only transaction. On first use,
+`write_one_shot_active_manifest.ps1` creates a durable activation intent,
+non-reparse active directory, immutable index directory, and permanent lock
+file before publishing the activation marker. It then validates an external
+reviewed source, atomically freezes the canonical
+`data/one_shot_readiness/active/<task>.<sha>.manifest.json`, and writes its
+create-only `manifest.*` index event. A crash cannot be hidden by recreating a
+missing lock or marker. `recover_one_shot_registry_activation.ps1` may finish
+activation only after reviewed proof that the registry and index are empty and
+the complete Scheduler inventory contains no one-shot launcher binding.
+
+After an exact task is absent or Disabled and cannot execute,
+`resolve_one_shot_active_manifest.ps1` writes an immutable `TERMINAL` or
+`SUPERSEDED` resolution plus its `resolution.*` index event while holding the
+exclusive registry lock. Supersession stages and validates the exact successor
+before publishing it, and status follows the resulting live or compacted graph.
+Strict GUID-shaped atomic temp files are non-authoritative and are cleaned only
+under that lock. A valid successor-pending transaction remains resumable;
+`reconcile_one_shot_registry_debris.ps1` can remove only reviewed,
+hash-bound, invalid pending debris after full semantic validation fails and
+same-name Scheduler tasks are absent or Disabled. It writes its immutable
+receipt before deletion, so interruption is retryable.
+
+Resolved history is not deleted casually. `compact_one_shot_registry.ps1`
+requires explicit reviewed confirmation, exact manifest and resolution hashes,
+their immutable index events, a complete Scheduler inventory proving the exact
+task is absent (Disabled is insufficient), and a valid terminal or supersession
+chain. It writes a create-only compaction receipt containing the exact source
+bytes, re-proves absence and unchanged bytes, and only then deletes the active
+pair. The index and compaction receipt remain permanent. Status enumerates both
+stores with child-count, per-file, aggregate-byte, reparse, identity, hash, and
+supersession-cycle bounds; missing or contradictory history remains a flag.
+
+This contract never registers, enables, disables, starts, or deletes a task;
+those Scheduler mutations require a separately reviewed registrar. It grants
+no retry, late-start, credential, exchange, or live-trading authority.
+
 Attempt immutability is narrower than night immutability. A failure keeps its
 manifest, logs, task names, and receipts forever; a reviewed repair creates a
 new attempt namespace. One unchanged-tip retry is allowed for a classified

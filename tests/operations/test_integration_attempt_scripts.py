@@ -12,6 +12,9 @@ SCRIPTS = {
     name: OPS / name
     for name in (
         "integration_attempt_contract.ps1",
+        "integration_attempt_preparation_contract.ps1",
+        "prepare_integration_attempt.ps1",
+        "assert_integration_attempt_ready.ps1",
         "new_integration_attempt.ps1",
         "integration_attempt_suite.ps1",
         "integration_attempt_merge.ps1",
@@ -27,6 +30,14 @@ PARSE_SCRIPTS = tuple(SCRIPTS.values()) + tuple(
     for name in (
         "bounded_worktree_test_suite.ps1",
         "adopt_execution_tape_after_merge.ps1",
+        "integration_attempt_quiet_merge_preflight.ps1",
+        "one_shot_guarded_launcher.ps1",
+        "one_shot_readiness.ps1",
+        "write_one_shot_active_manifest.ps1",
+        "resolve_one_shot_active_manifest.ps1",
+        "recover_one_shot_registry_activation.ps1",
+        "compact_one_shot_registry.ps1",
+        "reconcile_one_shot_registry_debris.ps1",
         "quiet_window_merge.ps1",
         "status.ps1",
     )
@@ -232,10 +243,13 @@ $paths = @(
     'docs/operations/DELEGATION_CONTRACT.md',
     'docs/operations/STATE_OF_PLAY.md',
     'scripts/ops/integration_attempt_merge.ps1',
+    'scripts/ops/prepare_integration_attempt.ps1',
     'scripts/ops/reconcile_integration_attempt.ps1',
     'scripts/ops/workload_admission.ps1',
     'scripts/ops/status.ps1',
-    'tests/operations/test_status_script.py'
+    'tests/operations/test_status_script.py',
+    'tests/operations/test_integration_attempt_preparation_scripts.py',
+    'tests/operations/test_one_shot_readiness_script.py'
 )
 @($paths | ForEach-Object {
     $path = $_
@@ -265,10 +279,13 @@ $paths = @(
         "docs/operations/DELEGATION_CONTRACT.md": False,
         "docs/operations/STATE_OF_PLAY.md": False,
         "scripts/ops/integration_attempt_merge.ps1": True,
+        "scripts/ops/prepare_integration_attempt.ps1": True,
         "scripts/ops/reconcile_integration_attempt.ps1": True,
         "scripts/ops/workload_admission.ps1": False,
         "scripts/ops/status.ps1": False,
         "tests/operations/test_status_script.py": True,
+        "tests/operations/test_integration_attempt_preparation_scripts.py": True,
+        "tests/operations/test_one_shot_readiness_script.py": False,
     }
 
 
@@ -573,19 +590,29 @@ def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
 $ErrorActionPreference = 'Stop'
 $global:mockTasks = @{
     'WeatherIntegrationSuite_close-test' = [pscustomobject]@{
+        TaskName = 'WeatherIntegrationSuite_close-test'
+        TaskPath = '\'
         State = 'Ready'
         Actions = @([pscustomobject]@{ Execute = $env:WEATHER_ATTEMPT_EXE; Arguments = 'frozen-suite-arguments'; WorkingDirectory = $env:WEATHER_ATTEMPT_ROOT })
         Principal = [pscustomobject]@{ UserId = 'integration-test'; LogonType = 'S4U'; RunLevel = 'Limited' }
     }
     'WeatherIntegrationMerge_close-test' = [pscustomobject]@{
+        TaskName = 'WeatherIntegrationMerge_close-test'
+        TaskPath = '\'
         State = 'Ready'
         Actions = @([pscustomobject]@{ Execute = $env:WEATHER_ATTEMPT_EXE; Arguments = 'frozen-merge-arguments'; WorkingDirectory = $env:WEATHER_ATTEMPT_ROOT })
         Principal = [pscustomobject]@{ UserId = 'integration-test'; LogonType = 'S4U'; RunLevel = 'Limited' }
     }
 }
-function Get-ScheduledTask { param([string]$TaskName, $ErrorAction); return $global:mockTasks[$TaskName] }
-function Disable-ScheduledTask { param([string]$TaskName, $ErrorAction); $global:mockTasks[$TaskName].State = 'Disabled'; return $global:mockTasks[$TaskName] }
-function Get-ScheduledTaskInfo { param([string]$TaskName, $ErrorAction); return [pscustomobject]@{ LastRunTime = [datetime]'2026-08-21T00:30:00'; LastTaskResult = 1 } }
+function Get-ScheduledTask {
+    param([string]$TaskName, [string]$TaskPath, $ErrorAction)
+    if ([string]::IsNullOrWhiteSpace($TaskName)) {
+        return @($global:mockTasks.Values)
+    }
+    return $global:mockTasks[$TaskName]
+}
+function Disable-ScheduledTask { param([string]$TaskName, [string]$TaskPath, $ErrorAction); $global:mockTasks[$TaskName].State = 'Disabled'; return $global:mockTasks[$TaskName] }
+function Get-ScheduledTaskInfo { param([string]$TaskName, [string]$TaskPath, $ErrorAction); return [pscustomobject]@{ LastRunTime = [datetime]'2026-08-21T00:30:00'; LastTaskResult = 1 } }
 & $env:WEATHER_ATTEMPT_CLOSE `
     -ManifestPath $env:WEATHER_ATTEMPT_MANIFEST `
     -ExpectedManifestSha256 $env:WEATHER_ATTEMPT_MANIFEST_HASH `
@@ -606,6 +633,79 @@ function Get-ScheduledTaskInfo { param([string]$TaskName, $ErrorAction); return 
     assert [task["disabled"] for task in closure["tasks"]] == [True, True]
     assert closure["tasks"][0]["registration_receipt_disagreed"] is True
     assert closure["tasks"][1]["registration_receipt_disagreed"] is False
+
+
+def test_close_final_task_snapshot_fails_on_scheduler_error_or_appeared_task() -> None:
+    env = os.environ.copy()
+    env["WEATHER_ATTEMPT_CLOSE"] = str(SCRIPTS["close_integration_attempt.ps1"])
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_ATTEMPT_CLOSE, [ref]$tokens, [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'close script did not parse' }
+$functionAst = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Assert-WeatherClosureTasksQuiescent'
+}, $true)) | Select-Object -First 1
+if ($null -eq $functionAst) { throw 'missing closure task-quiescence function' }
+Invoke-Expression $functionAst.Extent.Text
+function Get-WeatherIntegrationRegistrationIntentPath {
+    return 'Z:\definitely-missing-intent.json'
+}
+$contract = [pscustomobject]@{
+    Manifest = [pscustomobject]@{
+        schedule = [pscustomobject]@{
+            suite_task_name = 'WeatherIntegrationSuite_a'
+            merge_task_name = 'WeatherIntegrationMerge_a'
+        }
+    }
+}
+$evidence = @(
+    [pscustomobject]@{ task_name = 'WeatherIntegrationSuite_a'; exists = $false; disabled = $false },
+    [pscustomobject]@{ task_name = 'WeatherIntegrationMerge_a'; exists = $false; disabled = $false }
+)
+function Get-WeatherIntegrationScheduledTaskSnapshot {
+    throw 'synthetic Scheduler enumeration failure'
+}
+$schedulerFailureBlocked = $false
+try {
+    Assert-WeatherClosureTasksQuiescent `
+        -AttemptContract $contract -DisableEvidence $evidence
+}
+catch { $schedulerFailureBlocked = $_.Exception.Message -like '*synthetic Scheduler*' }
+function Get-WeatherIntegrationScheduledTaskSnapshot {
+    return @([pscustomobject]@{
+        TaskName = 'weatherintegrationsuite_A'
+        TaskPath = '\'
+        State = 'Ready'
+    })
+}
+$appearedTaskBlocked = $false
+try {
+    Assert-WeatherClosureTasksQuiescent `
+        -AttemptContract $contract -DisableEvidence $evidence
+}
+catch { $appearedTaskBlocked = $_.Exception.Message -like '*appeared after*' }
+if (-not $schedulerFailureBlocked -or -not $appearedTaskBlocked) {
+    throw 'closure task snapshot accepted unproved absence'
+}
+'OK'
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        cwd=ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
 
 
 def test_execution_tape_adoption_accepts_only_hash_bound_attempt_receipts() -> None:
@@ -1275,6 +1375,8 @@ def test_creator_rejects_equal_tree_commit_and_claims_one_exact_retry(
         "bounded_worktree_test_suite.ps1",
         "integration_attempt_suite.ps1",
         "integration_attempt_merge.ps1",
+        "activate_integration_attempt.ps1",
+        "integration_attempt_quiet_merge_preflight.ps1",
         "assert_integration_attempt_success.ps1",
         "dispatch_integration_attempt_recovery.ps1",
         "quiet_window_merge.ps1",

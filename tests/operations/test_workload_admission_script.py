@@ -19,6 +19,7 @@ WRAPPERS = (
     "clob_tiering_run.ps1",
     "clob_raw_tape_tiering_run.ps1",
     "daily_refresh.ps1",
+    "one_shot_guarded_launcher.ps1",
 )
 
 

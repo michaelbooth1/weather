@@ -94,6 +94,10 @@ function Assert-WeatherClosureTasksQuiescent {
     }
     else { $null }
     $attempt = $AttemptContract.Manifest
+    # One successful complete Scheduler inventory is the absence proof for
+    # both exact root tasks. A targeted SilentlyContinue lookup cannot
+    # distinguish deletion from Scheduler/service failure.
+    $schedulerSnapshot = @(Get-WeatherIntegrationScheduledTaskSnapshot)
     foreach ($spec in @(
         [pscustomobject]@{ Role = "suite"; Name = [string]$attempt.schedule.suite_task_name },
         [pscustomobject]@{ Role = "merge"; Name = [string]$attempt.schedule.merge_task_name }
@@ -104,7 +108,10 @@ function Assert-WeatherClosureTasksQuiescent {
         if ($prior.Count -ne 1) {
             throw "Task-disable evidence is incomplete for exact attempt task: $($spec.Name)"
         }
-        $matches = @(Get-ScheduledTask -TaskName $spec.Name -ErrorAction SilentlyContinue)
+        $matches = @($schedulerSnapshot | Where-Object {
+            [string]$_.TaskName -ieq [string]$spec.Name -and
+            [string]$_.TaskPath -ieq "\"
+        })
         if (-not [bool]$prior[0].exists) {
             if ($matches.Count -ne 0) {
                 throw "Attempt task appeared after the disable pass; closure refuses the race: $($spec.Name)"
@@ -114,19 +121,19 @@ function Assert-WeatherClosureTasksQuiescent {
         if ($matches.Count -ne 1) {
             throw "Attempt task no longer resolves exactly once after disable: $($spec.Name)"
         }
-        $postDisableTask = if ($null -ne $intentContract) {
-            (Assert-WeatherIntegrationScheduledTaskBinding `
-                -AttemptContract $AttemptContract `
-                -Role ([string]$spec.Role) `
+        $postDisableTask = $matches[0]
+        if ($null -ne $intentContract) {
+            Assert-WeatherIntegrationScheduledTaskObject `
+                -Task $postDisableTask `
                 -BindingEvidence $intentContract.Intent `
-                -IncludeTaskInfo).Task
+                -Role ([string]$spec.Role) | Out-Null
         }
         else {
             # Legacy attempts may predate the first-write intent. The disable
             # helper immediately above already rebound their action/principal
-            # to the immutable registration receipt; this second lookup closes
-            # only the Ready -> Running state race.
-            $matches[0]
+            # to the immutable registration receipt; this final complete
+            # snapshot closes only the Ready -> Running state race.
+            $postDisableTask = $matches[0]
         }
         if ([string]$postDisableTask.State -ne "Disabled") {
             # Disabling does not terminate an already-started instance. Refuse
@@ -158,6 +165,12 @@ function Assert-WeatherClosureNonIntegratedState {
     }
     if (Test-Path -LiteralPath $mergeHeadPath -PathType Leaf) {
         throw "Production has an in-progress merge; ordinary FAIL closure is unsafe."
+    }
+
+    & git -C $root fetch --no-tags origin `
+        "refs/heads/master:refs/remotes/origin/master"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Live origin/master could not be refreshed; retry-authorizing closure is refused."
     }
 
     $productionBranch = Invoke-WeatherClosureGitLine `

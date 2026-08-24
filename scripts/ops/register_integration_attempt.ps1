@@ -8,7 +8,10 @@ param(
     [string]$ManifestPath,
     [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9a-fA-F]{64}$")]
-    [string]$ExpectedManifestSha256
+    [string]$ExpectedManifestSha256,
+    [ValidateRange(1, 120)]
+    [int]$MinimumSuiteLeadMinutes = 1,
+    [switch]$StageDisabled
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +24,16 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
+$preparationAuthorization = `
+    Assert-WeatherIntegrationPreparationExecutionAuthorization `
+        -AttemptContract $contract
+if (-not [bool]$preparationAuthorization.Required -or
+    -not [bool]$preparationAuthorization.Present) {
+    throw "New integration-attempt registration requires exact composite preparation authorization."
+}
+if (-not $StageDisabled) {
+    throw "Integration-attempt tasks must be registered through the disabled staging transaction."
+}
 Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "attempt registration" | Out-Null
 $manifest = $contract.Manifest
 if (-not (Test-WeatherIntegrationPathEqual -Left $RepoRoot -Right ([string]$manifest.repo_root))) {
@@ -92,11 +105,14 @@ if (($mergeAt - $suiteAt) -lt [TimeSpan]::FromMinutes(30)) {
 
 $suiteTaskName = [string]$manifest.schedule.suite_task_name
 $mergeTaskName = [string]$manifest.schedule.merge_task_name
+$schedulerSnapshot = @(Get-ScheduledTask -ErrorAction Stop)
 foreach ($taskName in @($suiteTaskName, $mergeTaskName)) {
     if ($taskName -notmatch '^WeatherIntegration(?:Suite|Merge)_[A-Za-z0-9][A-Za-z0-9._-]{0,47}$') {
         throw "Manifest task name is unsafe: $taskName"
     }
-    if ($null -ne (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
+    if (@($schedulerSnapshot | Where-Object {
+            [string]$_.TaskName -ieq $taskName -and [string]$_.TaskPath -ieq "\"
+        }).Count -ne 0) {
         throw "Attempt task already exists and will not be replaced: $taskName"
     }
 }
@@ -128,18 +144,31 @@ $principal = New-ScheduledTaskPrincipal `
     -UserId $env:USERNAME `
     -LogonType S4U `
     -RunLevel Limited
-$suiteSettings = New-ScheduledTaskSettingsSet `
-    -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 8) `
-    -WakeToRun `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries
-$mergeSettings = New-ScheduledTaskSettingsSet `
-    -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit (New-TimeSpan -Hours 4) `
-    -WakeToRun `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries
+$suiteSettingsParameters = @{
+    MultipleInstances = "IgnoreNew"
+    ExecutionTimeLimit = (New-TimeSpan -Hours 8)
+    WakeToRun = $true
+    AllowStartIfOnBatteries = $true
+    DontStopIfGoingOnBatteries = $true
+}
+$mergeSettingsParameters = @{
+    MultipleInstances = "IgnoreNew"
+    ExecutionTimeLimit = (New-TimeSpan -Hours 4)
+    WakeToRun = $true
+    AllowStartIfOnBatteries = $true
+    DontStopIfGoingOnBatteries = $true
+}
+if ($StageDisabled) {
+    # The task definitions enter Scheduler disabled in their first and only
+    # registration mutation. A process kill after either Register call cannot
+    # leave a runnable task without final preparation authorization.
+    $suiteSettingsParameters.Disable = $true
+    $mergeSettingsParameters.Disable = $true
+}
+$suiteSettings = New-ScheduledTaskSettingsSet @suiteSettingsParameters
+$mergeSettings = New-ScheduledTaskSettingsSet @mergeSettingsParameters
+$expectedRegisteredState = if ($StageDisabled) { "Disabled" } else { "Ready" }
+$expectedRegisteredEnabled = -not [bool]$StageDisabled
 
 # This immutable journal is durably created before the first Scheduler
 # mutation. If the registrar process is interrupted at any later instruction,
@@ -179,7 +208,15 @@ $status = "FAIL"
 $failure = $null
 $mergeRegistered = $false
 $suiteRegistered = $false
+$schedulerBoundaryCheckedAt = $null
 try {
+    # Validation and intent journaling above can consume the caller's reserve.
+    # Recheck at the actual external-mutation boundary, before either exact
+    # Scheduler task can exist.
+    $schedulerBoundaryCheckedAt = Get-Date
+    if ($suiteAt -lt $schedulerBoundaryCheckedAt.AddMinutes($MinimumSuiteLeadMinutes)) {
+        throw "Suite trigger no longer retains the required $MinimumSuiteLeadMinutes-minute lead at the Scheduler registration boundary."
+    }
     # Register the fail-closed consumer first. If suite registration then fails,
     # the merge task has no PASS receipt to consume and cannot mutate the tree.
     Register-ScheduledTask `
@@ -194,9 +231,9 @@ try {
         -AttemptContract $contract `
         -Role "merge" `
         -BindingEvidence $intentContract.Intent
-    if ([string]$registeredMerge.Task.State -ne "Ready" -or
-        -not [bool]$registeredMerge.Task.Settings.Enabled) {
-        throw "Merge task registration did not produce one enabled Ready task."
+    if ([string]$registeredMerge.Task.State -ne $expectedRegisteredState -or
+        [bool]$registeredMerge.Task.Settings.Enabled -ne $expectedRegisteredEnabled) {
+        throw "Merge task registration did not produce the exact staged state $expectedRegisteredState."
     }
 
     Register-ScheduledTask `
@@ -211,9 +248,9 @@ try {
         -AttemptContract $contract `
         -Role "suite" `
         -BindingEvidence $intentContract.Intent
-    if ([string]$registeredSuite.Task.State -ne "Ready" -or
-        -not [bool]$registeredSuite.Task.Settings.Enabled) {
-        throw "Suite task registration did not produce one enabled Ready task."
+    if ([string]$registeredSuite.Task.State -ne $expectedRegisteredState -or
+        [bool]$registeredSuite.Task.Settings.Enabled -ne $expectedRegisteredEnabled) {
+        throw "Suite task registration did not produce the exact staged state $expectedRegisteredState."
     }
     $status = "PASS"
 }
@@ -232,6 +269,9 @@ finally {
         registration_intent_path = $registrationIntentPath
         registration_intent_sha256 = $intentSha256
         registered_at_local = (Get-Date).ToString("o")
+        scheduler_boundary_checked_at_local = $schedulerBoundaryCheckedAt.ToString("o")
+        minimum_suite_lead_minutes = $MinimumSuiteLeadMinutes
+        staged_disabled = [bool]$StageDisabled
         principal = [ordered]@{
             user_id = $env:USERNAME
             logon_type = "S4U"
@@ -294,13 +334,13 @@ foreach ($role in @("suite", "merge")) {
         -AttemptContract $contract `
         -Role $role `
         -BindingEvidence $registrationContract.Intent
-    if ([string]$registeredTask.Task.State -ne "Ready" -or
-        -not [bool]$registeredTask.Task.Settings.Enabled) {
+    if ([string]$registeredTask.Task.State -ne $expectedRegisteredState -or
+        [bool]$registeredTask.Task.Settings.Enabled -ne $expectedRegisteredEnabled) {
         throw "$role task changed state before registration verification completed."
     }
 }
 
-Write-Host "Registered immutable attempt $($manifest.attempt_id): $suiteTaskName then $mergeTaskName"
+Write-Host "Registered immutable attempt $($manifest.attempt_id): $suiteTaskName then $mergeTaskName (staged_disabled=$([bool]$StageDisabled))"
 Write-Host "No task was started and no downstream task was created."
 exit 0
 }

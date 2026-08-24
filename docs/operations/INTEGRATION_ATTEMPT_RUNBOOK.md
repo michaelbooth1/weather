@@ -19,9 +19,13 @@ or `origin/master` acknowledgement.
 
 ```text
 REVIEWED TIP
+    -> credible future schedule and immutable preparation intent
+    -> exact non-force topic publication and remote acknowledgement
     -> frozen manifest
     -> immutable pre-registration intent
-    -> exact task registration receipt
+    -> exact tasks registered Disabled and registration receipt
+    -> immutable readiness PASS receipt and manifest-bound execution token
+    -> exact task activation and final preparation PASS receipt
     -> integration preflight
     -> exact full suite
     -> guarded quiet merge
@@ -46,8 +50,11 @@ merge.
 
 | Entry point | Responsibility |
 | --- | --- |
+| `prepare_integration_attempt.ps1` | Preferred interactive entry point: validate the future window before publication, push one exact non-force topic refspec, create and register the attempt, and return only the final durable readiness result. |
+| `assert_integration_attempt_ready.ps1` | Require the live exact remote tip, clean exact worktree, baseline, successor claim, disabled registration evidence, future task bindings, and absence of runtime/terminal evidence; write the immutable readiness receipt and exact execution token. |
 | `new_integration_attempt.ps1` | Validate the exact clean worktree and reviewed tip; create a fresh manifest and evidence namespace. |
-| `register_integration_attempt.ps1` | Journal, register, and read-back attest unique one-shot S4U/Limited suite and merge tasks. It starts nothing and creates no downstream task. |
+| `register_integration_attempt.ps1` | Journal, register, and read-back attest unique one-shot S4U/Limited suite and merge tasks. Composite preparation uses `-StageDisabled`; it starts nothing and creates no downstream task. |
+| `activate_integration_attempt.ps1` | Under the terminal mutex, require the exact readiness PASS/token, enable merge then suite, re-attest both exact future bindings, and write the immutable final preparation PASS receipt. |
 | `integration_attempt_suite.ps1` | Run the deterministic integration preflight and then the exact full suite under bounded child-tree containment. |
 | `integration_attempt_merge.ps1` | Require the suite task and immutable PASS receipt, then invoke `quiet_window_merge.ps1` and preserve its report. |
 | `close_integration_attempt.ps1` | Disable the exact non-running attempt tasks and emit a closure receipt when a task crashed or the attempt is abandoned. |
@@ -59,30 +66,85 @@ The shared schema, path, hash, and immutable-write rules live in
 ignored host-local directory such as `data/integration_attempts/<date>/<id>`;
 it is not assumed to exist in a clean checkout.
 
-## Create and register attempt N
+## Prepare, create, and register attempt N
 
 First obtain the roll verdict through the repository script, prepare an
 isolated registered worktree, make it clean, and review the full commit SHA.
 Do not derive roll sensitivity by hand.
 
-Create the dated evidence parent yourself; `AttemptRoot` must not already
-exist, and production `master` must equal `origin/master`. Then create the
-immutable manifest:
+Create the dated evidence parent yourself; `AttemptRoot` and its sibling
+`<AttemptRoot>.preparation` must not already exist, and production `master`
+must equal both refreshed `origin/master` and the live `refs/heads/master`.
+With explicit authority for both the topic push and
+Scheduler registration, run the preferred entry point from the user's
+interactive Windows session so Git can use the credential vault:
 
 ```powershell
-$attemptParent = Join-Path $PWD "data\integration_attempts\<date>"
-New-Item -ItemType Directory -Path $attemptParent -Force | Out-Null
-$attemptRoot = Join-Path $attemptParent "<attempt-id>"
-.\scripts\ops\new_integration_attempt.ps1 `
-  -AttemptRoot $attemptRoot `
+.\scripts\ops\prepare_integration_attempt.ps1 `
+  -AttemptRoot <fresh-attempt-root> `
   -AttemptId <attempt-id> `
-  -BranchRef <branch> `
+  -BranchRef origin/<topic-branch> `
   -WorktreeRoot <isolated-worktree> `
   -ExpectedTip <full-reviewed-sha> `
   -SuiteAtLocal <local-datetime> `
   -MergeAtLocal <local-datetime> `
-  -ReviewReference <pr-or-operator-review>
+  -ReviewReference <pr-or-operator-review> `
+  -RepairClass <initial-or-reviewed-repair-class> `
+  -RepairOfReceiptPath <predecessor-closure-receipt-if-required>
 ```
+
+The preparer requires at least ten minutes between its schedule checks and the
+suite trigger. It checks before any network/Scheduler action, again immediately
+before `git push`, and again immediately before registration; the final PASS
+also requires five minutes of remaining reserve. One host-global open file
+handle serializes preparation, and the preparer refuses while any other
+integration suite or merge task is enabled. Before publication it runs the
+canonical creator in non-mutating `PreflightOnly` mode, covering worktree/test
+inventory, repair ancestry and allowlist, predecessor-claim, baseline, and
+orchestration-file validation. It reruns the ordinary creator after exact
+publication and fetch so every premise, including `origin/<topic-branch>`, is
+checked again immediately before immutable manifest creation. It freezes a sibling
+`preparation-intent.json`, publishes only
+`<exact-sha>:refs/heads/<topic-branch>` without force, verifies the exact live
+`ls-remote` result, refreshes `origin/<topic-branch>`, and only then invokes the
+creator and registrar below. The registrar creates both tasks Disabled. Its
+final assertion independently revalidates the remote, manifest (including the
+predecessor's single successor claim), clean worktree, live production
+baseline, PASS registration evidence, exact Disabled future task definitions,
+and absence of suite/merge/closure evidence. It then writes a readiness PASS receipt and
+the deterministic execution token whose path and SHA-256 were frozen in the
+manifest. Only after that token exists does the activator accept the readiness
+receipt within its two-minute transaction boundary, repeat the live topic and
+master queries, production baseline, clean registered worktree, and exact
+quiet-merge preflight, then enable and re-attest both tasks and atomically write
+the final preparation PASS receipt. Every frozen creator, registrar,
+readiness, activator, and closer script is hash-checked immediately before it
+runs in a contained child process, so a child's `exit` cannot terminate the
+preparer or bypass its closure/result path. Only that
+activator writes `preparation-receipt.json` with status `PASS`; wrappers for a
+composite-prepared manifest require both its exact execution token and its
+post-enable final preparation receipt before doing any work. A hard stop after either
+registration or enable therefore leaves tasks that are Disabled or wrappers
+that fail closed. A failure records
+its terminal stage and never reports PASS. If a manifest already exists, the
+preparer invokes the canonical closer before publishing its FAIL result and
+records the exact closure receipt hash; it reports task terminality as unproved
+if closure cannot disable and prove every exact task. A preparation evidence
+directory is immutable and spent even when manifest creation has not begun;
+use a new attempt id after review rather than deleting or rewriting it.
+The creator, registrar, closer, readiness, and activator entry points run in contained
+Windows PowerShell child processes, so any child `exit` becomes a checked
+result and cannot bypass the preparer's receipt or closure path.
+
+The creator and registrar remain canonical internal primitives, but they are
+not standalone operator shortcuts. Every new manifest requires
+`-RequirePreparationAuthorization` plus the exact preparer-created intent path
+and hash. Every registration requires the corresponding execution
+authorization and `-StageDisabled`. Omitting any of those values is a hard
+failure. A reviewed bootstrap of the preparer itself must use the already
+production-adopted predecessor workflow; not-yet-landed bytes cannot attest
+themselves. After this contract is production-adopted, use the preparer command
+above for every new attempt rather than reconstructing its internal calls.
 
 The suite trigger must be inside 00:30-09:00. The merge trigger must be inside
 01:00-03:40 and at least 30 minutes after the suite trigger. The merge task does
@@ -122,24 +184,17 @@ attempts reject `AdditionalPythonPath`: ambient Python trees can change without
 changing the reviewed commit. The general bounded runner retains that option
 only for explicitly reviewed diagnostic work outside this attempt workflow.
 
-Record the printed manifest SHA256. Registration is an external scheduler
-change and requires explicit operator authorization:
-
-```powershell
-.\scripts\ops\register_integration_attempt.ps1 `
-  -ManifestPath <manifest.json> `
-  -ExpectedManifestSha256 <manifest-sha256>
-```
-
 Before touching Scheduler, the registrar creates an immutable
 `registration-intent.json` containing the exact user, actions, one-shot
 triggers, wake and battery behavior, execution limits, and all other relevant
 settings. Read-back attestation also requires each trigger's numeric UTC offset
 to match the host time zone at that unambiguous frozen wall clock. Runtime
 wrappers and recovery bind both tasks to that intent and the
-registration receipt. The registrar refuses to replace an existing task. It
-registers the merge consumer first: if suite registration then fails, the merge
-has no PASS receipt to consume and cannot mutate the tree; the pre-mutation
+registration receipt. The registrar refuses to replace an existing task. The
+preferred composite path passes `-StageDisabled`, which sets the Scheduler
+definition Disabled before each first registration call; there is no transient
+enabled state. It registers the merge consumer first: if suite registration
+then fails, the merge remains disabled and has no activation receipt; the pre-mutation
 intent remains sufficient authority to disable only a task whose complete
 identity matches. `StartWhenAvailable` is deliberately off and `WakeToRun` is
 on. The merge task's four-hour execution limit contains the bounded suite-wait
@@ -284,9 +339,20 @@ A generic scheduler cannot safely review or repair code; same-night
 deterministic recovery therefore requires an active operator or coding agent to
 consume this dispatch. The dispatch removes ambiguity about the next action and
 leaves one specific blocker when no safe successor is ready. `status.ps1`
-surfaces `FAILED_NEEDS_CLOSE`, `CLOSED_NEEDS_DISPATCH`, `RECOVERY_READY`,
-`SUCCESSOR_CLAIMED`, `MERGED_UNVERIFIED`, and `MERGED_RECONCILED` in human and
-JSON output. A suite is missed only after a five-minute trigger grace when its
+surfaces `FAILED_NEEDS_CLOSE`, `CLOSED_NEEDS_DISPATCH`,
+`AWAITING_SUCCESSOR`, `SUCCESSOR_UNPUBLISHED`, `SUCCESSOR_UNREGISTERED`,
+`SUCCESSOR_WINDOW_MISSED`, `SUCCESSOR_ARMED`, `SUCCESSOR_ACTIVE`,
+`MERGED_UNVERIFIED`, and `MERGED_RECONCILED` in human and JSON output. It also
+keeps publication-only, unresolved preparation, and unproved-closure evidence
+visible independently of task discovery, and flags any pair of exact armed
+attempt schedules whose suite-to-merge intervals overlap. The JSON
+also states whether publication is required, whether the attempt is actually
+unattended-ready, the current live-origin revalidation disposition, and the
+exact next action. The recurring status watchdog does not contact origin, so it
+reports that check as `DEFERRED` and never converts local armed proof alone into
+`unattended_ready=true`; the interactive final preparation assertion owns the
+live remote proof. A suite is missed only after a
+five-minute trigger grace when its
 exact task has no current run and neither the preflight log nor a terminal
 receipt exists; an actively running suite is not a false alarm. A suite that
 did run but is now non-running without a receipt is a distinct actionable
@@ -296,9 +362,10 @@ alert while unreadable evidence retains its separate flag. The same five-minute
 rule flags a non-running merge task after its
 one-shot trigger when no merge or closure receipt exists, so an outage cannot
 silently spend both triggers. It also flags unreadable task-bound
-manifests/evidence. Actionable states are FLAGS for their first 24 hours, then
-remain visible as warnings so immutable historical receipts cannot burn a
-permanent alert.
+manifests/evidence. Historical terminal receipts may age out of flag severity,
+but dispatch-only, unpublished, unregistered, missed-window, partial
+preparation, and closure-unproved states remain FLAGS until resolved. Age never
+turns an unresolved operator dependency into unattended readiness.
 
 Create attempt N+1 after classification:
 

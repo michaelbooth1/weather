@@ -1,116 +1,91 @@
 # State of play
 
-**Last rewritten: 2026-08-24 01:25 America/Toronto.** Read this first, then
-`ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before model,
-measurement, or research work.
+**Last rewritten: 2026-08-24 13:32 America/Toronto.** Read this first; read
+`ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** Quantitative evidence
-> belongs in `ESTABLISHED_FINDINGS`; false claims in `RETRACTED_AND_FALSE_LEADS`;
-> durable invariants and delegation mechanics in their canonical files.
+> **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative
+> evidence, false claims, and durable mechanics in their owning canonical file.
 
-**Objectives:** protect irreplaceable capture and settlement; determine whether
-International maker spread plus paid rebates exceeds adverse selection,
-inventory/settlement loss, fees, and operational costs; improve the weather
-forecast as a quote-centre and risk-control input. **We do not beat the market.**
+**Objectives:** protect capture/settlement; test whether International maker
+economics work after all costs; improve forecast risk control. **No market edge is proved.**
 
 ## Current truth
 
 | Area | State / next action |
 | --- | --- |
-| Capture | The second reboot recovery is now real: snapshot, CLOB, and observation are RUNNING on current process identities, the hardened recovery checker passes creation-token/command/lock proof for all three, and public execution capture is connected. Pre-reset network failures plus both reboots left 16.6–32.5 minute snapshot gaps and roughly 352–411 seconds of execution-tape darkness, so today's complete price path is unusable. |
-| Production | The roll-free Codex host-load guard and PID-reuse-resistant boot proof are production-adopted. `HEAD == master == origin/master == 4feef39a44f920affcb05387a8882fb5f735cfa0`; the working tree has only the two expected fleet-generated location-config modifications. |
-| Integration recovery | The live-readiness closure is production-adopted at `4feef39a44f920affcb05387a8882fb5f735cfa0`. Its guarded retry proved three-worker recovery, execution-tape recovery onto source fingerprint `ec5e6f8531bae817`, and remote acknowledgement. Earlier bootstrap/recovery, morning-workflow, and fixed-scope Stage-0/1 integrations remain adopted. |
-| Morning chain | The 2026-08-23 Stage-A run terminalized at 11:38 for target 2026-08-22. Settlement restore/finalize and every scheduled tail step ran; the chain correctly remained `critical` at the settled-day barrier with seven payload blocks, including exchange-economics/maker-paper/trading evidence and model-performance gates. This is a truthful terminal run, not readiness. |
-| Settlement | August 17 remains an explicit 12-market settlement hole and will not be retried by the ordinary chain. Recover it only through the bounded stop-after-finalize path, then prove normal lock release and real settlement evidence. |
-| Tiering | The canonical 05:00 projection and 06:00 raw-tape tasks are enabled and both produced durable `OK` status on their first post-adoption runs. Scheduler zero alone is not the proof; retain the task-status artifacts and free-space trail. |
-| Held work | Stage B remains disabled pending its separate monolithic resource proof. The training window remains opt-in and disabled; its independent 04:15 restore task is enabled and healthy. Do not enable either merely to test a blocker. |
-| Documentation | The three-integration documentation transaction is published at `33fa374898507adc7231b6ff30af6d148f848556`; its content-addressed completion receipt is present and valid. |
-| Host safety | Two reboots occurred. The 12:54 maintenance reboot was planned and clean; the 14:53 reset was unclean after yielded recursive Codex scans, parallel protected-window verification, and a contemporaneous DNS/network failure. This was not a recorded OOM. The S4U guard now runs every minute and terminates out-of-window/concurrent Codex heavy trees; the user-layer PreToolUse hook is installed, trusted, and confirmed active across a fresh Codex session. |
-| Live money | The fixed-scope sealer, session runner, process-local pinned SDK overlay, provenance hardening, and interrupt cleanup are production software. All three public sealer inventories pass against current production. Geographic eligibility remains an action-time check and must not be inferred from repository timezone; VPN/proxy circumvention is forbidden. The current external source passes all nine offline key/topology checks, but the create-only importer found pre-existing fixed Credential Manager entries and correctly wrote or overwrote zero. Attempt `credential-reconcile-0824-a1` stopped in deterministic integration preflight before the full suite or merge: the intentional dependency boundary lacked an architecture exception and the expanded sealer lacked its large-module ownership ratchet. Its exact tasks are closed and disabled with production untouched; a reviewed four-file governance repair requires a fresh successor attempt. Until that lands and an attended run proves all four entries match, credential readiness remains open. No exchange contact, mutation, or order has run. Fresh International economics/paper candidate, explicit baseline acceptance, public identity, authenticated doctor, Stage 0 bootstrap, sealed current wrappers, current account evidence, and supervised literal confirmations remain separate gates. |
+| Capture | Snapshot, CLOB, and observation capture were healthy on current process identities at the last pre-protected-window audit. The day was `ON_TRACK` with 89 captures and no measured snapshot gap. Canonical execution-tape status still marks the complete public price path unusable; connected producer health is not price-path proof. Do not spend the 12:00-18:00 graded window on ad-hoc verification. |
+| Production | `HEAD == master == origin/master == 4feef39a44f920affcb05387a8882fb5f735cfa0`; the working tree has only the two expected fleet-generated location-config modifications. |
+| Integration recovery | Attempt `credential-reconcile-0824-a1` is immutable FAIL evidence. Its two deterministic governance defects are repaired at local descendant `cb1745d2524145ba77786d37332d6ebc9e9c20f0`, while the published topic still ends at `75b0b8954fd14fb275ed983ae984bf1cf6b13749`; no successor manifest or tasks exist. The isolated hardening branch adds mandatory composite preparation, disabled staging, activation/runtime remote reproof, bounded status, and crash-safe one-shot lifecycle history. It is not fully verified, published, registered, or production-adopted. One final reviewed predecessor-workflow successor is required to bootstrap it. |
+| Morning chain | The 2026-08-24 Stage-A chain terminalized at 11:47 local as `interrupted` / `RESUMABLE` at `ten_minute_model_performance`, after 17 of 25 steps; its recorded child PID 18324 is absent. Scheduler result `0x4B` is the expected absolute teardown. This protected the host but did not complete the chain. Do not resume it in the 12:00-18:00 graded or 18:00-00:30 near-close windows. |
+| Settlement | August 17 remains an explicit 12-market settlement hole. The 00:50 bounded recovery refused before child launch because its frozen boot proof described the prior boot; a later production merge also made its frozen workload-admission hash stale. The ordinary chain will not retry it. |
+| Tiering | The canonical 05:00 projection and 06:00 raw-tape tasks both produced durable `OK` status. Disk is nevertheless filling near 11.2 GB/day, with about 12 days of observed headroom. |
+| Documentation | The transaction created by merge `4feef39a44f920affcb05387a8882fb5f735cfa0` remains overdue after its 09:00 deadline. Pending SHA-256 is `77BA6F939BDCFFE5158F1BA6637E4E35A9B17290A83CCE37667EC6584FF5376F`. Local hardening adds a 07:00 action-required escalation; production still has the older after-deadline-only behavior. |
+| Host safety | The one-minute S4U guard and trusted user hook remain active. Stage B and training remain disabled. The mirror is still operator-paused and its off-host copy is frozen at 2026-08-12; new data remains only on this disk and the last restore verification was not clean. |
+| Live money | Fixed-scope International-only software is production code, but credential reconciliation has not landed or passed. The importer previously found existing fixed Credential Manager entries and overwrote none. Credential readiness remains open until a reviewed successor lands and an attended compare-only run proves all four entries match. Geographic eligibility is checked at action time and cannot be inferred from repository timezone; circumvention is forbidden. No exchange contact, mutation, or order has run. Economics, paper candidate, baseline acceptance, public identity, authenticated doctor, Stage 0/1 proofs, current sealed wrappers/account evidence, and literal confirmations remain separate gates. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
-- International Polymarket only. Never use Polymarket US for a new probe,
+- International Polymarket only; never use Polymarket US for a new probe,
   credential path, readiness decision, or mutation.
-- The first live test is a plumbing/evidence probe: one market, finite
-  non-raisable 100 pUSD-equivalent wallet cap, post-only, no naked sells, and
-  every existing lower ceiling.
-- Candidate selection is never authorization. Authoritative user events, open
-  orders, positions, balances, fees, rebates, cancellation, and settlement are
-  required for realized lifecycle and economics.
-- Model promotion remains blocked and is not the market-centred maker pilot's
-  critical path. Do not weaken promotion, serving floors, freshness, economics,
-  readers, risk, or post-only enforcement to manufacture permission.
-- No alpha and no paid weather provider. Economics baseline acceptance remains
-  an explicit informed operator action and is never scheduled automatically.
+- The first live test is one-market plumbing/evidence: finite non-raisable 100
+  pUSD-equivalent wallet cap, post-only, no naked sells, and all lower ceilings.
+- Candidate selection is never authorization; realized lifecycle/economics
+  require authoritative orders, positions, balances, fees, rebates, and settlement.
+- Model promotion remains blocked and is not the maker pilot's critical path.
+  Do not weaken release, freshness, economics, risk, or post-only gates.
+- No alpha or paid weather provider. Baseline acceptance is an informed
+  operator action and is never scheduled automatically.
 - No order from a blocked jurisdiction or location circumvention. An unblocked
   egress response cannot override the operator's or host's physical location.
+- Dispatch, local repair, helper, push, or future task is not unattended
+  readiness; require publication, immutable successor, registration, and live task proof.
 
 ## Immediate execution order
 
-1. Protect the post-reboot capture day. Do not run live or heavy preparation in
-   the protected windows, and do not treat today's restart-spent price path as
-   repairable evidence.
-2. Recover August 17 separately through the already reviewed bounded
-   stop-after-finalize path; require
-   12/12 real settlements, normal lock release, and current capture.
-3. On a later uninterrupted target date, prepare a live lifecycle only for an
+1. Preserve today's capture. Stage A is safely `RESUMABLE`, not running and not
+   complete; do not restart it or run pytest, compileall, replay, or integration
+   verification in either protected window.
+2. In the next admitted 00:30-09:00 window, run the deferred focused files and
+   repository-owned bounded suite for the hardening tip. Then use one reviewed
+   predecessor-workflow successor to land it; later attempts must use the
+   one-line preparer and its post-activation final preparation receipt.
+3. Complete and publish the overdue hash-bound documentation closeout. Decide
+   the Stage-A resume only in an admitted window from its exact terminal
+   contract. Recover
+   August 17 separately through a freshly reviewed one-shot whose current boot,
+   dependency hashes, exact future trigger, and live task binding all pass;
+   require 12/12 real settlements and normal lock release.
+4. On a later uninterrupted target date, prepare a live lifecycle only for an
    attended, non-protected window with no heavy-work overlap. Refresh public
    International economics and a one-market paper candidate; baseline acceptance
    remains an explicit informed operator action.
-4. Require an eligible physical location, fresh official geoblock result, and
+5. Require an eligible physical location, fresh official geoblock result, and
    attended no-circumvention attestation; otherwise stop at paper/read-only.
-5. Land and run the compare-only credential reconciliation. Then bind identity
-   and all three current fixed-session launchers, run the keyless doctor, and
-   run Stage 0 plus the two Stage 1 modes consecutively under their separate
-   literal confirmations.
-6. Let tiering run serially; diagnose durable status, not Scheduler zero. Keep
-   Stage B and training held until their own preconditions pass.
+6. Land and run the compare-only credential reconciliation. Then bind identity
+   and all three launchers, run the keyless doctor, and run Stage 0 plus both
+   Stage 1 modes under their separate literal confirmations.
 
 ## Host and workflow state
 
-- Attempt `stage1-readiness-0823-a2` retains the immutable suite and PASS merge
-  receipts for source tip `a6327ccf52499ed8d9ab0c34580fcd013ca7f094`
-  and production merge `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`.
-  Its authority is explicitly `NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY`.
-- Attempt `credential-reconcile-0824-a1` is immutable deterministic FAIL
-  evidence: integration preflight found two governance defects, the full suite
-  and merge never began, both exact tasks are disabled, and production stayed
-  at `4feef39a44f920affcb05387a8882fb5f735cfa0`. A reviewed
-  `manual_reviewed_change` dispatch permits only a fresh successor from the
-  repaired descendant; it grants no credential or exchange authority.
-- The earlier fixed bootstrap pair is spent evidence. Its initial merge task
-  refused before production mutation; the reviewed retry produced the pushed
-  report that binds the actual first landing.
-- **Recorded immediate-integration exception (2026-08-23):** the repository
-  owner explicitly ordered `codex/live-readiness-closure-20260823` merged now
-  so the day can be used for live-test preparation. Scope waives the ordinary
-  01:00-04:00 merge timing and pre-merge Python/pytest verification for this
-  exact attempt; focused and 25-file suites are recorded `NOT_RUN_OWNER_WAIVER`.
-  At 19:15 the ordinary `-Force` path stopped before mutation because the
-  protected-window and workload-lease gates are deliberately harder. The owner
-  then explicitly approved one dated bypass, bound in code to this branch
-  lineage and synchronized baseline. The S4U process guard remains enabled;
-  an attended operator invocation runs outside the Codex-owned process tree.
-  The first guarded attempt remained unpublished and rolled back cleanly after
-  the execution-tape worker stayed on stale code: its one-minute supervisor ran,
-  but six explicitly failed/no-mutation starts were incorrectly counted as
-  recoveries and imposed a 3,600-second backoff. The reviewed repair excludes
-  only refused starts that launched no child while preserving failed-launch,
-  failed-restart, legacy-history, and ordinary restart-budget protection. A
-  retry restarted the execution-tape worker onto the merged source, committed
-  `4feef39a44f920affcb05387a8882fb5f735cfa0`, and received remote-master
-  acknowledgement. That exact merge exception is spent and grants no standing
-  bypass to later branches.
-- `WeatherClobTiering` and `WeatherClobRawTapeTiering` are recurring, enabled,
-  and bound to the canonical 05:00/06:00 topology without late catch-up.
-- `WeatherEveningEvidenceRefresh`, `WeatherTrainingWindow`, the mirror, and
-  legacy merge-queue drivers remain disabled where required.
-- Disabled tasks, Scheduler result zero, and mutable latest reports are not
-  outcome evidence. Require immutable receipts, exact hashes, ancestry, and
-  current worker identity.
+- Attempt `credential-reconcile-0824-a1` failed three of 139 deterministic
+  preflight assertions (two governance defects). Full suite/merge never began;
+  both tasks are disabled, production unchanged, and dispatch grants no authority.
+- The local branch `codex/overnight-recovery-hardening-20260824` in worktree
+  `weather-overnight-recovery-hardening-20260824` is implementation evidence,
+  not publication, registration, unattended readiness, or adoption.
+- The exact 2026-08-23 immediate-merge exception is spent. Its successful retry
+  produced `4feef39a44f920affcb05387a8882fb5f735cfa0` with recovery/remote proof.
+- Earlier attempts `workflow-minimal-0822-a1` and `stage1-readiness-0823-a2`
+  retain immutable PASS evidence. Disabled tasks and Scheduler zero are never
+  substitutes for their bound receipts.
+- `WeatherClobTiering` and `WeatherClobRawTapeTiering` remain recurring and
+  enabled. `WeatherEveningEvidenceRefresh`, training, Stage B, and the mirror
+  remain held where documented.
+- Root-cause evidence and the implemented control matrix are in
+  `docs/roadmap/agent-report-2026-08-24-production-overnight-control-audit.md`.
 
 ## Update this file when
 
-Rewrite after Stage-1 integration, August 17 recovery, a new Stage-A soak,
-Stage-B proof, fresh eligibility/candidate evidence, or a live lifecycle result.
+Rewrite after the hardening successor, August 17 recovery, Stage-A resume or a
+new terminal run, documentation closeout, a fresh eligibility/candidate pass,
+or a live lifecycle result.

@@ -41,6 +41,13 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "VERDICT: ALL CHUNKS PASSED" in text
     assert "IntegrationPreflight" in text
     assert "test_schema_registry.py" in text
+    for hardening_ratchet in (
+        "test_integration_attempt_preparation_scripts.py",
+        "test_one_shot_readiness_script.py",
+        "test_one_shot_registry_scripts.py",
+        "test_status_script.py",
+    ):
+        assert hardening_ratchet in text
     assert "VERDICT: INTEGRATION PREFLIGHT PASSED" in text
     assert "[Globalization.CultureInfo]::InvariantCulture" in text
     assert "git merge" not in text

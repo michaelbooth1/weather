@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -93,6 +93,38 @@ def test_begin_stacks_exact_integrations_and_matching_receipt_clears_status(tmp_
     assert [row["integration_tip"] for row in next_pending["integrations"]] == [third]
 
 
+def test_pending_status_escalates_at_two_hour_action_lead(tmp_path):
+    root = _repo(tmp_path)
+    integration_tip = _git(root, "rev-parse", "HEAD")
+    local = timezone(timedelta(hours=-4))
+    begin_transaction(
+        root,
+        integration_tip=integration_tip,
+        branch="parent",
+        now=datetime(2026, 8, 24, 1, 15, tzinfo=local),
+    )
+
+    before = transaction_status(
+        root, now=datetime(2026, 8, 24, 6, 59, 59, tzinfo=local)
+    )
+    at_lead = transaction_status(
+        root, now=datetime(2026, 8, 24, 7, 0, tzinfo=local)
+    )
+    at_deadline = transaction_status(
+        root, now=datetime(2026, 8, 24, 9, 0, tzinfo=local)
+    )
+
+    assert before["action_lead_minutes"] == 120
+    assert before["action_required_at_local"] == "2026-08-24T07:00:00-04:00"
+    assert before["minutes_until_due"] == 120.0
+    assert before["action_required"] is False
+    assert before["overdue"] is False
+    assert at_lead["action_required"] is True
+    assert at_lead["overdue"] is False
+    assert at_deadline["action_required"] is True
+    assert at_deadline["overdue"] is True
+
+
 def test_completion_requires_exact_pending_hash_and_canonical_doc_changes(tmp_path):
     root = _repo(tmp_path)
     integration_tip = _git(root, "rev-parse", "HEAD")
@@ -126,7 +158,9 @@ def test_completion_requires_exact_pending_hash_and_canonical_doc_changes(tmp_pa
 
     assert receipt["status"] == "PASS"
     assert receipt["immutable_receipt_sha256"]
-    assert transaction_status(root)["state"] == "COMPLETE"
+    completed = transaction_status(root)
+    assert completed["state"] == "COMPLETE"
+    assert completed["action_required"] is False
 
     immutable = Path(receipt["immutable_receipt_path"])
     immutable.write_text(immutable.read_text(encoding="utf-8") + " ", encoding="utf-8")

@@ -235,6 +235,7 @@ function Invoke-WeatherQuietMergeChild {
         "-RepoRoot", $RepoRoot,
         "-AttemptReportPath", $AttemptReportPath,
         "-ExpectedSelfSha256", $ExpectedQuietMergeSha256,
+        "-RequireLiveOrigin",
         "-SettleSeconds", [string]$SettleSeconds
     )
     $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
@@ -359,6 +360,10 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
+$preparationAuthorization = Assert-WeatherIntegrationPreparationExecutionAuthorization `
+    -AttemptContract $contract
+$activationReceipt = Assert-WeatherIntegrationActivationReceipt `
+    -AttemptContract $contract
 $manifest = $contract.Manifest
 Assert-WeatherIntegrationAttemptNotTerminal `
     -AttemptContract $contract -Operation "Integration-attempt merge execution"
@@ -423,12 +428,18 @@ try {
         -MergeScript $PSCommandPath `
         -PowerShellExecutable $powerShellExecutable
 
+    Assert-WeatherIntegrationLiveOriginBaseline `
+        -AttemptContract $contract -Phase "merge wait" `
+        -RefreshTrackingMaster | Out-Null
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "merge wait" | Out-Null
     Wait-WeatherIntegrationSuiteTerminal `
         -AttemptContract $contract `
         -SuiteScript $suiteScript `
         -PowerShellExecutable $powerShellExecutable
     Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
+    Assert-WeatherIntegrationLiveOriginBaseline `
+        -AttemptContract $contract -Phase "guarded merge" `
+        -RefreshTrackingMaster | Out-Null
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "guarded merge" | Out-Null
     $suiteReceiptContract = Assert-WeatherIntegrationSuiteReceipt -AttemptContract $contract
     $suiteReceiptSha256 = $suiteReceiptContract.ReceiptSha256

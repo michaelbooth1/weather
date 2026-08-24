@@ -88,8 +88,13 @@ before starting unrelated work:
 The guarded merge records each exact merge commit in
 `data/alerts/documentation_transaction_pending.json` before publication.
 Multiple commits in one reviewed overnight stack accumulate under one pending
-hash. `status.ps1` warns until the local 09:00 deadline and flags after it; a
-Task Scheduler result cannot clear the debt.
+hash. The transaction status derives a fixed two-hour intervention reserve:
+`action_required_at_local` is 07:00 for the local 09:00 deadline. `status.ps1`
+keeps the pending transaction as a note before that threshold, raises an
+`ACTION REQUIRED` flag from 07:00, and changes the flag to `OVERDUE` at 09:00.
+The health watchdog classifies either flag as high-severity documentation work
+so the debt enters its alert fingerprint instead of remaining a standing note.
+A Task Scheduler result cannot clear the debt.
 
 After the documentation commit is published and local `master` equals
 `origin/master`, prepare an ignored completion manifest with schema

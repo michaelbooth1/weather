@@ -33,6 +33,47 @@ These instructions apply to `scripts/ops/`.
   scheduled roll-sensitive work may retain `suite_gated_quiet_merge.ps1`, but
   a task exit code without the correlated exact full-suite verdict is never
   merge evidence.
+- `prepare_integration_attempt.ps1` is the preferred one-line interactive
+  entry point when a reviewed topic still needs publication. It requires
+  explicit authority for both the exact non-force topic push and Scheduler
+  registration, validates the live master baseline and at least ten minutes of
+  credible suite lead before any push, serializes preparation with a host-global
+  open-handle lock, rejects any enabled integration-attempt collision, and may
+  report PASS only after immutable readiness and final preparation receipts. Composite
+  registration creates both tasks Disabled; readiness writes the exact
+  manifest-bound execution token, then the activator enables and re-attests
+  both tasks and atomically writes the final PASS preparation receipt. Suite
+  and merge wrappers require both the token and that post-enable receipt, so a hard stop at any intermediate instruction is
+  fail-closed. Its sibling `.preparation` evidence directory is spent and must not
+  be rewritten after failure. A post-manifest preparation failure must run the
+  canonical closer and hash its terminal receipt; an unproved close is a loud
+  blocker, never a preparation result. Before publication it invokes the
+  canonical creator's non-mutating preflight path; after publication it reruns
+  the ordinary creator so all mutable premises are checked before freezing.
+  The creator and registrar remain the lower-level canonical primitives.
+  Invoke attempt entry points through the
+  preparer's contained Windows PowerShell child contract so any child `exit`
+  cannot bypass final receipt handling or canonical closure.
+- Every new integration attempt requires the preparer's exact authorization;
+  explicit `preparation: null` is not legacy compatibility. Registration is
+  always staged Disabled. Activation accepts only a fresh readiness receipt,
+  then repeats live topic/master, clean worktree, baseline, and quiet-merge
+  preflight checks before enabling either task. Suite, merge, and closure must
+  refresh their load-bearing remote refs successfully; a fetch failure is a
+  blocker, never permission to consume stale tracking state.
+- Generic one-shots always register
+  `one_shot_guarded_launcher.ps1`, never a mission payload directly. Manifest
+  v0.4 binds the launcher, payload and ordered arguments, validator,
+  kill-on-close Job helper, and workload admission for heavy work. The launcher
+  holds a shared registry lock across validation and payload execution, rehashes
+  every dependency from a retained handle that denies write/delete through
+  teardown, uses the shared heavy lease when required, and owns the payload's
+  Job and absolute deadline. Writers, resolvers, activation recovery, compaction, and reviewed
+  debris reconciliation take the exclusive lock and never recreate a missing
+  durable lock. Manifest/resolution index events, resolution receipts, and
+  compaction receipts are create-only history. Compaction requires exact task
+  absence; Disabled is not enough. A valid successor-pending transaction is
+  resumable and must never be deleted as debris.
 - Do not add `StartWhenAvailable` to integration-attempt tasks. A missed
   one-shot must fail visibly instead of waking in a protected window. Status
   must distinguish a currently running suite, a suite that ran without a

@@ -20,7 +20,12 @@ param(
     [string]$RepairClass = "initial",
     [string]$RepairOfReceiptPath,
     [string]$AdditionalPythonPath = "",
-    [switch]$RequireLiveSdkContract
+    [switch]$RequireLiveSdkContract,
+    [switch]$RequirePreparationAuthorization,
+    [string]$PreparationIntentPath = "",
+    [ValidatePattern("^$|^[0-9a-fA-F]{64}$")]
+    [string]$ExpectedPreparationIntentSha256 = "",
+    [switch]$PreflightOnly
 )
 
 Set-StrictMode -Version Latest
@@ -59,6 +64,9 @@ if ($ExpectedTip -notmatch '^[0-9a-f]{40}$') {
 }
 if ([string]::IsNullOrWhiteSpace($ReviewReference)) {
     throw "ReviewReference is required; a frozen attempt may only bind a reviewed tip."
+}
+if (-not $RequirePreparationAuthorization) {
+    throw "Every newly created integration attempt must use the composite preparation authorization transaction."
 }
 if (-not [string]::IsNullOrWhiteSpace($AdditionalPythonPath)) {
     throw "AdditionalPythonPath is unsupported for integration attempts because external Python content is not frozen by the manifest."
@@ -183,8 +191,12 @@ if (-not $registered) {
 }
 
 $worktreeTip = (Invoke-WeatherGitLine -Root $WorktreeRoot -Arguments @("rev-parse", "HEAD")).ToLowerInvariant()
-$branchTip = (Invoke-WeatherGitLine -Root $RepoRoot -Arguments @("rev-parse", $BranchRef)).ToLowerInvariant()
-if ($worktreeTip -ne $ExpectedTip -or $branchTip -ne $ExpectedTip) {
+$branchTip = $null
+if (-not $PreflightOnly) {
+    $branchTip = (Invoke-WeatherGitLine -Root $RepoRoot -Arguments @("rev-parse", $BranchRef)).ToLowerInvariant()
+}
+if ($worktreeTip -ne $ExpectedTip -or
+    (-not $PreflightOnly -and $branchTip -ne $ExpectedTip)) {
     throw "Attempt identity mismatch. worktree=$worktreeTip branch=$branchTip expected=$ExpectedTip"
 }
 $worktreeStatus = Invoke-WeatherGitLine -Root $WorktreeRoot -Arguments @("status", "--porcelain")
@@ -253,10 +265,52 @@ if ($LASTEXITCODE -ne 0) {
 }
 $suiteTaskName = "WeatherIntegrationSuite_$AttemptId"
 $mergeTaskName = "WeatherIntegrationMerge_$AttemptId"
+$manifestPath = Join-Path $AttemptRoot "manifest.json"
+$preparationAuthorizationRecord = $null
+if ($RequirePreparationAuthorization) {
+    if ([string]::IsNullOrWhiteSpace($PreparationIntentPath) -or
+        [string]::IsNullOrWhiteSpace($ExpectedPreparationIntentSha256)) {
+        throw "Preparation authorization requires the exact preparation intent path and SHA-256."
+    }
+    $resolvedPreparationIntentPath = Resolve-WeatherIntegrationPath -Path $PreparationIntentPath
+    $expectedPreparationIntentPath = Resolve-WeatherIntegrationPath -Path (
+        Join-Path ($AttemptRoot + ".preparation") "preparation-intent.json"
+    )
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left $resolvedPreparationIntentPath -Right $expectedPreparationIntentPath) -or
+        (Get-WeatherIntegrationFileSha256 -Path $resolvedPreparationIntentPath) -ne
+            $ExpectedPreparationIntentSha256.ToLowerInvariant()) {
+        throw "Preparation authorization does not bind the canonical immutable preparation intent."
+    }
+    $authorizationPlan = Get-WeatherIntegrationPreparationAuthorizationPlan `
+        -AttemptRoot $AttemptRoot `
+        -AttemptId $AttemptId `
+        -ManifestPath $manifestPath `
+        -ExpectedTip $ExpectedTip `
+        -PreparationIntentPath $resolvedPreparationIntentPath `
+        -PreparationIntentSha256 $ExpectedPreparationIntentSha256 `
+        -SuiteTaskName $suiteTaskName `
+        -MergeTaskName $mergeTaskName
+    if (Test-Path -LiteralPath $authorizationPlan.Path) {
+        throw "Preparation execution authorization already exists before final readiness: $($authorizationPlan.Path)"
+    }
+    $preparationAuthorizationRecord = [ordered]@{
+        required = $true
+        execution_authorization_path = $authorizationPlan.Path
+        execution_authorization_sha256 = $authorizationPlan.Sha256
+        preparation_intent_path = $resolvedPreparationIntentPath
+        preparation_intent_sha256 = $ExpectedPreparationIntentSha256.ToLowerInvariant()
+    }
+}
+elseif (-not [string]::IsNullOrWhiteSpace($PreparationIntentPath) -or
+    -not [string]::IsNullOrWhiteSpace($ExpectedPreparationIntentSha256)) {
+    throw "Preparation intent binding is valid only with RequirePreparationAuthorization."
+}
 $orchestrationPaths = [ordered]@{
     contract = Join-Path $RepoRoot "scripts\ops\integration_attempt_contract.ps1"
     attempt_creator = Join-Path $RepoRoot "scripts\ops\new_integration_attempt.ps1"
     attempt_registrar = Join-Path $RepoRoot "scripts\ops\register_integration_attempt.ps1"
+    attempt_activator = Join-Path $RepoRoot "scripts\ops\activate_integration_attempt.ps1"
     attempt_closer = Join-Path $RepoRoot "scripts\ops\close_integration_attempt.ps1"
     bounded_suite = Join-Path $RepoRoot "scripts\ops\bounded_worktree_test_suite.ps1"
     attempt_suite = Join-Path $RepoRoot "scripts\ops\integration_attempt_suite.ps1"
@@ -266,6 +320,7 @@ $orchestrationPaths = [ordered]@{
     boot_recovery = Join-Path $RepoRoot "scripts\ops\boot_recovery.ps1"
     register_boot_recovery = Join-Path $RepoRoot "scripts\ops\register_boot_recovery.ps1"
     quiet_merge = Join-Path $RepoRoot "scripts\ops\quiet_window_merge.ps1"
+    quiet_merge_preflight = Join-Path $RepoRoot "scripts\ops\integration_attempt_quiet_merge_preflight.ps1"
     token_contract = Join-Path $RepoRoot "scripts\ops\training_window_contract.ps1"
     job_containment = Join-Path $RepoRoot "scripts\ops\windows_kill_on_close_job.ps1"
     workload_admission = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
@@ -280,8 +335,30 @@ foreach ($name in $orchestrationPaths.Keys) {
     }
 }
 
+if ($PreflightOnly) {
+    # The preparer runs this exact canonical validation path before its only
+    # publication boundary. BranchRef is intentionally revalidated by the
+    # ordinary creator after the exact topic is published and fetched; every
+    # other locally knowable rejection is proved before publication.
+    [pscustomobject][ordered]@{
+        status = "PREFLIGHT_READY"
+        attempt_id = $AttemptId
+        expected_tip = $ExpectedTip
+        production_baseline = $masterTip
+        expected_test_file_count = $expectedTestFileCount
+        expected_chunk_count = $expectedChunkCount
+        repair_class = $RepairClass
+        successor_claim_path = $priorClaimPath
+        preparation_authorization_required = [bool]$RequirePreparationAuthorization
+        preparation_authorization_sha256 = if ($null -eq $preparationAuthorizationRecord) {
+            $null
+        }
+        else { [string]$preparationAuthorizationRecord.execution_authorization_sha256 }
+    } | ConvertTo-Json -Depth 5 -Compress
+    return
+}
+
 New-Item -ItemType Directory -Path $AttemptRoot -ErrorAction Stop | Out-Null
-$manifestPath = Join-Path $AttemptRoot "manifest.json"
 $manifest = [ordered]@{
     schema = $script:WeatherIntegrationAttemptManifestSchema
     attempt_id = $AttemptId
@@ -299,6 +376,7 @@ $manifest = [ordered]@{
         review_reference = $ReviewReference
         repair_class = $RepairClass
         repair_of = $repairOf
+        preparation = $preparationAuthorizationRecord
     }
     schedule = [ordered]@{
         suite_at_local = $SuiteAtLocal.ToString("o")

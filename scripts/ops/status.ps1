@@ -22,6 +22,73 @@ if (-not (Test-Path $py)) { $py = "python" }
 $flags = New-Object System.Collections.Generic.List[string]
 $warns = New-Object System.Collections.Generic.List[string]
 
+function Read-WeatherStatusBoundedJsonEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(1, 2097152)][int]$MaximumBytes = 1048576
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf -ErrorAction Stop)) {
+        throw "Required status evidence is missing: $Path"
+    }
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        $item.Length -gt $MaximumBytes) {
+        throw "Status evidence must be a bounded regular non-reparse file: $Path"
+    }
+    $stream = [IO.File]::Open(
+        $item.FullName,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::ReadWrite
+    )
+    try {
+        if ($stream.Length -gt $MaximumBytes) {
+            throw "Status evidence exceeds the bounded read limit: $Path"
+        }
+        $buffer = New-Object byte[] ($MaximumBytes + 1)
+        $count = 0
+        while ($count -lt $buffer.Length) {
+            $read = $stream.Read($buffer, $count, $buffer.Length - $count)
+            if ($read -eq 0) { break }
+            $count += $read
+        }
+        if ($count -gt $MaximumBytes) {
+            throw "Status evidence grew beyond the bounded read limit: $Path"
+        }
+        $bytes = New-Object byte[] $count
+        if ($count -gt 0) { [Array]::Copy($buffer, $bytes, $count) }
+    }
+    finally { $stream.Dispose() }
+
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $sha256 = ([BitConverter]::ToString($hasher.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+    }
+    finally { $hasher.Dispose() }
+    $decoder = New-Object Text.UTF8Encoding($false, $true)
+    $text = $decoder.GetString($bytes).TrimStart([char]0xFEFF)
+    try { $payload = $text | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "Status evidence JSON is invalid: $Path" }
+    return [pscustomobject]@{ Payload = $payload; Sha256 = $sha256; Path = $item.FullName }
+}
+
+function Get-WeatherOneShotActiveManifestFileIdentity {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $leaf = [IO.Path]::GetFileName($fullPath)
+    if ($leaf -cnotmatch
+        '^(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.manifest\.json$') {
+        throw "Active one-shot manifest filename must bind exact task identity and lowercase SHA-256."
+    }
+    return [pscustomobject]@{
+        Path = $fullPath
+        TaskName = [string]$Matches.task
+        ExpectedSha256 = [string]$Matches.sha
+    }
+}
+
 function Get-WeatherIntegrationValidatedEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
@@ -827,6 +894,624 @@ function Assert-WeatherIntegrationStatusTaskBindings {
     return [pscustomobject]@{ Suite = $suiteBinding; Merge = $mergeBinding }
 }
 
+function Get-WeatherIntegrationPreparationDisposition {
+    param(
+        [Parameter(Mandatory = $true)][bool]$NamespaceExists,
+        [Parameter(Mandatory = $true)][bool]$IntentPresent,
+        [Parameter(Mandatory = $true)][bool]$IntentValid,
+        [Parameter(Mandatory = $true)][bool]$ReceiptPresent,
+        [Parameter(Mandatory = $true)][bool]$ReceiptValid,
+        [AllowEmptyString()][string]$ReceiptStatus = ""
+    )
+
+    if (-not $NamespaceExists) { return "ABSENT" }
+    if (-not $IntentPresent -or -not $ReceiptPresent) { return "INCOMPLETE" }
+    if (-not $IntentValid -or -not $ReceiptValid) { return "INVALID" }
+    if ($ReceiptStatus -eq "FAIL") { return "FAILED" }
+    if ($ReceiptStatus -eq "PASS") { return "READY" }
+    return "INVALID"
+}
+
+function Get-WeatherIntegrationOrphanPreparationState {
+    param(
+        [Parameter(Mandatory = $true)][bool]$ManifestExists,
+        [Parameter(Mandatory = $true)][bool]$ClosureRequired,
+        [Parameter(Mandatory = $true)][bool]$ClosureProved,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("PROVED", "ABSENT", "UNCERTAIN")]
+        [string]$PublicationState
+    )
+
+    if ($ClosureRequired -and -not $ClosureProved) { return "CLOSURE_UNPROVED" }
+    if (-not $ManifestExists -and $PublicationState -eq "PROVED") {
+        return "PUBLICATION_ONLY"
+    }
+    if (-not $ManifestExists -and $PublicationState -eq "ABSENT" -and
+        -not $ClosureRequired) {
+        return "PREPARATION_NO_MUTATION_HISTORY"
+    }
+    return "PREPARATION_FAILED"
+}
+
+function Get-WeatherIntegrationPreparationPublicationState {
+    param(
+        [Parameter(Mandatory = $true)][bool]$RemoteLookupCompleted,
+        [AllowNull()][string]$RemoteTipBefore,
+        [Parameter(Mandatory = $true)][bool]$PushAttempted,
+        [Parameter(Mandatory = $true)][bool]$PushPerformed,
+        [AllowNull()][string]$RemoteTipAfter,
+        [Parameter(Mandatory = $true)][string]$ExpectedTip
+    )
+
+    if ($RemoteTipBefore -eq $ExpectedTip -or
+        $RemoteTipAfter -eq $ExpectedTip -or $PushPerformed) {
+        return "PROVED"
+    }
+    if ($PushAttempted) { return "UNCERTAIN" }
+    if ($RemoteLookupCompleted -and
+        [string]::IsNullOrWhiteSpace($RemoteTipBefore)) {
+        return "ABSENT"
+    }
+    return "UNCERTAIN"
+}
+
+function Get-WeatherIntegrationPreparationDirectoryCandidates {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root
+    )
+
+    $candidates = New-Object System.Collections.Generic.List[psobject]
+    $truncated = $false
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        return [pscustomobject]@{ Directories = @(); Truncated = $false }
+    }
+    $firstLevelDirectories = @(
+        Get-ChildItem -LiteralPath $Root -Directory |
+            Where-Object {
+                -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+            } |
+            Sort-Object -Property `
+                @{ Expression = { $_.LastWriteTimeUtc }; Descending = $true }, `
+                @{ Expression = { $_.FullName }; Descending = $false } |
+            Select-Object -First 129
+    )
+    if ($firstLevelDirectories.Count -gt 128) { $truncated = $true }
+    foreach ($firstLevel in @($firstLevelDirectories | Select-Object -First 128)) {
+        if ($firstLevel.Name.EndsWith(
+                ".preparation",
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            $candidates.Add($firstLevel)
+        }
+        else {
+            $secondLevelDirectories = @(
+                Get-ChildItem -LiteralPath $firstLevel.FullName -Directory |
+                    Where-Object {
+                        -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+                    } |
+                    Sort-Object -Property `
+                        @{ Expression = { $_.LastWriteTimeUtc }; Descending = $true }, `
+                        @{ Expression = { $_.FullName }; Descending = $false } |
+                    Select-Object -First 513
+            )
+            if ($secondLevelDirectories.Count -gt 512) { $truncated = $true }
+            foreach ($secondLevel in @($secondLevelDirectories | Select-Object -First 512)) {
+                if ($secondLevel.Name.EndsWith(
+                        ".preparation",
+                        [StringComparison]::OrdinalIgnoreCase
+                    )) {
+                    $candidates.Add($secondLevel)
+                    if ($candidates.Count -ge 257) { break }
+                }
+            }
+        }
+        if ($candidates.Count -ge 257) { break }
+    }
+    $candidateRows = @($candidates | ForEach-Object { $_ })
+    if ($candidateRows.Count -gt 256) { $truncated = $true }
+    return [pscustomobject]@{
+        Directories = @($candidateRows | Select-Object -First 256)
+        Truncated = $truncated
+    }
+}
+
+function Test-WeatherIntegrationCurrentAttemptArmed {
+    param(
+        [Parameter(Mandatory = $true)][string]$AttemptState,
+        [Parameter(Mandatory = $true)][string]$PreparationState,
+        [Parameter(Mandatory = $true)][bool]$TaskBindingsValid,
+        [Parameter(Mandatory = $true)][string]$SuiteTaskState,
+        [Parameter(Mandatory = $true)][string]$MergeTaskState,
+        [Parameter(Mandatory = $true)][bool]$SuiteEnabled,
+        [Parameter(Mandatory = $true)][bool]$MergeEnabled,
+        [AllowNull()][object]$SuiteNextRunTime,
+        [AllowNull()][object]$MergeNextRunTime,
+        [Parameter(Mandatory = $true)][datetime]$SuiteTriggerAt,
+        [Parameter(Mandatory = $true)][datetime]$MergeTriggerAt,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [Parameter(Mandatory = $true)][bool]$SuiteTriggerMissed
+    )
+
+    return (
+        $AttemptState -eq "ACTIVE_OR_ARMED" -and
+        $PreparationState -eq "READY" -and
+        $TaskBindingsValid -and
+        $SuiteTaskState -eq "Ready" -and
+        $MergeTaskState -eq "Ready" -and
+        $SuiteEnabled -and
+        $MergeEnabled -and
+        $null -ne $SuiteNextRunTime -and
+        $null -ne $MergeNextRunTime -and
+        [datetime]$SuiteNextRunTime -eq $SuiteTriggerAt -and
+        [datetime]$MergeNextRunTime -eq $MergeTriggerAt -and
+        $SuiteTriggerAt -gt $Now -and
+        $MergeTriggerAt -gt $Now -and
+        -not $SuiteTriggerMissed
+    )
+}
+
+function Test-WeatherIntegrationAttemptScheduleOverlap {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$FirstSuiteAt,
+        [Parameter(Mandatory = $true)][datetime]$FirstMergeAt,
+        [Parameter(Mandatory = $true)][datetime]$SecondSuiteAt,
+        [Parameter(Mandatory = $true)][datetime]$SecondMergeAt
+    )
+
+    # Treat either endpoint touching as overlap: the first suite can still own
+    # the shared workload lease while its merge consumer is due.
+    return ($FirstSuiteAt -le $SecondMergeAt -and
+        $SecondSuiteAt -le $FirstMergeAt)
+}
+
+function Get-WeatherIntegrationCurrentLocalReadiness {
+    param(
+        [Parameter(Mandatory = $true)][object]$Manifest
+    )
+
+    try {
+        $repoRoot = [IO.Path]::GetFullPath([string]$Manifest.repo_root)
+        $worktreeRoot = [IO.Path]::GetFullPath([string]$Manifest.worktree_root)
+        function Get-ExactGitLine {
+            param([string]$Root, [string[]]$Arguments)
+            $rows = @(& git -C $Root @Arguments)
+            if ($LASTEXITCODE -ne 0 -or $rows.Count -ne 1 -or
+                [string]::IsNullOrWhiteSpace([string]$rows[0])) {
+                throw "git identity lookup failed"
+            }
+            return ([string]$rows[0]).Trim()
+        }
+        $productionBranch = Get-ExactGitLine `
+            -Root $repoRoot -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
+        $productionHead = (Get-ExactGitLine `
+            -Root $repoRoot -Arguments @("rev-parse", "HEAD")).ToLowerInvariant()
+        $master = (Get-ExactGitLine `
+            -Root $repoRoot -Arguments @("rev-parse", "master")).ToLowerInvariant()
+        $originMaster = (Get-ExactGitLine `
+            -Root $repoRoot -Arguments @("rev-parse", "origin/master")).ToLowerInvariant()
+        $topicTrackingTip = (Get-ExactGitLine `
+            -Root $repoRoot `
+            -Arguments @("rev-parse", [string]$Manifest.branch_ref)).ToLowerInvariant()
+        if ($productionBranch -cne "master" -or
+            $productionHead -ne [string]$Manifest.baseline.master -or
+            $master -ne [string]$Manifest.baseline.master -or
+            $originMaster -ne [string]$Manifest.baseline.origin_master -or
+            $topicTrackingTip -ne [string]$Manifest.expected_tip) {
+            throw "production baseline no longer matches the prepared manifest"
+        }
+        $worktreeTip = (Get-ExactGitLine `
+            -Root $worktreeRoot -Arguments @("rev-parse", "HEAD")).ToLowerInvariant()
+        if ($worktreeTip -ne [string]$Manifest.expected_tip) {
+            throw "suite worktree HEAD moved after preparation PASS"
+        }
+        $dirtyRows = @(& git -C $worktreeRoot status --porcelain)
+        if ($LASTEXITCODE -ne 0 -or $dirtyRows.Count -ne 0) {
+            throw "suite worktree is dirty after preparation PASS"
+        }
+        $registered = $false
+        $worktreeRows = @(& git -C $repoRoot worktree list --porcelain)
+        if ($LASTEXITCODE -ne 0) { throw "registered worktree lookup failed" }
+        foreach ($row in $worktreeRows) {
+            if ([string]$row -like "worktree *" -and
+                [IO.Path]::GetFullPath(
+                    ([string]$row).Substring("worktree ".Length)
+                ) -ieq $worktreeRoot) {
+                $registered = $true
+                break
+            }
+        }
+        if (-not $registered) { throw "suite worktree is no longer registered" }
+        $quietPreflightScript = Join-Path $repoRoot `
+            "scripts\ops\integration_attempt_quiet_merge_preflight.ps1"
+        if (-not (Test-Path -LiteralPath $quietPreflightScript `
+                -PathType Leaf)) {
+            throw "quiet-merge preflight contract is missing"
+        }
+        . $quietPreflightScript
+        $quietPreflight = Assert-WeatherIntegrationQuietMergePreconditions `
+            -RepositoryRoot $repoRoot
+        return [pscustomobject]@{
+            Valid = $true
+            Detail = "current local baseline/worktree and quiet-merge prerequisites match; live origin revalidation is deferred"
+            LiveOriginRevalidation = "DEFERRED"
+            QuietMergePreflight = "PASS"
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Valid = $false
+            Detail = $_.Exception.Message
+            LiveOriginRevalidation = "DEFERRED"
+            QuietMergePreflight = "FAIL"
+        }
+    }
+}
+
+function Get-WeatherIntegrationPreparationReadiness {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedManifestSha256
+    )
+
+    . (Join-Path $RepositoryRoot "scripts\ops\integration_attempt_contract.ps1")
+    $attemptContract = Assert-WeatherIntegrationAttemptManifest `
+        -ManifestPath $ManifestPath `
+        -ExpectedSha256 $ExpectedManifestSha256
+    $attempt = $attemptContract.Manifest
+    $preparationRoot = Resolve-WeatherIntegrationPath `
+        -Path ($attemptContract.AttemptRoot + ".preparation")
+    $intentPath = Join-Path $preparationRoot "preparation-intent.json"
+    $receiptPath = Join-Path $preparationRoot "preparation-receipt.json"
+    $activationPath = $receiptPath
+    $namespaceExists = Test-Path -LiteralPath $preparationRoot
+    if (-not $namespaceExists) {
+        return [pscustomobject]@{
+            State = "ABSENT"
+            Detail = "no preparation namespace exists"
+            NamespacePath = $preparationRoot
+            IntentPath = $intentPath
+            IntentSha256 = $null
+            ReceiptPath = $receiptPath
+            ReceiptSha256 = $null
+            ActivationPath = $activationPath
+            ActivationSha256 = $null
+        }
+    }
+    if (-not (Test-Path -LiteralPath $preparationRoot -PathType Container)) {
+        return [pscustomobject]@{
+            State = "INVALID"
+            Detail = "preparation namespace path exists but is not a directory"
+            NamespacePath = $preparationRoot
+            IntentPath = $intentPath
+            IntentSha256 = $null
+            ReceiptPath = $receiptPath
+            ReceiptSha256 = $null
+            ActivationPath = $activationPath
+            ActivationSha256 = $null
+        }
+    }
+
+    $intentPresent = Test-Path -LiteralPath $intentPath -PathType Leaf
+    $receiptPresent = Test-Path -LiteralPath $receiptPath -PathType Leaf
+    $intentValid = $false
+    $receiptValid = $false
+    $intentSha256 = $null
+    $receiptSha256 = $null
+    $receiptStatus = ""
+    $closureUnproved = $false
+    $activationSha256 = $null
+    $validationFailure = $null
+    if ($intentPresent) {
+        try {
+            $intentEvidence = Read-WeatherStatusBoundedJsonEvidence -Path $intentPath
+            $intentSha256 = [string]$intentEvidence.Sha256
+            $intent = $intentEvidence.Payload
+            if ([string]$intent.schema -ne "weather_integration_attempt_preparation_intent_v1" -or
+                [string]$intent.status -ne "PREPARED" -or
+                [string]$intent.attempt_id -ne [string]$attempt.attempt_id -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$intent.attempt_root) -Right $attemptContract.AttemptRoot) -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$intent.preparation_root) -Right $preparationRoot) -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$intent.repo_root) -Right ([string]$attempt.repo_root)) -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$intent.worktree_root) -Right ([string]$attempt.worktree_root)) -or
+                [string]$intent.branch_ref -cne [string]$attempt.branch_ref -or
+                [string]$intent.expected_tip -ne [string]$attempt.expected_tip -or
+                [string]$intent.production_baseline -ne [string]$attempt.baseline.master -or
+                [string]$intent.schedule.suite_at_local -cne [string]$attempt.schedule.suite_at_local -or
+                [string]$intent.schedule.merge_at_local -cne [string]$attempt.schedule.merge_at_local -or
+                [string]$intent.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+                [bool]$intent.safety.credential_value_access_authorized -or
+                [bool]$intent.safety.live_exchange_mutation_authorized) {
+                throw "preparation intent does not bind the exact attempt"
+            }
+            $intentValid = $true
+        }
+        catch { $validationFailure = $_.Exception.Message }
+    }
+    if ($receiptPresent) {
+        try {
+            $receiptEvidence = Read-WeatherStatusBoundedJsonEvidence -Path $receiptPath
+            $receiptSha256 = [string]$receiptEvidence.Sha256
+            $receipt = $receiptEvidence.Payload
+            $receiptStatus = [string]$receipt.status
+            if ([string]$receipt.schema -ne "weather_integration_attempt_preparation_receipt_v1" -or
+                $receiptStatus -notin @("PASS", "FAIL") -or
+                [string]$receipt.attempt_id -ne [string]$attempt.attempt_id -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$receipt.preparation_intent_path) -Right $intentPath) -or
+                [string]$receipt.preparation_intent_sha256 -ne $intentSha256 -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$receipt.manifest_path) -Right $attemptContract.ManifestPath) -or
+                [string]$receipt.manifest_sha256 -ne $attemptContract.ManifestSha256 -or
+                [string]$receipt.branch_ref -cne [string]$attempt.branch_ref -or
+                [string]$receipt.expected_tip -ne [string]$attempt.expected_tip -or
+                [string]$receipt.safety.authority -ne "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+                [bool]$receipt.safety.credential_value_access_authorized -or
+                [bool]$receipt.safety.live_exchange_mutation_authorized -or
+                ($receiptStatus -eq "PASS" -and [string]$receipt.stage -ne "READY")) {
+                throw "preparation receipt does not bind the exact manifest and intent"
+            }
+            if ($receiptStatus -eq "FAIL") {
+                $closureUnproved = (
+                    -not [bool]$receipt.closure.required -or
+                    [string]$receipt.closure.status -ne "PROVED"
+                )
+                if (-not $closureUnproved) {
+                    $expectedClosurePath = Resolve-WeatherIntegrationPath `
+                        -Path ([string]$attempt.evidence.closure_receipt)
+                    if (-not (Test-WeatherIntegrationPathEqual `
+                            -Left ([string]$receipt.closure.receipt_path) `
+                            -Right $expectedClosurePath) -or
+                        [string]$receipt.closure.receipt_sha256 -notmatch '^[0-9a-f]{64}$' -or
+                        (Get-WeatherIntegrationFileSha256 -Path $expectedClosurePath) -ne
+                            [string]$receipt.closure.receipt_sha256) {
+                        throw "preparation FAIL receipt does not prove its exact canonical closure"
+                    }
+                    Get-WeatherIntegrationValidatedEvidence `
+                        -RepositoryRoot $RepositoryRoot `
+                        -ManifestPath $ManifestPath `
+                        -ExpectedManifestSha256 $ExpectedManifestSha256 `
+                        -Target "closure" | Out-Null
+                }
+            }
+            $receiptValid = $true
+        }
+        catch { $validationFailure = $_.Exception.Message }
+    }
+    $state = Get-WeatherIntegrationPreparationDisposition `
+        -NamespaceExists $true `
+        -IntentPresent $intentPresent `
+        -IntentValid $intentValid `
+        -ReceiptPresent $receiptPresent `
+        -ReceiptValid $receiptValid `
+        -ReceiptStatus $receiptStatus
+    if ($state -eq "FAILED" -and $closureUnproved) {
+        $state = "CLOSURE_UNPROVED"
+    }
+    $preparationProperty = $attempt.authorization.PSObject.Properties["preparation"]
+    $preparationRequired = ($null -ne $preparationProperty -and
+        $null -ne $preparationProperty.Value -and
+        [bool]$preparationProperty.Value.required)
+    if ($state -eq "READY" -and $preparationRequired) {
+        if (-not (Test-Path -LiteralPath $activationPath -PathType Leaf)) {
+            $state = "ACTIVATION_INCOMPLETE"
+            $validationFailure = "manifest-bound final preparation PASS exists but activation proof is absent"
+        }
+        else {
+            try {
+                $activationContract = Assert-WeatherIntegrationActivationReceipt `
+                    -AttemptContract $attemptContract
+                $activationSha256 = [string]$activationContract.Sha256
+            }
+            catch {
+                $state = "INVALID"
+                $validationFailure = $_.Exception.Message
+            }
+        }
+    }
+    $detail = switch ($state) {
+        "READY" { "hash-valid preparation PASS authorization and post-enable receipt bind the exact manifest, intent, and task pair" }
+        "FAILED" { "immutable preparation FAIL receipt blocks this attempt" }
+        "CLOSURE_UNPROVED" { "preparation failed after manifest creation but canonical task terminality is unproved" }
+        "ACTIVATION_INCOMPLETE" { "preparation PASS exists but exact task activation is not durably proved" }
+        "INCOMPLETE" { "preparation namespace is partial; final PASS receipt is absent" }
+        default { "preparation namespace or evidence is invalid: $validationFailure" }
+    }
+    return [pscustomobject]@{
+        State = $state
+        Detail = $detail
+        NamespacePath = $preparationRoot
+        IntentPath = $intentPath
+        IntentSha256 = $intentSha256
+        ReceiptPath = $receiptPath
+        ReceiptSha256 = $receiptSha256
+        ActivationPath = $activationPath
+        ActivationSha256 = $activationSha256
+    }
+}
+
+function Get-WeatherIntegrationSuccessorReadiness {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][object]$SuccessorClaim,
+        [Parameter(Mandatory = $true)][datetime]$Now
+    )
+
+    $manifestPath = [string]$SuccessorClaim.successor_manifest_path
+    $manifestSha256 = [string]$SuccessorClaim.successor_manifest_sha256
+    try {
+        $validatedManifest = Get-WeatherIntegrationValidatedEvidence `
+            -RepositoryRoot $RepositoryRoot `
+            -ManifestPath $manifestPath `
+            -ExpectedManifestSha256 $manifestSha256 `
+            -Target "manifest"
+        $manifest = $validatedManifest.Payload
+    }
+    catch {
+        return [pscustomobject]@{
+            State = "UNREGISTERED"
+            PublicationRequired = $false
+            Detail = "successor manifest is absent, unreadable, or no longer hash-bound"
+            NextAction = "review the claimed successor manifest before any retry"
+        }
+    }
+
+    try {
+        $preparation = Get-WeatherIntegrationPreparationReadiness `
+            -RepositoryRoot $RepositoryRoot `
+            -ManifestPath $manifestPath `
+            -ExpectedManifestSha256 $manifestSha256
+    }
+    catch {
+        $preparation = [pscustomobject]@{
+            State = "INVALID"
+            Detail = "preparation readiness validation failed"
+        }
+    }
+    if ([string]$preparation.State -ne "READY") {
+        $state = if ([string]$preparation.State -in @("ABSENT", "INCOMPLETE")) {
+            "PREPARATION_INCOMPLETE"
+        }
+        else { "PREPARATION_FAILED" }
+        return [pscustomobject]@{
+            State = $state
+            PublicationRequired = $false
+            Detail = [string]$preparation.Detail
+            NextAction = "close/review this claimed successor; preparation never reached durable PASS"
+        }
+    }
+
+    $currentLocalReadiness = Get-WeatherIntegrationCurrentLocalReadiness `
+        -Manifest $manifest
+    if (-not [bool]$currentLocalReadiness.Valid) {
+        return [pscustomobject]@{
+            State = "PREPARATION_FAILED"
+            PublicationRequired = $false
+            Detail = "successor readiness decayed after PASS: $([string]$currentLocalReadiness.Detail)"
+            NextAction = "close/review this claimed successor; restore no state by assumption"
+        }
+    }
+
+    $trackedTip = $null
+    try {
+        $trackedRows = @(& git -C $RepositoryRoot rev-parse ([string]$manifest.branch_ref))
+        if ($LASTEXITCODE -eq 0 -and $trackedRows.Count -eq 1) {
+            $trackedTip = ([string]$trackedRows[0]).Trim().ToLowerInvariant()
+        }
+    }
+    catch { }
+    if ($trackedTip -ne [string]$manifest.expected_tip) {
+        return [pscustomobject]@{
+            State = "PUBLICATION_REQUIRED"
+            PublicationRequired = $true
+            Detail = "successor remote-tracking topic is not at the claimed exact tip"
+            NextAction = "publish and fetch the exact successor tip, then register and re-prove readiness"
+        }
+    }
+
+    $suiteAt = $null
+    $mergeAt = $null
+    try {
+        $suiteAt = [datetime]::Parse(
+            [string]$manifest.schedule.suite_at_local,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeLocal
+        )
+        $mergeAt = [datetime]::Parse(
+            [string]$manifest.schedule.merge_at_local,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeLocal
+        )
+    }
+    catch {
+        return [pscustomobject]@{
+            State = "UNREGISTERED"
+            PublicationRequired = $false
+            Detail = "successor schedule is unreadable"
+            NextAction = "close and review the claimed successor"
+        }
+    }
+
+    if (Test-Path -LiteralPath ([string]$manifest.evidence.suite_receipt) -PathType Leaf) {
+        return [pscustomobject]@{
+            State = "ACTIVE"
+            PublicationRequired = $false
+            Detail = "successor has suite evidence and is independently tracked as an active attempt"
+            NextAction = "follow the successor attempt's own terminal evidence"
+        }
+    }
+
+    try {
+        $registration = Get-WeatherIntegrationValidatedEvidence `
+            -RepositoryRoot $RepositoryRoot `
+            -ManifestPath $manifestPath `
+            -ExpectedManifestSha256 $manifestSha256 `
+            -Target "registration"
+        if ([string]$registration.Status -ne "PASS") {
+            throw "registration receipt is not PASS"
+        }
+        $bindings = Assert-WeatherIntegrationStatusTaskBindings `
+            -RepositoryRoot $RepositoryRoot `
+            -ManifestPath $manifestPath `
+            -ExpectedManifestSha256 $manifestSha256
+    }
+    catch {
+        $expired = ($suiteAt -le $Now)
+        return [pscustomobject]@{
+            State = $(if ($expired) { "WINDOW_MISSED" } else { "UNREGISTERED" })
+            PublicationRequired = $false
+            Detail = $(if ($expired) {
+                    "successor suite window passed without valid registration and live task proof"
+                } else {
+                    "successor is claimed but lacks a PASS registration receipt or exact live task proof"
+                })
+            NextAction = "close/review the claimed successor; never create an unbound sibling retry"
+        }
+    }
+
+    $suiteReady = (
+        [string]$bindings.Suite.Task.State -eq "Ready" -and
+        [bool]$bindings.Suite.Task.Settings.Enabled -and
+        $null -ne $bindings.Suite.Info.NextRunTime -and
+        [datetime]$bindings.Suite.Info.NextRunTime -eq $suiteAt -and
+        $suiteAt -gt $Now
+    )
+    $mergeReady = (
+        [string]$bindings.Merge.Task.State -eq "Ready" -and
+        [bool]$bindings.Merge.Task.Settings.Enabled -and
+        $null -ne $bindings.Merge.Info.NextRunTime -and
+        [datetime]$bindings.Merge.Info.NextRunTime -eq $mergeAt -and
+        $mergeAt -gt $Now
+    )
+    if ($suiteReady -and $mergeReady) {
+        return [pscustomobject]@{
+            State = "ARMED"
+            PublicationRequired = $false
+            Detail = "successor exact topic, PASS registration, and both future live tasks are proved"
+            NextAction = "monitor the successor attempt; no operator publication or registration action remains"
+        }
+    }
+    if ([string]$bindings.Suite.Task.State -eq "Running" -or
+        [string]$bindings.Merge.Task.State -eq "Running") {
+        return [pscustomobject]@{
+            State = "ACTIVE"
+            PublicationRequired = $false
+            Detail = "successor task execution has started"
+            NextAction = "follow the successor attempt's own terminal evidence"
+        }
+    }
+    return [pscustomobject]@{
+        State = $(if ($suiteAt -le $Now) { "WINDOW_MISSED" } else { "UNREGISTERED" })
+        PublicationRequired = $false
+        Detail = "successor task state is not an exact enabled future Ready pair"
+        NextAction = "close/review the claimed successor before any retry"
+    }
+}
+
 function Get-WeatherIntegrationAttemptState {
     param(
         [AllowEmptyString()][string]$SuiteReceiptStatus = "",
@@ -834,15 +1519,28 @@ function Get-WeatherIntegrationAttemptState {
         [AllowEmptyString()][string]$ReconciliationStatus = "",
         [AllowEmptyString()][string]$ClosureStatus = "",
         [AllowEmptyString()][string]$DispatchStatus = "",
-        [AllowEmptyString()][string]$ClaimStatus = ""
+        [AllowEmptyString()][string]$ClaimStatus = "",
+        [AllowEmptyString()][string]$SuccessorReadiness = ""
     )
 
     if ($MergeReceiptStatus -eq "PASS") { return "PASS" }
     if ($ReconciliationStatus -eq "MERGED_RECONCILED") { return "MERGED_RECONCILED" }
     if ($MergeReceiptStatus -eq "MERGED_UNVERIFIED") { return "MERGED_UNVERIFIED" }
     if ($MergeReceiptStatus -eq "RECOVERED_UNPUSHED") { return "MERGED_UNPUSHED" }
-    if ($ClaimStatus -eq "CLAIMED") { return "SUCCESSOR_CLAIMED" }
-    if ($DispatchStatus -eq "READY_FOR_SUCCESSOR_REVIEW") { return "RECOVERY_READY" }
+    if ($ClaimStatus -eq "CLAIMED") {
+        if ($SuccessorReadiness -eq "ARMED") { return "SUCCESSOR_ARMED" }
+        if ($SuccessorReadiness -eq "ACTIVE") { return "SUCCESSOR_ACTIVE" }
+        if ($SuccessorReadiness -eq "PREPARATION_INCOMPLETE") {
+            return "SUCCESSOR_PREPARATION_INCOMPLETE"
+        }
+        if ($SuccessorReadiness -eq "PREPARATION_FAILED") {
+            return "SUCCESSOR_PREPARATION_FAILED"
+        }
+        if ($SuccessorReadiness -eq "WINDOW_MISSED") { return "SUCCESSOR_WINDOW_MISSED" }
+        if ($SuccessorReadiness -eq "PUBLICATION_REQUIRED") { return "SUCCESSOR_UNPUBLISHED" }
+        return "SUCCESSOR_UNREGISTERED"
+    }
+    if ($DispatchStatus -eq "READY_FOR_SUCCESSOR_REVIEW") { return "AWAITING_SUCCESSOR" }
     if ($ClosureStatus -eq "FAIL") { return "CLOSED_NEEDS_DISPATCH" }
     if ($SuiteReceiptStatus -eq "FAIL" -or $MergeReceiptStatus -eq "FAIL") {
         return "FAILED_NEEDS_CLOSE"
@@ -859,6 +1557,8 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
         [Parameter(Mandatory = $true)][bool]$SuiteTriggerMissed,
         [bool]$SuiteRanWithoutReceipt = $false,
         [bool]$MergeReceiptMissingAfterTrigger = $false,
+        [bool]$ExactArmed = $false,
+        [bool]$ActuallyRunning = $false,
         [AllowEmptyString()][string]$RecoveryDispatch = "",
         [AllowEmptyString()][string]$SuccessorAttemptId = ""
     )
@@ -867,11 +1567,11 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
     $detail = ""
     if ($State -eq "MERGED_UNVERIFIED") {
         $detail = "integration attempt $AttemptId reached production but final proof is incomplete; do not retry it"
-        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+        $severity = "FLAG"
     }
     elseif ($State -eq "MERGED_UNPUSHED") {
         $detail = "integration attempt $AttemptId has a recovery-proved local merge not acknowledged by origin; obtain review, resume publication, and do not retry it"
-        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+        $severity = "FLAG"
     }
     elseif ($State -eq "MERGED_RECONCILED") {
         $detail = "integration attempt $AttemptId was reconciled without downstream authority"
@@ -879,18 +1579,42 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
     }
     elseif ($State -eq "FAILED_NEEDS_CLOSE") {
         $detail = "integration attempt $AttemptId failed and must close its exact tasks (task state $TaskState)"
-        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+        $severity = "FLAG"
     }
     elseif ($State -eq "CLOSED_NEEDS_DISPATCH") {
         $detail = "integration attempt $AttemptId is closed and needs reviewed recovery dispatch"
-        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+        $severity = "FLAG"
     }
-    elseif ($State -eq "RECOVERY_READY") {
-        $detail = "integration attempt $AttemptId recovery is ready for an active agent: $RecoveryDispatch"
-        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+    elseif ($State -eq "AWAITING_SUCCESSOR") {
+        $detail = "integration attempt $AttemptId is awaiting a reviewed successor; no successor is armed: $RecoveryDispatch"
+        $severity = "FLAG"
     }
-    elseif ($State -eq "SUCCESSOR_CLAIMED" -and $EvidenceIsFresh) {
-        $detail = "integration attempt $AttemptId authorized successor $SuccessorAttemptId"
+    elseif ($State -eq "SUCCESSOR_UNPUBLISHED") {
+        $detail = "integration attempt $AttemptId claimed successor $SuccessorAttemptId, but its exact topic is not published locally; no successor is armed"
+        $severity = "FLAG"
+    }
+    elseif ($State -eq "SUCCESSOR_UNREGISTERED") {
+        $detail = "integration attempt $AttemptId claimed successor $SuccessorAttemptId, but PASS registration and exact future tasks are not proved"
+        $severity = "FLAG"
+    }
+    elseif ($State -eq "SUCCESSOR_PREPARATION_INCOMPLETE") {
+        $detail = "integration attempt $AttemptId claimed successor $SuccessorAttemptId, but its preparation namespace is partial and has no durable PASS receipt"
+        $severity = "FLAG"
+    }
+    elseif ($State -eq "SUCCESSOR_PREPARATION_FAILED") {
+        $detail = "integration attempt $AttemptId claimed successor $SuccessorAttemptId, but its preparation evidence is terminal FAIL or invalid"
+        $severity = "FLAG"
+    }
+    elseif ($State -eq "SUCCESSOR_WINDOW_MISSED") {
+        $detail = "integration attempt $AttemptId successor $SuccessorAttemptId missed its suite window without valid armed proof"
+        $severity = "FLAG"
+    }
+    elseif ($State -eq "SUCCESSOR_ARMED" -and $EvidenceIsFresh) {
+        $detail = "integration attempt $AttemptId has exact future successor $SuccessorAttemptId armed"
+        $severity = "WARN"
+    }
+    elseif ($State -eq "SUCCESSOR_ACTIVE" -and $EvidenceIsFresh) {
+        $detail = "integration attempt $AttemptId successor $SuccessorAttemptId is active"
         $severity = "WARN"
     }
     elseif ($State -eq "ACTIVE_OR_ARMED" -and
@@ -904,11 +1628,16 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
         else {
             $detail = "integration attempt $AttemptId passed its merge trigger without a receipt; close it"
         }
-        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+        $severity = "FLAG"
     }
     elseif ($State -eq "ACTIVE_OR_ARMED" -and $SuiteTriggerMissed) {
         $detail = "integration attempt $AttemptId missed its suite trigger and has no receipt"
-        $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
+        $severity = "FLAG"
+    }
+    elseif ($State -eq "ACTIVE_OR_ARMED" -and
+        -not $ExactArmed -and -not $ActuallyRunning) {
+        $detail = "integration attempt $AttemptId is nonterminal but is neither exact-future armed nor actually Running"
+        $severity = "FLAG"
     }
     return [pscustomobject]@{ Severity = $severity; Detail = $detail }
 }
@@ -1085,6 +1814,47 @@ function Get-WeatherIntegrationMergeObservation {
         MergeAt = $mergeAt
         Running = [bool]$running
         ReceiptMissingAfterTrigger = [bool]$receiptMissingAfterTrigger
+    }
+}
+
+function Get-WeatherDocumentationTransactionDisposition {
+    param([Parameter(Mandatory = $true)][object]$Transaction)
+
+    foreach ($requiredField in @(
+        "overdue", "action_required", "action_required_at_local",
+        "action_lead_minutes", "due_at_local", "integration_count", "pending_sha256"
+    )) {
+        if ($null -eq $Transaction.PSObject.Properties[$requiredField]) {
+            return [pscustomobject]@{
+                Severity = "FLAG"
+                Detail = "DOCUMENTATION TRANSACTION INVALID: pending state lacks $requiredField"
+            }
+        }
+    }
+
+    $identity = "{0} integration(s); pending {1}" -f `
+        $Transaction.integration_count, $Transaction.pending_sha256
+    if ([bool]$Transaction.overdue) {
+        return [pscustomobject]@{
+            Severity = "FLAG"
+            Detail = "DOCUMENTATION TRANSACTION OVERDUE: $identity; deadline $($Transaction.due_at_local) passed"
+        }
+    }
+    if ([bool]$Transaction.action_required) {
+        return [pscustomobject]@{
+            Severity = "FLAG"
+            Detail = (
+                "DOCUMENTATION TRANSACTION ACTION REQUIRED: $identity; closeout lead began " +
+                "$($Transaction.action_required_at_local); finish before deadline $($Transaction.due_at_local)"
+            )
+        }
+    }
+    return [pscustomobject]@{
+        Severity = "WARN"
+        Detail = (
+            "DOCUMENTATION TRANSACTION PENDING: $identity; action required at " +
+            "$($Transaction.action_required_at_local); deadline $($Transaction.due_at_local)"
+        )
     }
 }
 
@@ -1581,13 +2351,88 @@ if ($chain -and $chain.steps) {
         }
     }
 }
-# `terminal` describes the LAST completed run and goes stale the moment a resume starts,
-# so trust the live step state instead: a running step means a run is in flight now.
-if ($chain -and $chain.current_step -and [string]$chain.current_step.status -like "running*") {
-    $chainTerm = "RUNNING NOW: $($chain.current_step.name)"
+# A persisted running marker is crash residue until the exact isolated child is
+# proved alive.  The Stage-A runner intentionally writes terminal/RESUMABLE before
+# starting each isolated child, then updates current_step to running_isolated.  A
+# protected-window teardown can therefore leave that running marker in the final
+# terminal receipt.  Terminal interruption evidence always wins; otherwise require
+# both the recorded PID and the expected step-child command line before saying NOW.
+$chainInterruption = $null
+$chainCurrentStep = $null
+if ($chain) {
+    $interruptionProperty = $chain.PSObject.Properties["interruption"]
+    if ($null -ne $interruptionProperty) { $chainInterruption = $interruptionProperty.Value }
+    $currentStepProperty = $chain.PSObject.Properties["current_step"]
+    if ($null -ne $currentStepProperty) { $chainCurrentStep = $currentStepProperty.Value }
+}
+$chainStepName = if ($chainCurrentStep -and $chainCurrentStep.name) {
+    [string]$chainCurrentStep.name
+}
+elseif ($chainInterruption -and $chainInterruption.step) {
+    [string]$chainInterruption.step
+}
+else { "unknown step" }
+$chainRuntimeProcessProved = $false
+if ($chain -and -not [bool]$chain.terminal -and $chainCurrentStep -and
+    [string]$chainCurrentStep.status -like "running*") {
+    $childPidProperty = $chainCurrentStep.PSObject.Properties["child_pid"]
+    $chainChildPid = 0
+    if ($null -ne $childPidProperty -and $null -ne $childPidProperty.Value) {
+        [void][int]::TryParse([string]$childPidProperty.Value, [ref]$chainChildPid)
+    }
+    if ($chainChildPid -gt 0) {
+        try {
+            $chainChildProcesses = @(Get-CimInstance Win32_Process -Filter (
+                    "ProcessId = {0}" -f $chainChildPid
+                ) -ErrorAction Stop)
+            if ($chainChildProcesses.Count -eq 1) {
+                $chainChildCommand = [string]$chainChildProcesses[0].CommandLine
+                $expectedStepArgument = "--step {0}" -f $chainStepName
+                $chainRuntimeProcessProved = (
+                    -not [string]::IsNullOrWhiteSpace($chainChildCommand) -and
+                    $chainChildCommand.IndexOf(
+                        "weather.operations.daily_refresh_step_child",
+                        [System.StringComparison]::Ordinal
+                    ) -ge 0 -and
+                    $chainChildCommand.IndexOf(
+                        $expectedStepArgument,
+                        [System.StringComparison]::Ordinal
+                    ) -ge 0
+                )
+            }
+        }
+        catch { $chainRuntimeProcessProved = $false }
+    }
+}
+
+if ($chain -and [bool]$chain.terminal -and $chainInterruption) {
+    $interruptionStatus = [string]$chainInterruption.status
+    if ([string]::IsNullOrWhiteSpace($interruptionStatus)) { $interruptionStatus = "UNKNOWN" }
+    $interruptionStatus = $interruptionStatus.ToUpperInvariant()
+    if ($interruptionStatus -eq "RESUMABLE" -and $chainTaskResult -eq "0x4B") {
+        # 75/0x4B is the repository-owned Stage-A wrapper's deliberate
+        # protected-window teardown after it has killed the delegated tree.
+        $chainTerm = "STOPPED_AT_DEADLINE/RESUMABLE at $chainStepName"
+    }
+    else {
+        $chainTerm = "INTERRUPTED/{0} at {1}" -f $interruptionStatus, $chainStepName
+    }
+    if ($interruptionStatus -eq "RESUMABLE") {
+        $warns.Add("daily chain interrupted/resumable at $chainStepName; a reviewed resume is required")
+    }
+    else {
+        $flags.Add("daily chain terminal interruption $interruptionStatus at $chainStepName")
+    }
+}
+elseif ($chainRuntimeProcessProved) {
+    $chainTerm = "RUNNING NOW: $chainStepName"
     $chainFail = $null
 }
-elseif ($chain -and -not $chain.terminal) {
+elseif ($chain -and $chainCurrentStep -and [string]$chainCurrentStep.status -like "running*") {
+    $chainTerm = "INTERRUPTED/UNPROVED at $chainStepName"
+    $flags.Add("daily chain claims a running step without exact live child-process proof: $chainStepName")
+}
+elseif ($chain -and -not [bool]$chain.terminal) {
     $chainTerm = "running/unknown"
 }
 
@@ -2036,6 +2881,13 @@ $evidenceRefreshHeld = $false
 $sensitiveDriverNextRun = $null
 $armedQuietMerges = New-Object System.Collections.Generic.List[psobject]
 $integrationAttemptState = New-Object System.Collections.Generic.List[psobject]
+$oneShotReadinessState = New-Object System.Collections.Generic.List[psobject]
+$canonicalOneShotManifestRegistry = [IO.Path]::GetFullPath(
+    (Join-Path $repo "data\one_shot_readiness\active")
+)
+$observedOneShotReadinessManifests = `
+    [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$oneShotValidationBudgetUsed = 0
 $observedIntegrationAttemptManifests = `
     [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 # Work that is ARMED but has not happened yet is invisible to every other check here: a
@@ -2052,6 +2904,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     $res = "0x{0:X}" -f ($ti.LastTaskResult)
     $st = [string]$_.State
     $name = $_.TaskName
+    $taskPath = [string]$_.TaskPath
     $isExpectedDisabled = ($st -eq "Disabled" -and $expDisabled -contains $name)
     if ($mustRemainDisabled.Contains([string]$name) -and $st -ne "Disabled") {
         $flags.Add("$name is superseded and must never be re-enabled")
@@ -2075,6 +2928,161 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }).Count -gt 0
     $noTriggers = ($null -eq $_.Triggers)
     $actionArguments = (@($_.Actions | ForEach-Object { [string]$_.Arguments }) -join " ")
+    $readinessManifestPattern =
+        '(?i)(?:^|\s)-ReadinessManifestPath(?:\s+|:)(?:"([^"]+)"|(\S+))'
+    $readinessHashPattern =
+        '(?i)(?:^|\s)-ExpectedReadinessManifestSha256(?:\s+|:)([0-9a-f]{64})(?:\s|$)'
+    $readinessManifestMatches = [regex]::Matches(
+        $actionArguments, $readinessManifestPattern
+    )
+    $readinessHashMatches = [regex]::Matches(
+        $actionArguments, $readinessHashPattern
+    )
+    $readinessManifestMatch = [regex]::Match(
+        $actionArguments, $readinessManifestPattern
+    )
+    $readinessHashMatch = [regex]::Match(
+        $actionArguments, $readinessHashPattern
+    )
+    $readinessBindingPartial = (
+        ($readinessManifestMatch.Success -xor $readinessHashMatch.Success) -or
+        $readinessManifestMatches.Count -gt 1 -or
+        $readinessHashMatches.Count -gt 1
+    )
+    # Protected identity, not an inferred trigger shape, owns this gate. A
+    # retargeted Daily/Boot/repeating/null-NextRun task must still fail closed.
+    $readinessBindingRequired = (
+        $st -ne "Disabled" -and
+        $name -like "WeatherSettlementBackfill*"
+    )
+    if ($readinessBindingPartial -or
+        ($readinessBindingRequired -and
+            (-not $readinessManifestMatch.Success -or -not $readinessHashMatch.Success))) {
+        $flags.Add("$name armed one-shot lacks its complete readiness manifest/hash binding")
+        $oneShotReadinessState.Add([pscustomobject]@{
+                task_name = $name
+                status = "BLOCKED"
+                ready = $false
+                manifest_path = $null
+                manifest_sha256 = $null
+                blocker_codes = @("READINESS_BINDING_MISSING")
+            })
+    }
+    elseif ($st -eq "Disabled" -and
+        $readinessManifestMatch.Success -and $readinessHashMatch.Success) {
+        $disabledManifestPath = if (
+            $readinessManifestMatch.Groups[1].Success
+        ) {
+            $readinessManifestMatch.Groups[1].Value
+        }
+        else { $readinessManifestMatch.Groups[2].Value }
+        $disabledManifestHash = `
+            $readinessHashMatch.Groups[1].Value.ToLowerInvariant()
+        try {
+            $disabledManifestFullPath = [IO.Path]::GetFullPath(
+                $disabledManifestPath
+            )
+            $disabledExpectedLeaf = `
+                "$name.$disabledManifestHash.manifest.json"
+            if ((Split-Path -Parent $disabledManifestFullPath) -ine
+                    $canonicalOneShotManifestRegistry -or
+                [IO.Path]::GetFileName($disabledManifestFullPath) -cne
+                    $disabledExpectedLeaf -or
+                -not (Test-Path -LiteralPath $disabledManifestFullPath `
+                    -PathType Leaf -ErrorAction Stop)) {
+                throw "disabled task's exact canonical manifest anchor is absent"
+            }
+            $disabledManifestItem = Get-Item `
+                -LiteralPath $disabledManifestFullPath -Force -ErrorAction Stop
+            if ($disabledManifestItem.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) {
+                throw "disabled task's canonical manifest anchor is a reparse point"
+            }
+        }
+        catch {
+            $flags.Add("$name disabled one-shot lost its exact canonical readiness anchor")
+            $oneShotReadinessState.Add([pscustomobject]@{
+                    task_name = $name
+                    status = "REGISTRY_INVALID"
+                    ready = $false
+                    manifest_path = $disabledManifestPath
+                    manifest_sha256 = $disabledManifestHash
+                    blocker_codes = @(
+                        "DISABLED_READINESS_ANCHOR_MISSING_OR_NONCANONICAL"
+                    )
+                })
+        }
+    }
+    elseif ($st -ne "Disabled" -and
+        $readinessManifestMatch.Success -and $readinessHashMatch.Success) {
+        $readinessManifestPath = if ($readinessManifestMatch.Groups[1].Success) {
+            $readinessManifestMatch.Groups[1].Value
+        } else {
+            $readinessManifestMatch.Groups[2].Value
+        }
+        $readinessManifestSha256 = $readinessHashMatch.Groups[1].Value.ToLowerInvariant()
+        $readinessValidator = Join-Path $repo "scripts\ops\one_shot_readiness.ps1"
+        $readinessPayload = $null
+        try {
+            if ($oneShotValidationBudgetUsed -ge 8) {
+                throw "global one-shot readiness validation budget is exhausted"
+            }
+            $oneShotValidationBudgetUsed++
+            $readinessRaw = @(& (Join-Path $PSHOME "powershell.exe") `
+                -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+                -File $readinessValidator `
+                -Mode InspectAuto `
+                -ReadinessManifestPath $readinessManifestPath `
+                -ExpectedReadinessManifestSha256 $readinessManifestSha256)
+            $readinessExit = $LASTEXITCODE
+            if ($readinessExit -ne 0 -or $readinessRaw.Count -eq 0) {
+                throw "readiness validator did not return inspectable evidence"
+            }
+            $readinessPayload = (($readinessRaw | ForEach-Object { [string]$_ }) -join "`n") |
+                ConvertFrom-Json
+            $resolvedReadinessManifestPath = [IO.Path]::GetFullPath(
+                $readinessManifestPath
+            )
+            if ([string]$readinessPayload.schema_version -ne
+                    "weather_one_shot_readiness_result_v0.1" -or
+                [string]$readinessPayload.task_name -cne [string]$name -or
+                [string]$readinessPayload.task_path -cne $taskPath -or
+                [IO.Path]::GetFullPath([string]$readinessPayload.manifest_path) -ine
+                    $resolvedReadinessManifestPath -or
+                [string]$readinessPayload.manifest_sha256 -ne
+                    $readinessManifestSha256 -or
+                [string]$readinessPayload.observation_mode -notin
+                    @("PreTrigger", "Active") -or
+                [string]$readinessPayload.status -notin @("PASS", "BLOCKED") -or
+                [string]$readinessPayload.authority -ne
+                    "READ_ONLY_NO_SCHEDULER_MUTATION" -or
+                $readinessPayload.ready -isnot [bool] -or
+                ([bool]$readinessPayload.ready -ne
+                    ([string]$readinessPayload.status -eq "PASS"))) {
+                throw "readiness validator result does not bind the exact task and manifest"
+            }
+            [void]$observedOneShotReadinessManifests.Add(
+                $resolvedReadinessManifestPath
+            )
+        }
+        catch {
+            $flags.Add("$name armed one-shot readiness evidence is unreadable")
+        }
+        if ($null -ne $readinessPayload) {
+            $oneShotReadinessState.Add([pscustomobject]@{
+                    task_name = $name
+                    status = [string]$readinessPayload.status
+                    ready = [bool]$readinessPayload.ready
+                    manifest_path = $readinessManifestPath
+                    manifest_sha256 = $readinessManifestSha256
+                    blocker_codes = @($readinessPayload.blocker_codes | ForEach-Object { [string]$_ })
+                })
+            if (-not [bool]$readinessPayload.ready) {
+                $codes = @($readinessPayload.blocker_codes | ForEach-Object { [string]$_ }) -join ","
+                $flags.Add("ARMED ONE-SHOT BLOCKED BEFORE RUN: $name [$codes]")
+            }
+        }
+    }
     $wakeReceiptState = Get-WeatherCodexWakeReceiptState `
         -TaskName $name -ActionArguments $actionArguments -TaskInfo $ti
     if ($wakeReceiptState.recognized) { $overnightWakeState.Add($wakeReceiptState) }
@@ -2141,10 +3149,40 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         [IO.Path]::GetFullPath($attemptManifestPath)
                     )
                     try {
-                        Assert-WeatherIntegrationStatusTaskBindings `
+                        $currentPreparation = Get-WeatherIntegrationPreparationReadiness `
                             -RepositoryRoot $repo `
                             -ManifestPath $attemptManifestPath `
-                            -ExpectedManifestSha256 $attemptManifestHash | Out-Null
+                            -ExpectedManifestSha256 $attemptManifestHash
+                    }
+                    catch {
+                        $currentPreparation = [pscustomobject]@{
+                            State = "INVALID"
+                            Detail = "preparation readiness validation failed"
+                            NamespacePath = ([string]$attemptManifest.attempt_root + ".preparation")
+                            IntentPath = $null
+                            IntentSha256 = $null
+                            ReceiptPath = $null
+                            ReceiptSha256 = $null
+                            ActivationPath = $null
+                            ActivationSha256 = $null
+                        }
+                    }
+                    $currentLocalReadiness = Get-WeatherIntegrationCurrentLocalReadiness `
+                        -Manifest $attemptManifest
+                    if ([string]$currentPreparation.State -eq "READY" -and
+                        -not [bool]$currentLocalReadiness.Valid) {
+                        $flags.Add(
+                            "integration attempt $($attemptManifest.attempt_id) readiness decayed after PASS: $([string]$currentLocalReadiness.Detail)"
+                        )
+                    }
+                    $currentTaskBindingsValid = $false
+                    $currentTaskBindings = $null
+                    try {
+                        $currentTaskBindings = Assert-WeatherIntegrationStatusTaskBindings `
+                            -RepositoryRoot $repo `
+                            -ManifestPath $attemptManifestPath `
+                            -ExpectedManifestSha256 $attemptManifestHash
+                        $currentTaskBindingsValid = $true
                     }
                     catch {
                         $flags.Add("integration attempt $($attemptManifest.attempt_id) live suite/merge task binding failed strict intent/receipt validation")
@@ -2157,6 +3195,10 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                     $dispatchStatus = $null
                     $claimStatus = $null
                     $successorAttemptId = $null
+                    $successorReadiness = ""
+                    $successorPublicationRequired = $false
+                    $successorReadinessDetail = ""
+                    $successorNextAction = ""
                     $attemptEvidenceUnreadable = New-Object System.Collections.Generic.List[string]
                     foreach ($receiptSpec in @(
                         [pscustomobject]@{ Name = "registration intent"; Path = (Join-Path ([string]$attemptManifest.attempt_root) "registration-intent.json"); Target = "registration_intent" },
@@ -2211,6 +3253,14 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                             $successorClaim = $validatedClaim.Payload
                             $claimStatus = [string]$validatedClaim.Status
                             $successorAttemptId = [string]$successorClaim.successor_attempt_id
+                            $successorReadinessResult = Get-WeatherIntegrationSuccessorReadiness `
+                                -RepositoryRoot $repo `
+                                -SuccessorClaim $successorClaim `
+                                -Now (Get-Date)
+                            $successorReadiness = [string]$successorReadinessResult.State
+                            $successorPublicationRequired = [bool]$successorReadinessResult.PublicationRequired
+                            $successorReadinessDetail = [string]$successorReadinessResult.Detail
+                            $successorNextAction = [string]$successorReadinessResult.NextAction
                         }
                         catch {
                             $attemptEvidenceUnreadable.Add("successor claim")
@@ -2288,7 +3338,62 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         -ReconciliationStatus $reconciliationStatus `
                         -ClosureStatus $closureStatus `
                         -DispatchStatus $dispatchStatus `
-                        -ClaimStatus $claimStatus
+                        -ClaimStatus $claimStatus `
+                        -SuccessorReadiness $successorReadiness
+                    if ($attemptState -eq "AWAITING_SUCCESSOR") {
+                        $successorNextAction = "review, publish, create, register, and independently prove one exact successor"
+                    }
+                    $currentPreparationBlocks = ([string]$currentPreparation.State -ne "READY")
+                    if ($attemptState -eq "ACTIVE_OR_ARMED" -and $currentPreparationBlocks) {
+                        $flags.Add(
+                            "integration attempt $($attemptManifest.attempt_id) preparation is $([string]$currentPreparation.State): $([string]$currentPreparation.Detail)"
+                        )
+                        $successorNextAction = "close/review this attempt; do not treat registered tasks as armed without durable preparation PASS"
+                    }
+                    $suiteTriggerAt = [datetime]::Parse(
+                        [string]$attemptManifest.schedule.suite_at_local,
+                        [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::AssumeLocal
+                    )
+                    $mergeTriggerAt = [datetime]::Parse(
+                        [string]$attemptManifest.schedule.merge_at_local,
+                        [Globalization.CultureInfo]::InvariantCulture,
+                        [Globalization.DateTimeStyles]::AssumeLocal
+                    )
+                    $currentAttemptArmed = Test-WeatherIntegrationCurrentAttemptArmed `
+                        -AttemptState $attemptState `
+                        -PreparationState ([string]$currentPreparation.State) `
+                        -TaskBindingsValid $($currentTaskBindingsValid -and
+                            [bool]$currentLocalReadiness.Valid) `
+                        -SuiteTaskState $(if ($null -eq $currentTaskBindings) { "" } else {
+                            [string]$currentTaskBindings.Suite.Task.State
+                        }) `
+                        -MergeTaskState $(if ($null -eq $currentTaskBindings) { "" } else {
+                            [string]$currentTaskBindings.Merge.Task.State
+                        }) `
+                        -SuiteEnabled $(if ($null -eq $currentTaskBindings) { $false } else {
+                            [bool]$currentTaskBindings.Suite.Task.Settings.Enabled
+                        }) `
+                        -MergeEnabled $(if ($null -eq $currentTaskBindings) { $false } else {
+                            [bool]$currentTaskBindings.Merge.Task.Settings.Enabled
+                        }) `
+                        -SuiteNextRunTime $(if ($null -eq $currentTaskBindings) { $null } else {
+                            $currentTaskBindings.Suite.Info.NextRunTime
+                        }) `
+                        -MergeNextRunTime $(if ($null -eq $currentTaskBindings) { $null } else {
+                            $currentTaskBindings.Merge.Info.NextRunTime
+                        }) `
+                        -SuiteTriggerAt $suiteTriggerAt `
+                        -MergeTriggerAt $mergeTriggerAt `
+                        -Now $attemptObservationAt `
+                        -SuiteTriggerMissed $attemptMissedSuite
+                    # This watchdog deliberately performs no live network query.
+                    # Preserve the exact local armed fact, but never promote it
+                    # to unattended-ready while origin revalidation is deferred.
+                    $unattendedReady = (
+                        ($currentAttemptArmed -or $attemptState -eq "SUCCESSOR_ARMED") -and
+                        [string]$currentLocalReadiness.LiveOriginRevalidation -eq "PASS"
+                    )
                     $integrationAttemptState.Add([pscustomobject]@{
                             attempt_id = [string]$attemptManifest.attempt_id
                             state = $attemptState
@@ -2296,6 +3401,23 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                             manifest_path = $attemptManifestPath
                             recovery_dispatch = [string]$attemptManifest.evidence.recovery_dispatch
                             successor_attempt_id = $successorAttemptId
+                            successor_readiness = $successorReadiness
+                            successor_readiness_detail = $successorReadinessDetail
+                            preparation_readiness = [string]$currentPreparation.State
+                            preparation_readiness_detail = [string]$currentPreparation.Detail
+                            preparation_receipt_path = [string]$currentPreparation.ReceiptPath
+                            preparation_receipt_sha256 = [string]$currentPreparation.ReceiptSha256
+                            activation_receipt_path = [string]$currentPreparation.ActivationPath
+                            activation_receipt_sha256 = [string]$currentPreparation.ActivationSha256
+                            live_origin_revalidation = [string]$currentLocalReadiness.LiveOriginRevalidation
+                            publication_required = $successorPublicationRequired
+                            attempt_creation_required = $false
+                            unattended_ready = $unattendedReady
+                            exact_armed = $currentAttemptArmed
+                            actually_running = $([bool]$suiteObservation.Running -or [string]$st -eq "Running")
+                            suite_trigger_at = $suiteTriggerAt.ToString("o")
+                            merge_trigger_at = $mergeTriggerAt.ToString("o")
+                            next_action = $successorNextAction
                             task_state = $st
                             merge_task_state = $st
                             suite_task_state = [string]$suiteObservation.TaskState
@@ -2317,6 +3439,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         -SuiteTriggerMissed $attemptMissedSuite `
                         -SuiteRanWithoutReceipt ([bool]$suiteObservation.RanWithoutReceipt) `
                         -MergeReceiptMissingAfterTrigger ([bool]$mergeObservation.ReceiptMissingAfterTrigger) `
+                        -ExactArmed $currentAttemptArmed `
+                        -ActuallyRunning $([bool]$suiteObservation.Running -or [string]$st -eq "Running") `
                         -RecoveryDispatch ([string]$attemptManifest.evidence.recovery_dispatch) `
                         -SuccessorAttemptId $successorAttemptId
                     if ([string]$attemptAlert.Severity -eq "FLAG") { $flags.Add([string]$attemptAlert.Detail) }
@@ -2538,14 +3662,1418 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
     }
 }
 
+# Task enumeration alone cannot reveal deletion of a reviewed one-shot. New
+# protected one-shots place their immutable v0.4 manifest in this bounded active
+# registry. A terminal or supersession resolution remains immutable beside it;
+# deleting a task without that receipt is therefore still visible here.
+$oneShotRegistryParent = Join-Path $repo "data\one_shot_readiness"
+$oneShotManifestRegistry = Join-Path $oneShotRegistryParent "active"
+$oneShotRegistryActivationPath = Join-Path $repo `
+    "one_shot_registry_activation.json"
+$oneShotRegistryIntentPath = Join-Path $repo `
+    "one_shot_registry_activation_intent.json"
+$oneShotRegistryRecoveryPath = Join-Path $repo `
+    "one_shot_registry_activation_recovery.json"
+$oneShotRegistryLockPath = Join-Path $repo "one_shot_registry.lock"
+$oneShotRegistryIndexRoot = Join-Path $repo "one_shot_registry_index"
+$oneShotRegistryProbeFailed = $false
+try {
+    $oneShotRegistryExists = Test-Path -LiteralPath $oneShotManifestRegistry `
+        -PathType Container -ErrorAction Stop
+    $oneShotRegistryPathExists = Test-Path `
+        -LiteralPath $oneShotManifestRegistry -ErrorAction Stop
+    $oneShotRegistryActivationExists = Test-Path `
+        -LiteralPath $oneShotRegistryActivationPath -PathType Leaf `
+        -ErrorAction Stop
+    $oneShotRegistryActivationPathExists = Test-Path `
+        -LiteralPath $oneShotRegistryActivationPath -ErrorAction Stop
+    $oneShotRegistryIntentExists = Test-Path `
+        -LiteralPath $oneShotRegistryIntentPath -PathType Leaf `
+        -ErrorAction Stop
+    $oneShotRegistryIntentPathExists = Test-Path `
+        -LiteralPath $oneShotRegistryIntentPath -ErrorAction Stop
+    $oneShotRegistryRecoveryExists = Test-Path `
+        -LiteralPath $oneShotRegistryRecoveryPath -PathType Leaf `
+        -ErrorAction Stop
+    $oneShotRegistryRecoveryPathExists = Test-Path `
+        -LiteralPath $oneShotRegistryRecoveryPath -ErrorAction Stop
+    $oneShotRegistryLockExists = Test-Path `
+        -LiteralPath $oneShotRegistryLockPath -PathType Leaf `
+        -ErrorAction Stop
+    $oneShotRegistryLockPathExists = Test-Path `
+        -LiteralPath $oneShotRegistryLockPath -ErrorAction Stop
+    $oneShotRegistryIndexExists = Test-Path `
+        -LiteralPath $oneShotRegistryIndexRoot -PathType Container `
+        -ErrorAction Stop
+    $oneShotRegistryIndexPathExists = Test-Path `
+        -LiteralPath $oneShotRegistryIndexRoot -ErrorAction Stop
+}
+catch {
+    $oneShotRegistryProbeFailed = $true
+    $oneShotRegistryExists = $false
+    $oneShotRegistryPathExists = $false
+    $oneShotRegistryActivationExists = $false
+    $oneShotRegistryActivationPathExists = $false
+    $oneShotRegistryIntentExists = $false
+    $oneShotRegistryIntentPathExists = $false
+    $oneShotRegistryRecoveryExists = $false
+    $oneShotRegistryRecoveryPathExists = $false
+    $oneShotRegistryLockExists = $false
+    $oneShotRegistryLockPathExists = $false
+    $oneShotRegistryIndexExists = $false
+    $oneShotRegistryIndexPathExists = $false
+    $flags.Add("canonical one-shot registry paths cannot be probed: $($_.Exception.Message)")
+}
+$oneShotRegistryUnsafe = $false
+$oneShotRegistryInspectionFailure = $null
+$oneShotRegistryActivationValid = $false
+$oneShotRegistryState = "NEVER_ACTIVATED"
+if ($oneShotRegistryPathExists -or $oneShotRegistryActivationPathExists -or
+    $oneShotRegistryIntentPathExists -or $oneShotRegistryRecoveryPathExists -or
+    $oneShotRegistryLockPathExists -or $oneShotRegistryIndexPathExists) {
+    try {
+        $resolvedRepositoryRoot = [IO.Path]::GetFullPath($repo)
+        foreach ($registryCursorPath in @(
+                $oneShotManifestRegistry, $oneShotRegistryActivationPath,
+                $oneShotRegistryIntentPath, $oneShotRegistryRecoveryPath,
+                $oneShotRegistryLockPath, $oneShotRegistryIndexRoot
+            )) {
+            if (-not (Test-Path -LiteralPath $registryCursorPath `
+                    -ErrorAction Stop)) {
+                continue
+            }
+            $registryCursor = Get-Item -LiteralPath $registryCursorPath `
+                -Force -ErrorAction Stop
+            while ($null -ne $registryCursor) {
+                $resolvedCursorPath = [IO.Path]::GetFullPath(
+                    [string]$registryCursor.FullName
+                )
+                if ($resolvedCursorPath -ine $resolvedRepositoryRoot -and
+                    -not $resolvedCursorPath.StartsWith(
+                        $resolvedRepositoryRoot.TrimEnd('\') + '\',
+                        [StringComparison]::OrdinalIgnoreCase
+                    )) {
+                    throw "registry path escaped the repository root"
+                }
+                if ($registryCursor.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) {
+                    throw "registry evidence or an ancestor is a reparse point"
+                }
+                if ($resolvedCursorPath -ieq $resolvedRepositoryRoot) { break }
+                $registryCursor = $registryCursor.Parent
+            }
+            if ($null -eq $registryCursor) {
+                throw "registry ancestry did not terminate at the repository root"
+            }
+        }
+    }
+    catch {
+        $oneShotRegistryUnsafe = $true
+        $oneShotRegistryInspectionFailure = $_.Exception.Message
+    }
+}
+if ($oneShotRegistryProbeFailed) {
+    $oneShotRegistryState = "PATH_PROBE_FAILED"
+}
+elseif (-not $oneShotRegistryPathExists -and
+    -not $oneShotRegistryActivationPathExists -and
+    -not $oneShotRegistryIntentPathExists -and
+    -not $oneShotRegistryRecoveryPathExists -and
+    -not $oneShotRegistryLockPathExists -and
+    -not $oneShotRegistryIndexPathExists) {
+    $oneShotRegistryState = "NEVER_ACTIVATED"
+}
+elseif ($oneShotRegistryUnsafe) {
+    $oneShotRegistryState = "UNSAFE"
+    $unsafeRegistryDetail = if ([string]::IsNullOrWhiteSpace(
+            [string]$oneShotRegistryInspectionFailure
+        )) {
+        "registry or an ancestor is a reparse point"
+    }
+    else { $oneShotRegistryInspectionFailure }
+    $flags.Add("canonical one-shot active-manifest registry is unsafe: $unsafeRegistryDetail")
+}
+elseif (($oneShotRegistryPathExists -and -not $oneShotRegistryExists) -or
+    ($oneShotRegistryActivationPathExists -and
+        -not $oneShotRegistryActivationExists) -or
+    ($oneShotRegistryIntentPathExists -and -not $oneShotRegistryIntentExists) -or
+    ($oneShotRegistryRecoveryPathExists -and
+        -not $oneShotRegistryRecoveryExists) -or
+    ($oneShotRegistryLockPathExists -and -not $oneShotRegistryLockExists) -or
+    ($oneShotRegistryIndexPathExists -and -not $oneShotRegistryIndexExists)) {
+    $oneShotRegistryState = "ACTIVATION_MISMATCH"
+    $flags.Add("one-shot registry activation evidence includes a wrong-type filesystem object")
+}
+elseif (-not $oneShotRegistryExists -or
+    -not $oneShotRegistryActivationExists -or
+    -not $oneShotRegistryIntentExists -or
+    -not $oneShotRegistryLockExists -or
+    -not $oneShotRegistryIndexExists) {
+    $oneShotRegistryState = "ACTIVATION_MISMATCH"
+    $flags.Add("one-shot registry lock, activation intent, marker, canonical active directory, and immutable index do not all exist")
+}
+else {
+    try {
+        $activationEvidence = Read-WeatherStatusBoundedJsonEvidence `
+            -Path $oneShotRegistryActivationPath
+        $activationMarker = $activationEvidence.Payload
+        $intentEvidence = Read-WeatherStatusBoundedJsonEvidence `
+            -Path $oneShotRegistryIntentPath
+        $activationIntent = $intentEvidence.Payload
+        $activationTime = [DateTimeOffset]::Parse(
+            [string]$activationMarker.activated_at_local,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind
+        )
+        $intentTime = [DateTimeOffset]::Parse(
+            [string]$activationIntent.created_at_local,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind
+        )
+        $activationMarkerNames = @($activationMarker.PSObject.Properties.Name | Sort-Object)
+        $activationIntentNames = @($activationIntent.PSObject.Properties.Name | Sort-Object)
+        if (($activationMarkerNames -join "|") -cne
+                ((@("activated_at_local", "authority", "registry_root", "schema_version", "status") | Sort-Object) -join "|") -or
+            [string]$activationMarker.schema_version -cne
+                "weather_one_shot_registry_activation_v1" -or
+            [string]$activationMarker.status -cne "ACTIVE" -or
+            [IO.Path]::GetFullPath([string]$activationMarker.registry_root) -ine
+                [IO.Path]::GetFullPath($oneShotManifestRegistry) -or
+            [string]$activationMarker.activated_at_local -notmatch
+                '(?:Z|[+-][0-9]{2}:[0-9]{2})$' -or
+            $activationTime -gt [DateTimeOffset]::Now.AddMinutes(5) -or
+            [string]$activationMarker.authority -cnotin @(
+                "CREATE_ONLY_ONE_SHOT_ACTIVE_REGISTRY",
+                "REVIEWED_EMPTY_REGISTRY_ACTIVATION_RECOVERY"
+            ) -or
+            ($activationIntentNames -join "|") -cne
+                ((@("authority", "created_at_local", "registry_root", "schema_version", "status") | Sort-Object) -join "|") -or
+            [string]$activationIntent.schema_version -cne
+                "weather_one_shot_registry_activation_intent_v1" -or
+            [string]$activationIntent.status -cne "ACTIVATION_INTENDED" -or
+            [IO.Path]::GetFullPath([string]$activationIntent.registry_root) -ine
+                [IO.Path]::GetFullPath($oneShotManifestRegistry) -or
+            [string]$activationIntent.created_at_local -notmatch
+                '(?:Z|[+-][0-9]{2}:[0-9]{2})$' -or
+            $intentTime -gt $activationTime -or
+            $intentTime -gt [DateTimeOffset]::Now.AddMinutes(5) -or
+            [string]$activationIntent.authority -cne
+                "DURABLE_ONE_SHOT_REGISTRY_ACTIVATION_INTENT") {
+            throw "activation marker does not bind the canonical registry"
+        }
+        if ([string]$activationMarker.authority -ceq
+            "REVIEWED_EMPTY_REGISTRY_ACTIVATION_RECOVERY") {
+            if (-not $oneShotRegistryRecoveryExists) {
+                throw "recovered activation lacks its immutable review receipt"
+            }
+            $recoveryEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                -Path $oneShotRegistryRecoveryPath
+            $recoveryReceipt = $recoveryEvidence.Payload
+            $recoveryNames = @(
+                $recoveryReceipt.PSObject.Properties.Name | Sort-Object
+            )
+            if (($recoveryNames -join "|") -cne
+                    ((@(
+                        "activation_intent", "activation_marker", "authority",
+                        "confirmation", "reason", "registry_root",
+                        "review_reference", "schema_version", "status"
+                    ) | Sort-Object) -join "|") -or
+                (@($recoveryReceipt.activation_intent.PSObject.Properties.Name |
+                    Sort-Object) -join "|") -cne
+                    ((@(
+                        "authority", "created_at_local", "registry_root",
+                        "schema_version", "status"
+                    ) | Sort-Object) -join "|") -or
+                (@($recoveryReceipt.activation_marker.PSObject.Properties.Name |
+                    Sort-Object) -join "|") -cne
+                    ((@(
+                        "activated_at_local", "authority", "registry_root",
+                        "schema_version", "status"
+                    ) | Sort-Object) -join "|") -or
+                [string]$recoveryReceipt.schema_version -cne
+                    "weather_one_shot_registry_activation_recovery_v1" -or
+                [string]$recoveryReceipt.status -cne "PASS" -or
+                [IO.Path]::GetFullPath([string]$recoveryReceipt.registry_root) -ine
+                    [IO.Path]::GetFullPath($oneShotManifestRegistry) -or
+                [string]::IsNullOrWhiteSpace([string]$recoveryReceipt.reason) -or
+                ([string]$recoveryReceipt.reason).Length -gt 4096 -or
+                [string]::IsNullOrWhiteSpace(
+                    [string]$recoveryReceipt.review_reference
+                ) -or
+                ([string]$recoveryReceipt.review_reference).Length -gt 4096 -or
+                [string]$recoveryReceipt.confirmation -cne
+                    "REVIEWED_RECONCILE_EMPTY_ONE_SHOT_REGISTRY_ACTIVATION" -or
+                [string]$recoveryReceipt.authority -cne
+                    "REVIEWED_EMPTY_REGISTRY_ACTIVATION_RECOVERY_NO_SCHEDULER_AUTHORITY") {
+                throw "activation recovery receipt does not match its exact contract"
+            }
+            foreach ($field in @(
+                    "schema_version", "status", "registry_root",
+                    "created_at_local", "authority"
+                )) {
+                if ([string]$recoveryReceipt.activation_intent.$field -cne
+                    [string]$activationIntent.$field) {
+                    throw "activation recovery receipt does not bind its intent"
+                }
+            }
+            foreach ($field in @(
+                    "schema_version", "status", "registry_root",
+                    "activated_at_local", "authority"
+                )) {
+                if ([string]$recoveryReceipt.activation_marker.$field -cne
+                    [string]$activationMarker.$field) {
+                    throw "activation recovery receipt does not bind its marker"
+                }
+            }
+        }
+        elseif ($oneShotRegistryRecoveryExists) {
+            throw "a recovery receipt exists for a normal activation marker"
+        }
+        $oneShotRegistryActivationValid = $true
+        $oneShotRegistryState = "ACTIVE"
+    }
+    catch {
+        $oneShotRegistryState = "ACTIVATION_INVALID"
+        $flags.Add("canonical one-shot registry activation marker is invalid: $($_.Exception.Message)")
+    }
+}
+if ($oneShotRegistryState -eq "ACTIVE" -and $oneShotRegistryActivationValid) {
+    try {
+        # One successful full snapshot is the only proof that an exact
+        # registry task is absent. Targeted SilentlyContinue lookups conflate
+        # Scheduler failure with deletion.
+        $oneShotRegistrySchedulerSnapshot = @(Get-ScheduledTask -ErrorAction Stop)
+    }
+    catch {
+        $oneShotRegistryState = "SCHEDULER_UNREADABLE"
+        $flags.Add("one-shot active registry cannot prove live task state: $($_.Exception.Message)")
+        $oneShotRegistrySchedulerSnapshot = $null
+    }
+}
+if ($oneShotRegistryState -eq "ACTIVE" -and
+    $oneShotRegistryActivationValid -and
+    $null -ne $oneShotRegistrySchedulerSnapshot) {
+    try {
+        $manifestIndexEvents = @{}
+        $resolutionIndexEvents = @{}
+        $compactionReceipts = @{}
+        $debrisReceipts = @{}
+        $indexChildHardLimit = 8192
+        $indexChildList = New-Object System.Collections.Generic.List[object]
+        $indexEnumeration = [IO.Directory]::EnumerateFileSystemEntries(
+            $oneShotRegistryIndexRoot
+        ).GetEnumerator()
+        try {
+            while ($indexChildList.Count -le $indexChildHardLimit -and
+                $indexEnumeration.MoveNext()) {
+                if ($indexChildList.Count -eq $indexChildHardLimit) {
+                    $flags.Add("one-shot immutable index exceeds its explicit $indexChildHardLimit-event bound")
+                    break
+                }
+                $indexChildList.Add((Get-Item `
+                    -LiteralPath ([string]$indexEnumeration.Current) `
+                    -Force -ErrorAction Stop))
+            }
+        }
+        finally { $indexEnumeration.Dispose() }
+        $indexMetadataBudgetBytes = 64MB
+        $indexMetadataBytesUsed = 0L
+        foreach ($indexFile in $indexChildList) {
+            if ($indexFile.PSIsContainer -or
+                ($indexFile.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw "one-shot immutable index contains a directory or reparse child"
+            }
+            if ([long]$indexFile.Length -le 0 -or
+                $indexMetadataBytesUsed + [long]$indexFile.Length -gt
+                    $indexMetadataBudgetBytes) {
+                throw "one-shot immutable index exceeds its 64-MiB aggregate metadata budget"
+            }
+            $indexMetadataBytesUsed += [long]$indexFile.Length
+            $indexName = [string]$indexFile.Name
+            if ($indexName -cmatch
+                '^manifest\.(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.json$') {
+                $indexTask = [string]$Matches.task
+                $indexManifestSha = [string]$Matches.sha
+                $event = (Read-WeatherStatusBoundedJsonEvidence `
+                    -Path ([string]$indexFile.FullName) -MaximumBytes 65536).Payload
+                $eventNames = @($event.PSObject.Properties.Name | Sort-Object)
+                $expectedManifestPath = Join-Path $oneShotManifestRegistry `
+                    "$indexTask.$indexManifestSha.manifest.json"
+                if (($eventNames -join '|') -cne ((@(
+                            "authority", "kind", "manifest_path",
+                            "manifest_sha256", "recorded_at_local",
+                            "schema_version", "task_name"
+                        ) | Sort-Object) -join '|') -or
+                    [string]$event.schema_version -cne
+                        "weather_one_shot_registry_index_v1" -or
+                    [string]$event.kind -cne "MANIFEST_ANCHOR" -or
+                    [string]$event.task_name -cne $indexTask -or
+                    [string]$event.manifest_sha256 -cne $indexManifestSha -or
+                    [IO.Path]::GetFullPath([string]$event.manifest_path) -ine
+                        [IO.Path]::GetFullPath($expectedManifestPath) -or
+                    [string]$event.authority -cne
+                        "CREATE_ONLY_ONE_SHOT_REGISTRY_INDEX") {
+                    throw "manifest index event does not match its exact filename contract: $indexName"
+                }
+                [void][DateTimeOffset]::Parse([string]$event.recorded_at_local)
+                $manifestIndexEvents["$indexTask|$indexManifestSha"] = $event
+            }
+            elseif ($indexName -cmatch
+                '^resolution\.(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.json$') {
+                $indexTask = [string]$Matches.task
+                $indexManifestSha = [string]$Matches.sha
+                $event = (Read-WeatherStatusBoundedJsonEvidence `
+                    -Path ([string]$indexFile.FullName) -MaximumBytes 65536).Payload
+                $eventNames = @($event.PSObject.Properties.Name | Sort-Object)
+                $expectedManifestPath = Join-Path $oneShotManifestRegistry `
+                    "$indexTask.$indexManifestSha.manifest.json"
+                $expectedResolutionPath = Join-Path $oneShotManifestRegistry `
+                    "$indexTask.$indexManifestSha.resolution.json"
+                if (($eventNames -join '|') -cne ((@(
+                            "authority", "kind", "manifest_path",
+                            "manifest_sha256", "recorded_at_local",
+                            "resolution_path", "resolution_sha256",
+                            "schema_version", "task_name"
+                        ) | Sort-Object) -join '|') -or
+                    [string]$event.schema_version -cne
+                        "weather_one_shot_registry_index_v1" -or
+                    [string]$event.kind -cne "RESOLUTION" -or
+                    [string]$event.task_name -cne $indexTask -or
+                    [string]$event.manifest_sha256 -cne $indexManifestSha -or
+                    [string]$event.resolution_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                    [IO.Path]::GetFullPath([string]$event.manifest_path) -ine
+                        [IO.Path]::GetFullPath($expectedManifestPath) -or
+                    [IO.Path]::GetFullPath([string]$event.resolution_path) -ine
+                        [IO.Path]::GetFullPath($expectedResolutionPath) -or
+                    [string]$event.authority -cne
+                        "CREATE_ONLY_ONE_SHOT_REGISTRY_INDEX") {
+                    throw "resolution index event does not match its exact filename contract: $indexName"
+                }
+                [void][DateTimeOffset]::Parse([string]$event.recorded_at_local)
+                $resolutionIndexEvents["$indexTask|$indexManifestSha"] = $event
+            }
+            elseif ($indexName -cmatch
+                '^compaction\.(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.json$') {
+                $indexTask = [string]$Matches.task
+                $indexManifestSha = [string]$Matches.sha
+                $receipt = (Read-WeatherStatusBoundedJsonEvidence `
+                    -Path ([string]$indexFile.FullName) `
+                    -MaximumBytes 2097152).Payload
+                $receiptNames = @($receipt.PSObject.Properties.Name | Sort-Object)
+                $manifestBytes = [Convert]::FromBase64String(
+                    [string]$receipt.manifest_bytes_base64
+                )
+                $resolutionBytes = [Convert]::FromBase64String(
+                    [string]$receipt.resolution_bytes_base64
+                )
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try {
+                    $embeddedManifestSha = ([BitConverter]::ToString(
+                        $sha.ComputeHash($manifestBytes)) -replace '-', '').ToLowerInvariant()
+                    $sha.Initialize()
+                    $embeddedResolutionSha = ([BitConverter]::ToString(
+                        $sha.ComputeHash($resolutionBytes)) -replace '-', '').ToLowerInvariant()
+                }
+                finally { $sha.Dispose() }
+                $expectedManifestPath = Join-Path $oneShotManifestRegistry `
+                    "$indexTask.$indexManifestSha.manifest.json"
+                $expectedResolutionPath = Join-Path $oneShotManifestRegistry `
+                    "$indexTask.$indexManifestSha.resolution.json"
+                $proofNames = @($receipt.task_terminal_proof.PSObject.Properties.Name |
+                    Sort-Object)
+                if (($receiptNames -join '|') -cne ((@(
+                            "authority", "compacted_at_local", "confirmation",
+                            "manifest_bytes_base64", "manifest_path",
+                            "manifest_sha256", "reason", "resolution_bytes_base64",
+                            "resolution_path", "resolution_sha256",
+                            "review_reference", "schema_version", "status",
+                            "task_name", "task_path", "task_terminal_proof"
+                        ) | Sort-Object) -join '|') -or
+                    ($proofNames -join '|') -cne ((@(
+                            "cannot_execute", "exists", "observed_at_local", "state"
+                        ) | Sort-Object) -join '|') -or
+                    [string]$receipt.schema_version -cne
+                        "weather_one_shot_registry_compaction_v1" -or
+                    [string]$receipt.status -cne "COMPACTED" -or
+                    [string]::IsNullOrWhiteSpace([string]$receipt.reason) -or
+                    ([string]$receipt.reason).Length -gt 4096 -or
+                    [string]::IsNullOrWhiteSpace(
+                        [string]$receipt.review_reference
+                    ) -or
+                    ([string]$receipt.review_reference).Length -gt 4096 -or
+                    [string]$receipt.confirmation -cne
+                        "REVIEWED_COMPACT_RESOLVED_ONE_SHOT_HISTORY" -or
+                    [string]$receipt.task_name -cne $indexTask -or
+                    [string]$receipt.manifest_sha256 -cne $indexManifestSha -or
+                    [string]$receipt.resolution_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                    $embeddedManifestSha -cne $indexManifestSha -or
+                    $embeddedResolutionSha -cne
+                        [string]$receipt.resolution_sha256 -or
+                    [IO.Path]::GetFullPath([string]$receipt.manifest_path) -ine
+                        [IO.Path]::GetFullPath($expectedManifestPath) -or
+                    [IO.Path]::GetFullPath([string]$receipt.resolution_path) -ine
+                        [IO.Path]::GetFullPath($expectedResolutionPath) -or
+                    $receipt.task_terminal_proof.exists -isnot [bool] -or
+                    $receipt.task_terminal_proof.cannot_execute -isnot [bool] -or
+                    [bool]$receipt.task_terminal_proof.exists -or
+                    -not [bool]$receipt.task_terminal_proof.cannot_execute -or
+                    [string]$receipt.task_terminal_proof.state -cne "ABSENT" -or
+                    [string]$receipt.authority -cne
+                        "REVIEWED_ONE_SHOT_HISTORY_COMPACTION_NO_SCHEDULER_MUTATION") {
+                    throw "compaction receipt does not match its exact filename and embedded-byte contract: $indexName"
+                }
+                $compactedAt = [DateTimeOffset]::Parse(
+                    [string]$receipt.compacted_at_local
+                )
+                $compactionObservedAt = [DateTimeOffset]::Parse(
+                    [string]$receipt.task_terminal_proof.observed_at_local
+                )
+                if ($compactionObservedAt -gt $compactedAt -or
+                    ($compactedAt - $compactionObservedAt) -gt
+                        [TimeSpan]::FromMinutes(5) -or
+                    $compactedAt -gt [DateTimeOffset]::Now.AddMinutes(5)) {
+                    throw "compaction receipt terminal-proof ordering is invalid: $indexName"
+                }
+                $embeddedManifest = [Text.UTF8Encoding]::new(
+                    $false, $true
+                ).GetString($manifestBytes) | ConvertFrom-Json -ErrorAction Stop
+                $embeddedResolution = [Text.UTF8Encoding]::new(
+                    $false, $true
+                ).GetString($resolutionBytes) | ConvertFrom-Json -ErrorAction Stop
+                $embeddedManifestNames = @(
+                    $embeddedManifest.PSObject.Properties.Name | Sort-Object
+                )
+                $embeddedManifestTaskNames = @(
+                    $embeddedManifest.task.PSObject.Properties.Name | Sort-Object
+                )
+                $embeddedResolutionNames = @(
+                    $embeddedResolution.PSObject.Properties.Name | Sort-Object
+                )
+                $embeddedResolutionProofNames = @(
+                    $embeddedResolution.task_terminal_proof.PSObject.Properties.Name |
+                        Sort-Object
+                )
+                if (($embeddedManifestNames -join '|') -cne ((@(
+                            "admission", "boot_identity", "dependencies",
+                            "principal", "schema_version", "settings", "task"
+                        ) | Sort-Object) -join '|') -or
+                    ($embeddedManifestTaskNames -join '|') -cne ((@(
+                            "action_file", "arguments_template", "executable",
+                            "payload_arguments", "payload_file", "task_name",
+                            "task_path", "trigger_at_local", "working_directory"
+                        ) | Sort-Object) -join '|') -or
+                    ($embeddedResolutionNames -join '|') -cne ((@(
+                            "authority", "manifest_path", "manifest_sha256",
+                            "reason", "resolved_at_local", "review_reference",
+                            "schema_version", "status", "successor_manifest_path",
+                            "successor_manifest_sha256", "task_name", "task_path",
+                            "task_terminal_proof"
+                        ) | Sort-Object) -join '|') -or
+                    ($embeddedResolutionProofNames -join '|') -cne ((@(
+                            "cannot_execute", "exists", "last_run_time",
+                            "last_task_result", "next_run_time", "observed_at_local",
+                            "state"
+                        ) | Sort-Object) -join '|') -or
+                    [string]$embeddedManifest.task.task_name -cne $indexTask -or
+                    [string]$embeddedManifest.schema_version -cne
+                        "weather_one_shot_readiness_manifest_v0.4" -or
+                    [string]$embeddedManifest.task.task_path -cne
+                        [string]$receipt.task_path -or
+                    [string]$embeddedResolution.schema_version -cne
+                        "weather_one_shot_readiness_resolution_v1" -or
+                    [string]$embeddedResolution.task_name -cne $indexTask -or
+                    [string]$embeddedResolution.task_path -cne
+                        [string]$receipt.task_path -or
+                    [string]$embeddedResolution.manifest_sha256 -cne
+                        $indexManifestSha -or
+                    [IO.Path]::GetFullPath(
+                        [string]$embeddedResolution.manifest_path
+                    ) -ine [IO.Path]::GetFullPath($expectedManifestPath) -or
+                    [string]::IsNullOrWhiteSpace(
+                        [string]$embeddedResolution.reason
+                    ) -or
+                    [string]::IsNullOrWhiteSpace(
+                        [string]$embeddedResolution.review_reference
+                    ) -or
+                    $embeddedResolution.task_terminal_proof.exists -isnot [bool] -or
+                    $embeddedResolution.task_terminal_proof.cannot_execute -isnot [bool] -or
+                    -not [bool]$embeddedResolution.task_terminal_proof.cannot_execute -or
+                    ([bool]$embeddedResolution.task_terminal_proof.exists -and
+                        [string]$embeddedResolution.task_terminal_proof.state -cne
+                            "Disabled") -or
+                    (-not [bool]$embeddedResolution.task_terminal_proof.exists -and
+                        [string]$embeddedResolution.task_terminal_proof.state -cne
+                            "ABSENT") -or
+                    [string]$embeddedResolution.authority -cne
+                        "REVIEWED_CREATE_ONLY_ONE_SHOT_RESOLUTION_NO_SCHEDULER_MUTATION" -or
+                    [string]$embeddedResolution.status -cnotin
+                        @("TERMINAL", "SUPERSEDED")) {
+                    throw "compaction receipt embedded history is semantically inconsistent: $indexName"
+                }
+                $embeddedResolvedAt = [DateTimeOffset]::Parse(
+                    [string]$embeddedResolution.resolved_at_local
+                )
+                $embeddedObservedAt = [DateTimeOffset]::Parse(
+                    [string]$embeddedResolution.task_terminal_proof.observed_at_local
+                )
+                if ($embeddedObservedAt -gt $embeddedResolvedAt -or
+                    ($embeddedResolvedAt - $embeddedObservedAt) -gt
+                        [TimeSpan]::FromMinutes(5) -or
+                    $embeddedResolvedAt -gt $compactedAt -or
+                    ([string]$embeddedResolution.status -ceq "TERMINAL" -and
+                        (-not [string]::IsNullOrWhiteSpace(
+                            [string]$embeddedResolution.successor_manifest_path
+                        ) -or -not [string]::IsNullOrWhiteSpace(
+                            [string]$embeddedResolution.successor_manifest_sha256
+                        ))) -or
+                    ([string]$embeddedResolution.status -ceq "SUPERSEDED" -and
+                        ([string]::IsNullOrWhiteSpace(
+                            [string]$embeddedResolution.successor_manifest_path
+                        ) -or [string]$embeddedResolution.successor_manifest_sha256 -cnotmatch
+                            '^[0-9a-f]{64}$'))) {
+                    throw "compaction receipt embedded resolution ordering/successor contract is invalid: $indexName"
+                }
+                if ([string]$embeddedResolution.status -ceq "SUPERSEDED") {
+                    $embeddedSuccessorPath = [IO.Path]::GetFullPath(
+                        [string]$embeddedResolution.successor_manifest_path
+                    )
+                    $embeddedSuccessorSha = [string]$embeddedResolution.successor_manifest_sha256
+                    if ((Split-Path -Parent $embeddedSuccessorPath) -ine
+                            [IO.Path]::GetFullPath($oneShotManifestRegistry) -or
+                        [IO.Path]::GetFileName($embeddedSuccessorPath) -cne
+                            "$indexTask.$embeddedSuccessorSha.manifest.json" -or
+                        $embeddedSuccessorSha -ceq $indexManifestSha) {
+                        throw "compaction receipt supersession edge is not canonical: $indexName"
+                    }
+                }
+                $liveCompactionTasks = @(
+                    $oneShotRegistrySchedulerSnapshot | Where-Object {
+                        [string]$_.TaskName -ieq $indexTask -and
+                        [string]$_.TaskPath -ieq [string]$receipt.task_path
+                    }
+                )
+                if ($liveCompactionTasks.Count -gt 1) {
+                    throw "compacted one-shot identity resolves multiple Scheduler tasks: $indexName"
+                }
+                if ($liveCompactionTasks.Count -eq 1) {
+                    $currentArguments = @(
+                        $liveCompactionTasks[0].Actions | ForEach-Object {
+                            [string]$_.Arguments
+                        }
+                    ) -join " "
+                    $pathMatches = [regex]::Matches(
+                        $currentArguments,
+                        '(?i)(?:^|\s)-ReadinessManifestPath(?:\s+|:)(?:"([^"]+)"|(\S+))'
+                    )
+                    $hashMatches = [regex]::Matches(
+                        $currentArguments,
+                        '(?i)(?:^|\s)-ExpectedReadinessManifestSha256(?:\s+|:)([0-9a-f]{64})(?:\s|$)'
+                    )
+                    if ($pathMatches.Count -ne 1 -or $hashMatches.Count -ne 1) {
+                        throw "current same-identity task lacks one exact successor binding: $indexName"
+                    }
+                    $currentManifestPath = if (
+                        $pathMatches[0].Groups[1].Success
+                    ) { $pathMatches[0].Groups[1].Value } else {
+                        $pathMatches[0].Groups[2].Value
+                    }
+                    $currentManifestSha = $hashMatches[0].Groups[1].Value.ToLowerInvariant()
+                    $expectedCurrentLeaf = "$indexTask.$currentManifestSha.manifest.json"
+                    if ($currentManifestSha -ceq $indexManifestSha -or
+                        (Split-Path -Parent ([IO.Path]::GetFullPath(
+                            $currentManifestPath
+                        ))) -ine [IO.Path]::GetFullPath($oneShotManifestRegistry) -or
+                        [IO.Path]::GetFileName($currentManifestPath) -cne
+                            $expectedCurrentLeaf -or
+                        -not (Test-Path -LiteralPath $currentManifestPath `
+                            -PathType Leaf)) {
+                        throw "current same-identity task does not bind a distinct live successor: $indexName"
+                    }
+                }
+                $compactionReceipts["$indexTask|$indexManifestSha"] = `
+                    [pscustomobject][ordered]@{
+                        task_name = [string]$receipt.task_name
+                        task_path = [string]$receipt.task_path
+                        manifest_path = [string]$receipt.manifest_path
+                        manifest_sha256 = [string]$receipt.manifest_sha256
+                        resolution_path = [string]$receipt.resolution_path
+                        resolution_sha256 = [string]$receipt.resolution_sha256
+                        resolution_status = [string]$embeddedResolution.status
+                        successor_manifest_path = `
+                            [string]$embeddedResolution.successor_manifest_path
+                        successor_manifest_sha256 = `
+                            [string]$embeddedResolution.successor_manifest_sha256
+                    }
+            }
+            elseif ($indexName -cmatch
+                '^debris\.successor_pending\.(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.json$') {
+                $indexTask = [string]$Matches.task
+                $debrisSha256 = [string]$Matches.sha
+                $receipt = (Read-WeatherStatusBoundedJsonEvidence `
+                    -Path ([string]$indexFile.FullName) `
+                    -MaximumBytes 131072).Payload
+                $storedDebrisBytes = [Convert]::FromBase64String(
+                    [string]$receipt.debris_bytes_base64
+                )
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try {
+                    $storedDebrisSha = ([BitConverter]::ToString(
+                        $sha.ComputeHash($storedDebrisBytes)) -replace '-', '').ToLowerInvariant()
+                }
+                finally { $sha.Dispose() }
+                $expectedDebrisPath = Join-Path $oneShotManifestRegistry `
+                    "$indexTask.$debrisSha256.successor.pending.json"
+                $receiptNames = @($receipt.PSObject.Properties.Name | Sort-Object)
+                if (($receiptNames -join '|') -cne ((@(
+                            "authority", "confirmation", "debris_bytes_base64",
+                            "debris_path", "debris_sha256", "reason",
+                            "reconciled_at_local", "review_reference",
+                            "schema_version", "status", "task_name"
+                        ) | Sort-Object) -join '|') -or
+                    [string]$receipt.schema_version -cne
+                        "weather_one_shot_registry_debris_reconciliation_v1" -or
+                    [string]$receipt.status -cne "REMOVED" -or
+                    [string]$receipt.confirmation -cne
+                        "REVIEWED_REMOVE_INVALID_ONE_SHOT_SUCCESSOR_PENDING" -or
+                    [string]$receipt.task_name -cne $indexTask -or
+                    [IO.Path]::GetFullPath([string]$receipt.debris_path) -ine
+                        [IO.Path]::GetFullPath($expectedDebrisPath) -or
+                    [string]$receipt.debris_sha256 -cne $debrisSha256 -or
+                    $storedDebrisSha -cne $debrisSha256 -or
+                    [string]$receipt.authority -cne
+                        "REVIEWED_ONE_SHOT_DEBRIS_RECONCILIATION_NO_SCHEDULER_MUTATION") {
+                    throw "debris reconciliation receipt is invalid: $indexName"
+                }
+                [void][DateTimeOffset]::Parse(
+                    [string]$receipt.reconciled_at_local
+                )
+                if (Test-Path -LiteralPath $expectedDebrisPath) {
+                    $flags.Add("one-shot invalid-pending debris has a receipt but cleanup remains resumable: $indexName")
+                }
+                $debrisReceipts["$indexTask|$debrisSha256"] = `
+                    [pscustomobject]@{
+                        debris_path = [string]$receipt.debris_path
+                        debris_sha256 = [string]$receipt.debris_sha256
+                    }
+            }
+            else {
+                throw "one-shot immutable index contains an unexpected child: $indexName"
+            }
+        }
+
+        $registryChildHardLimit = 768
+        $registryChildList = New-Object System.Collections.Generic.List[object]
+        $registryChildEnumeration = [IO.Directory]::EnumerateFileSystemEntries(
+            $oneShotManifestRegistry
+        ).GetEnumerator()
+        try {
+            while ($registryChildList.Count -le $registryChildHardLimit -and
+                $registryChildEnumeration.MoveNext()) {
+                if ($registryChildList.Count -eq $registryChildHardLimit) {
+                    $flags.Add("one-shot active registry exceeds its explicit $registryChildHardLimit-child metadata bound")
+                    break
+                }
+                $registryChildList.Add((Get-Item `
+                    -LiteralPath ([string]$registryChildEnumeration.Current) `
+                    -Force -ErrorAction Stop))
+            }
+        }
+        finally {
+            $registryChildEnumeration.Dispose()
+        }
+        $registryChildren = @(
+            $registryChildList | ForEach-Object { $_ }
+        )
+        if (@($registryChildren | Where-Object {
+                $_.PSIsContainer -or
+                ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
+            }).Count -ne 0) {
+            throw "active registry contains a directory or reparse child"
+        }
+        $allManifestFiles = @($registryChildren | Where-Object {
+                [string]$_.Name -like "*.manifest.json"
+            })
+        $allResolutionFiles = @($registryChildren | Where-Object {
+                [string]$_.Name -like "*.resolution.json"
+            })
+        $allPendingFiles = @($registryChildren | Where-Object {
+                [string]$_.Name -like "*.successor.pending.json"
+            })
+        $activeManifestKeys = @{}
+        foreach ($activeManifestFile in $allManifestFiles) {
+            if ([string]$activeManifestFile.Name -cmatch
+                '^(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.manifest\.json$') {
+                $activeKey = "$([string]$Matches.task)|$([string]$Matches.sha)"
+                $activeManifestKeys[$activeKey] = $activeManifestFile
+                if (-not $manifestIndexEvents.ContainsKey($activeKey)) {
+                    $flags.Add("one-shot active manifest lacks its immutable index event: $($activeManifestFile.Name)")
+                }
+            }
+        }
+        $activeResolutionKeys = @{}
+        foreach ($activeResolutionFile in $allResolutionFiles) {
+            if ([string]$activeResolutionFile.Name -cmatch
+                '^(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.resolution\.json$') {
+                $activeKey = "$([string]$Matches.task)|$([string]$Matches.sha)"
+                $activeResolutionKeys[$activeKey] = $activeResolutionFile
+                if (-not $resolutionIndexEvents.ContainsKey($activeKey)) {
+                    $flags.Add("one-shot active resolution lacks its immutable index event: $($activeResolutionFile.Name)")
+                }
+                else {
+                    $activeResolutionEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                        -Path ([string]$activeResolutionFile.FullName)
+                    if ([string]$activeResolutionEvidence.Sha256 -cne
+                        [string]$resolutionIndexEvents[$activeKey].resolution_sha256) {
+                        $flags.Add("one-shot active resolution bytes disagree with the immutable index: $($activeResolutionFile.Name)")
+                    }
+                }
+            }
+        }
+        foreach ($indexedKey in @($manifestIndexEvents.Keys)) {
+            if (-not $activeManifestKeys.ContainsKey($indexedKey) -and
+                -not $compactionReceipts.ContainsKey($indexedKey)) {
+                $flags.Add("one-shot immutable index records a missing, uncompacted manifest anchor: $indexedKey")
+            }
+        }
+        foreach ($indexedKey in @($resolutionIndexEvents.Keys)) {
+            if (-not $activeResolutionKeys.ContainsKey($indexedKey) -and
+                -not $compactionReceipts.ContainsKey($indexedKey)) {
+                $flags.Add("one-shot immutable index records a missing, uncompacted resolution: $indexedKey")
+            }
+        }
+        foreach ($compactedKey in @($compactionReceipts.Keys)) {
+            if (-not $manifestIndexEvents.ContainsKey($compactedKey) -or
+                -not $resolutionIndexEvents.ContainsKey($compactedKey)) {
+                $flags.Add("one-shot compaction receipt lacks both immutable source-index events: $compactedKey")
+            }
+            elseif ([string]$compactionReceipts[$compactedKey].manifest_path -ine
+                    [string]$manifestIndexEvents[$compactedKey].manifest_path -or
+                [string]$compactionReceipts[$compactedKey].manifest_sha256 -cne
+                    [string]$manifestIndexEvents[$compactedKey].manifest_sha256 -or
+                [string]$compactionReceipts[$compactedKey].resolution_path -ine
+                    [string]$resolutionIndexEvents[$compactedKey].resolution_path -or
+                [string]$compactionReceipts[$compactedKey].resolution_sha256 -cne
+                    [string]$resolutionIndexEvents[$compactedKey].resolution_sha256) {
+                $flags.Add("one-shot compaction receipt contradicts immutable source-index history: $compactedKey")
+            }
+            if ($activeManifestKeys.ContainsKey($compactedKey) -or
+                $activeResolutionKeys.ContainsKey($compactedKey)) {
+                $flags.Add("one-shot compaction receipt is durable but active-directory cleanup remains resumable: $compactedKey")
+            }
+            if ([string]$compactionReceipts[$compactedKey].resolution_status -ceq
+                "SUPERSEDED") {
+                $edgeSha = [string]$compactionReceipts[$compactedKey].successor_manifest_sha256
+                $edgeTask = [string]$compactionReceipts[$compactedKey].task_name
+                $edgeKey = "$edgeTask|$edgeSha"
+                $edgePath = [IO.Path]::GetFullPath(
+                    [string]$compactionReceipts[$compactedKey].successor_manifest_path
+                )
+                if (-not $manifestIndexEvents.ContainsKey($edgeKey) -or
+                    [IO.Path]::GetFullPath(
+                        [string]$manifestIndexEvents[$edgeKey].manifest_path
+                    ) -ine $edgePath -or
+                    (-not $activeManifestKeys.ContainsKey($edgeKey) -and
+                        -not $compactionReceipts.ContainsKey($edgeKey))) {
+                    $flags.Add("one-shot compacted supersession edge has no exact live or compacted successor: $compactedKey -> $edgeKey")
+                }
+            }
+        }
+        # Every compacted node has at most one successor. Traverse that
+        # functional graph once, bounded by the already bounded receipt count.
+        # A fixed generation limit would turn legitimate long-lived task names
+        # into permanent false failures even while the index remains in policy.
+        $completedCompactionGraphNodes = @{}
+        foreach ($graphStart in @($compactionReceipts.Keys)) {
+            if ($completedCompactionGraphNodes.ContainsKey($graphStart)) {
+                continue
+            }
+            $graphWalk = New-Object System.Collections.Generic.List[string]
+            $graphWalkPositions = @{}
+            $graphCursor = [string]$graphStart
+            while ($compactionReceipts.ContainsKey($graphCursor) -and
+                [string]$compactionReceipts[$graphCursor].resolution_status -ceq
+                    "SUPERSEDED") {
+                if ($completedCompactionGraphNodes.ContainsKey($graphCursor)) {
+                    break
+                }
+                if ($graphWalkPositions.ContainsKey($graphCursor)) {
+                    $flags.Add("one-shot compacted supersession graph contains a cycle at $graphCursor")
+                    break
+                }
+                if ($graphWalk.Count -ge $compactionReceipts.Count) {
+                    $flags.Add("one-shot compacted supersession graph exceeds its bounded receipt inventory")
+                    break
+                }
+                $graphWalkPositions[$graphCursor] = $graphWalk.Count
+                $graphWalk.Add($graphCursor)
+                $graphCursor = "{0}|{1}" -f
+                    [string]$compactionReceipts[$graphCursor].task_name,
+                    [string]$compactionReceipts[$graphCursor].successor_manifest_sha256
+            }
+            foreach ($completedGraphNode in $graphWalk) {
+                $completedCompactionGraphNodes[$completedGraphNode] = $true
+            }
+            if ($graphWalk.Count -eq 0) {
+                $completedCompactionGraphNodes[[string]$graphStart] = $true
+            }
+        }
+        $knownRegistryLeaves = [System.Collections.Generic.HashSet[string]]::new(
+            [StringComparer]::OrdinalIgnoreCase
+        )
+        foreach ($knownChild in @(
+                $allManifestFiles + $allResolutionFiles + $allPendingFiles
+            )) {
+            [void]$knownRegistryLeaves.Add([string]$knownChild.Name)
+        }
+        $unexpectedChildren = @($registryChildren | Where-Object {
+                -not $knownRegistryLeaves.Contains([string]$_.Name)
+            })
+        if ($unexpectedChildren.Count -ne 0) {
+            $unexpectedExamples = @(
+                $unexpectedChildren | Select-Object -First 5 |
+                    ForEach-Object { [string]$_.Name }
+            ) -join ","
+            $flags.Add("one-shot active registry contains $($unexpectedChildren.Count) unexpected direct children (first: $unexpectedExamples)")
+        }
+
+        $manifestLeafSet = [System.Collections.Generic.HashSet[string]]::new(
+            [StringComparer]::OrdinalIgnoreCase
+        )
+        foreach ($manifestFile in $allManifestFiles) {
+            [void]$manifestLeafSet.Add([string]$manifestFile.Name)
+        }
+        $orphanResolutionCount = 0
+        $orphanResolutionExamples = New-Object System.Collections.Generic.List[string]
+        foreach ($resolutionFile in $allResolutionFiles) {
+            $expectedManifestLeaf = [string]$resolutionFile.Name -replace
+                '\.resolution\.json$', '.manifest.json'
+            if (-not $manifestLeafSet.Contains($expectedManifestLeaf)) {
+                $orphanResolutionCount++
+                if ($orphanResolutionExamples.Count -lt 5) {
+                    $orphanResolutionExamples.Add([string]$resolutionFile.Name)
+                }
+            }
+        }
+        if ($orphanResolutionCount -ne 0) {
+            $flags.Add("one-shot registry has $orphanResolutionCount resolutions without exact manifest anchors (first: $($orphanResolutionExamples -join ','))")
+        }
+
+        $unresolvedManifestFiles = New-Object `
+            System.Collections.Generic.List[System.IO.FileInfo]
+        $resolvedManifestFiles = New-Object `
+            System.Collections.Generic.List[System.IO.FileInfo]
+        foreach ($manifestFile in $allManifestFiles) {
+            $candidateResolutionPath = $manifestFile.FullName.Substring(
+                0,
+                $manifestFile.FullName.Length - ".manifest.json".Length
+            ) + ".resolution.json"
+            if (Test-Path -LiteralPath $candidateResolutionPath `
+                -PathType Leaf -ErrorAction Stop) {
+                $resolvedManifestFiles.Add($manifestFile)
+            }
+            else {
+                $unresolvedManifestFiles.Add($manifestFile)
+            }
+        }
+        $unresolvedTaskNames = [System.Collections.Generic.HashSet[string]]::new(
+            [StringComparer]::OrdinalIgnoreCase
+        )
+        foreach ($unresolvedManifest in $unresolvedManifestFiles) {
+            if ([string]$unresolvedManifest.Name -match
+                '^(?<task>Weather[A-Za-z0-9._-]{1,119})\.[0-9a-f]{64}\.manifest\.json$') {
+                [void]$unresolvedTaskNames.Add([string]$Matches.task)
+            }
+        }
+        $pendingIssueCount = 0
+        $pendingIssueExamples = New-Object System.Collections.Generic.List[string]
+        foreach ($pendingFile in $allPendingFiles) {
+            try {
+                if ([string]$pendingFile.Name -cnotmatch
+                    '^(?<task>Weather[A-Za-z0-9._-]{1,119})\.(?<sha>[0-9a-f]{64})\.successor\.pending\.json$') {
+                    throw "pending filename is invalid"
+                }
+                $pendingTaskName = [string]$Matches.task
+                $pendingSha256 = [string]$Matches.sha
+                if (-not $unresolvedTaskNames.Contains($pendingTaskName) -or
+                    [long]$pendingFile.Length -gt 64KB) {
+                    throw "pending successor lacks an unresolved same-task predecessor"
+                }
+                $pendingEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                    -Path ([string]$pendingFile.FullName) -MaximumBytes 65536
+                if ([string]$pendingEvidence.Sha256 -cne $pendingSha256 -or
+                    [string]$pendingEvidence.Payload.schema_version -cne
+                        "weather_one_shot_readiness_manifest_v0.4" -or
+                    [string]$pendingEvidence.Payload.task.task_name -cne
+                        $pendingTaskName) {
+                    throw "pending successor bytes do not match the filename-bound manifest"
+                }
+                $pendingIssueCount++
+                if ($pendingIssueExamples.Count -lt 5) {
+                    $pendingIssueExamples.Add(
+                        "$($pendingFile.Name):incomplete"
+                    )
+                }
+            }
+            catch {
+                $pendingIssueCount++
+                if ($pendingIssueExamples.Count -lt 5) {
+                    $pendingIssueExamples.Add(
+                        "$($pendingFile.Name):$($_.Exception.Message)"
+                    )
+                }
+            }
+        }
+        if ($pendingIssueCount -ne 0) {
+            $flags.Add("one-shot registry has $pendingIssueCount incomplete/invalid successor transactions requiring resolver or review (first: $($pendingIssueExamples -join ','))")
+        }
+
+        $sortedUnresolvedManifestFiles = @(
+            $unresolvedManifestFiles | Sort-Object -Property `
+                @{ Expression = { $_.LastWriteTimeUtc }; Descending = $true }, `
+                @{ Expression = { $_.FullName }; Descending = $false }
+        )
+        $sortedResolvedManifestFiles = @(
+            $resolvedManifestFiles | Sort-Object -Property `
+                @{ Expression = { $_.LastWriteTimeUtc }; Descending = $true }, `
+                @{ Expression = { $_.FullName }; Descending = $false }
+        )
+        $registryManifestHardLimit = 256
+        $registryCompactionWarningCount = 192
+        $registeredManifestFiles = @(
+            $sortedUnresolvedManifestFiles + $sortedResolvedManifestFiles
+        )
+        if ($registeredManifestFiles.Count -ge
+            $registryCompactionWarningCount) {
+            $warns.Add(
+                "one-shot registry contains $($registeredManifestFiles.Count) anchors; reviewed immutable-history compaction is required before the hard bound of $registryManifestHardLimit"
+            )
+        }
+        if ($registeredManifestFiles.Count -gt $registryManifestHardLimit) {
+            $flags.Add(
+                "one-shot registry exceeds its explicit $registryManifestHardLimit-anchor integrity bound; status remains blocked until reviewed history compaction"
+            )
+            $registeredManifestFiles = @(
+                $registeredManifestFiles | Select-Object `
+                    -First $registryManifestHardLimit
+            )
+        }
+    }
+    catch {
+        $oneShotRegistryState = "REGISTRY_UNREADABLE"
+        $flags.Add("canonical one-shot active registry cannot be enumerated: $($_.Exception.Message)")
+        $registeredManifestFiles = @()
+    }
+    $registryMetadataBudgetBytes = 8MB
+    $registryMetadataBytesUsed = 0L
+    $registryEvidenceCache = @{}
+    foreach ($registeredManifestFile in $registeredManifestFiles) {
+        $registeredManifestPath = [IO.Path]::GetFullPath(
+            [string]$registeredManifestFile.FullName
+        )
+        $registeredManifestHash = $null
+        $registeredTaskName = [IO.Path]::GetFileName($registeredManifestPath)
+        $registeredTaskPath = "\"
+        try {
+            $registryIdentity = Get-WeatherOneShotActiveManifestFileIdentity `
+                -Path $registeredManifestPath
+            $registeredTaskName = [string]$registryIdentity.TaskName
+            $registeredManifestHash = [string]$registryIdentity.ExpectedSha256
+            if ($registryEvidenceCache.ContainsKey($registeredManifestPath)) {
+                $manifestEvidence = $registryEvidenceCache[$registeredManifestPath]
+            }
+            else {
+                if ([long]$registeredManifestFile.Length -gt 64KB -or
+                    $registryMetadataBytesUsed + [long]$registeredManifestFile.Length -gt
+                        $registryMetadataBudgetBytes) {
+                    throw "active registry metadata aggregate byte budget is exhausted"
+                }
+                $registryMetadataBytesUsed += [long]$registeredManifestFile.Length
+                $manifestEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                    -Path $registeredManifestPath -MaximumBytes 65536
+                $registryEvidenceCache[$registeredManifestPath] = $manifestEvidence
+            }
+            if ([string]$manifestEvidence.Sha256 -ne $registeredManifestHash) {
+                throw "active one-shot manifest bytes no longer match the filename-bound reviewed hash"
+            }
+            $registeredManifest = $manifestEvidence.Payload
+            if ([string]$registeredManifest.schema_version -ne
+                    "weather_one_shot_readiness_manifest_v0.4" -or
+                [string]$registeredManifest.task.task_name -notmatch
+                    '^Weather[A-Za-z0-9._-]{1,119}$') {
+                throw "active one-shot manifest schema or task identity is invalid"
+            }
+            if ([string]$registeredManifest.task.task_name -cne $registeredTaskName) {
+                throw "active one-shot manifest task identity disagrees with its filename anchor"
+            }
+            $registeredTaskPath = [string]$registeredManifest.task.task_path
+            $resolutionPath = $registeredManifestPath.Substring(
+                0,
+                $registeredManifestPath.Length - ".manifest.json".Length
+            ) + ".resolution.json"
+            if (Test-Path -LiteralPath $resolutionPath -PathType Leaf) {
+                $resolutionItem = Get-Item -LiteralPath $resolutionPath -Force -ErrorAction Stop
+                if (($resolutionItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                    [long]$resolutionItem.Length -gt 65536 -or
+                    $registryMetadataBytesUsed + [long]$resolutionItem.Length -gt
+                        $registryMetadataBudgetBytes) {
+                    throw "active registry resolution exceeds the aggregate metadata byte budget"
+                }
+                $registryMetadataBytesUsed += [long]$resolutionItem.Length
+                $resolutionEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                    -Path $resolutionPath -MaximumBytes 65536
+                $resolution = $resolutionEvidence.Payload
+                $resolutionPropertyNames = @(
+                    $resolution.PSObject.Properties.Name | Sort-Object
+                )
+                $expectedResolutionPropertyNames = @(
+                    "authority", "manifest_path", "manifest_sha256", "reason",
+                    "resolved_at_local", "review_reference", "schema_version",
+                    "status", "successor_manifest_path",
+                    "successor_manifest_sha256", "task_name", "task_path",
+                    "task_terminal_proof"
+                ) | Sort-Object
+                if (($resolutionPropertyNames -join "|") -cne
+                        ($expectedResolutionPropertyNames -join "|") -or
+                    [string]$resolution.schema_version -ne
+                        "weather_one_shot_readiness_resolution_v1" -or
+                    [string]$resolution.status -notin @("TERMINAL", "SUPERSEDED") -or
+                    [string]$resolution.task_name -cne $registeredTaskName -or
+                    [string]$resolution.task_path -cne $registeredTaskPath -or
+                    [string]::IsNullOrWhiteSpace([string]$resolution.reason) -or
+                    [string]::IsNullOrWhiteSpace([string]$resolution.review_reference) -or
+                    [string]$resolution.resolved_at_local -notmatch
+                        '(?:Z|[+-][0-9]{2}:[0-9]{2})$' -or
+                    [string]$resolution.authority -ne
+                        "REVIEWED_CREATE_ONLY_ONE_SHOT_RESOLUTION_NO_SCHEDULER_MUTATION" -or
+                    [IO.Path]::GetFullPath([string]$resolution.manifest_path) -ine
+                        $registeredManifestPath -or
+                    [string]$resolution.manifest_sha256 -ne $registeredManifestHash) {
+                    throw "one-shot manifest resolution does not bind the exact registry entry"
+                }
+                $resolvedAt = [DateTimeOffset]::Parse(
+                    [string]$resolution.resolved_at_local,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::RoundtripKind
+                )
+                $terminalProof = $resolution.task_terminal_proof
+                $terminalProofPropertyNames = @(
+                    $terminalProof.PSObject.Properties.Name | Sort-Object
+                )
+                $expectedTerminalProofPropertyNames = @(
+                    "cannot_execute", "exists", "last_run_time",
+                    "last_task_result", "next_run_time", "observed_at_local",
+                    "state"
+                ) | Sort-Object
+                $proofObservedAt = [DateTimeOffset]::Parse(
+                    [string]$terminalProof.observed_at_local,
+                    [Globalization.CultureInfo]::InvariantCulture,
+                    [Globalization.DateTimeStyles]::RoundtripKind
+                )
+                if (($terminalProofPropertyNames -join "|") -cne
+                        ($expectedTerminalProofPropertyNames -join "|") -or
+                    $terminalProof.exists -isnot [bool] -or
+                    $terminalProof.cannot_execute -isnot [bool] -or
+                    [string]$terminalProof.observed_at_local -notmatch
+                        '(?:Z|[+-][0-9]{2}:[0-9]{2})$' -or
+                    -not [bool]$terminalProof.cannot_execute -or
+                    $proofObservedAt -gt $resolvedAt -or
+                    ($resolvedAt - $proofObservedAt) -gt [TimeSpan]::FromMinutes(5) -or
+                    ([bool]$terminalProof.exists -and
+                        [string]$terminalProof.state -cne "Disabled") -or
+                    (-not [bool]$terminalProof.exists -and
+                        [string]$terminalProof.state -cne "ABSENT") -or
+                    $resolvedAt -gt [DateTimeOffset]::Now.AddMinutes(5)) {
+                    throw "one-shot resolution terminal proof timestamp/order is invalid"
+                }
+                $resolvedTasks = @($oneShotRegistrySchedulerSnapshot | Where-Object {
+                    [string]$_.TaskName -ieq $registeredTaskName -and
+                    [string]$_.TaskPath -ieq $registeredTaskPath
+                })
+                $liveTerminal = ($resolvedTasks.Count -eq 0)
+                $replacementBindingValid = $false
+                if ($resolvedTasks.Count -eq 1) {
+                    $resolvedInfo = Get-ScheduledTaskInfo `
+                        -TaskName $registeredTaskName `
+                        -TaskPath $registeredTaskPath `
+                        -ErrorAction Stop
+                    $liveTerminal = ([string]$resolvedTasks[0].State -eq "Disabled")
+                    if (-not $liveTerminal) {
+                        $replacementArguments = @(
+                            $resolvedTasks[0].Actions | ForEach-Object {
+                                [string]$_.Arguments
+                            }
+                        ) -join " "
+                        $replacementPathMatches = [regex]::Matches(
+                            $replacementArguments,
+                            '(?i)(?:^|\s)-ReadinessManifestPath(?:\s+|:)(?:"([^"]+)"|(\S+))'
+                        )
+                        $replacementHashMatches = [regex]::Matches(
+                            $replacementArguments,
+                            '(?i)(?:^|\s)-ExpectedReadinessManifestSha256(?:\s+|:)([0-9a-f]{64})(?:\s|$)'
+                        )
+                        if ($replacementPathMatches.Count -eq 1 -and
+                            $replacementHashMatches.Count -eq 1) {
+                            $replacementPath = if (
+                                $replacementPathMatches[0].Groups[1].Success
+                            ) { $replacementPathMatches[0].Groups[1].Value } else {
+                                $replacementPathMatches[0].Groups[2].Value
+                            }
+                            $replacementPath = [IO.Path]::GetFullPath(
+                                $replacementPath
+                            )
+                            $replacementSha = $replacementHashMatches[0].Groups[1].Value.ToLowerInvariant()
+                            $expectedReplacementPath = if (
+                                [string]$resolution.status -ceq "SUPERSEDED"
+                            ) {
+                                [IO.Path]::GetFullPath(
+                                    [string]$resolution.successor_manifest_path
+                                )
+                            }
+                            else {
+                                Join-Path $oneShotManifestRegistry `
+                                    "$registeredTaskName.$replacementSha.manifest.json"
+                            }
+                            $expectedReplacementSha = if (
+                                [string]$resolution.status -ceq "SUPERSEDED"
+                            ) {
+                                [string]$resolution.successor_manifest_sha256
+                            }
+                            else { $replacementSha }
+                            $replacementBindingValid = (
+                                $replacementSha -cne $registeredManifestHash -and
+                                $replacementSha -ceq $expectedReplacementSha -and
+                                $replacementPath -ieq
+                                    [IO.Path]::GetFullPath($expectedReplacementPath) -and
+                                (Test-Path -LiteralPath $replacementPath `
+                                    -PathType Leaf)
+                            )
+                        }
+                    }
+                }
+                if ($resolvedTasks.Count -gt 1 -or
+                    (-not $liveTerminal -and -not $replacementBindingValid)) {
+                    throw "one-shot resolution has an enabled task that is not the exact reviewed replacement generation"
+                }
+                if ([string]$resolution.status -eq "SUPERSEDED") {
+                    $successorPath = [IO.Path]::GetFullPath(
+                        [string]$resolution.successor_manifest_path
+                    )
+                    if ((Split-Path -Parent $successorPath) -ine
+                            [IO.Path]::GetFullPath($oneShotManifestRegistry) -or
+                        $successorPath -ieq $registeredManifestPath -or
+                        [string]$resolution.successor_manifest_sha256 -notmatch
+                            '^[0-9a-f]{64}$') {
+                        throw "one-shot supersession does not name a distinct canonical successor"
+                    }
+                    $successorSha256 = [string]$resolution.successor_manifest_sha256
+                    $successorKey = "$registeredTaskName|$successorSha256"
+                    $successorPathExists = Test-Path -LiteralPath $successorPath
+                    $successorLeafExists = Test-Path -LiteralPath $successorPath `
+                        -PathType Leaf
+                    if ($successorPathExists -and -not $successorLeafExists) {
+                        throw "one-shot successor path is a wrong-type filesystem object"
+                    }
+                    if ($successorLeafExists) {
+                        $successorIdentity = Get-WeatherOneShotActiveManifestFileIdentity `
+                            -Path $successorPath
+                        if ([string]$successorIdentity.ExpectedSha256 -ne
+                                $successorSha256) {
+                            throw "one-shot supersession hash disagrees with its successor filename anchor"
+                        }
+                        if ($registryEvidenceCache.ContainsKey($successorPath)) {
+                            $successorEvidence = $registryEvidenceCache[$successorPath]
+                        }
+                        else {
+                            $successorItem = Get-Item -LiteralPath $successorPath `
+                                -Force -ErrorAction Stop
+                            if (($successorItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                                [long]$successorItem.Length -gt 64KB -or
+                                $registryMetadataBytesUsed + [long]$successorItem.Length -gt
+                                    $registryMetadataBudgetBytes) {
+                                throw "one-shot successor exceeds the aggregate metadata byte budget"
+                            }
+                            $registryMetadataBytesUsed += [long]$successorItem.Length
+                            $successorEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                                -Path $successorPath -MaximumBytes 65536
+                            $registryEvidenceCache[$successorPath] = $successorEvidence
+                        }
+                        if ($successorSha256 -ne
+                                [string]$successorEvidence.Sha256 -or
+                            [string]$successorEvidence.Payload.schema_version -ne
+                                "weather_one_shot_readiness_manifest_v0.4" -or
+                            [string]$successorEvidence.Payload.task.task_name -cne
+                                [string]$successorIdentity.TaskName) {
+                            throw "one-shot supersession does not bind a canonical successor manifest"
+                        }
+                    }
+                    elseif (-not $compactionReceipts.ContainsKey($successorKey) -or
+                        [IO.Path]::GetFullPath(
+                            [string]$compactionReceipts[$successorKey].manifest_path
+                        ) -ine $successorPath -or
+                        [string]$compactionReceipts[$successorKey].task_path -cne
+                            $registeredTaskPath) {
+                        throw "one-shot supersession successor is neither live nor exactly compacted"
+                    }
+                }
+                elseif (-not [string]::IsNullOrWhiteSpace(
+                        [string]$resolution.successor_manifest_path
+                    ) -or -not [string]::IsNullOrWhiteSpace(
+                        [string]$resolution.successor_manifest_sha256
+                    )) {
+                    throw "terminal one-shot resolution may not name a successor"
+                }
+                $oneShotReadinessState.Add([pscustomobject]@{
+                        task_name = $registeredTaskName
+                        status = [string]$resolution.status
+                        ready = $false
+                        manifest_path = $registeredManifestPath
+                        manifest_sha256 = $registeredManifestHash
+                        blocker_codes = @()
+                    })
+                continue
+            }
+
+            if ($observedOneShotReadinessManifests.Contains($registeredManifestPath)) {
+                continue
+            }
+
+            $registryValidator = Join-Path $repo "scripts\ops\one_shot_readiness.ps1"
+            if ($oneShotValidationBudgetUsed -ge 8) {
+                $flags.Add(
+                    "one-shot active registry exceeds its 8-manifest / 64-MiB validation budget; $registeredTaskName remains unresolved"
+                )
+                $oneShotReadinessState.Add([pscustomobject]@{
+                        task_name = $registeredTaskName
+                        status = "REGISTRY_BUDGET_OMITTED"
+                        ready = $false
+                        manifest_path = $registeredManifestPath
+                        manifest_sha256 = $registeredManifestHash
+                        blocker_codes = @("ACTIVE_MANIFEST_REGISTRY_TRUNCATED")
+                    })
+                continue
+            }
+            $oneShotValidationBudgetUsed++
+            $registryRaw = @(& (Join-Path $PSHOME "powershell.exe") `
+                -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+                -File $registryValidator `
+                -Mode InspectAuto `
+                -ReadinessManifestPath $registeredManifestPath `
+                -ExpectedReadinessManifestSha256 $registeredManifestHash)
+            $registryValidatorExit = $LASTEXITCODE
+            if ($registryValidatorExit -ne 0 -or $registryRaw.Count -eq 0) {
+                throw "registry readiness validator returned no inspectable result"
+            }
+            $registryPayload = (($registryRaw | ForEach-Object { [string]$_ }) -join "`n") |
+                ConvertFrom-Json
+            if ([string]$registryPayload.schema_version -ne
+                    "weather_one_shot_readiness_result_v0.1" -or
+                [string]$registryPayload.task_name -cne $registeredTaskName -or
+                [string]$registryPayload.task_path -cne $registeredTaskPath -or
+                [string]$registryPayload.manifest_path -ine $registeredManifestPath -or
+                [string]$registryPayload.manifest_sha256 -ne $registeredManifestHash -or
+                [string]$registryPayload.observation_mode -notin
+                    @("Active", "PreTrigger") -or
+                [string]$registryPayload.status -notin @("PASS", "BLOCKED") -or
+                [string]$registryPayload.authority -ne
+                    "READ_ONLY_NO_SCHEDULER_MUTATION" -or
+                $registryPayload.ready -isnot [bool] -or
+                ([bool]$registryPayload.ready -ne
+                    ([string]$registryPayload.status -eq "PASS"))) {
+                throw "registry readiness result does not bind its exact manifest"
+            }
+            $registryStatus = if (
+                [string]$registryPayload.observation_mode -eq "Active" -and
+                [bool]$registryPayload.ready) {
+                "ACTIVE"
+            }
+            else { [string]$registryPayload.status }
+            $oneShotReadinessState.Add([pscustomobject]@{
+                    task_name = $registeredTaskName
+                    status = $registryStatus
+                    ready = [bool]$registryPayload.ready
+                    manifest_path = $registeredManifestPath
+                    manifest_sha256 = $registeredManifestHash
+                    blocker_codes = @(
+                        $registryPayload.blocker_codes | ForEach-Object { [string]$_ }
+                    )
+                })
+            if (-not [bool]$registryPayload.ready) {
+                $registryCodes = @(
+                    $registryPayload.blocker_codes | ForEach-Object { [string]$_ }
+                ) -join ","
+                $flags.Add(
+                    "ACTIVE ONE-SHOT REGISTRY BLOCKED: $registeredTaskName [$registryCodes]"
+                )
+            }
+        }
+        catch {
+            $flags.Add(
+                "active one-shot registry entry $registeredTaskName is unreadable or unresolved: $($_.Exception.Message)"
+            )
+            $oneShotReadinessState.Add([pscustomobject]@{
+                    task_name = $registeredTaskName
+                    status = "REGISTRY_INVALID"
+                    ready = $false
+                    manifest_path = $registeredManifestPath
+                    manifest_sha256 = $registeredManifestHash
+                    blocker_codes = @("ACTIVE_MANIFEST_REGISTRY_INVALID")
+                })
+        }
+    }
+}
+
 # Do not rely solely on a recognizable live merge-task action for attempt
 # discovery. That is the very field whose drift the status command must expose.
 # Canonical registered manifests are independently recoverable from the first
 # immutable registrar write, whose manifest path/hash are strictly validated.
 $integrationAttemptRoot = Join-Path $repo "data\integration_attempts"
 if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
+    $integrationAttemptDiscoveryLimit = 256
+    $candidateManifestFiles = New-Object System.Collections.Generic.List[object]
+    try {
+        $attemptRootItem = Get-Item -LiteralPath $integrationAttemptRoot `
+            -Force -ErrorAction Stop
+        if ($attemptRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "integration-attempt root is a reparse point"
+        }
+        $attemptDirectoryEnumerator = [IO.Directory]::EnumerateDirectories(
+            $integrationAttemptRoot
+        ).GetEnumerator()
+        $attemptDirectoryCount = 0
+        try {
+            while ($attemptDirectoryCount -le
+                    $integrationAttemptDiscoveryLimit -and
+                $attemptDirectoryEnumerator.MoveNext()) {
+                if ($attemptDirectoryCount -eq
+                    $integrationAttemptDiscoveryLimit) {
+                    $flags.Add("integration-attempt discovery exceeds its explicit $integrationAttemptDiscoveryLimit-directory bound")
+                    break
+                }
+                $attemptDirectoryCount++
+                $candidateDirectory = Get-Item `
+                    -LiteralPath ([string]$attemptDirectoryEnumerator.Current) `
+                    -Force -ErrorAction Stop
+                if ($candidateDirectory.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) {
+                    throw "integration-attempt discovery found a reparse directory"
+                }
+                $candidateManifest = Join-Path `
+                    ([string]$candidateDirectory.FullName) "manifest.json"
+                if (Test-Path -LiteralPath $candidateManifest -PathType Leaf `
+                    -ErrorAction Stop) {
+                    $candidateManifestFiles.Add((Get-Item `
+                        -LiteralPath $candidateManifest -Force `
+                        -ErrorAction Stop))
+                }
+            }
+        }
+        finally { $attemptDirectoryEnumerator.Dispose() }
+    }
+    catch {
+        $flags.Add("integration-attempt discovery is unsafe or unreadable: $($_.Exception.Message)")
+    }
     foreach ($candidateManifestFile in @(
-        Get-ChildItem -LiteralPath $integrationAttemptRoot -Filter "manifest.json" -File -Recurse
+        $candidateManifestFiles | Sort-Object LastWriteTimeUtc -Descending
     )) {
         $candidateManifestPath = [IO.Path]::GetFullPath([string]$candidateManifestFile.FullName)
         $candidateIntentPath = Join-Path $candidateManifestFile.DirectoryName "registration-intent.json"
@@ -2567,6 +5095,7 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
                 -ExpectedManifestSha256 $candidateManifestSha256 `
                 -Target "manifest"
             $candidateAttempt = $validatedManifest.Payload
+            [void]$observedIntegrationAttemptManifests.Add($candidateManifestPath)
 
             $terminalEvidence = $false
             foreach ($terminalSpec in @(
@@ -2611,6 +5140,15 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
                 manifest_path = $candidateManifestPath
                 recovery_dispatch = [string]$candidateAttempt.evidence.recovery_dispatch
                 successor_attempt_id = $null
+                successor_readiness = ""
+                successor_readiness_detail = ""
+                publication_required = $false
+                unattended_ready = $false
+                exact_armed = $false
+                actually_running = $false
+                suite_trigger_at = $null
+                merge_trigger_at = $null
+                next_action = "repair the exact live task binding before treating this attempt as armed"
                 task_state = "UNDISCOVERABLE"
                 merge_task_state = "UNDISCOVERABLE"
                 suite_task_state = "UNVALIDATED"
@@ -2627,6 +5165,187 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
         }
         catch {
             $flags.Add("canonical integration attempt manifest $candidateManifestPath or its registration intent is unreadable")
+        }
+    }
+}
+
+# A hard stop can occur after exact topic publication but before manifest
+# creation, leaving only the sibling preparation namespace. Manifest-only
+# discovery would erase that failure from every later status run. Traverse a
+# bounded number of canonical preparation directories and keep every unresolved
+# preparation as a persistent FLAG; never age-demote it to a warning.
+if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
+    $preparationDiscovery = Get-WeatherIntegrationPreparationDirectoryCandidates `
+        -Root $integrationAttemptRoot
+    if ([bool]$preparationDiscovery.Truncated) {
+        $flags.Add("integration preparation discovery exceeded its 256-namespace safety bound")
+    }
+    $preparationDirectories = @($preparationDiscovery.Directories)
+    foreach ($preparationDirectory in $preparationDirectories) {
+        $preparationRoot = [IO.Path]::GetFullPath([string]$preparationDirectory.FullName)
+        $attemptRoot = $preparationRoot.Substring(
+            0,
+            $preparationRoot.Length - ".preparation".Length
+        )
+        $manifestPath = Join-Path $attemptRoot "manifest.json"
+        if ($observedIntegrationAttemptManifests.Contains($manifestPath)) { continue }
+
+        $intentPath = Join-Path $preparationRoot "preparation-intent.json"
+        $receiptPath = Join-Path $preparationRoot "preparation-receipt.json"
+        $attemptId = [IO.Path]::GetFileName($attemptRoot)
+        $expectedTip = $null
+        $receiptSha256 = $null
+        $preparationState = "PREPARATION_INCOMPLETE"
+        $preparationDetail = "preparation namespace exists without an immutable terminal receipt"
+        try {
+            $intent = if (Test-Path -LiteralPath $intentPath -PathType Leaf) {
+                (Read-WeatherStatusBoundedJsonEvidence -Path $intentPath).Payload
+            }
+            else { $null }
+            if ($null -ne $intent) {
+                $attemptId = [string]$intent.attempt_id
+                $expectedTip = [string]$intent.expected_tip
+            }
+            if (Test-Path -LiteralPath $receiptPath -PathType Leaf) {
+                $receiptEvidence = Read-WeatherStatusBoundedJsonEvidence -Path $receiptPath
+                $receipt = $receiptEvidence.Payload
+                $receiptSha256 = [string]$receiptEvidence.Sha256
+                if ([string]$receipt.schema -ne
+                        "weather_integration_attempt_preparation_receipt_v1" -or
+                    [string]$receipt.status -ne "FAIL" -or
+                    [string]$receipt.attempt_id -ne $attemptId -or
+                    [string]$receipt.expected_tip -notmatch '^[0-9a-f]{40}$' -or
+                    [string]$receipt.safety.authority -ne
+                        "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+                    [bool]$receipt.safety.credential_value_access_authorized -or
+                    [bool]$receipt.safety.live_exchange_mutation_authorized) {
+                    throw "preparation receipt schema, identity, or safety boundary is invalid"
+                }
+                $expectedTip = [string]$receipt.expected_tip
+                $closureRequired = [bool]$receipt.closure.required
+                $closureProved = ([string]$receipt.closure.status -eq "PROVED")
+                $remoteLookupProperty = $receipt.publication.PSObject.Properties[
+                    "remote_lookup_completed"
+                ]
+                $pushAttemptedProperty = $receipt.publication.PSObject.Properties[
+                    "push_attempted"
+                ]
+                $publicationState = Get-WeatherIntegrationPreparationPublicationState `
+                    -RemoteLookupCompleted $(
+                        $null -ne $remoteLookupProperty -and
+                        [bool]$remoteLookupProperty.Value
+                    ) `
+                    -RemoteTipBefore ([string]$receipt.publication.remote_tip_before) `
+                    -PushAttempted $(
+                        $null -ne $pushAttemptedProperty -and
+                        [bool]$pushAttemptedProperty.Value
+                    ) `
+                    -PushPerformed ([bool]$receipt.publication.push_performed) `
+                    -RemoteTipAfter ([string]$receipt.publication.remote_tip_after) `
+                    -ExpectedTip $expectedTip
+                $preparationState = Get-WeatherIntegrationOrphanPreparationState `
+                    -ManifestExists (Test-Path -LiteralPath $manifestPath -PathType Leaf) `
+                    -ClosureRequired $closureRequired `
+                    -ClosureProved $closureProved `
+                    -PublicationState $publicationState
+                $preparationDetail = switch ($preparationState) {
+                    "CLOSURE_UNPROVED" {
+                        "preparation failed after manifest creation and exact task terminality is unproved"
+                    }
+                    "PUBLICATION_ONLY" {
+                        "exact topic publication succeeded but no immutable attempt manifest exists"
+                    }
+                    "PREPARATION_NO_MUTATION_HISTORY" {
+                        "immutable FAIL receipt proves no topic publication and no attempt manifest"
+                    }
+                    default { "immutable preparation FAIL receipt remains unresolved" }
+                }
+            }
+        }
+        catch {
+            $preparationState = "PREPARATION_FAILED"
+            $preparationDetail = "preparation evidence is unreadable or invalid: $($_.Exception.Message)"
+        }
+        $preparationAgeHours = [math]::Round(
+            ((Get-Date) - $preparationDirectory.LastWriteTime).TotalHours,
+            1
+        )
+        if ($preparationState -eq "PREPARATION_NO_MUTATION_HISTORY") {
+            if ($preparationAgeHours -le 24) {
+                $warns.Add(
+                    "integration preparation $attemptId is terminal no-mutation history: $preparationDetail"
+                )
+            }
+        }
+        else {
+            $flags.Add(
+                "integration preparation $attemptId is persistently blocked [$preparationState]: $preparationDetail"
+            )
+        }
+        $integrationAttemptState.Add([pscustomobject]@{
+            attempt_id = $attemptId
+            state = $preparationState
+            expected_tip = $expectedTip
+            manifest_path = $manifestPath
+            recovery_dispatch = $null
+            successor_attempt_id = $null
+            successor_readiness = ""
+            successor_readiness_detail = ""
+            preparation_readiness = $preparationState
+            preparation_readiness_detail = $preparationDetail
+            preparation_receipt_path = $receiptPath
+            preparation_receipt_sha256 = $receiptSha256
+            publication_required = $false
+            attempt_creation_required = ($preparationState -eq "PUBLICATION_ONLY")
+            unattended_ready = $false
+            exact_armed = $false
+            actually_running = $false
+            suite_trigger_at = $null
+            merge_trigger_at = $null
+            next_action = $(if ($preparationState -eq "PREPARATION_NO_MUTATION_HISTORY") {
+                "none; immutable evidence proves no topic publication and no attempt manifest"
+            }
+            elseif ($preparationState -eq "PUBLICATION_ONLY") {
+                "review the immutable failure and create a fresh attempt for the already-published exact tip"
+            }
+            else {
+                "review the immutable preparation evidence and create only a canonical fresh successor"
+            })
+            task_state = "UNPROVED"
+            merge_task_state = "UNPROVED"
+            suite_task_state = "UNPROVED"
+            suite_last_run_time = $null
+            suite_preflight_exists = $false
+            suite_running = $false
+            suite_ran = $false
+            suite_started = $false
+            suite_ran_without_receipt = $false
+            evidence_age_hours = $preparationAgeHours
+            suite_trigger_missed = $false
+            merge_receipt_missing_after_trigger = $false
+        })
+    }
+}
+
+$exactArmedIntegrationSchedules = @(
+    $integrationAttemptState | Where-Object {
+        [bool]$_.exact_armed -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.suite_trigger_at) -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.merge_trigger_at)
+    }
+)
+for ($firstIndex = 0; $firstIndex -lt $exactArmedIntegrationSchedules.Count; $firstIndex++) {
+    for ($secondIndex = $firstIndex + 1; $secondIndex -lt $exactArmedIntegrationSchedules.Count; $secondIndex++) {
+        $firstAttempt = $exactArmedIntegrationSchedules[$firstIndex]
+        $secondAttempt = $exactArmedIntegrationSchedules[$secondIndex]
+        if (Test-WeatherIntegrationAttemptScheduleOverlap `
+                -FirstSuiteAt ([datetime]$firstAttempt.suite_trigger_at) `
+                -FirstMergeAt ([datetime]$firstAttempt.merge_trigger_at) `
+                -SecondSuiteAt ([datetime]$secondAttempt.suite_trigger_at) `
+                -SecondMergeAt ([datetime]$secondAttempt.merge_trigger_at)) {
+            $flags.Add(
+                "integration attempts $($firstAttempt.attempt_id) and $($secondAttempt.attempt_id) have overlapping exact armed schedules"
+            )
         }
     }
 }
@@ -2809,14 +5528,14 @@ elseif (-not [bool]$documentationTransaction.valid -or
     $flags.Add("documentation transaction state is invalid: $($documentationTransaction.detail)")
 }
 elseif ([string]$documentationTransaction.state -eq "PENDING") {
-    $detail = (
-        "DOCUMENTATION TRANSACTION DUE: {0} integration(s), deadline {1}, pending {2}" -f
-        $documentationTransaction.integration_count,
-        $documentationTransaction.due_at_local,
-        $documentationTransaction.pending_sha256
-    )
-    if ([bool]$documentationTransaction.overdue) { $flags.Add($detail) }
-    else { $warns.Add($detail) }
+    $documentationDisposition = Get-WeatherDocumentationTransactionDisposition `
+        -Transaction $documentationTransaction
+    if ([string]$documentationDisposition.Severity -eq "FLAG") {
+        $flags.Add([string]$documentationDisposition.Detail)
+    }
+    else {
+        $warns.Add([string]$documentationDisposition.Detail)
+    }
 }
 
 # ---- active/last guarded quiet-window merge ----
@@ -2940,6 +5659,23 @@ if ($Json) {
                 @{ attempt_id = $_.attempt_id; state = $_.state; expected_tip = $_.expected_tip
                     manifest_path = $_.manifest_path; recovery_dispatch = $_.recovery_dispatch
                     successor_attempt_id = $_.successor_attempt_id; task_state = $_.task_state
+                    successor_readiness = $_.successor_readiness
+                    successor_readiness_detail = $_.successor_readiness_detail
+                    preparation_readiness = $_.preparation_readiness
+                    preparation_readiness_detail = $_.preparation_readiness_detail
+                    preparation_receipt_path = $_.preparation_receipt_path
+                    preparation_receipt_sha256 = $_.preparation_receipt_sha256
+                    activation_receipt_path = $_.activation_receipt_path
+                    activation_receipt_sha256 = $_.activation_receipt_sha256
+                    live_origin_revalidation = $_.live_origin_revalidation
+                    publication_required = $_.publication_required
+                    attempt_creation_required = $_.attempt_creation_required
+                    unattended_ready = $_.unattended_ready
+                    exact_armed = $_.exact_armed
+                    actually_running = $_.actually_running
+                    suite_trigger_at = $_.suite_trigger_at
+                    merge_trigger_at = $_.merge_trigger_at
+                    next_action = $_.next_action
                     merge_task_state = $_.merge_task_state; suite_task_state = $_.suite_task_state
                     suite_last_run_time = $_.suite_last_run_time
                     suite_preflight_exists = $_.suite_preflight_exists
@@ -2949,6 +5685,18 @@ if ($Json) {
                     evidence_age_hours = $_.evidence_age_hours
                     suite_trigger_missed = $_.suite_trigger_missed
                     merge_receipt_missing_after_trigger = $_.merge_receipt_missing_after_trigger }
+            })
+        one_shot_registry_state = $oneShotRegistryState
+        one_shot_registry_activation_path = $oneShotRegistryActivationPath
+        one_shot_registry_intent_path = $oneShotRegistryIntentPath
+        one_shot_registry_recovery_path = $oneShotRegistryRecoveryPath
+        one_shot_registry_lock_path = $oneShotRegistryLockPath
+        one_shot_registry_index_path = $oneShotRegistryIndexRoot
+        one_shot_readiness = @($oneShotReadinessState | ForEach-Object {
+                @{ task_name = $_.task_name; status = $_.status; ready = $_.ready
+                    manifest_path = $_.manifest_path; manifest_sha256 = $_.manifest_sha256
+                    blocker_codes = @($_.blocker_codes)
+                }
             })
         overnight_wakes = @($overnightWakeState | ForEach-Object {
                 @{ task_name = $_.task_name; wake = $_.wake; runner_path = $_.runner_path
@@ -3035,7 +5783,18 @@ Write-Output ("  TASKS     : {0} Weather tasks scanned (anomalies -> FLAGS)" -f 
 if ($integrationAttemptState.Count -gt 0) {
     Write-Output "  ATTEMPTS  :"
     foreach ($attemptState in $integrationAttemptState) {
-        Write-Output ("              {0}  {1}" -f $attemptState.attempt_id, $attemptState.state)
+        Write-Output ("              {0}  {1}  unattended-ready={2}" -f `
+            $attemptState.attempt_id, $attemptState.state, $attemptState.unattended_ready)
+        if ($attemptState.next_action) {
+            Write-Output ("                next: {0}" -f $attemptState.next_action)
+        }
+    }
+}
+if ($oneShotReadinessState.Count -gt 0) {
+    Write-Output "  ONE-SHOTS :"
+    foreach ($readinessState in $oneShotReadinessState) {
+        Write-Output ("              {0}  {1}  ready={2}" -f `
+            $readinessState.task_name, $readinessState.status, $readinessState.ready)
     }
 }
 $wdStr = if ($null -eq $wd) { "NEVER REPORTED" } else { "{0}, {1} min ago" -f ([string]$wd.verdict), $wdAgeMin }

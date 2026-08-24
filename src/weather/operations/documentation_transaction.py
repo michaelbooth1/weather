@@ -26,6 +26,8 @@ PENDING_SCHEMA = "documentation_transaction_pending_v0.1"
 COMPLETION_SCHEMA = "documentation_transaction_completion_manifest_v0.1"
 RECEIPT_SCHEMA = "documentation_transaction_receipt_v0.1"
 LATEST_SCHEMA = "documentation_transaction_latest_v0.1"
+ACTION_REQUIRED_LEAD = timedelta(hours=2)
+ACTION_REQUIRED_LEAD_MINUTES = int(ACTION_REQUIRED_LEAD.total_seconds() // 60)
 FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 REQUIRED_REVIEWED_DOCUMENTS = frozenset(
     {
@@ -209,7 +211,13 @@ def transaction_status(
     repo_root = repo_root.resolve()
     paths = _paths(repo_root)
     if not paths["pending"].is_file():
-        return {"state": "NO_PENDING", "valid": True, "overdue": False}
+        return {
+            "state": "NO_PENDING",
+            "valid": True,
+            "overdue": False,
+            "action_required": False,
+            "action_lead_minutes": ACTION_REQUIRED_LEAD_MINUTES,
+        }
     try:
         pending = _read_object(paths["pending"])
         integrations = _validate_pending(pending)
@@ -220,13 +228,21 @@ def transaction_status(
             "state": "INVALID",
             "valid": False,
             "overdue": True,
+            "action_required": True,
+            "action_lead_minutes": ACTION_REQUIRED_LEAD_MINUTES,
             "detail": str(exc),
         }
 
+    current_time = now or _now_local()
+    action_required_at = due_at - ACTION_REQUIRED_LEAD
     result: dict[str, Any] = {
         "state": "PENDING",
         "valid": True,
-        "overdue": (now or _now_local()) >= due_at,
+        "overdue": current_time >= due_at,
+        "action_required": current_time >= action_required_at,
+        "action_required_at_local": action_required_at.isoformat(),
+        "action_lead_minutes": ACTION_REQUIRED_LEAD_MINUTES,
+        "minutes_until_due": round((due_at - current_time).total_seconds() / 60, 1),
         "due_at_local": due_at.isoformat(),
         "pending_sha256": pending_hash,
         "integration_count": len(integrations),
@@ -274,6 +290,7 @@ def transaction_status(
             {
                 "state": "COMPLETE",
                 "overdue": False,
+                "action_required": False,
                 "documentation_tip": documentation_tip,
                 "receipt_path": str(immutable_path),
                 "receipt_sha256": _sha256_file(immutable_path),

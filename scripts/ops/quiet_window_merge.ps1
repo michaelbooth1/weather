@@ -22,6 +22,7 @@ param(
     [string]$AttemptReportPath = "",
     [string]$ExpectedSelfSha256 = "",
     [string]$OwnerApprovedException = "",
+    [switch]$RequireLiveOrigin,
     [switch]$Force,
     [switch]$DryRun,
     [int]$SettleSeconds = 300,
@@ -62,6 +63,7 @@ else {
     $workloadLeaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
 }
 . $workloadLeaseScript
+. (Join-Path $repo "scripts\ops\integration_attempt_quiet_merge_preflight.ps1")
 $reportPath = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 $historyPath = Join-Path $repo "data\alerts\quiet_window_merge_history.jsonl"
 $activeMarkerPath = Join-Path $repo "data\alerts\quiet_window_merge_in_progress.json"
@@ -533,6 +535,12 @@ if (-not [IO.Path]::IsPathRooted($existingMergeHeadPath)) {
 if (Test-Path -LiteralPath $existingMergeHeadPath -PathType Leaf) {
     Fail "a merge is already in progress (.git/MERGE_HEAD exists) - resolve or abort it first; see data/alerts/boot_events.jsonl for an interrupted-merge record"
 }
+try {
+    Assert-WeatherIntegrationQuietMergePreconditions -RepositoryRoot $repo |
+        Out-Null
+    Note "shared quiet-merge production preflight passed"
+}
+catch { Fail $_.Exception.Message }
 try { Assert-OneShotPushTask }
 catch { Fail $_.Exception.Message }
 # WeatherLocationConfigRefresh rewrites the two config files every 6 hours, including once
@@ -559,6 +567,9 @@ if ($unexpected.Count -gt 0) {
 # it means merging whatever copy of the branch was last fetched, so say so rather than
 # letting a stale merge look like a fresh one.
 $gitFetchExit = Invoke-GitAllowingNativeStderr { & git fetch origin --prune | Out-Null }
+if ($gitFetchExit -ne 0 -and $RequireLiveOrigin) {
+    Fail "manifest-bound integration requires a successful live origin refresh immediately before merge"
+}
 if ($gitFetchExit -ne 0) { Note "WARNING: git fetch failed (no credential vault under S4U?); merging the last-fetched copy of $Branch" }
 $branchCommitRef = "{0}^{{commit}}" -f $Branch
 $branchVerifyExit = Invoke-GitAllowingNativeStderr { & git rev-parse --verify $branchCommitRef | Out-Null }

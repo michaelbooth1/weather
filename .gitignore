@@ -14,6 +14,11 @@ env/
 # collector CLIs (e.g. `python -m weather.sources.wu_history backfill`), and normalized
 # hourly/daily artifacts are derived from these.
 data/
+/one_shot_registry_activation.json
+/one_shot_registry_activation_intent.json
+/one_shot_registry.lock
+/one_shot_registry_activation_recovery.json
+/one_shot_registry_index/
 
 # Candidate-only training outputs are reproducible, unqualified runtime state.
 # Immutable releases copy only explicitly verified artifacts into their own

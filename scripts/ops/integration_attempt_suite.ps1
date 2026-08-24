@@ -141,6 +141,10 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 Assert-WeatherIntegrationOrchestrationFiles -AttemptContract $contract
+$preparationAuthorization = Assert-WeatherIntegrationPreparationExecutionAuthorization `
+    -AttemptContract $contract
+$activationReceipt = Assert-WeatherIntegrationActivationReceipt `
+    -AttemptContract $contract
 $manifest = $contract.Manifest
 Assert-WeatherIntegrationAttemptNotTerminal `
     -AttemptContract $contract -Operation "Integration-attempt suite execution"
@@ -196,6 +200,10 @@ $preflightVerdict = $null
 $fullSuiteVerdict = $null
 
 try {
+    Assert-WeatherIntegrationLiveOriginBaseline `
+        -AttemptContract $contract `
+        -Phase "integration preflight" `
+        -RefreshTrackingMaster | Out-Null
     Assert-WeatherIntegrationGitBaseline -AttemptContract $contract -Phase "integration preflight" | Out-Null
     Assert-WeatherAttemptSuiteWorktreeState -Phase "integration preflight"
     $preflightExitCode = Invoke-WeatherAttemptSuitePhase `
