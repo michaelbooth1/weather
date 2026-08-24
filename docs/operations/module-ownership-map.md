@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-08-16
+Last updated: 2026-08-24
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 22 modules.
+- Current warning count: 23 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -17,7 +17,9 @@ Current module-size audit status:
   `weather.market.mm_paper_scoring`,
   `weather.calibration.residual_distribution_v1`,
   `weather.calibration.pooled_candidate_replay`, `weather.model.model_sources`,
-  `weather.operations.event_day_manifest`, `weather.market.market_microstructure`,
+  `weather.operations.event_day_manifest`,
+  `weather.operations.international_live_wrapper_sealer`,
+  `weather.market.market_microstructure`,
   `weather.schema_registry_data`, `weather.operations.nightly_retrain`,
   `weather.calibration.pooled_training`, `weather.operations.experiment_executor`,
   `weather.reporting.hourly.ten_minute_model_performance`,
@@ -60,6 +62,7 @@ Current module-size audit status:
 | `weather.operations.daily_refresh_cli` | Operations | CLI parser and command handlers with facade-injected dependencies. | Owner module for item 205; must not import the facade. |
 | `weather.operations.nightly_retrain` | Operations | Nightly retrain preflights, step planning/execution, experiment queue handling, candidate orchestration, SLA/status reporting, and CLI. | WARN in the 2026-07-15 audit. Extract SLA/report rendering and parser/status handlers behind the stable nightly command, leaving guarded pipeline orchestration in the owner module. |
 | `weather.operations.experiment_executor` | Operations | Verified experiment selection, host admission, isolated workspace construction, output validation, resource measurement, and candidate publication. | WARN in the 2026-07-15 audit. Extract bounded workspace copy, fingerprint, and cleanup mechanics into an experiment workspace module; keep claim, admission, execution, and publication policy fail-closed. |
+| `weather.operations.international_live_wrapper_sealer` | Operations | Fixed-scope International Stage 0/1 prerequisite validation, deterministic Python and PowerShell wrapper rendering, atomic sealing, receipt and public-inventory construction, and CLI dispatch. | Newly WARN in the 2026-08-24 audit after exact-existing credential reconciliation. Extract credential-reference and import-receipt, identity, and predecessor-lineage validators into a dependency-light International live evidence-validator module that does not import the sealer; preserve exact-key, schema, hash, and fail-closed refusal contracts. |
 | `weather.operations.event_day_manifest` | Operations | Event-day family inventory, manifest build/validation, storage-gate summaries, backfill reporting, and CLI. | WARN in the 2026-07-12 audit. Extract folder discovery, existing-state and storage-gate summaries, backfill reporting, and CLI while keeping manifest hash and validation behavior unchanged. |
 | `weather.collection.snapshot_tracker` | Collection | Snapshot capture orchestration, isolated fleet execution, managed-loop lifecycle, status reporting, and CLI dispatch. | WARN in the 2026-07-15 audit. Extract managed-loop status rendering and fleet-health aggregation behind the stable CLI while preserving worker isolation, writer-lock, and supervisor contracts. |
 | `weather.reporting.daily.daily_learning` | Reporting | Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers. Input readers, input gates, experiment queue builders, and scorecard assembly live in `weather.reporting.daily.daily_learning_scorecard`; report rendering lives in `weather.reporting.daily.daily_learning_render`. | Below the 2,000-line warning threshold in the 2026-07-12 audit; retain the documented next split if growth resumes. |

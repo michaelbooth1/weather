@@ -48,11 +48,12 @@ def test_current_warning_modules_have_complete_ownership_metadata_and_no_orphans
     )
 
     warnings = [row for row in payload["largest_modules"] if row["status"] == "WARN"]
-    # 22 since 2026-08-16: the market-harvest lane pushed weather.market.market_making_run
-    # to 2,073 lines. Raising this number is only legitimate alongside a real ownership
-    # entry in module-ownership-map.md -- the point of the ratchet is that growth costs
+    # 23 since 2026-08-24: exact-existing credential reconciliation moved
+    # weather.operations.international_live_wrapper_sealer from 1,999 to 2,039 lines.
+    # Raising this number is only legitimate alongside a real ownership entry in
+    # module-ownership-map.md -- the point of the ratchet is that growth costs
     # documentation, so never bump it to make the suite green.
-    assert payload["warning_count"] == 22
+    assert payload["warning_count"] == 23
     assert len(warnings) == payload["warning_count"]
     assert all(row["owner"] and row["boundary"] and row["next_split"] for row in warnings)
     assert payload["governance_status"] == "PASS"

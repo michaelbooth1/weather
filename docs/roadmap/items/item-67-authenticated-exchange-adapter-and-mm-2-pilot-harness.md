@@ -562,3 +562,20 @@ the fixed-scope sealer accepts only either truthful all-four tuple. This local
 vault proof remains separate from authenticated doctor, account, eligibility,
 candidate, Stage 0/1, and live lifecycle evidence; no exchange call or order is
 part of credential reconciliation.
+
+Immutable attempt `credential-reconcile-0824-a1` stopped during its
+deterministic integration preflight before the full suite or merge. The three
+failed assertions represented two governance omissions in the cumulative tip:
+the intentional process-local `eth_account` dependency boundary was absent
+from the optional-import architecture allowlist, and the sealer's growth from
+1,999 to 2,039 lines lacked the corresponding ownership entry, document row,
+and warning-count ratchet. The attempt's exact tasks were closed and disabled;
+production remained at
+`4feef39a44f920affcb05387a8882fb5f735cfa0`, and no credential, exchange, or
+order mutation occurred.
+
+The reviewed `manual_reviewed_change` repair preserves the credential importer
+and its pinned hash. It adds only the architecture allowlist entry and truthful
+large-module ownership metadata, document row, and 23-module ratchet. The
+original FAIL receipt remains immutable; tests and integration must run under
+a fresh successor attempt before the compare-only reconciliation can be used.
