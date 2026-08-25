@@ -164,6 +164,7 @@ if ($localMinute -ge (9 * 60) -or $localMinute -lt 30) {
 $hardStop = $localNow.Date.AddHours(9)
 $runtimeStop = $localNow.AddSeconds($MaxRuntimeSeconds)
 $suiteDeadline = if ($runtimeStop -lt $hardStop) { $runtimeStop } else { $hardStop }
+$suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()
 
 $registeredWorktrees = @(
     & git -C $RepoRoot worktree list --porcelain |
@@ -305,6 +306,7 @@ try {
         $importProbeDeadline = [Diagnostics.Stopwatch]::StartNew()
         while (-not $importProbe.WaitForExit(200)) {
             if ($importProbeDeadline.Elapsed.TotalSeconds -ge 30 -or
+                $suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds -or
                 (Get-Date) -ge $suiteDeadline) {
                 throw "suite exact-worktree import probe exceeded its bounded runtime"
             }
@@ -383,7 +385,8 @@ try {
     $failedChunks = 0
     for ($index = 0; $index -lt $chunks.Count; $index++) {
         $ordinal = $index + 1
-        if ((Get-Date) -ge $suiteDeadline) {
+        if ($suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds -or
+            (Get-Date) -ge $suiteDeadline) {
             throw "bounded suite reached its runtime or 09:00 hard teardown boundary"
         }
         Assert-HostAdmission -CommitCeiling $AbortCommitPercent -Phase "chunk-$ordinal"
@@ -420,7 +423,8 @@ try {
                 -ArgumentString $argumentString `
                 -WorkingDirectory $WorktreeRoot
             while (-not $child.HasExited) {
-                if ((Get-Date) -ge $suiteDeadline) {
+                if ($suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds -or
+                    (Get-Date) -ge $suiteDeadline) {
                     Write-SuiteLog "chunk $ordinal reached the suite deadline; killing its complete child tree"
                     throw "bounded suite reached its runtime or 09:00 hard teardown boundary"
                 }
