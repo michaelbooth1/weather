@@ -17,10 +17,10 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$hardStop = $localNow.Date.AddHours(9)" in text
     assert "killing its complete child tree" in text
     assert "ExpectedTip" in text
-    assert "worktree list --porcelain" in text
-    assert "status --porcelain" in text
+    assert '-Arguments @("worktree", "list", "--porcelain")' in text
+    assert '-Arguments @("status", "--porcelain")' in text
     assert "suite worktree is dirty" in text
-    assert "ls-files -- tests" in text
+    assert '-Arguments @("ls-files", "--", "tests")' in text
     assert "Get-ChildItem -LiteralPath $testRoot" not in text
     assert "$env:PYTHONPATH = Join-Path $WorktreeRoot \"src\"" in text
     assert "AdditionalPythonPath" in text
@@ -157,10 +157,33 @@ $culture = [Globalization.CultureInfo](Get-Culture).Clone()
 $culture.DateTimeFormat.TimeSeparator = '.'
 [Threading.Thread]::CurrentThread.CurrentCulture = $culture
 $LogPath = $env:WEATHER_BOUNDED_SUITE_LOG
-Write-SuiteLog 'VERDICT: culture probe' | Out-Null
+$suiteLogStream = $null
+$suiteLogWriter = $null
+$line = $null
+try {
+    $suiteLogStream = [IO.File]::Open(
+        $LogPath,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::Read
+    )
+    $suiteLogWriter = New-Object IO.StreamWriter(
+        $suiteLogStream,
+        (New-Object Text.UTF8Encoding($false, $true)),
+        4096,
+        $true
+    )
+    $suiteLogWriter.AutoFlush = $true
+    Write-SuiteLog 'VERDICT: culture probe' | Out-Null
+    $line = (Get-Content -LiteralPath $LogPath -Raw).Trim()
+}
+finally {
+    if ($suiteLogWriter) { $suiteLogWriter.Dispose() }
+    if ($suiteLogStream) { $suiteLogStream.Dispose() }
+}
 [pscustomobject]@{
     errors = @($errors | ForEach-Object { $_.Message })
-    line = (Get-Content -LiteralPath $LogPath -Raw).Trim()
+    line = $line
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
