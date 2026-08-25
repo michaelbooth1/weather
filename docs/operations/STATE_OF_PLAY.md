@@ -19,8 +19,8 @@ is proved.**
 | Failed attempt | `credential-reconcile-0825-a2` ran its lawful exact-tip integration preflight at 00:30. Of 143 tests, 134 passed and nine deterministic contract/fixture tests failed. The bounded full suite did not start. The 03:10 merge refused before Git mutation. |
 | Recovery evidence | Attempt a2 is immutably closed `FAIL/ABANDONED`; closure SHA-256 is `32b1757fcfc80f4602c9f95cd859b059f3911d1b514e2db346f613d59b7d92bd`. Both exact tasks are Disabled. Its reviewed `manual_reviewed_change` dispatch SHA-256 is `0f63494581612d5cb5401fb6cb8082fbcc8751a10ad4dcfc1938d5bbed68c057`; it grants one reviewed descendant opportunity, not Scheduler, credential, exchange, or production authority. |
 | Successor | No successor manifest, predecessor claim, registration receipt, or successor tasks exist. Do not describe dispatch-only recovery as armed. The spent a2 helper and schedule are not reusable. |
-| Runner bootstrap | The currently adopted v1 runner predates the offline qualification marker. `codex/offline-runner-bootstrap-20260825` sets that marker and local-only Git controls before candidate Python starts and restores inherited state. The canonical verdict is `ROLL-FREE`; publication, CI, owner review, and integration remain pending. Unmerged code cannot grant its own safety premise. |
-| Hardening candidate | The isolated `codex/overnight-recovery-hardening-20260824` worktree contains uncommitted, unverified repairs and systemic pre-arm hardening. Its exact tip is not yet a release candidate. Static review is not qualification, and topic publication or CI will not make it production code. |
+| Runner bootstrap | The currently adopted v1 runner predates the offline qualification marker. The bootstrap topic was published and canonical-remote verified at `31151239093756f672a84d7ea846a37cdf27a12c`; the production-owned verdict is `ROLL-FREE`. A post-publication audit found this canonical status prose stale, so its status-only descendant must be reviewed and published before PR/CI and integration. No matching PR or workflow run exists yet. Unmerged code cannot grant its own safety premise. |
+| Hardening candidate | The isolated `codex/overnight-recovery-hardening-20260824` worktree is clean at `dfc1db5ec371e984f18062ac148b728e81a2a6d8`; independent static review found no unresolved static blocker. That exact tip is not published or host-qualified and must incorporate the final adopted bootstrap descendant. Static review is not qualification, and topic publication or CI will not make it production code. |
 | Verification clock | The Aug 25 admitted host window has closed. The earliest lawful host qualification is Aug 26 at 00:30, after the runner bootstrap is adopted. It must run the deterministic preflight and complete bounded suite from the isolated exact-tip worktree before any successor is created or enabled. |
 | Earliest integration | Even after a clean Aug 26 qualification, a new immutable successor must use a later complete suite/merge window. Its integration is no earlier than Aug 27. A failure, drift, schedule-feasibility refusal, or review finding moves that date later. |
 | Live money | A production merge is necessary but not sufficient. The first live test remains attended and separately gated by fresh compare-only credentials, eligible physical-location/no-circumvention evidence, official geoblock PASS, economics and paper candidate, baseline acceptance, identity/doctor, collateral/zero-state, sealed wrappers, and each literal at the actual mutation boundary. |
@@ -58,13 +58,15 @@ is proved.**
 
 ## Immediate execution order
 
-1. Finish independent review of both isolated changes. Run only protected-
-   window-safe static checks after 09:00.
-2. Publish the minimal runner bootstrap, obtain CI and the canonical roll
-   verdict, then require repository-owner review before roll-free integration.
-3. Publish one exact hardening tip, obtain topic CI, and treat CI only as an
-   early cross-platform signal. Incorporate the adopted bootstrap baseline.
-4. At or after Aug 26 00:30, use workload admission to run the exact-tip
+1. Publish the status-corrected bootstrap descendant, open a PR because a topic
+   push alone does not trigger CI, and require CI plus repository-owner review.
+2. At or after Aug 26 00:30, integrate that exact `ROLL-FREE` tip through the
+   production-adopted guarded merge path; the 18:00-00:30 host window remains
+   protected even though the branch cannot roll a capture process.
+3. Incorporate the adopted bootstrap descendant into the clean hardening
+   branch, publish one exact tip, obtain PR CI, and treat CI only as an early
+   cross-platform signal.
+4. In the admitted Aug 26 window, use workload admission to run the exact-tip
    integration preflight and complete bounded suite. Any partial, timed-out,
    stale, or uncontained run is not PASS.
 5. Only after qualification PASS, re-fetch/revalidate refs, production
@@ -77,9 +79,9 @@ is proved.**
 
 ## Verification boundary
 
-- No post-failure pytest, compileall, bounded suite, Scheduler registration,
-  credential access, exchange contact, or production mutation is yet evidence
-  for the hardening candidate.
+- Independent static review is complete, but no post-failure pytest, compileall,
+  bounded suite, Scheduler registration, credential access, exchange contact,
+  or production mutation is yet evidence for the hardening candidate.
 - A finite audit cannot predict every unknown defect. The durable standard is
   early detection, immutable diagnosis, fail-closed containment, and no false
   readiness claim.
