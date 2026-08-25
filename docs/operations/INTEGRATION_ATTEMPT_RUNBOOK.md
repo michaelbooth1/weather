@@ -128,7 +128,9 @@ remotes, disables Git credential prompting, identifies the production root to
 the candidate boundary, identifies the exact isolated candidate root, grants
 no protected-repository write exception, strips credential-, token-, proxy-,
 and custom-trust-bearing process variables from candidate children, and
-restores every inherited environment value in `finally`. This is also the
+restores every inherited environment value in `finally`. It also tears down the
+complete child tree at the earlier of its 90-minute total-runtime ceiling or the
+09:00 hard stop. This is also the
 bootstrap boundary for a candidate that strengthens the test sandbox itself:
 unmerged code may enforce the marker, but it may not be the component that
 grants its own marker.

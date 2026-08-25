@@ -23,6 +23,8 @@ param(
     [double]$StartCommitPercent = 64.0,
     [ValidateRange(1.0, 99.0)]
     [double]$AbortCommitPercent = 66.0,
+    [ValidateRange(60, 5400)]
+    [int]$MaxRuntimeSeconds = 5400,
     [string]$AdditionalPythonPath = "",
     [switch]$RequireLiveSdkContract,
     [switch]$PreflightOnly,
@@ -160,6 +162,8 @@ if ($localMinute -ge (9 * 60) -or $localMinute -lt 30) {
     throw "bounded suite must start inside the 00:30-09:00 heavy-work window"
 }
 $hardStop = $localNow.Date.AddHours(9)
+$runtimeStop = $localNow.AddSeconds($MaxRuntimeSeconds)
+$suiteDeadline = if ($runtimeStop -lt $hardStop) { $runtimeStop } else { $hardStop }
 
 $registeredWorktrees = @(
     & git -C $RepoRoot worktree list --porcelain |
@@ -301,7 +305,7 @@ try {
         $importProbeDeadline = [Diagnostics.Stopwatch]::StartNew()
         while (-not $importProbe.WaitForExit(200)) {
             if ($importProbeDeadline.Elapsed.TotalSeconds -ge 30 -or
-                (Get-Date) -ge $hardStop) {
+                (Get-Date) -ge $suiteDeadline) {
                 throw "suite exact-worktree import probe exceeded its bounded runtime"
             }
         }
@@ -379,8 +383,8 @@ try {
     $failedChunks = 0
     for ($index = 0; $index -lt $chunks.Count; $index++) {
         $ordinal = $index + 1
-        if ((Get-Date) -ge $hardStop) {
-            throw "bounded suite reached the 09:00 hard teardown boundary"
+        if ((Get-Date) -ge $suiteDeadline) {
+            throw "bounded suite reached its runtime or 09:00 hard teardown boundary"
         }
         Assert-HostAdmission -CommitCeiling $AbortCommitPercent -Phase "chunk-$ordinal"
         $junitPath = "{0}.{1}.chunk-{2:D3}.xml" -f $LogPath, $runTag, $ordinal
@@ -416,9 +420,9 @@ try {
                 -ArgumentString $argumentString `
                 -WorkingDirectory $WorktreeRoot
             while (-not $child.HasExited) {
-                if ((Get-Date) -ge $hardStop) {
-                    Write-SuiteLog "chunk $ordinal reached 09:00; killing its complete child tree"
-                    throw "bounded suite reached the 09:00 hard teardown boundary"
+                if ((Get-Date) -ge $suiteDeadline) {
+                    Write-SuiteLog "chunk $ordinal reached the suite deadline; killing its complete child tree"
+                    throw "bounded suite reached its runtime or 09:00 hard teardown boundary"
                 }
                 Start-Sleep -Seconds 2
                 $child.Refresh()
