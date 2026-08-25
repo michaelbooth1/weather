@@ -234,12 +234,40 @@ try {
         $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"
     }
     Set-Location -LiteralPath $WorktreeRoot
-    $resolvedImport = (& $python -c "import weather; print(weather.__file__)").Trim()
-    if ($LASTEXITCODE -ne 0 -or -not $resolvedImport.StartsWith(
-        $WorktreeRoot,
-        [StringComparison]::OrdinalIgnoreCase
-    )) {
-        throw "suite imports do not resolve from the exact worktree: $resolvedImport"
+    $importProbeCode = @(
+        "import os, weather"
+        "actual = os.path.normcase(os.path.realpath(weather.__file__))"
+        "expected = os.path.normcase(os.path.realpath(os.environ['WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT']))"
+        "raise SystemExit(0 if os.path.commonpath((actual, expected)) == expected else 3)"
+    ) -join "; "
+    $importProbeArguments = ConvertTo-ScheduledTaskArgumentString `
+        -Tokens @("-c", $importProbeCode)
+    $importProbeJob = $null
+    $importProbe = $null
+    try {
+        $importProbeJob = New-WeatherKillOnCloseJob
+        $importProbe = Start-WeatherProcessInJob `
+            -Job $importProbeJob -FilePath $python `
+            -ArgumentString $importProbeArguments `
+            -WorkingDirectory $WorktreeRoot
+        $importProbeDeadline = [Diagnostics.Stopwatch]::StartNew()
+        while (-not $importProbe.WaitForExit(200)) {
+            if ($importProbeDeadline.Elapsed.TotalSeconds -ge 30 -or
+                (Get-Date) -ge $hardStop) {
+                throw "suite exact-worktree import probe exceeded its bounded runtime"
+            }
+        }
+        $importProbe.WaitForExit()
+        if ([int]$importProbe.ExitCode -ne 0) {
+            throw (
+                "suite imports do not resolve from the exact worktree; " +
+                "contained probe exit=$([int]$importProbe.ExitCode)"
+            )
+        }
+    }
+    finally {
+        if ($importProbeJob) { $importProbeJob.Dispose() }
+        if ($importProbe) { $importProbe.Dispose() }
     }
     Assert-HostAdmission -CommitCeiling $StartCommitPercent -Phase "preflight"
     if ($PreflightOnly) {

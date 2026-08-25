@@ -45,6 +45,11 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$previousIntegrationTestProductionRoot" in text
     assert "$previousIntegrationTestCandidateRoot" in text
     assert "$env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $WorktreeRoot" in text
+    assert "suite exact-worktree import probe exceeded its bounded runtime" in text
+    assert "$importProbeJob = New-WeatherKillOnCloseJob" in text
+    assert "Start-WeatherProcessInJob" in text
+    assert "$importProbeDeadline = [Diagnostics.Stopwatch]::StartNew()" in text
+    assert "contained probe exit=" in text
     assert "WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT" not in text
     assert "$previousGitAllowProtocol" in text
     assert "$previousGitTerminalPrompt" in text
