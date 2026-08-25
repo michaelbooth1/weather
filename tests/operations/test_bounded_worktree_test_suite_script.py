@@ -55,7 +55,14 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "[IO.File]::Move($junitTempPath, $junitPath)" in text
     assert "JUnit temp/evidence paths must share one volume" in text
     assert "Remove-Item -LiteralPath $junitTempPath" in text
-    assert "WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT" not in text
+    assert "$previousIntegrationTestAllowedWriteRoot" in text
+    assert "$env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT = $null" in text
+    assert "Test-WeatherQualificationSensitiveEnvironmentName" in text
+    assert '$env:WEATHER_INTEGRATION_TEST_SECRET_POLICY = "conservative_v1"' in text
+    assert "$scrubbedSensitiveEnvironment" in text
+    assert "POLYMARKET_" in text
+    assert "CONNECTION_STRING" in text
+    assert "SSH_AUTH_SOCK" in text
     assert "$previousGitAllowProtocol" in text
     assert "$previousGitTerminalPrompt" in text
     assert "$previousPythonNoUserSite" in text

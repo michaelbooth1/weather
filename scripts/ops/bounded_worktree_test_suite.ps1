@@ -187,11 +187,36 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "production venv interpreter is missing: $python"
 }
 $python = (Resolve-Path -LiteralPath $python).Path
+
+function Test-WeatherQualificationSensitiveEnvironmentName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    $upper = $Name.ToUpperInvariant()
+    if ($upper -ceq "WEATHER_INTEGRATION_TEST_SECRET_POLICY") { return $false }
+    if ($upper -in @(
+        "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL",
+        "UV_INDEX_URL", "UV_EXTRA_INDEX_URL",
+        "GH_TOKEN", "GITHUB_TOKEN", "HF_TOKEN",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+        "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "PIP_CERT",
+        "SSH_AUTH_SOCK", "GIT_ASKPASS", "SSH_ASKPASS"
+    )) { return $true }
+    if ($upper -match '^(POLYMARKET_|POLYMM_|OPENAI_|ANTHROPIC_|CLOUDFLARE_|AWS_|AZURE_|GOOGLE_|GCM_|GIT_SSL_)') {
+        return $true
+    }
+    return $upper -match (
+        '(?:^|_)(?:TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE_KEY|API_KEY|' +
+        'ACCESS_KEY|CLIENT_SECRET|CREDENTIALS?|CONNECTION_STRING)(?:$|_)'
+    )
+}
+
 $previousPythonPath = $env:PYTHONPATH
 $previousLiveSdkRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
 $previousIntegrationTestOffline = $env:WEATHER_INTEGRATION_TEST_OFFLINE
 $previousIntegrationTestProductionRoot = $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT
 $previousIntegrationTestCandidateRoot = $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT
+$previousIntegrationTestAllowedWriteRoot = $env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT
 $previousGitAllowProtocol = $env:GIT_ALLOW_PROTOCOL
 $previousGitTerminalPrompt = $env:GIT_TERMINAL_PROMPT
 $previousPythonNoUserSite = $env:PYTHONNOUSERSITE
@@ -200,6 +225,8 @@ $previousPythonDontWriteBytecode = $env:PYTHONDONTWRITEBYTECODE
 $previousPythonHashSeed = $env:PYTHONHASHSEED
 $previousPythonUtf8 = $env:PYTHONUTF8
 $previousPythonIoEncoding = $env:PYTHONIOENCODING
+$previousSecretPolicy = $env:WEATHER_INTEGRATION_TEST_SECRET_POLICY
+$scrubbedSensitiveEnvironment = @{}
 $previousLocation = (Get-Location).Path
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
 if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
@@ -208,9 +235,30 @@ try {
     # that will later make these controls part of the strict v2 contract. The
     # marker is set by already-adopted code before candidate Python starts, so
     # unmerged code is never allowed to grant itself external-I/O authority.
+    foreach ($environmentName in @(
+        [Environment]::GetEnvironmentVariables(
+            [EnvironmentVariableTarget]::Process
+        ).Keys | ForEach-Object { [string]$_ }
+    )) {
+        if (Test-WeatherQualificationSensitiveEnvironmentName `
+                -Name $environmentName) {
+            $scrubbedSensitiveEnvironment[$environmentName] =
+                [Environment]::GetEnvironmentVariable(
+                    $environmentName,
+                    [EnvironmentVariableTarget]::Process
+                )
+            [Environment]::SetEnvironmentVariable(
+                $environmentName,
+                $null,
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+    }
     $env:WEATHER_INTEGRATION_TEST_OFFLINE = "1"
+    $env:WEATHER_INTEGRATION_TEST_SECRET_POLICY = "conservative_v1"
     $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $RepoRoot
     $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $WorktreeRoot
+    $env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT = $null
     $env:GIT_ALLOW_PROTOCOL = "file"
     $env:GIT_TERMINAL_PROMPT = "0"
     $env:PYTHONNOUSERSITE = "1"
@@ -477,6 +525,7 @@ finally {
     $env:WEATHER_INTEGRATION_TEST_OFFLINE = $previousIntegrationTestOffline
     $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $previousIntegrationTestProductionRoot
     $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $previousIntegrationTestCandidateRoot
+    $env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT = $previousIntegrationTestAllowedWriteRoot
     $env:GIT_ALLOW_PROTOCOL = $previousGitAllowProtocol
     $env:GIT_TERMINAL_PROMPT = $previousGitTerminalPrompt
     $env:PYTHONNOUSERSITE = $previousPythonNoUserSite
@@ -485,5 +534,13 @@ finally {
     $env:PYTHONHASHSEED = $previousPythonHashSeed
     $env:PYTHONUTF8 = $previousPythonUtf8
     $env:PYTHONIOENCODING = $previousPythonIoEncoding
+    $env:WEATHER_INTEGRATION_TEST_SECRET_POLICY = $previousSecretPolicy
+    foreach ($environmentName in @($scrubbedSensitiveEnvironment.Keys)) {
+        [Environment]::SetEnvironmentVariable(
+            [string]$environmentName,
+            [string]$scrubbedSensitiveEnvironment[$environmentName],
+            [EnvironmentVariableTarget]::Process
+        )
+    }
     Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
 }
