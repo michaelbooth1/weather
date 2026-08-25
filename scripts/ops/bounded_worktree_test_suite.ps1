@@ -191,6 +191,7 @@ $previousPythonPath = $env:PYTHONPATH
 $previousLiveSdkRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
 $previousIntegrationTestOffline = $env:WEATHER_INTEGRATION_TEST_OFFLINE
 $previousIntegrationTestProductionRoot = $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT
+$previousIntegrationTestCandidateRoot = $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT
 $previousGitAllowProtocol = $env:GIT_ALLOW_PROTOCOL
 $previousGitTerminalPrompt = $env:GIT_TERMINAL_PROMPT
 $previousPythonNoUserSite = $env:PYTHONNOUSERSITE
@@ -209,6 +210,7 @@ try {
     # unmerged code is never allowed to grant itself external-I/O authority.
     $env:WEATHER_INTEGRATION_TEST_OFFLINE = "1"
     $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $RepoRoot
+    $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $WorktreeRoot
     $env:GIT_ALLOW_PROTOCOL = "file"
     $env:GIT_TERMINAL_PROMPT = "0"
     $env:PYTHONNOUSERSITE = "1"
@@ -402,6 +404,7 @@ finally {
     $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = $previousLiveSdkRequirement
     $env:WEATHER_INTEGRATION_TEST_OFFLINE = $previousIntegrationTestOffline
     $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $previousIntegrationTestProductionRoot
+    $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $previousIntegrationTestCandidateRoot
     $env:GIT_ALLOW_PROTOCOL = $previousGitAllowProtocol
     $env:GIT_TERMINAL_PROMPT = $previousGitTerminalPrompt
     $env:PYTHONNOUSERSITE = $previousPythonNoUserSite

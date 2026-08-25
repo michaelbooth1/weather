@@ -125,11 +125,11 @@ only for explicitly reviewed diagnostic work outside this attempt workflow.
 The adopted bounded runner sets `WEATHER_INTEGRATION_TEST_OFFLINE=1` before
 candidate Python starts, limits descendant Git transport to local `file`
 remotes, disables Git credential prompting, identifies the production root to
-the candidate boundary without granting any production-tree write exception,
-and restores every inherited environment value in `finally`. This is also the
-bootstrap boundary for a candidate that strengthens the test sandbox itself:
-unmerged code may enforce the marker, but it may not be the component that
-grants its own marker.
+the candidate boundary, identifies the exact isolated candidate root, grants
+no protected-repository write exception, and restores every inherited
+environment value in `finally`. This is also the bootstrap boundary for a
+candidate that strengthens the test sandbox itself: unmerged code may enforce
+the marker, but it may not be the component that grants its own marker.
 
 Record the printed manifest SHA256. Registration is an external scheduler
 change and requires explicit operator authorization:
