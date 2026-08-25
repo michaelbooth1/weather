@@ -52,6 +52,11 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "[int64]53687091200" in text
     assert "requires at least 50 GiB free" in text
     assert "bounded suite refuses to append to or replace an existing log" in text
+    assert "[IO.FileMode]::CreateNew" in text
+    assert "[IO.FileShare]::Read" in text
+    assert "$suiteLogWriter.WriteLine($line)" in text
+    assert "$suiteLogStream.Flush($true)" in text
+    assert "Add-Content -LiteralPath $LogPath" not in text
     assert "$previousIntegrationTestProductionRoot" in text
     assert "$previousIntegrationTestCandidateRoot" in text
     assert "$env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $WorktreeRoot" in text

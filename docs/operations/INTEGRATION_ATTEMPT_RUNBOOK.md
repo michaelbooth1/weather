@@ -132,7 +132,9 @@ restores every inherited environment value in `finally`. It also tears down the
 complete child tree at the earlier of its 90-minute total-runtime ceiling or the
 09:00 hard stop, refuses pre-existing log paths, and rechecks the host policy's
 50 GiB minimum on every distinct production, candidate, evidence, and test-temp
-volume before work and before each chunk. This is also the
+volume before work and before each chunk. Its authoritative log is opened once
+with create-new/no-delete-sharing semantics and flushed durably at teardown.
+This is also the
 bootstrap boundary for a candidate that strengthens the test sandbox itself:
 unmerged code may enforce the marker, but it may not be the component that
 grants its own marker.

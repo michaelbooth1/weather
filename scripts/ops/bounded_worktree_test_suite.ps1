@@ -88,12 +88,16 @@ foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript)
 function Write-SuiteLog {
     param([Parameter(Mandatory = $true)][string]$Message)
 
+    if ($null -eq $suiteLogWriter) {
+        throw "bounded suite log writer is not open"
+    }
     $timestamp = ([datetime]::Now).ToString(
         "yyyy-MM-dd HH:mm:ss",
         [Globalization.CultureInfo]::InvariantCulture
     )
     $line = "{0}  {1}" -f $timestamp, $Message
-    Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+    $suiteLogWriter.WriteLine($line)
+    $suiteLogWriter.Flush()
     Write-Output $line
 }
 
@@ -182,9 +186,6 @@ function Assert-HostAdmission {
 }
 
 Assert-SuiteDiskHeadroom
-Write-SuiteLog "=== bounded worktree suite starting ==="
-Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
-Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
 
 $localNow = Get-Date
 $localMinute = ($localNow.Hour * 60) + $localNow.Minute
@@ -263,9 +264,27 @@ $previousPythonIoEncoding = $env:PYTHONIOENCODING
 $previousSecretPolicy = $env:WEATHER_INTEGRATION_TEST_SECRET_POLICY
 $scrubbedSensitiveEnvironment = @{}
 $previousLocation = (Get-Location).Path
+$suiteLogStream = $null
+$suiteLogWriter = $null
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
 if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
 try {
+    $suiteLogStream = [IO.File]::Open(
+        $LogPath,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::Read
+    )
+    $suiteLogWriter = New-Object IO.StreamWriter(
+        $suiteLogStream,
+        (New-Object Text.UTF8Encoding($false, $true)),
+        4096,
+        $true
+    )
+    $suiteLogWriter.AutoFlush = $true
+    Write-SuiteLog "=== bounded worktree suite starting ==="
+    Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
+    Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
     # Bootstrap the safety boundary needed to qualify the hardening revision
     # that will later make these controls part of the strict v2 contract. The
     # marker is set by already-adopted code before candidate Python starts, so
@@ -558,28 +577,40 @@ try {
     exit 0
 }
 finally {
-    Set-Location -LiteralPath $previousLocation
-    $env:PYTHONPATH = $previousPythonPath
-    $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = $previousLiveSdkRequirement
-    $env:WEATHER_INTEGRATION_TEST_OFFLINE = $previousIntegrationTestOffline
-    $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $previousIntegrationTestProductionRoot
-    $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $previousIntegrationTestCandidateRoot
-    $env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT = $previousIntegrationTestAllowedWriteRoot
-    $env:GIT_ALLOW_PROTOCOL = $previousGitAllowProtocol
-    $env:GIT_TERMINAL_PROMPT = $previousGitTerminalPrompt
-    $env:PYTHONNOUSERSITE = $previousPythonNoUserSite
-    $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = $previousPytestPluginAutoload
-    $env:PYTHONDONTWRITEBYTECODE = $previousPythonDontWriteBytecode
-    $env:PYTHONHASHSEED = $previousPythonHashSeed
-    $env:PYTHONUTF8 = $previousPythonUtf8
-    $env:PYTHONIOENCODING = $previousPythonIoEncoding
-    $env:WEATHER_INTEGRATION_TEST_SECRET_POLICY = $previousSecretPolicy
-    foreach ($environmentName in @($scrubbedSensitiveEnvironment.Keys)) {
-        [Environment]::SetEnvironmentVariable(
-            [string]$environmentName,
-            [string]$scrubbedSensitiveEnvironment[$environmentName],
-            [EnvironmentVariableTarget]::Process
-        )
+    try {
+        if ($null -ne $suiteLogWriter) {
+            $suiteLogWriter.Flush()
+            $suiteLogWriter.Dispose()
+        }
+        if ($null -ne $suiteLogStream) {
+            $suiteLogStream.Flush($true)
+            $suiteLogStream.Dispose()
+        }
     }
-    Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
+    finally {
+        Set-Location -LiteralPath $previousLocation
+        $env:PYTHONPATH = $previousPythonPath
+        $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = $previousLiveSdkRequirement
+        $env:WEATHER_INTEGRATION_TEST_OFFLINE = $previousIntegrationTestOffline
+        $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $previousIntegrationTestProductionRoot
+        $env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $previousIntegrationTestCandidateRoot
+        $env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT = $previousIntegrationTestAllowedWriteRoot
+        $env:GIT_ALLOW_PROTOCOL = $previousGitAllowProtocol
+        $env:GIT_TERMINAL_PROMPT = $previousGitTerminalPrompt
+        $env:PYTHONNOUSERSITE = $previousPythonNoUserSite
+        $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = $previousPytestPluginAutoload
+        $env:PYTHONDONTWRITEBYTECODE = $previousPythonDontWriteBytecode
+        $env:PYTHONHASHSEED = $previousPythonHashSeed
+        $env:PYTHONUTF8 = $previousPythonUtf8
+        $env:PYTHONIOENCODING = $previousPythonIoEncoding
+        $env:WEATHER_INTEGRATION_TEST_SECRET_POLICY = $previousSecretPolicy
+        foreach ($environmentName in @($scrubbedSensitiveEnvironment.Keys)) {
+            [Environment]::SetEnvironmentVariable(
+                [string]$environmentName,
+                [string]$scrubbedSensitiveEnvironment[$environmentName],
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+        Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
+    }
 }
