@@ -57,6 +57,13 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$suiteLogWriter.WriteLine($line)" in text
     assert "$suiteLogStream.Flush($true)" in text
     assert "Add-Content -LiteralPath $LogPath" not in text
+    assert "Invoke-SuiteCheckedLocalGit" in text
+    assert "Get-SuiteGitExecutable" in text
+    assert "GIT_NO_REPLACE_OBJECTS" in text
+    assert "GIT_OPTIONAL_LOCKS" in text
+    assert "GIT_CONFIG_GLOBAL" in text
+    assert '"--end-of-options"' in text
+    assert "& git -C" not in text
     assert "$previousIntegrationTestProductionRoot" in text
     assert "$previousIntegrationTestCandidateRoot" in text
     assert "$env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $WorktreeRoot" in text
@@ -77,7 +84,10 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$scrubbedSensitiveEnvironment" in text
     assert "POLYMARKET_" in text
     assert "CONNECTION_STRING" in text
+    assert "URL|URI|DSN|AUTH|COOKIE|KEY|CERT" in text
     assert "SSH_AUTH_SOCK" in text
+    assert "PIP_TRUSTED_HOST" in text
+    assert "GIT_SSH_COMMAND" in text
     assert "$previousGitAllowProtocol" in text
     assert "$previousGitTerminalPrompt" in text
     assert "$previousPythonNoUserSite" in text

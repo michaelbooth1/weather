@@ -85,6 +85,183 @@ foreach ($requiredScript in @($contractScript, $jobScript, $workloadLeaseScript)
 . $jobScript
 . $workloadLeaseScript
 
+function Test-WeatherQualificationSensitiveEnvironmentName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    $upper = $Name.ToUpperInvariant()
+    if ($upper -ceq "WEATHER_INTEGRATION_TEST_SECRET_POLICY") { return $false }
+    if ($upper -in @(
+        "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL",
+        "UV_INDEX_URL", "UV_EXTRA_INDEX_URL",
+        "GH_TOKEN", "GITHUB_TOKEN", "HF_TOKEN",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+        "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "PIP_CERT",
+        "PIP_PROXY", "PIP_TRUSTED_HOST",
+        "SSH_AUTH_SOCK", "GIT_ASKPASS", "SSH_ASKPASS",
+        "GIT_SSH", "GIT_SSH_COMMAND", "GIT_PROXY_COMMAND"
+    )) { return $true }
+    if ($upper -match '^(POLYMARKET_|POLYMM_|OPENAI_|ANTHROPIC_|CLOUDFLARE_|AWS_|AZURE_|GOOGLE_|GCM_|GIT_SSL_)') {
+        return $true
+    }
+    return $upper -match (
+        '(?:^|_)(?:TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE_KEY|API_KEY|' +
+        'ACCESS_KEY|CLIENT_SECRET|CREDENTIALS?|CONNECTION_STRING|' +
+        'URL|URI|DSN|AUTH|COOKIE|KEY|CERT)(?:$|_)'
+    )
+}
+
+function Test-SuiteGitAmbientEnvironmentName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    $upper = $Name.ToUpperInvariant()
+    return (
+        $upper.StartsWith("GIT_") -or
+        $upper.StartsWith("GCM_") -or
+        $upper.StartsWith("SSH_") -or
+        $upper -in @(
+            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+            "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
+            "SSL_CERT_FILE", "SSL_CERT_DIR", "PAGER", "EDITOR", "VISUAL",
+            "LC_ALL", "LANG"
+        )
+    )
+}
+
+function Get-SuiteGitExecutable {
+    $commands = @(Get-Command git.exe -CommandType Application -All -ErrorAction Stop)
+    $paths = New-Object System.Collections.Generic.List[string]
+    foreach ($command in $commands) {
+        if ([string]$command.CommandType -cne "Application" -or
+            [string]::IsNullOrWhiteSpace([string]$command.Source)) {
+            throw "bounded suite refuses a non-Application or pathless git.exe"
+        }
+        $path = [IO.Path]::GetFullPath([string]$command.Source)
+        $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "bounded suite refuses a directory or reparse-point git.exe"
+        }
+        if (@($paths | Where-Object {
+            $_.Equals($path, [StringComparison]::OrdinalIgnoreCase)
+        }).Count -eq 0) {
+            $paths.Add($path)
+        }
+    }
+    if ($paths.Count -ne 1) {
+        throw "bounded suite requires exactly one distinct regular git.exe Application"
+    }
+    return [string]$paths[0]
+}
+
+function Invoke-SuiteCheckedLocalGit {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [int[]]$AllowedExitCodes = @(0)
+    )
+
+    $valid = switch ([string]$Arguments[0]) {
+        "worktree" {
+            $Arguments.Count -eq 3 -and
+                [string]$Arguments[1] -ceq "list" -and
+                [string]$Arguments[2] -ceq "--porcelain"
+        }
+        "rev-parse" {
+            $Arguments.Count -eq 4 -and
+                [string]$Arguments[1] -ceq "--verify" -and
+                [string]$Arguments[2] -ceq "--end-of-options" -and
+                [string]$Arguments[3] -match '\^\{commit\}$'
+        }
+        "status" {
+            $Arguments.Count -eq 2 -and
+                [string]$Arguments[1] -ceq "--porcelain"
+        }
+        "ls-files" {
+            $Arguments.Count -eq 3 -and
+                [string]$Arguments[1] -ceq "--" -and
+                [string]$Arguments[2] -ceq "tests"
+        }
+        default { $false }
+    }
+    if (-not $valid) { throw "$Label refused an unsupported local Git query" }
+    $resolvedRoot = [IO.Path]::GetFullPath($Root)
+    if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
+        throw "$Label repository root is missing"
+    }
+    $gitExecutable = Get-SuiteGitExecutable
+    $saved = @{}
+    foreach ($name in @(
+        [Environment]::GetEnvironmentVariables(
+            [EnvironmentVariableTarget]::Process
+        ).Keys | ForEach-Object { [string]$_ }
+    )) {
+        if ((Test-SuiteGitAmbientEnvironmentName -Name $name) -or
+            (Test-WeatherQualificationSensitiveEnvironmentName -Name $name)) {
+            $saved[$name] = [Environment]::GetEnvironmentVariable(
+                $name,
+                [EnvironmentVariableTarget]::Process
+            )
+            [Environment]::SetEnvironmentVariable(
+                $name,
+                $null,
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+    }
+    try {
+        $env:GIT_NO_REPLACE_OBJECTS = "1"
+        $env:GIT_OPTIONAL_LOCKS = "0"
+        $env:GIT_ALLOW_PROTOCOL = "file"
+        $env:GIT_TERMINAL_PROMPT = "0"
+        $env:GIT_CONFIG_NOSYSTEM = "1"
+        $env:GIT_CONFIG_SYSTEM = "NUL"
+        $env:GIT_CONFIG_GLOBAL = "NUL"
+        $env:GIT_CONFIG_COUNT = "0"
+        $env:LC_ALL = "C"
+        $env:LANG = "C"
+        $gitArguments = @(
+            "-C", $resolvedRoot,
+            "-c", "core.fsmonitor=false",
+            "-c", "core.hooksPath=NUL"
+        ) + @($Arguments)
+        $rows = @(& $gitExecutable @gitArguments 2>&1)
+        $exitCode = [int]$LASTEXITCODE
+        if ($exitCode -notin $AllowedExitCodes) {
+            throw "$Label failed with Git exit $exitCode"
+        }
+        return [pscustomobject]@{
+            ExitCode = $exitCode
+            Rows = @($rows | ForEach-Object { [string]$_ })
+            Executable = $gitExecutable
+        }
+    }
+    finally {
+        foreach ($name in @(
+            [Environment]::GetEnvironmentVariables(
+                [EnvironmentVariableTarget]::Process
+            ).Keys | ForEach-Object { [string]$_ }
+        )) {
+            if ((Test-SuiteGitAmbientEnvironmentName -Name $name) -or
+                (Test-WeatherQualificationSensitiveEnvironmentName -Name $name)) {
+                [Environment]::SetEnvironmentVariable(
+                    $name,
+                    $null,
+                    [EnvironmentVariableTarget]::Process
+                )
+            }
+        }
+        foreach ($name in @($saved.Keys)) {
+            [Environment]::SetEnvironmentVariable(
+                [string]$name,
+                [string]$saved[$name],
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+    }
+}
+
 function Write-SuiteLog {
     param([Parameter(Mandatory = $true)][string]$Message)
 
@@ -197,8 +374,11 @@ $runtimeStop = $localNow.AddSeconds($MaxRuntimeSeconds)
 $suiteDeadline = if ($runtimeStop -lt $hardStop) { $runtimeStop } else { $hardStop }
 $suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()
 
+$worktreeQuery = Invoke-SuiteCheckedLocalGit `
+    -Root $RepoRoot -Arguments @("worktree", "list", "--porcelain") `
+    -Label "registered worktree enumeration"
 $registeredWorktrees = @(
-    & git -C $RepoRoot worktree list --porcelain |
+    $worktreeQuery.Rows |
         Where-Object { $_ -like "worktree *" } |
         ForEach-Object { [IO.Path]::GetFullPath($_.Substring(9)) }
 )
@@ -208,12 +388,23 @@ if (-not ($registeredWorktrees | Where-Object {
     throw "WorktreeRoot is not registered by the production repository"
 }
 
-$worktreeTip = (& git -C $WorktreeRoot rev-parse HEAD).Trim().ToLowerInvariant()
-$branchTip = (& git -C $RepoRoot rev-parse $BranchRef).Trim().ToLowerInvariant()
-if ($LASTEXITCODE -ne 0 -or $worktreeTip -ne $ExpectedTip -or $branchTip -ne $ExpectedTip) {
+$worktreeTipQuery = Invoke-SuiteCheckedLocalGit `
+    -Root $WorktreeRoot `
+    -Arguments @("rev-parse", "--verify", "--end-of-options", "HEAD^{commit}") `
+    -Label "exact worktree tip query"
+$branchTipQuery = Invoke-SuiteCheckedLocalGit `
+    -Root $RepoRoot `
+    -Arguments @("rev-parse", "--verify", "--end-of-options", "${BranchRef}^{commit}") `
+    -Label "exact branch tip query"
+$worktreeTip = ([string]$worktreeTipQuery.Rows[0]).Trim().ToLowerInvariant()
+$branchTip = ([string]$branchTipQuery.Rows[0]).Trim().ToLowerInvariant()
+if ($worktreeTipQuery.Rows.Count -ne 1 -or $branchTipQuery.Rows.Count -ne 1 -or
+    $worktreeTip -ne $ExpectedTip -or $branchTip -ne $ExpectedTip) {
     throw "exact branch/worktree identity does not match ExpectedTip"
 }
-$dirty = @(& git -C $WorktreeRoot status --porcelain)
+$dirty = @(Invoke-SuiteCheckedLocalGit `
+    -Root $WorktreeRoot -Arguments @("status", "--porcelain") `
+    -Label "initial exact worktree status").Rows
 if ($dirty.Count -ne 0) {
     throw "suite worktree is dirty; exact-tip evidence would be ambiguous"
 }
@@ -223,29 +414,6 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "production venv interpreter is missing: $python"
 }
 $python = (Resolve-Path -LiteralPath $python).Path
-
-function Test-WeatherQualificationSensitiveEnvironmentName {
-    param([Parameter(Mandatory = $true)][string]$Name)
-
-    $upper = $Name.ToUpperInvariant()
-    if ($upper -ceq "WEATHER_INTEGRATION_TEST_SECRET_POLICY") { return $false }
-    if ($upper -in @(
-        "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL",
-        "UV_INDEX_URL", "UV_EXTRA_INDEX_URL",
-        "GH_TOKEN", "GITHUB_TOKEN", "HF_TOKEN",
-        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
-        "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
-        "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "PIP_CERT",
-        "SSH_AUTH_SOCK", "GIT_ASKPASS", "SSH_ASKPASS"
-    )) { return $true }
-    if ($upper -match '^(POLYMARKET_|POLYMM_|OPENAI_|ANTHROPIC_|CLOUDFLARE_|AWS_|AZURE_|GOOGLE_|GCM_|GIT_SSL_)') {
-        return $true
-    }
-    return $upper -match (
-        '(?:^|_)(?:TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE_KEY|API_KEY|' +
-        'ACCESS_KEY|CLIENT_SECRET|CREDENTIALS?|CONNECTION_STRING)(?:$|_)'
-    )
-}
 
 $previousPythonPath = $env:PYTHONPATH
 $previousLiveSdkRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
@@ -407,10 +575,9 @@ try {
         }
     }
     else {
-        $trackedTestFiles = @(& git -C $WorktreeRoot ls-files -- tests)
-        if ($LASTEXITCODE -ne 0) {
-            throw "could not enumerate tracked pytest files from the exact worktree"
-        }
+        $trackedTestFiles = @(Invoke-SuiteCheckedLocalGit `
+            -Root $WorktreeRoot -Arguments @("ls-files", "--", "tests") `
+            -Label "tracked pytest inventory selection").Rows
         $testFiles = @(
             $trackedTestFiles |
                 ForEach-Object { ([string]$_).Replace("\", "/") } |
@@ -530,28 +697,35 @@ try {
     # The worktree, movable branch ref, and tracked test inventory can change
     # while the chunks run. Re-prove all three after the final child exits and
     # before emitting the sole merge-eligible terminal verdict.
-    $finalWorktreeTipRows = @(& git -C $WorktreeRoot rev-parse HEAD)
-    if ($LASTEXITCODE -ne 0 -or $finalWorktreeTipRows.Count -ne 1) {
+    $finalWorktreeTipRows = @(Invoke-SuiteCheckedLocalGit `
+        -Root $WorktreeRoot `
+        -Arguments @("rev-parse", "--verify", "--end-of-options", "HEAD^{commit}") `
+        -Label "final exact worktree tip query").Rows
+    if ($finalWorktreeTipRows.Count -ne 1) {
         throw "could not re-resolve the exact worktree tip after the final chunk"
     }
     $finalWorktreeTip = ([string]$finalWorktreeTipRows[0]).Trim().ToLowerInvariant()
-    $finalBranchTipRows = @(& git -C $RepoRoot rev-parse $BranchRef)
-    if ($LASTEXITCODE -ne 0 -or $finalBranchTipRows.Count -ne 1) {
+    $finalBranchTipRows = @(Invoke-SuiteCheckedLocalGit `
+        -Root $RepoRoot `
+        -Arguments @("rev-parse", "--verify", "--end-of-options", "${BranchRef}^{commit}") `
+        -Label "final exact branch tip query").Rows
+    if ($finalBranchTipRows.Count -ne 1) {
         throw "could not re-resolve BranchRef after the final chunk"
     }
     $finalBranchTip = ([string]$finalBranchTipRows[0]).Trim().ToLowerInvariant()
     if ($finalWorktreeTip -ne $ExpectedTip -or $finalBranchTip -ne $ExpectedTip) {
         throw "exact branch/worktree identity changed while the suite was running"
     }
-    $finalDirty = @(& git -C $WorktreeRoot status --porcelain)
-    if ($LASTEXITCODE -ne 0 -or $finalDirty.Count -ne 0) {
+    $finalDirty = @(Invoke-SuiteCheckedLocalGit `
+        -Root $WorktreeRoot -Arguments @("status", "--porcelain") `
+        -Label "final exact worktree status").Rows
+    if ($finalDirty.Count -ne 0) {
         throw "suite worktree changed while the suite was running"
     }
     if (-not $SmokeTest -and -not $IntegrationPreflight) {
-        $finalTrackedRows = @(& git -C $WorktreeRoot ls-files -- tests)
-        if ($LASTEXITCODE -ne 0) {
-            throw "could not re-enumerate tracked pytest files after the final chunk"
-        }
+        $finalTrackedRows = @(Invoke-SuiteCheckedLocalGit `
+            -Root $WorktreeRoot -Arguments @("ls-files", "--", "tests") `
+            -Label "final tracked pytest inventory").Rows
         $finalTestFiles = @(
             $finalTrackedRows |
                 ForEach-Object { ([string]$_).Replace("\", "/") } |

@@ -134,6 +134,10 @@ complete child tree at the earlier of its 90-minute total-runtime ceiling or the
 50 GiB minimum on every distinct production, candidate, evidence, and test-temp
 volume before work and before each chunk. Its authoritative log is opened once
 with create-new/no-delete-sharing semantics and flushed durably at teardown.
+Every parent-side Git identity query resolves one unambiguous regular executable,
+uses a fixed read-only command grammar, clears ambient Git/proxy/helper controls,
+disables replacement refs, optional locks, hooks, fsmonitor, and global/system
+configuration, and restores the caller environment after the bounded query.
 This is also the
 bootstrap boundary for a candidate that strengthens the test sandbox itself:
 unmerged code may enforce the marker, but it may not be the component that
