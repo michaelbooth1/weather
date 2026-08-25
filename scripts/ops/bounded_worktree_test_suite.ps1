@@ -189,20 +189,48 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
 $python = (Resolve-Path -LiteralPath $python).Path
 $previousPythonPath = $env:PYTHONPATH
 $previousLiveSdkRequirement = $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT
+$previousIntegrationTestOffline = $env:WEATHER_INTEGRATION_TEST_OFFLINE
+$previousIntegrationTestProductionRoot = $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT
+$previousGitAllowProtocol = $env:GIT_ALLOW_PROTOCOL
+$previousGitTerminalPrompt = $env:GIT_TERMINAL_PROMPT
+$previousPythonNoUserSite = $env:PYTHONNOUSERSITE
+$previousPytestPluginAutoload = $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD
+$previousPythonDontWriteBytecode = $env:PYTHONDONTWRITEBYTECODE
+$previousPythonHashSeed = $env:PYTHONHASHSEED
+$previousPythonUtf8 = $env:PYTHONUTF8
+$previousPythonIoEncoding = $env:PYTHONIOENCODING
 $previousLocation = (Get-Location).Path
-$env:PYTHONPATH = Join-Path $WorktreeRoot "src"
-if ($additionalPythonRoots.Count -gt 0) {
-    $env:PYTHONPATH = @(
-        $env:PYTHONPATH
-        $additionalPythonRoots
-    ) -join [IO.Path]::PathSeparator
-}
-if ($RequireLiveSdkContract) {
-    $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"
-}
 $workloadLease = Enter-WeatherHeavyWorkloadLease -RepoRoot $RepoRoot -Workload "bounded_worktree_test_suite"
 if ($null -eq $workloadLease) { throw "another heavyweight host workload owns data/logs/heavy_workload.lock" }
 try {
+    # Bootstrap the safety boundary needed to qualify the hardening revision
+    # that will later make these controls part of the strict v2 contract. The
+    # marker is set by already-adopted code before candidate Python starts, so
+    # unmerged code is never allowed to grant itself external-I/O authority.
+    $env:WEATHER_INTEGRATION_TEST_OFFLINE = "1"
+    $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $RepoRoot
+    $env:GIT_ALLOW_PROTOCOL = "file"
+    $env:GIT_TERMINAL_PROMPT = "0"
+    $env:PYTHONNOUSERSITE = "1"
+    $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = "1"
+    $env:PYTHONDONTWRITEBYTECODE = "1"
+    $env:PYTHONHASHSEED = "0"
+    $env:PYTHONUTF8 = "1"
+    $env:PYTHONIOENCODING = "utf-8"
+    $env:PYTHONPATH = Join-Path $WorktreeRoot "src"
+    $env:PYTHONPATH = @(
+        $WorktreeRoot
+        $env:PYTHONPATH
+    ) -join [IO.Path]::PathSeparator
+    if ($additionalPythonRoots.Count -gt 0) {
+        $env:PYTHONPATH = @(
+            $env:PYTHONPATH
+            $additionalPythonRoots
+        ) -join [IO.Path]::PathSeparator
+    }
+    if ($RequireLiveSdkContract) {
+        $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"
+    }
     Set-Location -LiteralPath $WorktreeRoot
     $resolvedImport = (& $python -c "import weather; print(weather.__file__)").Trim()
     if ($LASTEXITCODE -ne 0 -or -not $resolvedImport.StartsWith(
@@ -372,5 +400,15 @@ finally {
     Set-Location -LiteralPath $previousLocation
     $env:PYTHONPATH = $previousPythonPath
     $env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = $previousLiveSdkRequirement
+    $env:WEATHER_INTEGRATION_TEST_OFFLINE = $previousIntegrationTestOffline
+    $env:WEATHER_INTEGRATION_TEST_PRODUCTION_ROOT = $previousIntegrationTestProductionRoot
+    $env:GIT_ALLOW_PROTOCOL = $previousGitAllowProtocol
+    $env:GIT_TERMINAL_PROMPT = $previousGitTerminalPrompt
+    $env:PYTHONNOUSERSITE = $previousPythonNoUserSite
+    $env:PYTEST_DISABLE_PLUGIN_AUTOLOAD = $previousPytestPluginAutoload
+    $env:PYTHONDONTWRITEBYTECODE = $previousPythonDontWriteBytecode
+    $env:PYTHONHASHSEED = $previousPythonHashSeed
+    $env:PYTHONUTF8 = $previousPythonUtf8
+    $env:PYTHONIOENCODING = $previousPythonIoEncoding
     Exit-WeatherHeavyWorkloadLease -Lease $workloadLease
 }

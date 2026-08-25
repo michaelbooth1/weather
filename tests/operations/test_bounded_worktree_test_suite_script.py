@@ -29,6 +29,42 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "RequireLiveSdkContract" in text
     assert '$env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"' in text
     assert "$previousLiveSdkRequirement" in text
+    for name, value in (
+        ("WEATHER_INTEGRATION_TEST_OFFLINE", "1"),
+        ("GIT_ALLOW_PROTOCOL", "file"),
+        ("GIT_TERMINAL_PROMPT", "0"),
+        ("PYTHONNOUSERSITE", "1"),
+        ("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1"),
+        ("PYTHONDONTWRITEBYTECODE", "1"),
+        ("PYTHONHASHSEED", "0"),
+        ("PYTHONUTF8", "1"),
+        ("PYTHONIOENCODING", "utf-8"),
+    ):
+        assert f'$env:{name} = "{value}"' in text
+    assert "$previousIntegrationTestOffline" in text
+    assert "$previousIntegrationTestProductionRoot" in text
+    assert "$previousGitAllowProtocol" in text
+    assert "$previousGitTerminalPrompt" in text
+    assert "$previousPythonNoUserSite" in text
+    assert "$previousPytestPluginAutoload" in text
+    assert "$previousPythonDontWriteBytecode" in text
+    assert "$previousPythonHashSeed" in text
+    assert "$previousPythonUtf8" in text
+    assert "$previousPythonIoEncoding" in text
+    assert "$WorktreeRoot\n        $env:PYTHONPATH" in text
+    lease = text.index("$workloadLease = Enter-WeatherHeavyWorkloadLease")
+    offline = text.index('$env:WEATHER_INTEGRATION_TEST_OFFLINE = "1"')
+    body = text.index("Set-Location -LiteralPath $WorktreeRoot", offline)
+    cleanup = text.index("finally {", body)
+    assert lease < offline < body < cleanup
+    assert (
+        text.index(
+            "$env:WEATHER_INTEGRATION_TEST_OFFLINE = "
+            "$previousIntegrationTestOffline",
+            cleanup,
+        )
+        > cleanup
+    )
     assert "Set-Location -LiteralPath $WorktreeRoot" in text
     assert "Set-Location -LiteralPath $previousLocation" in text
     assert "Get-HealthyCaptureWorkerCount" in text
