@@ -19,8 +19,8 @@ is proved.**
 | Failed attempt | `credential-reconcile-0825-a2` ran its lawful exact-tip integration preflight at 00:30. Of 143 tests, 134 passed and nine deterministic contract/fixture tests failed. The bounded full suite did not start. The 03:10 merge refused before Git mutation. |
 | Recovery evidence | Attempt a2 is immutably closed `FAIL/ABANDONED`; closure SHA-256 is `32b1757fcfc80f4602c9f95cd859b059f3911d1b514e2db346f613d59b7d92bd`. Both exact tasks are Disabled. Its reviewed `manual_reviewed_change` dispatch SHA-256 is `0f63494581612d5cb5401fb6cb8082fbcc8751a10ad4dcfc1938d5bbed68c057`; it grants one reviewed descendant opportunity, not Scheduler, credential, exchange, or production authority. |
 | Successor | No successor manifest, predecessor claim, registration receipt, or successor tasks exist. Do not describe dispatch-only recovery as armed. The spent a2 helper and schedule are not reusable. |
-| Runner bootstrap | The currently adopted v1 runner predates the offline qualification marker. The bootstrap topic was published and canonical-remote verified at `31151239093756f672a84d7ea846a37cdf27a12c`; the production-owned verdict is `ROLL-FREE`. A post-publication audit found this canonical status prose stale, so its status-only descendant must be reviewed and published before PR/CI and integration. No matching PR or workflow run exists yet. Unmerged code cannot grant its own safety premise. |
-| Hardening candidate | The isolated `codex/overnight-recovery-hardening-20260824` worktree is clean at `dfc1db5ec371e984f18062ac148b728e81a2a6d8`; independent static review found no unresolved static blocker. That exact tip is not published or host-qualified and must incorporate the final adopted bootstrap descendant. Static review is not qualification, and topic publication or CI will not make it production code. |
+| Runner bootstrap | The currently adopted v1 runner predates the offline qualification marker. The bootstrap topic's first canonical-remote publication was `31151239093756f672a84d7ea846a37cdf27a12c`; its status-only descendant changes no runner or test behavior. The production-owned branch verdict is `ROLL-FREE`. Exact-tip publication, PR CI, owner review, and guarded integration are distinct required gates. Unmerged code cannot grant its own safety premise. |
+| Hardening candidate | The isolated `codex/overnight-recovery-hardening-20260824` worktree is clean, and independent static review found no unresolved static blocker. It is neither host-qualified nor production-adopted and must incorporate the final adopted bootstrap baseline before its release-candidate tip is frozen. Static review is not qualification, and topic publication or CI will not make it production code. |
 | Verification clock | The Aug 25 admitted host window has closed. The earliest lawful host qualification is Aug 26 at 00:30, after the runner bootstrap is adopted. It must run the deterministic preflight and complete bounded suite from the isolated exact-tip worktree before any successor is created or enabled. |
 | Earliest integration | Even after a clean Aug 26 qualification, a new immutable successor must use a later complete suite/merge window. Its integration is no earlier than Aug 27. A failure, drift, schedule-feasibility refusal, or review finding moves that date later. |
 | Live money | A production merge is necessary but not sufficient. The first live test remains attended and separately gated by fresh compare-only credentials, eligible physical-location/no-circumvention evidence, official geoblock PASS, economics and paper candidate, baseline acceptance, identity/doctor, collateral/zero-state, sealed wrappers, and each literal at the actual mutation boundary. |
@@ -56,13 +56,14 @@ is proved.**
 - No unattended first live session. The supported fixed-session lane is
   `[00:30, 09:00) America/Toronto` with the operator awake and present.
 
-## Immediate execution order
+## Ordered critical path
 
-1. Publish the status-corrected bootstrap descendant, open a PR because a topic
-   push alone does not trigger CI, and require CI plus repository-owner review.
-2. At or after Aug 26 00:30, integrate that exact `ROLL-FREE` tip through the
-   production-adopted guarded merge path; the 18:00-00:30 host window remains
-   protected even though the branch cannot roll a capture process.
+1. Move the bootstrap only in this order: exact publication, PR CI,
+   repository-owner review, then exact-tip guarded integration. Any descendant
+   commit restarts publication and CI for the new tip.
+2. The guarded bootstrap integration may start at or after Aug 26 00:30; the
+   18:00-00:30 host window remains protected even though the branch cannot roll
+   a capture process.
 3. Incorporate the adopted bootstrap descendant into the clean hardening
    branch, publish one exact tip, obtain PR CI, and treat CI only as an early
    cross-platform signal.
