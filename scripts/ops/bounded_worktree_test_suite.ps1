@@ -336,9 +336,23 @@ try {
         }
         Assert-HostAdmission -CommitCeiling $AbortCommitPercent -Phase "chunk-$ordinal"
         $junitPath = "{0}.{1}.chunk-{2:D3}.xml" -f $LogPath, $runTag, $ordinal
+        $junitTempPath = Join-Path ([IO.Path]::GetTempPath()) (
+            "weather-integration-junit-{0}.xml" -f [guid]::NewGuid().ToString("N")
+        )
+        if ((Test-Path -LiteralPath $junitTempPath) -or
+            (Test-Path -LiteralPath $junitPath)) {
+            throw "chunk $ordinal JUnit path unexpectedly already exists"
+        }
+        if (-not [string]::Equals(
+            [IO.Path]::GetPathRoot($junitTempPath),
+            [IO.Path]::GetPathRoot($junitPath),
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            throw "chunk $ordinal JUnit temp/evidence paths must share one volume"
+        }
         $tokens = @(
             "-m", "pytest", "-q", "-p", "no:cacheprovider",
-            "--junitxml", $junitPath
+            "--junitxml", $junitTempPath
         ) + @($chunks[$index])
         $argumentString = ConvertTo-ScheduledTaskArgumentString -Tokens $tokens
         Write-SuiteLog "chunk $ordinal/$($chunks.Count) starting files=$($chunks[$index].Count) junit=$junitPath"
@@ -363,10 +377,40 @@ try {
             }
             $child.WaitForExit()
             $exitCode = $child.ExitCode
+            $junitTempItem = Get-Item -LiteralPath $junitTempPath `
+                -Force -ErrorAction Stop
+            if ($junitTempItem.PSIsContainer -or
+                ($junitTempItem.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                [int64]$junitTempItem.Length -le 0 -or
+                [int64]$junitTempItem.Length -gt 67108864) {
+                throw "chunk $ordinal JUnit temp output is not one bounded regular file"
+            }
+            # The child cannot write production. The already-adopted parent
+            # publishes the closed, same-volume file with create-if-absent
+            # rename semantics; File.Move never replaces prior evidence.
+            [IO.File]::Move($junitTempPath, $junitPath)
+            $junitItem = Get-Item -LiteralPath $junitPath -Force -ErrorAction Stop
+            if ($junitItem.PSIsContainer -or
+                ($junitItem.Attributes -band
+                    [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                [int64]$junitItem.Length -ne [int64]$junitTempItem.Length) {
+                throw "chunk $ordinal published JUnit evidence is not exact"
+            }
         }
         finally {
             if ($childJob) { $childJob.Dispose() }
             if ($child) { $child.Dispose() }
+            if (Test-Path -LiteralPath $junitTempPath) {
+                $leftoverJunit = Get-Item -LiteralPath $junitTempPath `
+                    -Force -ErrorAction Stop
+                if ($leftoverJunit.PSIsContainer -or
+                    ($leftoverJunit.Attributes -band
+                        [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                    throw "refusing unsafe JUnit temp cleanup: $junitTempPath"
+                }
+                Remove-Item -LiteralPath $junitTempPath -Force -ErrorAction Stop
+            }
         }
         Write-SuiteLog "chunk $ordinal/$($chunks.Count) exit=$exitCode"
         if ($exitCode -ne 0) { $failedChunks++ }

@@ -50,6 +50,11 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "Start-WeatherProcessInJob" in text
     assert "$importProbeDeadline = [Diagnostics.Stopwatch]::StartNew()" in text
     assert "contained probe exit=" in text
+    assert "weather-integration-junit-" in text
+    assert '"--junitxml", $junitTempPath' in text
+    assert "[IO.File]::Move($junitTempPath, $junitPath)" in text
+    assert "JUnit temp/evidence paths must share one volume" in text
+    assert "Remove-Item -LiteralPath $junitTempPath" in text
     assert "WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT" not in text
     assert "$previousGitAllowProtocol" in text
     assert "$previousGitTerminalPrompt" in text
