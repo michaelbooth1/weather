@@ -43,6 +43,8 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
         assert f'$env:{name} = "{value}"' in text
     assert "$previousIntegrationTestOffline" in text
     assert "$previousIntegrationTestProductionRoot" in text
+    assert "$previousIntegrationTestAllowedWriteRoot" in text
+    assert "$env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT = $logParent" in text
     assert "$previousGitAllowProtocol" in text
     assert "$previousGitTerminalPrompt" in text
     assert "$previousPythonNoUserSite" in text
