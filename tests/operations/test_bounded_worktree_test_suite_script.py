@@ -48,6 +48,10 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()" in text
     assert "$suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds" in text
     assert "runtime or 09:00 hard teardown boundary" in text
+    assert "Assert-SuiteDiskHeadroom" in text
+    assert "[int64]53687091200" in text
+    assert "requires at least 50 GiB free" in text
+    assert "bounded suite refuses to append to or replace an existing log" in text
     assert "$previousIntegrationTestProductionRoot" in text
     assert "$previousIntegrationTestCandidateRoot" in text
     assert "$env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $WorktreeRoot" in text

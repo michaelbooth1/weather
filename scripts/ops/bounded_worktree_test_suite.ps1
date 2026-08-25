@@ -41,6 +41,9 @@ $logParent = Split-Path -Parent $LogPath
 if (-not (Test-Path -LiteralPath $logParent -PathType Container)) {
     throw "suite log parent does not exist: $logParent"
 }
+if (Test-Path -LiteralPath $LogPath) {
+    throw "bounded suite refuses to append to or replace an existing log: $LogPath"
+}
 if ($StartCommitPercent -ge $AbortCommitPercent) {
     throw "StartCommitPercent must be lower than AbortCommitPercent"
 }
@@ -101,6 +104,32 @@ function Get-CommitPercent {
     return [math]::Round(100.0 * $used / $limit, 2)
 }
 
+function Assert-SuiteDiskHeadroom {
+    $minimumFreeBytes = [int64]53687091200
+    $volumeRoots = @(
+        $RepoRoot,
+        $WorktreeRoot,
+        $LogPath,
+        [IO.Path]::GetTempPath()
+    ) | ForEach-Object {
+        $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath([string]$_))
+        if ([string]::IsNullOrWhiteSpace($root)) {
+            throw "could not resolve a local volume for suite path: $_"
+        }
+        $root
+    } | Sort-Object -Unique
+    foreach ($root in $volumeRoots) {
+        $drive = [IO.DriveInfo]::new($root)
+        if (-not $drive.IsReady -or
+            [int64]$drive.AvailableFreeSpace -lt $minimumFreeBytes) {
+            throw (
+                "bounded suite requires at least 50 GiB free on $root; " +
+                "observed $([int64]$drive.AvailableFreeSpace) bytes"
+            )
+        }
+    }
+}
+
 function Get-HealthyCaptureWorkerCount {
     $snapshotRoot = Join-Path $RepoRoot "data\snapshots"
     $specs = @(
@@ -152,6 +181,7 @@ function Assert-HostAdmission {
     }
 }
 
+Assert-SuiteDiskHeadroom
 Write-SuiteLog "=== bounded worktree suite starting ==="
 Write-SuiteLog "worktree=$WorktreeRoot branch=$BranchRef expected_tip=$ExpectedTip"
 Write-SuiteLog "additional_python_roots=$($additionalPythonRoots.Count) require_live_sdk_contract=$($RequireLiveSdkContract.IsPresent) integration_preflight=$($IntegrationPreflight.IsPresent)"
@@ -389,6 +419,7 @@ try {
             (Get-Date) -ge $suiteDeadline) {
             throw "bounded suite reached its runtime or 09:00 hard teardown boundary"
         }
+        Assert-SuiteDiskHeadroom
         Assert-HostAdmission -CommitCeiling $AbortCommitPercent -Phase "chunk-$ordinal"
         $junitPath = "{0}.{1}.chunk-{2:D3}.xml" -f $LogPath, $runTag, $ordinal
         $junitTempPath = Join-Path ([IO.Path]::GetTempPath()) (
