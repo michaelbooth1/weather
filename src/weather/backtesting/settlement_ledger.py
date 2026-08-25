@@ -20,6 +20,7 @@ import pandas as pd
 import requests
 
 from weather.collection.collection_health import coverage_summary, local_window, parse_times
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import all_specs, spec_for_slug
 from weather.schema_registry import schema_version
@@ -668,6 +669,7 @@ def gamma_event_url(event_slug):
 
 
 def fetch_gamma_event(event_slug, timeout=10):
+    require_real_external_io_allowed("real settlement Gamma HTTP transport")
     response = requests.get(gamma_event_url(event_slug), timeout=timeout)
     response.raise_for_status()
     return response.json()

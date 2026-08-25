@@ -2,7 +2,8 @@ Set-StrictMode -Version Latest
 
 . (Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1")
 
-$script:WeatherIntegrationAttemptManifestSchema = "weather_integration_attempt_manifest_v1"
+$script:WeatherIntegrationAttemptLegacyManifestSchema = "weather_integration_attempt_manifest_v1"
+$script:WeatherIntegrationAttemptManifestSchema = "weather_integration_attempt_manifest_v2"
 $script:WeatherIntegrationAttemptSuiteReceiptSchema = "weather_integration_attempt_suite_receipt_v1"
 $script:WeatherIntegrationAttemptMergeReceiptSchema = "weather_integration_attempt_merge_receipt_v1"
 $script:WeatherIntegrationAttemptRegistrationReceiptSchema = "weather_integration_attempt_registration_receipt_v2"
@@ -16,6 +17,17 @@ $script:WeatherIntegrationAttemptSuccessorClaimSchema = "weather_integration_att
 $script:WeatherIntegrationAttemptRecoveryDispatchSchema = "weather_integration_attempt_recovery_dispatch_v1"
 $script:WeatherIntegrationAttemptReconciliationReceiptSchema = "weather_integration_attempt_reconciliation_receipt_v1"
 $script:WeatherIntegrationAttemptPreparationAuthorizationSchema = "weather_integration_attempt_preparation_authorization_v1"
+$script:WeatherIntegrationAttemptPrearmingQualificationSchema =
+    "weather_integration_attempt_prearming_qualification_receipt_v1"
+$script:WeatherIntegrationPrearmingPlanningCeilingSeconds = 5400
+$script:WeatherIntegrationPrearmingSafetyMarginSeconds = 600
+$script:WeatherIntegrationSchedulerLaunchGraceSeconds = 300
+$script:WeatherIntegrationBoundedSuiteMaximumRuntimeSeconds = 5400
+$script:WeatherIntegrationSuiteWrapperTeardownAllowanceSeconds = 300
+$script:WeatherIntegrationSuiteTaskExecutionLimitSeconds =
+    $script:WeatherIntegrationBoundedSuiteMaximumRuntimeSeconds +
+    $script:WeatherIntegrationSuiteWrapperTeardownAllowanceSeconds
+$script:WeatherIntegrationSuiteMinimumPhaseRuntimeSeconds = 60
 $script:WeatherIntegrationTaskRetirementReceiptSchema =
     "weather_integration_attempt_task_retirement_receipt_v1"
 $script:WeatherIntegrationTaskRetirementConfirmation =
@@ -24,47 +36,1429 @@ $script:WeatherLegacyBootstrapRetirementSchema =
     "weather_legacy_integration_bootstrap_task_retirement_v1"
 $script:WeatherLegacyBootstrapRetirementConfirmation =
     "RETIRE_EXACT_EXPIRED_LEGACY_INTEGRATION_TASK"
+$script:WeatherIntegrationScheduleTimeZoneId = "Eastern Standard Time"
+$script:WeatherIntegrationScheduleTimeZoneSchema =
+    "weather_integration_schedule_time_zone_v1"
+
+if ($null -eq ("WeatherIntegrationFileIdentity" -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class WeatherIntegrationFileIdentity
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BY_HANDLE_FILE_INFORMATION
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle handle,
+        out BY_HANDLE_FILE_INFORMATION information
+    );
+
+    public static string FromHandle(SafeFileHandle handle)
+    {
+        BY_HANDLE_FILE_INFORMATION information;
+        if (handle == null || handle.IsInvalid ||
+            !GetFileInformationByHandle(handle, out information))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return String.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            "{0:x8}:{1:x8}{2:x8}",
+            information.VolumeSerialNumber,
+            information.FileIndexHigh,
+            information.FileIndexLow
+        );
+    }
+}
+'@
+}
+
+function Get-WeatherIntegrationFileHandleIdentity {
+    param(
+        [Parameter(Mandatory = $true)]
+        [IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    try {
+        return [WeatherIntegrationFileIdentity]::FromHandle(
+            $Stream.SafeFileHandle
+        )
+    }
+    catch { throw "$Label file identity query failed: $($_.Exception.Message)" }
+}
+
+function Read-WeatherIntegrationEvidenceSnapshot {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 268435456)]
+        [long]$MaximumBytes,
+        [ValidateSet("Bytes", "Text", "Json")]
+        [string]$ContentType = "Bytes"
+    )
+
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $pathIdentityStream = $null
+    $closingPathStream = $null
+    try {
+        Assert-WeatherIntegrationRegularPathAncestry `
+            -Path $resolvedPath -Phase "Evidence snapshot before open"
+        $item = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+    }
+    catch {
+        throw "Required evidence file is missing: $resolvedPath"
+    }
+    if ($item.PSIsContainer -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Evidence must be a regular non-reparse file: $resolvedPath"
+    }
+
+    $stream = $null
+    $pathIdentityStream = $null
+    $closingPathStream = $null
+    try {
+        # Denying write/delete sharing makes the bytes below one stable read
+        # snapshot. Hashing, decoding, and parsing must all use this one buffer.
+        $stream = [IO.FileStream]::new(
+            [string]$item.FullName,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        $openedIdentity = Get-WeatherIntegrationFileHandleIdentity `
+            -Stream $stream -Label "Evidence snapshot retained handle"
+        $pathIdentityStream = [IO.File]::Open(
+            $resolvedPath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        $pathIdentity = Get-WeatherIntegrationFileHandleIdentity `
+            -Stream $pathIdentityStream -Label "Evidence snapshot current path"
+        if ($pathIdentity -cne $openedIdentity) {
+            throw "Evidence pathname names a different file than the retained handle: $resolvedPath"
+        }
+        Assert-WeatherIntegrationRegularPathAncestry `
+            -Path $resolvedPath -Phase "Evidence snapshot after open"
+        $openedItem = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+        if ($openedItem.PSIsContainer -or
+            ($openedItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            -not [string]::Equals(
+                [IO.Path]::GetFullPath([string]$openedItem.FullName),
+                $resolvedPath,
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            throw "Evidence path changed or became a reparse point while opening: $resolvedPath"
+        }
+        if ($stream.Length -le 0) {
+            throw "Evidence is empty: $resolvedPath"
+        }
+        if ($stream.Length -gt $MaximumBytes) {
+            throw "Evidence exceeds its bounded read limit of $MaximumBytes bytes: $resolvedPath"
+        }
+        $bytes = [byte[]]::new([int]$stream.Length)
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -le 0) {
+                throw "Evidence could not be read completely from one open handle: $resolvedPath"
+            }
+            $offset += $read
+        }
+        Assert-WeatherIntegrationRegularPathAncestry `
+            -Path $resolvedPath -Phase "Evidence snapshot after read"
+        $closingPathStream = [IO.File]::Open(
+            $resolvedPath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        $closingIdentity = Get-WeatherIntegrationFileHandleIdentity `
+            -Stream $closingPathStream -Label "Evidence snapshot closing path"
+        if ($closingIdentity -cne $openedIdentity) {
+            throw "Evidence pathname changed files during the retained read: $resolvedPath"
+        }
+    }
+    catch {
+        throw "Could not open one stable evidence snapshot from ${resolvedPath}: $($_.Exception.Message)"
+    }
+    finally {
+        if ($null -ne $closingPathStream) { $closingPathStream.Dispose() }
+        if ($null -ne $pathIdentityStream) { $pathIdentityStream.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $sha256 = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+    }
+    finally { $sha.Dispose() }
+
+    $text = $null
+    $payload = $null
+    if ($ContentType -ne "Bytes") {
+        try {
+            $decoder = New-Object Text.UTF8Encoding($false, $true)
+            $text = $decoder.GetString($bytes)
+            if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) {
+                $text = $text.Substring(1)
+            }
+        }
+        catch {
+            throw "Evidence is not strict UTF-8 text: ${resolvedPath}: $($_.Exception.Message)"
+        }
+    }
+    if ($ContentType -eq "Json") {
+        try { $payload = $text | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "Could not parse JSON from ${resolvedPath}: $($_.Exception.Message)" }
+    }
+
+    return [pscustomobject][ordered]@{
+        Path = $resolvedPath
+        Length = [long]$bytes.Length
+        Bytes = $bytes
+        Text = $text
+        Payload = $payload
+        Sha256 = $sha256
+    }
+}
 
 function Get-WeatherIntegrationFileSha256 {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(1, 268435456)]
+        [long]$MaximumBytes = 268435456
     )
 
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "Required file is missing: $Path"
+    return [string](Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $Path -MaximumBytes $MaximumBytes -ContentType Bytes).Sha256
+}
+
+function Get-WeatherIntegrationInventorySha256 {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string[]]$Paths
+    )
+
+    [byte[]]$bytes = [Text.Encoding]::UTF8.GetBytes(
+        (@($Paths) -join "`n") + "`n"
+    )
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return (([BitConverter]::ToString($sha.ComputeHash($bytes))) `
+            -replace '-', '').ToLowerInvariant()
     }
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    finally { $sha.Dispose() }
+}
+
+function Get-WeatherIntegrationTrackedWorktreeDigest {
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [object[]]$Entries
+    )
+
+    $builder = New-Object Text.StringBuilder
+    foreach ($entry in @($Entries)) {
+        $path = [string]$entry.path
+        $mode = [string]$entry.mode
+        $blobOid = [string]$entry.blob_oid
+        $worktreeSha = [string]$entry.worktree_sha256
+        $lfsOid = if ($null -eq $entry.lfs_oid -or
+            [string]::IsNullOrWhiteSpace([string]$entry.lfs_oid)) {
+            "-"
+        }
+        else { [string]$entry.lfs_oid }
+        $lfsSize = if ($null -eq $entry.lfs_size) {
+            "-"
+        }
+        else { [string][long]$entry.lfs_size }
+        if ([string]::IsNullOrWhiteSpace($path) -or
+            $path.IndexOfAny([char[]]@("`t", "`r", "`n", [char]0)) -ge 0 -or
+            $mode -cnotmatch '^100(?:644|755)$' -or
+            $blobOid -cnotmatch '^[0-9a-f]{40}$' -or
+            [long]$entry.worktree_length -lt 0 -or
+            $worktreeSha -cnotmatch '^[0-9a-f]{64}$' -or
+            ($lfsOid -cne "-" -and $lfsOid -cnotmatch '^[0-9a-f]{64}$') -or
+            ($lfsSize -cne "-" -and [long]$lfsSize -lt 0)) {
+            throw "Tracked-worktree fingerprint entry is malformed: $path"
+        }
+        [void]$builder.Append($path).Append("`t").Append($mode).Append("`t").
+            Append($blobOid).Append("`t").Append([long]$entry.worktree_length).
+            Append("`t").Append($worktreeSha).Append("`t").Append($lfsOid).
+            Append("`t").Append($lfsSize).Append("`n")
+    }
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes($builder.ToString())
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return (([BitConverter]::ToString($sha.ComputeHash($bytes))) `
+            -replace '-', '').ToLowerInvariant()
+    }
+    finally { $sha.Dispose() }
+}
+
+function ConvertFrom-WeatherIntegrationNulRows {
+    param(
+        [AllowEmptyString()][string]$Text,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ([string]::IsNullOrEmpty($Text)) { return @() }
+    if ($Text[$Text.Length - 1] -ne [char]0) {
+        throw "$Label did not end at an exact NUL record boundary."
+    }
+    $rows = @($Text.Split([char]0))
+    if ($rows.Count -eq 0 -or $rows[$rows.Count - 1] -cne "") {
+        throw "$Label returned malformed NUL records."
+    }
+    if ($rows.Count -eq 1) { return @() }
+    return @($rows[0..($rows.Count - 2)])
+}
+
+function Get-WeatherIntegrationRepositoryMetadataTuple {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreeRoot,
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+
+    $resolvedRoot = Resolve-WeatherIntegrationPath -Path $WorktreeRoot
+    $shallowRows = @((Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $resolvedRoot -Arguments @("rev-parse", "--is-shallow-repository") `
+        -Label "$Phase shallow-state query").StdoutLines)
+    $replaceRows = @((Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $resolvedRoot `
+        -Arguments @("for-each-ref", "--format=%(refname)", "refs/replace/") `
+        -Label "$Phase replacement-ref query").StdoutLines)
+    if ($shallowRows.Count -ne 1 -or
+        ([string]$shallowRows[0]).Trim() -cne "false" -or
+        @($replaceRows | Where-Object {
+            -not [string]::IsNullOrWhiteSpace([string]$_)
+        }).Count -ne 0) {
+        throw "$Phase refuses shallow history or replacement refs."
+    }
+    $configRows = [ordered]@{}
+    foreach ($key in @(
+        "core.worktree", "core.bare", "core.sparseCheckout",
+        "core.sparseCheckoutCone", "extensions.worktreeConfig"
+    )) {
+        $query = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $resolvedRoot -Arguments @("config", "--get", $key) `
+            -AllowedExitCodes @(0, 1) -Label "$Phase $key query"
+        $rows = @($query.StdoutLines | Where-Object {
+            -not [string]::IsNullOrWhiteSpace([string]$_)
+        })
+        if ($rows.Count -gt 1) {
+            throw "$Phase repository configuration repeats $key."
+        }
+        $configRows[$key] = if ($rows.Count -eq 0) { "" } else {
+            ([string]$rows[0]).Trim()
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace([string]$configRows["core.worktree"]) -or
+        [string]$configRows["core.bare"] -cnotin @("", "false") -or
+        [string]$configRows["core.sparseCheckout"] -cnotin @("", "false") -or
+        [string]$configRows["core.sparseCheckoutCone"] -cnotin @("", "false") -or
+        [string]$configRows["extensions.worktreeConfig"] -cnotin @("", "false")) {
+        throw "$Phase refuses worktree redirection, bare, sparse, or worktree-local configuration."
+    }
+    $gitPaths = [ordered]@{}
+    foreach ($name in @(
+        "info/grafts", "info/attributes", "info/sparse-checkout", "shallow",
+        "objects/info/alternates"
+    )) {
+        $rows = @((Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $resolvedRoot -Arguments @("rev-parse", "--git-path", $name) `
+            -Label "$Phase $name path query").StdoutLines)
+        if ($rows.Count -ne 1 -or
+            [string]::IsNullOrWhiteSpace([string]$rows[0])) {
+            throw "$Phase could not resolve repository metadata path $name."
+        }
+        $candidate = ([string]$rows[0]).Trim()
+        if (-not [IO.Path]::IsPathRooted($candidate)) {
+            $candidate = Join-Path $resolvedRoot $candidate
+        }
+        $gitPaths[$name] = [IO.Path]::GetFullPath($candidate)
+    }
+    foreach ($forbidden in @(
+        "info/grafts", "info/attributes", "info/sparse-checkout", "shallow"
+    )) {
+        if (Test-Path -LiteralPath ([string]$gitPaths[$forbidden])) {
+            throw "$Phase refuses repository-local $forbidden metadata."
+        }
+    }
+    $alternatesSha = "absent"
+    $alternatesPath = [string]$gitPaths["objects/info/alternates"]
+    if (Test-Path -LiteralPath $alternatesPath) {
+        $alternates = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $alternatesPath -MaximumBytes 65536 -ContentType Text
+        $alternatesSha = [string]$alternates.Sha256
+    }
+    return (
+        "shallow=false`nreplace_refs=0`n" +
+        (($configRows.Keys | ForEach-Object {
+            "$_=$([string]$configRows[$_])"
+        }) -join "`n") + "`nalternates=$alternatesSha"
+    )
+}
+
+function Get-WeatherIntegrationTrackedWorktreeFingerprint {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreeRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedHead,
+        [string]$Phase = "tracked-worktree fingerprint",
+        [AllowNull()]
+        [Collections.Generic.List[IDisposable]]$RetainedStreams = $null
+    )
+
+    $resolvedRoot = Resolve-WeatherIntegrationPath -Path $WorktreeRoot
+    $retainedStartCount = if ($null -eq $RetainedStreams) {
+        0
+    }
+    else { [int]$RetainedStreams.Count }
+    if ($ExpectedHead -cnotmatch '^[0-9a-f]{40}$') {
+        throw "$Phase expected HEAD must be one lowercase 40-character commit id."
+    }
+    Assert-WeatherIntegrationRegularPathAncestry `
+        -Path $resolvedRoot -Phase "$Phase root"
+    $initialMetadata = Get-WeatherIntegrationRepositoryMetadataTuple `
+        -WorktreeRoot $resolvedRoot -Phase "$Phase opening metadata"
+    $headBefore = @((Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $resolvedRoot `
+        -Arguments @("rev-parse", "--verify", "HEAD^{commit}") `
+        -Label "$Phase initial HEAD query").StdoutLines)
+    if ($headBefore.Count -ne 1 -or
+        ([string]$headBefore[0]).Trim().ToLowerInvariant() -cne $ExpectedHead) {
+        throw "$Phase worktree HEAD differs from the frozen commit."
+    }
+    $initialStageText = [string](Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $resolvedRoot -Arguments @("ls-files", "--stage", "-z") `
+        -Label "$Phase staged-index query").Stdout
+    $initialFlagText = [string](Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $resolvedRoot -Arguments @("ls-files", "-v", "-z") `
+        -Label "$Phase index-flag query").Stdout
+    $initialLfsText = [string](Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $resolvedRoot `
+        -Arguments @("ls-files", "-z", "--", ":(attr:filter=lfs)") `
+        -Label "$Phase LFS attribute query").Stdout
+    $stageRows = @(ConvertFrom-WeatherIntegrationNulRows `
+        -Text $initialStageText `
+        -Label "$Phase staged-index query")
+    $flagRows = @(ConvertFrom-WeatherIntegrationNulRows `
+        -Text $initialFlagText `
+        -Label "$Phase index-flag query")
+    $lfsRows = @(ConvertFrom-WeatherIntegrationNulRows `
+        -Text $initialLfsText `
+        -Label "$Phase LFS attribute query")
+    if ($stageRows.Count -le 0 -or $stageRows.Count -gt 20000 -or
+        $flagRows.Count -ne $stageRows.Count) {
+        throw "$Phase tracked-file count is empty, inconsistent, or above 20000."
+    }
+
+    $stageByPath = [Collections.Generic.Dictionary[string, object]]::new(
+        [StringComparer]::Ordinal
+    )
+    $windowsPaths = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    foreach ($row in $stageRows) {
+        $match = [regex]::Match(
+            [string]$row,
+            '^(?<mode>100(?:644|755)) (?<oid>[0-9a-f]{40}) 0\t(?<path>.+)$',
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+        )
+        if (-not $match.Success) {
+            throw "$Phase refuses a non-regular, unmerged, or malformed index entry."
+        }
+        $path = [string]$match.Groups["path"].Value
+        $segments = @($path.Split('/'))
+        if ($path.Contains("\") -or $path.Contains(":") -or
+            [IO.Path]::IsPathRooted($path) -or
+            $segments.Count -eq 0 -or @($segments | Where-Object {
+                [string]::IsNullOrWhiteSpace($_) -or $_ -cin @(".", "..") -or
+                $_.EndsWith(" ", [StringComparison]::Ordinal) -or
+                $_.EndsWith(".", [StringComparison]::Ordinal) -or
+                ([string]$_).Split('.')[0] -imatch
+                    '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$'
+            }).Count -ne 0 -or
+            $path.IndexOfAny([char[]]@("`t", "`r", "`n", [char]0)) -ge 0 -or
+            $stageByPath.ContainsKey($path) -or -not $windowsPaths.Add($path)) {
+            throw "$Phase refuses an unsafe or duplicate tracked path: $path"
+        }
+        $stageByPath.Add($path, [pscustomobject][ordered]@{
+            Mode = [string]$match.Groups["mode"].Value
+            BlobOid = [string]$match.Groups["oid"].Value
+        })
+    }
+    $flagPaths = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal
+    )
+    foreach ($row in $flagRows) {
+        $match = [regex]::Match(
+            [string]$row,
+            '^H (?<path>.+)$',
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+        )
+        if (-not $match.Success -or
+            -not $stageByPath.ContainsKey([string]$match.Groups["path"].Value) -or
+            -not $flagPaths.Add([string]$match.Groups["path"].Value)) {
+            throw "$Phase refuses skip-worktree, assume-unchanged, nonordinary, or malformed index flags."
+        }
+    }
+    if ($flagPaths.Count -ne $stageByPath.Count) {
+        throw "$Phase index-stage and ordinary-flag inventories disagree."
+    }
+    $lfsPaths = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal
+    )
+    foreach ($path in $lfsRows) {
+        if (-not $stageByPath.ContainsKey([string]$path) -or
+            -not $lfsPaths.Add([string]$path)) {
+            throw "$Phase LFS attribute inventory is malformed or not tracked."
+        }
+    }
+
+    $sortedPaths = [string[]]@($stageByPath.Keys)
+    [Array]::Sort($sortedPaths, [StringComparer]::Ordinal)
+    $entries = New-Object System.Collections.Generic.List[object]
+    $absolutePaths = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    [long]$totalBytes = 0
+    try {
+        foreach ($path in $sortedPaths) {
+            $absolute = [IO.Path]::GetFullPath((Join-Path $resolvedRoot $path))
+            $rootPrefix = $resolvedRoot.TrimEnd(
+                [IO.Path]::DirectorySeparatorChar,
+                [IO.Path]::AltDirectorySeparatorChar
+            ) + [IO.Path]::DirectorySeparatorChar
+            if (-not $absolute.StartsWith(
+                    $rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "$Phase tracked path escaped the worktree: $path"
+            }
+            if (-not $absolutePaths.Add($absolute)) {
+                throw "$Phase tracked paths alias one Windows file: $path"
+            }
+            Assert-WeatherIntegrationRegularPathAncestry `
+                -Path $absolute -Phase "$Phase tracked file $path"
+            $item = Get-Item -LiteralPath $absolute -Force -ErrorAction Stop
+            if ($item.PSIsContainer -or
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "$Phase tracked input is not a regular file: $path"
+            }
+            $stream = $null
+            $transferred = $false
+            try {
+                $stream = [IO.File]::Open(
+                    $absolute, [IO.FileMode]::Open,
+                    [IO.FileAccess]::Read, [IO.FileShare]::Read
+                )
+                if ($stream.Length -gt 536870912) {
+                    throw "$Phase tracked input exceeds 512 MiB: $path"
+                }
+                $totalBytes += [long]$stream.Length
+                if ($totalBytes -gt 2147483648) {
+                    throw "$Phase tracked inputs exceed the 2 GiB aggregate bound."
+                }
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try {
+                    $worktreeSha = (([BitConverter]::ToString(
+                        $sha.ComputeHash($stream)
+                    )) -replace '-', '').ToLowerInvariant()
+                }
+                finally { $sha.Dispose() }
+                $stream.Position = 0
+                $lfsOid = $null
+                $lfsSize = $null
+                if ($lfsPaths.Contains($path)) {
+                    $pointerResult = Invoke-WeatherIntegrationCheckedLocalGit `
+                        -Root $resolvedRoot `
+                        -Arguments @(
+                            "cat-file", "blob", [string]$stageByPath[$path].BlobOid
+                        ) `
+                        -Label "$Phase LFS pointer query for $path"
+                    $pointer = [string]$pointerResult.Stdout
+                    $pointerMatch = [regex]::Match(
+                        $pointer,
+                        '^version https://git-lfs.github.com/spec/v1\noid sha256:(?<oid>[0-9a-f]{64})\nsize (?<size>0|[1-9][0-9]*)\n$',
+                        [Text.RegularExpressions.RegexOptions]::CultureInvariant
+                    )
+                    if (-not $pointerMatch.Success) {
+                        throw "$Phase tracked LFS index blob is not one strict canonical pointer: $path"
+                    }
+                    $lfsOid = [string]$pointerMatch.Groups["oid"].Value
+                    [long]$lfsSize = [long]::Parse(
+                        [string]$pointerMatch.Groups["size"].Value,
+                        [Globalization.CultureInfo]::InvariantCulture
+                    )
+                    if ([long]$stream.Length -ne $lfsSize -or
+                        $worktreeSha -cne $lfsOid) {
+                        throw "$Phase tracked LFS input is absent, unhydrated, or differs from its pointer: $path"
+                    }
+                }
+                $entries.Add([pscustomobject][ordered]@{
+                    path = $path
+                    mode = [string]$stageByPath[$path].Mode
+                    blob_oid = [string]$stageByPath[$path].BlobOid
+                    worktree_length = [long]$stream.Length
+                    worktree_sha256 = $worktreeSha
+                    lfs_oid = $lfsOid
+                    lfs_size = $lfsSize
+                })
+                if ($null -ne $RetainedStreams) {
+                    $RetainedStreams.Add($stream)
+                    $transferred = $true
+                }
+            }
+            finally {
+                if ($null -ne $stream -and -not $transferred) {
+                    $stream.Dispose()
+                }
+            }
+        }
+        Assert-WeatherIntegrationRegularPathAncestry `
+            -Path $resolvedRoot -Phase "$Phase closing root"
+        $closingMetadata = Get-WeatherIntegrationRepositoryMetadataTuple `
+            -WorktreeRoot $resolvedRoot -Phase "$Phase closing metadata"
+        $closingStage = [string](Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $resolvedRoot -Arguments @("ls-files", "--stage", "-z") `
+            -Label "$Phase closing staged-index query").Stdout
+        $closingFlags = [string](Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $resolvedRoot -Arguments @("ls-files", "-v", "-z") `
+            -Label "$Phase closing index-flag query").Stdout
+        $closingLfs = [string](Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $resolvedRoot `
+            -Arguments @("ls-files", "-z", "--", ":(attr:filter=lfs)") `
+            -Label "$Phase closing LFS attribute query").Stdout
+        $headAfter = @((Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $resolvedRoot `
+            -Arguments @("rev-parse", "--verify", "HEAD^{commit}") `
+            -Label "$Phase closing HEAD query").StdoutLines)
+        if ($closingMetadata -cne $initialMetadata -or
+            $closingStage -cne $initialStageText -or
+            $closingFlags -cne $initialFlagText -or
+            $closingLfs -cne $initialLfsText -or
+            $headAfter.Count -ne 1 -or
+            ([string]$headAfter[0]).Trim().ToLowerInvariant() -cne $ExpectedHead) {
+            throw "$Phase Git index or HEAD changed across the retained snapshot."
+        }
+        $digest = Get-WeatherIntegrationTrackedWorktreeDigest -Entries @($entries)
+        return [pscustomobject][ordered]@{
+            schema_version = "tracked_worktree_content_fingerprint_v1"
+            content_sha256 = $digest
+            head = $ExpectedHead
+            root = $resolvedRoot
+            file_count = [int]$entries.Count
+            total_bytes = $totalBytes
+            lfs_file_count = [int]$lfsPaths.Count
+            entries = @($entries)
+        }
+    }
+    catch {
+        if ($null -ne $RetainedStreams) {
+            for ($index = $RetainedStreams.Count - 1;
+                $index -ge $retainedStartCount; $index--) {
+                try { $RetainedStreams[$index].Dispose() } catch { }
+                $RetainedStreams.RemoveAt($index)
+            }
+        }
+        throw
+    }
+}
+
+function Assert-WeatherIntegrationTrackedWorktreeFingerprintPayload {
+    param(
+        [Parameter(Mandatory = $true)][object]$Payload,
+        [Parameter(Mandatory = $true)][string]$ExpectedRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedHead,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)][int]$ExpectedFileCount,
+        [Parameter(Mandatory = $true)][long]$ExpectedTotalBytes,
+        [Parameter(Mandatory = $true)][int]$ExpectedLfsFileCount,
+        [string]$Label = "tracked-worktree fingerprint"
+    )
+
+    $topNames = @(
+        "schema_version", "content_sha256", "head", "root", "file_count",
+        "total_bytes", "lfs_file_count", "entries"
+    ) | Sort-Object
+    $actualTopNames = @($Payload.PSObject.Properties.Name | Sort-Object)
+    $entries = @($Payload.entries)
+    if (($actualTopNames -join "`n") -cne ($topNames -join "`n") -or
+        [string]$Payload.schema_version -cne
+            "tracked_worktree_content_fingerprint_v1" -or
+        [string]$Payload.content_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+        [string]$Payload.head -cnotmatch '^[0-9a-f]{40}$' -or
+        [int]$Payload.file_count -le 0 -or [int]$Payload.file_count -gt 20000 -or
+        [long]$Payload.total_bytes -lt 0 -or
+        [long]$Payload.total_bytes -gt 2147483648 -or
+        [int]$Payload.lfs_file_count -lt 0 -or
+        [int]$Payload.lfs_file_count -gt [int]$Payload.file_count -or
+        $entries.Count -ne [int]$Payload.file_count) {
+        throw "$Label has an invalid top-level schema or bounds."
+    }
+    $expectedRootPath = Resolve-WeatherIntegrationPath -Path $ExpectedRoot
+    $payloadRoot = Resolve-WeatherIntegrationPath -Path ([string]$Payload.root)
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left $payloadRoot -Right $expectedRootPath) -or
+        [string]$Payload.head -cne $ExpectedHead -or
+        [string]$Payload.content_sha256 -cne $ExpectedSha256 -or
+        [int]$Payload.file_count -ne $ExpectedFileCount -or
+        [long]$Payload.total_bytes -ne $ExpectedTotalBytes -or
+        [int]$Payload.lfs_file_count -ne $ExpectedLfsFileCount) {
+        throw "$Label does not match its frozen root, commit, digest, or counts."
+    }
+    [string]$priorPath = ""
+    [long]$observedBytes = 0
+    [int]$observedLfs = 0
+    foreach ($entry in $entries) {
+        $entryNames = @($entry.PSObject.Properties.Name | Sort-Object)
+        $requiredEntryNames = @(
+            "path", "mode", "blob_oid", "worktree_length",
+            "worktree_sha256", "lfs_oid", "lfs_size"
+        ) | Sort-Object
+        $path = [string]$entry.path
+        if (($entryNames -join "`n") -cne ($requiredEntryNames -join "`n") -or
+            (-not [string]::IsNullOrEmpty($priorPath) -and
+                [StringComparer]::Ordinal.Compare($priorPath, $path) -ge 0)) {
+            throw "$Label entries are not exact-schema, unique, ordinal-sorted rows."
+        }
+        # The digest helper performs the strict scalar validation too.
+        [void](Get-WeatherIntegrationTrackedWorktreeDigest -Entries @($entry))
+        $observedBytes += [long]$entry.worktree_length
+        if ($null -ne $entry.lfs_oid) {
+            if ([string]$entry.lfs_oid -cnotmatch '^[0-9a-f]{64}$' -or
+                $null -eq $entry.lfs_size -or [long]$entry.lfs_size -lt 0 -or
+                [string]$entry.worktree_sha256 -cne [string]$entry.lfs_oid -or
+                [long]$entry.worktree_length -ne [long]$entry.lfs_size) {
+                throw "$Label has invalid hydrated LFS evidence for $path."
+            }
+            $observedLfs++
+        }
+        elseif ($null -ne $entry.lfs_size) {
+            throw "$Label has a partial LFS entry for $path."
+        }
+        $priorPath = $path
+    }
+    if ($observedBytes -ne [long]$Payload.total_bytes -or
+        $observedLfs -ne [int]$Payload.lfs_file_count -or
+        (Get-WeatherIntegrationTrackedWorktreeDigest -Entries $entries) -cne
+            [string]$Payload.content_sha256) {
+        throw "$Label entry totals or canonical digest disagree."
+    }
+    return $Payload
+}
+
+function ConvertFrom-WeatherIntegrationRecordSha256 {
+    param(
+        [Parameter(Mandatory = $true)][string]$Digest,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if ($Digest -cnotmatch '^[A-Za-z0-9_-]{43}=?$') {
+        throw "$Label is not one URL-safe base64 SHA-256 digest."
+    }
+    $base64 = $Digest.Replace('-', '+').Replace('_', '/')
+    while (($base64.Length % 4) -ne 0) { $base64 += "=" }
+    try { $bytes = [Convert]::FromBase64String($base64) }
+    catch { throw "$Label is not valid URL-safe base64." }
+    if ($bytes.Length -ne 32) {
+        throw "$Label did not decode to one SHA-256 digest."
+    }
+    return (([BitConverter]::ToString($bytes)) -replace '-', '').ToLowerInvariant()
+}
+
+function Get-WeatherIntegrationOpenFileIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [ValidateRange(0, 536870912)][long]$MaximumBytes = 536870912
+    )
+
+    $resolved = Resolve-WeatherIntegrationPath -Path $Path
+    Assert-WeatherIntegrationRegularPathAncestry -Path $resolved -Phase $Label
+    $item = Get-Item -LiteralPath $resolved -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Label is not a regular non-reparse file: $resolved"
+    }
+    $stream = $null
+    $pathIdentityStream = $null
+    $closingPathStream = $null
+    try {
+        $stream = [IO.File]::Open(
+            $resolved, [IO.FileMode]::Open,
+            [IO.FileAccess]::Read, [IO.FileShare]::Read
+        )
+        if ($stream.Length -gt $MaximumBytes) {
+            throw "$Label exceeds its $MaximumBytes-byte bound: $resolved"
+        }
+        $openedIdentity = Get-WeatherIntegrationFileHandleIdentity `
+            -Stream $stream -Label "$Label retained handle"
+        $pathIdentityStream = [IO.File]::Open(
+            $resolved, [IO.FileMode]::Open,
+            [IO.FileAccess]::Read, [IO.FileShare]::Read
+        )
+        $pathIdentity = Get-WeatherIntegrationFileHandleIdentity `
+            -Stream $pathIdentityStream -Label "$Label current path"
+        if ($pathIdentity -cne $openedIdentity) {
+            throw "$Label pathname differs from its retained file: $resolved"
+        }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $digest = (([BitConverter]::ToString($sha.ComputeHash($stream))) `
+                -replace '-', '').ToLowerInvariant()
+        }
+        finally { $sha.Dispose() }
+        Assert-WeatherIntegrationRegularPathAncestry `
+            -Path $resolved -Phase "$Label closing ancestry"
+        $closingPathStream = [IO.File]::Open(
+            $resolved, [IO.FileMode]::Open,
+            [IO.FileAccess]::Read, [IO.FileShare]::Read
+        )
+        $closingIdentity = Get-WeatherIntegrationFileHandleIdentity `
+            -Stream $closingPathStream -Label "$Label closing path"
+        if ($closingIdentity -cne $openedIdentity) {
+            throw "$Label pathname changed files during verification: $resolved"
+        }
+        return [pscustomobject]@{
+            Path = $resolved
+            Length = [long]$stream.Length
+            Sha256 = $digest
+        }
+    }
+    finally {
+        if ($null -ne $closingPathStream) { $closingPathStream.Dispose() }
+        if ($null -ne $pathIdentityStream) { $pathIdentityStream.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+function Assert-WeatherIntegrationPythonEnvironmentFingerprintPayload {
+    param(
+        [Parameter(Mandatory = $true)][object]$Payload,
+        [Parameter(Mandatory = $true)][string]$ExpectedExecutable,
+        [Parameter(Mandatory = $true)][string]$ExpectedExecutableSha256,
+        [Parameter(Mandatory = $true)][int]$ExpectedDistributionCount,
+        [Parameter(Mandatory = $true)][int]$ExpectedFileCount,
+        [Parameter(Mandatory = $true)][long]$ExpectedTotalBytes,
+        [string]$Label = "Python environment fingerprint",
+        [switch]$VerifyCurrentFiles
+    )
+
+    $requiredTop = @(
+        "schema_version", "executable", "executable_sha256",
+        "python_version", "implementation", "cache_tag", "platform",
+        "prefix", "base_prefix", "sys_path", "controls", "distributions",
+        "runtime_files", "pth_files", "file_count", "total_bytes"
+    ) | Sort-Object
+    $actualTop = @($Payload.PSObject.Properties.Name | Sort-Object)
+    if (($actualTop -join "`n") -cne ($requiredTop -join "`n") -or
+        [string]$Payload.schema_version -cne
+            "python_environment_fingerprint_v2" -or
+        [string]$Payload.executable_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+        [string]::IsNullOrWhiteSpace([string]$Payload.python_version) -or
+        [string]::IsNullOrWhiteSpace([string]$Payload.implementation) -or
+        [string]::IsNullOrWhiteSpace([string]$Payload.platform) -or
+        [int]$Payload.file_count -le 0 -or [int]$Payload.file_count -gt 50000 -or
+        [long]$Payload.total_bytes -le 0 -or
+        [long]$Payload.total_bytes -gt 2147483648) {
+        throw "$Label has an invalid v2 top-level schema or bounds."
+    }
+    $executable = Resolve-WeatherIntegrationPath -Path ([string]$Payload.executable)
+    $expectedExecutablePath = Resolve-WeatherIntegrationPath -Path $ExpectedExecutable
+    $prefix = Resolve-WeatherIntegrationPath -Path ([string]$Payload.prefix)
+    $basePrefix = Resolve-WeatherIntegrationPath -Path ([string]$Payload.base_prefix)
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left $executable -Right $expectedExecutablePath) -or
+        [string]$Payload.executable_sha256 -cne $ExpectedExecutableSha256 -or
+        @($Payload.distributions).Count -ne $ExpectedDistributionCount -or
+        [int]$Payload.file_count -ne $ExpectedFileCount -or
+        [long]$Payload.total_bytes -ne $ExpectedTotalBytes) {
+        throw "$Label does not match its frozen executable, digest, or counts."
+    }
+    $pathPrefixes = @($prefix, $basePrefix | ForEach-Object {
+        $_.TrimEnd(
+            [IO.Path]::DirectorySeparatorChar,
+            [IO.Path]::AltDirectorySeparatorChar
+        ) + [IO.Path]::DirectorySeparatorChar
+    } | Sort-Object -Unique)
+    $isUnderRuntime = {
+        param([string]$Candidate)
+        foreach ($candidatePrefix in $pathPrefixes) {
+            if ($Candidate.StartsWith(
+                    $candidatePrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
+        }
+        return ((Test-WeatherIntegrationPathEqual `
+            -Left $Candidate -Right $executable) -or
+            (Test-WeatherIntegrationPathEqual `
+                -Left $Candidate -Right $prefix) -or
+            (Test-WeatherIntegrationPathEqual `
+                -Left $Candidate -Right $basePrefix))
+    }
+    $sysPaths = @($Payload.sys_path)
+    if ($sysPaths.Count -eq 0 -or @($sysPaths | Where-Object {
+        [string]::IsNullOrWhiteSpace([string]$_) -or
+        -not [IO.Path]::IsPathRooted([string]$_)
+    }).Count -ne 0) {
+        throw "$Label has invalid sys.path evidence."
+    }
+    $controlNames = @($Payload.controls.PSObject.Properties.Name | Sort-Object)
+    $requiredControls = @(
+        "allowed_write_root", "candidate_root", "git_allow_protocol",
+        "git_terminal_prompt", "git_config_nosystem", "git_config_system",
+        "git_config_global", "git_config_count", "git_attr_nosystem",
+        "git_protocol_from_user", "git_optional_locks", "git_topology_environment_clear",
+        "git_topology_environment_count", "offline", "production_root", "evidence_root", "pythonhashseed",
+        "pythonioencoding", "pythonutf8", "secret_environment_clear",
+        "secret_environment_count", "secret_policy", "temp_policy",
+        "python_executable", "git_executable", "powershell_executable",
+        "setuptools_use_distutils", "read_only_production_probe"
+    ) | Sort-Object
+    if (($controlNames -join "`n") -cne ($requiredControls -join "`n") -or
+        [string]$Payload.controls.pythonhashseed -cne "0" -or
+        [string]$Payload.controls.pythonutf8 -cne "1" -or
+        [string]$Payload.controls.pythonioencoding -cne "utf-8" -or
+        [string]$Payload.controls.git_allow_protocol -cne "file" -or
+        [string]$Payload.controls.git_terminal_prompt -cne "0" -or
+        [string]$Payload.controls.git_config_nosystem -cne "1" -or
+        [string]$Payload.controls.git_config_system -cne "NUL" -or
+        [string]$Payload.controls.git_config_global -cne "NUL" -or
+        [string]$Payload.controls.git_config_count -cne "0" -or
+        [string]$Payload.controls.git_attr_nosystem -cne "1" -or
+        [string]$Payload.controls.git_protocol_from_user -cne "0" -or
+        [string]$Payload.controls.git_optional_locks -cne "0" -or
+        $Payload.controls.git_topology_environment_clear -isnot [bool] -or
+        -not [bool]$Payload.controls.git_topology_environment_clear -or
+        [int]$Payload.controls.git_topology_environment_count -ne 0 -or
+        [string]$Payload.controls.offline -cne "1" -or
+        -not [string]::IsNullOrEmpty(
+            [string]$Payload.controls.allowed_write_root
+        ) -or
+        -not [IO.Path]::IsPathRooted([string]$Payload.controls.candidate_root) -or
+        [string]$Payload.controls.secret_policy -cne "conservative_v1" -or
+        $Payload.controls.secret_environment_clear -isnot [bool] -or
+        -not [bool]$Payload.controls.secret_environment_clear -or
+        [int]$Payload.controls.secret_environment_count -ne 0 -or
+        [string]$Payload.controls.temp_policy -cne "system_temp_unique_v1" -or
+        [string]$Payload.controls.setuptools_use_distutils -cne "stdlib" -or
+        $Payload.controls.read_only_production_probe -isnot [bool] -or
+        [bool]$Payload.controls.read_only_production_probe -or
+        -not [IO.Path]::IsPathRooted(
+            [string]$Payload.controls.python_executable
+        ) -or
+        -not [IO.Path]::IsPathRooted(
+            [string]$Payload.controls.git_executable
+        ) -or
+        -not [IO.Path]::IsPathRooted(
+            [string]$Payload.controls.powershell_executable
+        ) -or
+        -not [IO.Path]::IsPathRooted([string]$Payload.controls.production_root) -or
+        -not [IO.Path]::IsPathRooted([string]$Payload.controls.evidence_root)) {
+        throw "$Label has invalid deterministic runtime controls."
+    }
+
+    $expectedPthRoot = Resolve-WeatherIntegrationPath -Path (
+        Join-Path $prefix "Lib\site-packages"
+    )
+    $pthRows = @($Payload.pth_files)
+    [string]$priorPthPath = ""
+    $pthNames = [Collections.Generic.List[string]]::new()
+    if ($pthRows.Count -ne 2) {
+        throw "$Label must bind exactly two reviewed Python .pth bootstrap files."
+    }
+    foreach ($pthRow in $pthRows) {
+        $pthProperties = @($pthRow.PSObject.Properties.Name | Sort-Object)
+        $requiredPthProperties = @("length", "path", "sha256") | Sort-Object
+        $pthPath = Resolve-WeatherIntegrationPath -Path ([string]$pthRow.path)
+        if (($pthProperties -join "`n") -cne
+                ($requiredPthProperties -join "`n") -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left (Split-Path -Parent $pthPath) -Right $expectedPthRoot) -or
+            [IO.Path]::GetExtension($pthPath) -cne ".pth" -or
+            (-not [string]::IsNullOrEmpty($priorPthPath) -and
+                [StringComparer]::OrdinalIgnoreCase.Compare(
+                    $priorPthPath, $pthPath
+                ) -ge 0) -or
+            [long]$pthRow.length -le 0 -or [long]$pthRow.length -gt 1048576 -or
+            [string]$pthRow.sha256 -cnotmatch '^[0-9a-f]{64}$') {
+            throw "$Label has malformed or unsorted Python .pth bootstrap evidence."
+        }
+        $pthNames.Add([IO.Path]::GetFileName($pthPath))
+        if ($VerifyCurrentFiles) {
+            $currentPth = Get-WeatherIntegrationOpenFileIdentity `
+                -Path $pthPath -Label "$Label current Python .pth bootstrap"
+            if ([long]$currentPth.Length -ne [long]$pthRow.length -or
+                [string]$currentPth.Sha256 -cne [string]$pthRow.sha256) {
+                throw "$Label current Python .pth bootstrap file drifted: $pthPath"
+            }
+        }
+        $priorPthPath = $pthPath
+    }
+    if ($pthNames -cnotcontains "distutils-precedence.pth" -or
+        @($pthNames | Where-Object {
+            $_ -cmatch '^__editable__\.weather_market-[0-9A-Za-z._-]+\.pth$'
+        }).Count -ne 1) {
+        throw "$Label Python .pth bootstrap names are not the reviewed pair."
+    }
+
+    $seenPaths = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::OrdinalIgnoreCase
+    )
+    [long]$observedBytes = 0
+    [int]$observedFiles = 0
+    [string]$priorDistributionKey = ""
+    foreach ($distribution in @($Payload.distributions)) {
+        $distributionNames = @($distribution.PSObject.Properties.Name | Sort-Object)
+        $requiredDistributionNames = @(
+            "name", "version", "location", "record_path", "record_sha256",
+            "installer_sha256", "files"
+        ) | Sort-Object
+        $location = Resolve-WeatherIntegrationPath -Path ([string]$distribution.location)
+        $recordPath = Resolve-WeatherIntegrationPath -Path ([string]$distribution.record_path)
+        $distributionKey = (
+            [string]$distribution.name + "`t" + [string]$distribution.version +
+            "`t" + $location
+        )
+        if (($distributionNames -join "`n") -cne
+                ($requiredDistributionNames -join "`n") -or
+            [string]$distribution.name -cnotmatch
+                '^[a-z0-9]+(?:-[a-z0-9]+)*$' -or
+            [string]::IsNullOrWhiteSpace([string]$distribution.version) -or
+            [string]$distribution.record_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            ($null -ne $distribution.installer_sha256 -and
+                [string]$distribution.installer_sha256 -cnotmatch
+                    '^[0-9a-f]{64}$') -or
+            -not (& $isUnderRuntime $location) -or
+            -not (& $isUnderRuntime $recordPath) -or
+            [IO.Path]::GetFileName($recordPath) -cne "RECORD" -or
+            (-not [string]::IsNullOrEmpty($priorDistributionKey) -and
+                [StringComparer]::Ordinal.Compare(
+                    $priorDistributionKey, $distributionKey
+                ) -ge 0)) {
+            throw "$Label has malformed or unsorted distribution evidence."
+        }
+        [string]$priorFilePath = ""
+        $sawRecord = $false
+        $recordRowSha256 = $null
+        $installerRowSha256 = $null
+        foreach ($file in @($distribution.files)) {
+            $fileNames = @($file.PSObject.Properties.Name | Sort-Object)
+            $requiredFileNames = @(
+                "path", "length", "sha256", "record_algorithm",
+                "record_digest", "record_size"
+            ) | Sort-Object
+            $path = Resolve-WeatherIntegrationPath -Path ([string]$file.path)
+            if (($fileNames -join "`n") -cne ($requiredFileNames -join "`n") -or
+                -not (& $isUnderRuntime $path) -or
+                -not $seenPaths.Add($path) -or
+                (-not [string]::IsNullOrEmpty($priorFilePath) -and
+                    [StringComparer]::OrdinalIgnoreCase.Compare(
+                        $priorFilePath, $path
+                    ) -ge 0) -or
+                [long]$file.length -lt 0 -or
+                [long]$file.length -gt 536870912 -or
+                [string]$file.sha256 -cnotmatch '^[0-9a-f]{64}$') {
+                throw "$Label has malformed, duplicate, or unsorted distribution files."
+            }
+            $recordFieldsNull = ($null -eq $file.record_algorithm -and
+                $null -eq $file.record_digest -and $null -eq $file.record_size)
+            $mayLackRecordHash = (
+                Test-WeatherIntegrationPathEqual -Left $path -Right $recordPath
+            ) -or (([IO.Path]::GetExtension($path)) -ieq ".pyc")
+            if (Test-WeatherIntegrationPathEqual -Left $path -Right $recordPath) {
+                $sawRecord = $true
+                $recordRowSha256 = [string]$file.sha256
+            }
+            $installerPath = Join-Path (Split-Path -Parent $recordPath) "INSTALLER"
+            if (Test-WeatherIntegrationPathEqual -Left $path -Right $installerPath) {
+                if ($null -ne $installerRowSha256) {
+                    throw "$Label distribution repeats its INSTALLER row: $path"
+                }
+                $installerRowSha256 = [string]$file.sha256
+            }
+            if ($recordFieldsNull) {
+                if (-not $mayLackRecordHash) {
+                    throw "$Label has an unverifiable RECORD entry: $path"
+                }
+            }
+            elseif ($null -eq $file.record_algorithm -or
+                $null -eq $file.record_digest -or $null -eq $file.record_size -or
+                [string]$file.record_algorithm -cne "sha256" -or
+                [long]$file.record_size -ne [long]$file.length -or
+                (ConvertFrom-WeatherIntegrationRecordSha256 `
+                    -Digest ([string]$file.record_digest) `
+                    -Label "$Label RECORD digest for $path") -cne
+                        [string]$file.sha256) {
+                throw "$Label RECORD hash or size does not verify: $path"
+            }
+            if ($VerifyCurrentFiles) {
+                $current = Get-WeatherIntegrationOpenFileIdentity `
+                    -Path $path -Label "$Label current distribution file"
+                if ([long]$current.Length -ne [long]$file.length -or
+                    [string]$current.Sha256 -cne [string]$file.sha256) {
+                    throw "$Label current distribution file drifted: $path"
+                }
+            }
+            $observedBytes += [long]$file.length
+            $observedFiles++
+            $priorFilePath = $path
+        }
+        if (-not $sawRecord -or
+            [string]$recordRowSha256 -cne
+                [string]$distribution.record_sha256 -or
+            (($null -eq $installerRowSha256) -ne
+                ($null -eq $distribution.installer_sha256)) -or
+            ($null -ne $installerRowSha256 -and
+             [string]$installerRowSha256 -cne
+                [string]$distribution.installer_sha256)) {
+            throw "$Label distribution RECORD/INSTALLER evidence disagrees with its file rows."
+        }
+        $priorDistributionKey = $distributionKey
+    }
+    [int]$executableRows = 0
+    [int]$runtimeDllRows = 0
+    [int]$launcherRows = 0
+    [string]$priorRuntimePath = ""
+    foreach ($file in @($Payload.runtime_files)) {
+        $fileNames = @($file.PSObject.Properties.Name | Sort-Object)
+        $requiredFileNames = @("kind", "path", "length", "sha256") | Sort-Object
+        $path = Resolve-WeatherIntegrationPath -Path ([string]$file.path)
+        if (($fileNames -join "`n") -cne ($requiredFileNames -join "`n") -or
+            [string]$file.kind -cnotmatch
+                '^(executable|launcher|runtime_dll|runtime_config|native_library|stdlib)$' -or
+            -not (& $isUnderRuntime $path) -or -not $seenPaths.Add($path) -or
+            (-not [string]::IsNullOrEmpty($priorRuntimePath) -and
+                [StringComparer]::OrdinalIgnoreCase.Compare(
+                    $priorRuntimePath, $path
+                ) -ge 0) -or
+            [long]$file.length -lt 0 -or [long]$file.length -gt 536870912 -or
+            [string]$file.sha256 -cnotmatch '^[0-9a-f]{64}$') {
+            throw "$Label has malformed, duplicate, or unsorted runtime files."
+        }
+        if ([string]$file.kind -ceq "executable") {
+            $executableRows++
+            if (-not (Test-WeatherIntegrationPathEqual `
+                    -Left $path -Right $executable) -or
+                [string]$file.sha256 -cne [string]$Payload.executable_sha256) {
+                throw "$Label runtime executable row disagrees with its identity."
+            }
+        }
+        elseif ([string]$file.kind -ceq "runtime_dll") { $runtimeDllRows++ }
+        elseif ([string]$file.kind -ceq "launcher") {
+            $launcherRows++
+            $expectedLauncher = Join-Path `
+                (Split-Path -Parent $executable) "pythonw.exe"
+            if (-not (Test-WeatherIntegrationPathEqual `
+                    -Left $path -Right $expectedLauncher)) {
+                throw "$Label Python Scheduler launcher path is not canonical."
+            }
+        }
+        if ($VerifyCurrentFiles) {
+            $current = Get-WeatherIntegrationOpenFileIdentity `
+                -Path $path -Label "$Label current runtime file"
+            if ([long]$current.Length -ne [long]$file.length -or
+                [string]$current.Sha256 -cne [string]$file.sha256) {
+                throw "$Label current runtime file drifted: $path"
+            }
+        }
+        $observedBytes += [long]$file.length
+        $observedFiles++
+        $priorRuntimePath = $path
+    }
+    if ($executableRows -ne 1 -or $launcherRows -ne 1 -or
+        $runtimeDllRows -lt 1 -or
+        $observedFiles -ne [int]$Payload.file_count -or
+        $observedBytes -ne [long]$Payload.total_bytes) {
+        throw "$Label file totals or mandatory runtime identities disagree."
+    }
+    return $Payload
+}
+
+function Assert-WeatherIntegrationCurrentQualifiedRuntimeFingerprints {
+    param(
+        [Parameter(Mandatory = $true)][object]$Summary,
+        [Parameter(Mandatory = $true)][object]$Expected,
+        [string]$Label = "qualified runtime"
+    )
+
+    $pythonPath = Resolve-WeatherIntegrationPath `
+        -Path ([string]$Summary.python_environment_post_path)
+    $pythonSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $pythonPath -MaximumBytes 16777216 -ContentType Json
+    if ([string]$pythonSnapshot.Sha256 -cne
+            [string]$Expected.expected_python_environment_sha256 -or
+        [string]$pythonSnapshot.Payload.schema_version -cne
+            [string]$Expected.expected_python_environment_schema) {
+        throw "$Label Python environment sidecar differs from qualification."
+    }
+    Assert-WeatherIntegrationPythonEnvironmentFingerprintPayload `
+        -Payload $pythonSnapshot.Payload `
+        -ExpectedExecutable ([string]$pythonSnapshot.Payload.executable) `
+        -ExpectedExecutableSha256 ([string]$Summary.python_executable_sha256) `
+        -ExpectedDistributionCount (
+            [int]$Expected.expected_python_environment_distributions
+        ) `
+        -ExpectedFileCount ([int]$Expected.expected_python_environment_files) `
+        -ExpectedTotalBytes ([long]$Expected.expected_python_environment_bytes) `
+        -Label "$Label Python environment" -VerifyCurrentFiles | Out-Null
+
+    $toolchainPath = Resolve-WeatherIntegrationPath `
+        -Path ([string]$Summary.toolchain_post_path)
+    $toolchainSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $toolchainPath -MaximumBytes 1048576 -ContentType Json
+    $toolchain = $toolchainSnapshot.Payload
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $toolchain -Names @(
+            "schema_version", "git", "git_lfs", "powershell", "controls"
+        ) -Label "$Label toolchain sidecar"
+    foreach ($name in @("git", "git_lfs", "powershell")) {
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $toolchain.$name `
+            -Names @("executable", "executable_sha256") `
+            -Label "$Label $name toolchain identity"
+    }
+    $toolchainControlNames = @(
+        $toolchain.controls.PSObject.Properties.Name | Sort-Object
+    )
+    $requiredToolchainControls = @(
+        "allowed_write_root", "candidate_root", "git_allow_protocol",
+        "git_terminal_prompt", "git_config_nosystem", "git_config_system",
+        "git_config_global", "git_config_count", "git_attr_nosystem",
+        "git_protocol_from_user", "git_optional_locks", "git_topology_environment_clear",
+        "git_topology_environment_count", "offline", "production_root", "evidence_root", "pythonhashseed",
+        "pythonioencoding", "pythonutf8", "secret_environment_clear",
+        "secret_environment_count", "secret_policy", "temp_policy",
+        "python_executable", "git_executable", "powershell_executable",
+        "setuptools_use_distutils", "read_only_production_probe"
+    ) | Sort-Object
+    if ([string]$toolchainSnapshot.Sha256 -cne
+            [string]$Expected.expected_toolchain_sha256 -or
+        [string]$toolchain.schema_version -cne
+            "integration_toolchain_fingerprint_v1" -or
+        [string]$toolchain.git.executable_sha256 -cne
+            [string]$Summary.toolchain_git_sha256 -or
+        [string]$toolchain.git_lfs.executable_sha256 -cne
+            [string]$Summary.toolchain_git_lfs_sha256 -or
+        [string]$toolchain.powershell.executable_sha256 -cne
+            [string]$Summary.toolchain_powershell_sha256 -or
+        ($toolchainControlNames -join "`n") -cne
+            ($requiredToolchainControls -join "`n") -or
+        [string]$toolchain.controls.pythonhashseed -cne "0" -or
+        [string]$toolchain.controls.pythonutf8 -cne "1" -or
+        [string]$toolchain.controls.pythonioencoding -cne "utf-8" -or
+        [string]$toolchain.controls.git_allow_protocol -cne "file" -or
+        [string]$toolchain.controls.git_terminal_prompt -cne "0" -or
+        [string]$toolchain.controls.git_config_nosystem -cne "1" -or
+        [string]$toolchain.controls.git_config_system -cne "NUL" -or
+        [string]$toolchain.controls.git_config_global -cne "NUL" -or
+        [string]$toolchain.controls.git_config_count -cne "0" -or
+        [string]$toolchain.controls.git_attr_nosystem -cne "1" -or
+        [string]$toolchain.controls.git_protocol_from_user -cne "0" -or
+        [string]$toolchain.controls.git_optional_locks -cne "0" -or
+        $toolchain.controls.git_topology_environment_clear -isnot [bool] -or
+        -not [bool]$toolchain.controls.git_topology_environment_clear -or
+        [int]$toolchain.controls.git_topology_environment_count -ne 0 -or
+        [string]$toolchain.controls.offline -cne "1" -or
+        -not [string]::IsNullOrEmpty(
+            [string]$toolchain.controls.allowed_write_root
+        ) -or
+        -not [IO.Path]::IsPathRooted(
+            [string]$toolchain.controls.candidate_root
+        ) -or
+        -not [IO.Path]::IsPathRooted(
+            [string]$toolchain.controls.production_root
+        ) -or
+        -not [IO.Path]::IsPathRooted(
+            [string]$toolchain.controls.evidence_root
+        ) -or
+        [string]$toolchain.controls.secret_policy -cne "conservative_v1" -or
+        $toolchain.controls.secret_environment_clear -isnot [bool] -or
+        -not [bool]$toolchain.controls.secret_environment_clear -or
+        [int]$toolchain.controls.secret_environment_count -ne 0 -or
+        [string]$toolchain.controls.temp_policy -cne "system_temp_unique_v1" -or
+        [string]$toolchain.controls.setuptools_use_distutils -cne "stdlib" -or
+        $toolchain.controls.read_only_production_probe -isnot [bool] -or
+        [bool]$toolchain.controls.read_only_production_probe -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$toolchain.controls.python_executable) `
+            -Right ([string]$pythonSnapshot.Payload.executable)) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$toolchain.controls.git_executable) `
+            -Right ([string]$toolchain.git.executable)) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$toolchain.controls.powershell_executable) `
+            -Right ([string]$toolchain.powershell.executable)) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$pythonSnapshot.Payload.controls.python_executable) `
+            -Right ([string]$pythonSnapshot.Payload.executable)) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$pythonSnapshot.Payload.controls.git_executable) `
+            -Right ([string]$toolchain.git.executable)) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$pythonSnapshot.Payload.controls.powershell_executable) `
+            -Right ([string]$toolchain.powershell.executable)) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$pythonSnapshot.Payload.controls.evidence_root) `
+            -Right ([string]$toolchain.controls.evidence_root))) {
+        throw "$Label toolchain sidecar differs from qualification."
+    }
+    $resolvedGit = Get-WeatherIntegrationGitExecutablePath `
+        -Phase "$Label Git identity" `
+        -ExpectedPath ([string]$toolchain.git.executable)
+    $resolvedGitLfs = Get-WeatherIntegrationGitLfsExecutablePath `
+        -Phase "$Label Git LFS identity" -GitExecutable $resolvedGit
+    $expectedPowerShell = Resolve-WeatherIntegrationPath `
+        -Path (Join-Path $PSHOME "powershell.exe")
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left $resolvedGitLfs -Right ([string]$toolchain.git_lfs.executable)) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left $expectedPowerShell `
+            -Right ([string]$toolchain.powershell.executable))) {
+        throw "$Label currently resolves a different qualified toolchain path."
+    }
+    foreach ($row in @(
+        [pscustomobject]@{
+            Name = "Git"; Path = $resolvedGit
+            Sha = [string]$toolchain.git.executable_sha256
+        },
+        [pscustomobject]@{
+            Name = "Git LFS"; Path = $resolvedGitLfs
+            Sha = [string]$toolchain.git_lfs.executable_sha256
+        },
+        [pscustomobject]@{
+            Name = "PowerShell"; Path = $expectedPowerShell
+            Sha = [string]$toolchain.powershell.executable_sha256
+        }
+    )) {
+        $current = Get-WeatherIntegrationOpenFileIdentity `
+            -Path ([string]$row.Path) -Label "$Label current $($row.Name)"
+        if ([string]$current.Sha256 -cne [string]$row.Sha) {
+            throw "$Label current $($row.Name) bytes differ from qualification."
+        }
+    }
+    return [pscustomobject]@{
+        PythonEnvironmentPath = $pythonPath
+        ToolchainPath = $toolchainPath
+    }
+}
+
+function Assert-WeatherIntegrationNoIgnoredImportArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorktreeRoot,
+        [string]$Phase = "integration-attempt boundary"
+    )
+
+    # Scope ignored-file discovery to paths Python/pytest can actually consume
+    # in an attempt. In particular, do not walk the ignored data/ evidence tree.
+    # AdditionalPythonPath is forbidden for attempts, so there is no external
+    # import root to add here.
+    $blockedExtensions = @(
+        ".py", ".pyi", ".pyc", ".pyo", ".pyd", ".so", ".dll", ".dylib"
+    )
+    $blockedControlNames = @(
+        "sitecustomize.py", "conftest.py", "pytest.ini", "pyproject.toml",
+        "tox.ini", "setup.cfg"
+    )
+    # Root itself is on sys.path. Derive every established top-level Python
+    # namespace from the tracked inventory, then add the canonical import/test
+    # roots. This catches tools and future tracked namespace packages without
+    # walking unrelated ignored trees.
+    $trackedNamespaceQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root (Resolve-WeatherIntegrationPath -Path $WorktreeRoot) `
+        -Arguments (@("ls-files", "--") + @(
+            "*.py", "*.pyi", "*.pyd", "*.so", "*.dll", "*.dylib"
+        )) `
+        -Label "$Phase tracked Python/native namespace query"
+    $trackedImportRoots = @(
+        @($trackedNamespaceQuery.StdoutLines) |
+            ForEach-Object { ([string]$_).Replace("\", "/") } |
+            Where-Object { $_ -match '/' } |
+            ForEach-Object { ([string]$_ -split '/', 2)[0] } |
+            Where-Object {
+                $_ -and $_ -notin @("data", "venv", ".venv", ".git")
+            }
+    )
+    $importRoots = @(
+        @("app", "src", "tests", "weather", "tools", "scripts", "__pycache__") +
+        @($trackedImportRoots) | Sort-Object -Unique
+    )
+    $rootExtensionPathspecs = @($blockedExtensions | ForEach-Object {
+        ":(glob)*$_"
+    })
+    $importRootPathspecs = @($importRoots | ForEach-Object {
+        ":(glob)$_/**"
+    })
+    $importControlPathspecs = @(
+        @($blockedControlNames) + $rootExtensionPathspecs + $importRootPathspecs
+    )
+    $query = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root (Resolve-WeatherIntegrationPath -Path $WorktreeRoot) `
+        -Arguments (@(
+            "ls-files", "--others", "--ignored", "--exclude-standard", "--"
+        ) + $importControlPathspecs) `
+        -Label "$Phase ignored import/config namespace query"
+    $blocked = @(
+        @($query.StdoutLines) |
+            ForEach-Object { ([string]$_).Replace("\", "/") } |
+            Where-Object {
+                if ([string]::IsNullOrWhiteSpace($_)) { return $false }
+                $leaf = [IO.Path]::GetFileName([string]$_)
+                $extension = [IO.Path]::GetExtension([string]$_)
+                $isRootControl = ([string]$_ -notmatch '/' -and
+                    $blockedControlNames -icontains $leaf)
+                $isRootExtension = ([string]$_ -notmatch '/' -and
+                    $blockedExtensions -icontains $extension)
+                $topLevel = if ([string]$_ -match '/') {
+                    ([string]$_ -split '/', 2)[0]
+                }
+                else { "" }
+                $isImportRootArtifact = ($importRoots -icontains $topLevel) -and
+                    ($blockedControlNames -icontains $leaf -or
+                     $blockedExtensions -icontains $extension)
+                return (
+                    $isRootControl -or $isRootExtension -or
+                    $isImportRootArtifact
+                )
+            } |
+            Sort-Object -Unique
+    )
+    if ($blocked.Count -ne 0) {
+        $sample = @($blocked | Select-Object -First 10) -join ", "
+        throw "$Phase refuses ignored Python/native import or test-config artifacts: $sample"
+    }
+    return [pscustomobject]@{ Count = 0; Paths = @() }
 }
 
 function Read-WeatherIntegrationSharedText {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(1, 268435456)]
+        [long]$MaximumBytes = 67108864
     )
 
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "Required file is missing: $Path"
-    }
-
-    $stream = [System.IO.File]::Open(
-        $Path,
-        [System.IO.FileMode]::Open,
-        [System.IO.FileAccess]::Read,
-        [System.IO.FileShare]::ReadWrite
-    )
-    try {
-        $reader = New-Object System.IO.StreamReader($stream)
-        try {
-            return $reader.ReadToEnd()
-        }
-        finally {
-            $reader.Dispose()
-        }
-    }
-    finally {
-        $stream.Dispose()
-    }
+    return [string](Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $Path -MaximumBytes $MaximumBytes -ContentType Text).Text
 }
 
 function Enter-WeatherIntegrationControlMutex {
@@ -119,9 +1513,38 @@ function Enter-WeatherIntegrationControlMutex {
 }
 
 function Exit-WeatherIntegrationControlMutex {
-    param([AllowNull()][object]$Mutex)
-    if ($null -ne $Mutex -and $null -ne $Mutex.Stream) {
-        $Mutex.Stream.Dispose()
+    param(
+        [AllowNull()][object]$Mutex,
+        [AllowNull()][Management.Automation.ErrorRecord]$PrimaryError
+    )
+    if ($null -eq $Mutex -or $null -eq $Mutex.Stream) { return }
+    try { $Mutex.Stream.Dispose() }
+    catch {
+        $cleanupMessage = "Integration control mutex cleanup failed: $($_.Exception.Message)"
+        if ($null -ne $PrimaryError) {
+            $priorCleanup = [string]$PrimaryError.Exception.Data[
+                "weather_cleanup_failure"
+            ]
+            $combinedCleanup = if ([string]::IsNullOrWhiteSpace($priorCleanup)) {
+                $cleanupMessage
+            }
+            else { "$priorCleanup | $cleanupMessage" }
+            $PrimaryError.Exception.Data["weather_cleanup_failure"] =
+                $combinedCleanup
+            $existingDetail = if ($null -eq $PrimaryError.ErrorDetails) {
+                ""
+            }
+            else { [string]$PrimaryError.ErrorDetails.Message }
+            $combinedDetail = if ([string]::IsNullOrWhiteSpace($existingDetail)) {
+                "$($PrimaryError.Exception.Message); $cleanupMessage"
+            }
+            else { "$existingDetail; $cleanupMessage" }
+            $PrimaryError.ErrorDetails =
+                [Management.Automation.ErrorDetails]::new($combinedDetail)
+            Write-Warning $cleanupMessage -WarningAction Continue
+            return
+        }
+        throw $cleanupMessage
     }
 }
 
@@ -151,11 +1574,21 @@ function Assert-WeatherIntegrationAttemptNotTerminal {
 function Get-WeatherIntegrationLogVerdict {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+        [AllowNull()][object]$EvidenceSnapshot = $null
     )
 
+    $resolvedPath = Resolve-WeatherIntegrationPath -Path $Path
+    $snapshot = if ($null -eq $EvidenceSnapshot) {
+        Read-WeatherIntegrationEvidenceSnapshot -Path $resolvedPath -MaximumBytes 67108864 -ContentType Text
+    }
+    else { $EvidenceSnapshot }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$snapshot.Path) -Right $resolvedPath)) {
+        throw "Retained log snapshot uses the wrong path: $resolvedPath"
+    }
     $lines = @(
-        (Read-WeatherIntegrationSharedText -Path $Path) -split "`r?`n" |
+        ([string]$snapshot.Text) -split "`r?`n" |
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     )
     if ($lines.Count -eq 0) {
@@ -203,41 +1636,744 @@ function Assert-WeatherIntegrationFullSuiteLogPlan {
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][ValidateRange(1, 1000000)][int]$ExpectedTestFileCount,
         [Parameter(Mandatory = $true)][ValidateRange(1, 25)][int]$ExpectedMaxFilesPerChunk,
-        [Parameter(Mandatory = $true)][ValidateRange(1, 100000)][int]$ExpectedChunkCount
+        [Parameter(Mandatory = $true)][ValidateRange(1, 100000)][int]$ExpectedChunkCount,
+        [AllowNull()][object]$EvidenceSnapshot = $null
     )
 
-    $text = Read-WeatherIntegrationSharedText -Path $Path
+    $plan = Get-WeatherIntegrationSuiteLogDeclaredPlan `
+        -Path $Path -EvidenceSnapshot $EvidenceSnapshot
+    if ([int]$plan.Files -ne $ExpectedTestFileCount -or
+        [int]$plan.MaxFilesPerChunk -ne $ExpectedMaxFilesPerChunk -or
+        [int]$plan.Chunks -ne $ExpectedChunkCount) {
+        throw (
+            "Full suite test plan does not match the frozen manifest: " +
+            "chunks=$($plan.Chunks) files=$($plan.Files) " +
+            "max_files=$($plan.MaxFilesPerChunk)"
+        )
+    }
+    return $plan
+}
+
+function Get-WeatherIntegrationSuiteLogDeclaredPlan {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [AllowNull()][object]$EvidenceSnapshot = $null
+    )
+
+    $resolvedPath = Resolve-WeatherIntegrationPath -Path $Path
+    $snapshot = if ($null -eq $EvidenceSnapshot) {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $resolvedPath -MaximumBytes 67108864 -ContentType Text
+    }
+    else { $EvidenceSnapshot }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$snapshot.Path) -Right $resolvedPath)) {
+        throw "Retained suite-plan snapshot uses the wrong path: $resolvedPath"
+    }
     $matches = [regex]::Matches(
-        $text,
-        '(?m)planned chunks=(?<chunks>[0-9]+) files=(?<files>[0-9]+) max_files=(?<max>[0-9]+)\r?$'
+        [string]$snapshot.Text,
+        '(?m)^.*?  planned chunks=(?<chunks>[0-9]+) files=(?<files>[0-9]+) max_files=(?<max>[0-9]+)\r?$'
     )
     if ($matches.Count -ne 1) {
-        throw "Full suite log must contain exactly one immutable test plan."
+        throw "Suite log must contain exactly one immutable test plan."
     }
-    $match = $matches[0]
-    $chunks = [int]$match.Groups["chunks"].Value
-    $files = [int]$match.Groups["files"].Value
-    $maxFiles = [int]$match.Groups["max"].Value
-    if ($files -ne $ExpectedTestFileCount -or
-        $maxFiles -ne $ExpectedMaxFilesPerChunk -or
-        $chunks -ne $ExpectedChunkCount) {
-        throw "Full suite test plan does not match the frozen manifest: chunks=$chunks files=$files max_files=$maxFiles"
+    $chunks = [int]$matches[0].Groups["chunks"].Value
+    $files = [int]$matches[0].Groups["files"].Value
+    $maxFiles = [int]$matches[0].Groups["max"].Value
+    if ($chunks -le 0 -or $files -le 0 -or $maxFiles -le 0 -or
+        $chunks -ne [int][math]::Ceiling($files / [double]$maxFiles)) {
+        throw "Suite log immutable test plan has an invalid file/chunk ratio."
     }
-    return [pscustomobject]@{ Chunks = $chunks; Files = $files; MaxFilesPerChunk = $maxFiles }
+    return [pscustomobject]@{
+        Chunks = $chunks
+        Files = $files
+        MaxFilesPerChunk = $maxFiles
+    }
+}
+
+function Get-WeatherIntegrationJUnitFileSummary {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $resolvedPath = Resolve-WeatherIntegrationPath -Path $Path
+    $snapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $resolvedPath -MaximumBytes 67108864 -ContentType Text
+    if ([long]$snapshot.Length -le 0) {
+        throw "Suite JUnit evidence is not a bounded regular file: $resolvedPath"
+    }
+    $settings = New-Object System.Xml.XmlReaderSettings
+    $settings.DtdProcessing = [System.Xml.DtdProcessing]::Prohibit
+    $settings.XmlResolver = $null
+    $textReader = New-Object IO.StringReader([string]$snapshot.Text)
+    $reader = [System.Xml.XmlReader]::Create($textReader, $settings)
+    try {
+        $document = New-Object System.Xml.XmlDocument
+        $document.XmlResolver = $null
+        $document.Load($reader)
+    }
+    finally {
+        $reader.Dispose()
+        $textReader.Dispose()
+    }
+    $suiteNodes = if ($document.DocumentElement.Name -ceq "testsuite") {
+        @($document.DocumentElement)
+    }
+    elseif ($document.DocumentElement.Name -ceq "testsuites") {
+        @($document.DocumentElement.SelectNodes("./testsuite"))
+    }
+    else { @() }
+    if ($suiteNodes.Count -eq 0) {
+        throw "Suite JUnit evidence has no top-level testsuite: $resolvedPath"
+    }
+    $summary = [ordered]@{
+        tests = 0
+        failures = 0
+        errors = 0
+        skipped = 0
+        deselected = 0
+    }
+    foreach ($suiteNode in $suiteNodes) {
+        foreach ($name in $summary.Keys) {
+            $attribute = $suiteNode.Attributes[$name]
+            if ($null -eq $attribute) {
+                if ($name -eq "tests") {
+                    throw "Suite JUnit testsuite is missing its tests count: $resolvedPath"
+                }
+                continue
+            }
+            if ([string]$attribute.Value -notmatch '^[0-9]+$') {
+                throw "Suite JUnit testsuite has an invalid $name count: $resolvedPath"
+            }
+            $summary[$name] += [int]$attribute.Value
+        }
+    }
+    $summary["sha256"] = [string]$snapshot.Sha256
+    return [pscustomobject]$summary
+}
+
+function Get-WeatherIntegrationSuiteEvidenceSummary {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][int]$ExpectedChunkCount,
+        [Parameter(Mandatory = $true)][int]$ExpectedPlannedFiles,
+        [AllowNull()][object]$EvidenceSnapshot = $null,
+        [switch]$RequireRuntimeFingerprint
+    )
+
+    $resolvedPath = Resolve-WeatherIntegrationPath -Path $Path
+    $snapshot = if ($null -eq $EvidenceSnapshot) {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $resolvedPath -MaximumBytes 67108864 -ContentType Text
+    }
+    else { $EvidenceSnapshot }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$snapshot.Path) -Right $resolvedPath)) {
+        throw "Retained suite-evidence snapshot uses the wrong path: $resolvedPath"
+    }
+    $text = [string]$snapshot.Text
+    $syntaxMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  syntax python_files=(?<python>[0-9]+) python_inventory_sha256=(?<python_sha>[0-9a-f]{64}) python_list=(?<python_list>.+?) powershell_files=(?<powershell>[0-9]+) powershell_inventory_sha256=(?<powershell_sha>[0-9a-f]{64}) powershell_list=(?<powershell_list>.+?) python_exit=(?<python_exit>-?[0-9]+) powershell_errors=(?<powershell_errors>[0-9]+)\r?$'
+    )
+    $aggregateMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  aggregate tests=(?<tests>[0-9]+) failures=(?<failures>[0-9]+) errors=(?<errors>[0-9]+) skipped=(?<skipped>[0-9]+) deselected=(?<deselected>[0-9]+) planned_files=(?<files>[0-9]+) inventory_sha256=(?<inventory_sha>[0-9a-f]{64}) inventory_path=(?<inventory_path>.+?)\r?$'
+    )
+    $junitMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  chunk (?<ordinal>[0-9]+)/(?<chunks>[0-9]+) junit_summary path=(?<path>.+?) sha256=(?<sha>[0-9a-f]{64}) tests=(?<tests>[0-9]+) failures=(?<failures>[0-9]+) errors=(?<errors>[0-9]+) skipped=(?<skipped>[0-9]+) deselected=(?<deselected>[0-9]+)\r?$'
+    )
+    $pythonEnvironmentMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  python_environment phase=(?<phase>pre|post) schema=(?<schema>python_environment_fingerprint_v[12]) sha256=(?<sha>[0-9a-f]{64}) distributions=(?<distributions>[0-9]+)(?: files=(?<files>[0-9]+) bytes=(?<bytes>[0-9]+))? path=(?<path>.+?)\r?$'
+    )
+    $pythonEnvironmentStableMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  python_environment stable=true pre_sha256=(?<pre_sha>[0-9a-f]{64}) post_sha256=(?<post_sha>[0-9a-f]{64}) distributions=(?<distributions>[0-9]+)(?: files=(?<files>[0-9]+) bytes=(?<bytes>[0-9]+))?\r?$'
+    )
+    $toolchainMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  integration_toolchain phase=(?<phase>pre|post) schema=(?<schema>integration_toolchain_fingerprint_v1) sha256=(?<sha>[0-9a-f]{64}) git_sha256=(?<git_sha>[0-9a-f]{64}) git_lfs_sha256=(?<git_lfs_sha>[0-9a-f]{64}) powershell_sha256=(?<powershell_sha>[0-9a-f]{64}) path=(?<path>.+?)\r?$'
+    )
+    $toolchainStableMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  integration_toolchain stable=true pre_sha256=(?<pre_sha>[0-9a-f]{64}) post_sha256=(?<post_sha>[0-9a-f]{64})\r?$'
+    )
+    $trackedWorktreeMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  tracked_worktree phase=(?<phase>pre|post) schema=(?<schema>tracked_worktree_content_fingerprint_v1) sha256=(?<sha>[0-9a-f]{64}) files=(?<files>[0-9]+) bytes=(?<bytes>[0-9]+) lfs_files=(?<lfs_files>[0-9]+) path=(?<path>.+?)\r?$'
+    )
+    $trackedWorktreeStableMatches = [regex]::Matches(
+        $text,
+        '(?m)^.*?  tracked_worktree stable=true pre_sha256=(?<pre_sha>[0-9a-f]{64}) post_sha256=(?<post_sha>[0-9a-f]{64}) files=(?<files>[0-9]+) bytes=(?<bytes>[0-9]+) lfs_files=(?<lfs_files>[0-9]+)\r?$'
+    )
+    $runtimeFingerprintRecordCount = $pythonEnvironmentMatches.Count +
+        $pythonEnvironmentStableMatches.Count + $toolchainMatches.Count +
+        $toolchainStableMatches.Count
+    if ($syntaxMatches.Count -ne 1 -or $aggregateMatches.Count -ne 1 -or
+        $junitMatches.Count -ne $ExpectedChunkCount) {
+        throw "Suite log lacks one exact syntax/aggregate record and every JUnit binding."
+    }
+    $hasRuntimeFingerprint = ($runtimeFingerprintRecordCount -ne 0)
+    if (($RequireRuntimeFingerprint -or $hasRuntimeFingerprint) -and
+        ($pythonEnvironmentMatches.Count -ne 2 -or
+         $pythonEnvironmentStableMatches.Count -ne 1 -or
+         $toolchainMatches.Count -ne 2 -or
+         $toolchainStableMatches.Count -ne 1)) {
+        throw "Suite log lacks one complete exact Python-environment/toolchain fingerprint."
+    }
+    $trackedFingerprintRecordCount = $trackedWorktreeMatches.Count +
+        $trackedWorktreeStableMatches.Count
+    $hasTrackedFingerprint = ($trackedFingerprintRecordCount -ne 0)
+    if (($RequireRuntimeFingerprint -or $hasTrackedFingerprint) -and
+        ($trackedWorktreeMatches.Count -ne 2 -or
+         $trackedWorktreeStableMatches.Count -ne 1)) {
+        throw "Suite log lacks one complete exact tracked-worktree content fingerprint."
+    }
+    $pythonEnvironmentByPhase = @{}
+    $toolchainByPhase = @{}
+    $pythonEnvironmentSnapshots = @{}
+    $trackedWorktreeByPhase = @{}
+    $trackedWorktreeSnapshots = @{}
+    if ($hasRuntimeFingerprint) {
+        foreach ($match in $pythonEnvironmentMatches) {
+            $phase = [string]$match.Groups["phase"].Value
+            if ($pythonEnvironmentByPhase.ContainsKey($phase)) {
+                throw "Suite log repeats its Python environment $phase record."
+            }
+            $pythonEnvironmentByPhase[$phase] = $match.Groups
+        }
+        foreach ($match in $toolchainMatches) {
+            $phase = [string]$match.Groups["phase"].Value
+            if ($toolchainByPhase.ContainsKey($phase)) {
+                throw "Suite log repeats its integration toolchain $phase record."
+            }
+            $toolchainByPhase[$phase] = $match.Groups
+        }
+        if (-not $pythonEnvironmentByPhase.ContainsKey("pre") -or
+            -not $pythonEnvironmentByPhase.ContainsKey("post") -or
+            -not $toolchainByPhase.ContainsKey("pre") -or
+            -not $toolchainByPhase.ContainsKey("post")) {
+            throw "Suite log lacks exact pre/post runtime fingerprint records."
+        }
+        $pythonEnvironmentPre = $pythonEnvironmentByPhase["pre"]
+        $pythonEnvironmentPost = $pythonEnvironmentByPhase["post"]
+        $pythonEnvironmentStable = $pythonEnvironmentStableMatches[0].Groups
+        $toolchainPre = $toolchainByPhase["pre"]
+        $toolchainPost = $toolchainByPhase["post"]
+        $toolchainStable = $toolchainStableMatches[0].Groups
+        $pythonSchema = [string]$pythonEnvironmentPre["schema"].Value
+        if ([string]$pythonEnvironmentPre["sha"].Value -cne
+                [string]$pythonEnvironmentPost["sha"].Value -or
+            [string]$pythonEnvironmentStable["pre_sha"].Value -cne
+                [string]$pythonEnvironmentPre["sha"].Value -or
+            [string]$pythonEnvironmentStable["post_sha"].Value -cne
+                [string]$pythonEnvironmentPost["sha"].Value -or
+            [int]$pythonEnvironmentPre["distributions"].Value -ne
+                [int]$pythonEnvironmentPost["distributions"].Value -or
+            [int]$pythonEnvironmentStable["distributions"].Value -ne
+                [int]$pythonEnvironmentPost["distributions"].Value -or
+            [string]$toolchainPre["sha"].Value -cne
+                [string]$toolchainPost["sha"].Value -or
+            [string]$toolchainStable["pre_sha"].Value -cne
+                [string]$toolchainPre["sha"].Value -or
+            [string]$toolchainStable["post_sha"].Value -cne
+                [string]$toolchainPost["sha"].Value) {
+            throw "Suite log does not prove stable runtime fingerprints."
+        }
+        if ([string]$pythonEnvironmentPost["schema"].Value -cne $pythonSchema -or
+            ($RequireRuntimeFingerprint -and $pythonSchema -cne
+                "python_environment_fingerprint_v2") -or
+            ($pythonSchema -ceq "python_environment_fingerprint_v2" -and
+                ([int]$pythonEnvironmentPre["files"].Value -le 0 -or
+                 [int]$pythonEnvironmentPre["files"].Value -ne
+                    [int]$pythonEnvironmentPost["files"].Value -or
+                 [int]$pythonEnvironmentStable["files"].Value -ne
+                    [int]$pythonEnvironmentPost["files"].Value -or
+                 [long]$pythonEnvironmentPre["bytes"].Value -le 0 -or
+                 [long]$pythonEnvironmentPre["bytes"].Value -ne
+                    [long]$pythonEnvironmentPost["bytes"].Value -or
+                 [long]$pythonEnvironmentStable["bytes"].Value -ne
+                    [long]$pythonEnvironmentPost["bytes"].Value))) {
+            throw "Suite log does not prove one stable verified Python v2 content fingerprint."
+        }
+        foreach ($phase in @("pre", "post")) {
+            $pythonGroups = $pythonEnvironmentByPhase[$phase]
+            $toolchainGroups = $toolchainByPhase[$phase]
+            $pythonPath = Resolve-WeatherIntegrationPath `
+                -Path ([string]$pythonGroups["path"].Value)
+            $toolchainPath = Resolve-WeatherIntegrationPath `
+                -Path ([string]$toolchainGroups["path"].Value)
+            $expectedPythonPath = "$resolvedPath.python-environment.$phase.json"
+            $expectedToolchainPath = "$resolvedPath.integration-toolchain.$phase.json"
+            if (-not (Test-WeatherIntegrationPathEqual `
+                    -Left $pythonPath -Right $expectedPythonPath) -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left $toolchainPath -Right $expectedToolchainPath)) {
+                throw "Suite runtime fingerprint sidecar path is not canonical for $phase."
+            }
+            $pythonSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+                -Path $pythonPath -MaximumBytes 16777216 -ContentType Json
+            $pythonEnvironmentSnapshots[$phase] = $pythonSnapshot
+            $toolchainSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+                -Path $toolchainPath -MaximumBytes 1048576 -ContentType Json
+            if ([string]$pythonSnapshot.Sha256 -cne
+                    [string]$pythonGroups["sha"].Value -or
+                [string]$pythonSnapshot.Payload.schema_version -cne
+                    [string]$pythonGroups["schema"].Value -or
+                [string]$pythonSnapshot.Payload.executable_sha256 -cnotmatch
+                    '^[0-9a-f]{64}$' -or
+                [string]::IsNullOrWhiteSpace(
+                    [string]$pythonSnapshot.Payload.executable
+                ) -or
+                @($pythonSnapshot.Payload.distributions).Count -ne
+                    [int]$pythonGroups["distributions"].Value -or
+                [string]$toolchainSnapshot.Sha256 -cne
+                    [string]$toolchainGroups["sha"].Value -or
+                [string]$toolchainSnapshot.Payload.schema_version -cne
+                    "integration_toolchain_fingerprint_v1" -or
+                [string]$toolchainSnapshot.Payload.git.executable_sha256 -cne
+                    [string]$toolchainGroups["git_sha"].Value -or
+                [string]$toolchainSnapshot.Payload.git_lfs.executable_sha256 -cne
+                    [string]$toolchainGroups["git_lfs_sha"].Value -or
+                [string]$toolchainSnapshot.Payload.powershell.executable_sha256 -cne
+                    [string]$toolchainGroups["powershell_sha"].Value) {
+                throw "Suite runtime fingerprint sidecar is malformed or changed for $phase."
+            }
+            if ([string]$pythonGroups["schema"].Value -ceq
+                    "python_environment_fingerprint_v2") {
+                Assert-WeatherIntegrationPythonEnvironmentFingerprintPayload `
+                    -Payload $pythonSnapshot.Payload `
+                    -ExpectedExecutable ([string]$pythonSnapshot.Payload.executable) `
+                    -ExpectedExecutableSha256 (
+                        [string]$pythonSnapshot.Payload.executable_sha256
+                    ) `
+                    -ExpectedDistributionCount (
+                        [int]$pythonGroups["distributions"].Value
+                    ) `
+                    -ExpectedFileCount ([int]$pythonGroups["files"].Value) `
+                    -ExpectedTotalBytes ([long]$pythonGroups["bytes"].Value) `
+                    -Label "Suite Python environment $phase sidecar" | Out-Null
+            }
+            $toolchainControls = $toolchainSnapshot.Payload.controls
+            $toolchainControlNames = @(
+                $toolchainControls.PSObject.Properties.Name | Sort-Object
+            )
+            $requiredToolchainControls = @(
+                "allowed_write_root", "candidate_root", "git_allow_protocol",
+                "git_terminal_prompt", "offline", "production_root",
+                "pythonhashseed", "pythonioencoding", "pythonutf8",
+                "secret_environment_clear", "secret_environment_count",
+                "secret_policy", "temp_policy"
+            ) | Sort-Object
+            if (($toolchainControlNames -join "`n") -cne
+                    ($requiredToolchainControls -join "`n") -or
+                [string]$toolchainControls.pythonhashseed -cne "0" -or
+                [string]$toolchainControls.pythonutf8 -cne "1" -or
+                [string]$toolchainControls.pythonioencoding -cne "utf-8" -or
+                [string]$toolchainControls.git_allow_protocol -cne "file" -or
+                [string]$toolchainControls.git_terminal_prompt -cne "0" -or
+                [string]$toolchainControls.offline -cne "1" -or
+                -not [string]::IsNullOrEmpty(
+                    [string]$toolchainControls.allowed_write_root
+                ) -or
+                -not [IO.Path]::IsPathRooted(
+                    [string]$toolchainControls.candidate_root
+                ) -or
+                -not [IO.Path]::IsPathRooted(
+                    [string]$toolchainControls.production_root
+                ) -or
+                [string]$toolchainControls.secret_policy -cne
+                    "conservative_v1" -or
+                $toolchainControls.secret_environment_clear -isnot [bool] -or
+                -not [bool]$toolchainControls.secret_environment_clear -or
+                [int]$toolchainControls.secret_environment_count -ne 0 -or
+                [string]$toolchainControls.temp_policy -cne
+                    "system_temp_unique_v1" -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$toolchainControls.candidate_root) `
+                    -Right ([string]$pythonSnapshot.Payload.controls.candidate_root)) -or
+                -not (Test-WeatherIntegrationPathEqual `
+                    -Left ([string]$toolchainControls.production_root) `
+                    -Right ([string]$pythonSnapshot.Payload.controls.production_root))) {
+                throw "Suite toolchain $phase sidecar has invalid or inconsistent deterministic controls."
+            }
+        }
+    }
+    if ($hasTrackedFingerprint) {
+        foreach ($match in $trackedWorktreeMatches) {
+            $phase = [string]$match.Groups["phase"].Value
+            if ($trackedWorktreeByPhase.ContainsKey($phase)) {
+                throw "Suite log repeats its tracked-worktree $phase record."
+            }
+            $trackedWorktreeByPhase[$phase] = $match.Groups
+        }
+        if (-not $trackedWorktreeByPhase.ContainsKey("pre") -or
+            -not $trackedWorktreeByPhase.ContainsKey("post")) {
+            throw "Suite log lacks exact pre/post tracked-worktree records."
+        }
+        $trackedPre = $trackedWorktreeByPhase["pre"]
+        $trackedPost = $trackedWorktreeByPhase["post"]
+        $trackedStable = $trackedWorktreeStableMatches[0].Groups
+        if ([string]$trackedPre["sha"].Value -cne
+                [string]$trackedPost["sha"].Value -or
+            [string]$trackedStable["pre_sha"].Value -cne
+                [string]$trackedPre["sha"].Value -or
+            [string]$trackedStable["post_sha"].Value -cne
+                [string]$trackedPost["sha"].Value -or
+            [int]$trackedPre["files"].Value -ne
+                [int]$trackedPost["files"].Value -or
+            [int]$trackedStable["files"].Value -ne
+                [int]$trackedPost["files"].Value -or
+            [long]$trackedPre["bytes"].Value -ne
+                [long]$trackedPost["bytes"].Value -or
+            [long]$trackedStable["bytes"].Value -ne
+                [long]$trackedPost["bytes"].Value -or
+            [int]$trackedPre["lfs_files"].Value -ne
+                [int]$trackedPost["lfs_files"].Value -or
+            [int]$trackedStable["lfs_files"].Value -ne
+                [int]$trackedPost["lfs_files"].Value) {
+            throw "Suite log does not prove stable tracked-worktree content."
+        }
+        foreach ($phase in @("pre", "post")) {
+            $groups = $trackedWorktreeByPhase[$phase]
+            $sidecarPath = Resolve-WeatherIntegrationPath `
+                -Path ([string]$groups["path"].Value)
+            $expectedSidecarPath = "$resolvedPath.tracked-worktree.$phase.json"
+            if (-not (Test-WeatherIntegrationPathEqual `
+                    -Left $sidecarPath -Right $expectedSidecarPath)) {
+                throw "Suite tracked-worktree sidecar path is not canonical for $phase."
+            }
+            $sidecarSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+                -Path $sidecarPath -MaximumBytes 16777216 -ContentType Json
+            $trackedWorktreeSnapshots[$phase] = $sidecarSnapshot
+            Assert-WeatherIntegrationTrackedWorktreeFingerprintPayload `
+                -Payload $sidecarSnapshot.Payload `
+                -ExpectedRoot ([string]$sidecarSnapshot.Payload.root) `
+                -ExpectedHead ([string]$sidecarSnapshot.Payload.head) `
+                -ExpectedSha256 ([string]$groups["sha"].Value) `
+                -ExpectedFileCount ([int]$groups["files"].Value) `
+                -ExpectedTotalBytes ([long]$groups["bytes"].Value) `
+                -ExpectedLfsFileCount ([int]$groups["lfs_files"].Value) `
+                -Label "Suite tracked-worktree $phase sidecar" | Out-Null
+        }
+        $prePayload = $trackedWorktreeSnapshots["pre"].Payload
+        $postPayload = $trackedWorktreeSnapshots["post"].Payload
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$prePayload.root) `
+                -Right ([string]$postPayload.root)) -or
+            [string]$prePayload.head -cne [string]$postPayload.head) {
+            throw "Suite tracked-worktree pre/post sidecars bind different roots or commits."
+        }
+    }
+    $syntax = $syntaxMatches[0].Groups
+    $aggregate = $aggregateMatches[0].Groups
+    $pythonListPath = Resolve-WeatherIntegrationPath -Path ([string]$syntax["python_list"].Value)
+    $powerShellListPath = Resolve-WeatherIntegrationPath -Path ([string]$syntax["powershell_list"].Value)
+    $inventoryPath = Resolve-WeatherIntegrationPath -Path ([string]$aggregate["inventory_path"].Value)
+    foreach ($binding in @(
+        [pscustomobject]@{ Path = $pythonListPath; Sha = [string]$syntax["python_sha"].Value; Count = [int]$syntax["python"].Value },
+        [pscustomobject]@{ Path = $powerShellListPath; Sha = [string]$syntax["powershell_sha"].Value; Count = [int]$syntax["powershell"].Value },
+        [pscustomobject]@{ Path = $inventoryPath; Sha = [string]$aggregate["inventory_sha"].Value; Count = [int]$aggregate["files"].Value }
+    )) {
+        $inventorySnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $binding.Path -MaximumBytes 67108864 -ContentType Text
+        $rows = @(([string]$inventorySnapshot.Text) -split "`r?`n" |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($binding.Count -le 0 -or $rows.Count -ne $binding.Count -or
+            [string]$inventorySnapshot.Sha256 -ne $binding.Sha) {
+            throw "Suite inventory binding changed or is incomplete: $($binding.Path)"
+        }
+    }
+    $junitRows = New-Object System.Collections.Generic.List[object]
+    $sumTests = 0
+    $sumFailures = 0
+    $sumErrors = 0
+    $sumSkipped = 0
+    $sumDeselected = 0
+    for ($index = 0; $index -lt $junitMatches.Count; $index++) {
+        $groups = $junitMatches[$index].Groups
+        $junitPath = Resolve-WeatherIntegrationPath -Path ([string]$groups["path"].Value)
+        $tests = [int]$groups["tests"].Value
+        $failures = [int]$groups["failures"].Value
+        $errors = [int]$groups["errors"].Value
+        $skipped = [int]$groups["skipped"].Value
+        $deselected = [int]$groups["deselected"].Value
+        $junitSummary = Get-WeatherIntegrationJUnitFileSummary -Path $junitPath
+        if ([int]$groups["ordinal"].Value -ne ($index + 1) -or
+            [int]$groups["chunks"].Value -ne $ExpectedChunkCount -or
+            $tests -le 0 -or ($tests - $skipped) -le 0 -or
+            $failures -ne 0 -or $errors -ne 0 -or $deselected -ne 0 -or
+            [int]$junitSummary.tests -ne $tests -or
+            [int]$junitSummary.failures -ne $failures -or
+            [int]$junitSummary.errors -ne $errors -or
+            [int]$junitSummary.skipped -ne $skipped -or
+            [int]$junitSummary.deselected -ne $deselected -or
+            [string]$junitSummary.sha256 -ne
+                [string]$groups["sha"].Value) {
+            throw "Suite JUnit binding does not prove one exact executed PASS chunk."
+        }
+        $sumTests += $tests
+        $sumFailures += $failures
+        $sumErrors += $errors
+        $sumSkipped += $skipped
+        $sumDeselected += $deselected
+        $junitRows.Add([ordered]@{
+            ordinal = $index + 1
+            path = $junitPath
+            sha256 = [string]$groups["sha"].Value
+            tests = $tests
+            failures = $failures
+            errors = $errors
+            skipped = $skipped
+            deselected = $deselected
+        })
+    }
+    if ([int]$syntax["python_exit"].Value -ne 0 -or
+        [int]$syntax["powershell_errors"].Value -ne 0 -or
+        [int]$aggregate["files"].Value -ne $ExpectedPlannedFiles -or
+        [int]$aggregate["tests"].Value -ne $sumTests -or
+        [int]$aggregate["failures"].Value -ne $sumFailures -or
+        [int]$aggregate["errors"].Value -ne $sumErrors -or
+        [int]$aggregate["skipped"].Value -ne $sumSkipped -or
+        [int]$aggregate["deselected"].Value -ne $sumDeselected) {
+        throw "Suite aggregate/syntax evidence does not match its bound inventories and JUnits."
+    }
+    $result = [ordered]@{
+        planned_files = [int]$aggregate["files"].Value
+        inventory_path = $inventoryPath
+        inventory_sha256 = [string]$aggregate["inventory_sha"].Value
+        tests = $sumTests
+        failures = $sumFailures
+        errors = $sumErrors
+        skipped = $sumSkipped
+        deselected = $sumDeselected
+        python_files = [int]$syntax["python"].Value
+        python_inventory_path = $pythonListPath
+        python_inventory_sha256 = [string]$syntax["python_sha"].Value
+        powershell_files = [int]$syntax["powershell"].Value
+        powershell_inventory_path = $powerShellListPath
+        powershell_inventory_sha256 = [string]$syntax["powershell_sha"].Value
+        junit = @($junitRows)
+    }
+    if ($hasRuntimeFingerprint) {
+        $result["python_environment_schema"] =
+            [string]$pythonEnvironmentPre["schema"].Value
+        $result["python_environment_sha256"] =
+            [string]$pythonEnvironmentPre["sha"].Value
+        $result["python_environment_distributions"] =
+            [int]$pythonEnvironmentPre["distributions"].Value
+        if ([string]$pythonEnvironmentPre["schema"].Value -ceq
+                "python_environment_fingerprint_v2") {
+            $result["python_environment_files"] =
+                [int]$pythonEnvironmentPre["files"].Value
+            $result["python_environment_bytes"] =
+                [long]$pythonEnvironmentPre["bytes"].Value
+        }
+        $pythonPostSnapshot = $pythonEnvironmentSnapshots["post"]
+        $result["python_executable_sha256"] =
+            [string]$pythonPostSnapshot.Payload.executable_sha256
+        $result["python_environment_pre_path"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$pythonEnvironmentPre["path"].Value)
+        $result["python_environment_post_path"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$pythonEnvironmentPost["path"].Value)
+        $result["python_environment_candidate_root"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$pythonPostSnapshot.Payload.controls.candidate_root)
+        $result["python_environment_production_root"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$pythonPostSnapshot.Payload.controls.production_root)
+        $result["toolchain_schema"] = [string]$toolchainPre["schema"].Value
+        $result["toolchain_sha256"] = [string]$toolchainPre["sha"].Value
+        $result["toolchain_git_sha256"] = [string]$toolchainPre["git_sha"].Value
+        $result["toolchain_git_lfs_sha256"] =
+            [string]$toolchainPre["git_lfs_sha"].Value
+        $result["toolchain_powershell_sha256"] =
+            [string]$toolchainPre["powershell_sha"].Value
+        $result["toolchain_pre_path"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$toolchainPre["path"].Value)
+        $result["toolchain_post_path"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$toolchainPost["path"].Value)
+    }
+    if ($hasTrackedFingerprint) {
+        $result["tracked_worktree_schema"] = [string]$trackedPre["schema"].Value
+        $result["tracked_worktree_sha256"] = [string]$trackedPre["sha"].Value
+        $result["tracked_worktree_file_count"] = [int]$trackedPre["files"].Value
+        $result["tracked_worktree_total_bytes"] = [long]$trackedPre["bytes"].Value
+        $result["tracked_worktree_lfs_file_count"] =
+            [int]$trackedPre["lfs_files"].Value
+        $result["tracked_worktree_root"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$trackedWorktreeSnapshots["pre"].Payload.root)
+        $result["tracked_worktree_head"] =
+            [string]$trackedWorktreeSnapshots["pre"].Payload.head
+        $result["tracked_worktree_pre_path"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$trackedPre["path"].Value)
+        $result["tracked_worktree_post_path"] = Resolve-WeatherIntegrationPath `
+            -Path ([string]$trackedPost["path"].Value)
+    }
+    return [pscustomobject]$result
+}
+
+function Assert-WeatherIntegrationRepeatedSuiteSummary {
+    param(
+        [Parameter(Mandatory = $true)][object]$QualificationSummary,
+        [Parameter(Mandatory = $true)][object]$RepeatedSummary,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    foreach ($name in @(
+        "planned_files", "inventory_sha256", "tests", "failures", "errors",
+        "skipped", "deselected", "python_files", "python_inventory_sha256",
+        "powershell_files", "powershell_inventory_sha256",
+        "python_environment_schema", "python_environment_sha256",
+        "python_environment_distributions", "python_environment_files",
+        "python_environment_bytes", "python_executable_sha256",
+        "python_environment_candidate_root",
+        "python_environment_production_root",
+        "toolchain_schema",
+        "toolchain_sha256", "toolchain_git_sha256", "toolchain_git_lfs_sha256",
+        "toolchain_powershell_sha256", "tracked_worktree_schema",
+        "tracked_worktree_sha256", "tracked_worktree_file_count",
+        "tracked_worktree_total_bytes", "tracked_worktree_lfs_file_count"
+    )) {
+        if ([string]$QualificationSummary.$name -cne [string]$RepeatedSummary.$name) {
+            throw "$Label repeated run disagrees with pre-arming qualification field $name."
+        }
+    }
+    if (@($QualificationSummary.junit).Count -ne @($RepeatedSummary.junit).Count) {
+        throw "$Label repeated run has a different exact JUnit chunk count."
+    }
+    return $RepeatedSummary
+}
+
+function Assert-WeatherIntegrationExpectedSuiteInventories {
+    param(
+        [Parameter(Mandatory = $true)][object]$Summary,
+        [Parameter(Mandatory = $true)][object]$Expected,
+        [Parameter(Mandatory = $true)][string]$ExpectedRepoRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedWorktreeRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedTip,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [switch]$IncludeTestInventory
+    )
+
+    foreach ($binding in @(
+        [pscustomobject]@{
+            CountName = "python_files"
+            HashName = "python_inventory_sha256"
+            ExpectedCountName = "expected_python_file_count"
+            ExpectedHashName = "expected_python_inventory_sha256"
+        },
+        [pscustomobject]@{
+            CountName = "powershell_files"
+            HashName = "powershell_inventory_sha256"
+            ExpectedCountName = "expected_powershell_file_count"
+            ExpectedHashName = "expected_powershell_inventory_sha256"
+        }
+    )) {
+        if ([int]$Summary.($binding.CountName) -ne
+                [int]$Expected.($binding.ExpectedCountName) -or
+            [string]$Summary.($binding.HashName) -cne
+                [string]$Expected.($binding.ExpectedHashName)) {
+            throw "$Label does not match the creator-frozen $($binding.CountName) inventory."
+        }
+    }
+    if ($IncludeTestInventory -and
+        ([int]$Summary.planned_files -ne [int]$Expected.expected_test_file_count -or
+         [string]$Summary.inventory_sha256 -cne
+            [string]$Expected.expected_test_inventory_sha256)) {
+        throw "$Label does not match the creator-frozen pytest inventory."
+    }
+    if ([string]$Summary.tracked_worktree_schema -cne
+            [string]$Expected.expected_tracked_worktree_schema -or
+        [string]$Summary.tracked_worktree_sha256 -cne
+            [string]$Expected.expected_tracked_worktree_sha256 -or
+        [int]$Summary.tracked_worktree_file_count -ne
+            [int]$Expected.expected_tracked_worktree_file_count -or
+        [long]$Summary.tracked_worktree_total_bytes -ne
+            [long]$Expected.expected_tracked_worktree_total_bytes -or
+        [int]$Summary.tracked_worktree_lfs_file_count -ne
+            [int]$Expected.expected_tracked_worktree_lfs_file_count -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$Summary.tracked_worktree_root) `
+            -Right $ExpectedWorktreeRoot) -or
+        [string]$Summary.tracked_worktree_head -cne
+            $ExpectedTip) {
+        throw "$Label does not match the creator-frozen tracked working inputs."
+    }
+    if ([string]$Summary.python_environment_schema -cne
+            [string]$Expected.expected_python_environment_schema -or
+        [string]$Summary.python_environment_sha256 -cne
+            [string]$Expected.expected_python_environment_sha256 -or
+        [int]$Summary.python_environment_distributions -ne
+            [int]$Expected.expected_python_environment_distributions -or
+        [int]$Summary.python_environment_files -ne
+            [int]$Expected.expected_python_environment_files -or
+        [long]$Summary.python_environment_bytes -ne
+            [long]$Expected.expected_python_environment_bytes -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$Summary.python_environment_candidate_root) `
+            -Right $ExpectedWorktreeRoot) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$Summary.python_environment_production_root) `
+            -Right $ExpectedRepoRoot)) {
+        throw "$Label does not match the qualification-frozen Python environment."
+    }
+    if ([string]$Summary.toolchain_schema -cne
+            [string]$Expected.expected_toolchain_schema -or
+        [string]$Summary.toolchain_sha256 -cne
+            [string]$Expected.expected_toolchain_sha256) {
+        throw "$Label does not match the qualification-frozen integration toolchain."
+    }
+    return $Summary
 }
 
 function Read-WeatherIntegrationSharedJson {
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(1, 268435456)]
+        [long]$MaximumBytes = 2097152
     )
 
-    $text = Read-WeatherIntegrationSharedText -Path $Path
-    try {
-        return $text | ConvertFrom-Json
+    return (Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $Path -MaximumBytes $MaximumBytes -ContentType Json).Payload
+}
+
+function Assert-WeatherIntegrationJsonPayloadDepth {
+    param(
+        [AllowNull()][object]$Value,
+        [ValidateRange(1, 100)][int]$MaximumDepth = 64,
+        [int]$Depth = 0
+    )
+
+    if ($null -eq $Value -or $Value -is [string] -or
+        $Value -is [char] -or $Value -is [bool] -or
+        $Value -is [datetime] -or $Value -is [datetimeoffset] -or
+        $Value -is [guid] -or $Value -is [timespan] -or
+        $Value.GetType().IsPrimitive -or $Value -is [decimal] -or
+        $Value.GetType().IsEnum) {
+        return
     }
-    catch {
-        throw "Could not parse JSON from ${Path}: $($_.Exception.Message)"
+    if ($Depth -ge $MaximumDepth) {
+        throw "Immutable JSON payload exceeds the supported depth of $MaximumDepth."
+    }
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        foreach ($child in $Value.Values) {
+            Assert-WeatherIntegrationJsonPayloadDepth `
+                -Value $child -MaximumDepth $MaximumDepth -Depth ($Depth + 1)
+        }
+        return
+    }
+    if ($Value -is [System.Collections.IEnumerable]) {
+        foreach ($child in $Value) {
+            Assert-WeatherIntegrationJsonPayloadDepth `
+                -Value $child -MaximumDepth $MaximumDepth -Depth ($Depth + 1)
+        }
+        return
+    }
+    foreach ($property in @($Value.PSObject.Properties | Where-Object {
+        $_.MemberType -in @("NoteProperty", "Property", "AliasProperty")
+    })) {
+        Assert-WeatherIntegrationJsonPayloadDepth `
+            -Value $property.Value -MaximumDepth $MaximumDepth -Depth ($Depth + 1)
     }
 }
 
@@ -249,33 +2385,137 @@ function Write-WeatherIntegrationImmutableJson {
         [object]$Payload
     )
 
-    if (Test-Path -LiteralPath $Path) {
-        throw "Immutable evidence already exists and will not be replaced: $Path"
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    if ([string]::IsNullOrWhiteSpace([IO.Path]::GetFileName($resolvedPath))) {
+        throw "Immutable evidence path must name a file: $Path"
+    }
+    if (Test-Path -LiteralPath $resolvedPath) {
+        throw "Immutable evidence already exists and will not be replaced: $resolvedPath"
     }
 
-    $parent = Split-Path -Parent $Path
+    $parent = [IO.Path]::GetDirectoryName($resolvedPath)
     if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
         throw "Evidence parent directory is missing: $parent"
     }
-
-    $temporaryPath = "$Path.$PID.tmp"
-    if (Test-Path -LiteralPath $temporaryPath) {
-        throw "Temporary evidence path already exists: $temporaryPath"
+    $parentItem = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+    if (-not $parentItem.PSIsContainer -or
+        ($parentItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$parentItem.FullName) -Right $parent)) {
+        throw "Evidence parent must be an exact non-reparse directory: $parent"
     }
 
-    $json = $Payload | ConvertTo-Json -Depth 20
-    $encoding = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($temporaryPath, $json + [Environment]::NewLine, $encoding)
+    # ConvertTo-Json otherwise warns and silently stringifies deeper values.
+    # Reject an unsupported graph before any sibling temp is created.
+    Assert-WeatherIntegrationJsonPayloadDepth -Value $Payload -MaximumDepth 64
+    $json = $Payload | ConvertTo-Json -Depth 100 -ErrorAction Stop
+    try { $null = $json | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "Immutable JSON serialization did not round-trip as JSON: $($_.Exception.Message)" }
+    $encoding = New-Object System.Text.UTF8Encoding($false, $true)
+    [byte[]]$bytes = $encoding.GetBytes($json + [Environment]::NewLine)
+    if ($bytes.Length -le 0 -or $bytes.Length -gt 268435456) {
+        throw "Immutable JSON serialization is empty or exceeds the 256 MiB evidence bound."
+    }
+    $expectedHash = [Security.Cryptography.SHA256]::Create()
     try {
+        $expectedSha256 = (([BitConverter]::ToString(
+            $expectedHash.ComputeHash($bytes)
+        )) -replace '-', '').ToLowerInvariant()
+    }
+    finally { $expectedHash.Dispose() }
+    $temporaryPath = Join-Path $parent (
+        ".{0}.{1}.tmp" -f [IO.Path]::GetFileName($resolvedPath),
+            [guid]::NewGuid().ToString("N")
+    )
+    $temporaryStream = $null
+    $temporaryCreated = $false
+    $published = $false
+    $primaryError = $null
+    $cleanupErrors = New-Object System.Collections.Generic.List[string]
+    try {
+        $temporaryStream = [IO.File]::Open(
+            $temporaryPath,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::Write,
+            [IO.FileShare]::None
+        )
+        $temporaryCreated = $true
+        $temporaryStream.Write($bytes, 0, $bytes.Length)
+        $temporaryStream.Flush($true)
+        $temporaryStream.Dispose()
+        $temporaryStream = $null
+        $temporaryItem = Get-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+        if ($temporaryItem.PSIsContainer -or
+            ($temporaryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$temporaryItem.FullName) -Right $temporaryPath)) {
+            throw "Temporary evidence path is not an exact plain file: $temporaryPath"
+        }
         # File.Move is one same-volume create-if-absent operation. It never
         # replaces an existing destination, including under concurrent claimers.
-        [System.IO.File]::Move($temporaryPath, $Path)
+        [IO.File]::Move($temporaryPath, $resolvedPath)
+        $published = $true
+        $publishedItem = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+        if ($publishedItem.PSIsContainer -or
+            ($publishedItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$publishedItem.FullName) -Right $resolvedPath)) {
+            throw "Published immutable evidence is not an exact plain file: $resolvedPath"
+        }
+        $publishedSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $resolvedPath -MaximumBytes 268435456 -ContentType Bytes
+        if ([long]$publishedSnapshot.Length -ne [long]$bytes.Length -or
+            [string]$publishedSnapshot.Sha256 -cne $expectedSha256) {
+            throw "Published immutable evidence bytes do not match the in-memory serialization: $resolvedPath"
+        }
     }
     catch {
-        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
-            Remove-Item -LiteralPath $temporaryPath -Force
+        $primaryError = $_
+    }
+    finally {
+        if ($null -ne $temporaryStream) {
+            try { $temporaryStream.Dispose() }
+            catch {
+                $cleanupErrors.Add(
+                    "temporary stream disposal failed: $($_.Exception.Message)"
+                )
+            }
         }
-        throw
+        if ($temporaryCreated -and -not $published) {
+            try {
+                if (-not (Test-Path -LiteralPath $temporaryPath)) {
+                    throw "Temporary evidence disappeared before cleanup proof: $temporaryPath"
+                }
+                $cleanupItem = Get-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+                if ($cleanupItem.PSIsContainer -or
+                    ($cleanupItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                    -not (Test-WeatherIntegrationPathEqual `
+                        -Left ([string]$cleanupItem.FullName) -Right $temporaryPath)) {
+                    throw "Temporary evidence cleanup refused a non-plain path: $temporaryPath"
+                }
+                Remove-Item -LiteralPath $temporaryPath -Force -ErrorAction Stop
+                if (Test-Path -LiteralPath $temporaryPath) {
+                    throw "Temporary evidence cleanup was not proved: $temporaryPath"
+                }
+            }
+            catch {
+                $cleanupErrors.Add([string]$_.Exception.Message)
+            }
+        }
+    }
+    if ($null -ne $primaryError) {
+        if ($cleanupErrors.Count -ne 0) {
+            $cleanupMessage = $cleanupErrors -join "; "
+            $primaryError.Exception.Data["immutable_json_cleanup_failure"] =
+                $cleanupMessage
+            $primaryError.ErrorDetails = [Management.Automation.ErrorDetails]::new(
+                "$($primaryError.Exception.Message) Cleanup also failed: $cleanupMessage"
+            )
+        }
+        throw $primaryError
+    }
+    if ($cleanupErrors.Count -ne 0) {
+        throw "Immutable JSON cleanup failed: $($cleanupErrors -join '; ')"
     }
 }
 
@@ -322,6 +2562,697 @@ function Test-WeatherIntegrationPathEqual {
     $leftPath = Resolve-WeatherIntegrationPath -Path $Left
     $rightPath = Resolve-WeatherIntegrationPath -Path $Right
     return [string]::Equals($leftPath, $rightPath, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Assert-WeatherIntegrationNonReparseDirectoryChain {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$StopPath,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $fullPath = Resolve-WeatherIntegrationPath -Path $Path
+    $fullStop = Resolve-WeatherIntegrationPath -Path $StopPath
+    if (-not (Test-WeatherIntegrationPathEqual -Left $fullPath -Right $fullStop) -and
+        -not $fullPath.StartsWith(
+            $fullStop + [IO.Path]::DirectorySeparatorChar,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw "$Label escapes its canonical root: $fullPath"
+    }
+
+    $chain = New-Object System.Collections.Generic.List[string]
+    $chain.Add($fullStop)
+    if (-not (Test-WeatherIntegrationPathEqual -Left $fullPath -Right $fullStop)) {
+        $relative = $fullPath.Substring($fullStop.Length).TrimStart(
+            [char[]]@([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+        )
+        $cursor = $fullStop
+        foreach ($segment in @($relative -split '[\\/]' | Where-Object { $_ })) {
+            $cursor = Join-Path $cursor $segment
+            $chain.Add((Resolve-WeatherIntegrationPath -Path $cursor))
+        }
+    }
+
+    foreach ($candidatePath in $chain) {
+        $candidate = Get-Item -LiteralPath $candidatePath -Force -ErrorAction Stop
+        if (-not $candidate.PSIsContainer -or
+            ($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$candidate.FullName) -Right $candidatePath)) {
+            throw "$Label must use only exact non-reparse directory ancestors: $candidatePath"
+        }
+    }
+    return $fullPath
+}
+
+function Assert-WeatherIntegrationCanonicalAttemptRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$AttemptRoot,
+        [Parameter(Mandatory = $true)][string]$AttemptId,
+        [Parameter(Mandatory = $true)][datetime]$SuiteAtLocal,
+        [switch]$RequireAttemptRoot,
+        [switch]$RequirePreparationRoot
+    )
+
+    $repoRoot = Resolve-WeatherIntegrationPath -Path $RepositoryRoot
+    $expectedRoot = Resolve-WeatherIntegrationPath -Path (
+        Join-Path $repoRoot (
+            "data\integration_attempts\{0}\{1}" -f
+                $SuiteAtLocal.ToString("yyyy-MM-dd"), $AttemptId
+        )
+    )
+    if (-not (Test-WeatherIntegrationPathEqual -Left $AttemptRoot -Right $expectedRoot)) {
+        throw "AttemptRoot must be the canonical dated repository evidence path: $expectedRoot"
+    }
+
+    $attemptParent = Resolve-WeatherIntegrationPath -Path (Split-Path -Parent $expectedRoot)
+    Assert-WeatherIntegrationNonReparseDirectoryChain `
+        -Path $attemptParent -StopPath $repoRoot `
+        -Label "Integration-attempt evidence ancestor" | Out-Null
+    if ($RequireAttemptRoot) {
+        Assert-WeatherIntegrationNonReparseDirectoryChain `
+            -Path $expectedRoot -StopPath $repoRoot `
+            -Label "Integration-attempt evidence root" | Out-Null
+    }
+    if ($RequirePreparationRoot) {
+        Assert-WeatherIntegrationNonReparseDirectoryChain `
+            -Path ($expectedRoot + ".preparation") -StopPath $repoRoot `
+            -Label "Integration-attempt preparation root" | Out-Null
+    }
+    return $expectedRoot
+}
+
+function Assert-WeatherIntegrationRuntimeEvidenceNamespace {
+    param([Parameter(Mandatory = $true)][object]$AttemptContract)
+
+    $manifest = $AttemptContract.Manifest
+    if ([string]$manifest.schema -ne $script:WeatherIntegrationAttemptManifestSchema) {
+        # Historical v1 manifests remain structurally readable and retain their
+        # original path contract. New runtime-authorizing writers emit only v2.
+        return [pscustomobject]@{ Required = $false; Legacy = $true }
+    }
+    $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value ([string]$manifest.schedule.suite_at_local) `
+        -Label "suite_at_local"
+    $root = Assert-WeatherIntegrationCanonicalAttemptRoot `
+        -RepositoryRoot ([string]$manifest.repo_root) `
+        -AttemptRoot ([string]$AttemptContract.AttemptRoot) `
+        -AttemptId ([string]$manifest.attempt_id) `
+        -SuiteAtLocal $suiteAt `
+        -RequireAttemptRoot `
+        -RequirePreparationRoot
+    return [pscustomobject]@{
+        Required = $true
+        Legacy = $false
+        AttemptRoot = $root
+        PreparationRoot = Resolve-WeatherIntegrationPath -Path ($root + ".preparation")
+    }
+}
+
+function Assert-WeatherIntegrationPrearmingQualificationIntent {
+    param(
+        [Parameter(Mandatory = $true)][object]$Intent,
+        [Parameter(Mandatory = $true)][string]$AttemptRoot,
+        [Parameter(Mandatory = $true)][string]$BoundedSuitePath,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedBoundedSuiteSha256,
+        [Parameter(Mandatory = $true)][bool]$RequireLiveSdkContract
+    )
+
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $Intent -Names @("publication", "authorization") `
+        -Label "Preparation intent authorization"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $Intent.publication -Names @("confirmation") `
+        -Label "Preparation publication authorization"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $Intent.authorization `
+        -Names @("scheduler_confirmation", "activation_confirmation") `
+        -Label "Preparation Scheduler authorization"
+    if ([string]$Intent.publication.confirmation -cne
+            "AUTHORIZE_EXACT_NON_FORCE_TOPIC_PUBLICATION" -or
+        [string]$Intent.authorization.scheduler_confirmation -cne
+            "AUTHORIZE_DISABLED_INTEGRATION_TASK_REGISTRATION" -or
+        [string]$Intent.authorization.activation_confirmation -cne
+            "AUTHORIZE_EXACT_INTEGRATION_TASK_ACTIVATION") {
+        throw "Preparation intent does not bind all exact case-sensitive mutation confirmations."
+    }
+
+    $qualificationProperty = $Intent.PSObject.Properties["qualification"]
+    if ($null -eq $qualificationProperty -or $null -eq $qualificationProperty.Value) {
+        throw "Preparation intent is missing its mandatory pre-arming qualification plan."
+    }
+    $qualification = $qualificationProperty.Value
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $qualification `
+        -Names @(
+            "required", "receipt_path", "integration_preflight_log_path",
+            "full_suite_log_path", "bounded_suite_path", "bounded_suite_sha256",
+            "require_live_sdk_contract", "rerun_at_suite_trigger",
+            "planning_ceiling_seconds", "safety_margin_seconds",
+            "launch_grace_seconds"
+        ) `
+        -Label "Pre-arming qualification plan"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $qualification `
+        -Names @(
+            "required", "require_live_sdk_contract", "rerun_at_suite_trigger"
+        ) `
+        -Label "Pre-arming qualification plan"
+    if (-not [bool]$qualification.required -or
+        -not [bool]$qualification.rerun_at_suite_trigger -or
+        [int]$qualification.planning_ceiling_seconds -ne
+            [int]$script:WeatherIntegrationPrearmingPlanningCeilingSeconds -or
+        [int]$qualification.safety_margin_seconds -ne
+            [int]$script:WeatherIntegrationPrearmingSafetyMarginSeconds -or
+        [int]$qualification.launch_grace_seconds -ne
+            [int]$script:WeatherIntegrationSchedulerLaunchGraceSeconds -or
+        [bool]$qualification.require_live_sdk_contract -ne $RequireLiveSdkContract) {
+        throw "Pre-arming qualification plan does not require both qualification and overnight revalidation."
+    }
+
+    $preparationRoot = Resolve-WeatherIntegrationPath -Path (
+        (Resolve-WeatherIntegrationPath -Path $AttemptRoot) + ".preparation"
+    )
+    $expectedReceiptPath = Join-Path $preparationRoot "prearming-qualification-receipt.json"
+    $expectedPreflightLogPath = Join-Path $preparationRoot "prearming-integration-preflight.log"
+    $expectedFullSuiteLogPath = Join-Path $preparationRoot "prearming-full-suite.log"
+    $resolvedBoundedSuitePath = Resolve-WeatherIntegrationPath -Path $BoundedSuitePath
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$qualification.receipt_path) -Right $expectedReceiptPath) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$qualification.integration_preflight_log_path) `
+            -Right $expectedPreflightLogPath) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$qualification.full_suite_log_path) `
+            -Right $expectedFullSuiteLogPath) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$qualification.bounded_suite_path) `
+            -Right $resolvedBoundedSuitePath) -or
+        [string]$qualification.bounded_suite_sha256 -ne
+            $ExpectedBoundedSuiteSha256.ToLowerInvariant()) {
+        throw "Pre-arming qualification plan does not bind its canonical receipt, logs, and bounded-suite implementation."
+    }
+    return [pscustomobject]@{
+        ReceiptPath = Resolve-WeatherIntegrationPath -Path $expectedReceiptPath
+        IntegrationPreflightLogPath = Resolve-WeatherIntegrationPath `
+            -Path $expectedPreflightLogPath
+        FullSuiteLogPath = Resolve-WeatherIntegrationPath -Path $expectedFullSuiteLogPath
+        BoundedSuitePath = $resolvedBoundedSuitePath
+        BoundedSuiteSha256 = $ExpectedBoundedSuiteSha256.ToLowerInvariant()
+    }
+}
+
+function Assert-WeatherIntegrationPrearmingQualificationEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$PreparationIntentPath,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedPreparationIntentSha256,
+        [Parameter(Mandatory = $true)][string]$AttemptRoot,
+        [Parameter(Mandatory = $true)][string]$AttemptId,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][string]$WorktreeRoot,
+        [Parameter(Mandatory = $true)][string]$BranchRef,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{40}$")]
+        [string]$ExpectedTip,
+        [Parameter(Mandatory = $true)][string]$BoundedSuitePath,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedBoundedSuiteSha256,
+        [Parameter(Mandatory = $true)][int]$ExpectedTestFileCount,
+        [Parameter(Mandatory = $true)][int]$ExpectedChunkCount,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedTestInventorySha256,
+        [Parameter(Mandatory = $true)][int]$ExpectedPythonFileCount,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedPythonInventorySha256,
+        [Parameter(Mandatory = $true)][int]$ExpectedPowerShellFileCount,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedPowerShellInventorySha256,
+        [Parameter(Mandatory = $true)]
+        [string]$ExpectedTrackedWorktreeSchema,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedTrackedWorktreeSha256,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 20000)][int]$ExpectedTrackedWorktreeFileCount,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(0, 2147483648)]
+        [long]$ExpectedTrackedWorktreeTotalBytes,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(0, 20000)][int]$ExpectedTrackedWorktreeLfsFileCount,
+        [Parameter(Mandatory = $true)][bool]$RequireLiveSdkContract,
+        [ValidatePattern("^$|^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedReceiptSha256 = "",
+        [switch]$RequireLiveWorktreeImport,
+        [switch]$AllowMissing,
+        [AllowNull()][object]$PreparationIntentSnapshot = $null,
+        [AllowNull()][object]$ReceiptSnapshot = $null,
+        [AllowNull()][System.Collections.IDictionary]$RunLogSnapshots = $null
+    )
+
+    $intentPath = Resolve-WeatherIntegrationPath -Path $PreparationIntentPath
+    $intentSnapshot = if ($null -ne $PreparationIntentSnapshot) {
+        $PreparationIntentSnapshot
+    }
+    else {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $intentPath -MaximumBytes 65536 -ContentType Json
+    }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$intentSnapshot.Path) -Right $intentPath)) {
+        throw "Retained pre-arming preparation-intent snapshot uses the wrong path."
+    }
+    if ([string]$intentSnapshot.Sha256 -ne
+            $ExpectedPreparationIntentSha256.ToLowerInvariant()) {
+        throw "Pre-arming qualification preparation-intent hash mismatch."
+    }
+    $intent = $intentSnapshot.Payload
+    $plan = Assert-WeatherIntegrationPrearmingQualificationIntent `
+        -Intent $intent `
+        -AttemptRoot $AttemptRoot `
+        -BoundedSuitePath $BoundedSuitePath `
+        -ExpectedBoundedSuiteSha256 $ExpectedBoundedSuiteSha256 `
+        -RequireLiveSdkContract $RequireLiveSdkContract
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $intent -Names @("schedule") `
+        -Label "Pre-arming qualification preparation intent"
+    $intentSchedule = Assert-WeatherIntegrationScheduleEvidence `
+        -Schedule $intent.schedule -Label "Pre-arming qualification schedule"
+    $intentSuiteAt = [datetime]$intentSchedule.SuiteAtLocal
+    Assert-WeatherIntegrationCanonicalAttemptRoot `
+        -RepositoryRoot $RepoRoot `
+        -AttemptRoot $AttemptRoot `
+        -AttemptId $AttemptId `
+        -SuiteAtLocal $intentSuiteAt `
+        -RequirePreparationRoot | Out-Null
+    if ($null -eq $ReceiptSnapshot -and
+        -not (Test-Path -LiteralPath $plan.ReceiptPath -PathType Leaf)) {
+        if ($AllowMissing) {
+            return [pscustomobject]@{
+                Required = $true
+                Present = $false
+                Path = $plan.ReceiptPath
+                Plan = $plan
+            }
+        }
+        throw "Exact pre-arming qualification PASS receipt is missing: $($plan.ReceiptPath)"
+    }
+    $receiptSnapshot = if ($null -ne $ReceiptSnapshot) {
+        $ReceiptSnapshot
+    }
+    else {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $plan.ReceiptPath -MaximumBytes 65536 -ContentType Json
+    }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receiptSnapshot.Path) -Right $plan.ReceiptPath)) {
+        throw "Retained pre-arming qualification-receipt snapshot uses the wrong path."
+    }
+    $receiptSha256 = [string]$receiptSnapshot.Sha256
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedReceiptSha256) -and
+        $receiptSha256 -ne $ExpectedReceiptSha256.ToLowerInvariant()) {
+        throw "Pre-arming qualification receipt hash does not match the manifest."
+    }
+    $receipt = $receiptSnapshot.Payload
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt `
+        -Names @(
+            "schema", "status", "attempt_id", "repo_root", "worktree_root",
+            "branch_ref", "expected_tip", "started_at_local", "completed_at_local",
+            "duration_seconds",
+            "bounded_suite", "require_live_sdk_contract",
+            "expected_test_file_count", "max_files_per_chunk",
+            "expected_chunk_count", "expected_test_inventory_sha256",
+            "expected_python_file_count", "expected_python_inventory_sha256",
+            "expected_powershell_file_count",
+            "expected_powershell_inventory_sha256",
+            "expected_tracked_worktree_schema",
+            "expected_tracked_worktree_sha256",
+            "expected_tracked_worktree_file_count",
+            "expected_tracked_worktree_total_bytes",
+            "expected_tracked_worktree_lfs_file_count",
+            "expected_python_environment_schema",
+            "expected_python_environment_sha256",
+            "expected_python_environment_distributions",
+            "expected_python_environment_files",
+            "expected_python_environment_bytes",
+            "expected_toolchain_schema", "expected_toolchain_sha256",
+            "runs", "feasibility", "safety"
+        ) `
+        -Label "Pre-arming qualification receipt"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt -Names @("require_live_sdk_contract") `
+        -Label "Pre-arming qualification receipt"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.bounded_suite -Names @("path", "sha256") `
+        -Label "Pre-arming qualification bounded suite"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.runs `
+        -Names @("integration_preflight", "full_suite") `
+        -Label "Pre-arming qualification runs"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "authority", "credential_value_access_authorized",
+            "live_exchange_mutation_authorized"
+        ) `
+        -Label "Pre-arming qualification safety boundary"
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $receipt.feasibility `
+        -Names @(
+            "measured_duration_seconds", "planning_ceiling_seconds",
+            "safety_margin_seconds", "required_runtime_seconds",
+            "launch_grace_seconds", "required_schedule_seconds",
+            "bounded_suite_max_runtime_seconds",
+            "suite_wrapper_teardown_allowance_seconds",
+            "suite_task_execution_time_limit_seconds",
+            "suite_to_merge_seconds", "suite_to_hard_stop_seconds", "eligible"
+        ) `
+        -Label "Pre-arming qualification schedule feasibility"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt.feasibility -Names @("eligible") `
+        -Label "Pre-arming qualification schedule feasibility"
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $receipt.safety `
+        -Names @(
+            "credential_value_access_authorized", "live_exchange_mutation_authorized"
+        ) `
+        -Label "Pre-arming qualification safety boundary"
+
+    if ([string]$receipt.schema -ne
+            $script:WeatherIntegrationAttemptPrearmingQualificationSchema -or
+        [string]$receipt.status -ne "PASS" -or
+        [string]$receipt.attempt_id -ne $AttemptId -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.repo_root) -Right $RepoRoot) -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.worktree_root) -Right $WorktreeRoot) -or
+        [string]$receipt.branch_ref -cne $BranchRef -or
+        [string]$receipt.expected_tip -ne $ExpectedTip.ToLowerInvariant() -or
+        -not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.bounded_suite.path) -Right $plan.BoundedSuitePath) -or
+        [string]$receipt.bounded_suite.sha256 -ne $plan.BoundedSuiteSha256 -or
+        [bool]$receipt.require_live_sdk_contract -ne $RequireLiveSdkContract -or
+        [int]$receipt.expected_test_file_count -ne $ExpectedTestFileCount -or
+        [int]$receipt.max_files_per_chunk -ne 20 -or
+        [int]$receipt.expected_chunk_count -ne $ExpectedChunkCount -or
+        [string]$receipt.expected_test_inventory_sha256 -cne
+            $ExpectedTestInventorySha256.ToLowerInvariant() -or
+        [int]$receipt.expected_python_file_count -ne $ExpectedPythonFileCount -or
+        [string]$receipt.expected_python_inventory_sha256 -cne
+            $ExpectedPythonInventorySha256.ToLowerInvariant() -or
+        [int]$receipt.expected_powershell_file_count -ne
+            $ExpectedPowerShellFileCount -or
+        [string]$receipt.expected_powershell_inventory_sha256 -cne
+            $ExpectedPowerShellInventorySha256.ToLowerInvariant() -or
+        [string]$receipt.expected_tracked_worktree_schema -cne
+            $ExpectedTrackedWorktreeSchema -or
+        [string]$receipt.expected_tracked_worktree_sha256 -cne
+            $ExpectedTrackedWorktreeSha256.ToLowerInvariant() -or
+        [int]$receipt.expected_tracked_worktree_file_count -ne
+            $ExpectedTrackedWorktreeFileCount -or
+        [long]$receipt.expected_tracked_worktree_total_bytes -ne
+            $ExpectedTrackedWorktreeTotalBytes -or
+        [int]$receipt.expected_tracked_worktree_lfs_file_count -ne
+            $ExpectedTrackedWorktreeLfsFileCount -or
+        [string]$receipt.expected_python_environment_schema -cne
+            "python_environment_fingerprint_v2" -or
+        [string]$receipt.expected_python_environment_sha256 -cnotmatch
+            '^[0-9a-f]{64}$' -or
+        [int]$receipt.expected_python_environment_distributions -lt 0 -or
+        [int]$receipt.expected_python_environment_files -le 0 -or
+        [int]$receipt.expected_python_environment_files -gt 50000 -or
+        [long]$receipt.expected_python_environment_bytes -le 0 -or
+        [long]$receipt.expected_python_environment_bytes -gt 2147483648 -or
+        [string]$receipt.expected_toolchain_schema -cne
+            "integration_toolchain_fingerprint_v1" -or
+        [string]$receipt.expected_toolchain_sha256 -cnotmatch
+            '^[0-9a-f]{64}$' -or
+        [string]$receipt.safety.authority -ne
+            "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        [bool]$receipt.safety.credential_value_access_authorized -or
+        [bool]$receipt.safety.live_exchange_mutation_authorized) {
+        throw "Pre-arming qualification receipt does not bind the exact prepared attempt."
+    }
+
+    $expectedRuns = [ordered]@{
+        integration_preflight = [pscustomobject]@{
+            LogPath = $plan.IntegrationPreflightLogPath
+            Verdict = "VERDICT: INTEGRATION PREFLIGHT PASSED; full suite not run and merge is not authorized"
+        }
+        full_suite = [pscustomobject]@{
+            LogPath = $plan.FullSuiteLogPath
+            Verdict = (
+                "VERDICT: ALL CHUNKS PASSED ($ExpectedChunkCount/$ExpectedChunkCount); " +
+                "exact tip eligible for separate reviewed merge"
+            )
+        }
+    }
+    $qualificationSummaries = @{}
+    foreach ($mode in $expectedRuns.Keys) {
+        $run = $receipt.runs.PSObject.Properties[[string]$mode].Value
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $run `
+            -Names @(
+                "mode", "log_path", "log_sha256", "exit_code", "verdict",
+                "weather_import_path", "weather_import_sha256",
+                "test_results", "evidence_validation_error",
+                "started_at_local", "completed_at_local",
+                "duration_seconds"
+            ) `
+            -Label "Pre-arming $mode run"
+        $expectedRun = $expectedRuns[$mode]
+        $logPath = Resolve-WeatherIntegrationPath -Path ([string]$expectedRun.LogPath)
+        $logSnapshot = if ($null -ne $RunLogSnapshots -and
+            $RunLogSnapshots.Contains([string]$mode)) {
+            $RunLogSnapshots[[string]$mode]
+        }
+        else {
+            Read-WeatherIntegrationEvidenceSnapshot `
+                -Path $logPath -MaximumBytes 4194304 -ContentType Text
+        }
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$logSnapshot.Path) -Right $logPath)) {
+            throw "Retained pre-arming $mode log snapshot uses the wrong path."
+        }
+        $logText = [string]$logSnapshot.Text
+        $verdictMatches = [regex]::Matches(
+            $logText,
+            '(?m)^.*?  (?<verdict>VERDICT: .+?)\r?$'
+        )
+        $importMatches = [regex]::Matches(
+            $logText,
+            '(?m)^.*?  weather_import=(?<path>.+?) weather_import_sha256=(?<sha>[0-9a-f]{64})\r?$'
+        )
+        $resolvedImportPath = Resolve-WeatherIntegrationPath `
+            -Path ([string]$run.weather_import_path)
+        $allowedImportPaths = @(
+            Resolve-WeatherIntegrationPath -Path (
+                Join-Path $WorktreeRoot "weather\__init__.py"
+            )
+            Resolve-WeatherIntegrationPath -Path (
+                Join-Path $WorktreeRoot "src\weather\__init__.py"
+            )
+        )
+        if ($verdictMatches.Count -ne 1 -or
+            $importMatches.Count -ne 1 -or
+            [string]$run.mode -cne [string]$mode -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$run.log_path) -Right $logPath) -or
+            [string]$run.log_sha256 -ne [string]$logSnapshot.Sha256 -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left $resolvedImportPath `
+                -Right ([string]$importMatches[0].Groups["path"].Value)) -or
+            $allowedImportPaths.Where({
+                Test-WeatherIntegrationPathEqual -Left $_ -Right $resolvedImportPath
+            }).Count -ne 1 -or
+            [string]$importMatches[0].Groups["sha"].Value -ne
+                [string]$run.weather_import_sha256 -or
+            [int]$run.exit_code -ne 0 -or
+            $null -ne $run.evidence_validation_error -or
+            [string]$run.verdict -cne [string]$expectedRun.Verdict -or
+            [string]$verdictMatches[0].Groups["verdict"].Value -cne
+                [string]$expectedRun.Verdict) {
+            throw "Pre-arming $mode evidence does not prove its exact PASS verdict."
+        }
+        if ($RequireLiveWorktreeImport -and
+            [string]$run.weather_import_sha256 -ne
+                (Get-WeatherIntegrationFileSha256 -Path $resolvedImportPath)) {
+            throw "Pre-arming $mode live worktree import changed or disappeared."
+        }
+        if ($mode -eq "full_suite") {
+            Assert-WeatherIntegrationFullSuiteLogPlan `
+                -Path $logPath `
+                -ExpectedTestFileCount $ExpectedTestFileCount `
+                -ExpectedMaxFilesPerChunk 20 `
+                -ExpectedChunkCount $ExpectedChunkCount `
+                -EvidenceSnapshot $logSnapshot | Out-Null
+            $runExpectedChunks = $ExpectedChunkCount
+            $runExpectedFiles = $ExpectedTestFileCount
+        }
+        else {
+            # The bounded runner is the sole owner of the deterministic
+            # integration-preflight inventory. Bind its count and chunking
+            # from this same retained log snapshot instead of copying a
+            # second count into orchestration code.
+            $declaredPlan = Get-WeatherIntegrationSuiteLogDeclaredPlan `
+                -Path $logPath -EvidenceSnapshot $logSnapshot
+            if ([int]$declaredPlan.MaxFilesPerChunk -ne 20) {
+                throw "Integration-preflight log changed its bounded chunk size."
+            }
+            $runExpectedChunks = [int]$declaredPlan.Chunks
+            $runExpectedFiles = [int]$declaredPlan.Files
+        }
+        $logSummary = Get-WeatherIntegrationSuiteEvidenceSummary `
+            -Path $logPath `
+            -ExpectedChunkCount $runExpectedChunks `
+            -ExpectedPlannedFiles $runExpectedFiles `
+            -EvidenceSnapshot $logSnapshot `
+            -RequireRuntimeFingerprint
+        if (($run.test_results | ConvertTo-Json -Depth 20 -Compress) -cne
+            ($logSummary | ConvertTo-Json -Depth 20 -Compress)) {
+            throw "Pre-arming $mode receipt does not bind its exact syntax/inventory/JUnit evidence."
+        }
+        Assert-WeatherIntegrationExpectedSuiteInventories `
+            -Summary $logSummary `
+            -Expected $receipt `
+            -ExpectedRepoRoot $RepoRoot `
+            -ExpectedWorktreeRoot $WorktreeRoot `
+            -ExpectedTip $ExpectedTip `
+            -Label "Pre-arming $mode" `
+            -IncludeTestInventory:($mode -eq "full_suite") | Out-Null
+        $qualificationSummaries[[string]$mode] = $logSummary
+        $runStarted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+            -Value ([string]$run.started_at_local) -Label "pre-arming $mode started_at_local"
+        $runCompleted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+            -Value ([string]$run.completed_at_local) -Label "pre-arming $mode completed_at_local"
+        if ($runCompleted -lt $runStarted) {
+            throw "Pre-arming $mode completion precedes its start."
+        }
+        if ([double]$run.duration_seconds -lt 0 -or
+            [math]::Abs(
+                [double]$run.duration_seconds - ($runCompleted - $runStarted).TotalSeconds
+            ) -gt 0.01) {
+            throw "Pre-arming $mode measured duration disagrees with its timestamps."
+        }
+    }
+    foreach ($name in @(
+        "python_environment_schema", "python_environment_sha256",
+        "python_environment_distributions", "python_environment_files",
+        "python_environment_bytes", "toolchain_schema",
+        "toolchain_sha256", "tracked_worktree_schema",
+        "tracked_worktree_sha256", "tracked_worktree_file_count",
+        "tracked_worktree_total_bytes", "tracked_worktree_lfs_file_count"
+    )) {
+        if ([string]$qualificationSummaries["integration_preflight"].$name -cne
+                [string]$qualificationSummaries["full_suite"].$name) {
+            throw "Pre-arming runs used different Python environment field $name."
+        }
+    }
+    $qualificationStarted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.started_at_local) `
+        -Label "pre-arming qualification started_at_local"
+    $qualificationCompleted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.completed_at_local) `
+        -Label "pre-arming qualification completed_at_local"
+    $preflightCompleted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.runs.integration_preflight.completed_at_local) `
+        -Label "pre-arming integration preflight completion"
+    $fullSuiteStarted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.runs.full_suite.started_at_local) `
+        -Label "pre-arming full suite start"
+    $preflightStarted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.runs.integration_preflight.started_at_local) `
+        -Label "pre-arming integration preflight start"
+    $fullSuiteCompleted = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+        -Value ([string]$receipt.runs.full_suite.completed_at_local) `
+        -Label "pre-arming full suite completion"
+    if ($qualificationCompleted -lt $qualificationStarted -or
+        $preflightStarted -lt $qualificationStarted -or
+        $fullSuiteStarted -lt $preflightCompleted -or
+        $fullSuiteCompleted -gt $qualificationCompleted) {
+        throw "Pre-arming qualification run ordering is invalid."
+    }
+    if ([double]$receipt.duration_seconds -lt 0 -or
+        [math]::Abs(
+            [double]$receipt.duration_seconds -
+                ($qualificationCompleted - $qualificationStarted).TotalSeconds
+        ) -gt 0.01) {
+        throw "Pre-arming qualification measured duration disagrees with its timestamps."
+    }
+    $validatedSchedule = Assert-WeatherIntegrationScheduleEvidence `
+        -Schedule $intent.schedule -Label "Pre-arming qualification schedule"
+    $suiteAt = [datetime]$validatedSchedule.SuiteAtLocal
+    $mergeAt = [datetime]$validatedSchedule.MergeAtLocal
+    $requiredRuntimeSeconds = [math]::Max(
+        [int]$script:WeatherIntegrationPrearmingPlanningCeilingSeconds,
+        [int][math]::Ceiling([double]$receipt.duration_seconds)
+    ) + [int]$script:WeatherIntegrationPrearmingSafetyMarginSeconds
+    $launchGraceSeconds = [int]$script:WeatherIntegrationSchedulerLaunchGraceSeconds
+    $requiredScheduleSeconds = $requiredRuntimeSeconds + $launchGraceSeconds
+    $suiteHardStop = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $suiteAt.Date.AddHours(9) -Label "pre-arming suite hard stop"
+    $suiteToMergeSeconds = [int][math]::Floor(
+        (Get-WeatherIntegrationLocalElapsedSeconds `
+            -StartLocal $suiteAt -EndLocal $mergeAt `
+            -StartLabel "pre-arming suite_at_local" `
+            -EndLabel "pre-arming merge_at_local")
+    )
+    $suiteToHardStopSeconds = [int][math]::Floor(
+        (Get-WeatherIntegrationLocalElapsedSeconds `
+            -StartLocal $suiteAt -EndLocal $suiteHardStop `
+            -StartLabel "pre-arming suite_at_local" `
+            -EndLabel "pre-arming suite hard stop")
+    )
+    if (-not [bool]$receipt.feasibility.eligible -or
+        [double]$receipt.feasibility.measured_duration_seconds -ne
+            [double]$receipt.duration_seconds -or
+        [int]$receipt.feasibility.planning_ceiling_seconds -ne
+            [int]$script:WeatherIntegrationPrearmingPlanningCeilingSeconds -or
+        [int]$receipt.feasibility.safety_margin_seconds -ne
+            [int]$script:WeatherIntegrationPrearmingSafetyMarginSeconds -or
+        [int]$receipt.feasibility.required_runtime_seconds -ne
+            $requiredRuntimeSeconds -or
+        [int]$receipt.feasibility.launch_grace_seconds -ne
+            $launchGraceSeconds -or
+        [int]$receipt.feasibility.required_schedule_seconds -ne
+            $requiredScheduleSeconds -or
+        [int]$receipt.feasibility.bounded_suite_max_runtime_seconds -ne
+            [int]$script:WeatherIntegrationBoundedSuiteMaximumRuntimeSeconds -or
+        [int]$receipt.feasibility.suite_wrapper_teardown_allowance_seconds -ne
+            [int]$script:WeatherIntegrationSuiteWrapperTeardownAllowanceSeconds -or
+        [int]$receipt.feasibility.suite_task_execution_time_limit_seconds -ne
+            [int]$script:WeatherIntegrationSuiteTaskExecutionLimitSeconds -or
+        [int]$receipt.feasibility.suite_task_execution_time_limit_seconds -ne
+            ([int]$receipt.feasibility.bounded_suite_max_runtime_seconds +
+             [int]$receipt.feasibility.suite_wrapper_teardown_allowance_seconds) -or
+        [double]$receipt.duration_seconds -gt
+            [double]$receipt.feasibility.bounded_suite_max_runtime_seconds -or
+        [int]$receipt.feasibility.suite_to_merge_seconds -ne
+            $suiteToMergeSeconds -or
+        [int]$receipt.feasibility.suite_to_hard_stop_seconds -ne
+            $suiteToHardStopSeconds -or
+        $suiteToMergeSeconds -lt $requiredScheduleSeconds -or
+        $suiteToHardStopSeconds -lt $requiredScheduleSeconds) {
+        throw "Pre-arming qualification does not prove a feasible repeated overnight run."
+    }
+    return [pscustomobject]@{
+        Required = $true
+        Present = $true
+        Path = $plan.ReceiptPath
+        Sha256 = $receiptSha256
+        Receipt = $receipt
+        Plan = $plan
+    }
 }
 
 function Get-WeatherIntegrationPreparationAuthorizationPayload {
@@ -403,36 +3334,52 @@ function Get-WeatherIntegrationPreparationAuthorizationPlan {
     }
 }
 
-function Assert-WeatherIntegrationPreparationExecutionAuthorization {
-    param(
-        [Parameter(Mandatory = $true)][object]$AttemptContract,
-        [switch]$AllowMissing
-    )
+function Assert-WeatherIntegrationPreparationAuthorizationStructure {
+    param([Parameter(Mandatory = $true)][object]$AttemptContract)
 
     $manifest = $AttemptContract.Manifest
     $preparationProperty = $manifest.authorization.PSObject.Properties["preparation"]
     if ($null -eq $preparationProperty) {
         # Historical v1 manifests frozen before composite preparation did not
         # contain this property at all. New creators must never emit null.
-        return [pscustomobject]@{ Required = $false; Present = $false }
+        return [pscustomobject]@{ Required = $false }
     }
     if ($null -eq $preparationProperty.Value) {
         throw "An explicit null preparation record is invalid; only property-absent historical manifests use the legacy contract."
     }
     $record = $preparationProperty.Value
+    $manifestSchema = [string]$manifest.schema
+    if ($manifestSchema -cnotin @(
+            $script:WeatherIntegrationAttemptLegacyManifestSchema,
+            $script:WeatherIntegrationAttemptManifestSchema
+        )) {
+        throw "Preparation authorization belongs to an unsupported manifest schema."
+    }
+    $recordProperties = @(
+        "required", "execution_authorization_path",
+        "execution_authorization_sha256", "preparation_intent_path",
+        "preparation_intent_sha256"
+    )
+    if ($manifestSchema -ceq $script:WeatherIntegrationAttemptManifestSchema) {
+        $recordProperties += @(
+            "prearming_qualification_path", "prearming_qualification_sha256",
+            "creator_preflight_plan_path", "creator_preflight_plan_sha256"
+        )
+    }
     Assert-WeatherIntegrationRequiredProperties `
         -Object $record `
-        -Names @(
-            "required", "execution_authorization_path",
-            "execution_authorization_sha256", "preparation_intent_path",
-            "preparation_intent_sha256"
-        ) `
+        -Names $recordProperties `
         -Label "Integration preparation execution authorization"
     Assert-WeatherIntegrationBooleanProperties `
         -Object $record -Names @("required") `
         -Label "Integration preparation execution authorization"
     if (-not [bool]$record.required) {
         throw "A present preparation execution-authorization record must be required."
+    }
+    if ($manifestSchema -ceq $script:WeatherIntegrationAttemptManifestSchema -and
+        ([string]$record.prearming_qualification_sha256 -notmatch '^[0-9a-f]{64}$' -or
+         [string]$record.creator_preflight_plan_sha256 -notmatch '^[0-9a-f]{64}$')) {
+        throw "Attempt manifest must bind exact creator-preflight and qualification receipt hashes."
     }
 
     $expectedIntentPath = Resolve-WeatherIntegrationPath -Path (
@@ -454,9 +3401,165 @@ function Assert-WeatherIntegrationPreparationExecutionAuthorization {
         [string]$record.execution_authorization_sha256 -ne $plan.Sha256) {
         throw "Attempt manifest does not bind the canonical deterministic preparation authorization."
     }
-    if ((Get-WeatherIntegrationFileSha256 -Path $expectedIntentPath) -ne
+    $qualificationPath = $null
+    $creatorPreflightPlanPath = $null
+    if ($manifestSchema -ceq $script:WeatherIntegrationAttemptManifestSchema) {
+        $qualificationPath = Resolve-WeatherIntegrationPath -Path (
+            Join-Path ($AttemptContract.AttemptRoot + ".preparation") `
+                "prearming-qualification-receipt.json"
+        )
+        $creatorPreflightPlanPath = Resolve-WeatherIntegrationPath -Path (
+            Join-Path ($AttemptContract.AttemptRoot + ".preparation") `
+                "creator-preflight-plan.json"
+        )
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$record.prearming_qualification_path) `
+                -Right $qualificationPath) -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$record.creator_preflight_plan_path) `
+                -Right $creatorPreflightPlanPath)) {
+            throw "Attempt manifest does not bind canonical creator-preflight and qualification paths."
+        }
+    }
+    return [pscustomobject]@{
+        Required = $true
+        Record = $record
+        ManifestSchema = $manifestSchema
+        ExpectedIntentPath = $expectedIntentPath
+        Plan = $plan
+        QualificationPath = $qualificationPath
+        CreatorPreflightPlanPath = $creatorPreflightPlanPath
+    }
+}
+
+function Assert-WeatherIntegrationPreparationExecutionAuthorization {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [switch]$AllowMissing,
+        [switch]$RequireLiveQualificationInputs
+    )
+
+    $manifest = $AttemptContract.Manifest
+    $structure = Assert-WeatherIntegrationPreparationAuthorizationStructure `
+        -AttemptContract $AttemptContract
+    if (-not [bool]$structure.Required) {
+        return [pscustomobject]@{ Required = $false; Present = $false }
+    }
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace `
+        -AttemptContract $AttemptContract | Out-Null
+    $record = $structure.Record
+    $manifestSchema = [string]$structure.ManifestSchema
+    $expectedIntentPath = [string]$structure.ExpectedIntentPath
+    $plan = $structure.Plan
+    $intentSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $expectedIntentPath -MaximumBytes 65536 -ContentType Json
+    if ([string]$intentSnapshot.Sha256 -ne
             [string]$record.preparation_intent_sha256) {
         throw "Preparation intent changed after the attempt manifest was frozen."
+    }
+    $qualification = $null
+    if ($manifestSchema -ceq $script:WeatherIntegrationAttemptManifestSchema) {
+        $creatorPreflightSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path ([string]$structure.CreatorPreflightPlanPath) `
+            -MaximumBytes 65536 -ContentType Json
+        if ([string]$creatorPreflightSnapshot.Sha256 -cne
+                [string]$record.creator_preflight_plan_sha256) {
+            throw "Creator preflight plan changed after the attempt manifest was frozen."
+        }
+        $qualification = Assert-WeatherIntegrationPrearmingQualificationEvidence `
+            -PreparationIntentPath $expectedIntentPath `
+            -ExpectedPreparationIntentSha256 ([string]$record.preparation_intent_sha256) `
+            -AttemptRoot $AttemptContract.AttemptRoot `
+            -AttemptId ([string]$manifest.attempt_id) `
+            -RepoRoot ([string]$manifest.repo_root) `
+            -WorktreeRoot ([string]$manifest.worktree_root) `
+            -BranchRef ([string]$manifest.branch_ref) `
+            -ExpectedTip ([string]$manifest.expected_tip) `
+            -BoundedSuitePath ([string]$manifest.orchestration.bounded_suite.path) `
+            -ExpectedBoundedSuiteSha256 (
+                [string]$manifest.orchestration.bounded_suite.sha256
+            ) `
+            -ExpectedTestFileCount ([int]$manifest.suite.expected_test_file_count) `
+            -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) `
+            -ExpectedTestInventorySha256 (
+                [string]$manifest.suite.expected_test_inventory_sha256
+            ) `
+            -ExpectedPythonFileCount (
+                [int]$manifest.suite.expected_python_file_count
+            ) `
+            -ExpectedPythonInventorySha256 (
+                [string]$manifest.suite.expected_python_inventory_sha256
+            ) `
+            -ExpectedPowerShellFileCount (
+                [int]$manifest.suite.expected_powershell_file_count
+            ) `
+            -ExpectedPowerShellInventorySha256 (
+                [string]$manifest.suite.expected_powershell_inventory_sha256
+            ) `
+            -ExpectedTrackedWorktreeSchema (
+                [string]$manifest.suite.expected_tracked_worktree_schema
+            ) `
+            -ExpectedTrackedWorktreeSha256 (
+                [string]$manifest.suite.expected_tracked_worktree_sha256
+            ) `
+            -ExpectedTrackedWorktreeFileCount (
+                [int]$manifest.suite.expected_tracked_worktree_file_count
+            ) `
+            -ExpectedTrackedWorktreeTotalBytes (
+                [long]$manifest.suite.expected_tracked_worktree_total_bytes
+            ) `
+            -ExpectedTrackedWorktreeLfsFileCount (
+                [int]$manifest.suite.expected_tracked_worktree_lfs_file_count
+            ) `
+            -RequireLiveSdkContract ([bool]$manifest.suite.require_live_sdk_contract) `
+            -ExpectedReceiptSha256 ([string]$record.prearming_qualification_sha256) `
+            -RequireLiveWorktreeImport:$RequireLiveQualificationInputs
+        if (-not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$record.prearming_qualification_path) `
+                -Right ([string]$qualification.Path))) {
+            throw "Attempt manifest does not bind the canonical pre-arming qualification receipt."
+        }
+        $qualifiedReserve = $qualification.Receipt.feasibility
+        if ([double]$manifest.suite.prearming_measured_duration_seconds -ne
+                [double]$qualifiedReserve.measured_duration_seconds -or
+            [int]$manifest.suite.prearming_planning_ceiling_seconds -ne
+                [int]$qualifiedReserve.planning_ceiling_seconds -or
+            [int]$manifest.suite.prearming_safety_margin_seconds -ne
+                [int]$qualifiedReserve.safety_margin_seconds -or
+            [int]$manifest.suite.prearming_required_runtime_seconds -ne
+                [int]$qualifiedReserve.required_runtime_seconds -or
+            [int]$manifest.suite.prearming_launch_grace_seconds -ne
+                [int]$qualifiedReserve.launch_grace_seconds -or
+            [int]$manifest.suite.prearming_required_schedule_seconds -ne
+                [int]$qualifiedReserve.required_schedule_seconds -or
+            [int]$manifest.suite.bounded_suite_max_runtime_seconds -ne
+                [int]$qualifiedReserve.bounded_suite_max_runtime_seconds -or
+            [int]$manifest.suite.suite_wrapper_teardown_allowance_seconds -ne
+                [int]$qualifiedReserve.suite_wrapper_teardown_allowance_seconds -or
+            [int]$manifest.suite.suite_task_execution_time_limit_seconds -ne
+                [int]$qualifiedReserve.suite_task_execution_time_limit_seconds -or
+            [string]$manifest.suite.expected_python_environment_schema -cne
+                [string]$qualification.Receipt.expected_python_environment_schema -or
+            [string]$manifest.suite.expected_python_environment_sha256 -cne
+                [string]$qualification.Receipt.expected_python_environment_sha256 -or
+            [int]$manifest.suite.expected_python_environment_distributions -ne
+                [int]$qualification.Receipt.expected_python_environment_distributions -or
+            [int]$manifest.suite.expected_python_environment_files -ne
+                [int]$qualification.Receipt.expected_python_environment_files -or
+            [long]$manifest.suite.expected_python_environment_bytes -ne
+                [long]$qualification.Receipt.expected_python_environment_bytes -or
+            [string]$manifest.suite.expected_toolchain_schema -cne
+                [string]$qualification.Receipt.expected_toolchain_schema -or
+            [string]$manifest.suite.expected_toolchain_sha256 -cne
+                [string]$qualification.Receipt.expected_toolchain_sha256) {
+            throw "Attempt manifest runtime, environment, toolchain, or launch reserves do not match qualification."
+        }
+        if ($RequireLiveQualificationInputs) {
+            Assert-WeatherIntegrationCurrentQualifiedRuntimeFingerprints `
+                -Summary $qualification.Receipt.runs.full_suite.test_results `
+                -Expected $manifest.suite `
+                -Label "Current manifest-bound qualification runtime" | Out-Null
+        }
     }
     if (-not (Test-Path -LiteralPath $plan.Path -PathType Leaf)) {
         if ($AllowMissing) {
@@ -470,15 +3573,12 @@ function Assert-WeatherIntegrationPreparationExecutionAuthorization {
         }
         throw "Exact preparation PASS authorization is missing: $($plan.Path)"
     }
-    $item = Get-Item -LiteralPath $plan.Path -Force
-    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-        $item.Length -gt 16384) {
-        throw "Preparation PASS authorization is not a bounded regular file."
-    }
-    if ((Get-WeatherIntegrationFileSha256 -Path $plan.Path) -ne $plan.Sha256) {
+    $authorizationSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $plan.Path -MaximumBytes 16384 -ContentType Json
+    if ([string]$authorizationSnapshot.Sha256 -ne $plan.Sha256) {
         throw "Preparation PASS authorization hash does not match the manifest."
     }
-    $payload = Read-WeatherIntegrationSharedJson -Path $plan.Path
+    $payload = $authorizationSnapshot.Payload
     $expectedJson = $plan.Payload | ConvertTo-Json -Depth 20 -Compress
     $actualJson = $payload | ConvertTo-Json -Depth 20 -Compress
     if ($actualJson -cne $expectedJson) {
@@ -490,6 +3590,7 @@ function Assert-WeatherIntegrationPreparationExecutionAuthorization {
         Path = $plan.Path
         Sha256 = $plan.Sha256
         Payload = $payload
+        Qualification = $qualification
     }
 }
 
@@ -506,7 +3607,8 @@ function Assert-WeatherIntegrationRegistrationPreparationState {
     # transaction.
     $authorization = Assert-WeatherIntegrationPreparationExecutionAuthorization `
         -AttemptContract $AttemptContract `
-        -AllowMissing
+        -AllowMissing `
+        -RequireLiveQualificationInputs
     if (-not [bool]$authorization.Required) {
         throw "New integration-attempt registration requires a manifest-bound composite preparation authorization plan."
     }
@@ -534,21 +3636,16 @@ function Assert-WeatherIntegrationActivationReceipt {
     $intentPath = Join-Path $preparationRoot "preparation-intent.json"
     $readinessReceiptPath = Join-Path $preparationRoot "readiness-receipt.json"
     $activationPath = Join-Path $preparationRoot "preparation-receipt.json"
-    $item = Get-Item -LiteralPath $activationPath -Force -ErrorAction Stop
-    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-        $item.Length -gt 65536) {
-        throw "Activation receipt is not a bounded regular file."
-    }
-    $readinessItem = Get-Item -LiteralPath $readinessReceiptPath -Force -ErrorAction Stop
-    if (($readinessItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
-        $readinessItem.Length -gt 65536) {
-        throw "Readiness receipt is not a bounded regular file."
-    }
-    $receipt = Read-WeatherIntegrationSharedJson -Path $activationPath
-    $receiptSha256 = Get-WeatherIntegrationFileSha256 -Path $activationPath
-    $readinessReceiptSha256 = Get-WeatherIntegrationFileSha256 `
-        -Path $readinessReceiptPath
-    $readinessReceipt = Read-WeatherIntegrationSharedJson -Path $readinessReceiptPath
+    $activationSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $activationPath -MaximumBytes 65536 -ContentType Json
+    $readinessSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $readinessReceiptPath -MaximumBytes 65536 -ContentType Json
+    $intentSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $intentPath -MaximumBytes 65536 -ContentType Json
+    $receipt = $activationSnapshot.Payload
+    $receiptSha256 = [string]$activationSnapshot.Sha256
+    $readinessReceiptSha256 = [string]$readinessSnapshot.Sha256
+    $readinessReceipt = $readinessSnapshot.Payload
     $taskNames = @($receipt.tasks | ForEach-Object {
         [string]$_.task_name
     } | Sort-Object -Unique)
@@ -573,7 +3670,7 @@ function Assert-WeatherIntegrationActivationReceipt {
             -Left ([string]$readinessReceipt.preparation_intent_path) `
             -Right $intentPath) -or
         [string]$readinessReceipt.preparation_intent_sha256 -ne
-            (Get-WeatherIntegrationFileSha256 -Path $intentPath) -or
+            [string]$intentSnapshot.Sha256 -or
         [string]$receipt.schema -ne "weather_integration_attempt_preparation_receipt_v1" -or
         [string]$receipt.status -ne "PASS" -or
         [string]$receipt.stage -ne "READY" -or
@@ -589,7 +3686,7 @@ function Assert-WeatherIntegrationActivationReceipt {
         -not (Test-WeatherIntegrationPathEqual `
             -Left ([string]$receipt.preparation_intent_path) -Right $intentPath) -or
         [string]$receipt.preparation_intent_sha256 -ne
-            (Get-WeatherIntegrationFileSha256 -Path $intentPath) -or
+            [string]$intentSnapshot.Sha256 -or
         -not (Test-WeatherIntegrationPathEqual `
             -Left ([string]$receipt.readiness_receipt_path) `
             -Right $readinessReceiptPath) -or
@@ -671,6 +3768,144 @@ function Get-WeatherIntegrationRegistrationIntentPath {
     return Resolve-WeatherIntegrationPath -Path $expectedPath
 }
 
+function ConvertTo-WeatherIntegrationCanonicalPrincipalSid {
+    param(
+        [Parameter(Mandatory = $true)][string]$UserId,
+        [string]$Label = "Windows principal"
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserId) -or $UserId -ne $UserId.Trim()) {
+        throw "$Label user id is empty or has surrounding whitespace."
+    }
+    try {
+        $sid = if ($UserId -cmatch '^S-[0-9]+(?:-[0-9]+)+$') {
+            [Security.Principal.SecurityIdentifier]::new($UserId)
+        }
+        else {
+            ([Security.Principal.NTAccount]::new($UserId)).Translate(
+                [Security.Principal.SecurityIdentifier]
+            )
+        }
+    }
+    catch {
+        throw "$Label user id cannot be resolved to one Windows SID: $UserId"
+    }
+    $value = [string]$sid.Value
+    if ($value -cnotmatch '^S-[0-9]+(?:-[0-9]+)+$') {
+        throw "$Label resolved to an invalid Windows SID."
+    }
+    return $value
+}
+
+function Get-WeatherIntegrationCanonicalWindowsIdentity {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        if ($null -eq $identity -or $null -eq $identity.User) {
+            throw "The current Windows identity has no user SID."
+        }
+        $sid = [string]$identity.User.Value
+        $accountName = [string]$identity.Name
+        $accountMatch = [regex]::Match(
+            $accountName,
+            '^(?<authority>[^\\\x00-\x1f]+)\\(?<name>[^\\\x00-\x1f]+)$',
+            [Text.RegularExpressions.RegexOptions]::CultureInvariant
+        )
+        if ($sid -cnotmatch '^S-[0-9]+(?:-[0-9]+)+$' -or
+            -not $accountMatch.Success -or $accountName -ne $accountName.Trim()) {
+            throw "The current Windows identity is not one canonical authority-qualified account."
+        }
+        $translatedSid = ConvertTo-WeatherIntegrationCanonicalPrincipalSid `
+            -UserId $accountName -Label "current Windows identity"
+        if ($translatedSid -cne $sid) {
+            throw "The current Windows identity name and SID disagree."
+        }
+        $machineName = [string][Environment]::MachineName
+        $userDomainName = [string][Environment]::UserDomainName
+        if ($machineName -cnotmatch '^[^\\\x00-\x1f]{1,255}$' -or
+            $userDomainName -cnotmatch '^[^\\\x00-\x1f]{1,255}$') {
+            throw "The current Windows machine/domain identity is empty or malformed."
+        }
+        return [pscustomobject][ordered]@{
+            UserId = $accountName
+            Sid = $sid
+            AccountName = $accountName
+            Authority = [string]$accountMatch.Groups["authority"].Value
+            MachineName = $machineName
+            UserDomainName = $userDomainName
+        }
+    }
+    finally {
+        if ($null -ne $identity) { $identity.Dispose() }
+    }
+}
+
+function Assert-WeatherIntegrationCanonicalWindowsIdentityBinding {
+    param(
+        [Parameter(Mandatory = $true)][object]$Principal,
+        [string]$Label = "Windows principal binding",
+        [switch]$RequireCurrentIdentity
+    )
+
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $Principal `
+        -Names @(
+            "user_id", "sid", "account_name", "authority",
+            "machine_name", "user_domain_name"
+        ) `
+        -Label $Label
+    $userId = [string]$Principal.user_id
+    $sid = [string]$Principal.sid
+    $accountName = [string]$Principal.account_name
+    $authority = [string]$Principal.authority
+    $machineName = [string]$Principal.machine_name
+    $userDomainName = [string]$Principal.user_domain_name
+    $accountMatch = [regex]::Match(
+        $accountName,
+        '^(?<authority>[^\\\x00-\x1f]+)\\(?<name>[^\\\x00-\x1f]+)$',
+        [Text.RegularExpressions.RegexOptions]::CultureInvariant
+    )
+    if ($userId -cne $accountName -or -not $accountMatch.Success -or
+        $accountName -ne $accountName.Trim() -or
+        [string]$accountMatch.Groups["authority"].Value -cne $authority -or
+        $sid -cnotmatch '^S-[0-9]+(?:-[0-9]+)+$' -or
+        $machineName -cnotmatch '^[^\\\x00-\x1f]{1,255}$' -or
+        $userDomainName -cnotmatch '^[^\\\x00-\x1f]{1,255}$') {
+        throw "$Label is not one canonical authority-qualified Windows identity."
+    }
+    $resolvedSid = ConvertTo-WeatherIntegrationCanonicalPrincipalSid `
+        -UserId $accountName -Label $Label
+    if ($resolvedSid -cne $sid) {
+        throw "$Label account name and SID disagree."
+    }
+    if ($RequireCurrentIdentity) {
+        $current = Get-WeatherIntegrationCanonicalWindowsIdentity
+        foreach ($pair in @(
+            [pscustomobject]@{ Current = "UserId"; Evidence = "user_id" },
+            [pscustomobject]@{ Current = "Sid"; Evidence = "sid" },
+            [pscustomobject]@{ Current = "AccountName"; Evidence = "account_name" },
+            [pscustomobject]@{ Current = "Authority"; Evidence = "authority" },
+            [pscustomobject]@{ Current = "MachineName"; Evidence = "machine_name" },
+            [pscustomobject]@{ Current = "UserDomainName"; Evidence = "user_domain_name" }
+        )) {
+            if (-not [string]::Equals(
+                    [string]$current.($pair.Current),
+                    [string]$Principal.($pair.Evidence),
+                    [StringComparison]::OrdinalIgnoreCase
+                )) {
+                throw "$Label does not identify the current Windows principal at $($pair.Evidence)."
+            }
+        }
+    }
+    return [pscustomobject]@{
+        UserId = $userId
+        Sid = $sid
+        AccountName = $accountName
+        Authority = $authority
+        MachineName = $machineName
+        UserDomainName = $userDomainName
+    }
+}
+
 function Get-WeatherIntegrationExpectedTaskBinding {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
@@ -698,7 +3933,14 @@ function Get-WeatherIntegrationExpectedTaskBinding {
             -Label "suite_at_local"
         $scriptPath = Join-Path $repoRoot "scripts\ops\integration_attempt_suite.ps1"
         $scriptRecord = $manifest.orchestration.attempt_suite
-        $executionTimeLimit = "PT8H"
+        $executionTimeLimit = if ([string]$manifest.schema -ceq
+                $script:WeatherIntegrationAttemptManifestSchema) {
+            "PT1H35M"
+        }
+        else {
+            # Historical task evidence retains its original structural setting.
+            "PT8H"
+        }
         $description = "Immutable integration attempt $($manifest.attempt_id): preflight and full suite"
     }
     else {
@@ -907,13 +4149,15 @@ function Assert-WeatherIntegrationRegistrationIntent {
     )
 
     $intentPath = Get-WeatherIntegrationRegistrationIntentPath -AttemptContract $AttemptContract
-    $actualSha256 = Get-WeatherIntegrationFileSha256 -Path $intentPath
+    $intentSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $intentPath -MaximumBytes 1048576 -ContentType Json
+    $actualSha256 = [string]$intentSnapshot.Sha256
     if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and
         ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$' -or
             $actualSha256 -ne $ExpectedSha256.ToLowerInvariant())) {
         throw "Registration intent hash mismatch. Expected $ExpectedSha256; got $actualSha256"
     }
-    $intent = Read-WeatherIntegrationSharedJson -Path $intentPath
+    $intent = $intentSnapshot.Payload
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent `
         -Names @("schema", "status", "binding_contract", "attempt_id", "intent_path", "manifest_path", "manifest_sha256", "prepared_at_local", "principal", "suite", "merge", "safety") `
@@ -949,6 +4193,11 @@ function Assert-WeatherIntegrationRegistrationIntent {
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$intent.manifest_path) -Right $AttemptContract.ManifestPath) -or
         [string]$intent.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256) {
         throw "Registration intent does not bind this exact immutable attempt."
+    }
+    if ($currentContract) {
+        Assert-WeatherIntegrationCanonicalWindowsIdentityBinding `
+            -Principal $intent.principal `
+            -Label "Registration intent principal" | Out-Null
     }
     if ([string]::IsNullOrWhiteSpace([string]$intent.principal.user_id) -or
         [string]$intent.principal.logon_type -ne "S4U" -or
@@ -994,7 +4243,9 @@ function Assert-WeatherIntegrationRegistrationReceipt {
     )
 
     $receiptPath = Resolve-WeatherIntegrationPath -Path ([string]$AttemptContract.Manifest.evidence.registration_receipt)
-    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $receiptPath -MaximumBytes 1048576 -ContentType Json
+    $receipt = $receiptSnapshot.Payload
     Assert-WeatherIntegrationRequiredProperties `
         -Object $receipt `
         -Names @("schema", "status", "binding_contract", "attempt_id", "manifest_path", "manifest_sha256", "registration_intent_path", "registration_intent_sha256", "registered_at_local", "principal", "suite", "merge", "downstream_tasks_created", "safety") `
@@ -1032,6 +4283,11 @@ function Assert-WeatherIntegrationRegistrationReceipt {
         -not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.manifest_path) -Right $AttemptContract.ManifestPath) -or
         [string]$receipt.manifest_sha256 -ne [string]$AttemptContract.ManifestSha256) {
         throw "Registration receipt does not bind the exact task contract for this attempt."
+    }
+    if ($currentContract) {
+        Assert-WeatherIntegrationCanonicalWindowsIdentityBinding `
+            -Principal $receipt.principal `
+            -Label "Registration receipt principal" | Out-Null
     }
     if ($RequirePass -and [string]$receipt.status -ne "PASS") {
         throw "Integration-attempt runtime requires an immutable PASS registration receipt."
@@ -1078,6 +4334,20 @@ function Assert-WeatherIntegrationRegistrationReceipt {
         @($receipt.principal.required_privileges).Count -ne 0) {
         throw "Registration receipt principal disagrees with its immutable intent."
     }
+    if ($currentContract) {
+        foreach ($name in @(
+            "sid", "account_name", "authority", "machine_name",
+            "user_domain_name"
+        )) {
+            if (-not [string]::Equals(
+                    [string]$receipt.principal.$name,
+                    [string]$intentContract.Intent.principal.$name,
+                    [StringComparison]::OrdinalIgnoreCase
+                )) {
+                throw "Registration receipt principal identity disagrees with its immutable intent at $name."
+            }
+        }
+    }
     foreach ($role in @("suite", "merge")) {
         $record = $receipt.PSObject.Properties[$role].Value
         Assert-WeatherIntegrationRequiredProperties `
@@ -1108,7 +4378,7 @@ function Assert-WeatherIntegrationRegistrationReceipt {
     return [pscustomobject]@{
         Receipt = $receipt
         ReceiptPath = $receiptPath
-        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+        ReceiptSha256 = [string]$receiptSnapshot.Sha256
         Intent = $intentContract.Intent
         IntentPath = $intentContract.IntentPath
         IntentSha256 = $intentContract.IntentSha256
@@ -1140,6 +4410,21 @@ function Assert-WeatherIntegrationScheduledTaskObject {
     if ([string]$Task.TaskPath -ine [string]$record.task_path -or
         [string]$Task.Description -ne [string]$record.description) {
         throw "$Role task path or description does not match the immutable registration evidence."
+    }
+    $currentPrincipalContract = (
+        [string]$BindingEvidence.binding_contract -ceq
+            $script:WeatherIntegrationAttemptTaskBindingContract
+    )
+    if ($currentPrincipalContract) {
+        Assert-WeatherIntegrationCanonicalWindowsIdentityBinding `
+            -Principal $principal `
+            -Label "$Role immutable task principal" | Out-Null
+        $taskPrincipalSid = ConvertTo-WeatherIntegrationCanonicalPrincipalSid `
+            -UserId ([string]$Task.Principal.UserId) `
+            -Label "$Role Scheduler readback principal"
+        if ($taskPrincipalSid -cne [string]$principal.sid) {
+            throw "$Role Scheduler readback principal SID differs from immutable registration evidence."
+        }
     }
     if (-not [string]::Equals(
             [string]$Task.Principal.UserId,
@@ -1174,7 +4459,8 @@ function Assert-WeatherIntegrationScheduledTaskObject {
         $expectedTriggerAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
             -Value ([string]$record.trigger.at_local) `
             -Label "$Role trigger_at_local"
-        $expectedOffset = [TimeZoneInfo]::Local.GetUtcOffset($expectedTriggerAt)
+        $expectedOffset = (Get-WeatherIntegrationScheduleTimeZone).
+            GetUtcOffset($expectedTriggerAt)
     }
     catch {
         throw "$Role task trigger boundary is unreadable."
@@ -1306,7 +4592,7 @@ function Get-WeatherIntegrationRepairAllowedPatterns {
         "orchestration_wrapper" {
             @(
                 '^scripts/ops/(integration_attempt_contract|integration_attempt_remote_git|integration_attempt_preparation_contract|integration_attempt_quiet_merge_preflight|prepare_integration_attempt|assert_integration_attempt_ready|activate_integration_attempt|new_integration_attempt|register_integration_attempt|close_integration_attempt|retire_integration_attempt_tasks|dispatch_integration_attempt_recovery|integration_attempt_suite|integration_attempt_merge|assert_integration_attempt_success|reconcile_integration_attempt|bounded_worktree_test_suite|quiet_window_merge|boot_recovery|register_boot_recovery)\.ps1$',
-                '^tests/operations/test_(integration_attempt_scripts|integration_attempt_preparation_scripts|integration_attempt_registration_safety|integration_attempt_evidence_recovery_hardening|bounded_worktree_test_suite_script|suite_gated_quiet_merge_script|quiet_window_merge_script|boot_recovery_script|register_boot_recovery_script|host_task_wrappers|status_script)\.py$',
+                '^tests/operations/test_(integration_attempt_scripts|integration_attempt_preparation_scripts|integration_attempt_registration_safety|integration_attempt_evidence_recovery_hardening|bounded_worktree_test_suite_script|suite_gated_quiet_merge_script|quiet_window_merge_script|boot_recovery_script|register_boot_recovery_script|host_task_wrappers|status_script|ci_workflow_contract|offline_test_boundary)\.py$',
                 '^docs/operations/(INTEGRATION_ATTEMPT_RUNBOOK|OPERATIONS_DESIGN)\.md$',
                 '^docs/ops/streak-soak\.md$',
                 '^(AGENTS\.md|scripts/ops/AGENTS\.md|tests/AGENTS\.md|docs/AGENTS\.md)$'
@@ -1315,6 +4601,341 @@ function Get-WeatherIntegrationRepairAllowedPatterns {
         "manual_reviewed_change" { @('^.+$') }
     }
     return @($patterns)
+}
+
+function Assert-WeatherIntegrationRepairTipPolicy {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-f]{40}$")][string]$PriorTip,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-f]{40}$")][string]$ExpectedTip,
+        [Parameter(Mandatory = $true)][bool]$PriorIsAncestor,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("retry_unchanged", "schema_registry", "ownership_metadata", "orchestration_wrapper", "manual_reviewed_change")]
+        [string]$RepairClass,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()][string[]]$ChangeRows
+    )
+
+    if (-not $PriorIsAncestor) {
+        throw "A repair tip must descend from the exact failed tip $PriorTip."
+    }
+    if ($RepairClass -eq "retry_unchanged" -and $ExpectedTip -ne $PriorTip) {
+        throw "retry_unchanged requires the exact same commit id as the failed attempt."
+    }
+    if ($RepairClass -ne "retry_unchanged" -and $ChangeRows.Count -eq 0) {
+        throw "Repair attempt does not contain a change from prior tip $PriorTip."
+    }
+
+    $changedPaths = New-Object System.Collections.Generic.List[string]
+    foreach ($row in $ChangeRows) {
+        if ([string]::IsNullOrWhiteSpace($row)) { continue }
+        $columns = @($row -split "`t")
+        $changeKind = [string]$columns[0]
+        if ($columns.Count -lt 2 -or [string]::IsNullOrWhiteSpace([string]$columns[1])) {
+            throw "Repair diff contains malformed name-status evidence."
+        }
+        if ($RepairClass -ne "manual_reviewed_change" -and
+            $changeKind -notmatch '^[AM]$') {
+            throw "Bounded repair classes permit only added or modified files; got $changeKind."
+        }
+        foreach ($path in @($columns | Select-Object -Skip 1)) {
+            $changedPaths.Add(([string]$path).Replace("\", "/"))
+        }
+    }
+
+    if ($RepairClass -eq "retry_unchanged" -and $changedPaths.Count -ne 0) {
+        throw "retry_unchanged cannot contain changed paths."
+    }
+    $allowedPatterns = @(Get-WeatherIntegrationRepairAllowedPatterns `
+        -RepairClass $RepairClass)
+    foreach ($path in $changedPaths) {
+        $matchingPolicies = @($allowedPatterns | Where-Object { $path -match $_ })
+        if ($matchingPolicies.Count -eq 0) {
+            throw "RepairClass $RepairClass does not authorize changed path: $path"
+        }
+    }
+    return [pscustomobject]@{
+        PriorTip = $PriorTip
+        ExpectedTip = $ExpectedTip
+        RepairClass = $RepairClass
+        ChangedPaths = @($changedPaths)
+    }
+}
+
+function Get-WeatherIntegrationScheduleTimeZone {
+    try {
+        $timeZone = [TimeZoneInfo]::FindSystemTimeZoneById(
+            $script:WeatherIntegrationScheduleTimeZoneId
+        )
+    }
+    catch {
+        throw "The canonical America/Toronto Windows time zone is unavailable: $($script:WeatherIntegrationScheduleTimeZoneId)"
+    }
+    if ($null -eq $timeZone -or
+        [string]$timeZone.Id -cne $script:WeatherIntegrationScheduleTimeZoneId) {
+        throw "The canonical America/Toronto Windows time zone resolved ambiguously."
+    }
+    return $timeZone
+}
+
+function ConvertTo-WeatherIntegrationTimeZoneTransitionRow {
+    param(
+        [Parameter(Mandatory = $true)]
+        [TimeZoneInfo+TransitionTime]$Transition
+    )
+
+    return ((
+        @(
+            if ($Transition.IsFixedDateRule) { "fixed" } else { "floating" },
+            [string][int]$Transition.Month,
+            [string][int]$Transition.Day,
+            [string][int]$Transition.Week,
+            [string][int]$Transition.DayOfWeek,
+            [string][long]$Transition.TimeOfDay.TimeOfDay.Ticks
+        ) -join ","
+    ))
+}
+
+function Get-WeatherIntegrationScheduleTimeZoneBinding {
+    param(
+        [TimeZoneInfo]$TimeZone = (Get-WeatherIntegrationScheduleTimeZone)
+    )
+
+    if ([string]$TimeZone.Id -cne $script:WeatherIntegrationScheduleTimeZoneId) {
+        throw "Integration schedules require the canonical America/Toronto Windows time zone."
+    }
+    $rows = New-Object System.Collections.Generic.List[string]
+    $rows.Add("id=$([string]$TimeZone.Id)")
+    $rows.Add("base_utc_offset_ticks=$([long]$TimeZone.BaseUtcOffset.Ticks)")
+    $rows.Add("supports_daylight_saving=$([bool]$TimeZone.SupportsDaylightSavingTime)")
+    foreach ($rule in @($TimeZone.GetAdjustmentRules())) {
+        $baseDeltaTicks = if ($null -eq
+            $rule.PSObject.Properties["BaseUtcOffsetDelta"]) {
+            0L
+        }
+        else { [long]$rule.BaseUtcOffsetDelta.Ticks }
+        $rows.Add((
+            "rule=" + $rule.DateStart.ToString("yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture) +
+            "," + $rule.DateEnd.ToString("yyyy-MM-dd", [Globalization.CultureInfo]::InvariantCulture) +
+            "," + [long]$rule.DaylightDelta.Ticks +
+            "," + $baseDeltaTicks +
+            "," + (ConvertTo-WeatherIntegrationTimeZoneTransitionRow `
+                -Transition $rule.DaylightTransitionStart) +
+            "," + (ConvertTo-WeatherIntegrationTimeZoneTransitionRow `
+                -Transition $rule.DaylightTransitionEnd)
+        ))
+    }
+    $bytes = [Text.UTF8Encoding]::new($false).GetBytes((@($rows) -join "`n") + "`n")
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        $rulesSha = (([BitConverter]::ToString($sha.ComputeHash($bytes))) `
+            -replace '-', '').ToLowerInvariant()
+    }
+    finally { $sha.Dispose() }
+    return [pscustomobject][ordered]@{
+        schema_version = $script:WeatherIntegrationScheduleTimeZoneSchema
+        windows_time_zone_id = [string]$TimeZone.Id
+        base_utc_offset_minutes = [int]$TimeZone.BaseUtcOffset.TotalMinutes
+        supports_daylight_saving_time = [bool]$TimeZone.SupportsDaylightSavingTime
+        adjustment_rules_sha256 = $rulesSha
+    }
+}
+
+function Assert-WeatherIntegrationScheduleTimeZoneBinding {
+    param(
+        [Parameter(Mandatory = $true)][object]$Binding,
+        [string]$Label = "integration schedule time zone"
+    )
+
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $Binding `
+        -Names @(
+            "schema_version", "windows_time_zone_id",
+            "base_utc_offset_minutes", "supports_daylight_saving_time",
+            "adjustment_rules_sha256"
+        ) `
+        -Label $Label
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $Binding -Names @("supports_daylight_saving_time") -Label $Label
+    $expected = Get-WeatherIntegrationScheduleTimeZoneBinding
+    foreach ($name in @(
+        "schema_version", "windows_time_zone_id", "base_utc_offset_minutes",
+        "supports_daylight_saving_time", "adjustment_rules_sha256"
+    )) {
+        if ([string]$Binding.$name -cne [string]$expected.$name) {
+            throw "$Label differs from the canonical America/Toronto rule at $name."
+        }
+    }
+    return $expected
+}
+
+function Get-WeatherIntegrationScheduleLocalNow {
+    param(
+        [datetimeoffset]$UtcNow = [datetimeoffset]::UtcNow,
+        [TimeZoneInfo]$TimeZone = (Get-WeatherIntegrationScheduleTimeZone)
+    )
+
+    if ([string]$TimeZone.Id -cne $script:WeatherIntegrationScheduleTimeZoneId) {
+        throw "Integration schedule observations require America/Toronto."
+    }
+    return [datetime]::SpecifyKind(
+        [TimeZoneInfo]::ConvertTime($UtcNow, $TimeZone).DateTime,
+        [DateTimeKind]::Unspecified
+    )
+}
+
+function Assert-WeatherIntegrationSchedulerHostTimeZone {
+    $canonical = Get-WeatherIntegrationScheduleTimeZoneBinding
+    if ([string][TimeZoneInfo]::Local.Id -cne
+            [string]$canonical.windows_time_zone_id) {
+        throw "Task Scheduler mutation requires the host local time zone to be Eastern Standard Time."
+    }
+    $localBinding = Get-WeatherIntegrationScheduleTimeZoneBinding `
+        -TimeZone ([TimeZoneInfo]::Local)
+    if ([string]$localBinding.adjustment_rules_sha256 -cne
+            [string]$canonical.adjustment_rules_sha256) {
+        throw "Task Scheduler host time-zone rules differ from the frozen America/Toronto contract."
+    }
+    return $canonical
+}
+
+function ConvertTo-WeatherIntegrationUtcTimestamp {
+    param(
+        [Parameter(Mandatory = $true)][datetimeoffset]$Value
+    )
+
+    return $Value.UtcDateTime.ToString(
+        "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'",
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+}
+
+function Get-WeatherIntegrationScheduleEvidence {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$SuiteAtLocal,
+        [Parameter(Mandatory = $true)][datetime]$MergeAtLocal
+    )
+
+    $timeZone = Get-WeatherIntegrationScheduleTimeZone
+    $suiteAt = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $SuiteAtLocal -Label "suite_at_local" -TimeZone $timeZone
+    $mergeAt = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $MergeAtLocal -Label "merge_at_local" -TimeZone $timeZone
+    $suiteInstant = ConvertTo-WeatherIntegrationLocalInstant `
+        -Value $suiteAt -Label "suite_at_local" -TimeZone $timeZone
+    $mergeInstant = ConvertTo-WeatherIntegrationLocalInstant `
+        -Value $mergeAt -Label "merge_at_local" -TimeZone $timeZone
+    return [pscustomobject][ordered]@{
+        time_zone = Get-WeatherIntegrationScheduleTimeZoneBinding -TimeZone $timeZone
+        suite_at_local = $suiteAt.ToString("o")
+        suite_at_utc = ConvertTo-WeatherIntegrationUtcTimestamp -Value $suiteInstant
+        merge_at_local = $mergeAt.ToString("o")
+        merge_at_utc = ConvertTo-WeatherIntegrationUtcTimestamp -Value $mergeInstant
+    }
+}
+
+function Assert-WeatherIntegrationScheduleEvidence {
+    param(
+        [Parameter(Mandatory = $true)][object]$Schedule,
+        [string]$Label = "integration schedule"
+    )
+
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $Schedule `
+        -Names @(
+            "time_zone", "suite_at_local", "suite_at_utc",
+            "merge_at_local", "merge_at_utc"
+        ) `
+        -Label $Label
+    $timeZone = Get-WeatherIntegrationScheduleTimeZone
+    Assert-WeatherIntegrationScheduleTimeZoneBinding `
+        -Binding $Schedule.time_zone -Label "$Label time zone" | Out-Null
+    $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value ([string]$Schedule.suite_at_local) `
+        -Label "$Label suite_at_local" -TimeZone $timeZone
+    $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value ([string]$Schedule.merge_at_local) `
+        -Label "$Label merge_at_local" -TimeZone $timeZone
+    $suiteInstant = ConvertTo-WeatherIntegrationLocalInstant `
+        -Value $suiteAt -Label "$Label suite_at_local" -TimeZone $timeZone
+    $mergeInstant = ConvertTo-WeatherIntegrationLocalInstant `
+        -Value $mergeAt -Label "$Label merge_at_local" -TimeZone $timeZone
+    if ([string]$Schedule.suite_at_utc -cne
+            (ConvertTo-WeatherIntegrationUtcTimestamp -Value $suiteInstant) -or
+        [string]$Schedule.merge_at_utc -cne
+            (ConvertTo-WeatherIntegrationUtcTimestamp -Value $mergeInstant)) {
+        throw "$Label local wall clocks and frozen UTC instants disagree."
+    }
+    return [pscustomobject]@{
+        SuiteAtLocal = $suiteAt
+        MergeAtLocal = $mergeAt
+        SuiteInstant = $suiteInstant
+        MergeInstant = $mergeInstant
+        TimeZone = $timeZone
+    }
+}
+
+function Assert-WeatherIntegrationScheduledSuiteLaunchReserve {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$SuiteAtLocal,
+        [Parameter(Mandatory = $true)][datetime]$MergeAtLocal,
+        [Parameter(Mandatory = $true)][datetime]$Now,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 86400)][int]$RequiredExecutionSeconds,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(0, 3600)][int]$LaunchGraceSeconds,
+        [Parameter(Mandatory = $true)]
+        [ValidateRange(1, 90000)][int]$RequiredScheduleSeconds,
+        [TimeZoneInfo]$TimeZone = (Get-WeatherIntegrationScheduleTimeZone)
+    )
+
+    $suiteAt = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $SuiteAtLocal -Label "SuiteAtLocal" -TimeZone $TimeZone
+    $mergeAt = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $MergeAtLocal -Label "MergeAtLocal" -TimeZone $TimeZone
+    $localNow = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $Now -Label "Now" -TimeZone $TimeZone
+    if ($LaunchGraceSeconds -ne
+            [int]$script:WeatherIntegrationSchedulerLaunchGraceSeconds -or
+        $RequiredScheduleSeconds -ne
+            ($RequiredExecutionSeconds + $LaunchGraceSeconds)) {
+        throw "Scheduled suite launch reserve does not match its frozen grace contract."
+    }
+    if ($localNow.Date -ne $suiteAt.Date -or $mergeAt.Date -ne $suiteAt.Date) {
+        throw "Scheduled suite launch must remain on the immutable local schedule date."
+    }
+    $launchDelaySeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+        -StartLocal $suiteAt -EndLocal $localNow `
+        -StartLabel "SuiteAtLocal" -EndLabel "Now" -TimeZone $TimeZone
+    if ($launchDelaySeconds -lt 0) {
+        throw "Scheduled suite may not launch before its immutable trigger."
+    }
+    if ($launchDelaySeconds -gt $LaunchGraceSeconds) {
+        throw "Scheduled suite exceeded its frozen Scheduler launch grace."
+    }
+    $hardStop = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $suiteAt.Date.AddHours(9) -Label "suite hard stop" `
+        -TimeZone $TimeZone
+    $remainingToMergeSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+        -StartLocal $localNow -EndLocal $mergeAt `
+        -StartLabel "Now" -EndLabel "MergeAtLocal" -TimeZone $TimeZone
+    $remainingToHardStopSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+        -StartLocal $localNow -EndLocal $hardStop `
+        -StartLabel "Now" -EndLabel "suite hard stop" -TimeZone $TimeZone
+    if ($remainingToMergeSeconds -lt $RequiredExecutionSeconds -or
+        $remainingToHardStopSeconds -lt $RequiredExecutionSeconds) {
+        throw "Remaining overnight window cannot contain the frozen execution reserve."
+    }
+    return [pscustomobject][ordered]@{
+        checked_at_local = $localNow
+        launch_delay_seconds = [math]::Round($launchDelaySeconds, 3)
+        launch_grace_seconds = $LaunchGraceSeconds
+        required_execution_seconds = $RequiredExecutionSeconds
+        required_schedule_seconds = $RequiredScheduleSeconds
+        remaining_to_merge_seconds = [math]::Floor($remainingToMergeSeconds)
+        remaining_to_hard_stop_seconds = [math]::Floor($remainingToHardStopSeconds)
+    }
 }
 
 function Get-WeatherIntegrationSuiteWaitDecision {
@@ -1404,7 +5025,7 @@ function Assert-WeatherIntegrationLocalScheduleTime {
     param(
         [Parameter(Mandatory = $true)][datetime]$Value,
         [Parameter(Mandatory = $true)][string]$Label,
-        [TimeZoneInfo]$TimeZone = [TimeZoneInfo]::Local
+        [TimeZoneInfo]$TimeZone = (Get-WeatherIntegrationScheduleTimeZone)
     )
 
     if ($Value.Kind -eq [DateTimeKind]::Utc) {
@@ -1420,10 +5041,42 @@ function Assert-WeatherIntegrationLocalScheduleTime {
     return $wallClock
 }
 
+function ConvertTo-WeatherIntegrationLocalInstant {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$Value,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [TimeZoneInfo]$TimeZone = (Get-WeatherIntegrationScheduleTimeZone)
+    )
+
+    $wallClock = Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $Value -Label $Label -TimeZone $TimeZone
+    return [DateTimeOffset]::new(
+        $wallClock,
+        $TimeZone.GetUtcOffset($wallClock)
+    )
+}
+
+function Get-WeatherIntegrationLocalElapsedSeconds {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$StartLocal,
+        [Parameter(Mandatory = $true)][datetime]$EndLocal,
+        [string]$StartLabel = "interval start",
+        [string]$EndLabel = "interval end",
+        [TimeZoneInfo]$TimeZone = (Get-WeatherIntegrationScheduleTimeZone)
+    )
+
+    $startInstant = ConvertTo-WeatherIntegrationLocalInstant `
+        -Value $StartLocal -Label $StartLabel -TimeZone $TimeZone
+    $endInstant = ConvertTo-WeatherIntegrationLocalInstant `
+        -Value $EndLocal -Label $EndLabel -TimeZone $TimeZone
+    return ($endInstant.UtcDateTime - $startInstant.UtcDateTime).TotalSeconds
+}
+
 function ConvertFrom-WeatherIntegrationLocalTimestamp {
     param(
         [Parameter(Mandatory = $true)][string]$Value,
-        [Parameter(Mandatory = $true)][string]$Label
+        [Parameter(Mandatory = $true)][string]$Label,
+        [TimeZoneInfo]$TimeZone = (Get-WeatherIntegrationScheduleTimeZone)
     )
 
     if ($Value -match '(?i)(?:Z|[+-][0-9]{2}:[0-9]{2})$') {
@@ -1440,7 +5093,8 @@ function ConvertFrom-WeatherIntegrationLocalTimestamp {
     catch {
         throw "$Label is not a supported invariant local timestamp."
     }
-    return Assert-WeatherIntegrationLocalScheduleTime -Value $parsed -Label $Label
+    return Assert-WeatherIntegrationLocalScheduleTime `
+        -Value $parsed -Label $Label -TimeZone $TimeZone
 }
 
 function ConvertFrom-WeatherIntegrationEvidenceTimestamp {
@@ -1472,26 +5126,58 @@ function Assert-WeatherIntegrationGitBaseline {
 
     $manifest = $AttemptContract.Manifest
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
-    $masterOutput = @(& git -C $repoRoot rev-parse master)
-    if ($LASTEXITCODE -ne 0 -or $masterOutput.Count -eq 0) {
-        throw "$Phase could not resolve production master."
-    }
-    $masterTip = ([string]$masterOutput[-1]).Trim().ToLowerInvariant()
-    $headOutput = @(& git -C $repoRoot rev-parse HEAD)
-    if ($LASTEXITCODE -ne 0 -or $headOutput.Count -eq 0) {
-        throw "$Phase could not resolve the production working-tree HEAD."
-    }
-    $headTip = ([string]$headOutput[-1]).Trim().ToLowerInvariant()
-    $branchOutput = @(& git -C $repoRoot symbolic-ref --quiet --short HEAD)
-    if ($LASTEXITCODE -ne 0 -or $branchOutput.Count -eq 0) {
+    $branchBeforeQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repoRoot `
+        -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD") `
+        -Label "$Phase production branch-before query"
+    $refsQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repoRoot `
+        -Arguments @(
+            "rev-parse", "HEAD", "refs/heads/master",
+            "refs/remotes/origin/master"
+        ) `
+        -Label "$Phase production ref-tuple query"
+    $closingRefsQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repoRoot `
+        -Arguments @(
+            "rev-parse", "HEAD", "refs/heads/master",
+            "refs/remotes/origin/master"
+        ) `
+        -Label "$Phase closing production ref-tuple query"
+    $branchAfterQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repoRoot `
+        -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD") `
+        -Label "$Phase production branch-after query"
+    $branchBefore = @($branchBeforeQuery.StdoutLines)
+    $refs = @($refsQuery.StdoutLines)
+    $closingRefs = @($closingRefsQuery.StdoutLines)
+    $branchAfter = @($branchAfterQuery.StdoutLines)
+    if ($branchBefore.Count -ne 1 -or $branchAfter.Count -ne 1) {
         throw "$Phase production working tree is detached instead of checked out on master."
     }
-    $branchName = ([string]$branchOutput[-1]).Trim()
-    $originOutput = @(& git -C $repoRoot rev-parse origin/master)
-    if ($LASTEXITCODE -ne 0 -or $originOutput.Count -eq 0) {
-        throw "$Phase could not resolve origin/master."
+    if ($refs.Count -ne 3 -or $closingRefs.Count -ne 3 -or
+        @($refs | Where-Object {
+            ([string]$_).Trim() -cnotmatch '^[0-9a-fA-F]{40}$'
+        }).Count -ne 0 -or
+        @($closingRefs | Where-Object {
+            ([string]$_).Trim() -cnotmatch '^[0-9a-fA-F]{40}$'
+        }).Count -ne 0) {
+        throw "$Phase could not resolve one exact HEAD/master/origin tuple."
     }
-    $originTip = ([string]$originOutput[-1]).Trim().ToLowerInvariant()
+    $branchName = ([string]$branchBefore[0]).Trim()
+    $finalBranchName = ([string]$branchAfter[0]).Trim()
+    $headTip = ([string]$refs[0]).Trim().ToLowerInvariant()
+    $masterTip = ([string]$refs[1]).Trim().ToLowerInvariant()
+    $originTip = ([string]$refs[2]).Trim().ToLowerInvariant()
+    if ($branchName -cne $finalBranchName -or
+        (@($refs | ForEach-Object {
+            ([string]$_).Trim().ToLowerInvariant()
+        }) -join "`n") -cne
+            (@($closingRefs | ForEach-Object {
+                ([string]$_).Trim().ToLowerInvariant()
+            }) -join "`n")) {
+        throw "$Phase production branch/ref tuple changed while it was sampled."
+    }
     if ($branchName -ne "master" -or
         $headTip -ne [string]$manifest.baseline.master -or
         $masterTip -ne [string]$manifest.baseline.master -or
@@ -1564,8 +5250,12 @@ function Assert-WeatherIntegrationLiveOriginBaseline {
                 "refs/heads/master:refs/remotes/origin/master"
             ) `
             -Label "$Phase origin/master refresh" | Out-Null
-        $trackingRows = @(& git -C $repoRoot rev-parse origin/master)
-        if ($LASTEXITCODE -ne 0 -or $trackingRows.Count -ne 1 -or
+        $trackingQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $repoRoot `
+            -Arguments @("rev-parse", "refs/remotes/origin/master") `
+            -Label "$Phase refreshed origin/master query"
+        $trackingRows = @($trackingQuery.StdoutLines)
+        if ($trackingRows.Count -ne 1 -or
             ([string]$trackingRows[0]).Trim().ToLowerInvariant() -ne
                 [string]$manifest.baseline.master) {
             throw "$Phase refreshed origin/master does not equal the frozen baseline."
@@ -1577,6 +5267,160 @@ function Assert-WeatherIntegrationLiveOriginBaseline {
         Topic = [string]$observed[$topicRef]
         TrackingMasterRefreshed = [bool]$RefreshTrackingMaster
     }
+}
+
+function Assert-WeatherIntegrationCurrentAuthorityTuple {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][string]$Phase
+    )
+
+    $manifest = $AttemptContract.Manifest
+    if ([string]$manifest.schema -cne
+            $script:WeatherIntegrationAttemptManifestSchema) {
+        throw "$Phase complete authority tuple is required only for strict v2 attempts."
+    }
+    $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
+    $worktreeRoot = Resolve-WeatherIntegrationPath `
+        -Path ([string]$manifest.worktree_root)
+    $topicBranch = Get-WeatherIntegrationTopicBranchName `
+        -BranchRef ([string]$manifest.branch_ref)
+    $observations = New-Object System.Collections.Generic.List[object]
+    foreach ($pass in 1..2) {
+        $live = Assert-WeatherIntegrationLiveOriginBaseline `
+            -AttemptContract $AttemptContract -Phase "$Phase pass $pass"
+        $baseline = Assert-WeatherIntegrationGitBaseline `
+            -AttemptContract $AttemptContract -Phase "$Phase pass $pass"
+        $trackingQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $repoRoot `
+            -Arguments @("rev-parse", [string]$manifest.branch_ref) `
+            -Label "$Phase pass $pass tracking-topic query"
+        $registrationQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $repoRoot `
+            -Arguments @("worktree", "list", "--porcelain") `
+            -Label "$Phase pass $pass registered-worktree query"
+        $worktreeBranchQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $worktreeRoot -Arguments @("branch", "--show-current") `
+            -Label "$Phase pass $pass worktree-branch query"
+        $worktreeTipQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $worktreeRoot `
+            -Arguments @("rev-parse", "--verify", "HEAD^{commit}") `
+            -Label "$Phase pass $pass worktree-tip query"
+        $worktreeStatusQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $worktreeRoot -Arguments @("status", "--porcelain") `
+            -Label "$Phase pass $pass worktree-status query"
+        $testQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $worktreeRoot -Arguments @("ls-files", "--", "tests") `
+            -Label "$Phase pass $pass tracked-test inventory query"
+        $sourceQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $worktreeRoot `
+            -Arguments @("ls-files", "--", "*.py", "*.ps1") `
+            -Label "$Phase pass $pass tracked-source inventory query"
+        Assert-WeatherIntegrationNoIgnoredImportArtifacts `
+            -WorktreeRoot $worktreeRoot -Phase "$Phase pass $pass" | Out-Null
+        $trackedWorktree = Get-WeatherIntegrationTrackedWorktreeFingerprint `
+            -WorktreeRoot $worktreeRoot `
+            -ExpectedHead ([string]$manifest.expected_tip) `
+            -Phase "$Phase pass $pass tracked inputs"
+
+        $trackingRows = @($trackingQuery.StdoutLines)
+        $worktreeBranches = @($worktreeBranchQuery.StdoutLines)
+        $worktreeTips = @($worktreeTipQuery.StdoutLines)
+        $worktreeStatus = @($worktreeStatusQuery.StdoutLines)
+        $registeredPaths = @(
+            @($registrationQuery.StdoutLines) |
+                Where-Object { [string]$_ -like "worktree *" } |
+                ForEach-Object {
+                    Resolve-WeatherIntegrationPath `
+                        -Path ([string]$_).Substring("worktree ".Length)
+                } |
+                Where-Object {
+                    Test-WeatherIntegrationPathEqual `
+                        -Left $_ -Right $worktreeRoot
+                }
+        )
+        $tests = @(
+            @($testQuery.StdoutLines) |
+                ForEach-Object { ([string]$_).Replace("\", "/") } |
+                Where-Object {
+                    $_ -match '^tests/(?:.*/)?(?:test_[^/]*|[^/]+_test)\.py$'
+                } |
+                Sort-Object -Unique
+        )
+        $sources = @(
+            @($sourceQuery.StdoutLines) |
+                ForEach-Object { ([string]$_).Replace("\", "/") } |
+                Sort-Object -Unique
+        )
+        $python = @($sources | Where-Object { $_ -match '(?i)\.py$' })
+        $powerShell = @($sources | Where-Object { $_ -match '(?i)\.ps1$' })
+        if ($trackingRows.Count -ne 1 -or $worktreeBranches.Count -ne 1 -or
+            $worktreeTips.Count -ne 1 -or $registeredPaths.Count -ne 1 -or
+            $worktreeStatus.Count -ne 0 -or $tests.Count -le 0 -or
+            $python.Count -le 0 -or $powerShell.Count -le 0) {
+            throw "$Phase could not observe one complete clean registered worktree tuple."
+        }
+        $observation = [pscustomobject][ordered]@{
+            ProductionBranch = [string]$baseline.Branch
+            Head = [string]$baseline.Head
+            Master = [string]$baseline.Master
+            OriginMaster = [string]$baseline.OriginMaster
+            LiveMaster = [string]$live.Master
+            LiveTopic = [string]$live.Topic
+            TrackingTopic = ([string]$trackingRows[0]).Trim().ToLowerInvariant()
+            WorktreeBranch = ([string]$worktreeBranches[0]).Trim()
+            WorktreeHead = ([string]$worktreeTips[0]).Trim().ToLowerInvariant()
+            TestFileCount = $tests.Count
+            TestInventorySha256 = Get-WeatherIntegrationInventorySha256 -Paths $tests
+            PythonFileCount = $python.Count
+            PythonInventorySha256 = Get-WeatherIntegrationInventorySha256 -Paths $python
+            PowerShellFileCount = $powerShell.Count
+            PowerShellInventorySha256 =
+                Get-WeatherIntegrationInventorySha256 -Paths $powerShell
+            TrackedWorktreeSchema = [string]$trackedWorktree.schema_version
+            TrackedWorktreeSha256 = [string]$trackedWorktree.content_sha256
+            TrackedWorktreeFileCount = [int]$trackedWorktree.file_count
+            TrackedWorktreeTotalBytes = [long]$trackedWorktree.total_bytes
+            TrackedWorktreeLfsFileCount = [int]$trackedWorktree.lfs_file_count
+        }
+        if ([string]$observation.LiveMaster -ne [string]$manifest.baseline.master -or
+            [string]$observation.LiveTopic -ne [string]$manifest.expected_tip -or
+            [string]$observation.TrackingTopic -ne [string]$manifest.expected_tip -or
+            [string]$observation.WorktreeBranch -cne $topicBranch -or
+            [string]$observation.WorktreeHead -ne [string]$manifest.expected_tip -or
+            [int]$observation.TestFileCount -ne
+                [int]$manifest.suite.expected_test_file_count -or
+            [string]$observation.TestInventorySha256 -cne
+                [string]$manifest.suite.expected_test_inventory_sha256 -or
+            [int]$observation.PythonFileCount -ne
+                [int]$manifest.suite.expected_python_file_count -or
+            [string]$observation.PythonInventorySha256 -cne
+                [string]$manifest.suite.expected_python_inventory_sha256 -or
+            [int]$observation.PowerShellFileCount -ne
+                [int]$manifest.suite.expected_powershell_file_count -or
+            [string]$observation.PowerShellInventorySha256 -cne
+                [string]$manifest.suite.expected_powershell_inventory_sha256 -or
+            [string]$observation.TrackedWorktreeSchema -cne
+                [string]$manifest.suite.expected_tracked_worktree_schema -or
+            [string]$observation.TrackedWorktreeSha256 -cne
+                [string]$manifest.suite.expected_tracked_worktree_sha256 -or
+            [int]$observation.TrackedWorktreeFileCount -ne
+                [int]$manifest.suite.expected_tracked_worktree_file_count -or
+            [long]$observation.TrackedWorktreeTotalBytes -ne
+                [long]$manifest.suite.expected_tracked_worktree_total_bytes -or
+            [int]$observation.TrackedWorktreeLfsFileCount -ne
+                [int]$manifest.suite.expected_tracked_worktree_lfs_file_count) {
+            throw "$Phase current live/local/worktree/inventory tuple differs from the v2 manifest."
+        }
+        $observations.Add($observation)
+    }
+    foreach ($name in @($observations[0].PSObject.Properties.Name)) {
+        if ([string]$observations[0].$name -cne
+                [string]$observations[1].$name) {
+            throw "$Phase authority tuple changed between complete observations at field $name."
+        }
+    }
+    return $observations[1]
 }
 
 function Assert-WeatherIntegrationOriginIdentity {
@@ -1629,16 +5473,21 @@ function Assert-WeatherIntegrationAttemptManifest {
     )
 
     $resolvedManifestPath = Resolve-WeatherIntegrationPath -Path $ManifestPath
-    $actualSha256 = Get-WeatherIntegrationFileSha256 -Path $resolvedManifestPath
     if ($ExpectedSha256 -notmatch '^[0-9a-fA-F]{64}$') {
         throw "Expected manifest SHA256 must be exactly 64 hexadecimal characters."
     }
+    $manifestSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $resolvedManifestPath -MaximumBytes 1048576 -ContentType Json
+    $actualSha256 = [string]$manifestSnapshot.Sha256
     if ($actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
         throw "Attempt manifest hash mismatch. Expected $ExpectedSha256; got $actualSha256"
     }
 
-    $manifest = Read-WeatherIntegrationSharedJson -Path $resolvedManifestPath
-    if ([string]$manifest.schema -ne $script:WeatherIntegrationAttemptManifestSchema) {
+    $manifest = $manifestSnapshot.Payload
+    if ([string]$manifest.schema -cnotin @(
+            $script:WeatherIntegrationAttemptLegacyManifestSchema,
+            $script:WeatherIntegrationAttemptManifestSchema
+        )) {
         throw "Unsupported integration-attempt manifest schema: $($manifest.schema)"
     }
     if ([string]$manifest.attempt_id -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$') {
@@ -1654,6 +5503,23 @@ function Assert-WeatherIntegrationAttemptManifest {
     if ([string]::IsNullOrWhiteSpace([string]$manifest.authorization.review_reference)) {
         throw "Attempt is missing its review reference."
     }
+    if ([string]$manifest.schema -ceq $script:WeatherIntegrationAttemptManifestSchema) {
+        $qualifiedPreparation = $manifest.authorization.PSObject.Properties["preparation"]
+        if ($null -eq $qualifiedPreparation -or $null -eq $qualifiedPreparation.Value) {
+            throw "A v2 integration attempt must bind pre-arming qualification evidence."
+        }
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $qualifiedPreparation.Value `
+            -Names @(
+                "prearming_qualification_path",
+                "prearming_qualification_sha256"
+            ) `
+            -Label "v2 integration-attempt qualification binding"
+        if ([string]$qualifiedPreparation.Value.prearming_qualification_sha256 -notmatch
+                '^[0-9a-f]{64}$') {
+            throw "A v2 integration attempt must bind an exact qualification receipt hash."
+        }
+    }
     $expectedSuiteTaskName = "WeatherIntegrationSuite_$($manifest.attempt_id)"
     $expectedMergeTaskName = "WeatherIntegrationMerge_$($manifest.attempt_id)"
     if ([string]$manifest.schedule.suite_task_name -ne $expectedSuiteTaskName -or
@@ -1661,22 +5527,45 @@ function Assert-WeatherIntegrationAttemptManifest {
         throw "Attempt task names are not the canonical names derived from attempt_id."
     }
     try {
-        $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-            -Value ([string]$manifest.schedule.suite_at_local) `
-            -Label "suite_at_local"
-        $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-            -Value ([string]$manifest.schedule.merge_at_local) `
-            -Label "merge_at_local"
+        if ([string]$manifest.schema -ceq
+                $script:WeatherIntegrationAttemptManifestSchema) {
+            $scheduleEvidence = Assert-WeatherIntegrationScheduleEvidence `
+                -Schedule $manifest.schedule -Label "v2 integration schedule"
+            $suiteAt = [datetime]$scheduleEvidence.SuiteAtLocal
+            $mergeAt = [datetime]$scheduleEvidence.MergeAtLocal
+        }
+        else {
+            # Historical v1 manifests had no explicit zone/rule/UTC binding.
+            # Interpret their wall clocks in the canonical policy zone solely
+            # so they remain structurally readable and exactly closeable.
+            $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+                -Value ([string]$manifest.schedule.suite_at_local) `
+                -Label "suite_at_local"
+            $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+                -Value ([string]$manifest.schedule.merge_at_local) `
+                -Label "merge_at_local"
+        }
     }
     catch {
         throw "Attempt schedule timestamps are invalid."
     }
     $suiteMinute = ($suiteAt.Hour * 60) + $suiteAt.Minute
     $mergeMinute = ($mergeAt.Hour * 60) + $mergeAt.Minute
+    $suiteToMergeSeconds = if ([string]$manifest.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema) {
+        Get-WeatherIntegrationLocalElapsedSeconds `
+            -StartLocal $suiteAt -EndLocal $mergeAt `
+            -StartLabel "suite_at_local" -EndLabel "merge_at_local"
+    }
+    else {
+        # Historical v1 manifests retain their original structural wall-clock
+        # schedule contract so exact-task closure stays readable.
+        ($mergeAt - $suiteAt).TotalSeconds
+    }
     if ($suiteAt.Date -ne $mergeAt.Date -or
         $suiteMinute -lt 30 -or $suiteMinute -ge 540 -or
         $mergeMinute -lt 60 -or $mergeMinute -ge 220 -or
-        ($mergeAt - $suiteAt) -lt [TimeSpan]::FromMinutes(30)) {
+        $suiteToMergeSeconds -lt 1800) {
         throw "Attempt schedule violates the suite or quiet-window contract."
     }
     if ([string]$manifest.baseline.master -notmatch '^[0-9a-f]{40}$' -or
@@ -1702,6 +5591,114 @@ function Assert-WeatherIntegrationAttemptManifest {
         $maxFilesPerChunk -gt 25 -or $expectedChunkCount -le 0 -or
         $expectedChunkCount -ne [int][math]::Ceiling($expectedTestFileCount / [double]$maxFilesPerChunk)) {
         throw "Attempt suite inventory is missing or internally inconsistent."
+    }
+    if ([string]$manifest.schema -ceq $script:WeatherIntegrationAttemptManifestSchema) {
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $manifest.suite `
+            -Names @(
+                "expected_test_inventory_sha256",
+                "expected_python_file_count", "expected_python_inventory_sha256",
+                "expected_powershell_file_count",
+                "expected_powershell_inventory_sha256",
+                "expected_tracked_worktree_schema",
+                "expected_tracked_worktree_sha256",
+                "expected_tracked_worktree_file_count",
+                "expected_tracked_worktree_total_bytes",
+                "expected_tracked_worktree_lfs_file_count",
+                "expected_python_environment_schema",
+                "expected_python_environment_sha256",
+                "expected_python_environment_distributions",
+                "expected_python_environment_files",
+                "expected_python_environment_bytes",
+                "expected_toolchain_schema", "expected_toolchain_sha256",
+                "prearming_measured_duration_seconds",
+                "prearming_planning_ceiling_seconds",
+                "prearming_safety_margin_seconds",
+                "prearming_required_runtime_seconds",
+                "prearming_launch_grace_seconds",
+                "prearming_required_schedule_seconds",
+                "bounded_suite_max_runtime_seconds",
+                "suite_wrapper_teardown_allowance_seconds",
+                "suite_task_execution_time_limit_seconds"
+            ) `
+            -Label "v2 integration-attempt runtime reserve"
+        if ([string]$manifest.suite.expected_test_inventory_sha256 -cnotmatch
+                '^[0-9a-f]{64}$' -or
+            [int]$manifest.suite.expected_python_file_count -le 0 -or
+            [string]$manifest.suite.expected_python_inventory_sha256 -cnotmatch
+                '^[0-9a-f]{64}$' -or
+            [int]$manifest.suite.expected_powershell_file_count -le 0 -or
+            [string]$manifest.suite.expected_powershell_inventory_sha256 -cnotmatch
+                '^[0-9a-f]{64}$' -or
+            [string]$manifest.suite.expected_tracked_worktree_schema -cne
+                "tracked_worktree_content_fingerprint_v1" -or
+            [string]$manifest.suite.expected_tracked_worktree_sha256 -cnotmatch
+                '^[0-9a-f]{64}$' -or
+            [int]$manifest.suite.expected_tracked_worktree_file_count -le 0 -or
+            [int]$manifest.suite.expected_tracked_worktree_file_count -gt 20000 -or
+            [long]$manifest.suite.expected_tracked_worktree_total_bytes -lt 0 -or
+            [long]$manifest.suite.expected_tracked_worktree_total_bytes -gt
+                2147483648 -or
+            [int]$manifest.suite.expected_tracked_worktree_lfs_file_count -lt 0 -or
+            [int]$manifest.suite.expected_tracked_worktree_lfs_file_count -gt
+                [int]$manifest.suite.expected_tracked_worktree_file_count -or
+            [string]$manifest.suite.expected_python_environment_schema -cne
+                "python_environment_fingerprint_v2" -or
+            [string]$manifest.suite.expected_python_environment_sha256 -cnotmatch
+                '^[0-9a-f]{64}$' -or
+            [int]$manifest.suite.expected_python_environment_distributions -lt 0 -or
+            [int]$manifest.suite.expected_python_environment_files -le 0 -or
+            [int]$manifest.suite.expected_python_environment_files -gt 50000 -or
+            [long]$manifest.suite.expected_python_environment_bytes -le 0 -or
+            [long]$manifest.suite.expected_python_environment_bytes -gt 2147483648) {
+            throw "v2 integration-attempt creator/environment inventories are invalid."
+        }
+        if ([string]$manifest.suite.expected_toolchain_schema -cne
+                "integration_toolchain_fingerprint_v1" -or
+            [string]$manifest.suite.expected_toolchain_sha256 -cnotmatch
+                '^[0-9a-f]{64}$') {
+            throw "v2 integration-attempt qualification-frozen toolchain is invalid."
+        }
+        $expectedRequiredRuntime = [math]::Max(
+            [int]$script:WeatherIntegrationPrearmingPlanningCeilingSeconds,
+            [int][math]::Ceiling(
+                [double]$manifest.suite.prearming_measured_duration_seconds
+            )
+        ) + [int]$script:WeatherIntegrationPrearmingSafetyMarginSeconds
+        $expectedLaunchGrace =
+            [int]$script:WeatherIntegrationSchedulerLaunchGraceSeconds
+        $expectedRequiredSchedule = $expectedRequiredRuntime + $expectedLaunchGrace
+        $suiteHardStop = Assert-WeatherIntegrationLocalScheduleTime `
+            -Value $suiteAt.Date.AddHours(9) -Label "suite hard stop"
+        $suiteToHardStopSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+            -StartLocal $suiteAt -EndLocal $suiteHardStop `
+            -StartLabel "suite_at_local" -EndLabel "suite hard stop"
+        if ([double]$manifest.suite.prearming_measured_duration_seconds -lt 0 -or
+            [int]$manifest.suite.prearming_planning_ceiling_seconds -ne
+                [int]$script:WeatherIntegrationPrearmingPlanningCeilingSeconds -or
+            [int]$manifest.suite.prearming_safety_margin_seconds -ne
+                [int]$script:WeatherIntegrationPrearmingSafetyMarginSeconds -or
+            [int]$manifest.suite.prearming_required_runtime_seconds -ne
+                $expectedRequiredRuntime -or
+            [int]$manifest.suite.prearming_launch_grace_seconds -ne
+                $expectedLaunchGrace -or
+            [int]$manifest.suite.prearming_required_schedule_seconds -ne
+                $expectedRequiredSchedule -or
+            [int]$manifest.suite.bounded_suite_max_runtime_seconds -ne
+                [int]$script:WeatherIntegrationBoundedSuiteMaximumRuntimeSeconds -or
+            [int]$manifest.suite.suite_wrapper_teardown_allowance_seconds -ne
+                [int]$script:WeatherIntegrationSuiteWrapperTeardownAllowanceSeconds -or
+            [int]$manifest.suite.suite_task_execution_time_limit_seconds -ne
+                [int]$script:WeatherIntegrationSuiteTaskExecutionLimitSeconds -or
+            [int]$manifest.suite.suite_task_execution_time_limit_seconds -ne
+                ([int]$manifest.suite.bounded_suite_max_runtime_seconds +
+                 [int]$manifest.suite.suite_wrapper_teardown_allowance_seconds) -or
+            [double]$manifest.suite.prearming_measured_duration_seconds -gt
+                [double]$manifest.suite.bounded_suite_max_runtime_seconds -or
+            $suiteToMergeSeconds -lt $expectedRequiredSchedule -or
+            $suiteToHardStopSeconds -lt $expectedRequiredSchedule) {
+            throw "v2 integration-attempt runtime reserve is missing or infeasible."
+        }
     }
 
     $attemptRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.attempt_root)
@@ -1737,9 +5734,11 @@ function Assert-WeatherIntegrationAttemptManifest {
         ManifestSha256 = $actualSha256
         AttemptRoot = $attemptRoot
     }
-    Assert-WeatherIntegrationPreparationExecutionAuthorization `
-        -AttemptContract $contract -AllowMissing | Out-Null
-    Assert-WeatherIntegrationRepairClaim -AttemptContract $contract
+    Assert-WeatherIntegrationPreparationAuthorizationStructure `
+        -AttemptContract $contract | Out-Null
+    # Cleanup must remain possible after external qualification or predecessor
+    # evidence is lost.  Runtime boundaries call the strict validator separately.
+    Assert-WeatherIntegrationRepairClaimStructure -AttemptContract $contract | Out-Null
     return $contract
 }
 
@@ -1868,6 +5867,9 @@ function Disable-WeatherIntegrationAttemptTasks {
             }
         }
         if ([string]$task.State -ne "Disabled") {
+            Assert-WeatherIntegrationSchedulerMutationAllowed `
+                -CommandName "Disable-ScheduledTask" `
+                -Phase "exact integration-task closure"
             if ($null -ne $strictRegistration) {
                 Disable-ScheduledTask -TaskName $spec.name -TaskPath "\" -ErrorAction Stop | Out-Null
             }
@@ -1941,12 +5943,54 @@ function Disable-WeatherIntegrationAttemptTasks {
     return @($taskEvidence | ForEach-Object { $_ })
 }
 
+function Assert-WeatherIntegrationRepairClaimStructure {
+    param([Parameter(Mandatory = $true)][object]$AttemptContract)
+
+    $manifest = $AttemptContract.Manifest
+    $repairClass = [string]$manifest.authorization.repair_class
+    $repairOfProperty = $manifest.authorization.PSObject.Properties["repair_of"]
+    $repairOf = if ($null -eq $repairOfProperty) { $null } else { $repairOfProperty.Value }
+    if ($null -eq $repairOf) {
+        if ($repairClass -ne "initial") {
+            throw "A non-initial attempt is missing its predecessor receipt and successor claim."
+        }
+        return [pscustomobject]@{ Required = $false }
+    }
+    if ($repairClass -eq "initial") {
+        throw "An initial attempt may not carry predecessor repair evidence."
+    }
+    Assert-WeatherIntegrationRequiredProperties `
+        -Object $repairOf `
+        -Names @(
+            "receipt_path", "receipt_sha256", "receipt_schema",
+            "prior_attempt_id", "claim_path", "dispatch_path", "dispatch_sha256"
+        ) `
+        -Label "Integration successor repair binding"
+    if ([string]$repairOf.receipt_schema -ne
+            $script:WeatherIntegrationAttemptClosureReceiptSchema -or
+        [string]$repairOf.prior_attempt_id -notmatch
+            '^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$' -or
+        [string]$repairOf.receipt_sha256 -notmatch '^[0-9a-f]{64}$' -or
+        [string]$repairOf.dispatch_sha256 -notmatch '^[0-9a-f]{64}$' -or
+        (Split-Path -Leaf ([string]$repairOf.receipt_path)) -cne
+            "closure-receipt.json" -or
+        (Split-Path -Leaf ([string]$repairOf.claim_path)) -cne
+            "successor-claim.json" -or
+        (Split-Path -Leaf ([string]$repairOf.dispatch_path)) -cne
+            "recovery-dispatch.json") {
+        throw "Integration successor repair binding is structurally invalid."
+    }
+    return [pscustomobject]@{ Required = $true; RepairOf = $repairOf }
+}
+
 function Assert-WeatherIntegrationRepairClaim {
     param(
         [Parameter(Mandatory = $true)]
         [object]$AttemptContract
     )
 
+    Assert-WeatherIntegrationRepairClaimStructure `
+        -AttemptContract $AttemptContract | Out-Null
     $manifest = $AttemptContract.Manifest
     $repairOfProperty = $manifest.authorization.PSObject.Properties["repair_of"]
     $repairOf = if ($null -eq $repairOfProperty) { $null } else { $repairOfProperty.Value }
@@ -1961,11 +6005,13 @@ function Assert-WeatherIntegrationRepairClaim {
     }
 
     $receiptPath = Resolve-WeatherIntegrationPath -Path ([string]$repairOf.receipt_path)
-    $receiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+    $receiptSha256 = [string]$receiptSnapshot.Sha256
     if ($receiptSha256 -ne [string]$repairOf.receipt_sha256) {
         throw "The predecessor FAIL receipt changed after the successor was frozen."
     }
-    $priorReceipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $priorReceipt = $receiptSnapshot.Payload
     if ([string]$priorReceipt.schema -ne $script:WeatherIntegrationAttemptClosureReceiptSchema -or
         [string]$priorReceipt.status -ne "FAIL") {
         throw "A successor attempt must bind an immutable closure FAIL receipt."
@@ -1975,11 +6021,13 @@ function Assert-WeatherIntegrationRepairClaim {
     }
 
     $dispatchPath = Resolve-WeatherIntegrationPath -Path ([string]$repairOf.dispatch_path)
-    $dispatchSha256 = Get-WeatherIntegrationFileSha256 -Path $dispatchPath
+    $dispatchSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $dispatchPath -MaximumBytes 2097152 -ContentType Json
+    $dispatchSha256 = [string]$dispatchSnapshot.Sha256
     if ($dispatchSha256 -ne [string]$repairOf.dispatch_sha256) {
         throw "The predecessor recovery dispatch changed after the successor was frozen."
     }
-    $dispatch = Read-WeatherIntegrationSharedJson -Path $dispatchPath
+    $dispatch = $dispatchSnapshot.Payload
     if ([string]$dispatch.schema -ne $script:WeatherIntegrationAttemptRecoveryDispatchSchema -or
         [string]$dispatch.status -ne "READY_FOR_SUCCESSOR_REVIEW" -or
         [string]$dispatch.repair_class -ne [string]$manifest.authorization.repair_class -or
@@ -1989,18 +6037,21 @@ function Assert-WeatherIntegrationRepairClaim {
     }
 
     $priorManifestPath = Resolve-WeatherIntegrationPath -Path ([string]$priorReceipt.manifest_path)
-    $priorManifestSha256 = Get-WeatherIntegrationFileSha256 -Path $priorManifestPath
+    $priorManifestSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $priorManifestPath -MaximumBytes 1048576 -ContentType Json
+    $priorManifestSha256 = [string]$priorManifestSnapshot.Sha256
     if ($priorManifestSha256 -ne [string]$priorReceipt.manifest_sha256) {
         throw "The predecessor manifest changed after closure."
     }
-    $priorManifest = Read-WeatherIntegrationSharedJson -Path $priorManifestPath
+    $priorManifest = $priorManifestSnapshot.Payload
     $priorAttemptRoot = Resolve-WeatherIntegrationPath -Path ([string]$priorManifest.attempt_root)
     $expectedClaimPath = Join-Path $priorAttemptRoot "successor-claim.json"
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$repairOf.claim_path) -Right $expectedClaimPath)) {
         throw "The successor claim path is not canonical for the predecessor attempt."
     }
-
-    $claim = Read-WeatherIntegrationSharedJson -Path $expectedClaimPath
+    $claimSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $expectedClaimPath -MaximumBytes 2097152 -ContentType Json
+    $claim = $claimSnapshot.Payload
     if ([string]$claim.schema -ne $script:WeatherIntegrationAttemptSuccessorClaimSchema -or
         [string]$claim.status -ne "CLAIMED") {
         throw "The predecessor successor claim is unsupported."
@@ -2110,7 +6161,9 @@ function Assert-WeatherIntegrationSuiteReceipt {
 
     $manifest = $AttemptContract.Manifest
     $receiptPath = [string]$manifest.evidence.suite_receipt
-    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+    $receipt = $receiptSnapshot.Payload
     if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptSuiteReceiptSchema) {
         throw "Unsupported integration-attempt suite receipt schema: $($receipt.schema)"
     }
@@ -2156,7 +6209,44 @@ function Assert-WeatherIntegrationSuiteReceipt {
     if ($completedAt -lt $startedAt) {
         throw "Suite receipt completion precedes its start."
     }
+    if ([string]$manifest.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema) {
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $receipt -Names @("runtime") `
+            -Label "v2 suite receipt"
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $receipt.runtime -Names @(
+                "bounded_suite_max_runtime_seconds",
+                "suite_wrapper_teardown_allowance_seconds",
+                "suite_task_execution_time_limit_seconds",
+                "minimum_phase_runtime_seconds", "shared_deadline_utc",
+                "elapsed_seconds"
+            ) -Label "v2 suite receipt runtime"
+        $sharedDeadline = ConvertFrom-WeatherIntegrationEvidenceTimestamp `
+            -Value ([string]$receipt.runtime.shared_deadline_utc) `
+            -Label "suite receipt shared_deadline_utc"
+        if ([string]$receipt.runtime.shared_deadline_utc -cnotmatch 'Z$' -or
+            [int]$receipt.runtime.bounded_suite_max_runtime_seconds -ne
+                [int]$manifest.suite.bounded_suite_max_runtime_seconds -or
+            [int]$receipt.runtime.suite_wrapper_teardown_allowance_seconds -ne
+                [int]$manifest.suite.suite_wrapper_teardown_allowance_seconds -or
+            [int]$receipt.runtime.suite_task_execution_time_limit_seconds -ne
+                [int]$manifest.suite.suite_task_execution_time_limit_seconds -or
+            [int]$receipt.runtime.minimum_phase_runtime_seconds -ne
+                [int]$script:WeatherIntegrationSuiteMinimumPhaseRuntimeSeconds -or
+            [double]$receipt.runtime.elapsed_seconds -lt 0 -or
+            [double]$receipt.runtime.elapsed_seconds -gt
+                [double]$manifest.suite.bounded_suite_max_runtime_seconds -or
+            $sharedDeadline -lt $startedAt -or
+            $completedAt -gt $sharedDeadline -or
+            ($completedAt - $startedAt).TotalSeconds -gt
+                [double]$manifest.suite.suite_task_execution_time_limit_seconds) {
+            throw "V2 suite receipt does not prove the shared runtime and Scheduler execution bounds."
+        }
+    }
 
+    $logSnapshots = @{}
+    $derivedLogVerdicts = @{}
     foreach ($logName in @("preflight", "full_suite")) {
         $logRecord = $receipt.logs.$logName
         if ($null -eq $logRecord) {
@@ -2167,22 +6257,93 @@ function Assert-WeatherIntegrationSuiteReceipt {
         if (-not (Test-WeatherIntegrationPathEqual -Left $logPath -Right $expectedPath)) {
             throw "Suite receipt $logName log path does not match the manifest."
         }
-        $actualLogSha256 = Get-WeatherIntegrationFileSha256 -Path $logPath
-        if ($actualLogSha256 -ne [string]$logRecord.sha256) {
+        $logSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $logPath -MaximumBytes 67108864 -ContentType Text
+        $logSnapshots[$logName] = $logSnapshot
+        if ([string]$logSnapshot.Sha256 -ne [string]$logRecord.sha256) {
             throw "Suite receipt $logName log hash does not match the current file."
         }
         if ([int]$logRecord.exit_code -ne 0) {
             throw "Suite receipt $logName phase did not exit successfully."
         }
+        $validationErrorProperty =
+            $logRecord.PSObject.Properties["evidence_validation_error"]
+        if ([string]$manifest.schema -ceq
+                $script:WeatherIntegrationAttemptManifestSchema -and
+            ($null -eq $validationErrorProperty -or
+             $null -ne $validationErrorProperty.Value)) {
+            throw "Suite receipt $logName has missing or failed evidence validation."
+        }
+        $derivedVerdict = Get-WeatherIntegrationLogVerdict `
+            -Path $logPath -EvidenceSnapshot $logSnapshot
+        if ([string]$logRecord.verdict -cne [string]$derivedVerdict) {
+            throw "Suite receipt $logName verdict does not match its retained log."
+        }
+        if ($logName -eq "full_suite") {
+            Assert-WeatherIntegrationFullSuiteLogPlan `
+                -Path $logPath `
+                -ExpectedTestFileCount ([int]$manifest.suite.expected_test_file_count) `
+                -ExpectedMaxFilesPerChunk ([int]$manifest.suite.max_files_per_chunk) `
+                -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) `
+                -EvidenceSnapshot $logSnapshot | Out-Null
+            $expectedLogChunks = [int]$manifest.suite.expected_chunk_count
+            $expectedLogFiles = [int]$manifest.suite.expected_test_file_count
+        }
+        else {
+            # The preflight inventory is owned by the bounded runner. Derive it
+            # from this same retained log instead of copying another count into
+            # either manifest schema.
+            $declaredPlan = Get-WeatherIntegrationSuiteLogDeclaredPlan `
+                -Path $logPath -EvidenceSnapshot $logSnapshot
+            if ([int]$declaredPlan.MaxFilesPerChunk -ne
+                    [int]$manifest.suite.max_files_per_chunk) {
+                throw "Suite receipt preflight log changed its bounded chunk size."
+            }
+            $expectedLogChunks = [int]$declaredPlan.Chunks
+            $expectedLogFiles = [int]$declaredPlan.Files
+        }
+        $testResultsProperty = $logRecord.PSObject.Properties["test_results"]
+        if ($null -eq $testResultsProperty) {
+            # Historical v1 receipts predate the copied summary. Their retained
+            # logs still have to prove their actual verdict and immutable plan,
+            # but they cannot be retrofitted with JUnit bindings they never
+            # emitted.
+            if ([string]$manifest.schema -cne
+                    $script:WeatherIntegrationAttemptLegacyManifestSchema) {
+                throw "Suite receipt $logName is missing its derived result summary."
+            }
+        }
+        else {
+            $derivedSummary = Get-WeatherIntegrationSuiteEvidenceSummary `
+                -Path $logPath `
+                -ExpectedChunkCount $expectedLogChunks `
+                -ExpectedPlannedFiles $expectedLogFiles `
+                -EvidenceSnapshot $logSnapshot `
+                -RequireRuntimeFingerprint:([string]$manifest.schema -ceq
+                    $script:WeatherIntegrationAttemptManifestSchema)
+            if ($null -eq $testResultsProperty.Value -or
+                ($testResultsProperty.Value | ConvertTo-Json -Depth 20 -Compress) -cne
+                    ($derivedSummary | ConvertTo-Json -Depth 20 -Compress)) {
+                throw "Suite receipt $logName result summary does not match its retained log/JUnit/inventory evidence."
+            }
+            if ([string]$manifest.schema -ceq
+                    $script:WeatherIntegrationAttemptManifestSchema) {
+                Assert-WeatherIntegrationExpectedSuiteInventories `
+                    -Summary $derivedSummary `
+                    -Expected $manifest.suite `
+                    -ExpectedRepoRoot ([string]$manifest.repo_root) `
+                    -ExpectedWorktreeRoot ([string]$manifest.worktree_root) `
+                    -ExpectedTip ([string]$manifest.expected_tip) `
+                    -Label "Suite receipt $logName" `
+                    -IncludeTestInventory:($logName -eq "full_suite") | Out-Null
+            }
+        }
+        $derivedLogVerdicts[$logName] = [string]$derivedVerdict
     }
-    Assert-WeatherIntegrationPreflightVerdict -Verdict ([string]$receipt.logs.preflight.verdict)
+    Assert-WeatherIntegrationPreflightVerdict `
+        -Verdict ([string]$derivedLogVerdicts["preflight"])
     Assert-WeatherIntegrationFullSuiteVerdict `
-        -Verdict ([string]$receipt.logs.full_suite.verdict) `
-        -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
-    Assert-WeatherIntegrationFullSuiteLogPlan `
-        -Path ([string]$receipt.logs.full_suite.path) `
-        -ExpectedTestFileCount ([int]$manifest.suite.expected_test_file_count) `
-        -ExpectedMaxFilesPerChunk ([int]$manifest.suite.max_files_per_chunk) `
+        -Verdict ([string]$derivedLogVerdicts["full_suite"]) `
         -ExpectedChunkCount ([int]$manifest.suite.expected_chunk_count) | Out-Null
 
     $scriptBindings = [ordered]@{
@@ -2202,7 +6363,7 @@ function Assert-WeatherIntegrationSuiteReceipt {
     return [pscustomobject]@{
         Receipt = $receipt
         ReceiptPath = Resolve-WeatherIntegrationPath -Path $receiptPath
-        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+        ReceiptSha256 = [string]$receiptSnapshot.Sha256
         StartedAtLocal = $startedAt
         CompletedAtLocal = $completedAt
     }
@@ -2220,11 +6381,15 @@ function Assert-WeatherIntegrationQuietReportDocumentation {
     $expectedRelative = "data/alerts/documentation_transactions/pending-$pendingSha256.json"
     $snapshotPath = Join-Path ([string]$manifest.repo_root) ($snapshotRelative -replace '/', '\')
     if ($pendingSha256 -notmatch '^[0-9a-f]{64}$' -or
-        $snapshotRelative -cne $expectedRelative -or
-        (Get-WeatherIntegrationFileSha256 -Path $snapshotPath) -ne $pendingSha256) {
+        $snapshotRelative -cne $expectedRelative) {
         throw "Quiet-merge documentation transaction snapshot identity/hash is invalid."
     }
-    $snapshot = Read-WeatherIntegrationSharedJson -Path $snapshotPath
+    $documentationSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $snapshotPath -MaximumBytes 2097152 -ContentType Json
+    if ([string]$documentationSnapshot.Sha256 -ne $pendingSha256) {
+        throw "Quiet-merge documentation transaction snapshot identity/hash is invalid."
+    }
+    $snapshot = $documentationSnapshot.Payload
     $matchingEntries = @($snapshot.integrations | Where-Object {
         ([string]$_.integration_tip).ToLowerInvariant() -eq
             ([string]$QuietReport.merge_commit).ToLowerInvariant() -and
@@ -2257,12 +6422,14 @@ function Assert-WeatherIntegrationMergeReceipt {
     }
     $manifest = $AttemptContract.Manifest
     $receiptPath = [string]$manifest.evidence.merge_receipt
-    $actualReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+    $actualReceiptSha256 = [string]$receiptSnapshot.Sha256
     if ($actualReceiptSha256 -ne $ExpectedReceiptSha256.ToLowerInvariant()) {
         throw "Merge receipt hash mismatch. Expected $ExpectedReceiptSha256; got $actualReceiptSha256"
     }
 
-    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $receipt = $receiptSnapshot.Payload
     if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema) {
         throw "Unsupported integration-attempt merge receipt schema: $($receipt.schema)"
     }
@@ -2306,11 +6473,22 @@ function Assert-WeatherIntegrationMergeReceipt {
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.quiet_merge_report.path) -Right $quietReportPath)) {
         throw "Merge receipt quiet-report path does not match the attempt manifest."
     }
-    $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $quietReportPath
+    $quietReportSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $quietReportPath -MaximumBytes 2097152 -ContentType Json
+    $quietReportSha256 = [string]$quietReportSnapshot.Sha256
     if ($quietReportSha256 -ne [string]$receipt.quiet_merge_report.sha256) {
         throw "Immutable quiet-merge report hash does not match the merge receipt."
     }
-    $quietReport = Read-WeatherIntegrationSharedJson -Path $quietReportPath
+    $quietReport = $quietReportSnapshot.Payload
+    if ([string]$manifest.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema -and
+        (($null -eq $quietReport.PSObject.Properties["authoritative_attempt_report"]) -or
+         $quietReport.authoritative_attempt_report -isnot [bool] -or
+         -not [bool]$quietReport.authoritative_attempt_report -or
+         [string]$quietReport.compatibility_outputs_authority -cne
+            "DIAGNOSTIC_ONLY")) {
+        throw "Current quiet-merge evidence is not the immutable authoritative attempt report."
+    }
     $originUrlProperty = $manifest.baseline.PSObject.Properties["origin_url"]
     if ([string]$quietReport.schema -ne "quiet_window_merge_report_v0.2" -or
         -not [bool]$quietReport.ok -or [string]$quietReport.stage -ne "pushed" -or
@@ -2336,7 +6514,8 @@ function Assert-WeatherIntegrationMergeReceipt {
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.suite_receipt_path) -Right $suiteReceiptPath)) {
         throw "Merge receipt suite-receipt path does not match the attempt manifest."
     }
-    $suiteReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $suiteReceiptPath
+    $suiteReceiptSha256 = [string](Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $suiteReceiptPath -MaximumBytes 2097152 -ContentType Json).Sha256
     if ($suiteReceiptSha256 -ne [string]$receipt.suite_receipt_sha256) {
         throw "Suite receipt changed after the merge gate consumed it."
     }
@@ -2361,7 +6540,9 @@ function Assert-WeatherIntegrationTaskRetirementReceipt {
     $receiptPath = Join-Path (
         Resolve-WeatherIntegrationPath -Path $AttemptContract.AttemptRoot
     ) "task-retirement-receipt.json"
-    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+    $receipt = $receiptSnapshot.Payload
     Assert-WeatherIntegrationRequiredProperties `
         -Object $receipt `
         -Names @(
@@ -2412,15 +6593,17 @@ function Assert-WeatherIntegrationTaskRetirementReceipt {
 
     $expectedMergePath = Resolve-WeatherIntegrationPath `
         -Path ([string]$AttemptContract.Manifest.evidence.merge_receipt)
+    $mergeSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $expectedMergePath -MaximumBytes 2097152 -ContentType Json
     if (-not (Test-WeatherIntegrationPathEqual `
             -Left ([string]$receipt.merge_receipt_path) `
             -Right $expectedMergePath) -or
         [string]$receipt.merge_receipt_sha256 -notmatch '^[0-9a-f]{64}$' -or
-        (Get-WeatherIntegrationFileSha256 -Path $expectedMergePath) -ne
+        [string]$mergeSnapshot.Sha256 -ne
             [string]$receipt.merge_receipt_sha256) {
         throw "Attempt task-retirement receipt lost its immutable PASS merge binding."
     }
-    $mergeReceipt = Read-WeatherIntegrationSharedJson -Path $expectedMergePath
+    $mergeReceipt = $mergeSnapshot.Payload
     if ([string]$mergeReceipt.schema -ne
             $script:WeatherIntegrationAttemptMergeReceiptSchema -or
         [string]$mergeReceipt.status -ne "PASS" -or
@@ -2493,21 +6676,23 @@ function Assert-WeatherIntegrationTaskRetirementReceipt {
     return [pscustomobject]@{
         Receipt = $receipt
         ReceiptPath = Resolve-WeatherIntegrationPath -Path $receiptPath
-        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+        ReceiptSha256 = [string]$receiptSnapshot.Sha256
     }
 }
 
 function Assert-WeatherIntegrationFailClosureReceipt {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
-        [Parameter(Mandatory = $true)][object]$Task,
+        [AllowNull()][object]$Task = $null,
         [Parameter(Mandatory = $true)]
         [ValidateSet("suite", "merge")][string]$Role
     )
 
     $closurePath = Resolve-WeatherIntegrationPath `
         -Path ([string]$AttemptContract.Manifest.evidence.closure_receipt)
-    $receipt = Read-WeatherIntegrationSharedJson -Path $closurePath
+    $closureSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $closurePath -MaximumBytes 2097152 -ContentType Json
+    $receipt = $closureSnapshot.Payload
     Assert-WeatherIntegrationRequiredProperties `
         -Object $receipt `
         -Names @(
@@ -2589,77 +6774,6 @@ function Assert-WeatherIntegrationFailClosureReceipt {
         -Value ([string]$receipt.closed_at_local) `
         -Label "FAIL closure closed_at_local" | Out-Null
 
-    # Closure can be the recovery authority for a registrar crash after the
-    # immutable intent and one task were written but before a usable receipt
-    # existed. The intent is therefore mandatory and fully validated; a later
-    # receipt is bound byte-for-byte when present but is not trusted to prove
-    # task identity.
-    $registrationIntent = Assert-WeatherIntegrationRegistrationIntent `
-        -AttemptContract $AttemptContract
-    if (-not (Test-WeatherIntegrationPathEqual `
-            -Left ([string]$receipt.registration_evidence.registration_intent_path) `
-            -Right $registrationIntent.IntentPath) -or
-        [string]$receipt.registration_evidence.registration_intent_sha256 -ne
-            [string]$registrationIntent.IntentSha256) {
-        throw "FAIL closure receipt lost its immutable registration evidence."
-    }
-    $registrationReceiptPath = Resolve-WeatherIntegrationPath `
-        -Path ([string]$manifest.evidence.registration_receipt)
-    if (-not (Test-WeatherIntegrationPathEqual `
-            -Left ([string]$receipt.registration_evidence.registration_receipt_path) `
-            -Right $registrationReceiptPath)) {
-        throw "FAIL closure receipt uses a non-canonical registration-receipt path."
-    }
-    $registrationReceiptExists = Test-Path `
-        -LiteralPath $registrationReceiptPath -PathType Leaf
-    $registrationReceiptSha256 = [string]$receipt.registration_evidence.registration_receipt_sha256
-    if ($registrationReceiptExists) {
-        if ($registrationReceiptSha256 -notmatch '^[0-9a-f]{64}$' -or
-            (Get-WeatherIntegrationFileSha256 -Path $registrationReceiptPath) -ne
-                $registrationReceiptSha256) {
-            throw "FAIL closure receipt lost its preserved registrar output."
-        }
-    }
-    elseif (-not [string]::IsNullOrEmpty($registrationReceiptSha256)) {
-        throw "FAIL closure claims a registration receipt that is absent."
-    }
-    $preserved = @($receipt.preserved_evidence)
-    if ($preserved.Count -lt 1) {
-        throw "FAIL closure receipt has no complete preserved-evidence set."
-    }
-    foreach ($row in $preserved) {
-        Assert-WeatherIntegrationRequiredProperties `
-            -Object $row -Names @("path", "sha256") `
-            -Label "FAIL closure preserved evidence"
-        if ([string]$row.sha256 -notmatch '^[0-9a-f]{64}$' -or
-            (Get-WeatherIntegrationFileSha256 -Path ([string]$row.path)) -ne
-                [string]$row.sha256) {
-            throw "FAIL closure preserved evidence changed: $($row.path)"
-        }
-    }
-    $requiredPreservedEvidence = @(
-        [pscustomobject]@{
-            Path = $registrationIntent.IntentPath
-            Sha256 = $registrationIntent.IntentSha256
-        }
-    )
-    if ($registrationReceiptExists) {
-        $requiredPreservedEvidence += [pscustomobject]@{
-            Path = $registrationReceiptPath
-            Sha256 = $registrationReceiptSha256
-        }
-    }
-    foreach ($required in $requiredPreservedEvidence) {
-        $matches = @($preserved | Where-Object {
-            (Test-WeatherIntegrationPathEqual `
-                -Left ([string]$_.path) -Right $required.Path) -and
-            [string]$_.sha256 -eq [string]$required.Sha256
-        })
-        if ($matches.Count -ne 1) {
-            throw "FAIL closure did not preserve exact registration evidence."
-        }
-    }
-
     $taskRows = @($receipt.tasks)
     if ($taskRows.Count -ne 2) {
         throw "FAIL closure receipt must account for exactly two attempt tasks."
@@ -2686,6 +6800,99 @@ function Assert-WeatherIntegrationFailClosureReceipt {
             throw "FAIL closure task evidence is not absent or exactly Disabled."
         }
     }
+
+    # Closure can be the recovery authority for a registrar crash after the
+    # immutable intent and one task were written but before a usable receipt
+    # existed. It also supports a failure immediately after manifest creation,
+    # before the registrar's first durable intent write, but only when both
+    # exact task rows prove absence and the receipt claims no intent hash.
+    $registrationIntentPath = Get-WeatherIntegrationRegistrationIntentPath `
+        -AttemptContract $AttemptContract
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.registration_evidence.registration_intent_path) `
+            -Right $registrationIntentPath)) {
+        throw "FAIL closure receipt uses a non-canonical registration-intent path."
+    }
+    $registrationIntentExists = Test-Path `
+        -LiteralPath $registrationIntentPath -PathType Leaf
+    $registrationIntent = $null
+    if ($registrationIntentExists) {
+        $registrationIntent = Assert-WeatherIntegrationRegistrationIntent `
+            -AttemptContract $AttemptContract
+        if ([string]$receipt.registration_evidence.registration_intent_sha256 -ne
+                [string]$registrationIntent.IntentSha256) {
+            throw "FAIL closure receipt lost its immutable registration evidence."
+        }
+    }
+    else {
+        if (-not [string]::IsNullOrEmpty(
+                [string]$receipt.registration_evidence.registration_intent_sha256
+            ) -or
+            @($taskRows | Where-Object { [bool]$_.exists }).Count -ne 0) {
+            throw "FAIL closure without registration intent must prove both exact tasks absent."
+        }
+    }
+    $registrationReceiptPath = Resolve-WeatherIntegrationPath `
+        -Path ([string]$manifest.evidence.registration_receipt)
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receipt.registration_evidence.registration_receipt_path) `
+            -Right $registrationReceiptPath)) {
+        throw "FAIL closure receipt uses a non-canonical registration-receipt path."
+    }
+    $registrationReceiptExists = Test-Path `
+        -LiteralPath $registrationReceiptPath -PathType Leaf
+    $registrationReceiptSha256 = [string]$receipt.registration_evidence.registration_receipt_sha256
+    if ($registrationReceiptExists) {
+        if (-not $registrationIntentExists -or
+            $registrationReceiptSha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-WeatherIntegrationFileSha256 -Path $registrationReceiptPath) -ne
+                $registrationReceiptSha256) {
+            throw "FAIL closure receipt lost its preserved registrar output."
+        }
+    }
+    elseif (-not [string]::IsNullOrEmpty($registrationReceiptSha256)) {
+        throw "FAIL closure claims a registration receipt that is absent."
+    }
+    $preserved = @($receipt.preserved_evidence)
+    if ($preserved.Count -lt 1 -and
+        ($registrationIntentExists -or $registrationReceiptExists -or
+            @($taskRows | Where-Object { [bool]$_.exists }).Count -ne 0)) {
+        throw "FAIL closure receipt has no complete preserved-evidence set."
+    }
+    foreach ($row in $preserved) {
+        Assert-WeatherIntegrationRequiredProperties `
+            -Object $row -Names @("path", "sha256") `
+            -Label "FAIL closure preserved evidence"
+        if ([string]$row.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            (Get-WeatherIntegrationFileSha256 -Path ([string]$row.path)) -ne
+                [string]$row.sha256) {
+            throw "FAIL closure preserved evidence changed: $($row.path)"
+        }
+    }
+    $requiredPreservedEvidence = @()
+    if ($registrationIntentExists) {
+        $requiredPreservedEvidence += [pscustomobject]@{
+            Path = $registrationIntent.IntentPath
+            Sha256 = $registrationIntent.IntentSha256
+        }
+    }
+    if ($registrationReceiptExists) {
+        $requiredPreservedEvidence += [pscustomobject]@{
+            Path = $registrationReceiptPath
+            Sha256 = $registrationReceiptSha256
+        }
+    }
+    foreach ($required in $requiredPreservedEvidence) {
+        $matches = @($preserved | Where-Object {
+            (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$_.path) -Right $required.Path) -and
+            [string]$_.sha256 -eq [string]$required.Sha256
+        })
+        if ($matches.Count -ne 1) {
+            throw "FAIL closure did not preserve exact registration evidence."
+        }
+    }
+
     $expectedCurrentTaskName = if ($Role -eq "suite") {
         [string]$manifest.schedule.suite_task_name
     }
@@ -2693,21 +6900,72 @@ function Assert-WeatherIntegrationFailClosureReceipt {
     $currentRow = @($taskRows | Where-Object {
         [string]$_.task_name -ceq $expectedCurrentTaskName
     })
-    if ($currentRow.Count -ne 1 -or -not [bool]$currentRow[0].exists -or
-        -not [bool]$currentRow[0].disabled -or
-        [string]$Task.TaskName -cne $expectedCurrentTaskName -or
-        [string]$Task.TaskPath -cne "\" -or
-        [string]$Task.State -ne "Disabled" -or
-        $null -eq $Task.Settings.PSObject.Properties["Enabled"] -or
-        [bool]$Task.Settings.Enabled) {
-        throw "Current task does not match the exact Disabled FAIL closure evidence."
+    if ($currentRow.Count -ne 1) {
+        throw "FAIL closure receipt lost exact $Role task accounting."
     }
-    Assert-WeatherIntegrationScheduledTaskObject `
-        -Task $Task -BindingEvidence $registrationIntent.Intent -Role $Role | Out-Null
+    if (-not [bool]$currentRow[0].exists) {
+        if ($null -ne $Task) {
+            throw "Current task appeared after the FAIL closure proved exact absence."
+        }
+    }
+    else {
+        if ($null -eq $Task -or
+            -not [bool]$currentRow[0].disabled -or
+            [string]$Task.TaskName -cne $expectedCurrentTaskName -or
+            [string]$Task.TaskPath -cne "\" -or
+            [string]$Task.State -ne "Disabled" -or
+            $null -eq $Task.Settings.PSObject.Properties["Enabled"] -or
+            [bool]$Task.Settings.Enabled) {
+            throw "Current task does not match the exact Disabled FAIL closure evidence."
+        }
+        if ($null -eq $registrationIntent) {
+            throw "A present FAIL-closed task has no immutable registration intent."
+        }
+        Assert-WeatherIntegrationScheduledTaskObject `
+            -Task $Task -BindingEvidence $registrationIntent.Intent -Role $Role | Out-Null
+    }
     return [pscustomobject]@{
         Receipt = $receipt
         ReceiptPath = $closurePath
-        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $closurePath
+        ReceiptSha256 = [string]$closureSnapshot.Sha256
+    }
+}
+
+function Assert-WeatherIntegrationCurrentFailClosure {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract
+    )
+
+    $manifest = $AttemptContract.Manifest
+    # One complete successful inventory is the shared observation for both
+    # roles. It distinguishes exact absence from Scheduler/service failure and
+    # prevents the two role checks from certifying different points in time.
+    $schedulerSnapshot = @(Get-WeatherIntegrationScheduledTaskSnapshot)
+    $proofs = [ordered]@{}
+    foreach ($role in @("suite", "merge")) {
+        $taskName = if ($role -eq "suite") {
+            [string]$manifest.schedule.suite_task_name
+        }
+        else { [string]$manifest.schedule.merge_task_name }
+        $matches = @($schedulerSnapshot | Where-Object {
+            [string]$_.TaskName -ieq $taskName -and
+            [string]$_.TaskPath -ieq "\"
+        })
+        if ($matches.Count -gt 1) {
+            throw "Predecessor $role task lookup is ambiguous in the current Scheduler snapshot."
+        }
+        $proofs[$role] = Assert-WeatherIntegrationFailClosureReceipt `
+            -AttemptContract $AttemptContract `
+            -Task $(if ($matches.Count -eq 1) { $matches[0] } else { $null }) `
+            -Role $role
+    }
+    if ([string]$proofs.suite.ReceiptSha256 -ne
+            [string]$proofs.merge.ReceiptSha256) {
+        throw "Predecessor task roles do not bind one exact FAIL closure receipt."
+    }
+    return [pscustomobject]@{
+        Suite = $proofs.suite
+        Merge = $proofs.merge
     }
 }
 
@@ -2732,7 +6990,9 @@ function Assert-WeatherLegacyBootstrapRetirementReceipt {
     $receiptPath = Join-Path $repoRoot (
         "data\integration_attempts\legacy-task-retirements\$taskName.json"
     )
-    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+    $receipt = $receiptSnapshot.Payload
     Assert-WeatherIntegrationRequiredProperties `
         -Object $receipt `
         -Names @(
@@ -2808,7 +7068,7 @@ function Assert-WeatherLegacyBootstrapRetirementReceipt {
     return [pscustomobject]@{
         Receipt = $receipt
         ReceiptPath = Resolve-WeatherIntegrationPath -Path $receiptPath
-        ReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+        ReceiptSha256 = [string]$receiptSnapshot.Sha256
     }
 }
 
@@ -2823,11 +7083,13 @@ function Assert-WeatherIntegrationMergedUnverifiedReceipt {
     }
     $manifest = $AttemptContract.Manifest
     $receiptPath = [string]$manifest.evidence.merge_receipt
-    $actualReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+    $actualReceiptSha256 = [string]$receiptSnapshot.Sha256
     if ($actualReceiptSha256 -ne $ExpectedReceiptSha256.ToLowerInvariant()) {
         throw "Merge receipt hash mismatch. Expected $ExpectedReceiptSha256; got $actualReceiptSha256"
     }
-    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $receipt = $receiptSnapshot.Payload
     if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
         [string]$receipt.status -ne "MERGED_UNVERIFIED") {
         throw "Reconciliation requires an immutable MERGED_UNVERIFIED merge receipt."
@@ -2864,11 +7126,22 @@ function Assert-WeatherIntegrationMergedUnverifiedReceipt {
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.quiet_merge_report.path) -Right $quietReportPath)) {
         throw "MERGED_UNVERIFIED receipt quiet-report path does not match the attempt manifest."
     }
-    $quietReportSha256 = Get-WeatherIntegrationFileSha256 -Path $quietReportPath
+    $quietReportSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $quietReportPath -MaximumBytes 2097152 -ContentType Json
+    $quietReportSha256 = [string]$quietReportSnapshot.Sha256
     if ($quietReportSha256 -ne [string]$receipt.quiet_merge_report.sha256) {
         throw "Immutable quiet-merge report hash does not match the MERGED_UNVERIFIED receipt."
     }
-    $quietReport = Read-WeatherIntegrationSharedJson -Path $quietReportPath
+    $quietReport = $quietReportSnapshot.Payload
+    if ([string]$manifest.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema -and
+        (($null -eq $quietReport.PSObject.Properties["authoritative_attempt_report"]) -or
+         $quietReport.authoritative_attempt_report -isnot [bool] -or
+         -not [bool]$quietReport.authoritative_attempt_report -or
+         [string]$quietReport.compatibility_outputs_authority -cne
+            "DIAGNOSTIC_ONLY")) {
+        throw "Current MERGED_UNVERIFIED evidence is not the immutable authoritative attempt report."
+    }
     if ([string]$quietReport.schema -ne "quiet_window_merge_report_v0.2" -or
         -not [bool]$quietReport.ok -or [string]$quietReport.stage -ne "pushed" -or
         [string]$quietReport.expected_tip -ne [string]$manifest.expected_tip -or
@@ -2887,8 +7160,10 @@ function Assert-WeatherIntegrationMergedUnverifiedReceipt {
     Assert-WeatherIntegrationQuietReportDocumentation `
         -AttemptContract $AttemptContract -QuietReport $quietReport | Out-Null
     $suiteReceiptPath = [string]$manifest.evidence.suite_receipt
+    $suiteReceiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $suiteReceiptPath -MaximumBytes 2097152 -ContentType Json
     if (-not (Test-WeatherIntegrationPathEqual -Left ([string]$receipt.suite_receipt_path) -Right $suiteReceiptPath) -or
-        (Get-WeatherIntegrationFileSha256 -Path $suiteReceiptPath) -ne [string]$receipt.suite_receipt_sha256) {
+        [string]$suiteReceiptSnapshot.Sha256 -ne [string]$receipt.suite_receipt_sha256) {
         throw "Suite receipt changed after the MERGED_UNVERIFIED merge consumed it."
     }
 

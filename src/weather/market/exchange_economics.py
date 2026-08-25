@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.market_config import ensure_date
 from weather.market.market_making_preflight import (
     SUPPORTED_PLATFORM_IDS,
@@ -119,6 +120,7 @@ def _sha256_bytes(payload):
 
 
 def _default_fetch_json(url, *, timeout_seconds=20.0):
+    require_real_external_io_allowed("real exchange-economics JSON transport")
     request = Request(
         url,
         headers={
@@ -168,6 +170,7 @@ def _call_fetch_json(fetch_json, url, *, timeout_seconds):
 
 
 def _default_fetch_text(url, *, timeout_seconds=20.0):
+    require_real_external_io_allowed("real exchange-economics text transport")
     request = Request(
         url,
         headers={

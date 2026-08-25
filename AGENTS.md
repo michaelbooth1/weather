@@ -80,7 +80,15 @@ machine-local state.
   New scheduled integrations use immutable per-attempt manifests and receipts
   through `docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md`: a failed attempt is
   frozen, but a reviewed repair or one bounded unchanged retry may create a new
-  attempt instead of freezing the entire night.
+  attempt instead of freezing the entire night. After the qualification
+  contract is production-adopted, every newly written attempt must bind an
+  exact-tip pre-arming qualification that passed both the deterministic
+  integration preflight and the complete bounded suite from its isolated
+  worktree; the overnight attempt repeats both to detect environment drift.
+  Its one adoption bootstrap must first produce equivalent exact-tip evidence
+  and then use the already-adopted predecessor workflow; unmerged code cannot
+  attest itself. Topic-branch CI is an early signal, not a substitute for that
+  Windows qualification receipt.
   **A roll-free branch does not need the quiet window** — requiring it of every
   branch is what backed the merge queue up to 25 branches. Markdown, `docs/`,
   `config/` and `.ps1` are roll-free. **Pushing a branch never rolls anything**,

@@ -33,11 +33,30 @@ These instructions apply to `scripts/ops/`.
   scheduled roll-sensitive work may retain `suite_gated_quiet_merge.ps1`, but
   a task exit code without the correlated exact full-suite verdict is never
   merge evidence.
+- Load-bearing attempt evidence must use the shared bounded single-open
+  snapshot reader: the same retained bytes supply strict UTF-8 text, JSON, and
+  SHA-256. Never reintroduce separate hash and parse opens. New v2 attempt
+  mutations must also revalidate the canonical dated `AttemptRoot` and sibling
+  `.preparation` chain as exact non-reparse directories immediately after
+  creation and at runtime boundaries. Keep structural v1 manifest reading and
+  damage-tolerant exact-task closure independent of that strict v2 check.
 - `prepare_integration_attempt.ps1` is the preferred one-line interactive
   entry point when a reviewed topic still needs publication. It requires
-  explicit authority for both the exact non-force topic push and Scheduler
-  registration, validates the live master baseline and at least ten minutes of
-  credible suite lead before any push, serializes preparation with a host-global
+  exact case-sensitive literals
+  `AUTHORIZE_EXACT_NON_FORCE_TOPIC_PUBLICATION` for the topic push and
+  `AUTHORIZE_DISABLED_INTEGRATION_TASK_REGISTRATION` for disabled registration
+  and `AUTHORIZE_EXACT_INTEGRATION_TASK_ACTIVATION` for enabling the exact pair, runs in
+  the admitted window for a later suite date, and
+  requires an exact Job-contained preflight plus full-suite qualification and
+  at least 100 minutes remaining before the independent 09:00 hard stop. The
+  future schedule freezes the measured-or-90-minute ceiling plus ten minutes
+  of execution margin and a separate five-minute Scheduler launch grace before
+  manifest/task creation. Its exact new task
+  names must be absent at preparation; readiness/activation may recognize them
+  only after exact Disabled registration. Every other Disabled integration task
+  needs exact retirement or FAIL-closure evidence regardless of its demand-start
+  setting. It revalidates live
+  refs, baseline, worktree, and helper hashes after qualification, serializes preparation with a host-global
   open-handle lock, rejects any enabled integration-attempt collision, and may
   report PASS only after immutable readiness and final preparation receipts. Composite
   registration creates both tasks Disabled; readiness writes the exact
@@ -48,12 +67,51 @@ These instructions apply to `scripts/ops/`.
   be rewritten after failure. A post-manifest preparation failure must run the
   canonical closer and hash its terminal receipt; an unproved close is a loud
   blocker, never a preparation result. Before publication it invokes the
-  canonical creator's non-mutating preflight path; after publication it reruns
+  canonical creator's non-publishing preflight path; after publication it reruns
   the ordinary creator so all mutable premises are checked before freezing.
   The creator and registrar remain the lower-level canonical primitives.
-  Invoke attempt entry points through the
-  preparer's contained Windows PowerShell child contract so any child `exit`
-  cannot bypass final receipt handling or canonical closure.
+  Invoke every attempt entry point through the preparer's contained Windows
+  PowerShell child contract so any child `exit`, hang, or parent termination
+  cannot bypass final receipt handling or canonical closure. Creator preflight,
+  post-qualification creator, registrar, readiness, activator, and closer each
+  use a separate kill-on-close Job and a fresh frozen five-minute hard stop.
+  Their bounded stdout/stderr files remain behind retained no-write/no-delete
+  handles until the Job is explicitly terminated, its active-process count is
+  observed at zero, and its handle closes successfully; only then are the exact
+  strict-UTF-8 bytes and SHA-256 captured for diagnostics and the owned files
+  removed. Child-written
+  immutable JSON remains the authority; redirected output never substitutes
+  for it. The preparer also holds the verified child script itself open with
+  read-only sharing from SHA-256 verification through process completion, so
+  `powershell.exe -File` cannot reopen a replaced generation.
+  The prepublication creator writes its exact plan create-only at the canonical
+  sibling `.preparation` path; stdout is not evidence. The preparer retains one
+  bounded snapshot and SHA-256. That plan binds both the creator and shared
+  preparation-contract hashes, and the ordinary creator must consume and
+  revalidate that exact plan before immutable manifest creation. V2 manifests
+  retain its canonical path/SHA-256, and strict runtime preparation validation
+  rejects a missing or changed plan without making structural closure depend on
+  dereferencing it. Keep creator-frozen tracked test, Python-source, and
+  PowerShell-source inventory counts/SHA-256 values load-bearing through
+  qualification, manifest, and scheduled repeat. Qualification and repeat must
+  also match retained Python-environment and toolchain fingerprints exactly;
+  the toolchain fingerprint covers the absolute Git, approved same-installation
+  Git LFS, Python plus `pythonw.exe`, and PowerShell executable hashes and
+  reported runtime identity. Before the first Python child, retain the exact two
+  reviewed production-venv `.pth` files through the suite, force stdlib
+  distutils, and prove the candidate worktree source wins over the editable
+  production-source path. Every Python launch scopes and restores the frozen
+  local-only Git config/protocol environment and refuses topology redirects.
+  Ignored-shadow checks are bounded to root singleton controls and executable
+  extensions plus `app/`, `scripts/`, `src/`, `tests/`, `tools/`, compatibility
+  `weather/`, and top-level roots derived from tracked Python/native parents;
+  ignored `data/` evidence is outside import authority and must not become a
+  false blocker. Preserve bounded
+  `evidence_validation_error` diagnostics and treat any such error as
+  unconditional non-PASS. Keep the
+  deterministic integration-preflight inventory owned by the bounded runner;
+  consumers derive its file/chunk plan from the same retained immutable log
+  snapshot instead of copying a count into an orchestrator.
 - Every new integration attempt requires the preparer's exact authorization;
   explicit `preparation: null` is not legacy compatibility. Registration is
   always staged Disabled while the manifest-bound execution token is still
@@ -63,15 +121,66 @@ These instructions apply to `scripts/ops/`.
   preflight checks before enabling either task. Suite, merge, and closure must
   refresh their load-bearing remote refs successfully; a fetch failure is a
   blocker, never permission to consume stale tracking state.
+  Creator plan/manifest writes, each registrar mutation, every suite phase, and
+  final readiness/activation boundaries must repeat their complete canonical
+  live/local/worktree/inventory/ignored tuple, not a one-field sentinel. Quiet
+  merge retains and hash-binds every PowerShell dependency and its exact
+  Git/Git-LFS/Python executable generation through last use, disables Git hooks
+  on mutations, and runs Python proof stages only through bounded Job/output
+  containment with loaded-source identity and state sandwiches. Each sandwich
+  rejects skip-worktree/assume-unchanged flags and binds every tracked regular
+  working byte together with index mode/blob identity and explicit Git LFS
+  pointer-versus-hydrated identity; the reported loaded-source fingerprint is
+  recomputed from retained stage bytes before the proof is accepted. Every
+  production quiet merge, including a direct/manual invocation, requires an
+  exact `origin/<topic>` ref, fresh canonical live topic/master observations,
+  and an exact two-ref fetch; a failed refresh never falls back to stale
+  tracking refs.
 - Current attempts require one canonical GitHub HTTPS origin with no
   `remote.origin.pushurl` and no effective `url.*.insteadOf` or
   `url.*.pushInsteadOf` rule in any Git config scope. Live ref evidence must use
   the repository-independent canonical query helper, and production publication
-  is not proved by a locally advanced `origin/master` alone.
+  is not proved by a locally advanced `origin/master` alone. The shared remote
+  helper refuses ambient Git identity, object-store, config, executable,
+  TLS, askpass, SSH/proxy, and trace controls at both local merge and remote
+  boundaries. Remote children start suspended, enter a kill-on-close Job before
+  resume, and expose stdout/stderr only through retained bounded handles that
+  deny replacement until parsing is complete; backing files are then deleted.
+  A timeout, output overflow, normal wrapper exit, or attempt-wrapper hard stop
+  may claim teardown only after explicit Job termination, an observed zero
+  active-process count, and a checked successful Job-handle close. A top-level
+  child exit alone is never descendant-termination proof.
 - Integration suite and merge tasks are exact-date, non-demand-startable
   one-shots. Their wrappers reject a different local calendar date, and
   closure may disable/certify only exact `Ready` or `Disabled` task states.
   Missed or ambiguously observed attempts require review and a successor.
+  Compute preparation lead, suite/merge spacing, launch reserve, hard-stop
+  reserve, and protected-merge overlap from timezone-offset instants; never
+  count a daylight-saving wall-clock jump as elapsed execution time.
+  Every enabled `Ready` attempt/bootstrap task is a collision regardless of
+  null, due, or past `NextRunTime`. `AllowOwnExactTasks` exempts only the exact
+  own pair while staged `Disabled`; enabled own tasks and due protected merge
+  drivers remain blockers. Re-fetch an enabled protected driver's exact state
+  after its separate task-info read and once more before admission; a state,
+  action, or `NextRunTime` transition is a collision, never a future-run proof.
+- Bounded suites refuse ambient Python/pytest controls, use one new empty
+  non-reparse `PYTHONPYCACHEPREFIX`, disable bytecode writes, and remove only
+  that owned empty cache root. Before import and again before PASS they reject
+  ignored Python, pytest-config, sourceless-bytecode, and native-extension
+  shadows, including `.git/info/exclude` and global-ignore matches. Capture and
+  import probe JSON crosses the child boundary only in retained strict-UTF-8
+  stdout bytes; JUnit parsing and SHA-256 likewise come from one retained file
+  snapshot. Never restore separate parse/hash opens or result-path transport.
+  Bind the protected evidence root separately from unique system-temp writes.
+  The production capture admission child alone may carry the frozen read-only
+  production-probe marker; it never grants evidence, production, `.env`, or
+  credential writes.
+  Creator, readiness, and activation repeat the shared ignored import/test-
+  configuration namespace guard at their final authority boundaries. Under
+  exact `WEATHER_INTEGRATION_TEST_OFFLINE=1`, every Scheduler mutation fails
+  closed unless the exact verb resolves directly to an in-process `Function`
+  mock; cmdlets, aliases, applications, and missing commands are forbidden.
+  Quiet merge additionally refuses every non-dry-run invocation in that mode.
 - Historical v1 PASS attempts may still have `AllowDemandStart` tasks after
   their one-shot trigger. Never relabel those attempts FAIL, delete their
   evidence, or ignore them in collision checks. Retire only their exact task
@@ -136,10 +245,30 @@ These instructions apply to `scripts/ops/`.
   status, rechecks current Git and three-worker capture health, disables only
   the exact receipt-bound tasks, and writes a separate immutable
   `MERGED_RECONCILED` receipt with downstream authority still false.
+  Every reconciliation Python probe, including idempotent marker cleanup and
+  documentation resume, must use the suite-qualified interpreter hash through
+  the kill-on-close bounded-process helper. Parse only retained stdout bytes,
+  require exact module/runtime/loaded-source identity inside an unchanged
+  production Git tuple, and record executable/output/source hashes in the
+  reconciliation receipt; direct Python launches are forbidden.
+  Reconciliation marker phase changes use create-new plus `Flush(true)` and
+  atomic replacement, prove backup bytes equal the prior marker and published
+  readback equals the intended bytes, and preserve any initiating error through
+  checked cleanup.
 - `quiet_window_merge.ps1` must record the exact local merge through
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight
-  integrations share one pending closeout due by 09:00.
+  integrations share one pending closeout due by 09:00. Quiet merge resolves
+  exactly one absolute regular non-reparse `git.exe` and uses that executable
+  for every checked local read, mutation, and rollback. Its attempt-local report
+  is a create-new, flush-to-disk, same-handle JSON/hash generation; mutable
+  latest/history outputs are diagnostic-only. Crash-marker replacements prove
+  the exact prior backup and intended readback, and publication re-reads marker
+  plus documentation pending/snapshot JSON from one retained generation each.
+- `roll_verdict.ps1` routes every Git query through the shared pinned,
+  sanitized, bounded-process helper. Preserve its public exit meanings
+  (0 roll-free, 1 undecidable, 2 dormant-only, 3 roll-sensitive), and never
+  restore a direct native Git invocation or `$LASTEXITCODE` dependency.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.
@@ -150,8 +279,12 @@ These instructions apply to `scripts/ops/`.
   exceptions; do not convert them to S4U because that session cannot access the
   vault.
 - Default repository roots from the registrar's own `PSScriptRoot`, and bind
-  S4U to `$env:USERNAME`. Do not hard-code the production checkout or account;
-  registrars must remain safe when reviewed from an isolated worktree.
+  S4U to the current `WindowsIdentity` name and SID, never to ambient
+  `$env:USERNAME`. Freeze its authority-qualified name, SID, machine, and domain
+  context in registration evidence; reject conflicting ambient account/host
+  variables and translate Scheduler readback back to the exact SID. Do not
+  hard-code the production checkout or account; registrars must remain safe
+  when reviewed from an isolated worktree.
 - Editing a script does not authorize registering, disabling, starting, or
   deleting a task. Make those changes only when the user explicitly places the
   host scheduler in scope.
@@ -164,10 +297,19 @@ streak grading. Keep all armed task names and `ensure` arguments aligned with
 both the detached worker and the supervisor that can revive it.
 After a held producer's roll-sensitive repair, use
 `adopt_execution_tape_after_merge.ps1`; it binds adoption to the exact guarded
-merge, remote/local master agreement, core capture recovery, scheduler
-identity, and worker/status/lock proof, and tears back down on disagreement.
+ merge, remote/local master agreement, core capture recovery, scheduler
+ identity, exact qualified `pythonw.exe` action, and retained worker/status/lock
+ proof, and tears back down on disagreement. Invoke the manifest-bound success
+ gate as a hash-pinned contained PowerShell child; disable and re-attest the
+ supervisor before any rollback stop, and re-attest its full binding at every
+ enable/start/final boundary.
 For an integration-attempt merge it additionally requires the manifest and
-merge-receipt SHA256 values and calls the read-only downstream gate.
+merge-receipt SHA256 values and calls the read-only downstream gate. Its
+capture, managed-status, and rollback-stop Python children must use the
+canonical pinned repository interpreter and kill-on-close bounded-process
+helper with sanitized environment, retained output, strict JSON, loaded-source
+identity, and equal production Git tuples. Cleanup diagnostics may accompany a
+refusal but must never replace its initiating reason.
 
 Choose one retraining topology per host:
 
@@ -192,6 +334,12 @@ Every heavyweight wrapper must hold the shared lease from
 Resource headroom and time-window checks remain mandatory and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
+The bounded worktree suite must obtain its three-worker admission result from
+the production tree's canonical `weather.operations.capture_recovery_check`;
+a duplicate status/lock PID counter is not process-instance proof and is
+vulnerable to PID reuse. Before each such import, it must run the manifest-bound
+quiet-merge preflight so tracked production code drift and a changed exact push
+task fail closed before they can weaken the canonical checker.
 
 `install_codex_host_load_hook.ps1` owns the production host's user-layer
 PreToolUse guard. It must never overwrite an existing `~/.codex/hooks.json`,

@@ -3,7 +3,9 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [master]
+    branches:
+      - master
+      - 'codex/**'
 
 permissions:
   contents: read
@@ -12,30 +14,43 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PYTHONNOUSERSITE: '1'
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+  PYTHONUTF8: '1'
+
 jobs:
-  test:
+  linux-cross-platform:
+    name: Linux cross-platform CI (non-production)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Do NOT set lfs: true. The hgb model artifacts are ~382 MB and every
           # checkout of them is metered against the account's LFS bandwidth
-          # quota (1 GB/month included); this workflow alone exhausted it.
-          # The test suite stubs these artifacts and does not read their bytes.
+          # quota (1 GB/month included). Artifact identity validation reads the
+          # exact SHA-256 and size from canonical LFS pointers when payloads are
+          # intentionally not hydrated.
           lfs: false
+          # CI never publishes repository changes. Do not leave a writable
+          # GitHub token in the checkout's local credential configuration.
+          persist-credentials: false
+          # Real-repository ancestry contracts must not be tested against a
+          # shallow graph.
+          fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
           cache: pip
 
       - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
-          pip install -e ".[test]"
+          python -m pip install -r requirements.txt
+          python -m pip install -e ".[test,live]"
 
       - name: Compile Source
         run: python -m compileall -q app src tests
@@ -46,5 +61,72 @@ jobs:
       - name: Validate Generated Roadmap Is Current
         run: python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
 
-      - name: Run Test Suite
+      - name: Run Explicit Cross-Platform Test Inventory
+        # Keep dependency installation reachable; enforce offline mode at the
+        # test process and every Python descendant it launches.
+        env:
+          WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+          GIT_ALLOW_PROTOCOL: file
+          GIT_TERMINAL_PROMPT: '0'
+        run: >-
+          python -m pytest -q
+          tests/app
+          tests/backtesting
+          tests/calibration
+          tests/collection
+          tests/market
+          tests/model
+          tests/reporting
+          tests/sources
+          tests/test_artifacts.py
+          tests/test_io_streaming.py
+          tests/test_release_serving.py
+          tests/operations/test_agent_docs_audit.py
+          tests/operations/test_ci_workflow_contract.py
+          tests/operations/test_dependency_pins.py
+          tests/operations/test_import_architecture.py
+          tests/operations/test_module_size_audit.py
+          tests/operations/test_offline_test_boundary.py
+          tests/operations/test_quiet_window_merge_script.py
+          tests/operations/test_schema_registry.py
+
+  windows-full:
+    name: Windows full CI (non-production)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Keep CI independent of the metered model-artifact LFS payloads;
+          # strict identity validation uses their canonical pointers.
+          lfs: false
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -e ".[test,live]"
+
+      - name: Compile Source
+        run: python -m compileall -q app src tests
+
+      - name: Validate Agent Knowledge Contracts
+        run: python -m weather.operations.agent_docs_audit
+
+      - name: Validate Generated Roadmap Is Current
+        run: python -m weather.reporting.roadmap.roadmap_backlog --fail-on-lint --check
+
+      - name: Run Complete Windows Test Inventory
+        env:
+          WEATHER_INTEGRATION_TEST_OFFLINE: '1'
+          GIT_ALLOW_PROTOCOL: file
+          GIT_TERMINAL_PROMPT: '0'
         run: python -m pytest -q

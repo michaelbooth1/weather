@@ -1,13 +1,24 @@
 from __future__ import annotations
 
 import json
+import inspect
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from weather.operations import capture_recovery_check
 from weather.operations.capture_recovery_check import WORKERS, check_capture_recovery
 
 
 NOW = datetime(2026, 8, 14, 2, 20, tzinfo=timezone.utc)
+
+
+def test_json_cli_binds_its_loaded_module_and_runtime_identity() -> None:
+    source = inspect.getsource(capture_recovery_check.main)
+
+    assert 'result["execution_identity"]' in source
+    assert '"module_path": str(Path(__file__).resolve())' in source
+    assert "get_runtime_identity(" in source
+    assert 'scope_files="loaded"' in source
 
 
 def _write_worker(root: Path, spec, *, pid: int = 42, age_seconds: int = 10) -> None:

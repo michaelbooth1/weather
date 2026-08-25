@@ -22,44 +22,148 @@ if (-not (Test-Path $py)) { $py = "python" }
 $flags = New-Object System.Collections.Generic.List[string]
 $warns = New-Object System.Collections.Generic.List[string]
 
+if ($null -eq ("WeatherIntegrationFileIdentity" -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class WeatherIntegrationFileIdentity
+{
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BY_HANDLE_FILE_INFORMATION
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle handle, out BY_HANDLE_FILE_INFORMATION information);
+    public static string FromHandle(SafeFileHandle handle)
+    {
+        BY_HANDLE_FILE_INFORMATION information;
+        if (handle == null || handle.IsInvalid ||
+            !GetFileInformationByHandle(handle, out information))
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        return String.Format(
+            System.Globalization.CultureInfo.InvariantCulture,
+            "{0:x8}:{1:x8}{2:x8}", information.VolumeSerialNumber,
+            information.FileIndexHigh, information.FileIndexLow);
+    }
+}
+'@
+}
+
+function Get-WeatherStatusFileHandleIdentity {
+    param([Parameter(Mandatory = $true)][IO.FileStream]$Stream)
+    return [WeatherIntegrationFileIdentity]::FromHandle($Stream.SafeFileHandle)
+}
+
+function Get-WeatherStatusIntegrationScheduleLocalNow {
+    try {
+        $timeZone = [TimeZoneInfo]::FindSystemTimeZoneById("Eastern Standard Time")
+    }
+    catch {
+        throw "Status cannot resolve the canonical America/Toronto Windows time zone."
+    }
+    if ([string]$timeZone.Id -cne "Eastern Standard Time") {
+        throw "Status resolved an unexpected integration schedule time zone."
+    }
+    return [datetime]::SpecifyKind(
+        [TimeZoneInfo]::ConvertTime([datetimeoffset]::UtcNow, $timeZone).DateTime,
+        [DateTimeKind]::Unspecified
+    )
+}
+
+function Assert-WeatherStatusRegularPathAncestry {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $current = [IO.Path]::GetFullPath($Path)
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Status evidence refuses reparse-point ancestry: $current"
+        }
+        $parent = [IO.Path]::GetDirectoryName($current)
+        if ([string]::IsNullOrWhiteSpace($parent) -or
+            $parent.Equals($current, [StringComparison]::OrdinalIgnoreCase)) {
+            break
+        }
+        $current = $parent
+    }
+}
+
 function Read-WeatherStatusBoundedJsonEvidence {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [ValidateRange(1, 2097152)][int]$MaximumBytes = 1048576
+        [ValidateRange(1, 67108864)][int]$MaximumBytes = 1048576,
+        [ValidateSet("Json", "Text")][string]$ContentType = "Json"
     )
 
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf -ErrorAction Stop)) {
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    Assert-WeatherStatusRegularPathAncestry -Path $resolvedPath
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf -ErrorAction Stop)) {
         throw "Required status evidence is missing: $Path"
     }
-    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    $item = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
-        $item.Length -gt $MaximumBytes) {
-        throw "Status evidence must be a bounded regular non-reparse file: $Path"
+        $item.Length -le 0 -or $item.Length -gt $MaximumBytes) {
+        throw "Status evidence must be a bounded regular non-reparse file with nonempty content: $Path"
     }
     $stream = [IO.File]::Open(
         $item.FullName,
         [IO.FileMode]::Open,
         [IO.FileAccess]::Read,
-        [IO.FileShare]::ReadWrite
+        [IO.FileShare]::Read
     )
+    $identityStream = $null
+    $closingStream = $null
     try {
-        if ($stream.Length -gt $MaximumBytes) {
+        $openedIdentity = Get-WeatherStatusFileHandleIdentity -Stream $stream
+        $identityStream = [IO.File]::Open(
+            $resolvedPath, [IO.FileMode]::Open,
+            [IO.FileAccess]::Read, [IO.FileShare]::Read
+        )
+        if ((Get-WeatherStatusFileHandleIdentity -Stream $identityStream) -cne
+                $openedIdentity) {
+            throw "Status evidence path and retained handle name different files: $Path"
+        }
+        Assert-WeatherStatusRegularPathAncestry -Path $resolvedPath
+        if ($stream.Length -le 0 -or $stream.Length -gt $MaximumBytes) {
             throw "Status evidence exceeds the bounded read limit: $Path"
         }
-        $buffer = New-Object byte[] ($MaximumBytes + 1)
+        $buffer = New-Object byte[] ([int]$stream.Length)
         $count = 0
         while ($count -lt $buffer.Length) {
             $read = $stream.Read($buffer, $count, $buffer.Length - $count)
-            if ($read -eq 0) { break }
+            if ($read -eq 0) {
+                throw "Status evidence ended before its declared length: $Path"
+            }
             $count += $read
         }
-        if ($count -gt $MaximumBytes) {
-            throw "Status evidence grew beyond the bounded read limit: $Path"
+        $bytes = $buffer
+        $closingStream = [IO.File]::Open(
+            $resolvedPath, [IO.FileMode]::Open,
+            [IO.FileAccess]::Read, [IO.FileShare]::Read
+        )
+        if ((Get-WeatherStatusFileHandleIdentity -Stream $closingStream) -cne
+                $openedIdentity) {
+            throw "Status evidence path changed files during the retained read: $Path"
         }
-        $bytes = New-Object byte[] $count
-        if ($count -gt 0) { [Array]::Copy($buffer, $bytes, $count) }
+        Assert-WeatherStatusRegularPathAncestry -Path $resolvedPath
     }
-    finally { $stream.Dispose() }
+    finally {
+        if ($null -ne $closingStream) { $closingStream.Dispose() }
+        if ($null -ne $identityStream) { $identityStream.Dispose() }
+        $stream.Dispose()
+    }
 
     $hasher = [Security.Cryptography.SHA256]::Create()
     try {
@@ -68,9 +172,141 @@ function Read-WeatherStatusBoundedJsonEvidence {
     finally { $hasher.Dispose() }
     $decoder = New-Object Text.UTF8Encoding($false, $true)
     $text = $decoder.GetString($bytes).TrimStart([char]0xFEFF)
-    try { $payload = $text | ConvertFrom-Json -ErrorAction Stop }
-    catch { throw "Status evidence JSON is invalid: $Path" }
-    return [pscustomobject]@{ Payload = $payload; Sha256 = $sha256; Path = $item.FullName }
+    $payload = $null
+    if ($ContentType -eq "Json") {
+        try { $payload = $text | ConvertFrom-Json -ErrorAction Stop }
+        catch { throw "Status evidence JSON is invalid: $Path" }
+    }
+    return [pscustomobject]@{
+        Bytes = $bytes
+        Length = [long]$bytes.Length
+        Text = $text
+        Payload = $payload
+        Sha256 = $sha256
+        Path = $resolvedPath
+    }
+}
+
+function Open-WeatherStatusPinnedAuthorityFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedSha256,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [ValidateRange(1, 16777216)][int]$MaximumBytes = 8388608
+    )
+
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $stream = $null
+    $identityStream = $null
+    $primaryError = $null
+    try {
+        foreach ($phase in @("before-open", "after-open")) {
+            if ($phase -eq "after-open" -and $null -eq $stream) { continue }
+            $current = [IO.DirectoryInfo]::new((Split-Path -Parent $resolvedPath))
+            while ($null -ne $current) {
+                $expectedDirectory = [IO.Path]::GetFullPath([string]$current.FullName)
+                $directory = Get-Item -LiteralPath $expectedDirectory `
+                    -Force -ErrorAction Stop
+                if (-not $directory.PSIsContainer -or
+                    ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                    [IO.Path]::GetFullPath([string]$directory.FullName) -ine
+                        $expectedDirectory) {
+                    throw "$Label has a missing, non-directory, or reparse-point ancestor."
+                }
+                $current = $current.Parent
+            }
+            if ($phase -eq "before-open") {
+                $leaf = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+                if ($leaf.PSIsContainer -or
+                    ($leaf.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                    [IO.Path]::GetFullPath([string]$leaf.FullName) -ine $resolvedPath) {
+                    throw "$Label is not one exact regular non-reparse file."
+                }
+                $stream = [IO.FileStream]::new(
+                    $resolvedPath,
+                    [IO.FileMode]::Open,
+                    [IO.FileAccess]::Read,
+                    [IO.FileShare]::Read
+                )
+                $openedIdentity = Get-WeatherStatusFileHandleIdentity -Stream $stream
+                $identityStream = [IO.File]::Open(
+                    $resolvedPath, [IO.FileMode]::Open,
+                    [IO.FileAccess]::Read, [IO.FileShare]::Read
+                )
+                if ((Get-WeatherStatusFileHandleIdentity -Stream $identityStream) -cne
+                        $openedIdentity) {
+                    throw "$Label path and retained handle name different files."
+                }
+            }
+        }
+        if ($stream.Length -le 0 -or $stream.Length -gt $MaximumBytes) {
+            throw "$Label is empty or exceeds its bounded authority-file contract."
+        }
+        $bytes = [byte[]]::new([int]$stream.Length)
+        $stream.Position = 0
+        $offset = 0
+        while ($offset -lt $bytes.Length) {
+            $read = $stream.Read($bytes, $offset, $bytes.Length - $offset)
+            if ($read -le 0) { throw "$Label ended during its retained read." }
+            $offset += $read
+        }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $actualSha256 = ([BitConverter]::ToString(
+                $sha.ComputeHash($bytes)
+            ) -replace '-', '').ToLowerInvariant()
+        }
+        finally { $sha.Dispose() }
+        if ($actualSha256 -cne $ExpectedSha256) {
+            throw "$Label changed after its immutable authority binding was frozen."
+        }
+        $closingStream = [IO.File]::Open(
+            $resolvedPath, [IO.FileMode]::Open,
+            [IO.FileAccess]::Read, [IO.FileShare]::Read
+        )
+        try {
+            if ((Get-WeatherStatusFileHandleIdentity -Stream $closingStream) -cne
+                    $openedIdentity) {
+                throw "$Label path changed files during its retained read."
+            }
+            Assert-WeatherStatusRegularPathAncestry -Path $resolvedPath
+        }
+        finally { $closingStream.Dispose() }
+        $decoder = New-Object Text.UTF8Encoding($false, $true)
+        $text = $decoder.GetString($bytes)
+        if ($text.Length -gt 0 -and $text[0] -eq [char]0xFEFF) {
+            $text = $text.Substring(1)
+        }
+        return [pscustomobject]@{
+            Path = $resolvedPath
+            Sha256 = $actualSha256
+            Stream = $stream
+            Text = $text
+            Label = $Label
+        }
+    }
+    catch {
+        $primaryError = $_
+        if ($null -ne $identityStream) {
+            try { $identityStream.Dispose() }
+            catch {
+                $primaryError.Exception.Data["weather_cleanup_failure"] =
+                    "$Label path-identity cleanup failed: $($_.Exception.Message)"
+            }
+        }
+        if ($null -ne $stream) {
+            try { $stream.Dispose() }
+            catch {
+                $primaryError.Exception.Data["weather_cleanup_failure"] =
+                    "$Label retained-handle cleanup failed: $($_.Exception.Message)"
+            }
+        }
+        throw $primaryError
+    }
+    finally {
+        if ($null -ne $identityStream) { $identityStream.Dispose() }
+    }
 }
 
 function Get-WeatherOneShotActiveManifestFileIdentity {
@@ -86,6 +322,104 @@ function Get-WeatherOneShotActiveManifestFileIdentity {
         Path = $fullPath
         TaskName = [string]$Matches.task
         ExpectedSha256 = [string]$Matches.sha
+    }
+}
+
+function Assert-WeatherIntegrationStatusFailClosureTasks {
+    param(
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [Parameter(Mandatory = $true)][object]$ClosureReceipt,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedClosureReceiptSha256,
+        [AllowNull()][object[]]$ScheduledTaskSnapshot = $null
+    )
+
+    # A closure is not merely a historical statement. Status must prove that
+    # every task it recorded as present is still the exact Disabled task and
+    # that every task it recorded as absent is still absent. Otherwise an old
+    # closure could hide a later re-enable or same-name replacement.
+    if ($null -eq $ScheduledTaskSnapshot) {
+        $ScheduledTaskSnapshot = @(
+            Get-WeatherIntegrationScheduledTaskSnapshot
+        )
+    }
+    $manifest = $AttemptContract.Manifest
+    $safety = $ClosureReceipt.PSObject.Properties["safety"]
+    if ([string]$ClosureReceipt.schema -ne
+            $script:WeatherIntegrationAttemptClosureReceiptSchema -or
+        [string]$ClosureReceipt.status -ne "FAIL" -or
+        [string]$ClosureReceipt.classification -ne "ABANDONED" -or
+        [string]$ClosureReceipt.attempt_id -cne [string]$manifest.attempt_id -or
+        [IO.Path]::GetFullPath([string]$ClosureReceipt.manifest_path) -ine
+            [IO.Path]::GetFullPath([string]$AttemptContract.ManifestPath) -or
+        [string]$ClosureReceipt.manifest_sha256 -ne
+            [string]$AttemptContract.ManifestSha256 -or
+        [string]::IsNullOrWhiteSpace([string]$ClosureReceipt.reason) -or
+        [string]::IsNullOrWhiteSpace([string]$ClosureReceipt.review_reference) -or
+        $null -eq $safety -or $null -eq $safety.Value -or
+        [string]$safety.Value.authority -ne
+            "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+        $safety.Value.credential_value_access_authorized -isnot [bool] -or
+        [bool]$safety.Value.credential_value_access_authorized -or
+        $safety.Value.live_exchange_mutation_authorized -isnot [bool] -or
+        [bool]$safety.Value.live_exchange_mutation_authorized) {
+        throw "FAIL closure identity, review, or safety boundary is invalid."
+    }
+    $taskRows = @($ClosureReceipt.tasks)
+    if ($taskRows.Count -ne 2) {
+        throw "FAIL closure task-state proof must contain exactly two rows."
+    }
+
+    foreach ($role in @("suite", "merge")) {
+        $expectedName = if ($role -eq "suite") {
+            [string]$manifest.schedule.suite_task_name
+        }
+        else { [string]$manifest.schedule.merge_task_name }
+        $rows = @($taskRows | Where-Object {
+            [string]$_.task_name -ceq $expectedName
+        })
+        if ($rows.Count -ne 1) {
+            throw "FAIL closure lost exact $role task accounting."
+        }
+        foreach ($propertyName in @("exists", "disabled")) {
+            $property = $rows[0].PSObject.Properties[$propertyName]
+            if ($null -eq $property -or $property.Value -isnot [bool]) {
+                throw "FAIL closure $role task $propertyName is not Boolean."
+            }
+        }
+        $matches = @($ScheduledTaskSnapshot | Where-Object {
+            [string]$_.TaskName -ieq $expectedName -and
+            [string]$_.TaskPath -ieq "\"
+        })
+        if ($matches.Count -gt 1) {
+            throw "FAIL closure found ambiguous current $role tasks."
+        }
+
+        if (-not [bool]$rows[0].exists) {
+            if ([bool]$rows[0].disabled -or $matches.Count -ne 0) {
+                throw "A $role task appeared after the FAIL closure absence proof."
+            }
+            continue
+        }
+        if (-not [bool]$rows[0].disabled -or $matches.Count -ne 1) {
+            throw "FAIL closure no longer has its exact present $role task."
+        }
+        $task = $matches[0]
+        $enabledProperty = if ($null -eq $task.Settings) {
+            $null
+        }
+        else { $task.Settings.PSObject.Properties["Enabled"] }
+        if ([string]$task.State -ne "Disabled" -or
+            $null -eq $enabledProperty -or [bool]$enabledProperty.Value) {
+            throw "Post-closure $role task is no longer exactly Disabled."
+        }
+        $canonical = Assert-WeatherIntegrationFailClosureReceipt `
+            -AttemptContract $AttemptContract -Task $task -Role $role
+        if ([string]$canonical.ReceiptSha256 -ne
+                $ExpectedClosureReceiptSha256.ToLowerInvariant()) {
+            throw "Canonical $role closure proof does not match the observed receipt hash."
+        }
     }
 }
 
@@ -134,14 +468,22 @@ function Get-WeatherIntegrationValidatedEvidence {
         param([Parameter(Mandatory = $true)][object]$PublicationRecord)
 
         $commit = [string]$PublicationRecord.merge_commit
-        $firstParent = @(& git -C ([string]$attempt.repo_root) rev-parse "$commit^1")
-        $firstExit = $LASTEXITCODE
-        $secondParent = @(& git -C ([string]$attempt.repo_root) rev-parse "$commit^2")
-        $secondExit = $LASTEXITCODE
-        $parentLine = @(& git -C ([string]$attempt.repo_root) rev-list --parents -n 1 $commit)
-        $parentLineExit = $LASTEXITCODE
-        if ($firstExit -ne 0 -or $secondExit -ne 0 -or
-            $parentLineExit -ne 0 -or $parentLine.Count -ne 1 -or
+        $firstParentQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root ([string]$attempt.repo_root) `
+            -Arguments @("rev-parse", "$commit^1") `
+            -Label "status merge first-parent query"
+        $secondParentQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root ([string]$attempt.repo_root) `
+            -Arguments @("rev-parse", "$commit^2") `
+            -Label "status merge second-parent query"
+        $parentLineQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root ([string]$attempt.repo_root) `
+            -Arguments @("rev-list", "--parents", "-n", "1", $commit) `
+            -Label "status merge parent-list query"
+        $firstParent = @($firstParentQuery.StdoutLines)
+        $secondParent = @($secondParentQuery.StdoutLines)
+        $parentLine = @($parentLineQuery.StdoutLines)
+        if ($parentLine.Count -ne 1 -or
             @(([string]$parentLine[0]) -split '\s+' | Where-Object { $_ }).Count -ne 3 -or
             $firstParent.Count -ne 1 -or $secondParent.Count -ne 1 -or
             ([string]$firstParent[0]).Trim().ToLowerInvariant() -ne
@@ -159,12 +501,14 @@ function Get-WeatherIntegrationValidatedEvidence {
         $snapshotRelative = ([string]$PublicationRecord.documentation_transaction_snapshot_path).Replace('\', '/')
         $expectedRelative = "data/alerts/documentation_transactions/pending-$pendingSha256.json"
         $snapshotPath = Join-Path ([string]$attempt.repo_root) ($snapshotRelative -replace '/', '\')
+        $snapshotEvidence = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $snapshotPath -MaximumBytes 2097152 -ContentType Json
         if ($pendingSha256 -notmatch '^[0-9a-f]{64}$' -or
             $snapshotRelative -cne $expectedRelative -or
-            (Get-WeatherIntegrationFileSha256 -Path $snapshotPath) -ne $pendingSha256) {
+            [string]$snapshotEvidence.Sha256 -ne $pendingSha256) {
             throw "Documentation transaction snapshot identity/hash is invalid."
         }
-        $snapshot = Read-WeatherIntegrationSharedJson -Path $snapshotPath
+        $snapshot = $snapshotEvidence.Payload
         $matchingEntries = @($snapshot.integrations | Where-Object {
             ([string]$_.integration_tip).ToLowerInvariant() -eq
                 ([string]$PublicationRecord.merge_commit).ToLowerInvariant() -and
@@ -192,12 +536,14 @@ function Get-WeatherIntegrationValidatedEvidence {
         if (-not (Test-WeatherIntegrationPathEqual -Left $Path -Right $canonicalPath)) {
             throw "Quiet-merge report path is not canonical for this attempt."
         }
-        $actualSha256 = Get-WeatherIntegrationFileSha256 -Path $canonicalPath
+        $reportSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $canonicalPath -MaximumBytes 2097152 -ContentType Json
+        $actualSha256 = [string]$reportSnapshot.Sha256
         if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256) -and
             $actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
             throw "Quiet-merge report hash is not the recorded immutable hash."
         }
-        $report = Read-WeatherIntegrationSharedJson -Path $canonicalPath
+        $report = $reportSnapshot.Payload
         $isPushedReport = ([string]$report.stage -eq "pushed")
         $isRecoveredUnpushedReport = (
             $AllowMergedUnpushed.IsPresent -and
@@ -307,13 +653,15 @@ function Get-WeatherIntegrationValidatedEvidence {
 
         $path = [string]$PublicationEvidence.merge_receipt_path
         $sha256 = [string]$PublicationEvidence.merge_receipt_sha256
+        $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $path -MaximumBytes 2097152 -ContentType Json
         if (-not (Test-WeatherIntegrationPathEqual `
                 -Left $path -Right ([string]$attempt.evidence.merge_receipt)) -or
             $sha256 -notmatch '^[0-9a-f]{64}$' -or
-            (Get-WeatherIntegrationFileSha256 -Path $path) -ne $sha256) {
+            [string]$receiptSnapshot.Sha256 -ne $sha256) {
             throw "Supporting prior-marker FAIL receipt path/hash is invalid."
         }
-        $receipt = Read-WeatherIntegrationSharedJson -Path $path
+        $receipt = $receiptSnapshot.Payload
         if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
             [string]$receipt.status -ne "FAIL" -or
             [string]$receipt.attempt_id -ne [string]$attempt.attempt_id -or
@@ -368,10 +716,12 @@ function Get-WeatherIntegrationValidatedEvidence {
         )
 
         $receiptPath = Resolve-WeatherIntegrationPath -Path ([string]$attempt.evidence.merge_receipt)
-        if ((Get-WeatherIntegrationFileSha256 -Path $receiptPath) -ne $ExpectedReceiptSha256) {
+        $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+        if ([string]$receiptSnapshot.Sha256 -ne $ExpectedReceiptSha256) {
             throw "Recovered FAIL merge-receipt hash binding is invalid."
         }
-        $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+        $receipt = $receiptSnapshot.Payload
         Assert-StatusCommonIdentity -Payload $receipt
         Assert-StatusSafetyBoundary -Payload $receipt
         if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
@@ -442,8 +792,10 @@ function Get-WeatherIntegrationValidatedEvidence {
         else { "RECOVERED_UNPUSHED" }
         return [pscustomobject]@{ Payload = $quietContract.Payload; Status = $quietStatus; Sha256 = $quietContract.Sha256 }
     }
-    $payload = Read-WeatherIntegrationSharedJson -Path $evidencePath
-    $evidenceSha256 = Get-WeatherIntegrationFileSha256 -Path $evidencePath
+    $evidenceSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $evidencePath -MaximumBytes 2097152 -ContentType Json
+    $payload = $evidenceSnapshot.Payload
+    $evidenceSha256 = [string]$evidenceSnapshot.Sha256
     $validatedStatus = [string]$payload.status
 
     if ($Target -notin @("claim", "registration_intent")) {
@@ -838,6 +1190,10 @@ function Get-WeatherIntegrationValidatedEvidence {
                 throw "Closure receipt contains a stale preserved-evidence hash."
             }
         }
+        Assert-WeatherIntegrationStatusFailClosureTasks `
+            -AttemptContract $attemptContract `
+            -ClosureReceipt $payload `
+            -ExpectedClosureReceiptSha256 $evidenceSha256
     }
     elseif ($Target -eq "dispatch") {
         $closurePath = [string]$attempt.evidence.closure_receipt
@@ -852,6 +1208,9 @@ function Get-WeatherIntegrationValidatedEvidence {
     elseif ($Target -eq "claim") {
         $expectedClosurePath = [string]$attempt.evidence.closure_receipt
         $expectedDispatchPath = [string]$attempt.evidence.recovery_dispatch
+        $successorManifestSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path ([string]$payload.successor_manifest_path) `
+            -MaximumBytes 1048576 -ContentType Json
         if ([string]$payload.schema -ne $script:WeatherIntegrationAttemptSuccessorClaimSchema -or
             [string]$payload.status -ne "CLAIMED" -or
             [string]$payload.predecessor_attempt_id -ne [string]$attempt.attempt_id -or
@@ -860,11 +1219,15 @@ function Get-WeatherIntegrationValidatedEvidence {
             -not (Test-WeatherIntegrationPathEqual -Left ([string]$payload.recovery_dispatch_path) -Right $expectedDispatchPath) -or
             (Get-WeatherIntegrationFileSha256 -Path ([string]$payload.predecessor_receipt_path)) -ne [string]$payload.predecessor_receipt_sha256 -or
             (Get-WeatherIntegrationFileSha256 -Path ([string]$payload.recovery_dispatch_path)) -ne [string]$payload.recovery_dispatch_sha256 -or
-            (Get-WeatherIntegrationFileSha256 -Path ([string]$payload.successor_manifest_path)) -ne [string]$payload.successor_manifest_sha256) {
+            [string]$successorManifestSnapshot.Sha256 -ne
+                [string]$payload.successor_manifest_sha256) {
             throw "Successor claim schema, identity, or immutable hash binding is invalid."
         }
-        $successorManifest = Read-WeatherIntegrationSharedJson -Path ([string]$payload.successor_manifest_path)
-        if ([string]$successorManifest.schema -ne $script:WeatherIntegrationAttemptManifestSchema -or
+        $successorManifest = $successorManifestSnapshot.Payload
+        if ([string]$successorManifest.schema -notin @(
+                $script:WeatherIntegrationAttemptManifestSchema,
+                $script:WeatherIntegrationAttemptLegacyManifestSchema
+            ) -or
             [string]$successorManifest.attempt_id -ne [string]$payload.successor_attempt_id -or
             [string]$successorManifest.expected_tip -ne [string]$payload.successor_expected_tip) {
             throw "Successor claim target manifest identity is invalid."
@@ -872,6 +1235,21 @@ function Get-WeatherIntegrationValidatedEvidence {
     }
 
     return [pscustomobject]@{ Payload = $payload; Status = $validatedStatus; Sha256 = $evidenceSha256 }
+}
+
+function Test-WeatherStatusIntegrationTipMerged {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$ExactTip
+    )
+
+    . (Join-Path $RepositoryRoot "scripts\ops\integration_attempt_contract.ps1")
+    $query = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $RepositoryRoot `
+        -Arguments @("merge-base", "--is-ancestor", $ExactTip, "HEAD") `
+        -AllowedExitCodes @(0, 1) `
+        -Label "status exact integration ancestry query"
+    return ([int]$query.ExitCode -eq 0)
 }
 
 function Assert-WeatherIntegrationStatusTaskBindings {
@@ -955,62 +1333,610 @@ function Get-WeatherIntegrationPreparationPublicationState {
     return "UNCERTAIN"
 }
 
-function Get-WeatherIntegrationPreparationDirectoryCandidates {
+function Get-WeatherIntegrationTaskBindingDriftDisposition {
     param(
-        [Parameter(Mandatory = $true)][string]$Root
+        [Parameter(Mandatory = $true)][string]$AttemptId,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)]
+        [ValidatePattern("^[0-9a-fA-F]{64}$")]
+        [string]$ExpectedManifestSha256,
+        [Parameter(Mandatory = $true)][string]$Detail
+    )
+
+    $resolvedManifestPath = [IO.Path]::GetFullPath($ManifestPath)
+    $manifestArgument = $resolvedManifestPath.Replace('"', '""')
+    $manifestSha256 = $ExpectedManifestSha256.ToLowerInvariant()
+    return [pscustomobject]@{
+        AttemptId = $AttemptId
+        State = "TASK_BINDING_DRIFT"
+        Detail = $Detail
+        NextAction = (
+            "run .\scripts\ops\close_integration_attempt.ps1 " +
+            "-ManifestPath `"$manifestArgument`" " +
+            "-ExpectedManifestSha256 $manifestSha256 " +
+            "-Reason <reviewed-reason> -ReviewReference <review-reference>; " +
+            "if strict closure rejects the drift, obtain reviewed exact-task " +
+            "reconciliation first; never repair or re-enable either task in place"
+        )
+    }
+}
+
+function Get-WeatherIntegrationPreManifestQualificationObservation {
+    param(
+        [Parameter(Mandatory = $true)][string]$PreparationRoot,
+        [AllowNull()][object]$Intent,
+        [AllowNull()][object]$PreparationReceipt,
+        [AllowNull()][object]$IntentEvidence = $null
+    )
+
+    $resolvedPreparationRoot = [IO.Path]::GetFullPath($PreparationRoot)
+    $qualificationReceiptPath = Join-Path $resolvedPreparationRoot `
+        "prearming-qualification-receipt.json"
+    $preflightLogPath = Join-Path $resolvedPreparationRoot `
+        "prearming-integration-preflight.log"
+    $fullSuiteLogPath = Join-Path $resolvedPreparationRoot `
+        "prearming-full-suite.log"
+    $receiptSha256 = $null
+
+    try {
+        if ($null -ne $IntentEvidence) {
+            $Intent = $IntentEvidence.Payload
+        }
+        $rootItem = Get-Item -LiteralPath $resolvedPreparationRoot `
+            -Force -ErrorAction Stop
+        if (-not $rootItem.PSIsContainer -or
+            ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "preparation namespace is not a regular non-reparse directory"
+        }
+        $receiptPresent = Test-Path -LiteralPath $qualificationReceiptPath `
+            -PathType Leaf -ErrorAction Stop
+        $preflightPresent = Test-Path -LiteralPath $preflightLogPath `
+            -PathType Leaf -ErrorAction Stop
+        $fullSuitePresent = Test-Path -LiteralPath $fullSuiteLogPath `
+            -PathType Leaf -ErrorAction Stop
+
+        if ($null -eq $Intent) {
+            if ($receiptPresent -or $preflightPresent -or $fullSuitePresent) {
+                throw "qualification output exists without its immutable preparation intent"
+            }
+            return [pscustomobject]@{
+                State = "NOT_RUN"
+                Detail = "preparation stopped before its immutable qualification plan was written"
+                ReceiptPath = $qualificationReceiptPath
+                ReceiptSha256 = $null
+            }
+        }
+
+        $intentSafety = $Intent.PSObject.Properties["safety"]
+        $qualificationProperty = $Intent.PSObject.Properties["qualification"]
+        if ([string]$Intent.schema -ne
+                "weather_integration_attempt_preparation_intent_v1" -or
+            [string]$Intent.status -ne "PREPARED" -or
+            [string]$Intent.attempt_id -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,47}$' -or
+            [string]$Intent.expected_tip -notmatch '^[0-9a-f]{40}$' -or
+            [IO.Path]::GetFullPath([string]$Intent.preparation_root) -ine
+                $resolvedPreparationRoot -or
+            $null -eq $intentSafety -or $null -eq $intentSafety.Value -or
+            [string]$intentSafety.Value.authority -ne
+                "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+            $intentSafety.Value.credential_value_access_authorized -isnot [bool] -or
+            [bool]$intentSafety.Value.credential_value_access_authorized -or
+            $intentSafety.Value.live_exchange_mutation_authorized -isnot [bool] -or
+            [bool]$intentSafety.Value.live_exchange_mutation_authorized) {
+            throw "preparation intent identity or safety boundary is invalid"
+        }
+        if ($null -eq $qualificationProperty -or
+            $null -eq $qualificationProperty.Value) {
+            if ($receiptPresent -or $preflightPresent -or $fullSuitePresent) {
+                throw "qualification output exists without an immutable qualification plan"
+            }
+            return [pscustomobject]@{
+                State = "NOT_RUN"
+                Detail = "legacy preparation intent predates mandatory pre-arming qualification"
+                ReceiptPath = $qualificationReceiptPath
+                ReceiptSha256 = $null
+            }
+        }
+        $plan = $qualificationProperty.Value
+        if ($plan.required -isnot [bool] -or -not [bool]$plan.required -or
+            [IO.Path]::GetFullPath([string]$plan.receipt_path) -ine
+                $qualificationReceiptPath -or
+            [IO.Path]::GetFullPath(
+                [string]$plan.integration_preflight_log_path
+            ) -ine $preflightLogPath -or
+            [IO.Path]::GetFullPath([string]$plan.full_suite_log_path) -ine
+                $fullSuiteLogPath -or
+            [string]$plan.bounded_suite_sha256 -notmatch '^[0-9a-f]{64}$') {
+            throw "preparation intent qualification paths or suite binding are invalid"
+        }
+
+        $reportedStatus = ""
+        if ($null -ne $PreparationReceipt) {
+            $progressProperty = $PreparationReceipt.PSObject.Properties[
+                "prearming_qualification"
+            ]
+            if ($null -eq $progressProperty -or $null -eq $progressProperty.Value) {
+                throw "terminal preparation receipt omits qualification progress"
+            }
+            $progress = $progressProperty.Value
+            $reportedStatus = [string]$progress.status
+            if ([IO.Path]::GetFullPath([string]$progress.receipt_path) -ine
+                    $qualificationReceiptPath -or
+                [IO.Path]::GetFullPath(
+                    [string]$progress.integration_preflight_log_path
+                ) -ine $preflightLogPath -or
+                [IO.Path]::GetFullPath([string]$progress.full_suite_log_path) -ine
+                    $fullSuiteLogPath) {
+                throw "terminal preparation receipt qualification paths are invalid"
+            }
+        }
+
+        if (-not $receiptPresent) {
+            if ($reportedStatus -in @("FAIL", "PASS")) {
+                throw "terminal preparation receipt names qualification $reportedStatus but its immutable receipt is missing"
+            }
+            if ($reportedStatus -eq "FULL_SUITE_RUNNING") {
+                return [pscustomobject]@{
+                    State = "FULL_SUITE_INTERRUPTED"
+                    Detail = "terminal preparation failure proves the full-suite qualification phase was interrupted before a qualification receipt"
+                    ReceiptPath = $qualificationReceiptPath
+                    ReceiptSha256 = $null
+                }
+            }
+            if ($reportedStatus -eq "PREFLIGHT_RUNNING") {
+                return [pscustomobject]@{
+                    State = "PREFLIGHT_INTERRUPTED"
+                    Detail = "terminal preparation failure proves the preflight qualification phase was interrupted before a qualification receipt"
+                    ReceiptPath = $qualificationReceiptPath
+                    ReceiptSha256 = $null
+                }
+            }
+            if ($null -eq $PreparationReceipt -and $fullSuitePresent) {
+                return [pscustomobject]@{
+                    State = "FULL_SUITE_RUNNING"
+                    Detail = "full-suite qualification output exists without terminal preparation evidence; the phase is running or was interrupted"
+                    ReceiptPath = $qualificationReceiptPath
+                    ReceiptSha256 = $null
+                }
+            }
+            if ($null -eq $PreparationReceipt -and $preflightPresent) {
+                return [pscustomobject]@{
+                    State = "PREFLIGHT_RUNNING"
+                    Detail = "preflight qualification output exists without terminal preparation evidence; the phase is running or was interrupted"
+                    ReceiptPath = $qualificationReceiptPath
+                    ReceiptSha256 = $null
+                }
+            }
+            if ($preflightPresent -or $fullSuitePresent) {
+                throw "qualification logs contradict a NOT_RUN terminal state"
+            }
+            return [pscustomobject]@{
+                State = "NOT_RUN"
+                Detail = "immutable preparation evidence shows pre-arming qualification did not start"
+                ReceiptPath = $qualificationReceiptPath
+                ReceiptSha256 = $null
+            }
+        }
+
+        $qualificationEvidence = Read-WeatherStatusBoundedJsonEvidence `
+            -Path $qualificationReceiptPath
+        $qualificationReceipt = $qualificationEvidence.Payload
+        $receiptSha256 = [string]$qualificationEvidence.Sha256
+        $receiptSafety = $qualificationReceipt.PSObject.Properties["safety"]
+        $runsProperty = $qualificationReceipt.PSObject.Properties["runs"]
+        if ([string]$qualificationReceipt.schema -ne
+                "weather_integration_attempt_prearming_qualification_receipt_v1" -or
+            [string]$qualificationReceipt.status -notin @("PASS", "FAIL") -or
+            [string]$qualificationReceipt.attempt_id -cne [string]$Intent.attempt_id -or
+            [string]$qualificationReceipt.expected_tip -ne [string]$Intent.expected_tip -or
+            [IO.Path]::GetFullPath([string]$qualificationReceipt.repo_root) -ine
+                [IO.Path]::GetFullPath([string]$Intent.repo_root) -or
+            [IO.Path]::GetFullPath([string]$qualificationReceipt.worktree_root) -ine
+                [IO.Path]::GetFullPath([string]$Intent.worktree_root) -or
+            [string]$qualificationReceipt.branch_ref -cne [string]$Intent.branch_ref -or
+            [IO.Path]::GetFullPath([string]$qualificationReceipt.bounded_suite.path) -ine
+                [IO.Path]::GetFullPath([string]$plan.bounded_suite_path) -or
+            [string]$qualificationReceipt.bounded_suite.sha256 -ne
+                [string]$plan.bounded_suite_sha256 -or
+            $null -eq $receiptSafety -or $null -eq $receiptSafety.Value -or
+            [string]$receiptSafety.Value.authority -ne
+                "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY" -or
+            $receiptSafety.Value.credential_value_access_authorized -isnot [bool] -or
+            [bool]$receiptSafety.Value.credential_value_access_authorized -or
+            $receiptSafety.Value.live_exchange_mutation_authorized -isnot [bool] -or
+            [bool]$receiptSafety.Value.live_exchange_mutation_authorized -or
+            $null -eq $runsProperty -or $null -eq $runsProperty.Value) {
+            throw "qualification receipt identity, suite binding, or safety boundary is invalid"
+        }
+        if ($null -ne $PreparationReceipt) {
+            $progress = $PreparationReceipt.prearming_qualification
+            if ([string]$progress.status -ne [string]$qualificationReceipt.status -or
+                [string]$progress.receipt_sha256 -notmatch '^[0-9a-f]{64}$' -or
+                [string]$progress.receipt_sha256 -ne $receiptSha256) {
+                throw "terminal preparation receipt does not hash-bind qualification evidence"
+            }
+        }
+
+        $preflightRun = $qualificationReceipt.runs.integration_preflight
+        $fullSuiteRun = $qualificationReceipt.runs.full_suite
+        $runLogSnapshots = @{}
+        foreach ($runSpec in @(
+            [pscustomobject]@{
+                Run = $preflightRun
+                Mode = "integration_preflight"
+                Path = $preflightLogPath
+            },
+            [pscustomobject]@{
+                Run = $fullSuiteRun
+                Mode = "full_suite"
+                Path = $fullSuiteLogPath
+            }
+        )) {
+            if ($null -eq $runSpec.Run) { continue }
+            $logSnapshot = Read-WeatherStatusBoundedJsonEvidence `
+                -Path $runSpec.Path -MaximumBytes 4194304 -ContentType Text
+            $runLogSnapshots[[string]$runSpec.Mode] = $logSnapshot
+            if ([string]$runSpec.Run.mode -cne [string]$runSpec.Mode -or
+                [IO.Path]::GetFullPath([string]$runSpec.Run.log_path) -ine
+                    [IO.Path]::GetFullPath([string]$runSpec.Path) -or
+                [string]$runSpec.Run.log_sha256 -notmatch '^[0-9a-f]{64}$' -or
+                [string]$logSnapshot.Sha256 -ne [string]$runSpec.Run.log_sha256) {
+                throw "$($runSpec.Mode) qualification log is absent, unbounded, or hash-invalid"
+            }
+        }
+
+        if ([string]$qualificationReceipt.status -eq "PASS") {
+            if ($null -eq $preflightRun -or $null -eq $fullSuiteRun -or
+                -not $preflightPresent -or -not $fullSuitePresent -or
+                $qualificationReceipt.feasibility.eligible -isnot [bool] -or
+                -not [bool]$qualificationReceipt.feasibility.eligible) {
+                throw "PASS qualification does not retain both exact runs and feasible schedule evidence"
+            }
+            if ($null -eq $IntentEvidence) {
+                throw "PASS qualification lacks the retained preparation-intent snapshot"
+            }
+            # The preparation intent is evidence, not executable-code
+            # authority.  Bind every path that will be evaluated below to the
+            # status script's fixed production repository before accepting the
+            # intent's version hashes.  Without this check a crafted orphan
+            # intent could name an attacker-controlled repo_root, provide the
+            # matching hashes for scripts there, and turn status inspection
+            # into arbitrary PowerShell execution.
+            $statusRepositoryRoot = [IO.Path]::GetFullPath([string]$repo)
+            $intentRepositoryRoot = [IO.Path]::GetFullPath(
+                [string]$Intent.repo_root
+            )
+            $contractScript = Join-Path $statusRepositoryRoot `
+                "scripts\ops\integration_attempt_contract.ps1"
+            $preparationContractScript = Join-Path $statusRepositoryRoot `
+                "scripts\ops\integration_attempt_preparation_contract.ps1"
+            $contractBinding = $Intent.scripts.PSObject.Properties["contract"]
+            $preparationContractBinding = $Intent.scripts.PSObject.Properties[
+                "preparation_contract"
+            ]
+            if (-not $intentRepositoryRoot.Equals(
+                    $statusRepositoryRoot,
+                    [StringComparison]::OrdinalIgnoreCase
+                ) -or
+                $null -eq $contractBinding -or $null -eq $contractBinding.Value -or
+                $null -eq $preparationContractBinding -or
+                $null -eq $preparationContractBinding.Value -or
+                [IO.Path]::GetFullPath(
+                    [string]$contractBinding.Value.path
+                ) -ine [IO.Path]::GetFullPath($contractScript) -or
+                [IO.Path]::GetFullPath(
+                    [string]$preparationContractBinding.Value.path
+                ) -ine [IO.Path]::GetFullPath($preparationContractScript) -or
+                [string]$contractBinding.Value.sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                [string]$preparationContractBinding.Value.sha256 -cnotmatch
+                    '^[0-9a-f]{64}$') {
+                throw (
+                    "PASS qualification script authority is not bound to the " +
+                    "canonical production repository."
+                )
+            }
+            $statusAuthorityPins = New-Object System.Collections.Generic.List[object]
+            $statusAuthorityPrimaryError = $null
+            try {
+            $contractPin = Open-WeatherStatusPinnedAuthorityFile `
+                -Path $contractScript `
+                -ExpectedSha256 ([string]$contractBinding.Value.sha256) `
+                -Label "canonical integration-attempt contract"
+            $statusAuthorityPins.Add($contractPin)
+            $preparationContractPin = Open-WeatherStatusPinnedAuthorityFile `
+                -Path $preparationContractScript `
+                -ExpectedSha256 ([string]$preparationContractBinding.Value.sha256) `
+                -Label "canonical integration preparation contract"
+            $statusAuthorityPins.Add($preparationContractPin)
+            # Execute the exact retained/hash-bound UTF-8 text. Reopening either
+            # pathname here would reintroduce a check-to-execute namespace race.
+            Invoke-Expression ([string]$contractPin.Text)
+            Invoke-Expression ([string]$preparationContractPin.Text)
+            $creatorPlanPath = [string]$plan.creator_preflight_plan_path
+            $creatorPlanEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                -Path $creatorPlanPath -MaximumBytes 65536
+            $authorizationPlan = Get-WeatherIntegrationPreparationAuthorizationPlan `
+                -AttemptRoot ([string]$Intent.attempt_root) `
+                -AttemptId ([string]$Intent.attempt_id) `
+                -ManifestPath (Join-Path ([string]$Intent.attempt_root) "manifest.json") `
+                -ExpectedTip ([string]$Intent.expected_tip) `
+                -PreparationIntentPath ([string]$IntentEvidence.Path) `
+                -PreparationIntentSha256 ([string]$IntentEvidence.Sha256) `
+                -SuiteTaskName ("WeatherIntegrationSuite_{0}" -f [string]$Intent.attempt_id) `
+                -MergeTaskName ("WeatherIntegrationMerge_{0}" -f [string]$Intent.attempt_id)
+            $creatorPlanBinding = Assert-WeatherIntegrationCreatorPreflightPlan `
+                -EvidenceSnapshot $creatorPlanEvidence `
+                -AttemptRoot ([string]$Intent.attempt_root) `
+                -AttemptId ([string]$Intent.attempt_id) `
+                -RepositoryRoot ([string]$Intent.repo_root) `
+                -WorktreeRoot ([string]$Intent.worktree_root) `
+                -BranchRef ([string]$Intent.branch_ref) `
+                -ExpectedTip ([string]$Intent.expected_tip) `
+                -SuiteAtLocal ([datetime]$Intent.schedule.suite_at_local) `
+                -MergeAtLocal ([datetime]$Intent.schedule.merge_at_local) `
+                -ProductionBaseline ([string]$Intent.production_baseline) `
+                -OriginUrl ([string]$Intent.publication.origin_url) `
+                -RepairClass ([string]$Intent.authorization.repair_class) `
+                -RequireLiveSdkContract ([bool]$plan.require_live_sdk_contract) `
+                -PreparationIntentPath ([string]$IntentEvidence.Path) `
+                -ExpectedPreparationIntentSha256 ([string]$IntentEvidence.Sha256) `
+                -ExpectedPreparationAuthorizationSha256 ([string]$authorizationPlan.Sha256) `
+                -CreatorPath ([string]$Intent.scripts.creator.path) `
+                -ExpectedCreatorSha256 ([string]$Intent.scripts.creator.sha256) `
+                -PreparationContractPath $preparationContractScript `
+                -ExpectedPreparationContractSha256 (
+                    [string]$Intent.scripts.preparation_contract.sha256
+                )
+            $creatorPlan = $creatorPlanBinding.Plan
+            $fullSuitePlan = Get-WeatherIntegrationSuiteLogDeclaredPlan `
+                -Path $fullSuiteLogPath `
+                -EvidenceSnapshot $runLogSnapshots["full_suite"]
+            $boundedSuiteSha256 = Get-WeatherIntegrationFileSha256 `
+                -Path ([string]$plan.bounded_suite_path)
+            if ($boundedSuiteSha256 -ne [string]$plan.bounded_suite_sha256) {
+                throw "bounded-suite implementation changed after preparation intent freeze"
+            }
+            $canonicalQualification = `
+                Assert-WeatherIntegrationPrearmingQualificationEvidence `
+                    -PreparationIntentPath ([string]$IntentEvidence.Path) `
+                    -ExpectedPreparationIntentSha256 ([string]$IntentEvidence.Sha256) `
+                    -AttemptRoot ([string]$Intent.attempt_root) `
+                    -AttemptId ([string]$Intent.attempt_id) `
+                    -RepoRoot ([string]$Intent.repo_root) `
+                    -WorktreeRoot ([string]$Intent.worktree_root) `
+                    -BranchRef ([string]$Intent.branch_ref) `
+                    -ExpectedTip ([string]$Intent.expected_tip) `
+                    -BoundedSuitePath ([string]$plan.bounded_suite_path) `
+                    -ExpectedBoundedSuiteSha256 $boundedSuiteSha256 `
+                    -ExpectedTestFileCount (
+                        [int]$creatorPlan.expected_test_file_count
+                    ) `
+                    -ExpectedChunkCount ([int]$creatorPlan.expected_chunk_count) `
+                    -ExpectedTestInventorySha256 (
+                        [string]$creatorPlan.expected_test_inventory_sha256
+                    ) `
+                    -ExpectedPythonFileCount (
+                        [int]$creatorPlan.expected_python_file_count
+                    ) `
+                    -ExpectedPythonInventorySha256 (
+                        [string]$creatorPlan.expected_python_inventory_sha256
+                    ) `
+                    -ExpectedPowerShellFileCount (
+                        [int]$creatorPlan.expected_powershell_file_count
+                    ) `
+                    -ExpectedPowerShellInventorySha256 (
+                        [string]$creatorPlan.expected_powershell_inventory_sha256
+                    ) `
+                    -ExpectedTrackedWorktreeSchema (
+                        [string]$creatorPlan.expected_tracked_worktree_schema
+                    ) `
+                    -ExpectedTrackedWorktreeSha256 (
+                        [string]$creatorPlan.expected_tracked_worktree_sha256
+                    ) `
+                    -ExpectedTrackedWorktreeFileCount (
+                        [int]$creatorPlan.expected_tracked_worktree_file_count
+                    ) `
+                    -ExpectedTrackedWorktreeTotalBytes (
+                        [long]$creatorPlan.expected_tracked_worktree_total_bytes
+                    ) `
+                    -ExpectedTrackedWorktreeLfsFileCount (
+                        [int]$creatorPlan.expected_tracked_worktree_lfs_file_count
+                    ) `
+                    -RequireLiveSdkContract ([bool]$plan.require_live_sdk_contract) `
+                    -ExpectedReceiptSha256 $receiptSha256 `
+                    -RequireLiveWorktreeImport `
+                    -PreparationIntentSnapshot $IntentEvidence `
+                    -ReceiptSnapshot $qualificationEvidence `
+                    -RunLogSnapshots $runLogSnapshots
+            if (-not [bool]$canonicalQualification.Present) {
+                throw "canonical qualification validation did not return retained PASS evidence"
+            }
+            return [pscustomobject]@{
+                State = "PASS_BEFORE_MANIFEST"
+                Detail = "canonical retained-snapshot preflight and full-suite qualification passed, but no discoverable manifest is bound to this preparation"
+                ReceiptPath = $qualificationReceiptPath
+                ReceiptSha256 = $receiptSha256
+            }
+            }
+            catch {
+                $statusAuthorityPrimaryError = $_
+                throw
+            }
+            finally {
+                $statusAuthorityCleanup = New-Object System.Collections.Generic.List[string]
+                for ($pinIndex = $statusAuthorityPins.Count - 1;
+                    $pinIndex -ge 0; $pinIndex--) {
+                    $pin = $statusAuthorityPins[$pinIndex]
+                    try { $pin.Stream.Dispose() }
+                    catch {
+                        $statusAuthorityCleanup.Add(
+                            "$([string]$pin.Label): $($_.Exception.Message)"
+                        )
+                    }
+                }
+                if ($statusAuthorityCleanup.Count -ne 0) {
+                    $cleanupMessage = "status authority cleanup failed: " +
+                        ($statusAuthorityCleanup -join " | ")
+                    if ($null -ne $statusAuthorityPrimaryError) {
+                        $statusAuthorityPrimaryError.Exception.Data[
+                            "weather_cleanup_failure"
+                        ] = $cleanupMessage
+                    }
+                    else { throw $cleanupMessage }
+                }
+            }
+        }
+        if ($null -ne $fullSuiteRun) {
+            return [pscustomobject]@{
+                State = "FULL_SUITE_FAIL"
+                Detail = "immutable qualification receipt records a full-suite failure before manifest creation"
+                ReceiptPath = $qualificationReceiptPath
+                ReceiptSha256 = $receiptSha256
+            }
+        }
+        if ($null -ne $preflightRun) {
+            return [pscustomobject]@{
+                State = "PREFLIGHT_FAIL"
+                Detail = "immutable qualification receipt records a preflight failure before manifest creation"
+                ReceiptPath = $qualificationReceiptPath
+                ReceiptSha256 = $receiptSha256
+            }
+        }
+        throw "terminal qualification receipt has no observed run"
+    }
+    catch {
+        return [pscustomobject]@{
+            State = "QUALIFICATION_INVALID"
+            Detail = "pre-arming qualification evidence is unreadable, contradictory, or tampered: $($_.Exception.Message)"
+            ReceiptPath = $qualificationReceiptPath
+            ReceiptSha256 = $receiptSha256
+        }
+    }
+}
+
+function Get-WeatherIntegrationBoundedChildDirectories {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [ValidateRange(1, 8192)][int]$MaximumCandidates
     )
 
     $candidates = New-Object System.Collections.Generic.List[psobject]
     $truncated = $false
-    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
-        return [pscustomobject]@{ Directories = @(); Truncated = $false }
+    $enumerator = [IO.Directory]::EnumerateDirectories($Path).GetEnumerator()
+    try {
+        while ($candidates.Count -le $MaximumCandidates -and
+            $enumerator.MoveNext()) {
+            if ($candidates.Count -eq $MaximumCandidates) {
+                $truncated = $true
+                break
+            }
+            $candidates.Add((Get-Item -LiteralPath ([string]$enumerator.Current) `
+                -Force -ErrorAction Stop))
+        }
     }
-    $firstLevelDirectories = @(
-        Get-ChildItem -LiteralPath $Root -Directory |
-            Where-Object {
-                -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
-            } |
-            Sort-Object -Property `
+    finally { $enumerator.Dispose() }
+    return [pscustomobject]@{
+        Directories = @(
+            $candidates | Sort-Object -Property `
                 @{ Expression = { $_.LastWriteTimeUtc }; Descending = $true }, `
-                @{ Expression = { $_.FullName }; Descending = $false } |
-            Select-Object -First 129
+                @{ Expression = { $_.FullName }; Descending = $false }
+        )
+        Truncated = $truncated
+    }
+}
+
+function Get-WeatherIntegrationAttemptDirectoryCandidates {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [ValidateRange(8, 4096)][int]$MaximumDirectories = 256
     )
-    if ($firstLevelDirectories.Count -gt 128) { $truncated = $true }
-    foreach ($firstLevel in @($firstLevelDirectories | Select-Object -First 128)) {
+
+    $attempts = New-Object System.Collections.Generic.List[psobject]
+    $preparations = New-Object System.Collections.Generic.List[psobject]
+    $truncated = $false
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        return [pscustomobject]@{
+            AttemptDirectories = @()
+            PreparationDirectories = @()
+            Truncated = $false
+        }
+    }
+    $rootItem = Get-Item -LiteralPath $Root -Force -ErrorAction Stop
+    if ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        throw "integration-attempt root is a reparse point"
+    }
+
+    # Canonical attempts use Root/YYYY-MM-DD/<attempt>, while older evidence
+    # may live directly below Root. Keep one shared, newest-first, two-level
+    # directory budget for manifests and their sibling .preparation namespaces.
+    $rootScanLimit = [Math]::Min($MaximumDirectories * 2, 8192)
+    $rootScan = Get-WeatherIntegrationBoundedChildDirectories `
+        -Path $Root -MaximumCandidates $rootScanLimit
+    $firstLevelDirectories = @($rootScan.Directories)
+    $truncated = ([bool]$rootScan.Truncated -or
+        $firstLevelDirectories.Count -gt $MaximumDirectories)
+    $visited = 0
+    foreach ($firstLevel in @(
+        $firstLevelDirectories | Select-Object -First $MaximumDirectories
+    )) {
+        $visited++
+        if ($firstLevel.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "integration-attempt discovery found a first-level reparse directory"
+        }
         if ($firstLevel.Name.EndsWith(
                 ".preparation",
                 [StringComparison]::OrdinalIgnoreCase
             )) {
-            $candidates.Add($firstLevel)
+            $preparations.Add($firstLevel)
+            continue
         }
-        else {
-            $secondLevelDirectories = @(
-                Get-ChildItem -LiteralPath $firstLevel.FullName -Directory |
-                    Where-Object {
-                        -not ($_.Attributes -band [IO.FileAttributes]::ReparsePoint)
-                    } |
-                    Sort-Object -Property `
-                        @{ Expression = { $_.LastWriteTimeUtc }; Descending = $true }, `
-                        @{ Expression = { $_.FullName }; Descending = $false } |
-                    Select-Object -First 513
-            )
-            if ($secondLevelDirectories.Count -gt 512) { $truncated = $true }
-            foreach ($secondLevel in @($secondLevelDirectories | Select-Object -First 512)) {
-                if ($secondLevel.Name.EndsWith(
-                        ".preparation",
-                        [StringComparison]::OrdinalIgnoreCase
-                    )) {
-                    $candidates.Add($secondLevel)
-                    if ($candidates.Count -ge 257) { break }
-                }
+        if (Test-Path -LiteralPath (Join-Path $firstLevel.FullName "manifest.json") `
+                -PathType Leaf -ErrorAction Stop) {
+            $attempts.Add($firstLevel)
+            continue
+        }
+
+        $remaining = $MaximumDirectories - $visited
+        if ($remaining -le 0) {
+            $childProbe = Get-WeatherIntegrationBoundedChildDirectories `
+                -Path $firstLevel.FullName -MaximumCandidates 1
+            if (@($childProbe.Directories).Count -ne 0 -or
+                [bool]$childProbe.Truncated) {
+                $truncated = $true
+            }
+            continue
+        }
+        $childScanLimit = [Math]::Min($remaining * 2, 8192)
+        $childScan = Get-WeatherIntegrationBoundedChildDirectories `
+            -Path $firstLevel.FullName -MaximumCandidates $childScanLimit
+        $secondLevelDirectories = @($childScan.Directories)
+        if ([bool]$childScan.Truncated -or
+            $secondLevelDirectories.Count -gt $remaining) {
+            $truncated = $true
+        }
+        foreach ($secondLevel in @(
+            $secondLevelDirectories | Select-Object -First $remaining
+        )) {
+            $visited++
+            if ($secondLevel.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "integration-attempt discovery found a second-level reparse directory"
+            }
+            if ($secondLevel.Name.EndsWith(
+                    ".preparation",
+                    [StringComparison]::OrdinalIgnoreCase
+                )) {
+                $preparations.Add($secondLevel)
+            }
+            elseif (Test-Path -LiteralPath `
+                    (Join-Path $secondLevel.FullName "manifest.json") `
+                    -PathType Leaf -ErrorAction Stop) {
+                $attempts.Add($secondLevel)
             }
         }
-        if ($candidates.Count -ge 257) { break }
     }
-    $candidateRows = @($candidates | ForEach-Object { $_ })
-    if ($candidateRows.Count -gt 256) { $truncated = $true }
     return [pscustomobject]@{
-        Directories = @($candidateRows | Select-Object -First 256)
+        AttemptDirectories = @($attempts | ForEach-Object { $_ })
+        PreparationDirectories = @($preparations | ForEach-Object { $_ })
         Truncated = $truncated
     }
 }
@@ -1066,16 +1992,27 @@ function Test-WeatherIntegrationAttemptScheduleOverlap {
 
 function Get-WeatherIntegrationCurrentLocalReadiness {
     param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
         [Parameter(Mandatory = $true)][object]$Manifest
     )
 
     try {
-        $repoRoot = [IO.Path]::GetFullPath([string]$Manifest.repo_root)
+        $repoRoot = [IO.Path]::GetFullPath($RepositoryRoot)
+        if (-not $repoRoot.Equals(
+                [IO.Path]::GetFullPath([string]$Manifest.repo_root),
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            throw "manifest repository root is not the caller-selected production root"
+        }
         $worktreeRoot = [IO.Path]::GetFullPath([string]$Manifest.worktree_root)
+        . (Join-Path $repoRoot "scripts\ops\integration_attempt_contract.ps1")
         function Get-ExactGitLine {
             param([string]$Root, [string[]]$Arguments)
-            $rows = @(& git -C $Root @Arguments)
-            if ($LASTEXITCODE -ne 0 -or $rows.Count -ne 1 -or
+            $query = Invoke-WeatherIntegrationCheckedLocalGit `
+                -Root $Root -Arguments $Arguments `
+                -Label "status current-readiness Git query"
+            $rows = @($query.StdoutLines)
+            if ($rows.Count -ne 1 -or
                 [string]::IsNullOrWhiteSpace([string]$rows[0])) {
                 throw "git identity lookup failed"
             }
@@ -1104,13 +2041,18 @@ function Get-WeatherIntegrationCurrentLocalReadiness {
         if ($worktreeTip -ne [string]$Manifest.expected_tip) {
             throw "suite worktree HEAD moved after preparation PASS"
         }
-        $dirtyRows = @(& git -C $worktreeRoot status --porcelain)
-        if ($LASTEXITCODE -ne 0 -or $dirtyRows.Count -ne 0) {
+        $dirtyQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $worktreeRoot -Arguments @("status", "--porcelain") `
+            -Label "status current-readiness clean-worktree query"
+        $dirtyRows = @($dirtyQuery.StdoutLines)
+        if ($dirtyRows.Count -ne 0) {
             throw "suite worktree is dirty after preparation PASS"
         }
         $registered = $false
-        $worktreeRows = @(& git -C $repoRoot worktree list --porcelain)
-        if ($LASTEXITCODE -ne 0) { throw "registered worktree lookup failed" }
+        $worktreeQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $repoRoot -Arguments @("worktree", "list", "--porcelain") `
+            -Label "status current-readiness registered-worktree query"
+        $worktreeRows = @($worktreeQuery.StdoutLines)
         foreach ($row in $worktreeRows) {
             if ([string]$row -like "worktree *" -and
                 [IO.Path]::GetFullPath(
@@ -1386,7 +2328,7 @@ function Get-WeatherIntegrationSuccessorReadiness {
     }
 
     $currentLocalReadiness = Get-WeatherIntegrationCurrentLocalReadiness `
-        -Manifest $manifest
+        -RepositoryRoot $RepositoryRoot -Manifest $manifest
     if (-not [bool]$currentLocalReadiness.Valid) {
         return [pscustomobject]@{
             State = "PREPARATION_FAILED"
@@ -1398,8 +2340,13 @@ function Get-WeatherIntegrationSuccessorReadiness {
 
     $trackedTip = $null
     try {
-        $trackedRows = @(& git -C $RepositoryRoot rev-parse ([string]$manifest.branch_ref))
-        if ($LASTEXITCODE -eq 0 -and $trackedRows.Count -eq 1) {
+        . (Join-Path $RepositoryRoot "scripts\ops\integration_attempt_contract.ps1")
+        $trackedQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $RepositoryRoot `
+            -Arguments @("rev-parse", [string]$manifest.branch_ref) `
+            -Label "status successor tracked-tip query"
+        $trackedRows = @($trackedQuery.StdoutLines)
+        if ($trackedRows.Count -eq 1) {
             $trackedTip = ([string]$trackedRows[0]).Trim().ToLowerInvariant()
         }
     }
@@ -1416,16 +2363,21 @@ function Get-WeatherIntegrationSuccessorReadiness {
     $suiteAt = $null
     $mergeAt = $null
     try {
-        $suiteAt = [datetime]::Parse(
-            [string]$manifest.schedule.suite_at_local,
-            [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::AssumeLocal
-        )
-        $mergeAt = [datetime]::Parse(
-            [string]$manifest.schedule.merge_at_local,
-            [Globalization.CultureInfo]::InvariantCulture,
-            [Globalization.DateTimeStyles]::AssumeLocal
-        )
+        if ([string]$manifest.schema -ceq
+                $script:WeatherIntegrationAttemptManifestSchema) {
+            $scheduleEvidence = Assert-WeatherIntegrationScheduleEvidence `
+                -Schedule $manifest.schedule -Label "status successor schedule"
+            $suiteAt = [datetime]$scheduleEvidence.SuiteAtLocal
+            $mergeAt = [datetime]$scheduleEvidence.MergeAtLocal
+        }
+        else {
+            $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+                -Value ([string]$manifest.schedule.suite_at_local) `
+                -Label "status successor suite_at_local"
+            $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+                -Value ([string]$manifest.schedule.merge_at_local) `
+                -Label "status successor merge_at_local"
+        }
     }
     catch {
         return [pscustomobject]@{
@@ -1749,7 +2701,8 @@ function Get-WeatherIntegrationSuiteObservation {
         -not [string]::IsNullOrWhiteSpace($suiteReceiptPath) -and
         (Test-Path -LiteralPath $suiteReceiptPath -PathType Leaf)) {
         try {
-            $freshSuiteReceipt = Get-Content -LiteralPath $suiteReceiptPath -Raw | ConvertFrom-Json
+            $freshSuiteReceipt = (Read-WeatherStatusBoundedJsonEvidence `
+                -Path $suiteReceiptPath -MaximumBytes 2097152).Payload
             $effectiveSuiteReceiptStatus = [string]$freshSuiteReceipt.status
             if ([string]::IsNullOrWhiteSpace($effectiveSuiteReceiptStatus)) {
                 $suiteReceiptUnreadable = $true
@@ -3295,7 +4248,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         }
                     }
                     $currentLocalReadiness = Get-WeatherIntegrationCurrentLocalReadiness `
-                        -Manifest $attemptManifest
+                        -RepositoryRoot $repo -Manifest $attemptManifest
                     if ([string]$currentPreparation.State -eq "READY" -and
                         -not [bool]$currentLocalReadiness.Valid) {
                         $flags.Add(
@@ -3383,7 +4336,7 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                             $successorReadinessResult = Get-WeatherIntegrationSuccessorReadiness `
                                 -RepositoryRoot $repo `
                                 -SuccessorClaim $successorClaim `
-                                -Now (Get-Date)
+                                -Now (Get-WeatherStatusIntegrationScheduleLocalNow)
                             $successorReadiness = [string]$successorReadinessResult.State
                             $successorPublicationRequired = [bool]$successorReadinessResult.PublicationRequired
                             $successorReadinessDetail = [string]$successorReadinessResult.Detail
@@ -3579,8 +4532,11 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
         }
     }
     if ($integratedExactTip) {
-        & git -C $repo merge-base --is-ancestor $integratedExactTip HEAD 2>$null
-        $integratedExactTipMerge = ($LASTEXITCODE -eq 0)
+        try {
+            $integratedExactTipMerge = Test-WeatherStatusIntegrationTipMerged `
+                -RepositoryRoot $repo -ExactTip $integratedExactTip
+        }
+        catch { $integratedExactTipMerge = $false }
     }
     if ($oneShot -and $ti.NextRunTime -and $isQuietMergeAction) {
         $settleSeconds = 300
@@ -5167,47 +6123,31 @@ if ($oneShotRegistryState -eq "ACTIVE" -and
 # Canonical registered manifests are independently recoverable from the first
 # immutable registrar write, whose manifest path/hash are strictly validated.
 $integrationAttemptRoot = Join-Path $repo "data\integration_attempts"
+$integrationAttemptDiscovery = [pscustomobject]@{
+    AttemptDirectories = @()
+    PreparationDirectories = @()
+    Truncated = $false
+}
 if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
     $integrationAttemptDiscoveryLimit = 256
     $candidateManifestFiles = New-Object System.Collections.Generic.List[object]
     try {
-        $attemptRootItem = Get-Item -LiteralPath $integrationAttemptRoot `
-            -Force -ErrorAction Stop
-        if ($attemptRootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
-            throw "integration-attempt root is a reparse point"
+        $integrationAttemptDiscovery = Get-WeatherIntegrationAttemptDirectoryCandidates `
+            -Root $integrationAttemptRoot `
+            -MaximumDirectories $integrationAttemptDiscoveryLimit
+        if ([bool]$integrationAttemptDiscovery.Truncated) {
+            $flags.Add(
+                "integration-attempt/preparation discovery exceeds its explicit $integrationAttemptDiscoveryLimit-directory bound"
+            )
         }
-        $attemptDirectoryEnumerator = [IO.Directory]::EnumerateDirectories(
-            $integrationAttemptRoot
-        ).GetEnumerator()
-        $attemptDirectoryCount = 0
-        try {
-            while ($attemptDirectoryCount -le
-                    $integrationAttemptDiscoveryLimit -and
-                $attemptDirectoryEnumerator.MoveNext()) {
-                if ($attemptDirectoryCount -eq
-                    $integrationAttemptDiscoveryLimit) {
-                    $flags.Add("integration-attempt discovery exceeds its explicit $integrationAttemptDiscoveryLimit-directory bound")
-                    break
-                }
-                $attemptDirectoryCount++
-                $candidateDirectory = Get-Item `
-                    -LiteralPath ([string]$attemptDirectoryEnumerator.Current) `
-                    -Force -ErrorAction Stop
-                if ($candidateDirectory.Attributes -band
-                    [IO.FileAttributes]::ReparsePoint) {
-                    throw "integration-attempt discovery found a reparse directory"
-                }
-                $candidateManifest = Join-Path `
-                    ([string]$candidateDirectory.FullName) "manifest.json"
-                if (Test-Path -LiteralPath $candidateManifest -PathType Leaf `
-                    -ErrorAction Stop) {
-                    $candidateManifestFiles.Add((Get-Item `
-                        -LiteralPath $candidateManifest -Force `
-                        -ErrorAction Stop))
-                }
-            }
+        foreach ($candidateDirectory in @(
+            $integrationAttemptDiscovery.AttemptDirectories
+        )) {
+            $candidateManifest = Join-Path `
+                ([string]$candidateDirectory.FullName) "manifest.json"
+            $candidateManifestFiles.Add((Get-Item `
+                -LiteralPath $candidateManifest -Force -ErrorAction Stop))
         }
-        finally { $attemptDirectoryEnumerator.Dispose() }
     }
     catch {
         $flags.Add("integration-attempt discovery is unsafe or unreadable: $($_.Exception.Message)")
@@ -5222,7 +6162,9 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
             continue
         }
         try {
-            $candidateIntent = Get-Content -LiteralPath $candidateIntentPath -Raw | ConvertFrom-Json
+            $candidateIntent = (
+                Read-WeatherStatusBoundedJsonEvidence -Path $candidateIntentPath
+            ).Payload
             $candidateManifestSha256 = [string]$candidateIntent.manifest_sha256
             $validatedIntent = Get-WeatherIntegrationValidatedEvidence `
                 -RepositoryRoot $repo `
@@ -5272,10 +6214,17 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
             catch {
                 $bindingDetail = "live task binding failed strict intent/receipt validation"
             }
-            $flags.Add("integration attempt $($candidateAttempt.attempt_id) task-binding drift: $bindingDetail")
+            $bindingDisposition = Get-WeatherIntegrationTaskBindingDriftDisposition `
+                -AttemptId ([string]$candidateAttempt.attempt_id) `
+                -ManifestPath $candidateManifestPath `
+                -ExpectedManifestSha256 $candidateManifestSha256 `
+                -Detail $bindingDetail
+            $flags.Add(
+                "integration attempt $($candidateAttempt.attempt_id) task-binding drift: $bindingDetail"
+            )
             $integrationAttemptState.Add([pscustomobject]@{
                 attempt_id = [string]$candidateAttempt.attempt_id
-                state = "TASK_BINDING_DRIFT"
+                state = [string]$bindingDisposition.State
                 expected_tip = [string]$candidateAttempt.expected_tip
                 manifest_path = $candidateManifestPath
                 recovery_dispatch = [string]$candidateAttempt.evidence.recovery_dispatch
@@ -5288,7 +6237,7 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
                 actually_running = $false
                 suite_trigger_at = $null
                 merge_trigger_at = $null
-                next_action = "repair the exact live task binding before treating this attempt as armed"
+                next_action = [string]$bindingDisposition.NextAction
                 task_state = "UNDISCOVERABLE"
                 merge_task_state = "UNDISCOVERABLE"
                 suite_task_state = "UNVALIDATED"
@@ -5315,12 +6264,9 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
 # bounded number of canonical preparation directories and keep every unresolved
 # preparation as a persistent FLAG; never age-demote it to a warning.
 if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
-    $preparationDiscovery = Get-WeatherIntegrationPreparationDirectoryCandidates `
-        -Root $integrationAttemptRoot
-    if ([bool]$preparationDiscovery.Truncated) {
-        $flags.Add("integration preparation discovery exceeded its 256-namespace safety bound")
-    }
-    $preparationDirectories = @($preparationDiscovery.Directories)
+    $preparationDirectories = @(
+        $integrationAttemptDiscovery.PreparationDirectories
+    )
     foreach ($preparationDirectory in $preparationDirectories) {
         $preparationRoot = [IO.Path]::GetFullPath([string]$preparationDirectory.FullName)
         $attemptRoot = $preparationRoot.Substring(
@@ -5337,9 +6283,14 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
         $receiptSha256 = $null
         $preparationState = "PREPARATION_INCOMPLETE"
         $preparationDetail = "preparation namespace exists without an immutable terminal receipt"
+        $intent = $null
+        $intentEvidence = $null
+        $receipt = $null
         try {
             $intent = if (Test-Path -LiteralPath $intentPath -PathType Leaf) {
-                (Read-WeatherStatusBoundedJsonEvidence -Path $intentPath).Payload
+                $intentEvidence = Read-WeatherStatusBoundedJsonEvidence `
+                    -Path $intentPath
+                $intentEvidence.Payload
             }
             else { $null }
             if ($null -ne $intent) {
@@ -5406,11 +6357,26 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
             $preparationState = "PREPARATION_FAILED"
             $preparationDetail = "preparation evidence is unreadable or invalid: $($_.Exception.Message)"
         }
+        $qualificationObservation = `
+            Get-WeatherIntegrationPreManifestQualificationObservation `
+                -PreparationRoot $preparationRoot `
+                -Intent $intent `
+                -PreparationReceipt $receipt `
+                -IntentEvidence $intentEvidence
+        $preparationDetail = (
+            "$preparationDetail; qualification=" +
+            "$([string]$qualificationObservation.State): " +
+            [string]$qualificationObservation.Detail
+        )
         $preparationAgeHours = [math]::Round(
             ((Get-Date) - $preparationDirectory.LastWriteTime).TotalHours,
             1
         )
-        if ($preparationState -eq "PREPARATION_NO_MUTATION_HISTORY") {
+        $qualificationBlocks = ([string]$qualificationObservation.State -notin @(
+            "NOT_RUN"
+        ))
+        if ($preparationState -eq "PREPARATION_NO_MUTATION_HISTORY" -and
+            -not $qualificationBlocks) {
             if ($preparationAgeHours -le 24) {
                 $warns.Add(
                     "integration preparation $attemptId is terminal no-mutation history: $preparationDetail"
@@ -5435,6 +6401,10 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
             preparation_readiness_detail = $preparationDetail
             preparation_receipt_path = $receiptPath
             preparation_receipt_sha256 = $receiptSha256
+            prearming_qualification_state = [string]$qualificationObservation.State
+            prearming_qualification_detail = [string]$qualificationObservation.Detail
+            prearming_qualification_receipt_path = [string]$qualificationObservation.ReceiptPath
+            prearming_qualification_receipt_sha256 = [string]$qualificationObservation.ReceiptSha256
             publication_required = $false
             attempt_creation_required = ($preparationState -eq "PUBLICATION_ONLY")
             unattended_ready = $false
@@ -5442,7 +6412,13 @@ if (Test-Path -LiteralPath $integrationAttemptRoot -PathType Container) {
             actually_running = $false
             suite_trigger_at = $null
             merge_trigger_at = $null
-            next_action = $(if ($preparationState -eq "PREPARATION_NO_MUTATION_HISTORY") {
+            next_action = $(if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+                "attempt canonical close_integration_attempt.ps1 first with the exact manifest hash and reviewed Reason/ReviewReference; if strict closure rejects ambiguous registration, obtain reviewed exact-task reconciliation before any successor"
+            }
+            elseif ($qualificationBlocks) {
+                "preserve this preparation namespace and qualification logs, diagnose the recorded phase, then use a reviewed new AttemptId; no Scheduler cleanup is authorized because no manifest/task binding is proved"
+            }
+            elseif ($preparationState -eq "PREPARATION_NO_MUTATION_HISTORY") {
                 "none; immutable evidence proves no topic publication and no attempt manifest"
             }
             elseif ($preparationState -eq "PUBLICATION_ONLY") {
@@ -5805,6 +6781,10 @@ if ($Json) {
                     preparation_readiness_detail = $_.preparation_readiness_detail
                     preparation_receipt_path = $_.preparation_receipt_path
                     preparation_receipt_sha256 = $_.preparation_receipt_sha256
+                    prearming_qualification_state = $_.prearming_qualification_state
+                    prearming_qualification_detail = $_.prearming_qualification_detail
+                    prearming_qualification_receipt_path = $_.prearming_qualification_receipt_path
+                    prearming_qualification_receipt_sha256 = $_.prearming_qualification_receipt_sha256
                     activation_receipt_path = $_.activation_receipt_path
                     activation_receipt_sha256 = $_.activation_receipt_sha256
                     live_origin_revalidation = $_.live_origin_revalidation

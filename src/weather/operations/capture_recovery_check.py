@@ -17,7 +17,7 @@ from typing import Any, Callable, Mapping
 
 from weather.operations.supervisor import commands_match_exact, observe_process
 from weather.paths import REPO_ROOT
-from weather.runtime_identity import current_identity_for, identities_match
+from weather.runtime_identity import current_identity_for, get_runtime_identity, identities_match
 from weather.schema_registry import schema_version
 
 
@@ -265,6 +265,14 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     result = check_capture_recovery(args.repo_root)
     if args.json:
+        resolved_root = Path(args.repo_root).resolve()
+        result["execution_identity"] = {
+            "module_path": str(Path(__file__).resolve()),
+            "runtime_identity": get_runtime_identity(
+                repo_root=resolved_root,
+                scope_files="loaded",
+            ),
+        }
         print(json.dumps(result, sort_keys=True))
     else:
         for row in result["workers"]:

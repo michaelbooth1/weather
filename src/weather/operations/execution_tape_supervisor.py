@@ -909,6 +909,13 @@ def main(argv: list[str] | None = None) -> int:
         return int(result.get("exit_code", 1))
     if args.command == "stop":
         result = stop_managed_capture()
+        result["execution_identity"] = {
+            "module_path": str(Path(__file__).resolve()),
+            "runtime_identity": get_runtime_identity(
+                repo_root=REPO_ROOT,
+                scope_files="loaded",
+            ),
+        }
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0 if result.get("stopped") else 1
     if args.command == "restart":
@@ -932,6 +939,13 @@ def main(argv: list[str] | None = None) -> int:
             ),
             "supervisor": read_supervisor_status(runtime_supervisor_spec()),
             "status": status,
+            "execution_identity": {
+                "module_path": str(Path(__file__).resolve()),
+                "runtime_identity": get_runtime_identity(
+                    repo_root=REPO_ROOT,
+                    scope_files="loaded",
+                ),
+            },
         }
         print(json.dumps(payload, indent=2, sort_keys=True, default=str))
         return 0 if payload["health"].get("state") in {"RUNNING", "DEGRADED"} else 2

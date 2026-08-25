@@ -37,6 +37,38 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$schedulerBoundaryScript = Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1"
+if (-not (Test-Path -LiteralPath $schedulerBoundaryScript -PathType Leaf)) {
+    throw "Scheduler mutation boundary helper is missing: $schedulerBoundaryScript"
+}
+$schedulerBoundaryPreviousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Stop"
+    Remove-Item `
+        -LiteralPath Function:\Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -Force -ErrorAction SilentlyContinue
+    . $schedulerBoundaryScript
+    $schedulerBoundaryCommand = Get-Command `
+        Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandType Function -ErrorAction Stop
+}
+catch {
+    throw "Scheduler mutation boundary helper could not be loaded from its canonical file."
+}
+finally {
+    $ErrorActionPreference = $schedulerBoundaryPreviousErrorActionPreference
+}
+if ([string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ScriptBlock.File) -or
+    -not [IO.Path]::GetFullPath(
+        [string]$schedulerBoundaryCommand.ScriptBlock.File
+    ).Equals(
+        [IO.Path]::GetFullPath($schedulerBoundaryScript),
+        [StringComparison]::OrdinalIgnoreCase
+    ) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ModuleName) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.Source)) {
+    throw "Scheduler mutation boundary helper did not load from its canonical file."
+}
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $python = Join-Path $RepoRoot "venv\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
@@ -110,6 +142,8 @@ $principal = New-ScheduledTaskPrincipal `
     -LogonType S4U `
     -RunLevel Limited
 
+Assert-WeatherIntegrationSchedulerMutationAllowed `
+    -CommandName "Register-ScheduledTask" -Phase "training-window registration"
 Register-ScheduledTask `
     -TaskName $WindowTaskName `
     -Action $windowAction `
@@ -119,9 +153,13 @@ Register-ScheduledTask `
     -Description "Opt-in one-shot single-host training reservation: stops capture loops, runs one run-specific nightly retrain, proves capture recovery, and restores capture. Registration leaves it disabled unless -EnableWindow is explicit." `
     -Force | Out-Null
 if (-not $EnableWindow) {
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Disable-ScheduledTask" -Phase "training-window registration hold"
     Disable-ScheduledTask -TaskName $WindowTaskName | Out-Null
 }
 else {
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Enable-ScheduledTask" -Phase "training-window registration activation"
     Enable-ScheduledTask -TaskName $WindowTaskName | Out-Null
 }
 
@@ -149,6 +187,8 @@ $restoreSettings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+Assert-WeatherIntegrationSchedulerMutationAllowed `
+    -CommandName "Register-ScheduledTask" -Phase "training-window dead-man registration"
 Register-ScheduledTask `
     -TaskName $RestoreTaskName `
     -Action $restoreAction `

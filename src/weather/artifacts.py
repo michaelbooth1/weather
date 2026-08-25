@@ -53,6 +53,12 @@ VARIANT_CONTRACT_FIELDS = (
     "live_runtime",
 )
 FEATURE_SCHEMA_RE = re.compile(r"^(?P<family>.+)_v(?P<major>\d+)(?:\.(?P<minor>\d+))?$")
+GIT_LFS_POINTER_MAX_BYTES = 1024
+GIT_LFS_POINTER_RE = re.compile(
+    rb"\Aversion https://git-lfs\.github\.com/spec/v1\r?\n"
+    rb"oid sha256:([0-9a-f]{64})\r?\n"
+    rb"size ([0-9]+)\r?\n?\Z"
+)
 
 
 class CandidateArtifactPathError(ValueError):
@@ -425,6 +431,32 @@ def sha256_file(path: str | Path) -> str:
     return hasher.hexdigest()
 
 
+def _git_lfs_pointer_identity(path: str | Path) -> dict[str, Any] | None:
+    """Return canonical payload identity from an unhydrated Git LFS pointer."""
+
+    path = Path(path)
+    with path.open("rb") as handle:
+        raw = handle.read(GIT_LFS_POINTER_MAX_BYTES + 1)
+    looks_like_pointer = (
+        raw.startswith(b"version https://git-lfs.github.com/")
+        or raw.startswith(b"oid sha256:")
+        or b"\noid sha256:" in raw
+    )
+    if len(raw) > GIT_LFS_POINTER_MAX_BYTES:
+        if looks_like_pointer:
+            raise ValueError(f"malformed Git LFS pointer: {path}")
+        return None
+    match = GIT_LFS_POINTER_RE.fullmatch(raw)
+    if match is not None:
+        return {
+            "sha256": match.group(1).decode("ascii"),
+            "bytes": int(match.group(2)),
+        }
+    if looks_like_pointer:
+        raise ValueError(f"malformed Git LFS pointer: {path}")
+    return None
+
+
 def artifact_kind(path: str | Path) -> str:
     path = Path(path)
     name = path.name
@@ -649,14 +681,28 @@ def artifact_record(
         artifact_id = path.relative_to(root).as_posix()
     except ValueError:
         artifact_id = relative_to_repo(path)
-    versions = json_artifact_versions(path)
     repo_path = relative_to_repo(path)
     refs = (variant_refs or {}).get(repo_path, [])
     kind = artifact_kind(path)
     registry_use = _registry_use(refs, path)
     storage_backend = _storage_backend(path, git_lfs_tracked=git_lfs_tracked)
     storage_managed = storage_backend in EXTERNALIZED_BACKENDS
-    bytes_value = int(stat.st_size)
+    pointer_identity = (
+        _git_lfs_pointer_identity(path) if git_lfs_tracked else None
+    )
+    # A tracked JSON artifact may also be intentionally unhydrated in CI.
+    # Never try to parse pointer bytes as the materialized JSON payload.
+    versions = {} if pointer_identity is not None else json_artifact_versions(path)
+    bytes_value = (
+        int(pointer_identity["bytes"])
+        if pointer_identity is not None
+        else int(stat.st_size)
+    )
+    artifact_sha256 = (
+        str(pointer_identity["sha256"])
+        if pointer_identity is not None
+        else sha256_file(path)
+    )
     return {
         "artifact_id": artifact_id,
         "path": repo_path,
@@ -671,7 +717,7 @@ def artifact_record(
         "registry_use": registry_use,
         "reproducibility_requirement": _reproducibility_requirement(registry_use, kind),
         "variant_refs": refs,
-        "sha256": sha256_file(path),
+        "sha256": artifact_sha256,
         "modified_at_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         "schema_version": versions.get("schema_version"),
         "feature_schema_version": versions.get("feature_schema_version"),

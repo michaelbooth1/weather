@@ -34,22 +34,156 @@
 .PARAMETER JsonOut
     Optional path for a machine-readable verdict.
 
+.PARAMETER GitExecutable
+    Optional exact Git executable path. When omitted, exactly one regular
+    git.exe application is resolved. Its observed generation is retained and
+    hash-bound through every query.
+
+.PARAMETER ExpectedGitExecutableSha256
+    Optional reviewed SHA-256 for the exact Git executable generation.
+
+.PARAMETER ExpectedRemoteGitSha256
+    Optional reviewed SHA-256 for integration_attempt_remote_git.ps1.
+
+.PARAMETER ExpectedJobContainmentSha256
+    Optional reviewed SHA-256 for windows_kill_on_close_job.ps1.
+
 .OUTPUTS
     Exit 0 = ROLL-FREE (safe to merge at any hour outside the graded window).
-    Exit 3 = ROLL-SENSITIVE (quiet window only).
     Exit 1 = UNDECIDABLE (treat as roll-sensitive).
+    Exit 2 = ROLL-FREE-IF-DORMANT (safe only while the named closure is dormant).
+    Exit 3 = ROLL-SENSITIVE (quiet window only).
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
     [string]$Base = "master",
     [int]$MaxStatusAgeHours = 24,
-    [string]$JsonOut = ""
+    [string]$JsonOut = "",
+    [string]$GitExecutable = "",
+    [string]$ExpectedGitExecutableSha256 = "",
+    [string]$ExpectedRemoteGitSha256 = "",
+    [string]$ExpectedJobContainmentSha256 = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Set-Location $repo
+
+function Open-WeatherRollVerdictPinnedDependency {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [string]$ExpectedSha256 = "",
+        [ValidateRange(1, 67108864)][int64]$MaximumBytes = 16777216
+    )
+
+    $resolvedPath = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
+    $current = [IO.Path]::GetFullPath($resolvedPath)
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        $ancestor = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Label refuses reparse-point path ancestry: $current"
+        }
+        $parent = [IO.Path]::GetDirectoryName($current)
+        if ([string]::IsNullOrWhiteSpace($parent) -or
+            $parent.Equals($current, [StringComparison]::OrdinalIgnoreCase)) {
+            break
+        }
+        $current = $parent
+    }
+
+    $stream = $null
+    $primaryFailure = $null
+    try {
+        $item = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+        if ($item.PSIsContainer -or
+            ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            [int64]$item.Length -le 0 -or [int64]$item.Length -gt $MaximumBytes) {
+            throw "$Label is not one bounded regular non-reparse file"
+        }
+        $stream = [IO.File]::Open(
+            $resolvedPath,
+            [IO.FileMode]::Open,
+            [IO.FileAccess]::Read,
+            [IO.FileShare]::Read
+        )
+        $sha = [Security.Cryptography.SHA256]::Create()
+        try {
+            $actualSha256 = (([BitConverter]::ToString(
+                $sha.ComputeHash($stream)
+            )) -replace '-', '').ToLowerInvariant()
+        }
+        finally { $sha.Dispose() }
+        $stream.Position = 0
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSha256)) {
+            $expected = $ExpectedSha256.Trim().ToLowerInvariant()
+            if ($expected -cnotmatch '^[0-9a-f]{64}$' -or
+                $actualSha256 -cne $expected) {
+                throw "$Label does not match its exact expected SHA256"
+            }
+        }
+        return [pscustomobject]@{
+            Path = $resolvedPath
+            Sha256 = $actualSha256
+            Stream = $stream
+        }
+    }
+    catch {
+        $primaryFailure = $_
+        if ($null -ne $stream) {
+            try { $stream.Dispose() }
+            catch {
+                $primaryFailure.Exception.Data["weather_cleanup_failure"] =
+                    "$Label retained-handle cleanup failed: $($_.Exception.Message)"
+            }
+        }
+        throw $primaryFailure
+    }
+}
+
+$rollVerdictPins = New-Object System.Collections.Generic.List[object]
+$rollVerdictPrimaryFailure = $null
+try {
+    $remoteGitPin = Open-WeatherRollVerdictPinnedDependency `
+        -Path (Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1") `
+        -Label "roll-verdict shared Git helper" `
+        -ExpectedSha256 $ExpectedRemoteGitSha256
+    $rollVerdictPins.Add($remoteGitPin)
+    $jobContainmentPin = Open-WeatherRollVerdictPinnedDependency `
+        -Path (Join-Path $PSScriptRoot "windows_kill_on_close_job.ps1") `
+        -Label "roll-verdict Job-containment helper" `
+        -ExpectedSha256 $ExpectedJobContainmentSha256
+    $rollVerdictPins.Add($jobContainmentPin)
+    . $remoteGitPin.Path
+    Assert-WeatherIntegrationSafeGitEnvironment -Phase "roll-verdict entry"
+
+    $resolvedGitExecutable = Get-WeatherIntegrationGitExecutablePath `
+        -Phase "roll-verdict entry" -ExpectedPath $GitExecutable
+    $gitExecutablePin = Open-WeatherRollVerdictPinnedDependency `
+        -Path $resolvedGitExecutable -Label "roll-verdict Git executable" `
+        -ExpectedSha256 $ExpectedGitExecutableSha256
+    $rollVerdictPins.Add($gitExecutablePin)
+    $resolvedGitExecutableSha256 = [string]$gitExecutablePin.Sha256
+
+    $configPathQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repo -Arguments @("rev-parse", "--git-path", "config") `
+        -ExpectedGitExecutable $resolvedGitExecutable `
+        -ExpectedGitExecutableSha256 $resolvedGitExecutableSha256 `
+        -Label "roll-verdict repository config-path query"
+    $configPathRows = @($configPathQuery.StdoutLines)
+    if ($configPathRows.Count -ne 1 -or
+        [string]::IsNullOrWhiteSpace([string]$configPathRows[0])) {
+        throw "roll-verdict repository config-path query did not return one path"
+    }
+    $rollVerdictConfigPath = [string]$configPathRows[0]
+    if (-not [IO.Path]::IsPathRooted($rollVerdictConfigPath)) {
+        $rollVerdictConfigPath = Join-Path $repo $rollVerdictConfigPath
+    }
+    $configPin = Open-WeatherRollVerdictPinnedDependency `
+        -Path ([IO.Path]::GetFullPath($rollVerdictConfigPath)) `
+        -Label "roll-verdict repository configuration" -MaximumBytes 4194304
+    $rollVerdictPins.Add($configPin)
 
 function Get-OptionalPropertyValue {
     param(
@@ -189,10 +323,28 @@ if ($closures.Count -eq 0) {
 $baseRef = $Base
 $baseNote = $null
 $originRef = "origin/master"
-& git rev-parse --verify --quiet "$originRef^{commit}" | Out-Null
-$haveOrigin = ($LASTEXITCODE -eq 0)
+$originQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+    -Root $repo `
+    -Arguments @("rev-parse", "--verify", "--quiet", "$originRef^{commit}") `
+    -AllowedExitCodes @(0..255) `
+    -ExpectedGitExecutable $resolvedGitExecutable `
+    -ExpectedGitExecutableSha256 $resolvedGitExecutableSha256 `
+    -Label "roll-verdict optional origin/master query"
+$haveOrigin = ([int]$originQuery.ExitCode -eq 0)
 if ($haveOrigin -and $Base -eq "master") {
-    $counts = @((& git rev-list --left-right --count "master...$originRef") -split "\s+" | Where-Object { $_ })
+    $countQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repo `
+        -Arguments @(
+            "rev-list", "--left-right", "--count", "master...$originRef"
+        ) `
+        -AllowedExitCodes @(0..255) `
+        -ExpectedGitExecutable $resolvedGitExecutable `
+        -ExpectedGitExecutableSha256 $resolvedGitExecutableSha256 `
+        -Label "roll-verdict master/origin divergence query"
+    $counts = if ([int]$countQuery.ExitCode -eq 0) {
+        @(([string]$countQuery.Stdout) -split "\s+" | Where-Object { $_ })
+    }
+    else { @() }
     if ($counts.Count -eq 2) {
         $ahead = [int]$counts[0]
         $behind = [int]$counts[1]
@@ -205,9 +357,30 @@ if ($haveOrigin -and $Base -eq "master") {
         }
     }
 }
-$baseSha = (& git rev-parse --short "$baseRef")
+$baseQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+    -Root $repo -Arguments @("rev-parse", "--short", "$baseRef") `
+    -ExpectedGitExecutable $resolvedGitExecutable `
+    -ExpectedGitExecutableSha256 $resolvedGitExecutableSha256 `
+    -Label "roll-verdict base commit query"
+$baseRows = @($baseQuery.StdoutLines)
+if ($baseRows.Count -ne 1 -or
+    ([string]$baseRows[0]).Trim() -cnotmatch '^[0-9a-f]{4,64}$') {
+    throw "roll-verdict base query did not return one abbreviated object id"
+}
+$baseSha = ([string]$baseRows[0]).Trim().ToLowerInvariant()
 
-$changed = @(& git diff --name-only "$baseRef...$Branch" 2>$null | Where-Object { $_ })
+$changedQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+    -Root $repo `
+    -Arguments @("diff", "--name-only", "$baseRef...$Branch") `
+    -AllowedExitCodes @(0..255) `
+    -ExpectedGitExecutable $resolvedGitExecutable `
+    -ExpectedGitExecutableSha256 $resolvedGitExecutableSha256 `
+    -MaxOutputBytes 4194304 `
+    -Label "roll-verdict exact changed-path query"
+$changed = if ([int]$changedQuery.ExitCode -eq 0) {
+    @($changedQuery.StdoutLines | Where-Object { $_ })
+}
+else { @() }
 if ($changed.Count -eq 0) {
     Write-Output "UNDECIDABLE: no changed files found for $Branch against $baseRef ($baseSha) (is it fetched?)"
     exit 1
@@ -261,4 +434,35 @@ switch ($verdict) {
     "ROLL-FREE-IF-DORMANT" { exit 2 }   # safe only while the dormant loop stays down
     "ROLL-SENSITIVE" { exit 3 }
     default { exit 1 }
+}
+}
+catch {
+    $rollVerdictPrimaryFailure = $_
+    throw
+}
+finally {
+    $cleanupFailures = New-Object System.Collections.Generic.List[string]
+    for ($index = $rollVerdictPins.Count - 1; $index -ge 0; $index--) {
+        $pin = $rollVerdictPins[$index]
+        if ($null -eq $pin -or $null -eq $pin.Stream) { continue }
+        try { $pin.Stream.Dispose() }
+        catch {
+            $cleanupFailures.Add(
+                "$([string]$pin.Path): $($_.Exception.Message)"
+            )
+        }
+    }
+    if ($cleanupFailures.Count -ne 0) {
+        $cleanupMessage = (
+            "roll-verdict retained dependency cleanup failed: " +
+            ($cleanupFailures -join " | ")
+        )
+        if ($null -ne $rollVerdictPrimaryFailure) {
+            $rollVerdictPrimaryFailure.Exception.Data[
+                "weather_cleanup_failure"
+            ] = $cleanupMessage
+            Write-Warning $cleanupMessage -WarningAction Continue
+        }
+        else { throw $cleanupMessage }
+    }
 }

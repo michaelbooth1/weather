@@ -61,11 +61,12 @@ if (Test-Path -LiteralPath $mergeReceiptPath -PathType Leaf) {
 }
 
 $closurePath = [string]$manifest.evidence.closure_receipt
-$actualClosureSha256 = Get-WeatherIntegrationFileSha256 -Path $closurePath
+$closureSnapshot = Read-WeatherIntegrationEvidenceSnapshot -Path $closurePath -MaximumBytes 2097152 -ContentType Json
+$actualClosureSha256 = [string]$closureSnapshot.Sha256
 if ($actualClosureSha256 -ne $ExpectedClosureReceiptSha256.ToLowerInvariant()) {
     throw "Closure receipt hash mismatch. Expected $ExpectedClosureReceiptSha256; got $actualClosureSha256"
 }
-$closure = Read-WeatherIntegrationSharedJson -Path $closurePath
+$closure = $closureSnapshot.Payload
 if ([string]$closure.schema -ne $script:WeatherIntegrationAttemptClosureReceiptSchema -or
     [string]$closure.status -ne "FAIL" -or
     [string]$closure.attempt_id -ne [string]$manifest.attempt_id -or

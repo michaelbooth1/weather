@@ -66,13 +66,14 @@ def test_broken_research_fragments_stay_retired():
 
 def test_dashboard_and_backfill_entrypoints_import_without_repo_path_mutation():
     code = "\n".join([
-        "import py_compile",
+        "from pathlib import Path",
         "import weather.collection.historical_backfill_plan",
         "import weather.collection.historical_backfill_runner",
         "import tools.backfill_all",
         "import app.views.control_room",
         "import app.views.roadmap",
-        "py_compile.compile('app/streamlit_app.py', doraise=True)",
+        "compile(Path('app/streamlit_app.py').read_bytes(), "
+        "'app/streamlit_app.py', 'exec')",
     ])
     result = subprocess.run(
         [sys.executable, "-c", code],

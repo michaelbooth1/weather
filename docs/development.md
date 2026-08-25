@@ -25,9 +25,38 @@ From the repository root on Windows:
 ```
 
 `pytest.ini` collects only `tests/` and exposes `src/`. The editable install is
-still the primary package contract. CI uses Python 3.11 on Ubuntu, so production
-modules must remain cross-platform even though scheduled operations are Windows
-specific.
+still the primary package contract. Pull requests and pushes to `master` or any
+`codex/**` topic branch run two Python 3.11 CI-only jobs. Ubuntu compiles the
+repository, validates the canonical documentation and generated roadmap, and
+runs an explicit cross-platform owner inventory plus a bounded set of static
+operations ratchets, including a self-check of this workflow contract. Windows
+repeats those checks and runs the complete test inventory, including executable
+Windows PowerShell contracts. Both checkouts retain complete Git history so
+real-repository ancestry checks are meaningful. They intentionally leave metered
+model payloads as Git LFS pointers; artifact verification derives the strict
+object SHA-256 and byte size from each canonical pointer instead of weakening
+identity checks or spending LFS bandwidth. Both jobs install the test and live
+optional dependency sets so missing SDK coverage cannot turn an integration
+branch green merely because the optional client is absent. External workflow
+actions are pinned to immutable commits, checkout credentials are discarded,
+and the manual candidate builder follows the same full-history and isolated-
+Python test contract; its former nightly schedule remains disabled.
+
+These CI-only jobs are early backstops before review or scheduled integration.
+They create no production qualification receipt and do not replace the
+production host's exact-tip qualification, bounded overnight suite, workload
+admission, or guarded merge evidence.
+
+Every CI pytest step and the repository-owned bounded suite start with
+`WEATHER_INTEGRATION_TEST_OFFLINE=1`. The tracked interpreter bootstrap removes
+conservatively classified secret-bearing environment variables before test
+collection and at Python child edges, blocks sockets, and permits subprocesses
+only through sequence-form invocations of the exact Python, Git, or PowerShell
+executables frozen for that run. Shell mode, `executable=` overrides,
+bootstrap-disabling Python flags, arbitrary native executables, and common
+PowerShell network or credential commands fail before launch. These controls
+are defense in depth around the exact reviewed test inventory; they are not an
+OS sandbox for hostile native extensions or dynamically constructed PowerShell.
 
 On the 16 GB production capture host, the commands above are not authority to
 run a direct full suite or parallel verification. Focused tests run serially

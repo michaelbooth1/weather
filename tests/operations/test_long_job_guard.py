@@ -442,8 +442,14 @@ class TestLongJobGuard(unittest.TestCase):
         )
 
     def test_timeout_kills_launcher_descendants_without_touching_unrelated_process(self):
-        base_python = getattr(sys, "_base_executable", sys.executable)
-        sentinel = subprocess.Popen([base_python, "-c", "import time; time.sleep(60)"])
+        # The sentinel must be unrelated to the inner Job, but it must still
+        # use the exact interpreter qualified by the outer offline suite.
+        sentinel_python = os.environ.get(
+            "WEATHER_INTEGRATION_TEST_PYTHON_EXECUTABLE", sys.executable
+        )
+        sentinel = subprocess.Popen(
+            [sentinel_python, "-c", "import time; time.sleep(60)"]
+        )
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 child_pid_path = Path(tmp) / "child.pid"

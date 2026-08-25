@@ -22,8 +22,11 @@ function Invoke-WeatherClosureGitLine {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $rows = @(& git -C $Root @Arguments)
-    if ($LASTEXITCODE -ne 0 -or $rows.Count -ne 1 -or
+    $query = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $Root -Arguments $Arguments `
+        -Label "integration closure local Git query: $Label"
+    $rows = @($query.StdoutLines)
+    if ($rows.Count -ne 1 -or
         [string]::IsNullOrWhiteSpace([string]$rows[0])) {
         throw "Could not resolve $Label while classifying the attempt for closure."
     }
@@ -40,8 +43,9 @@ function Read-WeatherClosureQuietReport {
     if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) {
         return $null
     }
-    $reportSha256 = Get-WeatherIntegrationFileSha256 -Path $reportPath
-    $report = Read-WeatherIntegrationSharedJson -Path $reportPath
+    $reportSnapshot = Read-WeatherIntegrationEvidenceSnapshot -Path $reportPath -MaximumBytes 2097152 -ContentType Json
+    $reportSha256 = [string]$reportSnapshot.Sha256
+    $report = $reportSnapshot.Payload
     $originUrlProperty = $attempt.baseline.PSObject.Properties["origin_url"]
     if ([string]$report.schema -ne "quiet_window_merge_report_v0.2" -or
         [string]$report.branch -ne [string]$attempt.branch_ref -or
@@ -161,8 +165,13 @@ function Assert-WeatherClosureNonIntegratedState {
     if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
         throw "This attempt has an active interrupted quiet-merge marker. Run boot/merge recovery to a terminal report before closure."
     }
-    $mergeHeadPathOutput = @(& git -C $root rev-parse --git-path MERGE_HEAD)
-    if ($LASTEXITCODE -ne 0 -or $mergeHeadPathOutput.Count -ne 1) {
+    $mergeHeadPathQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $root `
+        -Arguments @("rev-parse", "--git-path", "MERGE_HEAD") `
+        -Label "integration closure MERGE_HEAD path query"
+    $mergeHeadPathOutput = @($mergeHeadPathQuery.StdoutLines)
+    if ($mergeHeadPathOutput.Count -ne 1 -or
+        [string]::IsNullOrWhiteSpace([string]$mergeHeadPathOutput[0])) {
         throw "Could not resolve MERGE_HEAD while classifying the attempt for closure."
     }
     $mergeHeadPath = ([string]$mergeHeadPathOutput[0]).Trim()
@@ -193,13 +202,23 @@ function Assert-WeatherClosureNonIntegratedState {
     $headTip = (Invoke-WeatherClosureGitLine -Root $root -Arguments @("rev-parse", "HEAD") -Label "production HEAD").ToLowerInvariant()
     $masterTip = (Invoke-WeatherClosureGitLine -Root $root -Arguments @("rev-parse", "master") -Label "local master").ToLowerInvariant()
     $originMasterTip = (Invoke-WeatherClosureGitLine -Root $root -Arguments @("rev-parse", "origin/master") -Label "origin/master").ToLowerInvariant()
-    & git -C $root merge-base --is-ancestor ([string]$attempt.expected_tip) $masterTip
-    $masterAncestryExit = $LASTEXITCODE
-    & git -C $root merge-base --is-ancestor ([string]$attempt.expected_tip) $originMasterTip
-    $originAncestryExit = $LASTEXITCODE
-    if ($masterAncestryExit -notin @(0, 1) -or $originAncestryExit -notin @(0, 1)) {
-        throw "Could not classify source-tip ancestry while closing the attempt."
-    }
+    $masterAncestry = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $root `
+        -Arguments @(
+            "merge-base", "--is-ancestor", [string]$attempt.expected_tip, $masterTip
+        ) `
+        -AllowedExitCodes @(0, 1) `
+        -Label "integration closure local-master source-ancestry query"
+    $masterAncestryExit = [int]$masterAncestry.ExitCode
+    $originAncestry = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $root `
+        -Arguments @(
+            "merge-base", "--is-ancestor", [string]$attempt.expected_tip,
+            $originMasterTip
+        ) `
+        -AllowedExitCodes @(0, 1) `
+        -Label "integration closure origin-master source-ancestry query"
+    $originAncestryExit = [int]$originAncestry.ExitCode
     if ($productionBranch -ne "master" -or
         $headTip -ne [string]$attempt.baseline.master -or
         $masterTip -ne [string]$attempt.baseline.master -or
@@ -242,6 +261,7 @@ if ($null -eq $terminalMutex) {
     throw "Another close/reconciliation owns the integration-attempt terminal mutex."
 }
 $productionMutationMutex = $null
+$primaryError = $null
 try {
     if (Test-Path -LiteralPath $closurePath) {
         throw "Immutable closure receipt appeared before terminal-mutex acquisition and will not be replaced: $closurePath"
@@ -402,9 +422,35 @@ $receipt = [ordered]@{
 }
 Write-WeatherIntegrationImmutableJson -Path $closurePath -Payload $receipt
 }
+catch {
+    $primaryError = $_
+    throw
+}
 finally {
-    Exit-WeatherIntegrationControlMutex -Mutex $productionMutationMutex
-    Exit-WeatherIntegrationControlMutex -Mutex $terminalMutex
+    $cleanupOnlyError = $null
+    try {
+        Exit-WeatherIntegrationControlMutex `
+            -Mutex $productionMutationMutex -PrimaryError $primaryError
+    }
+    catch { $cleanupOnlyError = $_ }
+    $effectivePrimary = if ($null -ne $primaryError) {
+        $primaryError
+    }
+    else { $cleanupOnlyError }
+    try {
+        Exit-WeatherIntegrationControlMutex `
+            -Mutex $terminalMutex -PrimaryError $effectivePrimary
+    }
+    catch {
+        if ($null -eq $cleanupOnlyError) { $cleanupOnlyError = $_ }
+        elseif ($null -ne $effectivePrimary) {
+            $effectivePrimary.Exception.Data["weather_additional_cleanup_failure"] =
+                $_.Exception.Message
+        }
+    }
+    if ($null -eq $primaryError -and $null -ne $cleanupOnlyError) {
+        throw $cleanupOnlyError
+    }
 }
 
 Write-Host "Closed integration attempt $($manifest.attempt_id). Exact tasks are disabled and evidence is frozen."

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import inspect
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from weather.operations import execution_tape_supervisor
 from weather.operations.execution_tape_supervisor import (
     _handshake_worker_identity,
     _worker_command,
@@ -19,6 +21,22 @@ from weather.market.execution_tape_store import DEFAULT_SNAPSHOTS_ROOT
 
 
 NOW = datetime(2026, 8, 14, 12, 0, tzinfo=timezone.utc)
+
+
+def test_status_cli_binds_its_loaded_module_and_runtime_identity() -> None:
+    source = inspect.getsource(execution_tape_supervisor.main)
+    stop_branch = source[
+        source.index('if args.command == "stop"') :
+        source.index('if args.command == "restart"')
+    ]
+
+    assert '"execution_identity": {' in source
+    assert '"module_path": str(Path(__file__).resolve())' in source
+    assert "get_runtime_identity(" in source
+    assert 'scope_files="loaded"' in source
+    assert 'result["execution_identity"]' in stop_branch
+    assert '"module_path": str(Path(__file__).resolve())' in stop_branch
+    assert 'scope_files="loaded"' in stop_branch
 
 
 def _identity(fingerprint: str = "current") -> dict:

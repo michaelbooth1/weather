@@ -17,6 +17,8 @@ from weather.paths import data_path
 
 import requests
 
+from weather.integration_test_safety import require_real_external_io_allowed
+
 from weather.io import (
     acquire_writer_lock,
     normalize_csv_row,
@@ -672,9 +674,15 @@ class ClobClient:
     def __init__(self, base_url=CLOB_BASE_URL, timeout=10, session=None):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._session_injected = session is not None
         self.session = session or requests.Session()
 
+    def _require_transport(self):
+        if not self._session_injected:
+            require_real_external_io_allowed("real public CLOB HTTP transport")
+
     def get_order_book(self, token_id):
+        self._require_transport()
         def _fetch():
             response = self.session.get(
                 f"{self.base_url}/book",
@@ -696,6 +704,7 @@ class ClobClient:
         return books
 
     def _post_order_books(self, token_ids):
+        self._require_transport()
         def _fetch():
             response = self.session.post(
                 f"{self.base_url}/books",
@@ -719,6 +728,7 @@ class ClobClient:
         interval=None,
         fidelity_minutes=1,
     ):
+        self._require_transport()
         params = {"market": token_id}
         if start_ts is not None:
             params["startTs"] = start_ts
@@ -1838,6 +1848,7 @@ def record_market_websocket(
         return {"event_slug": config.event_slug, "market_id": market_id, "messages": 0, "reason": "no token ids"}
     timeout_exceptions = (TimeoutError,)
     if websocket_factory is None:
+        require_real_external_io_allowed("real public market WebSocket transport")
         try:
             import websocket  # type: ignore
         except ImportError as exc:

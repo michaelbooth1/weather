@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from weather.operations import documentation_transaction
 from weather.operations.documentation_transaction import (
     COMPLETION_SCHEMA,
     LATEST_SCHEMA,
@@ -17,6 +18,27 @@ from weather.operations.documentation_transaction import (
     complete_transaction,
     transaction_status,
 )
+
+
+def test_cli_output_carries_non_persisted_loaded_execution_identity() -> None:
+    source = Path(documentation_transaction.__file__).read_text(encoding="utf-8")
+
+    assert 'output_payload["execution_identity"]' in source
+    assert '"module_path": str(Path(__file__).resolve())' in source
+    assert 'scope_files="loaded"' in source
+    assert 'print(json.dumps(output_payload' in source
+    assert "return exit_code" in source
+
+
+def test_quiet_boundary_can_bind_the_exact_git_executable() -> None:
+    source = Path(documentation_transaction.__file__).read_text(encoding="utf-8")
+
+    assert 'os.environ.get("WEATHER_INTEGRATION_GIT_EXECUTABLE"' in source
+    assert "if not path.is_absolute() or not path.is_file()" in source
+    assert '"core.fsmonitor=false"' in source
+    assert '"core.hooksPath=NUL"' in source
+    assert "_git_command(repo_root, *args)" in source
+    assert '["git", "-C"' not in source
 
 
 def _git(root: Path, *args: str) -> str:

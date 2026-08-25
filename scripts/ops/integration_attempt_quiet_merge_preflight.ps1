@@ -1,12 +1,14 @@
 Set-StrictMode -Version Latest
+. (Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1")
 
 function Get-WeatherIntegrationTrackedStatusRows {
     param([Parameter(Mandatory = $true)][string]$RepositoryRoot)
 
-    $rows = @(& git -C $RepositoryRoot status --porcelain --untracked-files=no)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect the production tracked working tree."
-    }
+    $query = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $RepositoryRoot `
+        -Arguments @("status", "--porcelain", "--untracked-files=no") `
+        -Label "quiet-merge preflight tracked production-state query"
+    $rows = @($query.StdoutLines)
     return @($rows | ForEach-Object { [string]$_ } | Where-Object {
         -not [string]::IsNullOrWhiteSpace($_)
     })
@@ -22,8 +24,12 @@ function Assert-WeatherIntegrationQuietMergePreconditions {
     if (-not (Test-Path -LiteralPath $repo -PathType Container)) {
         throw "Production repository root is missing: $repo"
     }
-    $mergeHeadRows = @(& git -C $repo rev-parse --git-path MERGE_HEAD)
-    if ($LASTEXITCODE -ne 0 -or $mergeHeadRows.Count -ne 1 -or
+    $mergeHeadQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repo `
+        -Arguments @("rev-parse", "--git-path", "MERGE_HEAD") `
+        -Label "quiet-merge preflight MERGE_HEAD path query"
+    $mergeHeadRows = @($mergeHeadQuery.StdoutLines)
+    if ($mergeHeadRows.Count -ne 1 -or
         [string]::IsNullOrWhiteSpace([string]$mergeHeadRows[0])) {
         throw "Could not resolve the production MERGE_HEAD path."
     }

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from weather.paths import REPO_ROOT
+from weather.runtime_identity import get_runtime_identity
 
 
 PENDING_SCHEMA = "documentation_transaction_pending_v0.1"
@@ -88,9 +89,40 @@ def _read_object(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _git_executable() -> str:
+    """Return the caller-bound Git executable when one was supplied.
+
+    The guarded quiet merge pins the exact executable generation with an open
+    no-write/no-delete handle and passes its absolute path to this child.  The
+    fallback preserves the historical library/test API outside that boundary.
+    """
+    configured = os.environ.get("WEATHER_INTEGRATION_GIT_EXECUTABLE", "").strip()
+    if not configured:
+        return "git"
+    path = Path(configured)
+    if not path.is_absolute() or not path.is_file():
+        raise ValueError(
+            "WEATHER_INTEGRATION_GIT_EXECUTABLE must name an absolute regular file"
+        )
+    return str(path.resolve())
+
+
+def _git_command(repo_root: Path, *args: str) -> list[str]:
+    return [
+        _git_executable(),
+        "-C",
+        str(repo_root),
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.hooksPath=NUL",
+        *args,
+    ]
+
+
 def _git(repo_root: Path, *args: str, check: bool = True) -> str:
     completed = subprocess.run(
-        ["git", "-C", str(repo_root), *args],
+        _git_command(repo_root, *args),
         capture_output=True,
         text=True,
         check=False,
@@ -150,10 +182,13 @@ def begin_transaction(
     if expected_tip:
         expected_tip = _validate_full_commit(repo_root, expected_tip, field="expected_tip")
         if subprocess.run(
-            [
-                "git", "-C", str(repo_root), "merge-base", "--is-ancestor",
-                expected_tip, integration_tip,
-            ],
+            _git_command(
+                repo_root,
+                "merge-base",
+                "--is-ancestor",
+                expected_tip,
+                integration_tip,
+            ),
             capture_output=True,
             check=False,
         ).returncode != 0:
@@ -269,15 +304,13 @@ def transaction_status(
             == [entry["integration_tip"] for entry in integrations]
             and FULL_SHA_RE.fullmatch(documentation_tip)
             and subprocess.run(
-                [
-                    "git",
-                    "-C",
-                    str(repo_root),
+                _git_command(
+                    repo_root,
                     "merge-base",
                     "--is-ancestor",
                     documentation_tip,
                     "HEAD",
-                ],
+                ),
                 capture_output=True,
                 check=False,
             ).returncode
@@ -322,9 +355,14 @@ def _completion_checks(repo_root: Path, first_integration: str) -> dict[str, Any
     if not python.is_file():
         python = Path(sys.executable)
     commands = {
-        "git_diff_check": [
-            "git", "-C", str(repo_root), "diff", "--check", f"{first_integration}..HEAD"
-        ],
+        "git_diff_check": _git_command(
+            repo_root,
+            "diff",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--check",
+            f"{first_integration}..HEAD",
+        ),
         "agent_docs_audit": [
             str(python), "-m", "weather.operations.agent_docs_audit", "--repo-root", str(repo_root)
         ],
@@ -383,7 +421,13 @@ def complete_transaction(
         raise ValueError("completion manifest integration tips do not exactly match pending state")
     for tip in pending_tips:
         if subprocess.run(
-            ["git", "-C", str(repo_root), "merge-base", "--is-ancestor", tip, documentation_tip],
+            _git_command(
+                repo_root,
+                "merge-base",
+                "--is-ancestor",
+                tip,
+                documentation_tip,
+            ),
             capture_output=True,
             check=False,
         ).returncode != 0:
@@ -475,6 +519,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    exit_code = 0
     try:
         if args.command == "begin":
             payload = begin_transaction(
@@ -488,10 +533,19 @@ def main(argv: list[str] | None = None) -> int:
         else:
             payload = transaction_status(args.repo_root)
     except (OSError, ValueError, KeyError, json.JSONDecodeError, subprocess.TimeoutExpired) as exc:
-        print(json.dumps({"state": "INVALID", "valid": False, "detail": str(exc)}))
-        return 1
-    print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
+        payload = {"state": "INVALID", "valid": False, "detail": str(exc)}
+        exit_code = 1
+    resolved_root = Path(args.repo_root).resolve()
+    output_payload = dict(payload)
+    output_payload["execution_identity"] = {
+        "module_path": str(Path(__file__).resolve()),
+        "runtime_identity": get_runtime_identity(
+            repo_root=resolved_root,
+            scope_files="loaded",
+        ),
+    }
+    print(json.dumps(output_payload, indent=2, sort_keys=True))
+    return exit_code
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -34,6 +34,19 @@ def test_running_task_does_not_report_its_stale_last_result_as_current_failure()
     assert 'if (-not $ok -and $st -eq "Running") { $ok = $true }' in text
 
 
+def test_integration_suite_observation_uses_one_bounded_receipt_snapshot():
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    observation = text[
+        text.index("function Get-WeatherIntegrationSuiteObservation") :
+        text.index("function Get-WeatherIntegrationMergeObservation")
+    ]
+
+    assert "Read-WeatherStatusBoundedJsonEvidence" in observation
+    assert "-MaximumBytes 2097152" in observation
+    assert "Get-Content" not in observation
+    assert "ConvertFrom-Json" not in observation
+
+
 def test_stage_a_protected_window_teardown_is_an_expected_task_result():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
@@ -116,6 +129,8 @@ def test_integration_attempt_recovery_states_are_operator_visible() -> None:
     assert '"MERGED_UNVERIFIED"' in text
     assert "no successor is armed" in text
     assert "Get-WeatherIntegrationSuccessorReadiness" in text
+    assert "$script:WeatherIntegrationAttemptManifestSchema" in text
+    assert "$script:WeatherIntegrationAttemptLegacyManifestSchema" in text
     assert 'publication_required = $_.publication_required' in text
     assert 'unattended_ready = $_.unattended_ready' in text
     assert 'next_action = $_.next_action' in text
@@ -488,26 +503,92 @@ $separate = Test-WeatherIntegrationAttemptScheduleOverlap `
 def test_orphan_preparation_failures_are_bounded_persistent_status() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
-    assert 'EndsWith(".preparation"' in text
-    assert "Select-Object -First 129" in text
-    assert "Select-Object -First 513" in text
+    assert '".preparation"' in text
+    assert "Get-WeatherIntegrationAttemptDirectoryCandidates" in text
+    assert "AttemptDirectories" in text
+    assert "PreparationDirectories" in text
+    assert "second-level reparse directory" in text
+    assert "Get-WeatherIntegrationBoundedChildDirectories" in text
+    assert "[IO.Directory]::EnumerateDirectories" in text
+    assert "MaximumCandidates" in text
     assert "LastWriteTimeUtc" in text
     assert "Descending = $true" in text
-    assert "$candidates.Count -ge 257" in text
-    assert "discovery exceeded its 256-namespace safety bound" in text
+    assert "integration-attempt/preparation discovery exceeds its explicit" in text
     assert '"PREPARATION_FAILED"' in text
     assert '"PUBLICATION_ONLY"' in text
     assert '"CLOSURE_UNPROVED"' in text
     assert '"PREPARATION_NO_MUTATION_HISTORY"' in text
+    assert '"PREFLIGHT_RUNNING"' in text
+    assert '"PREFLIGHT_INTERRUPTED"' in text
+    assert '"PREFLIGHT_FAIL"' in text
+    assert '"FULL_SUITE_RUNNING"' in text
+    assert '"FULL_SUITE_INTERRUPTED"' in text
+    assert '"FULL_SUITE_FAIL"' in text
+    assert '"PASS_BEFORE_MANIFEST"' in text
+    assert '"QUALIFICATION_INVALID"' in text
     assert "is persistently blocked" in text
     assert "$observedIntegrationAttemptManifests.Contains($manifestPath)" in text
     assert "Read-WeatherStatusBoundedJsonEvidence" in text
     assert "Status evidence must be a bounded regular non-reparse file" in text
     assert "MaximumBytes = 1048576" in text
-    assert "Get-Content -LiteralPath $receiptPath -Raw" not in text
+    reader = text[
+        text.index("function Read-WeatherStatusBoundedJsonEvidence") :
+        text.index("function Get-WeatherOneShotActiveManifestFileIdentity")
+    ]
+    assert "[IO.FileShare]::Read" in reader
+    assert "[IO.FileShare]::ReadWrite" not in reader
+    assert "$item.Length -le 0" in reader
+    qualification = text[
+        text.index("function Get-WeatherIntegrationPreManifestQualificationObservation") :
+        text.index("function Get-WeatherIntegrationBoundedChildDirectories")
+    ]
+    assert "Assert-WeatherIntegrationPrearmingQualificationEvidence" in qualification
+    assert "-PreparationIntentSnapshot $IntentEvidence" in qualification
+    assert "-ReceiptSnapshot $qualificationEvidence" in qualification
+    assert "-RunLogSnapshots $runLogSnapshots" in qualification
+    assert "-ContentType Text" in qualification
+    assert "Get-FileHash" not in qualification
+    assert "Open-WeatherStatusPinnedAuthorityFile" in qualification
+    assert "$statusRepositoryRoot = [IO.Path]::GetFullPath([string]$repo)" in qualification
+    assert "$intentRepositoryRoot.Equals(" in qualification
+    assert "PASS qualification script authority is not bound" in qualification
+    assert "[string]$contractBinding.Value.path" in qualification
+    assert "[string]$preparationContractBinding.Value.path" in qualification
+    assert "-ExpectedSha256 ([string]$contractBinding.Value.sha256)" in qualification
+    assert (
+        "-ExpectedSha256 ([string]$preparationContractBinding.Value.sha256)"
+        in qualification
+    )
+    assert "Invoke-Expression ([string]$contractPin.Text)" in qualification
+    assert "Invoke-Expression ([string]$preparationContractPin.Text)" in qualification
+    assert "$pin.Stream.Dispose()" in qualification
+    readiness = text[
+        text.index("function Get-WeatherIntegrationCurrentLocalReadiness") :
+        text.index("function Get-WeatherIntegrationPreparationReadiness")
+    ]
+    assert "[Parameter(Mandatory = $true)][string]$RepositoryRoot" in readiness
+    assert "manifest repository root is not the caller-selected production root" in readiness
+    assert '. (Join-Path $repoRoot "scripts\\ops\\integration_attempt_contract.ps1")' in readiness
     assert "attempt_creation_required = ($preparationState -eq \"PUBLICATION_ONLY\")" in text
     assert "publication_required = $false" in text
     assert "have overlapping exact armed schedules" in text
+
+
+def test_integration_status_authority_reuses_single_open_payload_hash_snapshots() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    validator = text[
+        text.index("function Get-WeatherIntegrationValidatedEvidence") :
+        text.index("function Assert-WeatherIntegrationStatusTaskBindings")
+    ]
+
+    assert "-Path $evidencePath -MaximumBytes 2097152 -ContentType Json" in validator
+    assert "$payload = $evidenceSnapshot.Payload" in validator
+    assert "$evidenceSha256 = [string]$evidenceSnapshot.Sha256" in validator
+    assert "$report = $reportSnapshot.Payload" in validator
+    assert "$receipt = $receiptSnapshot.Payload" in validator
+    assert "$successorManifest = $successorManifestSnapshot.Payload" in validator
+    assert "$payload = Read-WeatherIntegrationSharedJson -Path $evidencePath" not in validator
+    assert "$evidenceSha256 = Get-WeatherIntegrationFileSha256 -Path $evidencePath" not in validator
 
 
 def test_orphan_discovery_keeps_newest_after_more_than_128_history_dirs(
@@ -517,9 +598,12 @@ def test_orphan_discovery_keeps_newest_after_more_than_128_history_dirs(
         historical = tmp_path / f"historical-{index:03d}"
         historical.mkdir()
         os.utime(historical, (1_600_000_000 + index, 1_600_000_000 + index))
-    current = tmp_path / "current-a1.preparation"
+    dated = tmp_path / "2026-08-25"
+    dated.mkdir()
+    current = dated / "current-a1.preparation"
     current.mkdir()
     os.utime(current, (1_900_000_000, 1_900_000_000))
+    os.utime(dated, (1_900_000_001, 1_900_000_001))
     env = os.environ.copy()
     env.update(
         {
@@ -536,16 +620,23 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     $env:WEATHER_STATUS_SCRIPT, [ref]$tokens, [ref]$errors
 )
 if (@($errors).Count -ne 0) { throw 'status script did not parse' }
-$functionAst = @($ast.FindAll({
-    param($node)
-    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -eq 'Get-WeatherIntegrationPreparationDirectoryCandidates'
-}, $true)) | Select-Object -First 1
-if ($null -eq $functionAst) { throw 'missing bounded preparation discovery function' }
-Invoke-Expression $functionAst.Extent.Text
-$result = Get-WeatherIntegrationPreparationDirectoryCandidates `
-    -Root $env:WEATHER_ATTEMPT_DISCOVERY_ROOT
-$paths = @($result.Directories | ForEach-Object { [IO.Path]::GetFullPath($_.FullName) })
+foreach ($name in @(
+    'Get-WeatherIntegrationBoundedChildDirectories',
+    'Get-WeatherIntegrationAttemptDirectoryCandidates'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing bounded discovery function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$result = Get-WeatherIntegrationAttemptDirectoryCandidates `
+    -Root $env:WEATHER_ATTEMPT_DISCOVERY_ROOT -MaximumDirectories 128
+$paths = @($result.PreparationDirectories | ForEach-Object {
+    [IO.Path]::GetFullPath($_.FullName)
+})
 if (-not [bool]$result.Truncated -or
     $paths -inotcontains [IO.Path]::GetFullPath($env:WEATHER_CURRENT_PREPARATION)) {
     throw 'newest preparation namespace was omitted behind historical directories'
@@ -562,6 +653,326 @@ if (-not [bool]$result.Truncated -or
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "OK"
+
+
+def test_dated_manifest_recovery_reports_task_binding_drift_with_exact_close_action(
+    tmp_path: Path,
+) -> None:
+    attempt = tmp_path / "2026-08-25" / "credential-reconcile-a3"
+    attempt.mkdir(parents=True)
+    manifest = attempt / "manifest.json"
+    manifest.write_text("{}\n", encoding="utf-8")
+    expected_sha256 = "a" * 64
+    (attempt / "registration-intent.json").write_text(
+        json.dumps({"manifest_sha256": expected_sha256}) + "\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_ATTEMPT_DISCOVERY_ROOT": str(tmp_path),
+            "WEATHER_EXPECTED_MANIFEST": str(manifest.resolve()),
+            "WEATHER_EXPECTED_SHA256": expected_sha256,
+        }
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT, [ref]$tokens, [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @(
+    'Get-WeatherIntegrationBoundedChildDirectories',
+    'Get-WeatherIntegrationAttemptDirectoryCandidates',
+    'Get-WeatherIntegrationTaskBindingDriftDisposition'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$discovery = Get-WeatherIntegrationAttemptDirectoryCandidates `
+    -Root $env:WEATHER_ATTEMPT_DISCOVERY_ROOT
+$manifestPaths = @($discovery.AttemptDirectories | ForEach-Object {
+    [IO.Path]::GetFullPath((Join-Path $_.FullName 'manifest.json'))
+})
+if ($manifestPaths -inotcontains [IO.Path]::GetFullPath($env:WEATHER_EXPECTED_MANIFEST)) {
+    throw 'dated canonical manifest was not recovered'
+}
+$intent = Get-Content `
+    -LiteralPath (Join-Path (Split-Path $env:WEATHER_EXPECTED_MANIFEST) 'registration-intent.json') `
+    -Raw | ConvertFrom-Json
+$disposition = Get-WeatherIntegrationTaskBindingDriftDisposition `
+    -AttemptId 'credential-reconcile-a3' `
+    -ManifestPath $env:WEATHER_EXPECTED_MANIFEST `
+    -ExpectedManifestSha256 ([string]$intent.manifest_sha256) `
+    -Detail 'task action does not expose its canonical manifest identity'
+[pscustomobject]@{
+    state = [string]$disposition.State
+    next_action = [string]$disposition.NextAction
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["state"] == "TASK_BINDING_DRIFT"
+    assert "close_integration_attempt.ps1" in payload["next_action"]
+    assert str(manifest.resolve()) in payload["next_action"]
+    assert expected_sha256 in payload["next_action"]
+    assert "never repair or re-enable" in payload["next_action"]
+
+
+def test_fail_closure_status_revalidates_current_exact_disabled_tasks() -> None:
+    env = os.environ.copy()
+    env["WEATHER_STATUS_SCRIPT"] = str(SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT, [ref]$tokens, [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+$functionAst = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Assert-WeatherIntegrationStatusFailClosureTasks'
+}, $true)) | Select-Object -First 1
+if ($null -eq $functionAst) { throw 'missing closure status validator' }
+Invoke-Expression $functionAst.Extent.Text
+$global:closureSha256 = ('a' * 64) -join ''
+$script:WeatherIntegrationAttemptClosureReceiptSchema = `
+    'weather_integration_attempt_closure_receipt_v1'
+function Assert-WeatherIntegrationFailClosureReceipt {
+    param($AttemptContract, $Task, $Role)
+    [pscustomobject]@{ ReceiptSha256 = $global:closureSha256 }
+}
+$contract = [pscustomobject]@{
+    ManifestPath = 'C:\synthetic\manifest.json'
+    ManifestSha256 = (('b' * 64) -join '')
+    Manifest = [pscustomobject]@{
+        attempt_id = 'a3'
+        schedule = [pscustomobject]@{
+            suite_task_name = 'WeatherIntegrationSuite_a3'
+            merge_task_name = 'WeatherIntegrationMerge_a3'
+        }
+    }
+}
+$receipt = [pscustomobject]@{
+    schema = 'weather_integration_attempt_closure_receipt_v1'
+    status = 'FAIL'
+    classification = 'ABANDONED'
+    attempt_id = 'a3'
+    manifest_path = 'C:\synthetic\manifest.json'
+    manifest_sha256 = (('b' * 64) -join '')
+    reason = 'reviewed synthetic closure'
+    review_reference = 'synthetic-review'
+    safety = [pscustomobject]@{
+        authority = 'NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY'
+        credential_value_access_authorized = $false
+        live_exchange_mutation_authorized = $false
+    }
+    tasks = @(
+        [pscustomobject]@{
+            task_name = 'WeatherIntegrationSuite_a3'
+            exists = $true
+            disabled = $true
+        },
+        [pscustomobject]@{
+            task_name = 'WeatherIntegrationMerge_a3'
+            exists = $true
+            disabled = $true
+        }
+    )
+}
+$suite = [pscustomobject]@{
+    TaskName = 'WeatherIntegrationSuite_a3'
+    TaskPath = '\'
+    State = 'Disabled'
+    Settings = [pscustomobject]@{ Enabled = $false }
+}
+$merge = [pscustomobject]@{
+    TaskName = 'WeatherIntegrationMerge_a3'
+    TaskPath = '\'
+    State = 'Disabled'
+    Settings = [pscustomobject]@{ Enabled = $false }
+}
+Assert-WeatherIntegrationStatusFailClosureTasks `
+    -AttemptContract $contract -ClosureReceipt $receipt `
+    -ExpectedClosureReceiptSha256 $global:closureSha256 `
+    -ScheduledTaskSnapshot @($suite, $merge)
+$suite.State = 'Ready'
+$suite.Settings.Enabled = $true
+$drift = ''
+try {
+    Assert-WeatherIntegrationStatusFailClosureTasks `
+        -AttemptContract $contract -ClosureReceipt $receipt `
+        -ExpectedClosureReceiptSha256 $global:closureSha256 `
+        -ScheduledTaskSnapshot @($suite, $merge)
+}
+catch { $drift = $_.Exception.Message }
+if ($drift -notlike 'Post-closure*') {
+    throw "post-closure re-enable was not rejected: $drift"
+}
+'OK'
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
+
+
+def test_pre_manifest_qualification_reports_crash_phase_and_tamper(
+    tmp_path: Path,
+) -> None:
+    preparation = tmp_path / "2026-08-25" / "attempt-a4.preparation"
+    preparation.mkdir(parents=True)
+    qualification_receipt = preparation / "prearming-qualification-receipt.json"
+    preflight_log = preparation / "prearming-integration-preflight.log"
+    full_suite_log = preparation / "prearming-full-suite.log"
+    intent_path = preparation / "preparation-intent.json"
+    intent_path.write_text(
+        json.dumps(
+            {
+                "schema": "weather_integration_attempt_preparation_intent_v1",
+                "status": "PREPARED",
+                "attempt_id": "attempt-a4",
+                "preparation_root": str(preparation.resolve()),
+                "repo_root": str(tmp_path.resolve()),
+                "worktree_root": str(tmp_path.resolve()),
+                "branch_ref": "origin/codex/attempt-a4",
+                "expected_tip": "b" * 40,
+                "qualification": {
+                    "required": True,
+                    "receipt_path": str(qualification_receipt.resolve()),
+                    "integration_preflight_log_path": str(preflight_log.resolve()),
+                    "full_suite_log_path": str(full_suite_log.resolve()),
+                    "bounded_suite_path": str((tmp_path / "bounded.ps1").resolve()),
+                    "bounded_suite_sha256": "c" * 64,
+                },
+                "safety": {
+                    "authority": "NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY",
+                    "credential_value_access_authorized": False,
+                    "live_exchange_mutation_authorized": False,
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+            "WEATHER_PREPARATION_ROOT": str(preparation.resolve()),
+            "WEATHER_PREPARATION_INTENT": str(intent_path.resolve()),
+        }
+    )
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT, [ref]$tokens, [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+foreach ($name in @(
+    'Read-WeatherStatusBoundedJsonEvidence',
+    'Get-WeatherIntegrationPreManifestQualificationObservation'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$intent = (Get-Content -LiteralPath $env:WEATHER_PREPARATION_INTENT -Raw |
+    ConvertFrom-Json)
+function Get-ProgressReceipt([string]$Status) {
+    [pscustomobject]@{
+        prearming_qualification = [pscustomobject]@{
+            status = $Status
+            receipt_path = Join-Path $env:WEATHER_PREPARATION_ROOT `
+                'prearming-qualification-receipt.json'
+            receipt_sha256 = $null
+            integration_preflight_log_path = Join-Path `
+                $env:WEATHER_PREPARATION_ROOT 'prearming-integration-preflight.log'
+            full_suite_log_path = Join-Path `
+                $env:WEATHER_PREPARATION_ROOT 'prearming-full-suite.log'
+        }
+    }
+}
+$notRun = Get-WeatherIntegrationPreManifestQualificationObservation `
+    -PreparationRoot $env:WEATHER_PREPARATION_ROOT -Intent $intent `
+    -PreparationReceipt $null
+Set-Content -LiteralPath (Join-Path $env:WEATHER_PREPARATION_ROOT `
+    'prearming-integration-preflight.log') -Value 'started'
+$preflightRunning = Get-WeatherIntegrationPreManifestQualificationObservation `
+    -PreparationRoot $env:WEATHER_PREPARATION_ROOT -Intent $intent `
+    -PreparationReceipt $null
+$preflightInterrupted = Get-WeatherIntegrationPreManifestQualificationObservation `
+    -PreparationRoot $env:WEATHER_PREPARATION_ROOT -Intent $intent `
+    -PreparationReceipt (Get-ProgressReceipt 'PREFLIGHT_RUNNING')
+Set-Content -LiteralPath (Join-Path $env:WEATHER_PREPARATION_ROOT `
+    'prearming-full-suite.log') -Value 'started'
+$fullSuiteRunning = Get-WeatherIntegrationPreManifestQualificationObservation `
+    -PreparationRoot $env:WEATHER_PREPARATION_ROOT -Intent $intent `
+    -PreparationReceipt $null
+$fullSuiteInterrupted = Get-WeatherIntegrationPreManifestQualificationObservation `
+    -PreparationRoot $env:WEATHER_PREPARATION_ROOT -Intent $intent `
+    -PreparationReceipt (Get-ProgressReceipt 'FULL_SUITE_RUNNING')
+Set-Content -LiteralPath (Join-Path $env:WEATHER_PREPARATION_ROOT `
+    'prearming-qualification-receipt.json') -Value '{'
+$tampered = Get-WeatherIntegrationPreManifestQualificationObservation `
+    -PreparationRoot $env:WEATHER_PREPARATION_ROOT -Intent $intent `
+    -PreparationReceipt $null
+@(
+    [string]$notRun.State,
+    [string]$preflightRunning.State,
+    [string]$preflightInterrupted.State,
+    [string]$fullSuiteRunning.State,
+    [string]$fullSuiteInterrupted.State,
+    [string]$tampered.State
+) | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == [
+        "NOT_RUN",
+        "PREFLIGHT_RUNNING",
+        "PREFLIGHT_INTERRUPTED",
+        "FULL_SUITE_RUNNING",
+        "FULL_SUITE_INTERRUPTED",
+        "QUALIFICATION_INVALID",
+    ]
 
 
 def test_active_one_shot_registry_survives_task_deletion_until_resolution() -> None:

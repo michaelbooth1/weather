@@ -10,6 +10,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.paths import config_path
 from weather.schema_registry import schema_version
 
@@ -86,6 +87,7 @@ def fetch_gamma_events(
     timeout_seconds: float = 30.0,
     max_pages: int = 20,
 ) -> tuple[list[dict], list[int]]:
+    require_real_external_io_allowed("real location-refresh Gamma HTTP transport")
     events: list[dict] = []
     offsets: list[int] = []
     for page in range(int(max_pages)):

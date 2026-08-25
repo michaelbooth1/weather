@@ -37,6 +37,38 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$schedulerBoundaryScript = Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1"
+if (-not (Test-Path -LiteralPath $schedulerBoundaryScript -PathType Leaf)) {
+    throw "Scheduler mutation boundary helper is missing: $schedulerBoundaryScript"
+}
+$schedulerBoundaryPreviousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Stop"
+    Remove-Item `
+        -LiteralPath Function:\Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -Force -ErrorAction SilentlyContinue
+    . $schedulerBoundaryScript
+    $schedulerBoundaryCommand = Get-Command `
+        Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandType Function -ErrorAction Stop
+}
+catch {
+    throw "Scheduler mutation boundary helper could not be loaded from its canonical file."
+}
+finally {
+    $ErrorActionPreference = $schedulerBoundaryPreviousErrorActionPreference
+}
+if ([string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ScriptBlock.File) -or
+    -not [IO.Path]::GetFullPath(
+        [string]$schedulerBoundaryCommand.ScriptBlock.File
+    ).Equals(
+        [IO.Path]::GetFullPath($schedulerBoundaryScript),
+        [StringComparison]::OrdinalIgnoreCase
+    ) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ModuleName) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.Source)) {
+    throw "Scheduler mutation boundary helper did not load from its canonical file."
+}
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 
 function Resolve-RequiredFile([string]$Path, [string]$Label) {
@@ -155,6 +187,8 @@ $principal = New-ScheduledTaskPrincipal `
     -LogonType S4U `
     -RunLevel Limited
 
+Assert-WeatherIntegrationSchedulerMutationAllowed `
+    -CommandName "Register-ScheduledTask" -Phase "daily settlement refresh registration"
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $stageAAction `
@@ -179,6 +213,8 @@ $stageBSettings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `
     -DontStopIfGoingOnBatteries
 
+Assert-WeatherIntegrationSchedulerMutationAllowed `
+    -CommandName "Register-ScheduledTask" -Phase "overnight evidence refresh registration"
 Register-ScheduledTask `
     -TaskName $EvidenceTaskName `
     -Action $stageBAction `
@@ -189,9 +225,13 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 if ($EnableEvidenceTask) {
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Enable-ScheduledTask" -Phase "overnight evidence refresh activation"
     Enable-ScheduledTask -TaskName $EvidenceTaskName -ErrorAction Stop | Out-Null
 }
 else {
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Disable-ScheduledTask" -Phase "overnight evidence refresh hold"
     Disable-ScheduledTask -TaskName $EvidenceTaskName -ErrorAction Stop | Out-Null
 }
 $evidenceTaskReadback = @(Get-ScheduledTask -TaskName $EvidenceTaskName -ErrorAction Stop)

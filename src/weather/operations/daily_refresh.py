@@ -21,6 +21,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from weather.io import write_json_atomic
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.paths import data_path, repo_path
 from weather.time import utc_now as shared_utc_now
 
@@ -968,6 +969,7 @@ def _trigger_evidence_stage(args, manifest):
     task_name = getattr(args, "evidence_task_name", DEFAULT_EVIDENCE_TASK_NAME) or DEFAULT_EVIDENCE_TASK_NAME
     if os.name != "nt":
         return {"status": "SKIPPED", "reason": "non_windows", "task_name": task_name}
+    require_real_external_io_allowed("real scheduled evidence-stage task launch")
     try:
         result = subprocess.run(
             ["schtasks", "/run", "/tn", task_name],

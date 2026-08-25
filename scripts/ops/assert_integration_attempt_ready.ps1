@@ -31,8 +31,11 @@ function Invoke-WeatherReadinessGitLine {
         [Parameter(Mandatory = $true)][string]$Label
     )
 
-    $rows = @(& git -C $Root @Arguments)
-    if ($LASTEXITCODE -ne 0 -or $rows.Count -ne 1 -or
+    $query = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $Root -Arguments $Arguments `
+        -Label "integration readiness local Git query: $Label"
+    $rows = @($query.StdoutLines)
+    if ($rows.Count -ne 1 -or
         [string]::IsNullOrWhiteSpace([string]$rows[0])) {
         throw "Could not resolve $Label."
     }
@@ -53,6 +56,8 @@ $topicBranch = $null
 $taskEvidence = New-Object System.Collections.Generic.List[object]
 $claimPath = $null
 $claimSha256 = $null
+$terminalMutex = $null
+$primaryError = $null
 
 try {
     $resolvedIntentPath = Resolve-WeatherIntegrationPath -Path $PreparationIntentPath
@@ -66,18 +71,20 @@ try {
     }
 
     $stage = "validate_preparation_intent"
-    $intentSha256 = Get-WeatherIntegrationFileSha256 -Path $resolvedIntentPath
+    $intentSnapshot = Read-WeatherIntegrationEvidenceSnapshot -Path $resolvedIntentPath -MaximumBytes 65536 -ContentType Json
+    $intentSha256 = [string]$intentSnapshot.Sha256
     if ($intentSha256 -ne $ExpectedPreparationIntentSha256.ToLowerInvariant()) {
         throw "Preparation intent hash mismatch."
     }
-    $intent = Read-WeatherIntegrationSharedJson -Path $resolvedIntentPath
+    $intent = $intentSnapshot.Payload
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent `
         -Names @(
             "schema", "status", "attempt_id", "attempt_root", "preparation_root",
             "repo_root", "worktree_root", "branch_ref", "topic_branch",
             "expected_tip", "production_baseline", "schedule", "publication",
-            "quiet_merge_preflight", "scripts", "authorization", "safety"
+            "quiet_merge_preflight", "scripts", "authorization",
+            "qualification", "safety"
         ) `
         -Label "Integration preparation intent"
     if ([string]$intent.schema -ne "weather_integration_attempt_preparation_intent_v1" -or
@@ -86,7 +93,11 @@ try {
     }
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent.schedule `
-        -Names @("checked_at_local", "suite_at_local", "merge_at_local", "minimum_lead_minutes") `
+        -Names @(
+            "checked_at_local", "suite_at_local", "suite_at_utc",
+            "merge_at_local", "merge_at_utc", "time_zone",
+            "minimum_lead_minutes"
+        ) `
         -Label "Integration preparation schedule"
     Assert-WeatherIntegrationRequiredProperties `
         -Object $intent.publication `
@@ -96,7 +107,8 @@ try {
         -Object $intent.authorization `
         -Names @(
             "review_reference", "repair_class", "repair_of_receipt_path",
-            "repair_of_receipt_sha256"
+            "repair_of_receipt_sha256", "scheduler_confirmation",
+            "activation_confirmation"
         ) `
         -Label "Integration preparation authorization"
     Assert-WeatherIntegrationRequiredProperties `
@@ -113,12 +125,10 @@ try {
     $scheduleCheckedAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
         -Value ([string]$intent.schedule.checked_at_local) `
         -Label "preparation schedule checked_at_local"
-    $intentSuiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-        -Value ([string]$intent.schedule.suite_at_local) `
-        -Label "preparation schedule suite_at_local"
-    $intentMergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-        -Value ([string]$intent.schedule.merge_at_local) `
-        -Label "preparation schedule merge_at_local"
+    $intentSchedule = Assert-WeatherIntegrationScheduleEvidence `
+        -Schedule $intent.schedule -Label "Integration preparation schedule"
+    $intentSuiteAt = [datetime]$intentSchedule.SuiteAtLocal
+    $intentMergeAt = [datetime]$intentSchedule.MergeAtLocal
     if ([int]$intent.schedule.minimum_lead_minutes -ne 10) {
         throw "Preparation intent does not bind the required ten-minute lead gate."
     }
@@ -148,7 +158,7 @@ try {
         -ExpectedSha256 $ExpectedManifestSha256
     $manifest = $contract.Manifest
     $authorizationPlan = Assert-WeatherIntegrationPreparationExecutionAuthorization `
-        -AttemptContract $contract -AllowMissing
+        -AttemptContract $contract -AllowMissing -RequireLiveQualificationInputs
     if (-not $StagedDisabled -or -not [bool]$authorizationPlan.Required -or
         [bool]$authorizationPlan.Present) {
         throw "Composite readiness requires exact tasks staged disabled and no pre-existing execution authorization."
@@ -163,7 +173,9 @@ try {
         [string]$manifest.branch_ref -cne [string]$intent.branch_ref -or
         [string]$manifest.expected_tip -cne [string]$intent.expected_tip -or
         [string]$manifest.schedule.suite_at_local -cne [string]$intent.schedule.suite_at_local -or
+        [string]$manifest.schedule.suite_at_utc -cne [string]$intent.schedule.suite_at_utc -or
         [string]$manifest.schedule.merge_at_local -cne [string]$intent.schedule.merge_at_local -or
+        [string]$manifest.schedule.merge_at_utc -cne [string]$intent.schedule.merge_at_utc -or
         [string]$manifest.baseline.master -cne [string]$intent.production_baseline -or
         -not (Test-WeatherIntegrationPathEqual -Left $contract.AttemptRoot -Right ([string]$intent.attempt_root)) -or
         -not (Test-WeatherIntegrationPathEqual `
@@ -180,12 +192,13 @@ try {
     }
     $repairOfProperty = $manifest.authorization.PSObject.Properties["repair_of"]
     if ($null -ne $repairOfProperty -and $null -ne $repairOfProperty.Value) {
-        # Assert-WeatherIntegrationAttemptManifest already calls this shared
-        # semantic validator. Call it explicitly at the readiness boundary so
-        # the claim cannot be reduced to mere file/hash existence here.
+        # The manifest reader is deliberately structural so cleanup remains
+        # available after external evidence loss. Readiness is a live boundary
+        # and therefore repeats the strict semantic repair validation here.
         Assert-WeatherIntegrationRepairClaim -AttemptContract $contract
         $claimPath = Resolve-WeatherIntegrationPath -Path ([string]$repairOfProperty.Value.claim_path)
-        $claim = Read-WeatherIntegrationSharedJson -Path $claimPath
+        $claimSnapshot = Read-WeatherIntegrationEvidenceSnapshot -Path $claimPath -MaximumBytes 2097152 -ContentType Json
+        $claim = $claimSnapshot.Payload
         if ([string]$claim.schema -ne $script:WeatherIntegrationAttemptSuccessorClaimSchema -or
             [string]$claim.status -ne "CLAIMED" -or
             [string]$claim.successor_attempt_id -ne [string]$manifest.attempt_id -or
@@ -196,7 +209,7 @@ try {
             [string]$claim.successor_manifest_sha256 -ne $contract.ManifestSha256) {
             throw "Successor claim does not semantically bind this exact prepared attempt."
         }
-        $claimSha256 = Get-WeatherIntegrationFileSha256 -Path $claimPath
+        $claimSha256 = [string]$claimSnapshot.Sha256
         if (-not (Test-WeatherIntegrationPathEqual `
                 -Left ([string]$intent.authorization.repair_of_receipt_path) `
                 -Right ([string]$repairOfProperty.Value.receipt_path)) -or
@@ -226,6 +239,10 @@ try {
         registrar = Join-Path $repoRoot "scripts\ops\register_integration_attempt.ps1"
         activator = Join-Path $repoRoot "scripts\ops\activate_integration_attempt.ps1"
         closer = Join-Path $repoRoot "scripts\ops\close_integration_attempt.ps1"
+        bounded_suite = Join-Path $repoRoot "scripts\ops\bounded_worktree_test_suite.ps1"
+        token_contract = Join-Path $repoRoot "scripts\ops\training_window_contract.ps1"
+        job_containment = Join-Path $repoRoot "scripts\ops\windows_kill_on_close_job.ps1"
+        workload_admission = Join-Path $repoRoot "scripts\ops\workload_admission.ps1"
     }
     foreach ($name in $expectedScripts.Keys) {
         $record = $intent.scripts.PSObject.Properties[[string]$name].Value
@@ -278,10 +295,11 @@ try {
     $baseline = Assert-WeatherIntegrationGitBaseline `
         -AttemptContract $contract -Phase "integration preparation readiness"
     $registered = $false
-    $worktreeRows = @(& git -C $repoRoot worktree list --porcelain)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not enumerate registered worktrees."
-    }
+    $worktreeQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repoRoot `
+        -Arguments @("worktree", "list", "--porcelain") `
+        -Label "integration readiness registered-worktree query"
+    $worktreeRows = @($worktreeQuery.StdoutLines)
     foreach ($row in $worktreeRows) {
         if ([string]$row -like "worktree *") {
             $candidate = ([string]$row).Substring("worktree ".Length)
@@ -296,10 +314,16 @@ try {
         throw "The exact suite worktree is no longer registered."
     }
     $worktreeTip = (Invoke-WeatherReadinessGitLine `
-        -Root ([string]$manifest.worktree_root) -Arguments @("rev-parse", "HEAD") `
+        -Root ([string]$manifest.worktree_root) `
+        -Arguments @("rev-parse", "--verify", "HEAD^{commit}") `
         -Label "the suite worktree HEAD").ToLowerInvariant()
-    $worktreeDirty = @(& git -C ([string]$manifest.worktree_root) status --porcelain)
-    if ($LASTEXITCODE -ne 0 -or $worktreeTip -ne [string]$manifest.expected_tip -or
+    $worktreeStatusQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root ([string]$manifest.worktree_root) `
+        -Arguments @("status", "--porcelain") `
+        -Label "integration readiness suite-worktree clean-state query"
+    $worktreeDirty = @($worktreeStatusQuery.StdoutLines)
+    if ($worktreeTip -notmatch '^[0-9a-f]{40}$' -or
+        $worktreeTip -ne [string]$manifest.expected_tip -or
         $worktreeDirty.Count -ne 0) {
         throw "The suite worktree is not clean at the exact immutable tip."
     }
@@ -332,6 +356,17 @@ try {
         -Now $schedulerBoundaryCheckedAt.LocalDateTime `
         -MinimumLeadMinutes 10 | Out-Null
 
+    $stage = "acquire_terminal_mutex"
+    $terminalMutex = Enter-WeatherIntegrationControlMutex `
+        -RepositoryRoot $repoRoot `
+        -LockLeaf "integration_attempt_terminal.lock" `
+        -Owner "assert_integration_attempt_ready:$($manifest.attempt_id)"
+    if ($null -eq $terminalMutex) {
+        throw "Another readiness/close/reconciliation operation owns the integration-attempt terminal mutex."
+    }
+    Assert-WeatherIntegrationAttemptNotTerminal `
+        -AttemptContract $contract -Operation "Integration-attempt readiness"
+
     $stage = "validate_absent_runtime_evidence"
     foreach ($evidencePath in @(
         [string]$manifest.evidence.preflight_log,
@@ -349,12 +384,18 @@ try {
     }
 
     $stage = "validate_future_task_bindings"
-    $now = Get-Date
-    $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-        -Value ([string]$manifest.schedule.suite_at_local) -Label "suite_at_local"
-    $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-        -Value ([string]$manifest.schedule.merge_at_local) -Label "merge_at_local"
-    if ($suiteAt -le $now -or $mergeAt -le $now) {
+    $now = Get-WeatherIntegrationScheduleLocalNow
+    $manifestSchedule = Assert-WeatherIntegrationScheduleEvidence `
+        -Schedule $manifest.schedule -Label "readiness manifest schedule"
+    $suiteAt = [datetime]$manifestSchedule.SuiteAtLocal
+    $mergeAt = [datetime]$manifestSchedule.MergeAtLocal
+    $suiteLeadSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+        -StartLocal $now -EndLocal $suiteAt `
+        -StartLabel "readiness time" -EndLabel "suite_at_local"
+    $mergeLeadSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+        -StartLocal $now -EndLocal $mergeAt `
+        -StartLabel "readiness time" -EndLabel "merge_at_local"
+    if ($suiteLeadSeconds -le 0 -or $mergeLeadSeconds -le 0) {
         throw "Both exact integration task triggers must still be in the future."
     }
     foreach ($role in @("suite", "merge")) {
@@ -400,7 +441,7 @@ try {
     }
 
     $stage = "validate_final_schedule_reserve"
-    $now = Get-Date
+    $now = Get-WeatherIntegrationScheduleLocalNow
     Assert-WeatherIntegrationPreparationSchedule `
         -SuiteAtLocal $suiteAt `
         -MergeAtLocal $mergeAt `
@@ -412,7 +453,8 @@ try {
         -SuiteAtLocal $suiteAt `
         -MergeAtLocal $mergeAt `
         -AttemptId ([string]$manifest.attempt_id) `
-        -RepositoryRoot $repoRoot
+        -RepositoryRoot $repoRoot `
+        -AllowOwnExactTasks
 
     $stage = "validate_final_quiet_merge_preconditions"
     $finalQuietMergePreflight = Assert-WeatherIntegrationQuietMergePreconditions `
@@ -420,6 +462,14 @@ try {
     if ([string]$finalQuietMergePreflight.one_shot_push_task_xml_sha256 -ne
             [string]$intent.quiet_merge_preflight.one_shot_push_task_xml_sha256) {
         throw "WeatherOneShotPush changed after the immutable preparation intent was frozen."
+    }
+    Assert-WeatherIntegrationCurrentAuthorityTuple `
+        -AttemptContract $contract -Phase "final readiness" | Out-Null
+    $finalQualification = Assert-WeatherIntegrationPreparationExecutionAuthorization `
+        -AttemptContract $contract -AllowMissing -RequireLiveQualificationInputs
+    if (-not [bool]$finalQualification.Required -or
+        [bool]$finalQualification.Present) {
+        throw "Final readiness runtime recheck found missing qualification authority or a premature execution token."
     }
 
     $stage = "write_ready_receipt"
@@ -492,16 +542,21 @@ try {
             live_exchange_mutation_authorized = $false
         }
     }
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
     Write-WeatherIntegrationImmutableJson -Path $resolvedResultPath -Payload $receipt
     # This exact manifest-bound PASS token is the only authorization the two
     # wrappers accept. It is created after every readiness check while both
     # Scheduler tasks are still disabled, so a process kill cannot expose an
     # unchecked runnable attempt.
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
+    Assert-WeatherIntegrationCurrentAuthorityTuple `
+        -AttemptContract $contract `
+        -Phase "readiness execution-authorization boundary" | Out-Null
     Write-WeatherIntegrationImmutableJson `
         -Path ([string]$authorizationPlan.Path) `
         -Payload $authorizationPlan.Payload
     $authorization = Assert-WeatherIntegrationPreparationExecutionAuthorization `
-        -AttemptContract $contract
+        -AttemptContract $contract -RequireLiveQualificationInputs
     if (-not [bool]$authorization.Present -or
         [string]$authorization.Sha256 -ne [string]$authorizationPlan.Sha256) {
         throw "Final execution authorization did not match the immutable readiness plan."
@@ -509,7 +564,13 @@ try {
     $status = "PASS"
 }
 catch {
+    $primaryError = $_
     $failure = $_.Exception.Message
+}
+finally {
+    Exit-WeatherIntegrationControlMutex `
+        -Mutex $terminalMutex -PrimaryError $primaryError
+    $terminalMutex = $null
 }
 
 if ($status -ne "PASS") {
@@ -517,7 +578,7 @@ if ($status -ne "PASS") {
     exit 1
 }
 
-$finalReceipt = Read-WeatherIntegrationSharedJson -Path $resolvedResultPath
+$finalReceipt = (Read-WeatherIntegrationEvidenceSnapshot -Path $resolvedResultPath -MaximumBytes 2097152 -ContentType Json).Payload
 if ([string]$finalReceipt.status -ne "PASS" -or
     [string]$finalReceipt.manifest_sha256 -ne $ExpectedManifestSha256.ToLowerInvariant()) {
     Write-Host "Integration readiness failed at stage 'verify_ready_receipt'."

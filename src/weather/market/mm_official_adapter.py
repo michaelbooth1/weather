@@ -19,6 +19,7 @@ from importlib import metadata
 from urllib.parse import parse_qs, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.mm_policy import bool_value
 OFFICIAL_CLOB_DISTRIBUTION = "polymarket-client"
@@ -339,6 +340,8 @@ def fetch_current_maker_rebates(
         f"{CURRENT_REBATES_URL}?{query}",
         headers={"Accept": "application/json", "User-Agent": "weather-mm-live-probe/1"},
     )
+    if opener is None:
+        require_real_external_io_allowed("real maker-rebate HTTP transport")
     response = (opener or urlopen)(request, timeout=float(timeout_seconds))
     try:
         status = getattr(response, "status", None)
@@ -439,6 +442,8 @@ def fetch_current_positions(
         f"{CURRENT_POSITIONS_URL}?{query}",
         headers={"Accept": "application/json", "User-Agent": "weather-mm-live-probe/1"},
     )
+    if opener is None:
+        require_real_external_io_allowed("real current-position HTTP transport")
     response = (opener or urlopen)(request, timeout=float(timeout_seconds))
     try:
         status = getattr(response, "status", None)

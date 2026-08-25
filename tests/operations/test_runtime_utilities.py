@@ -62,14 +62,16 @@ def test_file_hash_consumers_reexport_shared_helper(tmp_path):
         assert module.sha256_file is weather_io.sha256_file
 
 
-def test_repo_root_subprocess_imports_weather_with_tracked_helpers():
+def test_repo_root_subprocess_import_contract_is_explicit_about_offline_bootstrap():
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import weather.paths; print(weather.paths.REPO_ROOT)",
+            "import json, os, weather.paths; "
+            "print(json.dumps({'repo': str(weather.paths.REPO_ROOT), "
+            "'pythonpath': os.environ.get('PYTHONPATH')}))",
         ],
         cwd=REPO_ROOT,
         env=env,
@@ -78,17 +80,25 @@ def test_repo_root_subprocess_imports_weather_with_tracked_helpers():
         text=True,
     )
 
-    assert Path(result.stdout.strip()) == REPO_ROOT
+    payload = json.loads(result.stdout)
+    assert Path(payload["repo"]) == REPO_ROOT
+    if os.environ.get("WEATHER_INTEGRATION_TEST_OFFLINE") == "1":
+        roots = [Path(value) for value in payload["pythonpath"].split(os.pathsep)]
+        assert roots[:2] == [REPO_ROOT, SRC_ROOT]
+    else:
+        assert payload["pythonpath"] is None
 
 
-def test_non_repo_subprocess_imports_weather_with_explicit_package_path(tmp_path):
+def test_non_repo_subprocess_import_contract_distinguishes_offline_bootstrap(tmp_path):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(SRC_ROOT)
     result = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import weather.paths; print(weather.paths.REPO_ROOT)",
+            "import json, os, weather.paths; "
+            "print(json.dumps({'repo': str(weather.paths.REPO_ROOT), "
+            "'pythonpath': os.environ.get('PYTHONPATH')}))",
         ],
         cwd=tmp_path,
         env=env,
@@ -97,7 +107,13 @@ def test_non_repo_subprocess_imports_weather_with_explicit_package_path(tmp_path
         text=True,
     )
 
-    assert Path(result.stdout.strip()) == REPO_ROOT
+    payload = json.loads(result.stdout)
+    assert Path(payload["repo"]) == REPO_ROOT
+    roots = [Path(value) for value in payload["pythonpath"].split(os.pathsep)]
+    if os.environ.get("WEATHER_INTEGRATION_TEST_OFFLINE") == "1":
+        assert roots[:2] == [REPO_ROOT, SRC_ROOT]
+    else:
+        assert roots == [SRC_ROOT]
 
 
 def test_ops_monitor_restart_clob_preserves_status_config(monkeypatch):

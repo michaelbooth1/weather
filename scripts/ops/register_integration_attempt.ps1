@@ -11,13 +11,103 @@ param(
     [string]$ExpectedManifestSha256,
     [ValidateRange(1, 120)]
     [int]$MinimumSuiteLeadMinutes = 1,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("AUTHORIZE_DISABLED_INTEGRATION_TASK_REGISTRATION")]
+    [string]$SchedulerConfirmation,
     [switch]$StageDisabled
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if ($SchedulerConfirmation -cne
+    "AUTHORIZE_DISABLED_INTEGRATION_TASK_REGISTRATION") {
+    throw (
+        "SchedulerConfirmation must equal the exact case-sensitive disabled " +
+        "integration-task registration authorization literal."
+    )
+}
 
 . (Join-Path $PSScriptRoot "integration_attempt_contract.ps1")
+. (Join-Path $PSScriptRoot "integration_attempt_preparation_contract.ps1")
+
+function Get-WeatherIntegrationRegistrarPrincipal {
+    $identity = Get-WeatherIntegrationCanonicalWindowsIdentity
+    $separator = $identity.UserId.LastIndexOf(
+        '\',
+        [StringComparison]::Ordinal
+    )
+    if ($separator -le 0 -or $separator -ge ($identity.UserId.Length - 1)) {
+        throw "Canonical registrar identity is not authority-qualified."
+    }
+    $leafAccountName = $identity.UserId.Substring($separator + 1)
+    foreach ($ambient in @(
+        [pscustomobject]@{
+            Name = "USERNAME"
+            Value = [string]$env:USERNAME
+            Expected = $leafAccountName
+        },
+        [pscustomobject]@{
+            Name = "USERDOMAIN"
+            Value = [string]$env:USERDOMAIN
+            Expected = [string]$identity.Authority
+        },
+        [pscustomobject]@{
+            Name = "COMPUTERNAME"
+            Value = [string]$env:COMPUTERNAME
+            Expected = [string]$identity.MachineName
+        }
+    )) {
+        if (-not [string]::IsNullOrEmpty([string]$ambient.Value) -and
+            -not [string]::Equals(
+                [string]$ambient.Value,
+                [string]$ambient.Expected,
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            throw (
+                "Ambient $($ambient.Name) disagrees with the canonical Windows " +
+                "identity; refusing Scheduler principal construction."
+            )
+        }
+    }
+    $principal = [pscustomobject][ordered]@{
+        user_id = [string]$identity.UserId
+        sid = [string]$identity.Sid
+        account_name = [string]$identity.AccountName
+        authority = [string]$identity.Authority
+        machine_name = [string]$identity.MachineName
+        user_domain_name = [string]$identity.UserDomainName
+        logon_type = "S4U"
+        run_level = "Limited"
+        id = "Author"
+        display_name = ""
+        group_id = ""
+        process_token_sid_type = "Default"
+        required_privileges = @()
+    }
+    Assert-WeatherIntegrationCanonicalWindowsIdentityBinding `
+        -Principal $principal `
+        -Label "integration-attempt registrar principal" `
+        -RequireCurrentIdentity | Out-Null
+    return $principal
+}
+
+function Assert-WeatherIntegrationRegistrarPrincipalUnchanged {
+    param([Parameter(Mandatory = $true)][object]$ExpectedPrincipal)
+
+    $current = Get-WeatherIntegrationRegistrarPrincipal
+    foreach ($name in @(
+        "user_id", "sid", "account_name", "authority", "machine_name",
+        "user_domain_name"
+    )) {
+        if (-not [string]::Equals(
+                [string]$current.$name,
+                [string]$ExpectedPrincipal.$name,
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            throw "Canonical registrar principal changed at $name before Scheduler mutation."
+        }
+    }
+}
 
 $RepoRoot = Resolve-WeatherIntegrationPath -Path $RepoRoot
 $contract = Assert-WeatherIntegrationAttemptManifest `
@@ -43,9 +133,18 @@ $terminalMutex = Enter-WeatherIntegrationControlMutex `
 if ($null -eq $terminalMutex) {
     throw "Another registrar/close/reconciliation owns the integration-attempt terminal mutex."
 }
+$primaryError = $null
 try {
 Assert-WeatherIntegrationAttemptNotTerminal `
     -AttemptContract $contract -Operation "Integration-attempt registration"
+$preparationAuthorization = `
+    Assert-WeatherIntegrationRegistrationPreparationState `
+        -AttemptContract $contract
+Assert-WeatherIntegrationGitControlSafety `
+    -RepositoryRoots @(
+        $RepoRoot,
+        (Resolve-WeatherIntegrationPath -Path ([string]$contract.Manifest.worktree_root))
+    )
 
 $registrationReceiptPath = [string]$manifest.evidence.registration_receipt
 if (Test-Path -LiteralPath $registrationReceiptPath) {
@@ -70,18 +169,31 @@ $powerShellExecutable = Join-Path $PSHOME "powershell.exe"
 if (-not (Test-Path -LiteralPath $powerShellExecutable -PathType Leaf)) {
     throw "Windows PowerShell executable is missing: $powerShellExecutable"
 }
-if ([string]::IsNullOrWhiteSpace($env:USERNAME)) {
-    throw "USERNAME is unavailable; cannot construct the S4U task principal."
-}
+$canonicalPrincipal = Get-WeatherIntegrationRegistrarPrincipal
 
-$suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-    -Value ([string]$manifest.schedule.suite_at_local) `
-    -Label "suite_at_local"
-$mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-    -Value ([string]$manifest.schedule.merge_at_local) `
-    -Label "merge_at_local"
-$now = Get-Date
-if ($suiteAt -le $now.AddMinutes(1) -or $mergeAt -le $suiteAt) {
+Assert-WeatherIntegrationSchedulerHostTimeZone | Out-Null
+if ([string]$manifest.schema -ceq $script:WeatherIntegrationAttemptManifestSchema) {
+    $scheduleEvidence = Assert-WeatherIntegrationScheduleEvidence `
+        -Schedule $manifest.schedule -Label "registration manifest schedule"
+    $suiteAt = [datetime]$scheduleEvidence.SuiteAtLocal
+    $mergeAt = [datetime]$scheduleEvidence.MergeAtLocal
+}
+else {
+    $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value ([string]$manifest.schedule.suite_at_local) `
+        -Label "suite_at_local"
+    $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
+        -Value ([string]$manifest.schedule.merge_at_local) `
+        -Label "merge_at_local"
+}
+$now = Get-WeatherIntegrationScheduleLocalNow
+$suiteLeadSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+    -StartLocal $now -EndLocal $suiteAt `
+    -StartLabel "registration time" -EndLabel "suite_at_local"
+$suiteToMergeSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+    -StartLocal $suiteAt -EndLocal $mergeAt `
+    -StartLabel "suite_at_local" -EndLabel "merge_at_local"
+if ($suiteLeadSeconds -le 60 -or $suiteToMergeSeconds -le 0) {
     throw "Attempt task triggers must be future one-shot times with suite before merge."
 }
 if ($suiteAt.Date -ne $mergeAt.Date) {
@@ -95,7 +207,7 @@ if ($suiteMinute -lt 30 -or $suiteMinute -ge (9 * 60)) {
 if ($mergeMinute -lt 60 -or $mergeMinute -ge 220) {
     throw "Merge trigger is outside the guarded 01:00-03:40 quiet window."
 }
-if (($mergeAt - $suiteAt) -lt [TimeSpan]::FromMinutes(30)) {
+if ($suiteToMergeSeconds -lt 1800) {
     throw "Merge trigger must remain at least 30 minutes after the suite trigger."
 }
 
@@ -116,12 +228,12 @@ foreach ($taskName in @($suiteTaskName, $mergeTaskName)) {
 $suiteBinding = Get-WeatherIntegrationExpectedTaskBinding `
     -AttemptContract $contract `
     -Role "suite" `
-    -UserId $env:USERNAME `
+    -UserId ([string]$canonicalPrincipal.user_id) `
     -PowerShellExecutable $powerShellExecutable
 $mergeBinding = Get-WeatherIntegrationExpectedTaskBinding `
     -AttemptContract $contract `
     -Role "merge" `
-    -UserId $env:USERNAME `
+    -UserId ([string]$canonicalPrincipal.user_id) `
     -PowerShellExecutable $powerShellExecutable
 $suiteArguments = [string]$suiteBinding.arguments
 $mergeArguments = [string]$mergeBinding.arguments
@@ -137,12 +249,28 @@ $mergeAction = New-ScheduledTaskAction `
 $suiteTrigger = New-ScheduledTaskTrigger -Once -At $suiteAt
 $mergeTrigger = New-ScheduledTaskTrigger -Once -At $mergeAt
 $principal = New-ScheduledTaskPrincipal `
-    -UserId $env:USERNAME `
+    -UserId ([string]$canonicalPrincipal.user_id) `
     -LogonType S4U `
     -RunLevel Limited
+$suiteExecutionTimeLimit = if ([string]$manifest.schema -ceq
+        $script:WeatherIntegrationAttemptManifestSchema) {
+    $boundedRuntimeSeconds = [int]$manifest.suite.bounded_suite_max_runtime_seconds
+    $teardownAllowanceSeconds =
+        [int]$manifest.suite.suite_wrapper_teardown_allowance_seconds
+    $taskLimitSeconds =
+        [int]$manifest.suite.suite_task_execution_time_limit_seconds
+    if ($boundedRuntimeSeconds -ne 5400 -or
+        $teardownAllowanceSeconds -ne 300 -or
+        $taskLimitSeconds -ne
+            ($boundedRuntimeSeconds + $teardownAllowanceSeconds)) {
+        throw "Manifest suite task runtime limit is absent, unbounded, or inconsistent."
+    }
+    New-TimeSpan -Seconds $taskLimitSeconds
+}
+else { New-TimeSpan -Hours 8 }
 $suiteSettingsParameters = @{
     MultipleInstances = "IgnoreNew"
-    ExecutionTimeLimit = (New-TimeSpan -Hours 8)
+    ExecutionTimeLimit = $suiteExecutionTimeLimit
     WakeToRun = $true
     DisallowDemandStart = $true
     AllowStartIfOnBatteries = $true
@@ -181,14 +309,19 @@ $intent = [ordered]@{
     manifest_sha256 = $contract.ManifestSha256
     prepared_at_local = (Get-Date).ToString("o")
     principal = [ordered]@{
-        user_id = $env:USERNAME
-        logon_type = "S4U"
-        run_level = "Limited"
-        id = "Author"
-        display_name = ""
-        group_id = ""
-        process_token_sid_type = "Default"
-        required_privileges = @()
+        user_id = [string]$canonicalPrincipal.user_id
+        sid = [string]$canonicalPrincipal.sid
+        account_name = [string]$canonicalPrincipal.account_name
+        authority = [string]$canonicalPrincipal.authority
+        machine_name = [string]$canonicalPrincipal.machine_name
+        user_domain_name = [string]$canonicalPrincipal.user_domain_name
+        logon_type = [string]$canonicalPrincipal.logon_type
+        run_level = [string]$canonicalPrincipal.run_level
+        id = [string]$canonicalPrincipal.id
+        display_name = [string]$canonicalPrincipal.display_name
+        group_id = [string]$canonicalPrincipal.group_id
+        process_token_sid_type = [string]$canonicalPrincipal.process_token_sid_type
+        required_privileges = @($canonicalPrincipal.required_privileges)
     }
     suite = $suiteBinding
     merge = $mergeBinding
@@ -198,6 +331,7 @@ $intent = [ordered]@{
         live_exchange_mutation_authorized = $false
     }
 }
+Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
 Write-WeatherIntegrationImmutableJson -Path $registrationIntentPath -Payload $intent
 $intentContract = Assert-WeatherIntegrationRegistrationIntent -AttemptContract $contract
 $intentSha256 = [string]$intentContract.IntentSha256
@@ -211,12 +345,37 @@ try {
     # Validation and intent journaling above can consume the caller's reserve.
     # Recheck at the actual external-mutation boundary, before either exact
     # Scheduler task can exist.
-    $schedulerBoundaryCheckedAt = Get-Date
-    if ($suiteAt -lt $schedulerBoundaryCheckedAt.AddMinutes($MinimumSuiteLeadMinutes)) {
+    Assert-WeatherIntegrationSchedulerHostTimeZone | Out-Null
+    $schedulerBoundaryCheckedAt = [datetimeoffset]::Now
+    $schedulerBoundaryLocal = Get-WeatherIntegrationScheduleLocalNow
+    $schedulerBoundaryLeadSeconds = Get-WeatherIntegrationLocalElapsedSeconds `
+        -StartLocal $schedulerBoundaryLocal -EndLocal $suiteAt `
+        -StartLabel "Scheduler registration boundary" -EndLabel "suite_at_local"
+    if ($schedulerBoundaryLeadSeconds -lt ($MinimumSuiteLeadMinutes * 60)) {
         throw "Suite trigger no longer retains the required $MinimumSuiteLeadMinutes-minute lead at the Scheduler registration boundary."
     }
     # Register the fail-closed consumer first. If suite registration then fails,
     # the merge task has no PASS receipt to consume and cannot mutate the tree.
+    if ([string]$manifest.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema) {
+        Assert-WeatherIntegrationCurrentAuthorityTuple `
+            -AttemptContract $contract `
+            -Phase "merge-task disabled registration boundary" | Out-Null
+        $mergeRegistrationAuthorization = `
+            Assert-WeatherIntegrationPreparationExecutionAuthorization `
+                -AttemptContract $contract -AllowMissing `
+                -RequireLiveQualificationInputs
+        if ([bool]$mergeRegistrationAuthorization.Present) {
+            throw "Merge-task registration found a premature execution token."
+        }
+    }
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
+    Assert-WeatherIntegrationRegistrarPrincipalUnchanged `
+        -ExpectedPrincipal $canonicalPrincipal
+    Assert-WeatherIntegrationSchedulerHostTimeZone | Out-Null
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Register-ScheduledTask" `
+        -Phase "merge-task disabled registration"
     Register-ScheduledTask `
         -TaskName $mergeTaskName `
         -Action $mergeAction `
@@ -234,6 +393,26 @@ try {
         throw "Merge task registration did not produce the exact staged state $expectedRegisteredState."
     }
 
+    if ([string]$manifest.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema) {
+        Assert-WeatherIntegrationCurrentAuthorityTuple `
+            -AttemptContract $contract `
+            -Phase "suite-task disabled registration boundary" | Out-Null
+        $suiteRegistrationAuthorization = `
+            Assert-WeatherIntegrationPreparationExecutionAuthorization `
+                -AttemptContract $contract -AllowMissing `
+                -RequireLiveQualificationInputs
+        if ([bool]$suiteRegistrationAuthorization.Present) {
+            throw "Suite-task registration found a premature execution token."
+        }
+    }
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
+    Assert-WeatherIntegrationRegistrarPrincipalUnchanged `
+        -ExpectedPrincipal $canonicalPrincipal
+    Assert-WeatherIntegrationSchedulerHostTimeZone | Out-Null
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Register-ScheduledTask" `
+        -Phase "suite-task disabled registration"
     Register-ScheduledTask `
         -TaskName $suiteTaskName `
         -Action $suiteAction `
@@ -250,9 +429,26 @@ try {
         [bool]$registeredSuite.Task.Settings.Enabled -ne $expectedRegisteredEnabled) {
         throw "Suite task registration did not produce the exact staged state $expectedRegisteredState."
     }
+    if ([string]$manifest.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema) {
+        Assert-WeatherIntegrationCurrentAuthorityTuple `
+            -AttemptContract $contract `
+            -Phase "final disabled-registration receipt boundary" | Out-Null
+        $finalRegistrationAuthorization = `
+            Assert-WeatherIntegrationPreparationExecutionAuthorization `
+                -AttemptContract $contract -AllowMissing `
+                -RequireLiveQualificationInputs
+        if ([bool]$finalRegistrationAuthorization.Present) {
+            throw "Final registration boundary found a premature execution token."
+        }
+    }
+    Assert-WeatherIntegrationRegistrarPrincipalUnchanged `
+        -ExpectedPrincipal $canonicalPrincipal
+    Assert-WeatherIntegrationSchedulerHostTimeZone | Out-Null
     $status = "PASS"
 }
 catch {
+    $primaryError = $_
     $failure = $_.Exception.Message
     Write-Error $failure -ErrorAction Continue
 }
@@ -271,14 +467,19 @@ finally {
         minimum_suite_lead_minutes = $MinimumSuiteLeadMinutes
         staged_disabled = [bool]$StageDisabled
         principal = [ordered]@{
-            user_id = $env:USERNAME
-            logon_type = "S4U"
-            run_level = "Limited"
-            id = "Author"
-            display_name = ""
-            group_id = ""
-            process_token_sid_type = "Default"
-            required_privileges = @()
+            user_id = [string]$canonicalPrincipal.user_id
+            sid = [string]$canonicalPrincipal.sid
+            account_name = [string]$canonicalPrincipal.account_name
+            authority = [string]$canonicalPrincipal.authority
+            machine_name = [string]$canonicalPrincipal.machine_name
+            user_domain_name = [string]$canonicalPrincipal.user_domain_name
+            logon_type = [string]$canonicalPrincipal.logon_type
+            run_level = [string]$canonicalPrincipal.run_level
+            id = [string]$canonicalPrincipal.id
+            display_name = [string]$canonicalPrincipal.display_name
+            group_id = [string]$canonicalPrincipal.group_id
+            process_token_sid_type = [string]$canonicalPrincipal.process_token_sid_type
+            required_privileges = @($canonicalPrincipal.required_privileges)
         }
         suite = [ordered]@{
             task_name = $suiteTaskName
@@ -316,6 +517,7 @@ finally {
             live_exchange_mutation_authorized = $false
         }
     }
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
     Write-WeatherIntegrationImmutableJson -Path $registrationReceiptPath -Payload $receipt
 }
 
@@ -342,6 +544,19 @@ Write-Host "Registered immutable attempt $($manifest.attempt_id): $suiteTaskName
 Write-Host "No task was started and no downstream task was created."
 exit 0
 }
+catch {
+    if ($null -eq $primaryError) {
+        $primaryError = $_
+        throw
+    }
+    $secondaryMessage = $_.Exception.Message
+    $primaryError.Exception.Data["weather_secondary_failure"] = $secondaryMessage
+    $primaryError.ErrorDetails = [Management.Automation.ErrorDetails]::new(
+        "$($primaryError.Exception.Message); secondary failure: $secondaryMessage"
+    )
+    throw $primaryError
+}
 finally {
-    Exit-WeatherIntegrationControlMutex -Mutex $terminalMutex
+    Exit-WeatherIntegrationControlMutex `
+        -Mutex $terminalMutex -PrimaryError $primaryError
 }

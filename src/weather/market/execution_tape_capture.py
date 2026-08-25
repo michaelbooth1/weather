@@ -31,6 +31,7 @@ from weather.market.execution_tape_store import (
     sizing_from_fixture,
 )
 from weather.market.market_config import config_for_date, ensure_date
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.market_microstructure_constants import CLOB_WS_URL
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.paths import config_path
@@ -308,6 +309,7 @@ def frame_proves_subscription(
 
 
 def _default_websocket_factory(url: str, *, timeout: float):
+    require_real_external_io_allowed("real public execution WebSocket transport")
     return websocket.create_connection(url, timeout=timeout)
 
 

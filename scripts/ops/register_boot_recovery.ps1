@@ -15,11 +15,45 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$schedulerBoundaryScript = Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1"
+if (-not (Test-Path -LiteralPath $schedulerBoundaryScript -PathType Leaf)) {
+    throw "Scheduler mutation boundary helper is missing: $schedulerBoundaryScript"
+}
+$schedulerBoundaryPreviousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Stop"
+    Remove-Item `
+        -LiteralPath Function:\Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -Force -ErrorAction SilentlyContinue
+    . $schedulerBoundaryScript
+    $schedulerBoundaryCommand = Get-Command `
+        Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandType Function -ErrorAction Stop
+}
+catch {
+    throw "Scheduler mutation boundary helper could not be loaded from its canonical file."
+}
+finally {
+    $ErrorActionPreference = $schedulerBoundaryPreviousErrorActionPreference
+}
+if ([string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ScriptBlock.File) -or
+    -not [IO.Path]::GetFullPath(
+        [string]$schedulerBoundaryCommand.ScriptBlock.File
+    ).Equals(
+        [IO.Path]::GetFullPath($schedulerBoundaryScript),
+        [StringComparison]::OrdinalIgnoreCase
+    ) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ModuleName) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.Source)) {
+    throw "Scheduler mutation boundary helper did not load from its canonical file."
+}
 $taskName = "WeatherBootRecovery"
 $repo = $RepoRoot
 $script = Join-Path $repo "scripts\ops\boot_recovery.ps1"
 
 if ($Unregister) {
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Unregister-ScheduledTask" -Phase "boot-recovery unregistration"
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     Write-Output "unregistered $taskName"
     exit 0
@@ -53,6 +87,8 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 # the other supervisors; nothing here needs elevation.
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited
 
+Assert-WeatherIntegrationSchedulerMutationAllowed `
+    -CommandName "Register-ScheduledTask" -Phase "boot-recovery registration"
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal -Force | Out-Null
 
@@ -93,6 +129,8 @@ $bindingOk = (
     -not [bool]$t.Settings.RunOnlyIfNetworkAvailable
 )
 if (-not $bindingOk) {
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Disable-ScheduledTask" -Phase "boot-recovery invalid-registration containment"
     Disable-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Out-Null
     throw "WeatherBootRecovery registration did not preserve its exact reviewed action, principal, trigger, and settings contract; the task was disabled."
 }

@@ -3,6 +3,7 @@ import json
 import requests
 
 from weather.market.market_config import config_for_date, config_from_event
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.market_registry import DEFAULT_MARKET_ID
 from weather.io import request_with_retries
 
@@ -19,6 +20,7 @@ class PolymarketClient:
         self.config = config_for_date(target_date, market_id)
 
     def get_event(self):
+        require_real_external_io_allowed("real public Gamma HTTP transport")
         # Retry transient failures (the gamma API occasionally read-times-out);
         # a single slow response should not cost a snapshot for every market.
         def _fetch():

@@ -18,7 +18,12 @@ def test_recurring_registration_sources_preserve_unattended_s4u() -> None:
     assert scheduled_registrars
     for path, text in scheduled_registrars.items():
         assert "$principal = New-ScheduledTaskPrincipal" in text
-        assert "-UserId $env:USERNAME" in text
+        if path.name == "register_integration_attempt.ps1":
+            assert "Get-WeatherIntegrationCanonicalWindowsIdentity" in text
+            assert "-UserId $canonicalPrincipal.UserId" in text
+            assert "-UserId $env:USERNAME" not in text
+        else:
+            assert "-UserId $env:USERNAME" in text
         assert "-LogonType S4U" in text
         assert "-RunLevel Limited" in text
         assert "-Principal $principal" in text, path.name
@@ -59,28 +64,44 @@ def test_execution_tape_post_merge_adoption_is_exact_and_fail_closed() -> None:
     )
 
     assert "suite_gated_quiet_merge.ps1" in text
-    assert "integration_attempt_merge.ps1" in text
     assert "assert_integration_attempt_success.ps1" in text
     assert "ExpectedMergeReceiptSha256" in text
-    assert "merge-base --is-ancestor $ExpectedTip master" in text
-    assert "$masterTip -ne $originTip" in text
-    assert "capture_recovery_check --json" in text
-    assert 'LogonType -ne "S4U"' in text
-    assert 'RunLevel -ne "Limited"' in text
-    assert "Settings.Priority -ne 7" in text
-    assert 'State -ne "Disabled"' in text
-    assert "$enabledByThisRun = $true" in text
-    assert "would not restore the reviewed held state" in text
-    assert "Enable-ScheduledTask -TaskName $SupervisorTaskName" in text
-    assert "Start-ScheduledTask -TaskName $SupervisorTaskName" in text
-    assert "execution_tape_supervisor stop" in text
-    assert "Disable-ScheduledTask -TaskName $script:SupervisorTaskName" in text
+    assert '"merge-base", "--is-ancestor", $ExpectedTip, "master"' in text
+    assert "Invoke-WeatherIntegrationCheckedLocalGit" in text
+    assert "& git" not in text
+    assert "Get-WeatherAdoptionPythonBinding" in text
+    assert "IMMUTABLE_FULL_SUITE_ENVIRONMENT" in text
+    assert "Invoke-WeatherAdoptionPythonJson" in text
+    assert "Assert-WeatherAdoptionPythonExecutionIdentity" in text
+    assert "Get-WeatherAdoptionLoadedSourceFingerprint" in text
+    assert "Invoke-WeatherIntegrationBoundedProcess" in text
+    assert "-ExpectedExecutableSha256 ([string]$PythonBinding.Sha256)" in text
+    assert "& $python" not in text
+    assert "& $script:python" not in text
+    assert '"weather.operations.capture_recovery_check"' in text
+    assert '"--json"' in text
+    assert '[string]$task.Principal.LogonType -cne "S4U"' in text
+    assert '[string]$task.Principal.RunLevel -cne "Limited"' in text
+    assert "[int]$task.Settings.Priority -ne 7" in text
+    assert '-ExpectedState "Disabled"' in text
+    assert "$script:enabledByThisRun = $true" in text
+    assert "Disable-ScheduledTask `" in text
+    assert "Enable-ScheduledTask `" in text
+    assert "Start-ScheduledTask `" in text
+    assert '"weather.operations.execution_tape_supervisor", "stop"' in text
+    assert '-TaskName $script:SupervisorTaskName -TaskPath "\\"' in text
+    assert "Get-ScheduledTask" in text
+    assert 'error_type = $_.Exception.GetType().Name' in text
     assert "trap {" in text
     assert "unexpected adoption failure" in text
     assert "runtime_identity_matches_current" in text
     assert "status.managed_process.pid" in text
     assert "writerLock.managed_process.pid" in text
     assert "price_path_evidence_usable" in text
+    assert "Invoke-WeatherIntegrationContainedPowerShellChild" in text
+    assert "Get-WeatherIntegrationCanonicalRemoteTip" in text
+    assert "Read-WeatherIntegrationEvidenceSnapshot" in text
+    assert "pythonw Scheduler launcher" in text
 
 
 def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:

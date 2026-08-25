@@ -13,6 +13,9 @@ import os
 from ctypes import wintypes
 from urllib.parse import unquote, urlsplit
 
+from weather.integration_test_safety import (
+    require_real_external_io_allowed,
+)
 from weather.market.mm_exchange import credential_diagnostics
 from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
@@ -77,6 +80,17 @@ class GlobalCredentialBundle:
         )
 
 
+def _require_real_credential_io_allowed(operation):
+    """Refuse real vault access inside the integration-test safety boundary.
+
+    Injected readers remain usable by deterministic tests.  The guard sits at
+    the native Windows boundary so a future call path cannot turn a
+    no-credential qualification process into a vault probe by accident.
+    """
+
+    require_real_external_io_allowed(operation)
+
+
 def parse_wincred_reference(reference):
     parsed = urlsplit(str(reference or ""))
     if parsed.scheme.lower() != WINCRED_SCHEME:
@@ -92,6 +106,7 @@ def parse_wincred_reference(reference):
 
 
 def _read_windows_generic_credential(target):
+    _require_real_credential_io_allowed("Windows Credential Manager read")
     if os.name != "nt":
         raise RuntimeError("wincred:// references are supported only on Windows")
 
@@ -145,6 +160,7 @@ def resolve_credential_reference(reference, *, wincred_reader=None):
 def windows_generic_credential_exists(target):
     """Check a Generic Credential target without copying its secret blob."""
 
+    _require_real_credential_io_allowed("Windows Credential Manager existence check")
     if os.name != "nt":
         raise RuntimeError("Windows Credential Manager is supported only on Windows")
 
@@ -176,6 +192,7 @@ def windows_generic_credential_exists(target):
 def write_windows_generic_credential(target, value):
     """Write a new current-user Generic Credential without command-line secrets."""
 
+    _require_real_credential_io_allowed("Windows Credential Manager write")
     if os.name != "nt":
         raise RuntimeError("Windows Credential Manager is supported only on Windows")
     target = str(target or "").strip()
@@ -227,6 +244,7 @@ def write_windows_generic_credential(target, value):
 def delete_windows_generic_credential(target):
     """Delete one exact Generic Credential target."""
 
+    _require_real_credential_io_allowed("Windows Credential Manager delete")
     if os.name != "nt":
         raise RuntimeError("Windows Credential Manager is supported only on Windows")
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
@@ -373,12 +391,15 @@ def build_unified_clob_client(
     signature_type_id = identity.get("signature_type_id")
     if signature_type_id not in {2, 3}:
         raise RuntimeError("Stage 0 requires a supported Safe or deposit-wallet signature type")
+    if wallet_deployed_reader is None:
+        require_real_external_io_allowed("real wallet deployment HTTP preflight")
     deployment_reader = wallet_deployed_reader or fetch_wallet_deployed
     if deployment_reader(credentials.funder, signature_type_id) is not True:
         raise RuntimeError(
             "Stage 0 refuses client construction until the existing wallet is proven deployed"
         )
     if client_factory is None or api_creds_factory is None:
+        require_real_external_io_allowed("real official CLOB client construction")
         require_official_clob_version()
         from polymarket import ApiKeyCreds, SecureClient
 

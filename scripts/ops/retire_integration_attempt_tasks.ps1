@@ -131,6 +131,7 @@ $terminalMutex = Enter-WeatherIntegrationControlMutex `
 if ($null -eq $terminalMutex) {
     throw "Another integration-attempt terminal transaction owns the control mutex."
 }
+$primaryError = $null
 try {
     if (Test-Path -LiteralPath $retirementPath) {
         throw "Immutable task-retirement receipt appeared during mutex acquisition."
@@ -216,8 +217,13 @@ try {
             -AttemptContract $contract -Task $task[0] -Role $role | Out-Null
     }
 }
+catch {
+    $primaryError = $_
+    throw
+}
 finally {
-    Exit-WeatherIntegrationControlMutex -Mutex $terminalMutex
+    Exit-WeatherIntegrationControlMutex `
+        -Mutex $terminalMutex -PrimaryError $primaryError
 }
 
 Write-Host (

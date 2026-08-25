@@ -18,6 +18,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from weather.collection.snapshot_tracker import pid_is_python
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.taker_bot import (
     DEFAULT_BAKEOFF_STRATEGIES,
     DEFAULT_RUNS_ROOT,
@@ -634,6 +635,10 @@ def retire_taker_bot_process_tree(
     if os.name == "nt":
         command = ["taskkill.exe", "/PID", str(normalized), "/T", "/F"]
         try:
+            if run_fn is subprocess.run:
+                require_real_external_io_allowed(
+                    "taker-bot Windows process-tree termination"
+                )
             result = run_fn(
                 command,
                 capture_output=True,
@@ -658,6 +663,7 @@ def retire_taker_bot_process_tree(
             "command": command,
         }
     try:
+        require_real_external_io_allowed("taker-bot POSIX process termination")
         os.kill(normalized, 15)
     except OSError as exc:
         return {

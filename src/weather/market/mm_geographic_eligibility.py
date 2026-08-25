@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.request import Request, urlopen
 
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.schema_registry import schema_version
 
 
@@ -158,6 +159,8 @@ def _fetch_official(
             "User-Agent": "weather-international-live-geography-gate/1",
         },
     )
+    if opener is None:
+        require_real_external_io_allowed("real official geoblock HTTP transport")
     open_request = opener or urlopen
     response = None
     try:

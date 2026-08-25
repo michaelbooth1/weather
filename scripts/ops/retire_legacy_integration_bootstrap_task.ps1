@@ -133,6 +133,9 @@ try {
         -ExpectedRunTime $ExpectedLastRunTime `
         -ExpectedResult $ExpectedLastTaskResult
     if ([string]$preDisable.Task.State -ne "Disabled") {
+        Assert-WeatherIntegrationSchedulerMutationAllowed `
+            -CommandName "Disable-ScheduledTask" `
+            -Phase "legacy integration-bootstrap task retirement"
         Disable-ScheduledTask -TaskName $TaskName -TaskPath "\" `
             -ErrorAction Stop | Out-Null
     }

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.io import (
     acquire_writer_lock,
     append_jsonl as io_append_jsonl,
@@ -1507,6 +1508,9 @@ def terminate_managed_process(
 
     if os.name == "nt":
         if windows_terminate_fn is None:
+            require_real_external_io_allowed(
+                "managed Windows process termination"
+            )
             from weather.operations.windows_processes import terminate_verified_process
 
             windows_terminate_fn = terminate_verified_process
@@ -1569,6 +1573,8 @@ def terminate_python_pid(
         return {"pid": pid, "stopped": False, "reason": "pid is not a live python process"}
     try:
         normalized = int(pid)
+        if kill_fn is os.kill:
+            require_real_external_io_allowed("Python process signal mutation")
         kill_fn(normalized, signal_number)
     except (OSError, ValueError) as exc:
         return {"pid": pid, "stopped": False, "reason": str(exc)}

@@ -8,6 +8,8 @@ import struct
 from ctypes import wintypes
 from typing import Callable
 
+from weather.integration_test_safety import require_real_external_io_allowed
+
 
 MAX_PATH = 260
 TH32CS_SNAPPROCESS = 0x00000002
@@ -93,6 +95,7 @@ if os.name == "nt":
     TerminateProcess = kernel32.TerminateProcess
     TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
     TerminateProcess.restype = wintypes.BOOL
+    _NATIVE_TERMINATE_PROCESS = TerminateProcess
 
     WaitForSingleObject = kernel32.WaitForSingleObject
     WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
@@ -326,6 +329,8 @@ def terminate_verified_process(
         command_line = _remote_command_line(handle)
         if not command_line or not command_line_check(command_line):
             return {"pid": int(pid), "stopped": False, "reason": "process_command_changed_before_termination"}
+        if TerminateProcess is _NATIVE_TERMINATE_PROCESS:
+            require_real_external_io_allowed("native Windows process termination")
         if not TerminateProcess(handle, int(exit_code)):
             return {
                 "pid": int(pid),

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 
@@ -24,3 +25,47 @@ def test_sparse_retained_closure_status_is_safe_under_inherited_strict_mode() ->
     assert "$doc.state" not in text
     assert "$doc.ensure_status" not in text
     assert "$doc.reason" not in text
+
+
+def test_roll_verdict_uses_only_pinned_sanitized_bounded_git() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert '[string]$GitExecutable = ""' in text
+    assert '[string]$ExpectedGitExecutableSha256 = ""' in text
+    assert '[string]$ExpectedRemoteGitSha256 = ""' in text
+    assert '[string]$ExpectedJobContainmentSha256 = ""' in text
+    assert "function Open-WeatherRollVerdictPinnedDependency" in text
+    assert '"integration_attempt_remote_git.ps1"' in text
+    assert '"windows_kill_on_close_job.ps1"' in text
+    assert ". $remoteGitPin.Path" in text
+    assert "Assert-WeatherIntegrationSafeGitEnvironment" in text
+    assert "Get-WeatherIntegrationGitExecutablePath" in text
+    assert "$resolvedGitExecutable" in text
+    assert "$resolvedGitExecutableSha256" in text
+    assert "[IO.FileShare]::Read" in text
+    assert text.count("Invoke-WeatherIntegrationCheckedLocalGit `") == 5
+    assert text.count("-ExpectedGitExecutableSha256 $resolvedGitExecutableSha256") == 5
+    assert 'GIT_NO_REPLACE_OBJECTS = "1"' not in text
+    assert "$LASTEXITCODE" not in text
+    assert re.search(r"(?i)&\s*(?:git(?:\.exe)?|\$resolvedGitExecutable)\b", text) is None
+
+
+def test_roll_verdict_preserves_git_query_and_verdict_exit_semantics() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    origin = text.index('$originQuery = Invoke-WeatherIntegrationCheckedLocalGit `')
+    counts = text.index('$countQuery = Invoke-WeatherIntegrationCheckedLocalGit `')
+    base = text.index('$baseQuery = Invoke-WeatherIntegrationCheckedLocalGit `')
+    changed = text.index('$changedQuery = Invoke-WeatherIntegrationCheckedLocalGit `')
+    verdict = text.index("switch ($verdict)")
+    assert origin < counts < base < changed < verdict
+    assert text.count("-AllowedExitCodes @(0..255)") == 3
+    assert '$haveOrigin = ([int]$originQuery.ExitCode -eq 0)' in text
+    assert '$counts = if ([int]$countQuery.ExitCode -eq 0)' in text
+    assert '$changed = if ([int]$changedQuery.ExitCode -eq 0)' in text
+    assert '"ROLL-FREE" { exit 0 }' in text
+    assert '"ROLL-FREE-IF-DORMANT" { exit 2 }' in text
+    assert '"ROLL-SENSITIVE" { exit 3 }' in text
+    assert "default { exit 1 }" in text
+    assert '$rollVerdictPrimaryFailure.Exception.Data[' in text
+    assert '"weather_cleanup_failure"' in text

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from weather.market.market_microstructure_constants import CLOB_USER_WS_URL
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.mm_official_adapter import normalize_official_user_event
 from weather.schema_registry import schema_version
 
@@ -34,6 +35,7 @@ def _utc_iso() -> str:
 
 
 def _default_websocket_factory(url: str, *, timeout: float):
+    require_real_external_io_allowed("real authenticated user WebSocket transport")
     return websocket.create_connection(url, timeout=timeout)
 
 

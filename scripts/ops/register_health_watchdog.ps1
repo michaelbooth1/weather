@@ -11,11 +11,45 @@ param(
     [switch]$Unregister
 )
 
+$schedulerBoundaryScript = Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1"
+if (-not (Test-Path -LiteralPath $schedulerBoundaryScript -PathType Leaf)) {
+    throw "Scheduler mutation boundary helper is missing: $schedulerBoundaryScript"
+}
+$schedulerBoundaryPreviousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Stop"
+    Remove-Item `
+        -LiteralPath Function:\Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -Force -ErrorAction SilentlyContinue
+    . $schedulerBoundaryScript
+    $schedulerBoundaryCommand = Get-Command `
+        Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandType Function -ErrorAction Stop
+}
+catch {
+    throw "Scheduler mutation boundary helper could not be loaded from its canonical file."
+}
+finally {
+    $ErrorActionPreference = $schedulerBoundaryPreviousErrorActionPreference
+}
+if ([string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ScriptBlock.File) -or
+    -not [IO.Path]::GetFullPath(
+        [string]$schedulerBoundaryCommand.ScriptBlock.File
+    ).Equals(
+        [IO.Path]::GetFullPath($schedulerBoundaryScript),
+        [StringComparison]::OrdinalIgnoreCase
+    ) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ModuleName) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.Source)) {
+    throw "Scheduler mutation boundary helper did not load from its canonical file."
+}
 $taskName = "WeatherHostHealthWatchdog"
 $repo = $RepoRoot
 $script = Join-Path $repo "scripts\ops\health_watchdog.ps1"
 
 if ($Unregister) {
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Unregister-ScheduledTask" -Phase "host-health watchdog unregistration"
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     Write-Output "unregistered $taskName"
     exit 0
@@ -33,6 +67,8 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
     -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
     -MultipleInstances IgnoreNew
 
+Assert-WeatherIntegrationSchedulerMutationAllowed `
+    -CommandName "Register-ScheduledTask" -Phase "host-health watchdog registration"
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Principal $principal -Settings $settings -Force `
     -Description "Time-aware host health watchdog; writes data/alerts/host_health_alerts.jsonl and MORNING_BRIEFING.md" | Out-Null

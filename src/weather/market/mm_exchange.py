@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from weather.io import append_csv_rows, append_jsonl as io_append_jsonl, read_csv_rows as io_read_csv_rows, read_jsonl
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.market_making_run_constants import FILL_COLUMNS, SCHEMA_VERSION as RUN_SCHEMA_VERSION
 from weather.market.mm_exchange_reports import (
     SCHEMA_VERSION,
@@ -854,6 +855,7 @@ class RequestsTransport:
     """Thin wrapper around requests, isolated so tests can inject a fake."""
 
     def request(self, method, url, headers=None, json_body=None):
+        require_real_external_io_allowed("real exchange HTTP transport")
         import requests
 
         response = requests.request(method, url, headers=headers, json=json_body, timeout=20)

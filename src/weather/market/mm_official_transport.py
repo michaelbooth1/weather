@@ -20,6 +20,7 @@ from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from weather.integration_test_safety import require_real_external_io_allowed
 
 CLOB_HOST = "https://clob.polymarket.com"
 RELAYER_HOST = "https://relayer-v2.polymarket.com"
@@ -94,6 +95,8 @@ def _open_json(request, *, opener, timeout_seconds, label):
     timeout = float(timeout_seconds)
     if not math.isfinite(timeout) or not 0 < timeout <= 60:
         raise ValueError("protocol timeout must be finite and in (0, 60] seconds")
+    if opener is None:
+        require_real_external_io_allowed(f"real {label} HTTP transport")
     response = (opener or urlopen)(request, timeout=timeout)
     return _read_json_response(response, label=label)
 

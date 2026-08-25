@@ -16,11 +16,18 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern("^[0-9a-fA-F]{64}$")]
     [string]$ExpectedReadinessReceiptSha256,
-    [Parameter(Mandatory = $true)][string]$ResultPath
+    [Parameter(Mandatory = $true)][string]$ResultPath,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("AUTHORIZE_EXACT_INTEGRATION_TASK_ACTIVATION")]
+    [string]$ActivationConfirmation
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+if ($ActivationConfirmation -cne
+        "AUTHORIZE_EXACT_INTEGRATION_TASK_ACTIVATION") {
+    throw "ActivationConfirmation must use the exact case-sensitive authorization literal."
+}
 
 . (Join-Path $PSScriptRoot "integration_attempt_contract.ps1")
 . (Join-Path $PSScriptRoot "integration_attempt_preparation_contract.ps1")
@@ -35,6 +42,7 @@ $passReceipt = $null
 $terminalMutex = $null
 $taskEvidence = New-Object System.Collections.Generic.List[object]
 $disableEvidence = @()
+$primaryError = $null
 
 try {
     $contract = Assert-WeatherIntegrationAttemptManifest `
@@ -71,15 +79,17 @@ try {
     if (Test-Path -LiteralPath $resolvedResultPath) {
         throw "Immutable activation receipt already exists and will not be replaced: $resolvedResultPath"
     }
-    if ((Get-WeatherIntegrationFileSha256 -Path $resolvedIntentPath) -ne
+    $intentSnapshot = Read-WeatherIntegrationEvidenceSnapshot -Path $resolvedIntentPath -MaximumBytes 65536 -ContentType Json
+    if ([string]$intentSnapshot.Sha256 -ne
             $ExpectedPreparationIntentSha256.ToLowerInvariant()) {
         throw "Activation preparation-intent hash mismatch."
     }
-    if ((Get-WeatherIntegrationFileSha256 -Path $resolvedReadinessReceiptPath) -ne
+    $readinessSnapshot = Read-WeatherIntegrationEvidenceSnapshot -Path $resolvedReadinessReceiptPath -MaximumBytes 2097152 -ContentType Json
+    if ([string]$readinessSnapshot.Sha256 -ne
             $ExpectedReadinessReceiptSha256.ToLowerInvariant()) {
         throw "Activation readiness-receipt hash mismatch."
     }
-    $readinessReceipt = Read-WeatherIntegrationSharedJson -Path $resolvedReadinessReceiptPath
+    $readinessReceipt = $readinessSnapshot.Payload
     if ([string]$readinessReceipt.schema -ne
             "weather_integration_attempt_readiness_receipt_v1" -or
         [string]$readinessReceipt.status -ne "PASS" -or
@@ -99,7 +109,7 @@ try {
         throw "Activation requires the exact immutable preparation READY receipt."
     }
     $authorization = Assert-WeatherIntegrationPreparationExecutionAuthorization `
-        -AttemptContract $contract
+        -AttemptContract $contract -RequireLiveQualificationInputs
     if (-not [bool]$authorization.Required -or -not [bool]$authorization.Present) {
         throw "Activation requires the exact manifest-bound preparation PASS authorization."
     }
@@ -111,13 +121,14 @@ try {
         throw "Activation requires a PASS registration receipt proving disabled staging."
     }
 
-    $suiteAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-        -Value ([string]$manifest.schedule.suite_at_local) -Label "suite_at_local"
-    $mergeAt = ConvertFrom-WeatherIntegrationLocalTimestamp `
-        -Value ([string]$manifest.schedule.merge_at_local) -Label "merge_at_local"
+    $scheduleEvidence = Assert-WeatherIntegrationScheduleEvidence `
+        -Schedule $manifest.schedule -Label "activation manifest schedule"
+    $suiteAt = [datetime]$scheduleEvidence.SuiteAtLocal
+    $mergeAt = [datetime]$scheduleEvidence.MergeAtLocal
     Assert-WeatherIntegrationPreparationSchedule `
         -SuiteAtLocal $suiteAt -MergeAtLocal $mergeAt `
-        -Now (Get-Date) -MinimumLeadMinutes 5 | Out-Null
+        -Now (Get-WeatherIntegrationScheduleLocalNow) `
+        -MinimumLeadMinutes 5 | Out-Null
 
     $stage = "revalidate_mutable_readiness"
     $activationNow = [DateTimeOffset]::Now
@@ -152,10 +163,11 @@ try {
     Assert-WeatherIntegrationGitBaseline `
         -AttemptContract $contract -Phase "integration activation" | Out-Null
     $registeredWorktree = $false
-    $worktreeRows = @(& git -C $repoRoot worktree list --porcelain)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Activation could not enumerate registered worktrees."
-    }
+    $worktreeQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $repoRoot `
+        -Arguments @("worktree", "list", "--porcelain") `
+        -Label "activation registered-worktree query"
+    $worktreeRows = @($worktreeQuery.StdoutLines)
     foreach ($worktreeRow in $worktreeRows) {
         if ([string]$worktreeRow -like "worktree *" -and
             (Test-WeatherIntegrationPathEqual `
@@ -165,17 +177,21 @@ try {
             break
         }
     }
-    $worktreeTipRows = @(& git -C ([string]$manifest.worktree_root) `
-        rev-parse HEAD)
-    $worktreeTipExit = $LASTEXITCODE
-    $worktreeStatusRows = @(& git -C ([string]$manifest.worktree_root) `
-        status --porcelain)
-    $worktreeStatusExit = $LASTEXITCODE
+    $worktreeTipQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root ([string]$manifest.worktree_root) `
+        -Arguments @("rev-parse", "--verify", "HEAD^{commit}") `
+        -Label "activation suite-worktree exact-tip query"
+    $worktreeTipRows = @($worktreeTipQuery.StdoutLines)
+    $worktreeStatusQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root ([string]$manifest.worktree_root) `
+        -Arguments @("status", "--porcelain") `
+        -Label "activation suite-worktree clean-state query"
+    $worktreeStatusRows = @($worktreeStatusQuery.StdoutLines)
     if (-not $registeredWorktree -or $worktreeTipRows.Count -ne 1 -or
+        ([string]$worktreeTipRows[0]).Trim() -notmatch '^[0-9a-fA-F]{40}$' -or
         ([string]$worktreeTipRows[0]).Trim().ToLowerInvariant() -ne
             [string]$manifest.expected_tip -or
-        $worktreeStatusRows.Count -ne 0 -or
-        $worktreeTipExit -ne 0 -or $worktreeStatusExit -ne 0) {
+        $worktreeStatusRows.Count -ne 0) {
         throw "Suite worktree changed after final readiness."
     }
     $currentQuietPreflight = Assert-WeatherIntegrationQuietMergePreconditions `
@@ -217,23 +233,42 @@ try {
     }
 
     $stage = "activation_boundary"
+    if ($ActivationConfirmation -cne
+            "AUTHORIZE_EXACT_INTEGRATION_TASK_ACTIVATION") {
+        throw "Exact integration-task activation confirmation is absent."
+    }
     Assert-WeatherIntegrationPreparationSchedule `
         -SuiteAtLocal $suiteAt -MergeAtLocal $mergeAt `
-        -Now (Get-Date) -MinimumLeadMinutes 5 | Out-Null
+        -Now (Get-WeatherIntegrationScheduleLocalNow) `
+        -MinimumLeadMinutes 5 | Out-Null
     Assert-WeatherIntegrationNoActiveAttemptCollision `
         -SuiteAtLocal $suiteAt -MergeAtLocal $mergeAt `
         -AttemptId ([string]$manifest.attempt_id) `
-        -RepositoryRoot $repoRoot
+        -RepositoryRoot $repoRoot -AllowOwnExactTasks
+    Assert-WeatherIntegrationCurrentAuthorityTuple `
+        -AttemptContract $contract -Phase "activation mutation boundary" | Out-Null
+    $activationAuthorization = `
+        Assert-WeatherIntegrationPreparationExecutionAuthorization `
+            -AttemptContract $contract -RequireLiveQualificationInputs
+    if (-not [bool]$activationAuthorization.Present) {
+        throw "Activation mutation boundary lost its qualified runtime authorization."
+    }
 
     # Merge is enabled first because it remains fail-closed on a missing suite
     # PASS receipt. The five-minute reserve makes the two local mutations a
     # bounded activation transaction, and the execution authorization already
     # exists before either task can become runnable.
     $stage = "enable_merge"
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Enable-ScheduledTask" -Phase "merge-task activation"
     Enable-ScheduledTask `
         -TaskName ([string]$manifest.schedule.merge_task_name) `
         -TaskPath "\" -ErrorAction Stop | Out-Null
     $stage = "enable_suite"
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
+    Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandName "Enable-ScheduledTask" -Phase "suite-task activation"
     Enable-ScheduledTask `
         -TaskName ([string]$manifest.schedule.suite_task_name) `
         -TaskPath "\" -ErrorAction Stop | Out-Null
@@ -265,6 +300,9 @@ try {
         })
     }
     $stage = "write_activation_receipt"
+    Assert-WeatherIntegrationCurrentAuthorityTuple `
+        -AttemptContract $contract `
+        -Phase "final activation receipt boundary" | Out-Null
     $passReceipt = [ordered]@{
         schema = "weather_integration_attempt_preparation_receipt_v1"
         status = "PASS"
@@ -291,11 +329,13 @@ try {
             live_exchange_mutation_authorized = $false
         }
     }
+    Assert-WeatherIntegrationRuntimeEvidenceNamespace -AttemptContract $contract | Out-Null
     Write-WeatherIntegrationImmutableJson `
         -Path $resolvedResultPath -Payload $passReceipt
     $status = "PASS"
 }
 catch {
+    $primaryError = $_
     $failure = $_.Exception.Message
     if ($null -ne $contract) {
         try {
@@ -314,7 +354,8 @@ catch {
     }
 }
 finally {
-    Exit-WeatherIntegrationControlMutex -Mutex $terminalMutex
+    Exit-WeatherIntegrationControlMutex `
+        -Mutex $terminalMutex -PrimaryError $primaryError
 }
 
 if ($status -ne "PASS") {

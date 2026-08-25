@@ -1,4 +1,4 @@
-# 329. Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]
+# 329. Immutable Overnight Integration Attempt Recovery [PARTIAL 2026-08-25 - PRE-ARM EXACT-TIP QUALIFICATION NOT YET PROVED]
 
 Goal: stop losing entire integration windows when one frozen cumulative tip
 hits a deterministic ratchet, transient host failure, or wrapper defect.
@@ -77,6 +77,14 @@ safe way to create a corrected attempt.
   compileall, and the exact full suite in an admitted host window.
 - [x] Merge the reviewed branch and explicitly adopt the registrar on the
   production scheduler; editing the scripts does not authorize registration.
+- [ ] Require an exact-tip qualification PASS before any new attempt can be
+  registered or activated. Qualification must run the deterministic integration
+  preflight and the complete bounded suite from the isolated worktree, bind
+  their immutable logs and verdicts, and be repeated by the overnight attempt
+  to detect environment drift.
+- [ ] Prove the reopened path end to end: topic-push CI PASS, admitted Windows
+  qualification PASS, exact successor suite PASS, and guarded merge PASS. A
+  parser/static/direct-function check is not qualification evidence.
 
 Acceptance: after any failed attempt, the evidence stays immutable and the
 operator or active recovery agent can either close it, emit one reviewed
@@ -90,6 +98,8 @@ exact hash-bound evidence.
 ## Evidence
 
 - Canonical procedure: `docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md`.
+- The a2 failure analysis and layered prevention design are recorded in
+  `docs/roadmap/agent-report-2026-08-25-overnight-prearm-qualification-audit.md`.
 - Repository entry points: `scripts/ops/integration_attempt_*.ps1`,
   `new_integration_attempt.ps1`, `register_integration_attempt.ps1`,
   `close_integration_attempt.ps1`, and
@@ -176,11 +186,23 @@ exact hash-bound evidence.
   `0af64ecf36287a8e88aa1f85cbfa2ff540adb03b`. Its PASS receipt binds
   three-worker and required execution-tape recovery, source ancestry,
   local/remote equality, and the same no-credential/no-live authority.
+- The 2026-08-25 `credential-reconcile-0825-a2` attempt reopened this item. Its
+  first lawful exact-tip integration preflight ran 143 tests and found nine
+  deterministic test/contract alignment failures; the full suite correctly did
+  not start and the merge correctly refused before mutation. Static/parser and
+  direct-function checks had been treated as sufficient preparation even though
+  the runbook says the full suite is confirmation rather than discovery. The
+  attempt is now immutably `ABANDONED`, both exact tasks are Disabled, and its
+  reviewed `manual_reviewed_change` dispatch classifies one descendant repair
+  opportunity but grants no publication, Scheduler, credential, exchange, or
+  production authority.
+  Topic-push CI plus hash-bound pre-arm preflight/full-suite qualification are
+  required before this item can return to complete.
 
 ## Completion notes
 
-The primary and recovery contracts are now production code, the registrar has
-been exercised through one successful immutable attempt, and the full failure
-matrix remains covered by the focused executable contracts above. Any future
-failed attempt still has to use its exact close/dispatch/successor path; this
-completion does not authorize a generic retry or downstream workload.
+The primary and recovery contracts remain production code, but the preparation
+contract is reopened. Any future failed attempt still has to use its exact
+close/dispatch/successor path; no generic retry or downstream workload is
+authorized. Restore `COMPLETE` only after the new pre-arm qualification path and
+one successor are proved with exact immutable evidence.

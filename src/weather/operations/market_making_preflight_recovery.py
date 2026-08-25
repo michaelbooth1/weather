@@ -13,6 +13,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.integration_test_safety import require_real_external_io_allowed
 from weather.market.market_making_evidence import EVIDENCE_MODE_AUTO, EVIDENCE_MODE_CHOICES
 from weather.market.market_making_run import build_run_once
 from weather.market.market_making_run_support import make_run_id, read_json, write_json
@@ -143,6 +144,7 @@ def _command_result(command_group, *, execute, timeout_seconds, cwd):
 
     started = _utc_iso()
     try:
+        require_real_external_io_allowed("real market-making remediation process")
         completed = subprocess.run(
             command,
             cwd=str(cwd) if cwd else None,

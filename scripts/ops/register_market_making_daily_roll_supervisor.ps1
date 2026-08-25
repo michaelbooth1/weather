@@ -27,6 +27,38 @@ param(
     [double]$MaxEventNotional = 25.0
 )
 
+$schedulerBoundaryScript = Join-Path $PSScriptRoot "integration_attempt_remote_git.ps1"
+if (-not (Test-Path -LiteralPath $schedulerBoundaryScript -PathType Leaf)) {
+    throw "Scheduler mutation boundary helper is missing: $schedulerBoundaryScript"
+}
+$schedulerBoundaryPreviousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Stop"
+    Remove-Item `
+        -LiteralPath Function:\Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -Force -ErrorAction SilentlyContinue
+    . $schedulerBoundaryScript
+    $schedulerBoundaryCommand = Get-Command `
+        Assert-WeatherIntegrationSchedulerMutationAllowed `
+        -CommandType Function -ErrorAction Stop
+}
+catch {
+    throw "Scheduler mutation boundary helper could not be loaded from its canonical file."
+}
+finally {
+    $ErrorActionPreference = $schedulerBoundaryPreviousErrorActionPreference
+}
+if ([string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ScriptBlock.File) -or
+    -not [IO.Path]::GetFullPath(
+        [string]$schedulerBoundaryCommand.ScriptBlock.File
+    ).Equals(
+        [IO.Path]::GetFullPath($schedulerBoundaryScript),
+        [StringComparison]::OrdinalIgnoreCase
+    ) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.ModuleName) -or
+    -not [string]::IsNullOrWhiteSpace([string]$schedulerBoundaryCommand.Source)) {
+    throw "Scheduler mutation boundary helper did not load from its canonical file."
+}
 $wrapper = Join-Path $RepoRoot "scripts\ops\market_making_daily_roll_task.ps1"
 if (-not (Test-Path $wrapper)) {
     throw "daily-roll task wrapper not found at $wrapper"
@@ -58,6 +90,8 @@ $principal = New-ScheduledTaskPrincipal `
     -LogonType S4U `
     -RunLevel Limited
 
+Assert-WeatherIntegrationSchedulerMutationAllowed `
+    -CommandName "Register-ScheduledTask" -Phase "market-making daily-roll supervisor registration"
 Register-ScheduledTask `
     -TaskName $TaskName `
     -Action $action `

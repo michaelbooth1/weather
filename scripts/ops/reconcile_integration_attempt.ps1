@@ -21,6 +21,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "integration_attempt_contract.ps1")
+$script:WeatherReconciliationPythonExecutions =
+    [Collections.Generic.List[object]]::new()
 
 function Invoke-WeatherReconciliationGitLine {
     param(
@@ -28,11 +30,460 @@ function Invoke-WeatherReconciliationGitLine {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
-    $output = @(& git -C $Root @Arguments)
-    if ($LASTEXITCODE -ne 0 -or $output.Count -eq 0) {
-        throw "git -C $Root $($Arguments -join ' ') failed."
+    $query = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $Root -Arguments $Arguments `
+        -Label "integration reconciliation local Git query: $($Arguments -join ' ')"
+    $output = @($query.StdoutLines)
+    if ($output.Count -ne 1 -or
+        [string]::IsNullOrWhiteSpace([string]$output[0])) {
+        throw "Reconciliation local Git query did not return exactly one line: $($Arguments -join ' ')"
     }
-    return ([string]$output[-1]).Trim().ToLowerInvariant()
+    return ([string]$output[0]).Trim().ToLowerInvariant()
+}
+
+function Get-WeatherReconciliationPythonBinding {
+    param([Parameter(Mandatory = $true)][object]$AttemptContract)
+
+    $attempt = $AttemptContract.Manifest
+    $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$attempt.repo_root)
+    $pythonPath = Resolve-WeatherIntegrationPath `
+        -Path (Join-Path $repoRoot "venv\Scripts\python.exe")
+    if (-not (Test-Path -LiteralPath $pythonPath -PathType Leaf)) {
+        throw "Repository virtual-environment interpreter is missing: $pythonPath"
+    }
+    Assert-WeatherIntegrationRegularPathAncestry `
+        -Path $pythonPath -Phase "reconciliation Python executable"
+    $pythonItem = Get-Item -LiteralPath $pythonPath -Force -ErrorAction Stop
+    if ($pythonItem.PSIsContainer -or
+        ($pythonItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Reconciliation Python executable must be one regular file."
+    }
+    $expectedSha256 = Get-WeatherIntegrationFileSha256 -Path $pythonPath
+    $bindingAuthority = "CURRENT_LEGACY_INTERPRETER"
+    if ([string]$attempt.schema -ceq
+            $script:WeatherIntegrationAttemptManifestSchema) {
+        $suiteContract = Assert-WeatherIntegrationSuiteReceipt `
+            -AttemptContract $AttemptContract
+        $testResultsProperty =
+            $suiteContract.Receipt.logs.full_suite.PSObject.Properties[
+                "test_results"
+            ]
+        if ($null -eq $testResultsProperty -or
+            $null -eq $testResultsProperty.Value) {
+            throw "Current reconciliation requires the qualified full-suite environment binding."
+        }
+        $testResults = $testResultsProperty.Value
+        $environmentSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path ([string]$testResults.python_environment_post_path) `
+            -MaximumBytes 16777216 -ContentType Json
+        if ([string]$environmentSnapshot.Sha256 -cne
+                [string]$testResults.python_environment_sha256 -or
+            [string]$environmentSnapshot.Sha256 -cne
+                [string]$attempt.suite.expected_python_environment_sha256 -or
+            [string]$environmentSnapshot.Payload.schema_version -cne
+                "python_environment_fingerprint_v1" -or
+            [string]$environmentSnapshot.Payload.executable_sha256 -cnotmatch
+                '^[0-9a-f]{64}$' -or
+            [string]$environmentSnapshot.Payload.executable_sha256 -cne
+                $expectedSha256 -or
+            -not (Test-WeatherIntegrationPathEqual `
+                -Left ([string]$environmentSnapshot.Payload.executable) `
+                -Right $pythonPath)) {
+            throw "Qualified Python environment cannot bind the reconciliation interpreter."
+        }
+        $expectedSha256 =
+            [string]$environmentSnapshot.Payload.executable_sha256
+        $bindingAuthority = "IMMUTABLE_FULL_SUITE_ENVIRONMENT"
+    }
+    return [pscustomobject][ordered]@{
+        Path = $pythonPath
+        Sha256 = $expectedSha256
+        Authority = $bindingAuthority
+    }
+}
+
+function Get-WeatherReconciliationPythonGitTuple {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    Assert-WeatherIntegrationNoIgnoredImportArtifacts `
+        -WorktreeRoot $RepositoryRoot -Phase "$Label ignored namespace" | Out-Null
+    $branchBefore = Invoke-WeatherReconciliationGitLine `
+        -Root $RepositoryRoot `
+        -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
+    $refs = @((Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $RepositoryRoot `
+        -Arguments @(
+            "rev-parse", "--end-of-options",
+            "HEAD^{commit}", "master^{commit}", "origin/master^{commit}"
+        ) `
+        -Label "$Label exact Git refs").StdoutLines)
+    $status = @((Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $RepositoryRoot `
+        -Arguments @("status", "--porcelain") `
+        -Label "$Label exact Git status").StdoutLines)
+    $branchAfter = Invoke-WeatherReconciliationGitLine `
+        -Root $RepositoryRoot `
+        -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
+    if ($branchBefore -cne "master" -or $branchAfter -cne $branchBefore -or
+        $refs.Count -ne 3 -or
+        @($refs | Where-Object {
+            ([string]$_).Trim() -cnotmatch '^[0-9a-fA-F]{40}$'
+        }).Count -ne 0 -or
+        ([string]$refs[0]).Trim().ToLowerInvariant() -cne
+            ([string]$refs[1]).Trim().ToLowerInvariant()) {
+        throw "$Label requires one stable checked-out production master tuple."
+    }
+    return [pscustomobject][ordered]@{
+        Branch = $branchAfter
+        Head = ([string]$refs[0]).Trim().ToLowerInvariant()
+        Master = ([string]$refs[1]).Trim().ToLowerInvariant()
+        OriginMaster = ([string]$refs[2]).Trim().ToLowerInvariant()
+        Status = ($status -join "`n")
+    }
+}
+
+function Assert-WeatherReconciliationPythonGitTupleUnchanged {
+    param(
+        [Parameter(Mandatory = $true)][object]$Before,
+        [Parameter(Mandatory = $true)][object]$After,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    foreach ($name in @("Branch", "Head", "Master", "OriginMaster", "Status")) {
+        if ([string]$Before.$name -cne [string]$After.$name) {
+            throw "$Label production Git tuple changed at $name across the Python child."
+        }
+    }
+}
+
+function Get-WeatherReconciliationLoadedSourceFingerprint {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string[]]$RelativePaths,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $sortedPaths = @($RelativePaths | Sort-Object -Unique)
+    if ($sortedPaths.Count -le 0 -or $sortedPaths.Count -gt 4096 -or
+        $sortedPaths.Count -ne $RelativePaths.Count) {
+        throw "$Label scope is empty, duplicated, or exceeds 4096 files."
+    }
+    $aggregate = [Security.Cryptography.SHA256]::Create()
+    $totalBytes = [int64]0
+    try {
+        foreach ($relativePath in $sortedPaths) {
+            if ([string]::IsNullOrWhiteSpace($relativePath) -or
+                $relativePath.Contains("\") -or
+                [IO.Path]::IsPathRooted($relativePath) -or
+                @($relativePath.Split('/') | Where-Object {
+                    $_ -in @("", ".", "..")
+                }).Count -ne 0 -or
+                $relativePath -cnotmatch
+                    '^(?:app\.py|sitecustomize\.py|(?:app|src|weather)/.+\.py)$') {
+                throw "$Label scope escapes canonical Python source roots."
+            }
+            $absolute = [IO.Path]::GetFullPath(
+                (Join-Path $RepositoryRoot ($relativePath -replace '/', '\'))
+            )
+            Assert-WeatherIntegrationRegularPathAncestry `
+                -Path $absolute -Phase "$Label loaded-source file"
+            $item = Get-Item -LiteralPath $absolute -Force -ErrorAction Stop
+            if ($item.PSIsContainer -or
+                ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                [int64]$item.Length -gt 67108864) {
+                throw "$Label source file is non-regular or exceeds 64 MiB."
+            }
+            $stream = $null
+            try {
+                $stream = [IO.File]::Open(
+                    $absolute, [IO.FileMode]::Open, [IO.FileAccess]::Read,
+                    [IO.FileShare]::Read
+                )
+                [byte[]]$nameBytes = [Text.Encoding]::UTF8.GetBytes($relativePath)
+                [void]$aggregate.TransformBlock(
+                    $nameBytes, 0, $nameBytes.Length, $nameBytes, 0
+                )
+                [byte[]]$separator = @(0)
+                [void]$aggregate.TransformBlock($separator, 0, 1, $separator, 0)
+                [byte[]]$buffer = New-Object byte[] 65536
+                while (($read = $stream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                    [void]$aggregate.TransformBlock($buffer, 0, $read, $buffer, 0)
+                    $totalBytes += $read
+                    if ($totalBytes -gt 134217728) {
+                        throw "$Label bytes exceed the 128 MiB bound."
+                    }
+                }
+                [void]$aggregate.TransformBlock($separator, 0, 1, $separator, 0)
+            }
+            finally {
+                if ($null -ne $stream) { $stream.Dispose() }
+            }
+        }
+        [void]$aggregate.TransformFinalBlock([byte[]]@(), 0, 0)
+        $fingerprint = (([BitConverter]::ToString($aggregate.Hash)) `
+            -replace '-', '').ToLowerInvariant().Substring(0, 16)
+    }
+    finally { $aggregate.Dispose() }
+    return [pscustomobject]@{
+        Fingerprint = $fingerprint
+        FileCount = $sortedPaths.Count
+        TotalBytes = $totalBytes
+    }
+}
+
+function Assert-WeatherReconciliationPythonExecutionIdentity {
+    param(
+        [Parameter(Mandatory = $true)][object]$Payload,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$ModuleRelativePath,
+        [Parameter(Mandatory = $true)][string]$ExpectedCommit,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $executionProperty = $Payload.PSObject.Properties["execution_identity"]
+    $execution = if ($null -ne $executionProperty) {
+        $executionProperty.Value
+    }
+    else { $null }
+    $runtime = if ($null -ne $execution) { $execution.runtime_identity } else { $null }
+    if ($null -eq $execution -or $execution -is [System.Array] -or
+        $null -eq $runtime -or $runtime -is [System.Array]) {
+        throw "$Label omitted its execution identity."
+    }
+    $expectedModule = [IO.Path]::GetFullPath(
+        (Join-Path $RepositoryRoot ($ModuleRelativePath -replace '/', '\'))
+    )
+    try {
+        $actualModule = [IO.Path]::GetFullPath([string]$execution.module_path)
+        $actualRoot = [IO.Path]::GetFullPath([string]$runtime.repo_root)
+    }
+    catch { throw "$Label execution identity contains invalid paths." }
+    $scopeFiles = @($runtime.source_scope_files | ForEach-Object { [string]$_ })
+    $uniqueScopeFiles = @($scopeFiles | Sort-Object -Unique)
+    if (-not $actualModule.Equals(
+            $expectedModule, [StringComparison]::OrdinalIgnoreCase
+        ) -or
+        -not $actualRoot.Equals(
+            [IO.Path]::GetFullPath($RepositoryRoot),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -or
+        [string]$runtime.schema_version -cne "runtime_identity_v0.1" -or
+        [string]$runtime.git_branch -cne "master" -or
+        [string]$runtime.git_commit -cne
+            $ExpectedCommit.ToLowerInvariant().Substring(0, 12) -or
+        [string]$runtime.source_scope -cne "loaded_modules" -or
+        [string]$runtime.source_fingerprint -cnotmatch '^[0-9a-f]{16}$' -or
+        [int]$runtime.source_file_count -ne $scopeFiles.Count -or
+        $scopeFiles.Count -le 0 -or
+        $scopeFiles.Count -ne $uniqueScopeFiles.Count -or
+        ($scopeFiles -join "`n") -cne ($uniqueScopeFiles -join "`n") -or
+        $scopeFiles -cnotcontains $ModuleRelativePath) {
+        throw "$Label execution identity is not bound to the published source."
+    }
+    $current = Get-WeatherReconciliationLoadedSourceFingerprint `
+        -RepositoryRoot $RepositoryRoot -RelativePaths $scopeFiles -Label $Label
+    if ([string]$current.Fingerprint -cne
+            [string]$runtime.source_fingerprint -or
+        [int]$current.FileCount -ne [int]$runtime.source_file_count) {
+        throw "$Label loaded-source fingerprint does not match retained production bytes."
+    }
+    return $current
+}
+
+function Invoke-WeatherReconciliationPythonJson {
+    param(
+        [Parameter(Mandatory = $true)][object]$PythonBinding,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string[]]$Arguments,
+        [Parameter(Mandatory = $true)][string]$ModuleRelativePath,
+        [Parameter(Mandatory = $true)][string]$Label,
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 60,
+        [int[]]$AllowedExitCodes = @(0)
+    )
+
+    $blockedPythonControls = @(
+        "PYTEST_ADDOPTS", "PYTEST_PLUGINS", "PYTHONHOME", "PYTHONPATH",
+        "PYTHONSTARTUP", "PYTHONUSERBASE", "PYTHONBREAKPOINT",
+        "PYTHONOPTIMIZE", "PYTHONWARNINGS", "PYTHONINSPECT",
+        "PYTHONSAFEPATH", "PYTHONCASEOK", "PYTHONEXECUTABLE",
+        "PYTHONPLATLIBDIR", "PYTHONPYCACHEPREFIX",
+        "PYTHONDONTWRITEBYTECODE", "PYTHONHASHSEED", "PYTHONUTF8",
+        "PYTHONIOENCODING", "PYTHONDEVMODE", "PYTHONMALLOC",
+        "PYTHONPROFILEIMPORTTIME", "PYTHONTRACEMALLOC",
+        "PYTHONFAULTHANDLER", "PYTHONCOERCECLOCALE",
+        "PYTHONLEGACYWINDOWSSTDIO", "PYTHONLEGACYWINDOWSFSENCODING",
+        "PYTHONWARNDEFAULTENCODING", "PYTHONINTMAXSTRDIGITS",
+        "__PYVENV_LAUNCHER__", "COVERAGE_PROCESS_START",
+        "WEATHER_INTEGRATION_TEST_OFFLINE"
+    )
+    $ambient = @($blockedPythonControls | Where-Object {
+        $null -ne [Environment]::GetEnvironmentVariable(
+            $_, [EnvironmentVariableTarget]::Process
+        )
+    })
+    if ($ambient.Count -ne 0) {
+        throw "$Label refuses ambient Python controls: $($ambient -join ', ')"
+    }
+    $secretEnvironmentNames = @(
+        [Environment]::GetEnvironmentVariables(
+            [EnvironmentVariableTarget]::Process
+        ).Keys |
+            ForEach-Object { [string]$_ } |
+            Where-Object {
+                $_ -in @(
+                    "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL", "PIP_PROXY",
+                    "PIP_TRUSTED_HOST", "UV_INDEX_URL", "UV_EXTRA_INDEX_URL",
+                    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+                    "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR",
+                    "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS", "PIP_CERT",
+                    "SSH_AUTH_SOCK"
+                ) -or
+                $_ -match '^(?i:POLYMARKET_|POLYMM_|OPENAI_|ANTHROPIC_|AWS_|AZURE_|GOOGLE_|GCM_)' -or
+                $_ -match '(?i)(?:^|_)(?:TOKEN|PASSWORD|PASSWD|SECRET|PRIVATE_KEY|API_KEY|ACCESS_KEY|CLIENT_SECRET|CREDENTIALS?|CONNECTION_STRING|URL|URI|COOKIE|DSN|AUTH|KEY|CERT)(?:$|_)'
+            } |
+            Sort-Object -Unique
+    )
+    $cacheRoot = Join-Path ([IO.Path]::GetTempPath()) (
+        "weather-reconciliation-python-" + [guid]::NewGuid().ToString("N")
+    )
+    $primaryFailure = $null
+    try {
+        if (Test-Path -LiteralPath $cacheRoot) {
+            throw "$Label unique Python cache root already exists."
+        }
+        [void][IO.Directory]::CreateDirectory($cacheRoot)
+        Assert-WeatherIntegrationRegularPathAncestry `
+            -Path $cacheRoot `
+            -Phase "$Label Python cache root"
+        $cacheItem = Get-Item -LiteralPath $cacheRoot -Force -ErrorAction Stop
+        if (-not $cacheItem.PSIsContainer -or
+            ($cacheItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+            @([IO.Directory]::EnumerateFileSystemEntries($cacheRoot)).Count -ne 0) {
+            throw "$Label Python cache root is not one empty regular directory."
+        }
+        $before = Get-WeatherReconciliationPythonGitTuple `
+            -RepositoryRoot $RepositoryRoot -Label "$Label before"
+        $result = Invoke-WeatherIntegrationBoundedProcess `
+            -Executable ([string]$PythonBinding.Path) `
+            -ExpectedExecutableSha256 ([string]$PythonBinding.Sha256) `
+            -Arguments (@("-P", "-B") + $Arguments) `
+            -WorkingDirectory $RepositoryRoot `
+            -TimeoutSeconds $TimeoutSeconds `
+            -Label $Label `
+            -AllowedExitCodes $AllowedExitCodes `
+            -MaxOutputBytes 2097152 `
+            -RemoveEnvironmentVariables @(
+                @($blockedPythonControls) + @($secretEnvironmentNames) +
+                @(Get-WeatherIntegrationBlockedGitEnvironmentNames) |
+                    Sort-Object -Unique
+            ) `
+            -Environment @{
+                PYTHONPATH = (Join-Path $RepositoryRoot "src")
+                PYTHONNOUSERSITE = "1"
+                PYTHONSAFEPATH = "1"
+                PYTHONPYCACHEPREFIX = $cacheRoot
+                PYTHONDONTWRITEBYTECODE = "1"
+                PYTHONHASHSEED = "0"
+                PYTHONUTF8 = "1"
+                PYTHONIOENCODING = "utf-8"
+                GIT_NO_REPLACE_OBJECTS = "1"
+                GIT_OPTIONAL_LOCKS = "0"
+                GIT_CONFIG_NOSYSTEM = "1"
+                GIT_CONFIG_SYSTEM = "NUL"
+                GIT_CONFIG_GLOBAL = "NUL"
+                GIT_CONFIG_COUNT = "0"
+                GIT_ALLOW_PROTOCOL = "file"
+                GIT_TERMINAL_PROMPT = "0"
+                LC_ALL = "C"
+                LANG = "C"
+            }
+        if (@([IO.Directory]::EnumerateFileSystemEntries($cacheRoot)).Count -ne 0) {
+            throw "$Label Python child populated its forbidden cache root."
+        }
+        if (-not [string]::IsNullOrWhiteSpace([string]$result.Stderr) -or
+            [string]::IsNullOrWhiteSpace([string]$result.Stdout) -or
+            [string]$result.StdoutSha256 -cnotmatch '^[0-9a-f]{64}$' -or
+            [string]$result.StderrSha256 -cnotmatch '^[0-9a-f]{64}$') {
+            throw "$Label did not return one clean retained JSON stdout channel."
+        }
+        try {
+            $payload = [string]$result.Stdout | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch { throw "$Label returned unreadable JSON." }
+        $loadedSource = Assert-WeatherReconciliationPythonExecutionIdentity `
+            -Payload $payload -RepositoryRoot $RepositoryRoot `
+            -ModuleRelativePath $ModuleRelativePath `
+            -ExpectedCommit ([string]$before.Head) -Label $Label
+        $after = Get-WeatherReconciliationPythonGitTuple `
+            -RepositoryRoot $RepositoryRoot -Label "$Label after"
+        Assert-WeatherReconciliationPythonGitTupleUnchanged `
+            -Before $before -After $after -Label $Label
+        $script:WeatherReconciliationPythonExecutions.Add(
+            [pscustomobject][ordered]@{
+                label = $Label
+                module_path = $ModuleRelativePath
+                python_path = [string]$PythonBinding.Path
+                python_sha256 = [string]$PythonBinding.Sha256
+                python_binding_authority = [string]$PythonBinding.Authority
+                exit_code = [int]$result.ExitCode
+                stdout_sha256 = [string]$result.StdoutSha256
+                stderr_sha256 = [string]$result.StderrSha256
+                source_fingerprint = [string]$loadedSource.Fingerprint
+                source_file_count = [int]$loadedSource.FileCount
+                source_total_bytes = [int64]$loadedSource.TotalBytes
+                production_head = [string]$before.Head
+            }
+        )
+        return [pscustomobject]@{
+            Payload = $payload
+            ExitCode = [int]$result.ExitCode
+        }
+    }
+    catch {
+        $primaryFailure = $_
+        throw
+    }
+    finally {
+        try {
+            $fullCacheRoot = [IO.Path]::GetFullPath($cacheRoot)
+            $tempParent = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd(
+                [IO.Path]::DirectorySeparatorChar,
+                [IO.Path]::AltDirectorySeparatorChar
+            )
+            if (-not [IO.Path]::GetDirectoryName($fullCacheRoot).Equals(
+                    $tempParent, [StringComparison]::OrdinalIgnoreCase
+                ) -or
+                [IO.Path]::GetFileName($fullCacheRoot) -cnotmatch
+                    '^weather-reconciliation-python-[0-9a-f]{32}$') {
+                throw "$Label refuses non-owned Python cache cleanup."
+            }
+            if (Test-Path -LiteralPath $fullCacheRoot) {
+                $item = Get-Item -LiteralPath $fullCacheRoot -Force -ErrorAction Stop
+                if (-not $item.PSIsContainer -or
+                    ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                    @([IO.Directory]::EnumerateFileSystemEntries($fullCacheRoot)).Count -ne 0) {
+                    throw "$Label refuses nonempty or reparse-point Python cache cleanup."
+                }
+                Remove-Item -LiteralPath $fullCacheRoot -Force -ErrorAction Stop
+                if (Test-Path -LiteralPath $fullCacheRoot) {
+                    throw "$Label Python cache cleanup was not proved."
+                }
+            }
+        }
+        catch {
+            $cleanupMessage = "$Label cleanup failed: $($_.Exception.Message)"
+            if ($null -ne $primaryFailure) {
+                $primaryFailure.Exception.Data[
+                    "weather_python_cleanup_failure"
+                ] = $cleanupMessage
+                Write-Warning $cleanupMessage -WarningAction Continue
+            }
+            else { throw $cleanupMessage }
+        }
+    }
 }
 
 function Assert-WeatherReconciliationDocumentationProof {
@@ -50,10 +501,12 @@ function Assert-WeatherReconciliationDocumentationProof {
     }
     $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$attempt.repo_root)
     $snapshotPath = Join-Path $repoRoot ($snapshotRelative -replace '/', '\')
-    if ((Get-WeatherIntegrationFileSha256 -Path $snapshotPath) -ne $pendingSha256) {
+    $snapshotEvidence = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $snapshotPath -MaximumBytes 2097152 -ContentType Json
+    if ([string]$snapshotEvidence.Sha256 -ne $pendingSha256) {
         throw "Documentation transaction snapshot hash does not match publication evidence."
     }
-    $snapshot = Read-WeatherIntegrationSharedJson -Path $snapshotPath
+    $snapshot = $snapshotEvidence.Payload
     $matchingEntries = @($snapshot.integrations | Where-Object {
         ([string]$_.integration_tip).ToLowerInvariant() -eq
             ([string]$PublicationRecord.merge_commit).ToLowerInvariant() -and
@@ -80,22 +533,52 @@ function Assert-WeatherReconciliationQuietReport {
         [Parameter(Mandatory = $true)][object]$AttemptContract,
         [Parameter(Mandatory = $true)][string]$ExpectedSha256,
         [switch]$AllowMergedUnpushed,
-        [switch]$AllowPreDocumentation
+        [switch]$AllowPreDocumentation,
+        [AllowNull()][object]$EvidenceSnapshot = $null
     )
 
     $attempt = $AttemptContract.Manifest
     $reportPath = Resolve-WeatherIntegrationPath -Path ([string]$attempt.evidence.quiet_merge_report)
-    $actualSha256 = Get-WeatherIntegrationFileSha256 -Path $reportPath
+    $reportSnapshot = if ($null -eq $EvidenceSnapshot) {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $reportPath -MaximumBytes 2097152 -ContentType Json
+    }
+    else { $EvidenceSnapshot }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$reportSnapshot.Path) -Right $reportPath)) {
+        throw "Quiet-merge report snapshot path does not match the attempt evidence path."
+    }
+    $actualSha256 = [string]$reportSnapshot.Sha256
     if ($actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
         throw "Quiet-merge report hash mismatch. Expected $ExpectedSha256; got $actualSha256"
     }
-    $report = Read-WeatherIntegrationSharedJson -Path $reportPath
+    $report = $reportSnapshot.Payload
+    $requiresAttemptReportAuthority = (
+        [string]$attempt.schema -ceq $script:WeatherIntegrationAttemptManifestSchema
+    )
+    $reportBooleanNames = @(
+        "ok", "capture_recovery_proved", "execution_tape_recovery_required",
+        "execution_tape_readoption_expected",
+        "execution_tape_rolled_but_inactive_skipped",
+        "execution_tape_recovery_proved", "documentation_transaction_recorded",
+        "publication_acknowledged"
+    )
+    if ($requiresAttemptReportAuthority) {
+        $reportBooleanNames += "authoritative_attempt_report"
+    }
+    Assert-WeatherIntegrationBooleanProperties `
+        -Object $report -Names $reportBooleanNames `
+        -Label "reconciliation quiet-merge report"
     $isPushedReport = ([string]$report.stage -eq "pushed")
     $isRecoveredUnpushedReport = (
         $AllowMergedUnpushed.IsPresent -and
         [string]$report.stage -eq "merged_unpushed"
     )
     if ([string]$report.schema -ne "quiet_window_merge_report_v0.2" -or
+        ($requiresAttemptReportAuthority -and
+            ($report.authoritative_attempt_report -ne $true -or
+             [string]$report.compatibility_outputs_authority -cne
+                "DIAGNOSTIC_ONLY")) -or
         -not [bool]$report.ok -or
         (-not $isPushedReport -and -not $isRecoveredUnpushedReport) -or
         [string]$report.branch -ne [string]$attempt.branch_ref -or
@@ -129,36 +612,48 @@ function Assert-WeatherReconciliationQuietReport {
 
 function Assert-WeatherReconciliationPriorMarkerAbortReport {
     param(
-        [Parameter(Mandatory = $true)][object]$AttemptContract
+        [Parameter(Mandatory = $true)][object]$AttemptContract,
+        [AllowNull()][object]$EvidenceSnapshot = $null
     )
 
     $attempt = $AttemptContract.Manifest
     $path = Resolve-WeatherIntegrationPath -Path ([string]$attempt.evidence.quiet_merge_report)
-    try { $bytes = [IO.File]::ReadAllBytes($path) }
-    catch { throw "Prior-marker abort report bytes are unreadable: $($_.Exception.Message)" }
-    $hash = [Security.Cryptography.SHA256]::Create()
-    try {
-        $sha256 = ([BitConverter]::ToString($hash.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
+    $reportSnapshot = if ($null -eq $EvidenceSnapshot) {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $path -MaximumBytes 2097152 -ContentType Json
     }
-    finally { $hash.Dispose() }
-    try {
-        $strictUtf8 = New-Object Text.UTF8Encoding($false, $true)
-        $raw = $strictUtf8.GetString($bytes)
-        $report = $raw | ConvertFrom-Json
+    else { $EvidenceSnapshot }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$reportSnapshot.Path) -Right $path)) {
+        throw "Prior-marker abort report snapshot path does not match the attempt evidence path."
     }
-    catch { throw "Prior-marker abort report is not strict UTF-8 JSON." }
+    $sha256 = [string]$reportSnapshot.Sha256
+    $raw = [string]$reportSnapshot.Text
+    $report = $reportSnapshot.Payload
+    $abortBooleanNames = @(
+        "ok", "capture_recovery_proved", "execution_tape_recovery_required",
+        "execution_tape_readoption_expected",
+        "execution_tape_rolled_but_inactive_skipped",
+        "execution_tape_recovery_proved", "documentation_transaction_recorded",
+        "publication_acknowledged"
+    )
+    $requiresAttemptReportAuthority = (
+        [string]$attempt.schema -ceq $script:WeatherIntegrationAttemptManifestSchema
+    )
+    if ($requiresAttemptReportAuthority) {
+        $abortBooleanNames += "authoritative_attempt_report"
+    }
     Assert-WeatherIntegrationBooleanProperties `
         -Object $report `
-        -Names @(
-            "ok", "capture_recovery_proved", "execution_tape_recovery_required",
-            "execution_tape_readoption_expected", "execution_tape_rolled_but_inactive_skipped",
-            "execution_tape_recovery_proved", "documentation_transaction_recorded",
-            "publication_acknowledged"
-        ) `
+        -Names $abortBooleanNames `
         -Label "prior-marker abort report"
     $expectedDetail = "a prior quiet-window merge marker still exists - let WeatherBootRecovery reconcile it before another merge"
     $rollbackProperties = @($report.rollback_content_sha256.PSObject.Properties)
     if ([string]$report.schema -ne "quiet_window_merge_report_v0.2" -or
+        ($requiresAttemptReportAuthority -and
+            ($report.authoritative_attempt_report -ne $true -or
+             [string]$report.compatibility_outputs_authority -cne
+                "DIAGNOSTIC_ONLY")) -or
         [bool]$report.ok -or [string]$report.stage -ne "abort" -or
         [string]$report.detail -cne $expectedDetail -or
         -not (Test-WeatherIntegrationPathEqual `
@@ -201,8 +696,10 @@ function Assert-WeatherReconciliationPriorMarkerFailReceipt {
 
     $attempt = $AttemptContract.Manifest
     $path = Resolve-WeatherIntegrationPath -Path ([string]$attempt.evidence.merge_receipt)
-    $sha256 = Get-WeatherIntegrationFileSha256 -Path $path
-    $receipt = Read-WeatherIntegrationSharedJson -Path $path
+    $receiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $path -MaximumBytes 2097152 -ContentType Json
+    $sha256 = [string]$receiptSnapshot.Sha256
+    $receipt = $receiptSnapshot.Payload
     if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
         [string]$receipt.status -ne "FAIL" -or
         [string]$receipt.attempt_id -ne [string]$attempt.attempt_id -or
@@ -256,16 +753,26 @@ function Assert-WeatherReconciliationFailedMergeReceipt {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
         [Parameter(Mandatory = $true)][string]$ExpectedReceiptSha256,
-        [switch]$AllowPreDocumentation
+        [switch]$AllowPreDocumentation,
+        [AllowNull()][object]$EvidenceSnapshot = $null
     )
 
     $attempt = $AttemptContract.Manifest
     $receiptPath = Resolve-WeatherIntegrationPath -Path ([string]$attempt.evidence.merge_receipt)
-    $actualReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $receiptPath
+    $receiptSnapshot = if ($null -eq $EvidenceSnapshot) {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $receiptPath -MaximumBytes 2097152 -ContentType Json
+    }
+    else { $EvidenceSnapshot }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$receiptSnapshot.Path) -Right $receiptPath)) {
+        throw "Merge receipt snapshot path does not match the attempt evidence path."
+    }
+    $actualReceiptSha256 = [string]$receiptSnapshot.Sha256
     if ($actualReceiptSha256 -ne $ExpectedReceiptSha256.ToLowerInvariant()) {
         throw "Merge receipt hash mismatch. Expected $ExpectedReceiptSha256; got $actualReceiptSha256"
     }
-    $receipt = Read-WeatherIntegrationSharedJson -Path $receiptPath
+    $receipt = $receiptSnapshot.Payload
     if ([string]$receipt.schema -ne $script:WeatherIntegrationAttemptMergeReceiptSchema -or
         [string]$receipt.status -ne "FAIL" -or
         [string]$receipt.attempt_id -ne [string]$attempt.attempt_id -or
@@ -328,31 +835,28 @@ function Assert-WeatherReconciliationActiveMarker {
     param(
         [Parameter(Mandatory = $true)][object]$AttemptContract,
         [Parameter(Mandatory = $true)][string]$ExpectedSha256,
-        [switch]$AllowPreDocumentation
+        [switch]$AllowPreDocumentation,
+        [AllowNull()][object]$EvidenceSnapshot = $null
     )
 
     $attempt = $AttemptContract.Manifest
     $repo = Resolve-WeatherIntegrationPath -Path ([string]$attempt.repo_root)
     $markerPath = Join-Path $repo "data\alerts\quiet_window_merge_in_progress.json"
-    try { $markerBytes = [IO.File]::ReadAllBytes($markerPath) }
-    catch { throw "Active quiet-merge marker bytes are unreadable: $($_.Exception.Message)" }
-    $markerHash = [Security.Cryptography.SHA256]::Create()
-    try {
-        $actualSha256 = ([BitConverter]::ToString(
-            $markerHash.ComputeHash($markerBytes)
-        ) -replace '-', '').ToLowerInvariant()
+    $markerSnapshot = if ($null -eq $EvidenceSnapshot) {
+        Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $markerPath -MaximumBytes 2097152 -ContentType Json
     }
-    finally { $markerHash.Dispose() }
+    else { $EvidenceSnapshot }
+    if (-not (Test-WeatherIntegrationPathEqual `
+            -Left ([string]$markerSnapshot.Path) -Right $markerPath)) {
+        throw "Active quiet-merge marker snapshot path is not canonical."
+    }
+    $actualSha256 = [string]$markerSnapshot.Sha256
     if ($actualSha256 -ne $ExpectedSha256.ToLowerInvariant()) {
         throw "Active quiet-merge marker hash mismatch. Expected $ExpectedSha256; got $actualSha256"
     }
-    try {
-        $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
-        $markerRaw = $strictUtf8.GetString($markerBytes)
-    }
-    catch { throw "Active quiet-merge marker is not strict UTF-8." }
-    try { $marker = $markerRaw | ConvertFrom-Json }
-    catch { throw "Active quiet-merge marker JSON is unreadable." }
+    $markerRaw = [string]$markerSnapshot.Text
+    $marker = $markerSnapshot.Payload
     Assert-WeatherIntegrationBooleanProperties `
         -Object $marker `
         -Names @("execution_tape_readoption_expected") `
@@ -397,15 +901,21 @@ function Assert-WeatherReconciliationActiveMarker {
 
 function Get-WeatherReconciliationCaptureProof {
     param(
-        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][object]$PythonBinding,
         [Parameter(Mandatory = $true)][string]$RepositoryRoot
     )
 
-    $output = @(& $Python -m weather.operations.capture_recovery_check --repo-root $RepositoryRoot --json)
-    $exitCode = $LASTEXITCODE
-    try { $payload = (($output -join "`n") | ConvertFrom-Json) }
-    catch { throw "Current capture recovery proof is unreadable." }
-    if ($exitCode -ne 0 -or -not [bool]$payload.ok -or
+    $child = Invoke-WeatherReconciliationPythonJson `
+        -PythonBinding $PythonBinding -RepositoryRoot $RepositoryRoot `
+        -Arguments @(
+            "-m", "weather.operations.capture_recovery_check",
+            "--repo-root", $RepositoryRoot, "--json"
+        ) `
+        -ModuleRelativePath "src/weather/operations/capture_recovery_check.py" `
+        -Label "reconciliation capture recovery" `
+        -AllowedExitCodes @(0, 2)
+    $payload = $child.Payload
+    if ([int]$child.ExitCode -ne 0 -or -not [bool]$payload.ok -or
         @($payload.workers).Count -ne 3 -or
         @($payload.workers | Where-Object { -not [bool]$_.ok }).Count -ne 0) {
         throw "Current capture state is not healthy for all three workers; reconciliation remains blocked."
@@ -415,21 +925,28 @@ function Get-WeatherReconciliationCaptureProof {
 
 function Get-WeatherReconciliationExecutionTapeProof {
     param(
-        [Parameter(Mandatory = $true)][string]$Python,
+        [Parameter(Mandatory = $true)][object]$PythonBinding,
         [Parameter(Mandatory = $true)][string]$RepositoryRoot
     )
 
     $writerLockPath = Join-Path $RepositoryRoot "data\snapshots\.execution_tape_status.json.writer.lock"
-    $output = @(& $Python -m weather.operations.execution_tape_supervisor status --stale-after-seconds 180)
-    $exitCode = $LASTEXITCODE
+    $child = Invoke-WeatherReconciliationPythonJson `
+        -PythonBinding $PythonBinding -RepositoryRoot $RepositoryRoot `
+        -Arguments @(
+            "-m", "weather.operations.execution_tape_supervisor", "status",
+            "--stale-after-seconds", "180"
+        ) `
+        -ModuleRelativePath "src/weather/operations/execution_tape_supervisor.py" `
+        -Label "reconciliation execution-tape status" `
+        -AllowedExitCodes @(0, 2)
     try {
-        $payload = (($output -join "`n") | ConvertFrom-Json)
+        $payload = $child.Payload
         $writerLock = Read-WeatherIntegrationSharedJson -Path $writerLockPath
     }
     catch { throw "Current execution-tape proof or writer lock is unreadable." }
     $health = $payload.health
     $status = $payload.status
-    if ($exitCode -ne 0 -or
+    if ([int]$child.ExitCode -ne 0 -or
         [string]$health.state -notin @("RUNNING", "DEGRADED") -or
         $health.pid_alive -ne $true -or
         $health.runtime_identity_matches_current -ne $true -or
@@ -476,18 +993,21 @@ function Assert-WeatherReconciliationMergeShape {
         $firstParent -ne $preMergeCommit -or $secondParent -ne $resolvedTip) {
         throw "Recovered integration commit is not the exact two-parent merge recorded by durable evidence."
     }
-    & git -C $RepositoryRoot merge-base --is-ancestor $baseline $preMergeCommit
-    if ($LASTEXITCODE -ne 0) {
-        throw "Recorded pre-merge commit does not descend from the frozen baseline."
-    }
+    Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $RepositoryRoot `
+        -Arguments @("merge-base", "--is-ancestor", $baseline, $preMergeCommit) `
+        -Label "reconciliation pre-merge baseline-ancestry proof" | Out-Null
     if ($preMergeCommit -ne $baseline) {
         $preMergeParent = Invoke-WeatherReconciliationGitLine `
             -Root $RepositoryRoot -Arguments @("rev-parse", "$preMergeCommit^")
         $preMergeParentLine = Invoke-WeatherReconciliationGitLine `
             -Root $RepositoryRoot -Arguments @("rev-list", "--parents", "-n", "1", $preMergeCommit)
-        $preMergeChanges = @(& git -C $RepositoryRoot diff --name-only $baseline $preMergeCommit)
-        if ($LASTEXITCODE -ne 0 -or
-            @($preMergeParentLine -split '\s+' | Where-Object { $_ }).Count -ne 2 -or
+        $preMergeChangesQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $RepositoryRoot `
+            -Arguments @("diff", "--name-only", $baseline, $preMergeCommit) `
+            -Label "reconciliation pre-merge changed-path query"
+        $preMergeChanges = @($preMergeChangesQuery.StdoutLines)
+        if (@($preMergeParentLine -split '\s+' | Where-Object { $_ }).Count -ne 2 -or
             $preMergeParent -ne $baseline -or
             @($preMergeChanges | Where-Object { $_ }).Count -eq 0 -or
             @($preMergeChanges | Where-Object {
@@ -504,10 +1024,11 @@ function Assert-WeatherReconciliationTrackedState {
         [Parameter(Mandatory = $true)][object]$PublicationRecord
     )
 
-    $statusRows = @(& git -C $RepositoryRoot status --porcelain --untracked-files=no)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not inspect the tracked production worktree during reconciliation."
-    }
+    $statusQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+        -Root $RepositoryRoot `
+        -Arguments @("status", "--porcelain", "--untracked-files=no") `
+        -Label "reconciliation tracked production-state query"
+    $statusRows = @($statusQuery.StdoutLines)
     $statusRows = @($statusRows | Where-Object { $_ })
     if ($statusRows.Count -eq 0) { return @() }
     $allowedPaths = @("config/locations.json", "config/location_market_events.json")
@@ -526,6 +1047,38 @@ function Assert-WeatherReconciliationTrackedState {
     return @($dirtyPaths | ForEach-Object { $_ })
 }
 
+function Assert-WeatherReconciliationRegularSiblingFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ExpectedParent,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    $resolvedPath = [IO.Path]::GetFullPath($Path)
+    $resolvedParent = [IO.Path]::GetFullPath($ExpectedParent).TrimEnd('\')
+    $actualParent = [IO.Path]::GetFullPath(
+        (Split-Path -Parent $resolvedPath)
+    ).TrimEnd('\')
+    if (-not [string]::Equals(
+            $actualParent,
+            $resolvedParent,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw "$Label is not an exact sibling of the active marker."
+    }
+    $item = Get-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
+    if ($item.PSIsContainer -or
+        ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        -not [string]::Equals(
+            [IO.Path]::GetFullPath([string]$item.FullName),
+            $resolvedPath,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw "$Label is not one exact regular non-reparse file."
+    }
+    return $item
+}
+
 function Write-WeatherReconciliationActiveMarker {
     param(
         [Parameter(Mandatory = $true)][object]$MarkerContract,
@@ -536,8 +1089,11 @@ function Write-WeatherReconciliationActiveMarker {
         [AllowEmptyString()][string]$DocumentationSnapshotPath = ""
     )
 
-    if ((Get-WeatherIntegrationFileSha256 -Path $MarkerContract.ReportPath) -ne
-        [string]$MarkerContract.ReportSha256) {
+    # This is an intentional second-time stability read immediately before the
+    # replace; its retained bytes are independent of the earlier validation.
+    $markerBeforeUpdate = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $MarkerContract.ReportPath -MaximumBytes 2097152 -ContentType Bytes
+    if ([string]$markerBeforeUpdate.Sha256 -ne [string]$MarkerContract.ReportSha256) {
         throw "Active quiet-merge marker changed before its reviewed resume transition."
     }
     $marker = $MarkerContract.Report
@@ -573,25 +1129,133 @@ function Write-WeatherReconciliationActiveMarker {
         auto_refreshed_sha256 = $marker.auto_refreshed_sha256
     }
     $raw = $updated | ConvertTo-Json -Depth 8
-    $parent = Split-Path -Parent $MarkerContract.ReportPath
-    $leaf = Split-Path -Leaf $MarkerContract.ReportPath
+    $encoder = New-Object Text.UTF8Encoding($false, $true)
+    [byte[]]$rawBytes = $encoder.GetBytes($raw)
+    $expectedHash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $expectedSha256 = (
+            [BitConverter]::ToString($expectedHash.ComputeHash($rawBytes)) -replace '-', ''
+        ).ToLowerInvariant()
+    }
+    finally { $expectedHash.Dispose() }
+
+    $markerPath = Resolve-WeatherIntegrationPath -Path $MarkerContract.ReportPath
+    $parent = [IO.Path]::GetFullPath((Split-Path -Parent $markerPath))
+    $parentItem = Get-Item -LiteralPath $parent -Force -ErrorAction Stop
+    if (-not $parentItem.PSIsContainer -or
+        ($parentItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        -not [string]::Equals(
+            [IO.Path]::GetFullPath([string]$parentItem.FullName).TrimEnd('\'),
+            $parent.TrimEnd('\'),
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw "Active-marker parent is not one exact regular directory."
+    }
+    Assert-WeatherReconciliationRegularSiblingFile `
+        -Path $markerPath -ExpectedParent $parent `
+        -Label "active quiet-merge marker" | Out-Null
+    $leaf = Split-Path -Leaf $markerPath
     $temp = Join-Path $parent (".{0}.{1}.tmp" -f $leaf, [guid]::NewGuid().ToString("N"))
     $backup = Join-Path $parent (".{0}.{1}.bak" -f $leaf, [guid]::NewGuid().ToString("N"))
+    if ((Test-Path -LiteralPath $temp) -or (Test-Path -LiteralPath $backup)) {
+        throw "Unique active-marker transaction paths unexpectedly already exist."
+    }
+    $tempStream = $null
+    $updatedContract = $null
+    $primaryFailure = $null
+    $cleanupFailures = New-Object System.Collections.Generic.List[string]
     try {
-        [IO.File]::WriteAllText($temp, $raw, (New-Object System.Text.UTF8Encoding($false)))
-        [IO.File]::Replace($temp, $MarkerContract.ReportPath, $backup, $true)
+        $tempStream = [IO.FileStream]::new(
+            $temp,
+            [IO.FileMode]::CreateNew,
+            [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None,
+            4096,
+            [IO.FileOptions]::WriteThrough
+        )
+        $tempStream.Write($rawBytes, 0, $rawBytes.Length)
+        $tempStream.Flush($true)
+        if ($tempStream.Length -ne $rawBytes.Length) {
+            throw "Active-marker transaction temp did not retain the exact intended byte count."
+        }
+        $tempStream.Dispose()
+        $tempStream = $null
+        Assert-WeatherReconciliationRegularSiblingFile `
+            -Path $temp -ExpectedParent $parent `
+            -Label "active-marker transaction temp" | Out-Null
+
+        # Re-read the current marker immediately before replacement. The
+        # production-mutation mutex serializes repository-owned writers, while
+        # this stable snapshot refuses any intervening byte change.
+        $markerAtReplace = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $markerPath -MaximumBytes 2097152 -ContentType Bytes
+        if ([string]$markerAtReplace.Sha256 -ne [string]$markerBeforeUpdate.Sha256) {
+            throw "Active quiet-merge marker changed during its reviewed resume transition."
+        }
+
+        [IO.File]::Replace($temp, $markerPath, $backup, $true)
+        Assert-WeatherReconciliationRegularSiblingFile `
+            -Path $markerPath -ExpectedParent $parent `
+            -Label "updated active quiet-merge marker" | Out-Null
+        Assert-WeatherReconciliationRegularSiblingFile `
+            -Path $backup -ExpectedParent $parent `
+            -Label "active-marker transaction backup" | Out-Null
+        $backupSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $backup -MaximumBytes 2097152 -ContentType Bytes
+        if ([string]$backupSnapshot.Sha256 -ne [string]$markerBeforeUpdate.Sha256 -or
+            [long]$backupSnapshot.Length -ne [long]$markerBeforeUpdate.Length) {
+            throw "Active-marker transaction backup does not contain the exact prior marker."
+        }
+        $updatedSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $markerPath -MaximumBytes 2097152 -ContentType Json
+        if ([string]$updatedSnapshot.Sha256 -ne $expectedSha256 -or
+            [long]$updatedSnapshot.Length -ne [long]$rawBytes.Length -or
+            [string]$updatedSnapshot.Text -cne $raw) {
+            throw "Active-marker transaction readback does not equal the exact retained bytes."
+        }
+        $updatedContract = [pscustomobject]@{
+            Report = $updatedSnapshot.Payload
+            ReportPath = $markerPath
+            ReportSha256 = [string]$updatedSnapshot.Sha256
+            IsActiveMarker = $true
+            RawText = [string]$updatedSnapshot.Text
+        }
+    }
+    catch {
+        $primaryFailure = $_
     }
     finally {
-        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+        if ($null -ne $tempStream) {
+            try { $tempStream.Dispose() }
+            catch { $cleanupFailures.Add("temp stream: $($_.Exception.Message)") }
+        }
+        foreach ($ownedPath in @($temp, $backup)) {
+            if (-not (Test-Path -LiteralPath $ownedPath)) { continue }
+            try {
+                Assert-WeatherReconciliationRegularSiblingFile `
+                    -Path $ownedPath -ExpectedParent $parent `
+                    -Label "owned active-marker transaction artifact" | Out-Null
+                Remove-Item -LiteralPath $ownedPath -Force -ErrorAction Stop
+                if (Test-Path -LiteralPath $ownedPath) {
+                    throw "owned transaction artifact still exists after removal: $ownedPath"
+                }
+            }
+            catch { $cleanupFailures.Add("${ownedPath}: $($_.Exception.Message)") }
+        }
+        if ($cleanupFailures.Count -ne 0) {
+            $cleanupMessage = (
+                "Active-marker transaction cleanup failed: " +
+                ($cleanupFailures -join " | ")
+            )
+            if ($null -ne $primaryFailure) {
+                $primaryFailure.Exception.Data["weather_cleanup_failure"] = $cleanupMessage
+                Write-Warning $cleanupMessage -WarningAction Continue
+            }
+            else { throw $cleanupMessage }
+        }
     }
-    return [pscustomobject]@{
-        Report = [pscustomobject]$updated
-        ReportPath = $MarkerContract.ReportPath
-        ReportSha256 = Get-WeatherIntegrationFileSha256 -Path $MarkerContract.ReportPath
-        IsActiveMarker = $true
-        RawText = Read-WeatherIntegrationSharedText -Path $MarkerContract.ReportPath
-    }
+    if ($null -ne $primaryFailure) { throw $primaryFailure }
+    return $updatedContract
 }
 
 function Assert-WeatherReconciliationOneShotPushTask {
@@ -663,22 +1327,32 @@ function Assert-WeatherReconciliationResumeEvidenceBoundary {
         $null -ne $PublicationContract.PSObject.Properties["IsActiveMarker"] -and
         [bool]$PublicationContract.IsActiveMarker
     )
-    if (-not $isMutableMarker -and
-        (Get-WeatherIntegrationFileSha256 -Path $PublicationContract.ReportPath) -ne
+    if (-not $isMutableMarker) {
+        # Intentional boundary recheck: prove the immutable report still has
+        # the bytes validated before the publication-side mutation begins.
+        $publicationBoundarySnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $PublicationContract.ReportPath -MaximumBytes 2097152 -ContentType Bytes
+        if ([string]$publicationBoundarySnapshot.Sha256 -ne
             [string]$PublicationContract.ReportSha256) {
-        throw "Hash-bound immutable publication report changed during publication resume."
+            throw "Hash-bound immutable publication report changed during publication resume."
+        }
     }
     if ($null -ne $CurrentMarkerContract) {
-        if ((Get-WeatherIntegrationFileSha256 -Path $CurrentMarkerContract.ReportPath) -ne
+        # Intentional boundary recheck: hash, raw text, and the structural
+        # validation below all consume this one newly retained snapshot.
+        $currentMarkerSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $CurrentMarkerContract.ReportPath -MaximumBytes 2097152 -ContentType Json
+        if ([string]$currentMarkerSnapshot.Sha256 -ne
                 [string]$CurrentMarkerContract.ReportSha256 -or
-            (Read-WeatherIntegrationSharedText -Path $CurrentMarkerContract.ReportPath) -ne
+            [string]$currentMarkerSnapshot.Text -cne
                 [string]$CurrentMarkerContract.RawText) {
             throw "Current active marker changed during publication resume."
         }
         Assert-WeatherReconciliationActiveMarker `
             -AttemptContract $AttemptContract `
             -ExpectedSha256 ([string]$CurrentMarkerContract.ReportSha256) `
-            -AllowPreDocumentation | Out-Null
+            -AllowPreDocumentation `
+            -EvidenceSnapshot $currentMarkerSnapshot | Out-Null
     }
     $documentationRecord = [pscustomobject]@{
         merge_commit = $MergeCommit
@@ -695,7 +1369,7 @@ function Invoke-WeatherReconciliationPublicationResume {
         [Parameter(Mandatory = $true)][object]$AttemptContract,
         [Parameter(Mandatory = $true)][object]$PublicationContract,
         [AllowNull()][object]$MarkerContract,
-        [Parameter(Mandatory = $true)][string]$Python
+        [Parameter(Mandatory = $true)][object]$PythonBinding
     )
 
     $attempt = $AttemptContract.Manifest
@@ -707,8 +1381,13 @@ function Invoke-WeatherReconciliationPublicationResume {
         $head = Invoke-WeatherReconciliationGitLine -Root $repoRoot -Arguments @("rev-parse", "HEAD")
         $master = Invoke-WeatherReconciliationGitLine -Root $repoRoot -Arguments @("rev-parse", "master")
         $origin = Invoke-WeatherReconciliationGitLine -Root $repoRoot -Arguments @("rev-parse", "origin/master")
-        $mergeHeadPath = @(& git -C $repoRoot rev-parse --git-path MERGE_HEAD)
-        if ($LASTEXITCODE -ne 0 -or $mergeHeadPath.Count -ne 1) {
+        $mergeHeadQuery = Invoke-WeatherIntegrationCheckedLocalGit `
+            -Root $repoRoot `
+            -Arguments @("rev-parse", "--git-path", "MERGE_HEAD") `
+            -Label "reconciliation publication-resume MERGE_HEAD path query"
+        $mergeHeadPath = @($mergeHeadQuery.StdoutLines)
+        if ($mergeHeadPath.Count -ne 1 -or
+            [string]::IsNullOrWhiteSpace([string]$mergeHeadPath[0])) {
             throw "Could not resolve MERGE_HEAD while resuming publication."
         }
         $resolvedMergeHeadPath = [string]$mergeHeadPath[0]
@@ -726,11 +1405,11 @@ function Invoke-WeatherReconciliationPublicationResume {
         Assert-WeatherReconciliationTrackedState `
             -RepositoryRoot $repoRoot -PublicationRecord $publication | Out-Null
         $captureBefore = Get-WeatherReconciliationCaptureProof `
-            -Python $Python -RepositoryRoot $repoRoot
+            -PythonBinding $PythonBinding -RepositoryRoot $repoRoot
         $executionTapeBefore = $null
         if ([bool]$publication.execution_tape_recovery_required) {
             $executionTapeBefore = Get-WeatherReconciliationExecutionTapeProof `
-                -Python $Python -RepositoryRoot $repoRoot
+                -PythonBinding $PythonBinding -RepositoryRoot $repoRoot
         }
         Assert-WeatherReconciliationOneShotPushTask -RepositoryRoot $repoRoot | Out-Null
 
@@ -751,12 +1430,17 @@ function Invoke-WeatherReconciliationPublicationResume {
                 "--branch", [string]$attempt.branch_ref,
                 "--expected-tip", [string]$attempt.expected_tip
             )
-            $documentationOutput = @(& $Python @documentationArgs)
-            if ($LASTEXITCODE -ne 0) {
-                throw "Documentation transaction begin failed during publication resume: $($documentationOutput -join ' ')"
+            $documentationChild = Invoke-WeatherReconciliationPythonJson `
+                -PythonBinding $PythonBinding -RepositoryRoot $repoRoot `
+                -Arguments $documentationArgs `
+                -ModuleRelativePath `
+                    "src/weather/operations/documentation_transaction.py" `
+                -Label "reconciliation documentation transaction begin" `
+                -AllowedExitCodes @(0, 1)
+            if ([int]$documentationChild.ExitCode -ne 0) {
+                throw "Documentation transaction begin failed during publication resume."
             }
-            try { $documentationPayload = (($documentationOutput -join "`n") | ConvertFrom-Json) }
-            catch { throw "Documentation transaction begin returned unreadable JSON during publication resume." }
+            $documentationPayload = $documentationChild.Payload
             $documentationPendingSha256 = ([string]$documentationPayload.pending_sha256).ToLowerInvariant()
             $documentationSnapshotPath = "data/alerts/documentation_transactions/pending-$documentationPendingSha256.json"
             $documentationPendingPath = Join-Path $repoRoot "data\alerts\documentation_transaction_pending.json"
@@ -820,10 +1504,10 @@ function Invoke-WeatherReconciliationPublicationResume {
             Assert-WeatherReconciliationTrackedState `
                 -RepositoryRoot $repoRoot -PublicationRecord $publication | Out-Null
             $captureBefore = Get-WeatherReconciliationCaptureProof `
-                -Python $Python -RepositoryRoot $repoRoot
+                -PythonBinding $PythonBinding -RepositoryRoot $repoRoot
             if ([bool]$publication.execution_tape_recovery_required) {
                 $executionTapeBefore = Get-WeatherReconciliationExecutionTapeProof `
-                    -Python $Python -RepositoryRoot $repoRoot
+                    -PythonBinding $PythonBinding -RepositoryRoot $repoRoot
             }
             Assert-WeatherReconciliationOneShotPushTask -RepositoryRoot $repoRoot | Out-Null
             Assert-WeatherReconciliationResumeEvidenceBoundary `
@@ -833,6 +1517,9 @@ function Invoke-WeatherReconciliationPublicationResume {
                 -MergeCommit $mergeCommit `
                 -DocumentationPendingSha256 $documentationPendingSha256 `
                 -DocumentationSnapshotPath $documentationSnapshotPath
+            Assert-WeatherIntegrationSchedulerMutationAllowed `
+                -CommandName "Start-ScheduledTask" `
+                -Phase "reviewed WeatherOneShotPush reconciliation resume"
             Start-ScheduledTask -TaskName "WeatherOneShotPush" -ErrorAction Stop
             $published = $false
             for ($poll = 0; $poll -lt 18; $poll++) {
@@ -868,6 +1555,8 @@ $contract = Assert-WeatherIntegrationAttemptManifest `
     -ManifestPath $ManifestPath `
     -ExpectedSha256 $ExpectedManifestSha256
 $manifest = $contract.Manifest
+$pythonBinding = Get-WeatherReconciliationPythonBinding `
+    -AttemptContract $contract
 $terminalMutexRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
 $terminalMutex = Enter-WeatherIntegrationControlMutex `
     -RepositoryRoot $terminalMutexRoot `
@@ -877,6 +1566,7 @@ if ($null -eq $terminalMutex) {
     throw "Another close/reconciliation owns the integration-attempt terminal mutex."
 }
 $reconciliationGitMutex = $null
+$primaryError = $null
 try {
 if ($ResumePublication.IsPresent) {
     $workloadScript = Resolve-WeatherIntegrationPath -Path ([string]$manifest.orchestration.workload_admission.path)
@@ -915,17 +1605,16 @@ if (Test-Path -LiteralPath $reconciliationPath) {
         $cleanupOrigin = Invoke-WeatherReconciliationGitLine -Root $cleanupRepoRoot -Arguments @("rev-parse", "origin/master")
         $cleanupBranch = Invoke-WeatherReconciliationGitLine `
             -Root $cleanupRepoRoot -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
-        $cleanupPython = Join-Path $cleanupRepoRoot "venv\Scripts\python.exe"
-        $cleanupCaptureOutput = @(& $cleanupPython -m weather.operations.capture_recovery_check --repo-root $cleanupRepoRoot --json)
-        $cleanupCaptureExit = $LASTEXITCODE
-        $cleanupCapture = (($cleanupCaptureOutput -join "`n") | ConvertFrom-Json)
+        $cleanupCapture = Get-WeatherReconciliationCaptureProof `
+            -PythonBinding $pythonBinding -RepositoryRoot $cleanupRepoRoot
         Assert-WeatherReconciliationMergeShape `
             -RepositoryRoot $cleanupRepoRoot `
             -Attempt $manifest `
             -PublicationRecord $cleanupMarker.Report
         if ([bool]$cleanupMarker.Report.execution_tape_recovery_required) {
             Get-WeatherReconciliationExecutionTapeProof `
-                -Python $cleanupPython -RepositoryRoot $cleanupRepoRoot | Out-Null
+                -PythonBinding $pythonBinding `
+                -RepositoryRoot $cleanupRepoRoot | Out-Null
         }
         $cleanupUsesResumeMarker = (
             [bool]$existing.publication_resume.performed -and
@@ -972,7 +1661,7 @@ if (Test-Path -LiteralPath $reconciliationPath) {
             @($existing.tasks | Where-Object { [bool]$_.exists -and -not [bool]$_.disabled }).Count -ne 0 -or
             $cleanupBranch -ne "master" -or $cleanupHead -ne [string]$cleanupMarker.Report.merge_commit -or
             $cleanupMaster -ne $cleanupHead -or $cleanupOrigin -ne $cleanupHead -or
-            $cleanupCaptureExit -ne 0 -or -not [bool]$cleanupCapture.ok -or
+            -not [bool]$cleanupCapture.ok -or
             @($cleanupCapture.workers).Count -ne 3 -or
             @($cleanupCapture.workers | Where-Object { -not [bool]$_.ok }).Count -ne 0) {
             throw "Existing reconciliation receipt cannot authorize active-marker cleanup."
@@ -995,11 +1684,13 @@ $mergeReceipt = $null
 $failedMergeReceiptRecovery = $false
 $mergeReceiptPath = [string]$manifest.evidence.merge_receipt
 if ($PSCmdlet.ParameterSetName -eq "MergeReceipt") {
-    $candidateMergeReceiptSha256 = Get-WeatherIntegrationFileSha256 -Path $mergeReceiptPath
+    $candidateMergeReceiptSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $mergeReceiptPath -MaximumBytes 2097152 -ContentType Json
+    $candidateMergeReceiptSha256 = [string]$candidateMergeReceiptSnapshot.Sha256
     if ($candidateMergeReceiptSha256 -ne $ExpectedMergeReceiptSha256.ToLowerInvariant()) {
         throw "Merge receipt hash mismatch. Expected $ExpectedMergeReceiptSha256; got $candidateMergeReceiptSha256"
     }
-    $candidateMergeReceipt = Read-WeatherIntegrationSharedJson -Path $mergeReceiptPath
+    $candidateMergeReceipt = $candidateMergeReceiptSnapshot.Payload
     if ([string]$candidateMergeReceipt.status -eq "MERGED_UNVERIFIED") {
         if ($ResumePublication.IsPresent) {
             throw "ResumePublication is invalid for a receipt that already proves publication."
@@ -1016,7 +1707,8 @@ if ($PSCmdlet.ParameterSetName -eq "MergeReceipt") {
         $mergeContract = Assert-WeatherReconciliationFailedMergeReceipt `
             -AttemptContract $contract `
             -ExpectedReceiptSha256 $ExpectedMergeReceiptSha256 `
-            -AllowPreDocumentation:($ResumePublication.IsPresent)
+            -AllowPreDocumentation:($ResumePublication.IsPresent) `
+            -EvidenceSnapshot $candidateMergeReceiptSnapshot
         $failedMergeReceiptRecovery = $true
     }
     else {
@@ -1063,10 +1755,14 @@ else {
     $quietReportContract = $activeMarkerContract
     $quietReportPath = [string]$manifest.evidence.quiet_merge_report
     if (Test-Path -LiteralPath $quietReportPath -PathType Leaf) {
-        $candidateQuietReport = Read-WeatherIntegrationSharedJson -Path $quietReportPath
+        $candidateQuietReportSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+            -Path $quietReportPath -MaximumBytes 2097152 -ContentType Json
+        $candidateQuietReport = $candidateQuietReportSnapshot.Payload
         if ([string]$candidateQuietReport.stage -eq "abort") {
             $supportingPriorMarkerAbortContract = `
-                Assert-WeatherReconciliationPriorMarkerAbortReport -AttemptContract $contract
+                Assert-WeatherReconciliationPriorMarkerAbortReport `
+                    -AttemptContract $contract `
+                    -EvidenceSnapshot $candidateQuietReportSnapshot
         }
         else {
             if (-not $ResumePublication.IsPresent) {
@@ -1074,9 +1770,10 @@ else {
             }
             $supportingQuietReportContract = Assert-WeatherReconciliationQuietReport `
                 -AttemptContract $contract `
-                -ExpectedSha256 (Get-WeatherIntegrationFileSha256 -Path $quietReportPath) `
+                -ExpectedSha256 ([string]$candidateQuietReportSnapshot.Sha256) `
                 -AllowMergedUnpushed `
-                -AllowPreDocumentation
+                -AllowPreDocumentation `
+                -EvidenceSnapshot $candidateQuietReportSnapshot
             if ([string]$supportingQuietReportContract.Report.stage -ne "merged_unpushed" -or
                 [string]$supportingQuietReportContract.Report.merge_commit -ne
                     [string]$activeMarkerContract.Report.merge_commit) {
@@ -1104,10 +1801,13 @@ if ($null -eq $activeMarkerContract -and
     # global crash marker disposable. Bind its exact current bytes, require the
     # same recovered commit, record it in the receipt, and retire only after the
     # receipt is durable.
+    $supportingActiveMarkerSnapshot = Read-WeatherIntegrationEvidenceSnapshot `
+        -Path $globalActiveMarkerPath -MaximumBytes 2097152 -ContentType Json
     $supportingActiveMarkerContract = Assert-WeatherReconciliationActiveMarker `
         -AttemptContract $contract `
-        -ExpectedSha256 (Get-WeatherIntegrationFileSha256 -Path $globalActiveMarkerPath) `
-        -AllowPreDocumentation
+        -ExpectedSha256 ([string]$supportingActiveMarkerSnapshot.Sha256) `
+        -AllowPreDocumentation `
+        -EvidenceSnapshot $supportingActiveMarkerSnapshot
     if ([string]$supportingActiveMarkerContract.Report.merge_commit -ne
         [string]$quietReportContract.Report.merge_commit) {
         throw "Active crash marker does not match the immutable report/receipt commit."
@@ -1118,10 +1818,6 @@ if ($null -eq $activeMarkerContract -and
     }
 }
 $repoRoot = Resolve-WeatherIntegrationPath -Path ([string]$manifest.repo_root)
-$python = Join-Path $repoRoot "venv\Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw "Repository virtual-environment interpreter is missing: $python"
-}
 
 if ($ResumePublication.IsPresent) {
     if ($PSCmdlet.ParameterSetName -eq "ActiveMarker") {
@@ -1141,7 +1837,7 @@ if ($ResumePublication.IsPresent) {
         -AttemptContract $contract `
         -PublicationContract $resumePublicationContract `
         -MarkerContract $resumeMarkerContract `
-        -Python $python
+        -PythonBinding $pythonBinding
 }
 
 $productionHead = Invoke-WeatherReconciliationGitLine -Root $repoRoot -Arguments @("rev-parse", "HEAD")
@@ -1168,25 +1864,30 @@ Assert-WeatherReconciliationMergeShape `
 Assert-WeatherReconciliationTrackedState `
     -RepositoryRoot $repoRoot `
     -PublicationRecord $quietReportContract.Report | Out-Null
-& git -C $repoRoot merge-base --is-ancestor $publishedIntegrationCommit $masterTip
-if ($LASTEXITCODE -ne 0) {
-    throw "The published integration commit is not in current master history."
-}
+Invoke-WeatherIntegrationCheckedLocalGit `
+    -Root $repoRoot `
+    -Arguments @(
+        "merge-base", "--is-ancestor", $publishedIntegrationCommit, $masterTip
+    ) `
+    -Label "reconciliation published-commit ancestry proof" | Out-Null
 if (($null -ne $activeMarkerContract -or $failedMergeReceiptRecovery -or
         $ResumePublication.IsPresent) -and
     $masterTip -ne $publishedIntegrationCommit) {
     throw "Recovered-publication reconciliation requires HEAD == master == origin/master == the hash-bound merge_commit."
 }
-& git -C $repoRoot merge-base --is-ancestor ([string]$manifest.expected_tip) $masterTip
-if ($LASTEXITCODE -ne 0) {
-    throw "The frozen source tip is not in current master history."
-}
+Invoke-WeatherIntegrationCheckedLocalGit `
+    -Root $repoRoot `
+    -Arguments @(
+        "merge-base", "--is-ancestor", [string]$manifest.expected_tip, $masterTip
+    ) `
+    -Label "reconciliation frozen-source ancestry proof" | Out-Null
 
-$capture = Get-WeatherReconciliationCaptureProof -Python $python -RepositoryRoot $repoRoot
+$capture = Get-WeatherReconciliationCaptureProof `
+    -PythonBinding $pythonBinding -RepositoryRoot $repoRoot
 $executionTapeCurrent = $null
 if ([bool]$quietReportContract.Report.execution_tape_recovery_required) {
     $executionTapeCurrent = Get-WeatherReconciliationExecutionTapeProof `
-        -Python $python -RepositoryRoot $repoRoot
+        -PythonBinding $pythonBinding -RepositoryRoot $repoRoot
 }
 
 $taskEvidence = @(Disable-WeatherIntegrationAttemptTasks -AttemptContract $contract)
@@ -1323,6 +2024,9 @@ $receipt = [ordered]@{
         capture = $capture
         execution_tape = $executionTapeCurrent
     }
+    python_executions = @(
+        $script:WeatherReconciliationPythonExecutions | ForEach-Object { $_ }
+    )
     tasks = @($taskEvidence)
     scripts = [ordered]@{
         reconciliation = [ordered]@{
@@ -1354,7 +2058,33 @@ if ($null -ne $markerToRetireContract) {
 Write-Host "Reconciled attempt $($manifest.attempt_id) as non-authorizing MERGED_RECONCILED evidence."
 Write-Host "No historical proof was upgraded; downstream work remains blocked."
 }
+catch {
+    $primaryError = $_
+    throw
+}
 finally {
-    Exit-WeatherIntegrationControlMutex -Mutex $reconciliationGitMutex
-    Exit-WeatherIntegrationControlMutex -Mutex $terminalMutex
+    $cleanupOnlyError = $null
+    try {
+        Exit-WeatherIntegrationControlMutex `
+            -Mutex $reconciliationGitMutex -PrimaryError $primaryError
+    }
+    catch { $cleanupOnlyError = $_ }
+    $effectivePrimary = if ($null -ne $primaryError) {
+        $primaryError
+    }
+    else { $cleanupOnlyError }
+    try {
+        Exit-WeatherIntegrationControlMutex `
+            -Mutex $terminalMutex -PrimaryError $effectivePrimary
+    }
+    catch {
+        if ($null -eq $cleanupOnlyError) { $cleanupOnlyError = $_ }
+        elseif ($null -ne $effectivePrimary) {
+            $effectivePrimary.Exception.Data["weather_additional_cleanup_failure"] =
+                $_.Exception.Message
+        }
+    }
+    if ($null -eq $primaryError -and $null -ne $cleanupOnlyError) {
+        throw $cleanupOnlyError
+    }
 }

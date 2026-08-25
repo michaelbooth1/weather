@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import py_compile
 import subprocess
 import sys
 from pathlib import Path
@@ -279,7 +278,10 @@ def _has_main_guard(path):
 def smoke_script(path, smoke):
     path = Path(path)
     if smoke in {"compile", "compile_main_guard"}:
-        py_compile.compile(str(path), doraise=True)
+        # A smoke check needs syntax validation, not a persistent bytecode
+        # artifact. Keep qualification read-only even when the caller has a
+        # process-wide PYTHONPYCACHEPREFIX.
+        compile(path.read_bytes(), str(path), "exec")
         if smoke == "compile_main_guard" and not _has_main_guard(path):
             raise AssertionError(f"{path} is missing a main guard")
         return {"script": path.name, "smoke": smoke, "ok": True}
