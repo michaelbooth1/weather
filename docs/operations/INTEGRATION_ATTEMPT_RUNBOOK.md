@@ -371,8 +371,11 @@ exact last-run timestamp/result, and
 `RETIRE_EXACT_EXPIRED_LEGACY_INTEGRATION_TASK`. It allowlists only those two
 names, requires one expired trigger and terminal state, disables rather than
 deletes, and records then reads back a separate immutable receipt. Disabled
-legacy tasks with no valid exact receipt remain collision blockers. This is a bounded migration
-exception, not a generic old-task cleanup mechanism.
+legacy tasks with no valid exact receipt remain collision blockers. Collision
+validation receives the target production repository root explicitly; an
+isolated worktree's `$PSScriptRoot` is code provenance, not authority for the
+ignored runtime-evidence namespace. This is a bounded migration exception, not
+a generic old-task cleanup mechanism.
 
 Hash that closure receipt, classify the failure, and write the reviewed dispatch:
 

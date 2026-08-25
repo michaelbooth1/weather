@@ -222,7 +222,8 @@ try {
         -Now (Get-Date) -MinimumLeadMinutes 5 | Out-Null
     Assert-WeatherIntegrationNoActiveAttemptCollision `
         -SuiteAtLocal $suiteAt -MergeAtLocal $mergeAt `
-        -AttemptId ([string]$manifest.attempt_id)
+        -AttemptId ([string]$manifest.attempt_id) `
+        -RepositoryRoot $repoRoot
 
     # Merge is enabled first because it remains fail-closed on a missing suite
     # PASS receipt. The five-minute reserve makes the two local mutations a

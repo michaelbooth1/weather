@@ -83,6 +83,10 @@ These instructions apply to `scripts/ops/`.
   closure proves the attempt was abandoned and both tasks terminalized. The
   retirement writer must read its create-only receipt back before success;
   partial, missing, or corrupt retirement evidence never authorizes a successor.
+  Collision readers must receive the target production repository root
+  explicitly. They may be loaded from an isolated worktree whose ignored
+  `data/` tree is not the production evidence namespace, so `$PSScriptRoot`
+  is never evidence-root authority.
   Its preflight mode is read-only. Invoking the mutating mode still requires
   explicit user authority over the host Scheduler.
 - The two 2026-08-22 bootstrap tasks predate attempt manifests and are not

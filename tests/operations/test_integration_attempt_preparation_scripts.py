@@ -529,10 +529,108 @@ def test_collision_gate_uses_exact_task_paths_and_conservative_running_windows()
     assert "@disabled-without-valid-retirement-receipt" in contract
     assert "Assert-WeatherIntegrationTaskRetirementReceipt" in contract
     assert "Assert-WeatherIntegrationFailClosureReceipt" in contract
+    assert "-Task $task -RepositoryRoot $resolvedRepositoryRoot" in contract
+    assert "$repositoryRoot = Split-Path -Parent" not in contract
+    assert "[$retirementFailure]" in contract
     assert "$conflictStart.AddHours(4)" in contract
     assert "$conflictStart -le $MergeAtLocal" in contract
     assert "$SuiteAtLocal -le $conflictEnd" in contract
     assert "retire_integration_attempt_tasks.ps1" in contract
+    assert "-RepositoryRoot $RepoRoot" in PREPARER.read_text(encoding="utf-8-sig")
+    assert "-RepositoryRoot $repoRoot" in READINESS.read_text(encoding="utf-8-sig")
+    assert "-RepositoryRoot $repoRoot" in ACTIVATOR.read_text(encoding="utf-8-sig")
+
+
+def test_collision_gate_reads_legacy_receipt_from_explicit_production_root(
+    tmp_path: Path,
+) -> None:
+    code_ops = tmp_path / "isolated-code" / "scripts" / "ops"
+    code_ops.mkdir(parents=True)
+    isolated_contract = code_ops / PREPARATION_CONTRACT.name
+    isolated_contract.write_text(
+        PREPARATION_CONTRACT.read_text(encoding="utf-8-sig"), encoding="utf-8"
+    )
+    production_root = tmp_path / "production-evidence"
+
+    command = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_ATTEMPT_CONTRACT
+. $env:WEATHER_PREPARATION_CONTRACT
+$productionRoot = [IO.Path]::GetFullPath($env:WEATHER_PRODUCTION_ROOT)
+$taskName = 'WeatherIntegrationRecoveryBootstrapSuiteFixed0822'
+$triggerAt = '2026-08-22T00:35:00-04:00'
+$global:legacyXml = "<Task>`r`n<Settings>`r`n<Enabled>false</Enabled>`r`n</Settings>`r`n</Task>"
+$global:legacyTask = [pscustomobject]@{
+    TaskName = $taskName
+    TaskPath = '\'
+    State = 'Disabled'
+    Settings = [pscustomobject]@{
+        Enabled = $false
+        AllowDemandStart = $true
+    }
+    Actions = @([pscustomobject]@{ Arguments = '' })
+    Triggers = @([pscustomobject]@{ StartBoundary = $triggerAt })
+}
+function Get-ScheduledTask {
+    param($ErrorAction)
+    return @($global:legacyTask)
+}
+function Get-ScheduledTaskInfo {
+    param([string]$TaskName, [string]$TaskPath, $ErrorAction)
+    return [pscustomobject]@{
+        LastRunTime = [datetime]'2026-08-22T00:35:00'
+        LastTaskResult = 0
+        NextRunTime = $null
+    }
+}
+function Export-ScheduledTask {
+    param([string]$TaskName, [string]$TaskPath, $ErrorAction)
+    return $global:legacyXml
+}
+$receiptRoot = Join-Path $productionRoot 'data\integration_attempts\legacy-task-retirements'
+New-Item -ItemType Directory -Path $receiptRoot -Force | Out-Null
+$receiptPath = Join-Path $receiptRoot "$taskName.json"
+$receipt = [ordered]@{
+    schema = 'weather_legacy_integration_bootstrap_task_retirement_v1'
+    status = 'PASS'
+    classification = 'EXPIRED_LEGACY_BOOTSTRAP_TASK_RETIRED'
+    task_name = $taskName
+    task_xml_sha256 = Get-WeatherLegacyBootstrapTaskXmlSha256 -Xml $global:legacyXml
+    trigger_at = $triggerAt
+    last_run_time = $triggerAt
+    last_task_result = 0
+    retired_at_local = '2026-08-24T20:00:00-04:00'
+    review_reference = 'cross-worktree-root-regression'
+    confirmation = 'RETIRE_EXACT_EXPIRED_LEGACY_INTEGRATION_TASK'
+    state = 'Disabled'
+    enabled = $false
+    safety = [ordered]@{
+        authority = 'NO_CREDENTIAL_OR_LIVE_EXCHANGE_AUTHORITY'
+        credential_value_access_authorized = $false
+        live_exchange_mutation_authorized = $false
+    }
+}
+$encoding = New-Object Text.UTF8Encoding($false)
+[IO.File]::WriteAllText(
+    $receiptPath,
+    ($receipt | ConvertTo-Json -Depth 10) + [Environment]::NewLine,
+    $encoding
+)
+Assert-WeatherIntegrationNoActiveAttemptCollision `
+    -SuiteAtLocal ([datetime]'2026-08-25T00:40:00') `
+    -MergeAtLocal ([datetime]'2026-08-25T01:20:00') `
+    -RepositoryRoot $productionRoot
+'OK'
+"""
+    result = _powershell(
+        command,
+        WEATHER_ATTEMPT_CONTRACT=str(ATTEMPT_CONTRACT),
+        WEATHER_PREPARATION_CONTRACT=str(isolated_contract),
+        WEATHER_PRODUCTION_ROOT=str(production_root),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
 
 
 def test_collision_gate_fails_closed_for_running_queued_and_unknown_states() -> None:
@@ -548,8 +646,12 @@ function Get-ScheduledTaskInfo {
     return [pscustomobject]@{ NextRunTime = $global:nextRun }
 }
 $global:retirementReceiptValid = $false
+$global:expectedRepositoryRoot = 'C:\synthetic-production-root'
 function Assert-WeatherIntegrationDisabledTaskRetirementEvidence {
-    param([object]$Task)
+    param([object]$Task, [string]$RepositoryRoot)
+    if ($RepositoryRoot -cne $global:expectedRepositoryRoot) {
+        throw 'collision gate did not forward the explicit production root'
+    }
     if (-not $global:retirementReceiptValid) {
         throw 'synthetic missing or invalid retirement receipt'
     }
@@ -586,7 +688,8 @@ foreach ($case in @(
     $blocked = $false
     try {
         Assert-WeatherIntegrationNoActiveAttemptCollision `
-            -SuiteAtLocal $suite -MergeAtLocal $merge
+            -SuiteAtLocal $suite -MergeAtLocal $merge `
+            -RepositoryRoot $global:expectedRepositoryRoot
     }
     catch { $blocked = $true }
     if (-not $blocked) { throw "$($case.Label) task bypassed collision gate" }
@@ -598,7 +701,8 @@ $global:tasks = @(
 $aggregateFailure = ''
 try {
     Assert-WeatherIntegrationNoActiveAttemptCollision `
-        -SuiteAtLocal $suite -MergeAtLocal $merge
+        -SuiteAtLocal $suite -MergeAtLocal $merge `
+        -RepositoryRoot $global:expectedRepositoryRoot
 }
 catch { $aggregateFailure = $_.Exception.Message }
 if ($aggregateFailure -notlike '*WeatherIntegrationSuite_old@demand-start-enabled*' -or
@@ -612,21 +716,25 @@ $global:tasks = @(
 $disabledFailure = ''
 try {
     Assert-WeatherIntegrationNoActiveAttemptCollision `
-        -SuiteAtLocal $suite -MergeAtLocal $merge
+        -SuiteAtLocal $suite -MergeAtLocal $merge `
+        -RepositoryRoot $global:expectedRepositoryRoot
 }
 catch { $disabledFailure = $_.Exception.Message }
 if ($disabledFailure -notlike
-    '*WeatherIntegrationSuite_retired@disabled-without-valid-retirement-receipt*') {
+        '*WeatherIntegrationSuite_retired@disabled-without-valid-retirement-receipt*' -or
+    $disabledFailure -notlike '*synthetic missing or invalid retirement receipt*') {
     throw 'Disabled demand-start task escaped without a valid retirement receipt.'
 }
 $global:retirementReceiptValid = $true
 Assert-WeatherIntegrationNoActiveAttemptCollision `
-    -SuiteAtLocal $suite -MergeAtLocal $merge
+    -SuiteAtLocal $suite -MergeAtLocal $merge `
+    -RepositoryRoot $global:expectedRepositoryRoot
 $global:retirementReceiptValid = $false
 $global:tasks = @(New-TestTask 'WeatherIntegrationSuite_spent' 'Ready' $true '')
 $global:nextRun = $null
 Assert-WeatherIntegrationNoActiveAttemptCollision `
-    -SuiteAtLocal $suite -MergeAtLocal $merge
+    -SuiteAtLocal $suite -MergeAtLocal $merge `
+    -RepositoryRoot $global:expectedRepositoryRoot
 'OK'
 """
     result = _powershell(
@@ -666,7 +774,8 @@ $suite = [datetime]'2026-08-25T00:40:00'
 $merge = [datetime]'2026-08-25T01:20:00'
 $global:tasks = @(New-NonExecTask 'BenignComHandlerTask')
 Assert-WeatherIntegrationNoActiveAttemptCollision `
-    -SuiteAtLocal $suite -MergeAtLocal $merge
+    -SuiteAtLocal $suite -MergeAtLocal $merge `
+    -RepositoryRoot 'C:\synthetic-production-root'
 if ($global:taskInfoCalls -ne 0) {
     throw 'benign non-Exec action was treated as protected merge work'
 }
@@ -675,7 +784,8 @@ $global:nextRun = $suite.AddMinutes(5)
 $blocked = $false
 try {
     Assert-WeatherIntegrationNoActiveAttemptCollision `
-        -SuiteAtLocal $suite -MergeAtLocal $merge
+        -SuiteAtLocal $suite -MergeAtLocal $merge `
+        -RepositoryRoot 'C:\synthetic-production-root'
 }
 catch { $blocked = $true }
 if (-not $blocked -or $global:taskInfoCalls -ne 1) {

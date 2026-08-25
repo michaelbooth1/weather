@@ -411,7 +411,8 @@ try {
     Assert-WeatherIntegrationNoActiveAttemptCollision `
         -SuiteAtLocal $suiteAt `
         -MergeAtLocal $mergeAt `
-        -AttemptId ([string]$manifest.attempt_id)
+        -AttemptId ([string]$manifest.attempt_id) `
+        -RepositoryRoot $repoRoot
 
     $stage = "validate_final_quiet_merge_preconditions"
     $finalQuietMergePreflight = Assert-WeatherIntegrationQuietMergePreconditions `

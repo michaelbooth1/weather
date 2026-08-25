@@ -127,7 +127,8 @@ try {
     Assert-WeatherIntegrationNoActiveAttemptCollision `
         -SuiteAtLocal $schedule.suite_at_local `
         -MergeAtLocal $schedule.merge_at_local `
-        -AttemptId $AttemptId
+        -AttemptId $AttemptId `
+        -RepositoryRoot $RepoRoot
 
     $stage = "validate_local_topic"
     if (-not (Test-Path -LiteralPath $WorktreeRoot -PathType Container)) {

@@ -61,7 +61,10 @@ function Get-WeatherIntegrationTaskManifestBinding {
 }
 
 function Assert-WeatherIntegrationDisabledTaskRetirementEvidence {
-    param([Parameter(Mandatory = $true)][object]$Task)
+    param(
+        [Parameter(Mandatory = $true)][object]$Task,
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot
+    )
 
     $taskName = [string]$Task.TaskName
     if ($taskName -match '^WeatherIntegration(?<role>Suite|Merge)_(?<attempt>[A-Za-z0-9][A-Za-z0-9._-]{0,47})$') {
@@ -96,9 +99,8 @@ function Assert-WeatherIntegrationDisabledTaskRetirementEvidence {
     }
     if ($taskName -cmatch
         '^WeatherIntegrationRecoveryBootstrap(?:Suite|Merge)Fixed0822$') {
-        $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
         Assert-WeatherLegacyBootstrapRetirementReceipt `
-            -RepositoryRoot $repositoryRoot -Task $Task | Out-Null
+            -RepositoryRoot $RepositoryRoot -Task $Task | Out-Null
         return
     }
     throw "Disabled task is not an exact supported retirement identity."
@@ -108,9 +110,11 @@ function Assert-WeatherIntegrationNoActiveAttemptCollision {
     param(
         [Parameter(Mandatory = $true)][datetime]$SuiteAtLocal,
         [Parameter(Mandatory = $true)][datetime]$MergeAtLocal,
-        [AllowEmptyString()][string]$AttemptId = ""
+        [AllowEmptyString()][string]$AttemptId = "",
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot
     )
 
+    $resolvedRepositoryRoot = Resolve-WeatherIntegrationPath -Path $RepositoryRoot
     $ownTaskNames = if ([string]::IsNullOrWhiteSpace($AttemptId)) { @() } else {
         @("WeatherIntegrationSuite_$AttemptId", "WeatherIntegrationMerge_$AttemptId")
     }
@@ -141,12 +145,14 @@ function Assert-WeatherIntegrationNoActiveAttemptCollision {
                 [bool]$allowDemandStartProperty.Value) {
                 try {
                     Assert-WeatherIntegrationDisabledTaskRetirementEvidence `
-                        -Task $task
+                        -Task $task -RepositoryRoot $resolvedRepositoryRoot
                 }
                 catch {
+                    $retirementFailure = [string]$_.Exception.Message
                     $active.Add(
                         "$([string]$task.TaskPath)$([string]$task.TaskName)" +
-                        "@disabled-without-valid-retirement-receipt"
+                        "@disabled-without-valid-retirement-receipt" +
+                        "[$retirementFailure]"
                     )
                 }
             }
