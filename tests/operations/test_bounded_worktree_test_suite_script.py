@@ -17,10 +17,10 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$hardStop = $localNow.Date.AddHours(9)" in text
     assert "killing its complete child tree" in text
     assert "ExpectedTip" in text
-    assert "worktree list --porcelain" in text
-    assert "status --porcelain" in text
+    assert '-Arguments @("worktree", "list", "--porcelain")' in text
+    assert '-Arguments @("status", "--porcelain")' in text
     assert "suite worktree is dirty" in text
-    assert "ls-files -- tests" in text
+    assert '-Arguments @("ls-files", "--", "tests")' in text
     assert "Get-ChildItem -LiteralPath $testRoot" not in text
     assert "$env:PYTHONPATH = Join-Path $WorktreeRoot \"src\"" in text
     assert "AdditionalPythonPath" in text
@@ -29,6 +29,87 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "RequireLiveSdkContract" in text
     assert '$env:WEATHER_REQUIRE_LIVE_SDK_CONTRACT = "1"' in text
     assert "$previousLiveSdkRequirement" in text
+    for name, value in (
+        ("WEATHER_INTEGRATION_TEST_OFFLINE", "1"),
+        ("GIT_ALLOW_PROTOCOL", "file"),
+        ("GIT_TERMINAL_PROMPT", "0"),
+        ("PYTHONNOUSERSITE", "1"),
+        ("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1"),
+        ("PYTHONDONTWRITEBYTECODE", "1"),
+        ("PYTHONHASHSEED", "0"),
+        ("PYTHONUTF8", "1"),
+        ("PYTHONIOENCODING", "utf-8"),
+    ):
+        assert f'$env:{name} = "{value}"' in text
+    assert "$previousIntegrationTestOffline" in text
+    assert "[int]$MaxRuntimeSeconds = 5400" in text
+    assert "$suiteDeadline" in text
+    assert "$localNow.AddSeconds($MaxRuntimeSeconds)" in text
+    assert "$suiteRuntimeStopwatch = [Diagnostics.Stopwatch]::StartNew()" in text
+    assert "$suiteRuntimeStopwatch.Elapsed.TotalSeconds -ge $MaxRuntimeSeconds" in text
+    assert "runtime or 09:00 hard teardown boundary" in text
+    assert "Assert-SuiteDiskHeadroom" in text
+    assert "[int64]53687091200" in text
+    assert "requires at least 50 GiB free" in text
+    assert "bounded suite refuses to append to or replace an existing log" in text
+    assert "[IO.FileMode]::CreateNew" in text
+    assert "[IO.FileShare]::Read" in text
+    assert "$suiteLogWriter.WriteLine($line)" in text
+    assert "$suiteLogStream.Flush($true)" in text
+    assert "Add-Content -LiteralPath $LogPath" not in text
+    assert "Invoke-SuiteCheckedLocalGit" in text
+    assert "Get-SuiteGitExecutable" in text
+    assert "GIT_NO_REPLACE_OBJECTS" in text
+    assert "GIT_OPTIONAL_LOCKS" in text
+    assert "GIT_CONFIG_GLOBAL" in text
+    assert '"--end-of-options"' in text
+    assert "& git -C" not in text
+    assert "$previousIntegrationTestProductionRoot" in text
+    assert "$previousIntegrationTestCandidateRoot" in text
+    assert "$env:WEATHER_INTEGRATION_TEST_CANDIDATE_ROOT = $WorktreeRoot" in text
+    assert "suite exact-worktree import probe exceeded its bounded runtime" in text
+    assert "$importProbeJob = New-WeatherKillOnCloseJob" in text
+    assert "Start-WeatherProcessInJob" in text
+    assert "$importProbeDeadline = [Diagnostics.Stopwatch]::StartNew()" in text
+    assert "contained probe exit=" in text
+    assert "weather-integration-junit-" in text
+    assert '"--junitxml", $junitTempPath' in text
+    assert "[IO.File]::Move($junitTempPath, $junitPath)" in text
+    assert "JUnit temp/evidence paths must share one volume" in text
+    assert "Remove-Item -LiteralPath $junitTempPath" in text
+    assert "$previousIntegrationTestAllowedWriteRoot" in text
+    assert "$env:WEATHER_INTEGRATION_TEST_ALLOWED_WRITE_ROOT = $null" in text
+    assert "Test-WeatherQualificationSensitiveEnvironmentName" in text
+    assert '$env:WEATHER_INTEGRATION_TEST_SECRET_POLICY = "conservative_v1"' in text
+    assert "$scrubbedSensitiveEnvironment" in text
+    assert "POLYMARKET_" in text
+    assert "CONNECTION_STRING" in text
+    assert "URL|URI|DSN|AUTH|COOKIE|KEY|CERT" in text
+    assert "SSH_AUTH_SOCK" in text
+    assert "PIP_TRUSTED_HOST" in text
+    assert "GIT_SSH_COMMAND" in text
+    assert "$previousGitAllowProtocol" in text
+    assert "$previousGitTerminalPrompt" in text
+    assert "$previousPythonNoUserSite" in text
+    assert "$previousPytestPluginAutoload" in text
+    assert "$previousPythonDontWriteBytecode" in text
+    assert "$previousPythonHashSeed" in text
+    assert "$previousPythonUtf8" in text
+    assert "$previousPythonIoEncoding" in text
+    assert "$WorktreeRoot\n        $env:PYTHONPATH" in text
+    lease = text.index("$workloadLease = Enter-WeatherHeavyWorkloadLease")
+    offline = text.index('$env:WEATHER_INTEGRATION_TEST_OFFLINE = "1"')
+    body = text.index("Set-Location -LiteralPath $WorktreeRoot", offline)
+    cleanup = text.index("finally {", body)
+    assert lease < offline < body < cleanup
+    assert (
+        text.index(
+            "$env:WEATHER_INTEGRATION_TEST_OFFLINE = "
+            "$previousIntegrationTestOffline",
+            cleanup,
+        )
+        > cleanup
+    )
     assert "Set-Location -LiteralPath $WorktreeRoot" in text
     assert "Set-Location -LiteralPath $previousLocation" in text
     assert "Get-HealthyCaptureWorkerCount" in text
@@ -76,10 +157,33 @@ $culture = [Globalization.CultureInfo](Get-Culture).Clone()
 $culture.DateTimeFormat.TimeSeparator = '.'
 [Threading.Thread]::CurrentThread.CurrentCulture = $culture
 $LogPath = $env:WEATHER_BOUNDED_SUITE_LOG
-Write-SuiteLog 'VERDICT: culture probe' | Out-Null
+$suiteLogStream = $null
+$suiteLogWriter = $null
+$line = $null
+try {
+    $suiteLogStream = [IO.File]::Open(
+        $LogPath,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::Read
+    )
+    $suiteLogWriter = New-Object IO.StreamWriter(
+        $suiteLogStream,
+        (New-Object Text.UTF8Encoding($false, $true)),
+        4096,
+        $true
+    )
+    $suiteLogWriter.AutoFlush = $true
+    Write-SuiteLog 'VERDICT: culture probe' | Out-Null
+    $line = (Get-Content -LiteralPath $LogPath -Raw).Trim()
+}
+finally {
+    if ($suiteLogWriter) { $suiteLogWriter.Dispose() }
+    if ($suiteLogStream) { $suiteLogStream.Dispose() }
+}
 [pscustomobject]@{
     errors = @($errors | ForEach-Object { $_.Message })
-    line = (Get-Content -LiteralPath $LogPath -Raw).Trim()
+    line = $line
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
