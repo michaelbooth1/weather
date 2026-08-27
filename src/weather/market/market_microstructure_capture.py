@@ -982,18 +982,30 @@ def capture_market_books(
     websocket_factory=None,
     include_clob_features=True,
     now=None,
+    snapshots_root=None,
+    event_metadata_path=None,
 ):
     from weather.operations import event_metadata_validation
 
     event_client = PolymarketClient(target_date=target_date, market_id=market_id)
     event = event_client.get_event()
     config = config_from_event(event, fallback_date=event_client.config.target_date)
-    validation = event_metadata_validation.build_validation_payload(
-        target_date=config.target_date,
-        markets=[market_id],
-        live_events=[event],
-        fetch_live=False,
+    if root is not None and snapshots_root is not None:
+        raise ValueError("root and snapshots_root are mutually exclusive")
+    event_root = (
+        Path(snapshots_root) / config.event_slug
+        if snapshots_root is not None
+        else root
     )
+    validation_kwargs = {
+        "target_date": config.target_date,
+        "markets": [market_id],
+        "live_events": [event],
+        "fetch_live": False,
+    }
+    if event_metadata_path is not None:
+        validation_kwargs["event_metadata_path"] = event_metadata_path
+    validation = event_metadata_validation.build_validation_payload(**validation_kwargs)
     validation_gate = event_metadata_validation.gate_for_market(validation, market_id)
     if not validation_gate.get("ok"):
         return {
@@ -1018,7 +1030,7 @@ def capture_market_books(
         event,
         market_id=market_id,
         clob_client=clob_client,
-        root=root,
+        root=event_root,
         outcomes=outcomes,
         include_price_history=include_price_history,
         history_minutes=history_minutes,
@@ -1721,6 +1733,8 @@ def capture_fleet_books(
     websocket_factory=None,
     include_clob_features=True,
     progress_callback=None,
+    snapshots_root=None,
+    event_metadata_path=None,
 ):
     market_ids = [spec.id for spec in all_specs()] if market_id == "all" else [market_id]
     results = {}
@@ -1744,6 +1758,8 @@ def capture_fleet_books(
                 ws_connect_timeout=ws_connect_timeout,
                 websocket_factory=websocket_factory,
                 include_clob_features=include_clob_features,
+                snapshots_root=snapshots_root,
+                event_metadata_path=event_metadata_path,
             )
         except RawTapeWriterBusy as exc:
             results[item] = {

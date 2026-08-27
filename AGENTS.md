@@ -68,6 +68,11 @@ machine-local state.
   absolute child-tree teardown deadline. The 12:00–18:00 graded window and
   18:00–00:30 near-close window are protected; separate resource checks do
   not make overlapping heavy jobs safe.
+- That timetable protects the dedicated capture host. A separate attended
+  execution-only PC may use only the exact host-bound `portable_execution_v1`
+  International Stage 0/1 lane described in
+  `docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`; it grants no exception to
+  ordinary tests, training, replays, capture-host work, or unattended trading.
 - **Merging code on the production host can restart live capture.** Supervisors
   fingerprint the source files they have imported, so landing a change to a
   loop-imported module triggers a `STALE_CODE` readoption restart. Inside the

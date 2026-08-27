@@ -94,7 +94,23 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("mm_live_credential_import_receipt"),
-            "mm_live_credential_import_receipt_v0.2",
+            "mm_live_credential_import_receipt_v0.4",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_scope_inventory"),
+            "international_live_fixed_scope_inventory_v0.3",
+        )
+        self.assertEqual(
+            schema_version("portable_live_candidate_substrate_preflight"),
+            "portable_live_candidate_substrate_preflight_v0.1",
+        )
+        self.assertEqual(
+            schema_version("international_live_sdk_public_bundle"),
+            "international_live_sdk_public_bundle_v0.1",
+        )
+        self.assertEqual(
+            schema_version("international_live_sdk_portability_receipt"),
+            "international_live_sdk_portability_receipt_v0.1",
         )
         self.assertEqual(
             schema_version("maker_scoring_input_binding"),

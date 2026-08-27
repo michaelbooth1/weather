@@ -7,6 +7,18 @@ import subprocess
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
 
 
+def test_status_paths_are_derived_from_the_invoked_checkout_and_user_profile() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert (
+        "[string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))"
+        in text
+    )
+    assert "$repo = [IO.Path]::GetFullPath($RepoRoot)" in text
+    assert 'Join-Path $env:USERPROFILE "ops\\mirror_status.json"' in text
+    assert "C:\\Users\\micha" not in text
+
+
 def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

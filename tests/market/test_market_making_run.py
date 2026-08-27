@@ -997,6 +997,34 @@ class TestMarketMakingRun(unittest.TestCase):
         finalize.assert_not_called()
         self.assertIs(result, loop_payload)
 
+    def test_main_require_preflight_pass_exits_nonzero_after_blocked_run(self):
+        blocked_payload = {
+            "run_folder": "blocked",
+            "preflight_status": "BLOCK",
+        }
+        with patch.object(
+            market_making_run,
+            "build_run_once",
+            return_value=blocked_payload,
+        ), patch.object(
+            market_making_run,
+            "finalize_scoring_projection",
+            return_value=blocked_payload,
+        ), patch.object(
+            market_making_run,
+            "format_run_cli_summary",
+            return_value="blocked",
+        ):
+            with self.assertRaises(SystemExit) as error:
+                market_making_run.main([
+                    "--date", TARGET_DATE,
+                    "--mode", "shadow",
+                    "--budget-usdc", "25",
+                    "--require-preflight-pass",
+                ])
+
+        self.assertEqual(error.exception.code, 2)
+
     def test_runtime_identity_snapshot_uses_recorded_scope_for_loop_status(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
@@ -2159,15 +2187,7 @@ class TestMarketMakingRun(unittest.TestCase):
                 list(current_tokens[0].keys()),
                 historical_tokens + current_tokens,
             )
-            promotion.write_text(json.dumps({
-                "decisions": {
-                    "markets": [{
-                        "market_id": "atlanta",
-                        "action": "BLOCK_CANDIDATE",
-                        "verdict": "BLOCK",
-                    }]
-                }
-            }), encoding="utf-8")
+            promotion.unlink()
             status = root / "observation_status.json"
             write_observation_status(status)
             known_edge = write_known_edge_map(
@@ -2213,6 +2233,7 @@ class TestMarketMakingRun(unittest.TestCase):
         gate_names = {gate["name"] for gate in preflight["markets"][0]["gates"]}
         self.assertNotIn("snapshot_model_rows", gate_names)
         self.assertNotIn("model_freshness", gate_names)
+        self.assertNotIn("promotion_state", gate_names)
         self.assertIn("market_harvest_paper_only", gate_names)
         self.assertEqual(run_config["permission_profile"], "market_harvest")
         self.assertFalse(run_config["shadow_safety"]["live_trade_permission_allowed"])
@@ -2220,6 +2241,7 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertEqual(run_config["policy_config"]["max_event_notional"], 25.0)
         self.assertEqual(run_config["policy_config"]["max_band_notional"], 10.0)
         self.assertEqual(run_config["policy_config"]["max_daily_loss"], 25.0)
+        self.assertEqual(run_config["policy_config"]["quote_ttl_seconds"], 120.0)
         self.assertEqual(run_config["policy_config"]["harvest_half_spread"], 0.01)
         self.assertEqual(run_config["policy_config"]["max_harvest_spread"], 0.08)
         self.assertEqual({row["known_edge_permission"] for row in rows}, {"market_harvest"})

@@ -125,6 +125,8 @@ def capture_snapshot(
     cadence="scheduled",
     trigger_context=None,
     target_date=None,
+    snapshots_root=None,
+    event_metadata_path=None,
 ):
     from weather.market.polymarket_client import PolymarketClient
     from weather.model.toronto_model import TorontoHighTempModel
@@ -155,12 +157,15 @@ def capture_snapshot(
                 "local_date": local_today.isoformat(),
             }
     cross_process_fanout, fanout_scope = fanout_from_environment()
-    store = SnapshotStore(
-        event_slug=event_config.event_slug,
-        shared_forecast_payload_cas_root=(
+    store_kwargs = {
+        "event_slug": event_config.event_slug,
+        "shared_forecast_payload_cas_root": (
             cross_process_fanout.cas.root if cross_process_fanout is not None else None
         ),
-    )
+    }
+    if snapshots_root is not None:
+        store_kwargs["root"] = Path(snapshots_root) / event_config.event_slug
+    store = SnapshotStore(**store_kwargs)
     if (
         not force
         and cadence == "scheduled"
@@ -178,11 +183,16 @@ def capture_snapshot(
             "path": str(store.long_path),
             "next_due_at": store.next_due_at(cadence=cadence),
         }
+    validation_kwargs = {
+        "target_date": event_config.target_date,
+        "markets": [market_id],
+        "live_events": [event],
+        "fetch_live": False,
+    }
+    if event_metadata_path is not None:
+        validation_kwargs["event_metadata_path"] = event_metadata_path
     validation = event_metadata_validation.build_validation_payload(
-        target_date=event_config.target_date,
-        markets=[market_id],
-        live_events=[event],
-        fetch_live=False,
+        **validation_kwargs,
     )
     validation_gate = event_metadata_validation.gate_for_market(validation, market_id)
     if not validation_gate.get("ok"):
@@ -2246,8 +2256,24 @@ def main():
     )
     parser.add_argument(
         "--snapshots-root",
-        default=str(SNAPSHOT_DATA_ROOT),
-        help="Snapshot root used by backfill commands.",
+        default=None,
+        help=(
+            "Parent snapshot root used by one-shot captures and backfill commands. "
+            "Defaults to the repository data snapshot root."
+        ),
+    )
+    parser.add_argument(
+        "--event-metadata",
+        default="",
+        help=(
+            "Event-metadata JSON used to validate a one-shot capture. "
+            "Defaults to the repository-managed metadata."
+        ),
+    )
+    parser.add_argument(
+        "--require-pass",
+        action="store_true",
+        help="For one-shot capture, exit 2 if any requested market returns BLOCK or ERROR.",
     )
     parser.add_argument(
         "--source-status-folder",
@@ -2326,7 +2352,10 @@ def main():
             ))
             return
         print(json.dumps(
-            backfill_source_status(args.snapshots_root, overwrite=args.overwrite_source_status),
+            backfill_source_status(
+                args.snapshots_root or SNAPSHOT_DATA_ROOT,
+                overwrite=args.overwrite_source_status,
+            ),
             indent=2,
             sort_keys=True,
             default=str,
@@ -2335,7 +2364,7 @@ def main():
     if args.backfill_forecast_payloads:
         print(json.dumps(
             backfill_forecast_payloads(
-                args.snapshots_root,
+                args.snapshots_root or SNAPSHOT_DATA_ROOT,
                 overwrite=args.overwrite_forecast_payloads,
                 retain_raw_payloads=args.retain_raw_forecast_payloads or None,
             ),
@@ -2351,10 +2380,12 @@ def main():
                     force=args.force,
                     market_id=spec.id,
                     target_date=target_date,
+                    snapshots_root=args.snapshots_root,
+                    event_metadata_path=args.event_metadata or None,
                 )
                 for spec in all_specs()
             }
-            print(json.dumps({
+            payload = {
                 "market": "all",
                 "target_date": target_date.isoformat() if target_date else None,
                 "markets": results,
@@ -2365,9 +2396,14 @@ def main():
                     if result.get("blocked") or result.get("status") == "BLOCK"
                 ],
                 "error_markets": [
-                    market_id for market_id, result in results.items() if result.get("error")
+                    market_id
+                    for market_id, result in results.items()
+                    if result.get("error") or result.get("status") == "ERROR"
                 ],
-            }, indent=2, sort_keys=True, default=str))
+            }
+            print(json.dumps(payload, indent=2, sort_keys=True, default=str))
+            if args.require_pass and (payload["blocked_markets"] or payload["error_markets"]):
+                return 2
             return
         runtime_gate = capture_runtime_fingerprint_gate(args.expected_runtime_fingerprint)
         if runtime_gate.get("ok"):
@@ -2377,6 +2413,8 @@ def main():
                 cadence=args.cadence,
                 trigger_context=trigger_context,
                 target_date=target_date,
+                snapshots_root=args.snapshots_root,
+                event_metadata_path=args.event_metadata or None,
             )
         else:
             result = {
@@ -2389,6 +2427,12 @@ def main():
                 "target_date": target_date.isoformat() if target_date else None,
             }
         emit_capture_result(result, args.result_json)
+        if args.require_pass and (
+            result.get("blocked")
+            or result.get("status") in {"BLOCK", "ERROR"}
+            or result.get("error")
+        ):
+            return 2
         return
 
     configure_json_console_logging()

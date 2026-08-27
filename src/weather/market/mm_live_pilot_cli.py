@@ -71,6 +71,7 @@ from weather.market.market_making_preflight import (
 )
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
+from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.schema_registry import schema_version
 
 
@@ -175,6 +176,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
     run_child = run.get("child_execution") or {}
     run_topology = run.get("credential_topology") or {}
     seal_production = seal.get("production") or {}
+    market = MARKET_REGISTRY.get(str(seal_scope.get("market_id") or ""))
     command_paths = command.get("paths") or {}
     credential_topology = command.get("credential_topology") or {}
     run_sidecar = run_path.with_suffix(run_path.suffix + ".sha256")
@@ -209,16 +211,27 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and _sha256_file(manifest_sidecar) == run_manifest.get("sidecar_sha256")
     )
     checks = {
-        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.3"
+        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.4"
         and seal.get("status") == "PASS"
         and seal.get("stage") == stage_name,
         "production": seal_production.get("commit") == args.expected_production_tip,
         "seal_scope": seal_scope.get("target_date") == args.target_date
+        and market is not None
+        and seal_scope.get("market_timezone") == market.timezone
         and str(seal_scope.get("condition_id") or "").lower()
         == str(args.condition_id).lower()
         and str(seal_scope.get("token_id") or "") == str(args.token_id)
         and float(seal_scope.get("requested_budget_pusd")) == float(args.budget)
         and seal_scope.get("cancellation_mode") == mode,
+        "execution_host": seal_scope.get("execution_host_profile")
+        in {"capture_colocated_v1", "portable_execution_v1"}
+        and len(str(seal_scope.get("execution_host_id") or "")) == 64
+        and execution.get("execution_host_profile")
+        == seal_scope.get("execution_host_profile")
+        and execution.get("execution_host_id") == seal_scope.get("execution_host_id")
+        and run.get("execution_host_profile")
+        == seal_scope.get("execution_host_profile")
+        and run.get("execution_host_id") == seal_scope.get("execution_host_id"),
         "canonical_paths": seal_path == expected_paths["seal"]
         and run_path == expected_paths["run"]
         and execution_path == expected_paths["execution"]
@@ -255,7 +268,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and command_paths.get("lifecycle_journal")
         == journal_artifact.get("path"),
         "execution": execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.5"
+        == "international_live_fixed_scope_execution_v0.6"
         and execution.get("status") == "PASS"
         and execution.get("stage") == stage_name
         and execution.get("target_date") == args.target_date
@@ -333,7 +346,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
             str(result_payload.get("journal_path") or "")
         ).resolve()
         == Path(str(journal_artifact.get("path") or "")).resolve(),
-        "run": run.get("schema_version") == "international_live_session_run_v0.3"
+        "run": run.get("schema_version") == "international_live_session_run_v0.4"
         and run.get("status") == "PASS"
         and run.get("stage") == stage_name
         and run.get("live_mutation_attempted") is True
@@ -376,6 +389,8 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         "run_receipt_sha256": _sha256_file(run_path),
         "result_sha256": _sha256_file(result),
         "journal_sha256": journal_artifact["sha256"],
+        "market_id": market.id,
+        "market_timezone": market.timezone,
     }
 
 
@@ -1196,6 +1211,13 @@ def run_bundle(
                 args, "dead_man", args.dead_man_result
             ),
         }
+        if (
+            lineages["cancel_all"]["market_id"]
+            != lineages["dead_man"]["market_id"]
+            or lineages["cancel_all"]["market_timezone"]
+            != lineages["dead_man"]["market_timezone"]
+        ):
+            raise RuntimeError("Stage 1 bundle market lineage does not match")
         bundle = bundle_builder(gate, cancel_all_result, dead_man_result)
     except Exception as exc:
         operation_error = exc

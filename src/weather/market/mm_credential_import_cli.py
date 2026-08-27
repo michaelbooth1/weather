@@ -13,12 +13,19 @@ unchanged and is not expected to contain the live SDK dependencies.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
+import json
 import os
+import stat
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-from weather.io import write_json_atomic
+from weather.execution_host import (
+    current_execution_host_id,
+    current_execution_principal_id,
+)
 from weather.market.market_making_preflight import valid_evm_address
 from weather.market.mm_credentials import (
     FUNDER_ENV,
@@ -29,6 +36,10 @@ from weather.market.mm_credentials import (
     write_windows_generic_credential,
 )
 from weather.paths import REPO_ROOT
+from weather.operations.live_path_security import (
+    validate_nonreparse_directory,
+    validate_regular_nonreparse_file,
+)
 from weather.schema_registry import schema_version
 
 
@@ -52,16 +63,7 @@ SOURCE_PUBLIC_KEYS = {
     "POLYMM_FUNDER_ADDRESS",
     "POLYMM_SIGNATURE_TYPE",
 }
-IGNORED_SOURCE_KEYS = {
-    "POLYMM_RELAYER_API_KEY",
-    "POLYMM_RELAYER_API_KEY_ADDRESS",
-    "POLYMM_POLYMARKET_VENUE",
-    "POLYMM_LIVE_TRADING",
-    "POLYMM_POLYGON_RPC_URL",
-}
-ALLOWED_SOURCE_KEYS = (
-    set(SOURCE_SECRET_KEYS.values()) | SOURCE_PUBLIC_KEYS | IGNORED_SOURCE_KEYS
-)
+ALLOWED_SOURCE_KEYS = set(SOURCE_SECRET_KEYS.values()) | SOURCE_PUBLIC_KEYS
 WINCRED_TARGETS = {
     "api_key": "Weather/Polymarket/InternationalPilot/ApiKey",
     "api_secret": "Weather/Polymarket/InternationalPilot/ApiSecret",
@@ -114,6 +116,89 @@ class CredentialValidationDependencyError(RuntimeError):
     """Raised when the sealed offline validator is not available."""
 
 
+class _CreateOnlyOutput:
+    """Own one new output file identity from reservation through publication."""
+
+    def __init__(self, path: Path, *, label: str):
+        self.path = path
+        self.label = label
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        try:
+            self._descriptor = os.open(self.path, flags, 0o600)
+        except FileExistsError as exc:
+            raise RuntimeError(f"{label} output path must be new") from exc
+        self._identity = os.fstat(self._descriptor)
+        self._expected_sha256 = None
+
+    def write_json(self, payload) -> None:
+        raw = (json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n").encode(
+            "utf-8"
+        )
+        descriptor = self._require_open()
+        view = memoryview(raw)
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            os.ftruncate(descriptor, 0)
+            offset = 0
+            while offset < len(view):
+                written = os.write(descriptor, view[offset:])
+                if written <= 0:
+                    raise OSError(f"{self.label} publication made no progress")
+                offset += written
+            os.fsync(descriptor)
+        finally:
+            view.release()
+        self._expected_sha256 = hashlib.sha256(raw).hexdigest()
+
+    def verify(self) -> None:
+        descriptor = self._require_open()
+        try:
+            observed_identity = self.path.stat()
+        except OSError as exc:
+            raise RuntimeError(f"{self.label} publication path disappeared") from exc
+        if not os.path.samestat(self._identity, observed_identity):
+            raise RuntimeError(f"{self.label} publication ownership changed")
+        if self._expected_sha256 is None:
+            raise RuntimeError(f"{self.label} publication was not written")
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        digest = hashlib.sha256()
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
+        if digest.hexdigest() != self._expected_sha256:
+            raise RuntimeError(f"{self.label} publication changed")
+
+    def close(self) -> None:
+        descriptor = self._descriptor
+        self._descriptor = None
+        if descriptor is not None:
+            os.close(descriptor)
+
+    def remove_if_owned(self) -> bool:
+        self.close()
+        try:
+            observed_identity = self.path.stat()
+        except FileNotFoundError:
+            return True
+        except OSError:
+            return False
+        if not os.path.samestat(self._identity, observed_identity):
+            return False
+        try:
+            self.path.unlink()
+        except OSError:
+            return False
+        return True
+
+    def _require_open(self) -> int:
+        if self._descriptor is None:
+            raise RuntimeError(f"{self.label} reservation is closed")
+        return self._descriptor
+
+
 def _is_within(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -122,39 +207,77 @@ def _is_within(path: Path, root: Path) -> bool:
         return False
 
 
-def _is_reparse_point(path: Path) -> bool:
-    if path.is_symlink():
-        return True
-    attributes = getattr(path.stat(), "st_file_attributes", 0)
-    return bool(attributes & 0x400)
-
-
 def _new_external_paths(source_path, manifest_path, receipt_path, *, repo_root):
-    source_input = Path(source_path)
-    if _is_reparse_point(source_input):
-        raise RuntimeError("credential source must not be a symlink or reparse point")
-    source = source_input.resolve(strict=True)
-    manifest = Path(manifest_path).resolve()
-    receipt = Path(receipt_path).resolve()
+    source = validate_regular_nonreparse_file(source_path)
+    manifest_input = Path(os.path.abspath(os.fspath(manifest_path)))
+    receipt_input = Path(os.path.abspath(os.fspath(receipt_path)))
     root = Path(repo_root).resolve()
-    if not source.is_file():
-        raise RuntimeError("credential source must be a regular file")
-    if source.stat().st_size <= 0 or source.stat().st_size > MAX_SOURCE_BYTES:
-        raise RuntimeError("credential source size is outside the accepted bound")
-    if any(_is_within(path, root) for path in (source, manifest, receipt)):
+    if any(
+        _is_within(path.resolve(strict=False), root)
+        for path in (source, manifest_input, receipt_input)
+    ):
         raise RuntimeError("credential source and outputs must remain outside the repository")
-    if len({source, manifest, receipt}) != 3:
+    if len({source, manifest_input, receipt_input}) != 3:
         raise RuntimeError("credential source, manifest, and receipt paths must be distinct")
-    if manifest.exists() or receipt.exists():
-        raise RuntimeError("credential import output paths must be new")
-    for parent in {manifest.parent, receipt.parent}:
+    for parent in {manifest_input.parent, receipt_input.parent}:
         parent.mkdir(parents=True, exist_ok=True)
+        validate_nonreparse_directory(parent)
+    manifest = manifest_input.parent.resolve(strict=True) / manifest_input.name
+    receipt = receipt_input.parent.resolve(strict=True) / receipt_input.name
     return source, manifest, receipt
 
 
-def _parse_source(path: Path) -> dict:
+def _read_source_snapshot(path: Path) -> bytes:
+    """Read one bounded source generation through a retained file descriptor."""
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise RuntimeError("credential source must be a regular file")
+        if opened.st_size <= 0 or opened.st_size > MAX_SOURCE_BYTES:
+            raise RuntimeError("credential source size is outside the accepted bound")
+        try:
+            before = path.stat()
+        except OSError as exc:
+            raise RuntimeError("credential source disappeared before reading") from exc
+        if not os.path.samestat(opened, before):
+            raise RuntimeError("credential source identity changed before reading")
+        chunks = []
+        total = 0
+        while True:
+            block = os.read(descriptor, min(8192, MAX_SOURCE_BYTES + 1 - total))
+            if not block:
+                break
+            chunks.append(block)
+            total += len(block)
+            if total > MAX_SOURCE_BYTES:
+                raise RuntimeError("credential source size is outside the accepted bound")
+        after_handle = os.fstat(descriptor)
+        try:
+            after_path = path.stat()
+        except OSError as exc:
+            raise RuntimeError("credential source disappeared while reading") from exc
+        if (
+            not os.path.samestat(opened, after_handle)
+            or not os.path.samestat(opened, after_path)
+            or after_handle.st_size != total
+            or after_handle.st_mtime_ns != opened.st_mtime_ns
+        ):
+            raise RuntimeError("credential source identity or bytes changed while reading")
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
+def _parse_source(raw: bytes) -> dict:
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("credential source must be strict UTF-8 text") from exc
     values = {}
-    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+    for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -175,8 +298,8 @@ def _parse_source(path: Path) -> dict:
             raise RuntimeError("credential source values must not include shell quotes")
         values[key] = value
     required = set(SOURCE_SECRET_KEYS.values()) | SOURCE_PUBLIC_KEYS
-    if not required.issubset(values):
-        raise RuntimeError("credential source is missing a required key")
+    if set(values) != required:
+        raise RuntimeError("credential source must contain exactly the required keys")
     return values
 
 
@@ -270,6 +393,9 @@ def import_live_pilot_credentials(
     credential_writer=write_windows_generic_credential,
     credential_deleter=delete_windows_generic_credential,
     verify_existing_exact=False,
+    clock=lambda: datetime.now(timezone.utc),
+    execution_host_id_provider=current_execution_host_id,
+    execution_principal_id_provider=current_execution_principal_id,
 ):
     """Create four fixed credentials or verify that all four already match."""
 
@@ -288,10 +414,39 @@ def import_live_pilot_credentials(
         receipt_path,
         repo_root=repo_root,
     )
+    prepared_at = clock()
+    if prepared_at.tzinfo is None or prepared_at.utcoffset() is None:
+        raise RuntimeError("credential preparation clock must be timezone-aware")
+    execution_host_id = str(execution_host_id_provider()).lower()
+    if len(execution_host_id) != 64 or any(
+        character not in "0123456789abcdef" for character in execution_host_id
+    ):
+        raise RuntimeError("credential preparation host identity is invalid")
+    execution_principal_id = str(execution_principal_id_provider()).lower()
+    if len(execution_principal_id) != 64 or any(
+        character not in "0123456789abcdef"
+        for character in execution_principal_id
+    ):
+        raise RuntimeError("credential preparation principal identity is invalid")
+    manifest_output = _CreateOnlyOutput(
+        manifest_out,
+        label="credential reference manifest",
+    )
+    try:
+        receipt_output = _CreateOnlyOutput(
+            receipt_out,
+            label="credential import receipt",
+        )
+    except BaseException:
+        manifest_output.remove_if_owned()
+        raise
     receipt = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "status": "FAIL",
         "platform": "polymarket_global",
+        "prepared_at_utc": prepared_at.astimezone(timezone.utc).isoformat(),
+        "execution_host_id": execution_host_id,
+        "execution_principal_id": execution_principal_id,
         "source_outside_repository_verified": True,
         "source_acl_private_confirmed": True,
         "credential_value_count_expected": len(WINCRED_TARGETS),
@@ -316,15 +471,13 @@ def import_live_pilot_credentials(
     try:
         if platform_name != "nt":
             raise RuntimeError("credential import is supported only on Windows")
-        values = _parse_source(source)
+        values = _parse_source(_read_source_snapshot(source))
         bundle, checks = _validated_bundle(
             values,
             account_deriver=account_deriver,
         )
         receipt["checks"] = checks
-        receipt["ignored_source_key_count"] = len(
-            set(values).intersection(IGNORED_SOURCE_KEYS)
-        )
+        receipt["ignored_source_key_count"] = 0
         existing = [
             bool(credential_exists(target)) for target in WINCRED_TARGETS.values()
         ]
@@ -384,10 +537,11 @@ def import_live_pilot_credentials(
             "secret_values_retained": False,
             "ignored_relayers_rpc_and_self_assertions": True,
         }
-        write_json_atomic(manifest_out, manifest, trailing_newline=True)
+        manifest_output.write_json(manifest)
+        manifest_output.verify()
         manifest_written = True
         receipt["status"] = "PASS"
-    except Exception as exc:
+    except BaseException as exc:
         if isinstance(exc, CredentialSourceValidationError):
             receipt["checks"] = exc.checks
             receipt["missing"] = exc.missing
@@ -402,35 +556,29 @@ def import_live_pilot_credentials(
                 rollback_ok = False
         receipt["rollback_ok"] = rollback_ok
         receipt["credential_value_count_written"] = 0 if rollback_ok else len(created_targets)
-        try:
-            if manifest_written and manifest_out.exists():
-                manifest_out.unlink()
-        except OSError:
+        if manifest_written and not manifest_output.remove_if_owned():
             rollback_ok = False
             receipt["rollback_ok"] = False
     if operation_error is not None:
-        try:
-            if manifest_written and manifest_out.exists():
-                manifest_out.unlink()
-        except OSError:
-            pass
+        manifest_output.remove_if_owned()
     if operation_error is not None:
         receipt["exception_type"] = type(operation_error).__name__
     try:
-        write_json_atomic(receipt_out, receipt, trailing_newline=True)
-    except Exception:
+        receipt_output.write_json(receipt)
+        receipt_output.verify()
+    except BaseException:
         if created_targets and not receipt["rollback_attempted"]:
             for target in reversed(created_targets):
                 try:
                     credential_deleter(target)
                 except Exception:
                     pass
-        try:
-            if manifest_written and manifest_out.exists():
-                manifest_out.unlink()
-        except OSError:
-            pass
+        manifest_output.remove_if_owned()
+        receipt_output.remove_if_owned()
         raise
+    finally:
+        manifest_output.close()
+        receipt_output.close()
     if operation_error is not None:
         raise operation_error
     return {"manifest": manifest, "receipt": receipt}

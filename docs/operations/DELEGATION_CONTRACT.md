@@ -1,8 +1,8 @@
 # Delegation Contract
 
-Status: canonical. Written for LLM agents on both hosts.
+Status: canonical. Written for LLM agents on every project host.
 
-Work in this project is split across two machines. This file is the standing contract between them.
+Work in this project uses distinct host roles. This file is the standing contract between them.
 **Every mission inherits §2 whether or not the handoff restates it.** A handoff may add constraints
 and may not remove them.
 
@@ -11,12 +11,22 @@ Conventions for naming, ordering and reading the correspondence are in
 
 ---
 
-## 1. The two hosts
+## 1. Host roles
 
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, git authority, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
 | **Workstation (32 GB)** | Research, implementation, measurement | Cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
+| **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session | No capture, release, merge, Scheduler, or general heavy-work authority; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
+
+The portable executor is a role, not a permanent machine name. It uses a clean
+checkout at the production-adopted exact tip, creates host-local credentials
+and attempt evidence, and is rebound whenever it moves to another Windows
+installation. A portable live session is not a delegated research mission:
+its narrowly authorized exchange writes are governed by
+[`INTERNATIONAL_MM_LIVE_PILOT.md`](INTERNATIONAL_MM_LIVE_PILOT.md), while all
+implementation or research work on that PC remains inside the standing
+boundaries below.
 
 The production host writes handoffs and verifies handbacks. The workstation implements and measures.
 **The workstation never merges, never registers, and never writes production state.**

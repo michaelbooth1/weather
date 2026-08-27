@@ -245,6 +245,38 @@ def args(tmp_path, command):
                 "required_operator_acknowledgment": economics_acknowledgment,
                 "rescore_required": False,
             },
+            "substrate_preflight": {
+                "schema_version": candidate_cli.SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
+                "receipt_sha256": "0" * 64,
+                "checked_at_utc": (current - timedelta(seconds=3)).isoformat(),
+                "expires_at_utc": (
+                    current
+                    - timedelta(seconds=3)
+                    + timedelta(
+                        seconds=candidate_cli.MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS
+                    )
+                ).isoformat(),
+                "market_id": "toronto",
+                "target_date": "2026-08-14",
+                "event_slug": "toronto-high-temperature-test",
+                "validation_hash": "1" * 64,
+                "event_metadata_file_sha256": "2" * 64,
+                "event_metadata_validation_file_sha256": "3" * 64,
+                "observation_status_file_sha256": "4" * 64,
+                "economics_snapshot_file_sha256": "5" * 64,
+                "accepted_snapshot_file_sha256": accepted_file_hash,
+                "economics_drift_report_file_sha256": drift_file_hash,
+                "paper_run_config_file_sha256": "d" * 64,
+                "paper_preflight_file_sha256": "6" * 64,
+                "paper_quote_intents_file_sha256": "e" * 64,
+                "clob_tokens_file_sha256": "7" * 64,
+                "order_books_summary_file_sha256": "8" * 64,
+                "source_status_long_file_sha256": "9" * 64,
+                "network_access": False,
+                "credential_access": False,
+                "exchange_contact": False,
+                "exchange_mutation": False,
+            },
             "selection_is_trading_authorization": False,
             "secret_values_retained": False,
             "selection_policy": {
@@ -932,17 +964,21 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         seal_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_seal_v0.3",
+                    "schema_version": "international_live_fixed_scope_seal_v0.4",
                     "status": "PASS",
                     "stage": stage,
                     "production": {"commit": command_args.expected_production_tip},
                     "scope": {
                         "target_date": command_args.target_date,
+                        "market_id": "toronto",
+                        "market_timezone": "America/Toronto",
                         "condition_id": command_args.condition_id,
                         "token_id": command_args.token_id,
                         "requested_budget_pusd": command_args.budget,
                         "cancellation_mode": mode,
                         "attempt_root": str(attempt.resolve()),
+                        "execution_host_profile": "capture_colocated_v1",
+                        "execution_host_id": "f" * 64,
                     },
                     "wrapper": {
                         "path": str(wrapper.resolve()),
@@ -1004,9 +1040,11 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         execution_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_execution_v0.5",
+                    "schema_version": "international_live_fixed_scope_execution_v0.6",
                     "status": "PASS",
                     "stage": stage,
+                    "execution_host_profile": "capture_colocated_v1",
+                    "execution_host_id": "f" * 64,
                     "phase": "complete",
                     "production_tip": command_args.expected_production_tip,
                     "target_date": command_args.target_date,
@@ -1092,9 +1130,11 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         )
         run_path = attempt / "session" / f"{stage}-run-receipt.json"
         run_payload = {
-            "schema_version": "international_live_session_run_v0.3",
+            "schema_version": "international_live_session_run_v0.4",
             "status": "PASS",
             "stage": stage,
+            "execution_host_profile": "capture_colocated_v1",
+            "execution_host_id": "f" * 64,
             "live_mutation_attempted": True,
             "order_submit_attempted": True,
             "authenticated_exchange_write_attempted": True,

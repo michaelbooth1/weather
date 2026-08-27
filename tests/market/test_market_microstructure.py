@@ -387,6 +387,84 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertFalse(calls["validation_fetch_live"])
         self.assertEqual(result["event_slug"], "highest-temperature-in-austin-on-june-27-2026")
 
+    def test_capture_market_books_uses_external_metadata_and_parent_snapshot_root(
+        self,
+    ):
+        class FakeEventClient:
+            def __init__(self, timeout=10, target_date=None, market_id="toronto"):
+                self.config = config_for_date(target_date, market_id)
+
+            def get_event(self):
+                event = sample_event()
+                event["slug"] = self.config.event_slug
+                return event
+
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshots_root = Path(tmp) / "attempt-snapshots"
+            event_metadata = Path(tmp) / "location-market-events.json"
+            with patch(
+                "weather.market.market_microstructure_capture.PolymarketClient",
+                FakeEventClient,
+            ), patch(
+                "weather.operations.event_metadata_validation.build_validation_payload",
+                return_value={"validation_hash": "hash"},
+            ) as validation, patch(
+                "weather.operations.event_metadata_validation.gate_for_market",
+                return_value={"ok": True},
+            ), patch(
+                "weather.market.market_microstructure_capture.capture_event_books",
+                return_value={"status": "PASS"},
+            ) as capture:
+                result = mm.capture_market_books(
+                    "austin",
+                    target_date="2026-06-27",
+                    snapshots_root=snapshots_root,
+                    event_metadata_path=event_metadata,
+                )
+
+        expected_slug = config_for_date("2026-06-27", "austin").event_slug
+        self.assertEqual(result["status"], "PASS")
+        self.assertEqual(capture.call_args.kwargs["root"], snapshots_root / expected_slug)
+        self.assertEqual(
+            validation.call_args.kwargs["event_metadata_path"],
+            event_metadata,
+        )
+
+    def test_capture_cli_require_pass_forwards_paths_and_returns_two_on_block(self):
+        blocked = {"austin": {"status": "BLOCK", "blocked": True}}
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshots_root = Path(tmp) / "attempt-snapshots"
+            event_metadata = Path(tmp) / "location-market-events.json"
+            argv = [
+                "market_microstructure",
+                "capture",
+                "--market",
+                "austin",
+                "--date",
+                "2026-06-27",
+                "--snapshots-root",
+                str(snapshots_root),
+                "--event-metadata",
+                str(event_metadata),
+                "--require-pass",
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                mm,
+                "capture_fleet_books",
+                return_value=blocked,
+            ) as capture, patch("builtins.print"):
+                exit_code = mm.main()
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            capture.call_args.kwargs["snapshots_root"],
+            str(snapshots_root),
+        )
+        self.assertEqual(
+            capture.call_args.kwargs["event_metadata_path"],
+            str(event_metadata),
+        )
+
     def test_parallel_raw_refresh_passes_explicit_target_date(self):
         seen = {}
 

@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-23 - FIXED-SCOPE STAGE 0/1 SOFTWARE INTEGRATED; LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-27 - PORTABLE EXECUTOR CANDIDATE UNQUALIFIED; LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -43,8 +43,9 @@ behavior before any size increase.
   contract audit on 2026-08-14; production wallet and exchange evidence
   remain separate open gates.
 - [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
-  production execution host. Do not add a generic repository live
-  mutation CLI to close this item.
+  selected exact execution host using either the capture-colocated or portable
+  profile. Do not add a generic repository live mutation CLI to close this
+  item.
 - [x] Add report-side paid-vs-predicted reconciliation for maker rebates,
   liquidity rewards, redemptions, fees, pUSD/USDC balances, and settlement P&L
   before any size increase.
@@ -562,3 +563,24 @@ the fixed-scope sealer accepts only either truthful all-four tuple. This local
 vault proof remains separate from authenticated doctor, account, eligibility,
 candidate, Stage 0/1, and live lifecycle evidence; no exchange call or order is
 part of credential reconciliation.
+## 2026-08-27 portable execution-host candidate
+
+The operator reopened the former one-PC topology because daytime memory
+pressure on the 16 GB capture host is a technical obstacle to an attended live
+test. Candidate branch `codex/portable-execution-host-clean-20260827` separates the
+existing capture-colocated profile from one execution-only Windows-host
+profile. The portable profile keeps exact Git/source/interpreter/SDK,
+credential, geography, account, balance/allowance, zero-state, order,
+cancellation, deadline, cleanup, budget, and attended-confirmation gates. It
+does not consume the other PC's capture/tape/streak state or timetable and
+cannot claim capture-health evidence.
+
+The candidate also adds a stable Windows-installation identity, fresh
+host-bound compare-only credential receipts, an execution-only clock/reboot
+audit, and a create-only public SDK export/import path. Moving again requires a
+new clone and venv, SDK import, host-local WinCred preparation, host audit,
+candidate, and all three attempt lineages. The candidate has not passed its
+focused or bounded suites, has not been published or merged, and has contacted
+neither credentials nor the exchange. It closes no live-evidence checkbox
+until exact-tip qualification, guarded production adoption, and on-host
+provisioning all pass.

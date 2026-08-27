@@ -16,6 +16,7 @@ from weather.market import mm_geographic_eligibility as geography
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
 from weather.operations import international_live_wrapper_sealer as sealer
+from tests.live_candidate_fixture import build_live_candidate_payload
 
 
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
@@ -104,6 +105,16 @@ class LaunchGitStub:
     def __call__(self, _root: Path, args):
         command = tuple(args)
         self.calls.append(command)
+        if command == ("config", "--local", "--get", "remote.origin.url"):
+            return subprocess.CompletedProcess(
+                args, 0, sealer.CANONICAL_ORIGIN_URL + "\n", ""
+            )
+        if command == (
+            "config", "--local", "--get-all", "remote.origin.pushurl"
+        ):
+            return subprocess.CompletedProcess(args, 1, "", "")
+        if command == ("config", "--local", "--name-only", "--list"):
+            return subprocess.CompletedProcess(args, 0, "remote.origin.url\n", "")
         if command == ("rev-parse", "--show-object-format"):
             return subprocess.CompletedProcess(args, 0, "sha1\n", "")
         if command in (("rev-parse", "HEAD"), ("rev-parse", "master")):
@@ -118,7 +129,7 @@ class LaunchGitStub:
             "ls-remote",
             "--exit-code",
             "--refs",
-            "origin",
+            sealer.CANONICAL_ORIGIN_URL,
             sealer.REMOTE_MASTER_REF,
         ):
             return subprocess.CompletedProcess(
@@ -141,55 +152,22 @@ class LaunchGitStub:
 
 
 def candidate(now=NOW, *, remaining_seconds=120, economics_acceptance=None):
-    current = now.astimezone(timezone.utc)
-    paper_generated = current
-    created = current
-    expires = current + timedelta(seconds=remaining_seconds)
-    payload = {
-        "schema_version": sealer.CANDIDATE_SCHEMA_VERSION,
-        "status": "PASS",
-        "created_at_utc": created.isoformat(),
-        "expires_at_utc": expires.isoformat(),
-        "target_date": now.date().isoformat(),
-        "exchange_economics_snapshot_id": "xecon-" + "e" * 16,
-        "exchange_economics_sha256": "e" * 32,
-        "economics_acceptance": economics_acceptance,
-        "selection_is_trading_authorization": False,
-        "selection_policy": {
-            "expected_bootstrap_scope": {
-                "condition_id": CONDITION,
-                "token_id": TOKEN,
-            }
-        },
-        "selected": {
-            "condition_id": CONDITION,
-            "token_id": TOKEN,
-            "tick_size": 0.01,
-            "order_min_size": 5,
-            "fee_rate": 0.05,
-            "neg_risk": False,
-            "stage1_intent": {
-                "side": "BUY",
-                "price": 0.01,
-                "size": 5,
-                "notional_pusd": 0.05,
-                "post_only": True,
-            },
-            "paper_quote_proof": {
-                "condition_id": CONDITION,
-                "token_id": TOKEN,
-                "generated_at_utc": paper_generated.isoformat(),
-                "expires_at_utc": expires.isoformat(),
-                "quote_ttl_seconds": remaining_seconds,
-                "quote_permission": True,
-                "live_trade_permission": False,
-            },
-        },
-    }
-    payload["plan_sha256"] = sealer._canonical_payload_sha256(
-        payload, omit="plan_sha256"
+    if economics_acceptance is None:
+        raise AssertionError("runner candidate fixture requires economics acceptance")
+    return build_live_candidate_payload(
+        now=now,
+        target_date=now.date().isoformat(),
+        condition_id=CONDITION,
+        token_id=TOKEN,
+        remaining_seconds=remaining_seconds,
+        economics_hash=economics_acceptance["accepted_snapshot_sha256"],
+        accepted_snapshot_file_sha256=economics_acceptance[
+            "accepted_snapshot_file_sha256"
+        ],
+        drift_report_file_sha256=economics_acceptance[
+            "drift_report_file_sha256"
+        ],
     )
-    return payload
 
 
 def session_fixture(
@@ -198,6 +176,7 @@ def session_fixture(
     *,
     remaining_seconds=120,
     now: datetime = NOW,
+    execution_host_profile: str = "capture_colocated_v1",
 ):
     attempt = tmp_path / "attempt"
     attempt.mkdir()
@@ -248,6 +227,7 @@ def session_fixture(
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(f"# reviewed {relative}\n", encoding="utf-8")
         bootstrap_hashes[relative] = sha(source)
+    git_executable = sealer.canonical_git_executable()
     if stage != "stage0":
         lineage_paths = [
             "stage0/bootstrap.json",
@@ -281,6 +261,9 @@ def session_fixture(
             "commit": "a" * 40,
             "tree": "b" * 40,
             "python": str(production_python),
+            "git_executable": str(git_executable),
+            "git_executable_sha256": sha(git_executable),
+            "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         "scope": {
             "target_date": now.date().isoformat(),
@@ -289,7 +272,13 @@ def session_fixture(
             "requested_budget_pusd": 10,
             "attempt_root": str(attempt.resolve()),
             "lease_workload": f"session-{stage}",
-            "max_session_seconds": 120,
+            "execution_host_profile": execution_host_profile,
+            "execution_host_id": runner.current_execution_host_id(),
+            "market_id": "toronto",
+            "market_timezone": "America/Toronto",
+            "max_session_seconds": (
+                240 if execution_host_profile == "portable_execution_v1" else 120
+            ),
         },
         "inputs": {
             "identity": {"path": str(identity.resolve()), "sha256": sha(identity)},
@@ -624,13 +613,22 @@ def write_execution(
         "path": str(command_path.resolve()),
         "sha256": sha(command_path),
     }
+    seal_spec = json.loads(
+        (attempt / "inputs" / f"{stage}-seal-spec.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    execution_host_profile = seal_spec["scope"]["execution_host_profile"]
+    execution_host_id = seal_spec["scope"]["execution_host_id"]
     host_attestations = [
         {
             "checked_at_local": NOW.isoformat(),
             "status_json_sha256": "9" * 64,
             "status_flag_sha256": [],
+            "execution_host_profile": execution_host_profile,
+            "execution_host_id": execution_host_id,
         }
-        for _index in range(2 if stage == "stage0" else 3)
+        for _index in range(3)
     ]
     write(
         path,
@@ -638,6 +636,8 @@ def write_execution(
             "schema_version": sealer.EXECUTION_SCHEMA_VERSION,
             "status": status,
             "stage": stage,
+            "execution_host_profile": execution_host_profile,
+            "execution_host_id": execution_host_id,
             "phase": "complete" if status == "PASS" else "stage1_command",
             "production_tip": "a" * 40,
             "target_date": NOW.date().isoformat(),
@@ -714,15 +714,101 @@ def test_composer_accepts_exact_0030_toronto_boundary_without_backdating_scope(
     assert result["status"] == "PASS"
 
 
+def test_portable_execution_host_can_compose_a_daytime_session(tmp_path):
+    stage = "stage0"
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        stage,
+        now=current,
+        remaining_seconds=300,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    result = runner.compose_and_run_live_session(
+        manifest,
+        fresh,
+        expected_session_manifest_sha256=sha(manifest),
+        now=current,
+        seal_function=fake_sealer(attempt, stage),
+        launcher_runner=lambda path: (
+            write_execution(attempt, stage, mutation=True)
+            or subprocess.CompletedProcess([str(path)], 0, "", "")
+        ),
+    )
+
+    spec = json.loads((attempt / "inputs/stage0-seal-spec.json").read_text())
+    assert spec["scope"]["execution_host_profile"] == "portable_execution_v1"
+    assert spec["scope"]["execution_host_id"] == runner.current_execution_host_id()
+    assert (
+        datetime.fromisoformat(spec["scope"]["run_not_after_local"]) - current
+    ).total_seconds() == 240
+    assert result["execution_host_profile"] == "portable_execution_v1"
+    assert result["status"] == "PASS"
+
+
+def test_composer_refuses_manifest_bound_to_a_different_execution_host(tmp_path):
+    attempt, manifest, fresh = session_fixture(tmp_path, "stage0")
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["scope"]["execution_host_id"] = "0" * 64
+    payload["manifest_sha256"] = runner._canonical_payload_sha256(payload)
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    manifest.with_suffix(manifest.suffix + ".sha256").write_text(
+        f"{sha(manifest)}  {manifest.name}\n",
+        encoding="ascii",
+    )
+
+    with pytest.raises(runner.SessionCompositionError, match="session host"):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=NOW,
+            seal_function=lambda *_args, **_kwargs: pytest.fail("must not seal"),
+            launcher_runner=lambda _path: pytest.fail("must not launch"),
+        )
+
+    assert not (attempt / "inputs/stage0-seal-spec.json").exists()
+
+
+def test_composer_refuses_fresh_candidate_for_a_different_market(tmp_path):
+    attempt, manifest, fresh = session_fixture(tmp_path, "stage0")
+    payload = json.loads(fresh.read_text(encoding="utf-8"))
+    payload["selected"]["location_id"] = "nyc"
+    payload["selected"]["paper_quote_proof"]["market_id"] = "nyc"
+    payload["paper_quote_evidence"]["market_id"] = "nyc"
+    payload["substrate_preflight"]["market_id"] = "nyc"
+    payload["plan_sha256"] = sealer._canonical_payload_sha256(
+        payload, omit="plan_sha256"
+    )
+    write(fresh, payload)
+
+    with pytest.raises(runner.SessionCompositionError, match="candidate market"):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=NOW,
+            seal_function=lambda *_args, **_kwargs: pytest.fail("must not seal"),
+            launcher_runner=lambda _path: pytest.fail("must not launch"),
+        )
+
+    assert not (attempt / "inputs/stage0-seal-spec.json").exists()
+
+
 def test_launch_boundary_refuses_stale_cached_origin_despite_matching_live_remote(
     tmp_path,
 ):
+    git_executable = sealer.canonical_git_executable()
     production = {
         "root": str(tmp_path),
         "branch": "master",
         "commit": "a" * 40,
         "tree": "b" * 40,
         "python": str(tmp_path / "python.exe"),
+        "git_executable": str(git_executable),
+        "git_executable_sha256": sha(git_executable),
+        "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
     }
 
     with pytest.raises(
@@ -739,12 +825,16 @@ def test_launch_boundary_refuses_stale_cached_origin_despite_matching_live_remot
 
 
 def test_launch_boundary_refuses_live_remote_lookup_failure(tmp_path):
+    git_executable = sealer.canonical_git_executable()
     production = {
         "root": str(tmp_path),
         "branch": "master",
         "commit": "a" * 40,
         "tree": "b" * 40,
         "python": str(tmp_path / "python.exe"),
+        "git_executable": str(git_executable),
+        "git_executable_sha256": sha(git_executable),
+        "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
     }
     git = LaunchGitStub(remote_failure=True)
 
@@ -761,7 +851,7 @@ def test_launch_boundary_refuses_live_remote_lookup_failure(tmp_path):
         "ls-remote",
         "--exit-code",
         "--refs",
-        "origin",
+        sealer.CANONICAL_ORIGIN_URL,
         sealer.REMOTE_MASTER_REF,
     ) in git.calls
 
