@@ -155,13 +155,16 @@ def prepare(
     credential = write_json(
         tmp_path / "credential-import-receipt.json",
         {
-            "schema_version": "mm_live_credential_import_receipt_v0.1",
+            "schema_version": "mm_live_credential_import_receipt_v0.2",
             "status": "PASS",
             "platform": "polymarket_global",
             "source_outside_repository_verified": True,
             "source_acl_private_confirmed": True,
             "credential_value_count_expected": 4,
             "credential_value_count_written": 4,
+            "credential_mode": "create_new",
+            "credential_value_count_existing_exact_verified": 0,
+            "credential_store_mutation_attempted": True,
             "credential_values_retained": False,
             "ignored_source_key_count": 0,
             "checks": {
@@ -1058,6 +1061,60 @@ def test_seal_refuses_incomplete_credential_import_check_set(tmp_path):
 
     with pytest.raises(sealer.SealError, match="exact clean PASS"):
         seal(spec_path, production)
+
+
+def test_credential_import_receipt_accepts_exact_existing_verification(tmp_path):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["credential_mode"] = "verify_existing_exact"
+    payload["credential_value_count_written"] = 0
+    payload["credential_value_count_existing_exact_verified"] = 4
+    payload["credential_store_mutation_attempted"] = False
+    write_json(receipt, payload)
+
+    sealer._validate_credential_import_receipt(receipt)
+
+
+def test_credential_import_receipt_retains_strict_legacy_create_support(tmp_path):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["schema_version"] = "mm_live_credential_import_receipt_v0.1"
+    del payload["credential_mode"]
+    del payload["credential_value_count_existing_exact_verified"]
+    del payload["credential_store_mutation_attempted"]
+    write_json(receipt, payload)
+
+    sealer._validate_credential_import_receipt(receipt)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("credential_mode", "create_new"),
+        ("credential_value_count_written", 1),
+        ("credential_value_count_existing_exact_verified", 3),
+        ("credential_store_mutation_attempted", True),
+    ),
+)
+def test_credential_import_receipt_rejects_inexact_existing_verification(
+    tmp_path,
+    field,
+    value,
+):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["credential_mode"] = "verify_existing_exact"
+    payload["credential_value_count_written"] = 0
+    payload["credential_value_count_existing_exact_verified"] = 4
+    payload["credential_store_mutation_attempted"] = False
+    payload[field] = value
+    write_json(receipt, payload)
+
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        sealer._validate_credential_import_receipt(receipt)
 
 
 def test_seal_refuses_incomplete_credential_reference_manifest(tmp_path):

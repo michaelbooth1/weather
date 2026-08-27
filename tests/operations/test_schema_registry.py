@@ -51,6 +51,10 @@ class TestSchemaRegistry(unittest.TestCase):
             "mm_scoring_projection_v0.2",
         )
         self.assertEqual(
+            schema_version("mm_live_credential_import_receipt"),
+            "mm_live_credential_import_receipt_v0.2",
+        )
+        self.assertEqual(
             schema_version("maker_scoring_input_binding"),
             "maker_scoring_input_binding_v0.1",
         )
@@ -437,6 +441,12 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
         self.assertTrue(validate_schema_version("live_forward_gate_legacy", "live_forward_gate_v0.1"))
         self.assertTrue(validate_schema_version("market_making_daily_roll_legacy", "market_making_daily_roll_v0.1"))
+        self.assertTrue(
+            validate_schema_version(
+                "mm_live_credential_import_receipt_legacy",
+                "mm_live_credential_import_receipt_v0.1",
+            )
+        )
 
     def test_registry_payload_has_stable_schema(self):
         payload = registry_payload()

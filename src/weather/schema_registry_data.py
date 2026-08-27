@@ -1380,10 +1380,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_live_credential_import_receipt",
-        "mm_live_credential_import_receipt_v0.1",
+        "mm_live_credential_import_receipt_v0.2",
         "weather.market.mm_credential_import_cli",
         "active",
-        "Secret-free credential import result with validation check names, entry counts, and rollback state.",
+        "Secret-free credential preparation result distinguishing new writes from exact verification of existing fixed entries.",
+        supersedes=("mm_live_credential_import_receipt_v0.1",),
+    ),
+    SchemaSpec(
+        "mm_live_credential_import_receipt_legacy",
+        "mm_live_credential_import_receipt_v0.1",
+        "weather.market.mm_credential_import_cli",
+        "legacy",
+        "Legacy secret-free receipt for creation of four new fixed credential entries.",
     ),
     SchemaSpec(
         "mm_live_market_candidate_plan",

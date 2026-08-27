@@ -56,6 +56,9 @@ def import_args(tmp_path, **overrides):
         "repo_root": repo_root,
         "platform_name": "nt",
         "account_deriver": lambda _key: WALLET,
+        "credential_reader": lambda _target: (_ for _ in ()).throw(
+            AssertionError("credential reader must not be called")
+        ),
     }
     values.update(overrides)
     return values
@@ -73,7 +76,16 @@ def test_import_writes_only_four_new_vault_entries_and_public_manifest(tmp_path)
     result = importer.import_live_pilot_credentials(**args)
 
     assert result["receipt"]["status"] == "PASS"
+    assert result["receipt"]["schema_version"] == (
+        "mm_live_credential_import_receipt_v0.2"
+    )
+    assert result["receipt"]["credential_mode"] == "create_new"
     assert result["receipt"]["credential_value_count_written"] == 4
+    assert (
+        result["receipt"]["credential_value_count_existing_exact_verified"]
+        == 0
+    )
+    assert result["receipt"]["credential_store_mutation_attempted"] is True
     assert len(stored) == 4
     manifest_raw = Path(args["manifest_path"]).read_text(encoding="utf-8")
     receipt_raw = Path(args["receipt_path"]).read_text(encoding="utf-8")
@@ -114,9 +126,11 @@ def test_import_supports_deposit_wallet_topology(tmp_path):
 
 def test_import_refuses_existing_target_before_writing_any_secret(tmp_path):
     writes = []
+    reads = []
     args = import_args(
         tmp_path,
         credential_exists=lambda _target: True,
+        credential_reader=lambda target: reads.append(target),
         credential_writer=lambda target, _value: writes.append(target),
         credential_deleter=lambda _target: None,
     )
@@ -125,9 +139,186 @@ def test_import_refuses_existing_target_before_writing_any_secret(tmp_path):
         importer.import_live_pilot_credentials(**args)
 
     assert writes == []
+    assert reads == []
     receipt = json.loads(Path(args["receipt_path"]).read_text(encoding="utf-8"))
     assert receipt["status"] == "FAIL"
     assert receipt["missing"] == ["fixed_credential_targets_are_new"]
+
+
+def test_verify_existing_exact_matches_all_four_without_mutation(
+    tmp_path,
+    monkeypatch,
+):
+    source = source_values(POLYMM_API_SECRET="fixture-api-sëcret")
+    expected_by_field = {
+        field: source[source_key]
+        for field, source_key in importer.SOURCE_SECRET_KEYS.items()
+    }
+    stored = {
+        target: expected_by_field[field]
+        for field, target in importer.WINCRED_TARGETS.items()
+    }
+    reads = []
+    writes = []
+    deletes = []
+    comparisons = []
+    original_compare_digest = importer.hmac.compare_digest
+
+    def compare_digest(actual, expected):
+        comparisons.append((actual, expected))
+        return original_compare_digest(actual, expected)
+
+    monkeypatch.setattr(importer.hmac, "compare_digest", compare_digest)
+    args = import_args(
+        tmp_path,
+        confirmation=importer.VERIFY_EXISTING_EXACT_CONFIRMATION,
+        verify_existing_exact=True,
+        credential_exists=lambda target: target in stored,
+        credential_reader=lambda target: reads.append(target) or stored[target],
+        credential_writer=lambda target, value: writes.append((target, value)),
+        credential_deleter=lambda target: deletes.append(target),
+    )
+    write_source(args["source_path"], source)
+
+    result = importer.import_live_pilot_credentials(**args)
+
+    receipt = result["receipt"]
+    assert receipt["status"] == "PASS"
+    assert receipt["credential_mode"] == "verify_existing_exact"
+    assert receipt["credential_value_count_written"] == 0
+    assert receipt["credential_value_count_existing_exact_verified"] == 4
+    assert receipt["credential_store_mutation_attempted"] is False
+    assert reads == list(importer.WINCRED_TARGETS.values())
+    assert writes == []
+    assert deletes == []
+    assert len(comparisons) == 4
+    assert all(
+        isinstance(actual, bytes) and isinstance(expected, bytes)
+        for actual, expected in comparisons
+    )
+    manifest_raw = Path(args["manifest_path"]).read_text(encoding="utf-8")
+    receipt_raw = Path(args["receipt_path"]).read_text(encoding="utf-8")
+    for secret in source.values():
+        if secret.startswith("fixture-"):
+            assert secret not in manifest_raw
+            assert secret not in receipt_raw
+
+
+def test_verify_existing_exact_refuses_incomplete_set_before_reads_or_mutation(
+    tmp_path,
+):
+    first_target = next(iter(importer.WINCRED_TARGETS.values()))
+    reads = []
+    writes = []
+    deletes = []
+    args = import_args(
+        tmp_path,
+        confirmation=importer.VERIFY_EXISTING_EXACT_CONFIRMATION,
+        verify_existing_exact=True,
+        credential_exists=lambda target: target == first_target,
+        credential_reader=lambda target: reads.append(target),
+        credential_writer=lambda target, value: writes.append((target, value)),
+        credential_deleter=lambda target: deletes.append(target),
+    )
+
+    with pytest.raises(RuntimeError, match="could not be verified exactly"):
+        importer.import_live_pilot_credentials(**args)
+
+    assert reads == []
+    assert writes == []
+    assert deletes == []
+    assert not Path(args["manifest_path"]).exists()
+    receipt = json.loads(Path(args["receipt_path"]).read_text(encoding="utf-8"))
+    assert receipt["credential_value_count_existing_exact_verified"] == 0
+    assert receipt["credential_store_mutation_attempted"] is False
+    assert receipt["missing"] == [
+        "fixed_credential_targets_all_exist_and_match_source"
+    ]
+
+
+def test_verify_existing_exact_reads_and_compares_all_four_before_generic_mismatch(
+    tmp_path,
+    monkeypatch,
+):
+    expected_by_field = {
+        field: source_values()[source_key]
+        for field, source_key in importer.SOURCE_SECRET_KEYS.items()
+    }
+    stored = {
+        target: expected_by_field[field]
+        for field, target in importer.WINCRED_TARGETS.items()
+    }
+    stored[next(iter(stored))] = "fixture-wrong-secret"
+    reads = []
+    comparisons = []
+    writes = []
+    deletes = []
+    original_compare_digest = importer.hmac.compare_digest
+
+    def compare_digest(actual, expected):
+        comparisons.append((actual, expected))
+        return original_compare_digest(actual, expected)
+
+    monkeypatch.setattr(importer.hmac, "compare_digest", compare_digest)
+    args = import_args(
+        tmp_path,
+        confirmation=importer.VERIFY_EXISTING_EXACT_CONFIRMATION,
+        verify_existing_exact=True,
+        credential_exists=lambda _target: True,
+        credential_reader=lambda target: reads.append(target) or stored[target],
+        credential_writer=lambda target, value: writes.append((target, value)),
+        credential_deleter=lambda target: deletes.append(target),
+    )
+
+    with pytest.raises(RuntimeError, match="could not be verified exactly"):
+        importer.import_live_pilot_credentials(**args)
+
+    assert len(reads) == 4
+    assert len(comparisons) == 4
+    assert writes == []
+    assert deletes == []
+    assert not Path(args["manifest_path"]).exists()
+    raw = Path(args["receipt_path"]).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["credential_value_count_existing_exact_verified"] == 0
+    assert receipt["credential_store_mutation_attempted"] is False
+    assert "fixture-wrong-secret" not in raw
+
+
+def test_verify_existing_exact_masks_reader_error_and_continues_all_reads(tmp_path):
+    expected_by_field = {
+        field: source_values()[source_key]
+        for field, source_key in importer.SOURCE_SECRET_KEYS.items()
+    }
+    stored = {
+        target: expected_by_field[field]
+        for field, target in importer.WINCRED_TARGETS.items()
+    }
+    first_target = next(iter(stored))
+    reads = []
+
+    def read(target):
+        reads.append(target)
+        if target == first_target:
+            raise OSError("RAW-VAULT-DETAIL")
+        return stored[target]
+
+    args = import_args(
+        tmp_path,
+        confirmation=importer.VERIFY_EXISTING_EXACT_CONFIRMATION,
+        verify_existing_exact=True,
+        credential_exists=lambda _target: True,
+        credential_reader=read,
+        credential_writer=lambda _target, _value: pytest.fail("unexpected write"),
+        credential_deleter=lambda _target: pytest.fail("unexpected delete"),
+    )
+
+    with pytest.raises(RuntimeError, match="could not be verified exactly"):
+        importer.import_live_pilot_credentials(**args)
+
+    assert len(reads) == 4
+    raw = Path(args["receipt_path"]).read_text(encoding="utf-8")
+    assert "RAW-VAULT-DETAIL" not in raw
 
 
 def test_partial_vault_write_rolls_back_and_emits_no_secret(tmp_path):
@@ -197,6 +388,27 @@ def test_validator_dependency_failure_is_not_reported_as_a_bad_key(tmp_path):
     assert "fixture-private-key" not in raw
 
 
+def test_failure_does_not_delete_manifest_path_created_by_another_process(tmp_path):
+    args = import_args(
+        tmp_path,
+        credential_exists=lambda _target: False,
+        credential_writer=lambda _target, _value: None,
+        credential_deleter=lambda _target: None,
+    )
+    marker = b"unrelated-race-winner\n"
+
+    def dependency_failure(_key):
+        Path(args["manifest_path"]).write_bytes(marker)
+        raise importer.CredentialValidationDependencyError("dependency unavailable")
+
+    args["account_deriver"] = dependency_failure
+
+    with pytest.raises(importer.CredentialValidationDependencyError):
+        importer.import_live_pilot_credentials(**args)
+
+    assert Path(args["manifest_path"]).read_bytes() == marker
+
+
 def test_wrong_confirmation_or_repo_local_source_stops_before_vault(tmp_path):
     called = False
     args = import_args(tmp_path)
@@ -220,6 +432,70 @@ def test_wrong_confirmation_or_repo_local_source_stops_before_vault(tmp_path):
     with pytest.raises(RuntimeError, match="outside the repository"):
         importer.import_live_pilot_credentials(**args)
     assert called is False
+
+
+def test_verify_existing_exact_requires_separate_confirmation_before_vault(tmp_path):
+    called = False
+    args = import_args(
+        tmp_path,
+        verify_existing_exact=True,
+        confirmation=importer.CONFIRMATION,
+    )
+
+    def exists(_target):
+        nonlocal called
+        called = True
+        return True
+
+    args["credential_exists"] = exists
+    with pytest.raises(RuntimeError, match="exact confirmation"):
+        importer.import_live_pilot_credentials(**args)
+
+    assert called is False
+    assert not Path(args["receipt_path"]).exists()
+
+
+def test_main_passes_explicit_verify_existing_mode(monkeypatch, capsys):
+    captured = []
+    monkeypatch.setattr(
+        importer,
+        "_activate_sdk_overlay",
+        lambda _path, _digest: {
+            "status": "PASS",
+            "process_path_activated": True,
+            "shared_environment_mutated": False,
+        },
+    )
+
+    def prepare(*_args, **kwargs):
+        captured.append(kwargs)
+        return {
+            "receipt": {
+                "credential_value_count_written": 0,
+                "credential_value_count_existing_exact_verified": 4,
+            }
+        }
+
+    monkeypatch.setattr(importer, "import_live_pilot_credentials", prepare)
+
+    status = importer.main([
+        "--source-env", "outside.env",
+        "--manifest-out", "refs.json",
+        "--receipt-out", "receipt.json",
+        "--sdk-overlay-manifest", "sealed-sdk.json",
+        "--sdk-overlay-manifest-sha256", "a" * 64,
+        "--confirm-source-acl-private",
+        "--verify-existing-exact",
+        "--confirmation", importer.VERIFY_EXISTING_EXACT_CONFIRMATION,
+    ])
+
+    assert status == 0
+    assert captured == [{
+        "confirmation": importer.VERIFY_EXISTING_EXACT_CONFIRMATION,
+        "source_acl_private_confirmed": True,
+        "verify_existing_exact": True,
+    }]
+    assert "credential preparation PASS: 4 entries" in capsys.readouterr().out
 
 
 def test_main_activates_sealed_overlay_and_never_prints_raw_exception_text(

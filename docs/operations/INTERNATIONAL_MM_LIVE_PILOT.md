@@ -402,8 +402,10 @@ $pilotSignatureType = "POLY_GNOSIS_SAFE"
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
 ```
 
-Only after identity preparation passes, provision the four secret values as
-Windows Credential Manager generic credentials. If an external source file is
+Only after identity preparation passes, create the four secret values as
+Windows Credential Manager generic credentials. Compare-only verification of
+entries created by an earlier reviewed import is not provisioning and does not
+replace the identity gate. If an external source file is
 used, keep it outside the repository and remove inherited broad ACLs. The
 importer validates the private key/address and exact wallet/signature topology,
 refuses existing fixed targets, rolls back partial writes, ignores unrelated
@@ -423,8 +425,43 @@ production environment intentionally does not supply `eth_account`:
   --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
 ```
 
-Do not proceed unless the receipt is `PASS`, reports exactly four entries, and
-has no rollback. Do not persist its references in User or Machine environment.
+An occupancy refusal is not permission to overwrite or delete an existing
+target. If all four fixed targets are expected to have been provisioned by an
+earlier reviewed import, use a new output namespace and opt in explicitly to
+the compare-only recovery path:
+
+```powershell
+.\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
+  --source-env C:\secure\pilot.env.txt `
+  --manifest-out $pilotCredentialManifestSource `
+  --receipt-out $pilotCredentialReceiptSource `
+  --sdk-overlay-manifest .\scripts\ops\international_live_templates\sdk_overlay_manifest.json `
+  --sdk-overlay-manifest-sha256 2044d0570d38c34057c520ab19bfcc114c751fe8c76f97091b605acc1deecd13 `
+  --confirm-source-acl-private `
+  --verify-existing-exact `
+  --confirmation INTERNATIONAL_POLYMARKET_VERIFY_EXISTING_EXACT_CREDENTIALS
+```
+
+This mode requires all four fixed entries to exist, reads their values only in
+the importer process, compares all four to the independently retained source,
+and never calls the credential writer or deleter. It emits no target-specific
+match result, secret-derived hash, or credential value. Any absent, unreadable,
+or unequal entry fails generically and requires manual provenance review; it
+must never fall back automatically to creation, overwrite, or deletion.
+
+Do not proceed unless the v0.2 receipt is an exact clean `PASS` with no
+rollback and one of these truthful tuples:
+
+- `credential_mode=create_new`, four written, zero existing verified, and
+  credential-store mutation attempted;
+- `credential_mode=verify_existing_exact`, zero written, four existing
+  verified, and no credential-store mutation attempted.
+
+The latter proves only point-in-time local vault equivalence to the validated
+source. It does not prove exchange authentication, current account state,
+geographic eligibility, or live-trading authorization. Do not persist the
+manifest references in User or Machine environment.
+
 The hash-sealed launcher parses the public reference manifest, sets the five
 required values only in its child-process scope, clears all direct-secret names,
 and restores its own prior process environment afterward. The required variables are
@@ -437,10 +474,11 @@ credentials themselves. Do not install the live extra into the shared production
 venv. The repository manifest instead validates the complete fixed external
 SDK overlay and all 34 offline wheels before and after process-local import; the
 runtime rejects any version or import origin other than the pinned 0.6.0 tree.
-After a successful import, independent verification of the public receipt and
-reference manifest, and operator verification of the external source's retained
-copy, delete the source credential file using the approved secure-deletion
-procedure. The importer never deletes it automatically.
+After successful creation or exact verification, independent verification of
+the public receipt and reference manifest, and operator verification of the
+external source's retained copy, delete the source credential file using the
+approved secure-deletion procedure. The importer never deletes it
+automatically.
 
 Only now start the expiring discovery and manifest-build sequence:
 

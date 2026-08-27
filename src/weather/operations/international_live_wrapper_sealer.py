@@ -661,7 +661,7 @@ def _validate_credential_reference_manifest(path: Path) -> dict[str, Any]:
 
 def _validate_credential_import_receipt(path: Path) -> None:
     payload, _raw = _read_json_object(path, label="credential import receipt")
-    required = {
+    common_required = {
         "schema_version",
         "status",
         "platform",
@@ -677,14 +677,54 @@ def _validate_credential_import_receipt(path: Path) -> None:
         "rollback_ok",
         "source_deletion_required_after_transfer",
     }
-    _require_exact_keys(payload, required, label="credential import receipt")
+    legacy_version = "mm_live_credential_import_receipt_v0.1"
+    current_version = "mm_live_credential_import_receipt_v0.2"
+    version = payload.get("schema_version")
+    if version == legacy_version:
+        _require_exact_keys(
+            payload,
+            common_required,
+            label="credential import receipt",
+        )
+        mode_is_exact = payload.get("credential_value_count_written") == 4
+    elif version == current_version:
+        _require_exact_keys(
+            payload,
+            common_required
+            | {
+                "credential_mode",
+                "credential_value_count_existing_exact_verified",
+                "credential_store_mutation_attempted",
+            },
+            label="credential import receipt",
+        )
+        mode = payload.get("credential_mode")
+        written = payload.get("credential_value_count_written")
+        verified = payload.get("credential_value_count_existing_exact_verified")
+        mutation_attempted = payload.get("credential_store_mutation_attempted")
+        mode_is_exact = (
+            mode == "create_new"
+            and type(written) is int
+            and written == 4
+            and type(verified) is int
+            and verified == 0
+            and mutation_attempted is True
+        ) or (
+            mode == "verify_existing_exact"
+            and type(written) is int
+            and written == 0
+            and type(verified) is int
+            and verified == 4
+            and mutation_attempted is False
+        )
+    else:
+        raise SealError("credential import receipt is not an exact clean PASS")
     checks = payload.get("checks")
     if (
-        payload["schema_version"] != "mm_live_credential_import_receipt_v0.1"
-        or payload["status"] != "PASS"
+        payload["status"] != "PASS"
         or payload["platform"] != "polymarket_global"
         or payload["credential_value_count_expected"] != 4
-        or payload["credential_value_count_written"] != 4
+        or not mode_is_exact
         or payload["credential_values_retained"] is not False
         or payload["source_outside_repository_verified"] is not True
         or payload["source_acl_private_confirmed"] is not True
