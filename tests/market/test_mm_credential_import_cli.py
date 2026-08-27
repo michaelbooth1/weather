@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,6 @@ def source_values(**overrides):
         "POLYMM_API_SECRET": "fixture-api-secret",
         "POLYMM_API_PASSPHRASE": "fixture-passphrase",
         "POLYMM_PRIVATE_KEY": "fixture-private-key",
-        "POLYMM_RELAYER_API_KEY": "ignored-relayer-secret",
-        "POLYMM_POLYGON_RPC_URL": "https://rpc.invalid/ignored-secret",
-        "POLYMM_LIVE_TRADING": "true",
     }
     values.update(overrides)
     return values
@@ -77,7 +75,7 @@ def test_import_writes_only_four_new_vault_entries_and_public_manifest(tmp_path)
 
     assert result["receipt"]["status"] == "PASS"
     assert result["receipt"]["schema_version"] == (
-        "mm_live_credential_import_receipt_v0.2"
+        "mm_live_credential_import_receipt_v0.4"
     )
     assert result["receipt"]["credential_mode"] == "create_new"
     assert result["receipt"]["credential_value_count_written"] == 4
@@ -86,6 +84,13 @@ def test_import_writes_only_four_new_vault_entries_and_public_manifest(tmp_path)
         == 0
     )
     assert result["receipt"]["credential_store_mutation_attempted"] is True
+    assert result["receipt"]["execution_host_id"] == (
+        importer.current_execution_host_id()
+    )
+    assert result["receipt"]["execution_principal_id"] == (
+        importer.current_execution_principal_id()
+    )
+    assert datetime.fromisoformat(result["receipt"]["prepared_at_utc"]).tzinfo
     assert len(stored) == 4
     manifest_raw = Path(args["manifest_path"]).read_text(encoding="utf-8")
     receipt_raw = Path(args["receipt_path"]).read_text(encoding="utf-8")
@@ -94,8 +99,6 @@ def test_import_writes_only_four_new_vault_entries_and_public_manifest(tmp_path)
         "fixture-api-secret",
         "fixture-passphrase",
         "fixture-private-key",
-        "ignored-relayer-secret",
-        "ignored-secret",
     ):
         assert secret not in manifest_raw
         assert secret not in receipt_raw
@@ -388,25 +391,89 @@ def test_validator_dependency_failure_is_not_reported_as_a_bad_key(tmp_path):
     assert "fixture-private-key" not in raw
 
 
-def test_failure_does_not_delete_manifest_path_created_by_another_process(tmp_path):
+def test_owned_output_cleanup_does_not_delete_a_replacement(tmp_path):
+    path = tmp_path / "reserved.json"
+    marker = b"unrelated-race-winner\n"
+    output = importer._CreateOnlyOutput(path, label="fixture output")
+    output.close()
+    path.unlink()
+    path.write_bytes(marker)
+
+    assert output.remove_if_owned() is False
+    assert path.read_bytes() == marker
+
+
+def test_manifest_reservation_race_stops_before_vault_and_preserves_winner(
+    tmp_path,
+    monkeypatch,
+):
+    vault_calls = []
     args = import_args(
         tmp_path,
-        credential_exists=lambda _target: False,
-        credential_writer=lambda _target, _value: None,
-        credential_deleter=lambda _target: None,
+        credential_exists=lambda target: vault_calls.append(target) or False,
+        credential_writer=lambda target, value: vault_calls.append(
+            (target, value)
+        ),
+        credential_deleter=lambda target: vault_calls.append(("delete", target)),
     )
-    marker = b"unrelated-race-winner\n"
+    manifest = Path(args["manifest_path"])
+    marker = b"manifest-race-winner\n"
+    original_open = importer.os.open
+    raced = False
 
-    def dependency_failure(_key):
-        Path(args["manifest_path"]).write_bytes(marker)
-        raise importer.CredentialValidationDependencyError("dependency unavailable")
+    def open_with_race(path, flags, mode=0o777):
+        nonlocal raced
+        if Path(path) == manifest and flags & importer.os.O_EXCL and not raced:
+            raced = True
+            manifest.write_bytes(marker)
+        return original_open(path, flags, mode)
 
-    args["account_deriver"] = dependency_failure
+    monkeypatch.setattr(importer.os, "open", open_with_race)
 
-    with pytest.raises(importer.CredentialValidationDependencyError):
+    with pytest.raises(RuntimeError, match="manifest output path must be new"):
         importer.import_live_pilot_credentials(**args)
 
-    assert Path(args["manifest_path"]).read_bytes() == marker
+    assert raced is True
+    assert vault_calls == []
+    assert manifest.read_bytes() == marker
+    assert not Path(args["receipt_path"]).exists()
+
+
+def test_receipt_reservation_race_cleans_owned_manifest_before_vault(
+    tmp_path,
+    monkeypatch,
+):
+    vault_calls = []
+    args = import_args(
+        tmp_path,
+        credential_exists=lambda target: vault_calls.append(target) or False,
+        credential_writer=lambda target, value: vault_calls.append(
+            (target, value)
+        ),
+        credential_deleter=lambda target: vault_calls.append(("delete", target)),
+    )
+    manifest = Path(args["manifest_path"])
+    receipt = Path(args["receipt_path"])
+    marker = b"receipt-race-winner\n"
+    original_open = importer.os.open
+    raced = False
+
+    def open_with_race(path, flags, mode=0o777):
+        nonlocal raced
+        if Path(path) == receipt and flags & importer.os.O_EXCL and not raced:
+            raced = True
+            receipt.write_bytes(marker)
+        return original_open(path, flags, mode)
+
+    monkeypatch.setattr(importer.os, "open", open_with_race)
+
+    with pytest.raises(RuntimeError, match="receipt output path must be new"):
+        importer.import_live_pilot_credentials(**args)
+
+    assert raced is True
+    assert vault_calls == []
+    assert not manifest.exists()
+    assert receipt.read_bytes() == marker
 
 
 def test_wrong_confirmation_or_repo_local_source_stops_before_vault(tmp_path):
@@ -432,6 +499,54 @@ def test_wrong_confirmation_or_repo_local_source_stops_before_vault(tmp_path):
     with pytest.raises(RuntimeError, match="outside the repository"):
         importer.import_live_pilot_credentials(**args)
     assert called is False
+
+
+def test_unrelated_source_key_is_rejected_before_vault_access(tmp_path):
+    vault_calls = []
+    args = import_args(
+        tmp_path,
+        credential_exists=lambda target: vault_calls.append(target) or False,
+        credential_writer=lambda target, value: vault_calls.append((target, value)),
+        credential_deleter=lambda target: vault_calls.append(("delete", target)),
+    )
+    write_source(
+        args["source_path"],
+        source_values(POLYMM_LIVE_TRADING="true"),
+    )
+
+    with pytest.raises(RuntimeError, match="unknown key"):
+        importer.import_live_pilot_credentials(**args)
+
+    assert vault_calls == []
+
+
+def test_source_snapshot_refuses_a_replaced_path_identity(tmp_path, monkeypatch):
+    source = write_source(tmp_path / "source.env.txt")
+    replacement = write_source(
+        tmp_path / "replacement.env.txt",
+        source_values(POLYMM_API_KEY="replacement-secret"),
+    )
+    original_read = importer.os.read
+    original_stat = Path.stat
+    read_started = False
+
+    def read_and_mark(descriptor, count):
+        nonlocal read_started
+        block = original_read(descriptor, count)
+        if block:
+            read_started = True
+        return block
+
+    def replacement_stat(path, *args, **kwargs):
+        if Path(path) == source and read_started:
+            return original_stat(replacement, *args, **kwargs)
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(importer.os, "read", read_and_mark)
+    monkeypatch.setattr(Path, "stat", replacement_stat)
+
+    with pytest.raises(RuntimeError, match="identity or bytes changed"):
+        importer._read_source_snapshot(source)
 
 
 def test_verify_existing_exact_requires_separate_confirmation_before_vault(tmp_path):

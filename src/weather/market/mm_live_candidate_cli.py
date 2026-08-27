@@ -14,12 +14,12 @@ import codecs
 import csv
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from weather.io import write_json_atomic
 from weather.market.exchange_economics import (
     CURRENT_EVIDENCE_BASIS,
     DRIFT_SCHEMA_VERSION,
@@ -33,6 +33,11 @@ from weather.market.market_config import ensure_date
 from weather.market.market_microstructure_capture import ClobClient
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.market.mm_policy import utc_now
+from weather.operations.live_path_security import (
+    assert_no_ambient_market_registry_override,
+    validate_nonreparse_directory,
+    validate_regular_nonreparse_file,
+)
 from weather.schema_registry import schema_version
 
 
@@ -47,13 +52,17 @@ MAX_MIDPOINT = Decimal("0.80")
 MAX_BOOK_SPREAD = Decimal("0.05")
 MAX_ALTERNATES = 5
 MAX_PLAN_AGE_SECONDS = 300
-MAX_PAPER_QUOTE_TTL_SECONDS = 120
+MAX_PAPER_QUOTE_TTL_SECONDS = 600
+MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS = 600
 MAX_OPERATOR_PILOT_BUDGET_PUSD = Decimal("100")
 MAX_DAILY_LOSS_PUSD = Decimal("25")
 MAX_EVENT_NOTIONAL_PUSD = Decimal("25")
 MAX_BAND_NOTIONAL_PUSD = Decimal("10")
 MAX_PAPER_QUOTE_SIZE = Decimal("5")
 PAPER_PROFILE = "market_harvest"
+SUBSTRATE_PREFLIGHT_SCHEMA_VERSION = schema_version(
+    "portable_live_candidate_substrate_preflight"
+)
 ECONOMICS_ACCEPTANCE_ACKNOWLEDGMENT_PREFIX = (
     "I_ACCEPT_REVIEWED_INTERNATIONAL_ECONOMICS_BASELINE"
 )
@@ -98,6 +107,72 @@ DRIFT_REPORT_KEYS = {
     "material_changes",
     "rescore_required",
     "blockers",
+}
+SUBSTRATE_PREFLIGHT_ARTIFACT_KEYS = {
+    "event_metadata",
+    "event_metadata_validation",
+    "observation_status",
+    "economics_snapshot",
+    "accepted_economics_snapshot",
+    "economics_drift_report",
+    "paper_run_config",
+    "paper_preflight",
+    "paper_quote_intents",
+    "clob_tokens",
+    "order_books_summary",
+    "source_status_long",
+}
+SUBSTRATE_PREFLIGHT_KEYS = {
+    "schema_version",
+    "status",
+    "checked_at_utc",
+    "market_id",
+    "target_date",
+    "event_slug",
+    "snapshots_root",
+    "event_folder",
+    "checks",
+    "blockers",
+    "missing_paths",
+    "artifact_paths",
+    "artifact_sha256",
+    "validation_hash",
+    "economics_snapshot_id",
+    "economics_snapshot_sha256",
+    "accepted_snapshot_file_sha256",
+    "economics_drift_report_file_sha256",
+    "paper_quote_intents_sha256",
+    "paper_quote_intents_row_count",
+    "credential_access",
+    "exchange_contact",
+    "exchange_mutation",
+    "network_access",
+}
+SUBSTRATE_BINDING_KEYS = {
+    "schema_version",
+    "receipt_sha256",
+    "checked_at_utc",
+    "expires_at_utc",
+    "market_id",
+    "target_date",
+    "event_slug",
+    "validation_hash",
+    "event_metadata_file_sha256",
+    "event_metadata_validation_file_sha256",
+    "observation_status_file_sha256",
+    "economics_snapshot_file_sha256",
+    "accepted_snapshot_file_sha256",
+    "economics_drift_report_file_sha256",
+    "paper_run_config_file_sha256",
+    "paper_preflight_file_sha256",
+    "paper_quote_intents_file_sha256",
+    "clob_tokens_file_sha256",
+    "order_books_summary_file_sha256",
+    "source_status_long_file_sha256",
+    "network_access",
+    "credential_access",
+    "exchange_contact",
+    "exchange_mutation",
 }
 
 
@@ -153,15 +228,281 @@ def _is_sha256(value):
 
 
 def _read_json_object(path, *, label):
-    source = Path(path).resolve()
+    source = validate_regular_nonreparse_file(path)
     try:
         raw = source.read_bytes()
-        payload = json.loads(raw.decode("utf-8-sig"))
+        payload = json.loads(
+            raw.decode("utf-8-sig"),
+            object_pairs_hook=_reject_duplicate_pairs,
+        )
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise RuntimeError(f"{label} is not readable JSON") from exc
     if not isinstance(payload, dict):
         raise RuntimeError(f"{label} must be a JSON object")
     return source, payload, raw
+
+
+def _reject_duplicate_pairs(pairs):
+    payload = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError(f"duplicate JSON key: {key}")
+        payload[key] = value
+    return payload
+
+
+def _write_new_json(path: Path, payload: dict) -> None:
+    """Create one immutable plan without an absence-check/replace race."""
+
+    raw = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(raw)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def validate_candidate_substrate_binding(
+    value,
+    *,
+    target_date,
+    market_id,
+    created_at,
+    now=None,
+):
+    """Validate the immutable public-substrate receipt summary in a candidate."""
+
+    binding = dict(value) if isinstance(value, dict) else {}
+    current = utc_now(now)
+    try:
+        checked = _parse_utc(binding.get("checked_at_utc"))
+        expires = _parse_utc(binding.get("expires_at_utc"))
+        created = _parse_utc(created_at)
+    except RuntimeError as exc:
+        raise RuntimeError("candidate substrate binding has invalid timestamps") from exc
+    hash_fields = {
+        "receipt_sha256",
+        "validation_hash",
+        "event_metadata_file_sha256",
+        "event_metadata_validation_file_sha256",
+        "observation_status_file_sha256",
+        "economics_snapshot_file_sha256",
+        "accepted_snapshot_file_sha256",
+        "economics_drift_report_file_sha256",
+        "paper_run_config_file_sha256",
+        "paper_preflight_file_sha256",
+        "paper_quote_intents_file_sha256",
+        "clob_tokens_file_sha256",
+        "order_books_summary_file_sha256",
+        "source_status_long_file_sha256",
+    }
+    checks = {
+        "shape": set(binding) == SUBSTRATE_BINDING_KEYS,
+        "schema": (
+            binding.get("schema_version") == SUBSTRATE_PREFLIGHT_SCHEMA_VERSION
+        ),
+        "scope": (
+            binding.get("target_date") == ensure_date(target_date).isoformat()
+            and binding.get("market_id") == market_id
+            and isinstance(binding.get("event_slug"), str)
+            and bool(binding.get("event_slug", "").strip())
+        ),
+        "hashes": all(_is_sha256(binding.get(field)) for field in hash_fields),
+        "timing": (
+            checked <= created <= current < expires
+            and expires
+            == checked + timedelta(seconds=MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS)
+        ),
+        "non_authorizing": all(
+            binding.get(field) is False
+            for field in (
+                "network_access",
+                "credential_access",
+                "exchange_contact",
+                "exchange_mutation",
+            )
+        ),
+    }
+    missing = sorted(name for name, passed in checks.items() if not passed)
+    if missing:
+        raise RuntimeError(
+            "candidate substrate binding gate failed: " + ", ".join(missing)
+        )
+    return {
+        **binding,
+        "checked_at_utc": checked.isoformat(),
+        "expires_at_utc": expires.isoformat(),
+    }
+
+
+def _load_substrate_preflight_receipt(
+    path,
+    *,
+    target_date,
+    economics_snapshot,
+    accepted_economics_snapshot,
+    economics_drift_report,
+    paper_run_config,
+    paper_quote_intents,
+    now,
+):
+    """Validate and summarize the exact no-network public-substrate receipt."""
+
+    source, payload, raw = _read_json_object(
+        path,
+        label="candidate substrate preflight",
+    )
+    artifacts_value = payload.get("artifact_sha256")
+    artifacts = dict(artifacts_value) if isinstance(artifacts_value, dict) else {}
+    artifact_paths_value = payload.get("artifact_paths")
+    artifact_paths = (
+        dict(artifact_paths_value)
+        if isinstance(artifact_paths_value, dict)
+        else {}
+    )
+    checks_value = payload.get("checks")
+    preflight_checks = dict(checks_value) if isinstance(checks_value, dict) else {}
+    checked = _parse_utc(payload.get("checked_at_utc"))
+    current = utc_now(now)
+    target = ensure_date(target_date).isoformat()
+    market_id = str(payload.get("market_id") or "")
+    expected_files = {
+        "economics_snapshot": validate_regular_nonreparse_file(economics_snapshot),
+        "accepted_economics_snapshot": validate_regular_nonreparse_file(
+            accepted_economics_snapshot
+        ),
+        "economics_drift_report": validate_regular_nonreparse_file(
+            economics_drift_report
+        ),
+        "paper_run_config": validate_regular_nonreparse_file(paper_run_config),
+        "paper_quote_intents": validate_regular_nonreparse_file(
+            paper_quote_intents
+        ),
+    }
+    try:
+        if set(artifact_paths) != SUBSTRATE_PREFLIGHT_ARTIFACT_KEYS:
+            raise RuntimeError("artifact path shape changed")
+        validated_artifact_paths = {
+            name: validate_regular_nonreparse_file(artifact_path)
+            for name, artifact_path in artifact_paths.items()
+        }
+        snapshots_root = validate_nonreparse_directory(payload.get("snapshots_root"))
+        event_folder = validate_nonreparse_directory(payload.get("event_folder"))
+    except Exception as exc:
+        raise RuntimeError(
+            "candidate substrate preflight artifact paths are invalid"
+        ) from exc
+    distinct_evidence_paths = {os.path.normcase(str(source))}
+    distinct_evidence_paths.update(
+        os.path.normcase(str(artifact_path))
+        for artifact_path in validated_artifact_paths.values()
+    )
+    receipt_checks = {
+        "shape": set(payload) == SUBSTRATE_PREFLIGHT_KEYS,
+        "schema": payload.get("schema_version") == SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
+        "status": payload.get("status") == "PASS",
+        "scope": (
+            payload.get("target_date") == target
+            and market_id in {spec.id for spec in BUILTIN_SPECS}
+            and isinstance(payload.get("event_slug"), str)
+            and bool(payload.get("event_slug", "").strip())
+        ),
+        "fresh": (
+            checked <= current
+            and (current - checked).total_seconds()
+            <= MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS
+        ),
+        "checks": bool(preflight_checks)
+        and all(value is True for value in preflight_checks.values()),
+        "clear": payload.get("blockers") == [] and payload.get("missing_paths") == [],
+        "artifact_shape": set(artifacts) == SUBSTRATE_PREFLIGHT_ARTIFACT_KEYS
+        and all(_is_sha256(value) for value in artifacts.values()),
+        "artifact_paths": (
+            len(distinct_evidence_paths)
+            == len(SUBSTRATE_PREFLIGHT_ARTIFACT_KEYS) + 1
+            and event_folder.parent == snapshots_root
+            and event_folder.name == payload.get("event_slug")
+            and validated_artifact_paths.get("clob_tokens")
+            == event_folder / "clob_tokens.csv"
+            and validated_artifact_paths.get("order_books_summary")
+            == event_folder / "order_books_summary.csv"
+            and validated_artifact_paths.get("source_status_long")
+            == event_folder / "source_status_long.csv"
+            and all(
+                validated_artifact_paths.get(name) == file_path
+                for name, file_path in expected_files.items()
+            )
+        ),
+        "input_hashes": all(
+            artifacts.get(name) == hashlib.sha256(file_path.read_bytes()).hexdigest()
+            for name, file_path in validated_artifact_paths.items()
+        ),
+        "reported_hashes": (
+            payload.get("accepted_snapshot_file_sha256")
+            == artifacts.get("accepted_economics_snapshot")
+            and payload.get("economics_drift_report_file_sha256")
+            == artifacts.get("economics_drift_report")
+            and payload.get("paper_quote_intents_sha256")
+            == artifacts.get("paper_quote_intents")
+            and _is_sha256(payload.get("validation_hash"))
+        ),
+        "non_authorizing": all(
+            payload.get(field) is False
+            for field in (
+                "network_access",
+                "credential_access",
+                "exchange_contact",
+                "exchange_mutation",
+            )
+        ),
+        "stable": source.read_bytes() == raw,
+    }
+    missing = sorted(name for name, passed in receipt_checks.items() if not passed)
+    if missing:
+        raise RuntimeError(
+            "candidate substrate preflight gate failed: " + ", ".join(missing)
+        )
+    binding = {
+        "schema_version": SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
+        "receipt_sha256": hashlib.sha256(raw).hexdigest(),
+        "checked_at_utc": checked.isoformat(),
+        "expires_at_utc": (
+            checked + timedelta(seconds=MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS)
+        ).isoformat(),
+        "market_id": market_id,
+        "target_date": target,
+        "event_slug": payload["event_slug"],
+        "validation_hash": payload["validation_hash"],
+        "event_metadata_file_sha256": artifacts["event_metadata"],
+        "event_metadata_validation_file_sha256": artifacts[
+            "event_metadata_validation"
+        ],
+        "observation_status_file_sha256": artifacts["observation_status"],
+        "economics_snapshot_file_sha256": artifacts["economics_snapshot"],
+        "accepted_snapshot_file_sha256": artifacts[
+            "accepted_economics_snapshot"
+        ],
+        "economics_drift_report_file_sha256": artifacts[
+            "economics_drift_report"
+        ],
+        "paper_run_config_file_sha256": artifacts["paper_run_config"],
+        "paper_preflight_file_sha256": artifacts["paper_preflight"],
+        "paper_quote_intents_file_sha256": artifacts["paper_quote_intents"],
+        "clob_tokens_file_sha256": artifacts["clob_tokens"],
+        "order_books_summary_file_sha256": artifacts["order_books_summary"],
+        "source_status_long_file_sha256": artifacts["source_status_long"],
+        "network_access": False,
+        "credential_access": False,
+        "exchange_contact": False,
+        "exchange_mutation": False,
+    }
+    return validate_candidate_substrate_binding(
+        binding,
+        target_date=target,
+        market_id=market_id,
+        created_at=current.isoformat(),
+        now=current,
+    )
 
 
 def economics_acceptance_acknowledgment(
@@ -746,17 +1087,22 @@ def select_live_pilot_candidate(
     economics_drift_report,
     paper_run_config,
     paper_quote_intents,
+    substrate_preflight,
     economics_baseline_acknowledgment=None,
     expected_condition_id=None,
     expected_token_id=None,
     now=None,
     book_reader=None,
 ):
+    assert_no_ambient_market_registry_override()
     target_text = ensure_date(target_date).isoformat()
-    output = Path(plan_out).resolve()
-    if output.exists():
+    output_input = Path(plan_out)
+    if not output_input.is_absolute():
+        raise RuntimeError("candidate-plan output path must be absolute")
+    output_parent = validate_nonreparse_directory(output_input.parent)
+    output = output_parent / output_input.name
+    if output.exists() or output.is_symlink():
         raise RuntimeError("candidate-plan output path must be new")
-    output.parent.mkdir(parents=True, exist_ok=True)
     gate = load_exchange_economics_gate(
         economics_snapshot,
         target_text,
@@ -769,6 +1115,16 @@ def select_live_pilot_candidate(
     expected_token = str(expected_token_id or "")
     if bool(expected_condition) != bool(expected_token):
         raise RuntimeError("expected condition and token constraints must be supplied together")
+    substrate_binding = _load_substrate_preflight_receipt(
+        substrate_preflight,
+        target_date=target_text,
+        economics_snapshot=economics_snapshot,
+        accepted_economics_snapshot=accepted_economics_snapshot,
+        economics_drift_report=economics_drift_report,
+        paper_run_config=paper_run_config,
+        paper_quote_intents=paper_quote_intents,
+        now=created_at,
+    )
     base = {
         "schema_version": SCHEMA_VERSION,
         "status": "BLOCK",
@@ -784,6 +1140,7 @@ def select_live_pilot_candidate(
         "economics_gate_ok": gate.get("ok") is True,
         "economics_gate_missing": list(gate.get("missing") or []),
         "economics_acceptance": None,
+        "substrate_preflight": substrate_binding,
         "selection_is_trading_authorization": False,
         "secret_values_retained": False,
         "selection_policy": {
@@ -811,7 +1168,7 @@ def select_live_pilot_candidate(
     if not gate.get("ok"):
         base["missing"] = ["current_exchange_economics_gate"]
         base["plan_sha256"] = candidate_plan_sha256(base)
-        write_json_atomic(output, base, trailing_newline=True)
+        _write_new_json(output, base)
         return base
     snapshot = json.loads(Path(economics_snapshot).read_text(encoding="utf-8-sig"))
     if snapshot_hash(snapshot) != gate.get("exchange_economics_hash"):
@@ -837,6 +1194,22 @@ def select_live_pilot_candidate(
         economics_hash=gate.get("exchange_economics_hash"),
         now=now,
     )
+    if not all(
+        (
+            substrate_binding["market_id"] == paper_evidence["market_id"],
+            substrate_binding["economics_snapshot_file_sha256"]
+            == hashlib.sha256(Path(economics_snapshot).read_bytes()).hexdigest(),
+            substrate_binding["accepted_snapshot_file_sha256"]
+            == acceptance["accepted_snapshot_file_sha256"],
+            substrate_binding["economics_drift_report_file_sha256"]
+            == acceptance["drift_report_file_sha256"],
+            substrate_binding["paper_run_config_file_sha256"]
+            == paper_evidence["run_config_sha256"],
+            substrate_binding["paper_quote_intents_file_sha256"]
+            == paper_evidence["quote_intents_sha256"],
+        )
+    ):
+        raise RuntimeError("candidate inputs changed after substrate preflight")
     base["paper_quote_evidence"] = {
         key: value for key, value in paper_evidence.items() if key != "qualifying"
     }
@@ -886,7 +1259,12 @@ def select_live_pilot_candidate(
         base["alternates"] = candidates[1:1 + MAX_ALTERNATES]
         paper_expiry = _parse_utc(candidates[0]["paper_quote_proof"]["expires_at_utc"])
         ordinary_expiry = created_at + timedelta(seconds=MAX_PLAN_AGE_SECONDS)
-        base["expires_at_utc"] = min(ordinary_expiry, paper_expiry).isoformat()
+        substrate_expiry = _parse_utc(substrate_binding["expires_at_utc"])
+        base["expires_at_utc"] = min(
+            ordinary_expiry,
+            paper_expiry,
+            substrate_expiry,
+        ).isoformat()
         required_acknowledgment = economics_acceptance_acknowledgment(
             target_text,
             candidates[0]["condition_id"],
@@ -915,7 +1293,7 @@ def select_live_pilot_candidate(
     else:
         base["missing"] = ["current_paper_proved_safe_fee_eligible_book_candidate"]
     base["plan_sha256"] = candidate_plan_sha256(base)
-    write_json_atomic(output, base, trailing_newline=True)
+    _write_new_json(output, base)
     return base
 
 
@@ -928,6 +1306,7 @@ def _load_candidate_plan_gate(
     require_unconstrained=False,
     now=None,
 ):
+    assert_no_ambient_market_registry_override()
     raw = Path(plan_path).read_bytes()
     try:
         payload = json.loads(raw.decode("utf-8-sig"))
@@ -951,6 +1330,8 @@ def _load_candidate_plan_gate(
     acceptance = (
         dict(acceptance_value) if isinstance(acceptance_value, dict) else {}
     )
+    substrate_value = payload.get("substrate_preflight")
+    substrate = dict(substrate_value) if isinstance(substrate_value, dict) else {}
     expected_scope_value = policy.get("expected_bootstrap_scope")
     expected_scope = (
         dict(expected_scope_value) if isinstance(expected_scope_value, dict) else {}
@@ -973,10 +1354,12 @@ def _load_candidate_plan_gate(
         drift_generated = _parse_utc(
             acceptance.get("drift_generated_at_utc")
         )
+        substrate_expires = _parse_utc(substrate.get("expires_at_utc"))
     except RuntimeError:
         invalid_time = datetime.min.replace(tzinfo=timezone.utc)
         created = expires = paper_generated = paper_expires = invalid_time
         accepted_at = drift_generated = invalid_time
+        substrate_expires = invalid_time
     paper_ttl = _decimal(paper.get("quote_ttl_seconds"))
     notional = _decimal(intent.get("notional_pusd"))
     price = _decimal(intent.get("price"))
@@ -1015,6 +1398,7 @@ def _load_candidate_plan_gate(
         expected_effective_expiry = min(
             created + timedelta(seconds=MAX_PLAN_AGE_SECONDS),
             paper_expires,
+            substrate_expires,
         )
     except OverflowError:
         expected_effective_expiry = invalid_timestamp
@@ -1032,6 +1416,7 @@ def _load_candidate_plan_gate(
         "target_date", "platform", "settlement_unit",
         "exchange_economics_snapshot_id", "exchange_economics_sha256",
         "economics_gate_ok", "economics_gate_missing", "economics_acceptance",
+        "substrate_preflight",
         "selection_is_trading_authorization", "secret_values_retained",
         "selection_policy", "paper_quote_evidence", "candidate_count",
         "selected", "alternates", "missing", "plan_sha256",
@@ -1069,6 +1454,18 @@ def _load_candidate_plan_gate(
         "market_id", "run_id",
     }
     intent_keys = {"side", "price", "size", "notional_pusd", "post_only"}
+    try:
+        substrate_gate = validate_candidate_substrate_binding(
+            substrate,
+            target_date=expected_target,
+            market_id=str(paper.get("market_id") or ""),
+            created_at=payload.get("created_at_utc"),
+            now=current,
+        )
+        substrate_ok = True
+    except (RuntimeError, TypeError, ValueError):
+        substrate_gate = {}
+        substrate_ok = False
     midpoint_interval = policy.get("midpoint_interval")
     alternates = payload.get("alternates")
     candidate_count = payload.get("candidate_count")
@@ -1194,6 +1591,7 @@ def _load_candidate_plan_gate(
             and isinstance(evidence_value, dict)
             and isinstance(policy_value, dict)
             and isinstance(acceptance_value, dict)
+            and isinstance(substrate_value, dict)
             and set(payload) == top_level_keys
             and set(selected) == selected_keys
             and set(paper) == paper_keys
@@ -1201,6 +1599,7 @@ def _load_candidate_plan_gate(
             and set(evidence) == evidence_keys
             and set(intent) == intent_keys
             and set(acceptance) == ECONOMICS_ACCEPTANCE_KEYS
+            and set(substrate) == SUBSTRATE_BINDING_KEYS
         ),
         "schema": payload.get("schema_version") == SCHEMA_VERSION,
         "status": payload.get("status") == "PASS",
@@ -1237,6 +1636,17 @@ def _load_candidate_plan_gate(
             == required_acceptance
             and acceptance.get("operator_acknowledgment") == required_acceptance
             and accepted_at <= drift_generated <= created
+        ),
+        "substrate_preflight": (
+            substrate_ok
+            and substrate_gate.get("accepted_snapshot_file_sha256")
+            == acceptance.get("accepted_snapshot_file_sha256")
+            and substrate_gate.get("economics_drift_report_file_sha256")
+            == acceptance.get("drift_report_file_sha256")
+            and substrate_gate.get("paper_run_config_file_sha256")
+            == evidence.get("run_config_sha256")
+            and substrate_gate.get("paper_quote_intents_file_sha256")
+            == evidence.get("quote_intents_sha256")
         ),
         "created": created <= current,
         "current": current < expires and current < paper_expires,
@@ -1340,6 +1750,7 @@ def _load_candidate_plan_gate(
         "plan_sha256": hashlib.sha256(raw).hexdigest(),
         "semantic_plan_sha256": payload["plan_sha256"],
         "target_date": expected_target,
+        "market_id": paper["market_id"],
         "condition_id": condition,
         "token_id": token,
         "created_at_utc": created.isoformat(),
@@ -1348,6 +1759,7 @@ def _load_candidate_plan_gate(
         "paper_run_config_sha256": evidence["run_config_sha256"],
         "paper_quote_intents_sha256": evidence["quote_intents_sha256"],
         "paper_quote_row_sha256": paper["quote_row_sha256"],
+        "substrate_preflight_receipt_sha256": substrate["receipt_sha256"],
         "economics_acceptance": dict(acceptance),
         "stage1_intent": dict(intent),
         "tick_size": float(tick_size),
@@ -1399,6 +1811,7 @@ def build_parser():
     parser.add_argument("--target-date", required=True)
     parser.add_argument("--paper-run-config", required=True)
     parser.add_argument("--paper-quote-intents", required=True)
+    parser.add_argument("--substrate-preflight", required=True)
     parser.add_argument("--expected-condition-id")
     parser.add_argument("--expected-token-id")
     parser.add_argument("--plan-out", required=True)
@@ -1416,6 +1829,7 @@ def main(argv=None):
             economics_drift_report=args.economics_drift_report,
             paper_run_config=args.paper_run_config,
             paper_quote_intents=args.paper_quote_intents,
+            substrate_preflight=args.substrate_preflight,
             economics_baseline_acknowledgment=(
                 args.economics_baseline_acknowledgment
             ),

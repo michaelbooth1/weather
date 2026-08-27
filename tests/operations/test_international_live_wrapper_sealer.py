@@ -17,6 +17,7 @@ from weather.market.exchange_economics import (
 )
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_wrapper_sealer as sealer
+from tests.live_candidate_fixture import build_live_candidate_payload
 
 
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
@@ -78,55 +79,18 @@ def write_geography_receipt(path: Path, *, checked: datetime = NOW) -> Path:
     return write_json(path, payload)
 
 
-def candidate_payload(now: datetime = NOW) -> dict:
-    current = now.astimezone(timezone.utc)
-    created = current - timedelta(seconds=5)
-    paper_generated = current - timedelta(seconds=10)
-    paper_expires = paper_generated + timedelta(seconds=120)
-    payload = {
-        "schema_version": sealer.CANDIDATE_SCHEMA_VERSION,
-        "status": "PASS",
-        "created_at_utc": created.isoformat(),
-        "expires_at_utc": paper_expires.isoformat(),
-        "target_date": now.date().isoformat(),
-        "platform": "polymarket_global",
-        "settlement_unit": "pUSD",
-        "selection_is_trading_authorization": False,
-        "selection_policy": {
-            "expected_bootstrap_scope": {
-                "condition_id": CONDITION,
-                "token_id": TOKEN,
-            }
-        },
-        "selected": {
-            "condition_id": CONDITION,
-            "token_id": TOKEN,
-            "tick_size": 0.01,
-            "order_min_size": 5,
-            "fee_rate": 0.05,
-            "neg_risk": False,
-            "stage1_intent": {
-                "side": "BUY",
-                "price": 0.01,
-                "size": 5,
-                "notional_pusd": 0.05,
-                "post_only": True,
-            },
-            "paper_quote_proof": {
-                "condition_id": CONDITION,
-                "token_id": TOKEN,
-                "generated_at_utc": paper_generated.isoformat(),
-                "expires_at_utc": paper_expires.isoformat(),
-                "quote_ttl_seconds": 120,
-                "quote_permission": True,
-                "live_trade_permission": False,
-            },
-        },
-    }
-    payload["plan_sha256"] = sealer._canonical_payload_sha256(
-        payload, omit="plan_sha256"
+def candidate_payload(
+    now: datetime = NOW,
+    *,
+    remaining_seconds: int = 120,
+) -> dict:
+    return build_live_candidate_payload(
+        now=now,
+        target_date=now.date().isoformat(),
+        condition_id=CONDITION,
+        token_id=TOKEN,
+        remaining_seconds=remaining_seconds,
     )
-    return payload
 
 
 class GitStub:
@@ -155,7 +119,15 @@ class GitStub:
         self.calls.append(command)
         returncode = 0
         stdout = ""
-        if command == ("rev-parse", "HEAD"):
+        if command == ("config", "--local", "--get", "remote.origin.url"):
+            stdout = sealer.CANONICAL_ORIGIN_URL + "\n"
+        elif command == (
+            "config", "--local", "--get-all", "remote.origin.pushurl"
+        ):
+            returncode = 1
+        elif command == ("config", "--local", "--name-only", "--list"):
+            stdout = "remote.origin.url\n"
+        elif command == ("rev-parse", "HEAD"):
             stdout = self.commit + "\n"
         elif command == ("rev-parse", "--show-object-format"):
             stdout = "sha1\n"
@@ -167,7 +139,7 @@ class GitStub:
             "ls-remote",
             "--exit-code",
             "--refs",
-            "origin",
+            sealer.CANONICAL_ORIGIN_URL,
             sealer.REMOTE_MASTER_REF,
         ):
             returncode = 2 if self.remote_failure else 0
@@ -194,7 +166,7 @@ def local_remote_equal_git_runner(root: Path, args):
         "ls-remote",
         "--exit-code",
         "--refs",
-        "origin",
+        sealer.CANONICAL_ORIGIN_URL,
         sealer.REMOTE_MASTER_REF,
     ):
         head = sealer._default_git_runner(root, ["rev-parse", "HEAD"])
@@ -216,6 +188,8 @@ def prepare(
     production = tmp_path / "production"
     attempt = tmp_path / "ops" / "2026-08-23" / "attempt-1"
     attempt.mkdir(parents=True)
+    execution_host_profile = "capture_colocated_v1"
+    execution_host_id = sealer.current_execution_host_id()
     python = production / "venv/Scripts/python.exe"
     python.parent.mkdir(parents=True)
     python.write_bytes(b"test interpreter placeholder")
@@ -239,9 +213,12 @@ def prepare(
     credential = write_json(
         tmp_path / "credential-import-receipt.json",
         {
-            "schema_version": "mm_live_credential_import_receipt_v0.2",
+            "schema_version": "mm_live_credential_import_receipt_v0.4",
             "status": "PASS",
             "platform": "polymarket_global",
+            "prepared_at_utc": NOW.astimezone(timezone.utc).isoformat(),
+            "execution_host_id": execution_host_id,
+            "execution_principal_id": sealer.current_execution_principal_id(),
             "source_outside_repository_verified": True,
             "source_acl_private_confirmed": True,
             "credential_value_count_expected": 4,
@@ -334,6 +311,12 @@ def prepare(
     plan["exchange_economics_sha256"] = accepted_payload[
         "exchange_economics_hash"
     ]
+    plan["selected"]["paper_quote_proof"][
+        "exchange_economics_snapshot_id"
+    ] = accepted_payload["snapshot_id"]
+    plan["selected"]["paper_quote_proof"][
+        "exchange_economics_hash"
+    ] = accepted_payload["exchange_economics_hash"]
     acknowledgment = sealer.economics_acceptance_acknowledgment(
         plan["target_date"],
         plan["selected"]["condition_id"],
@@ -356,6 +339,12 @@ def prepare(
         "required_operator_acknowledgment": acknowledgment,
         "rescore_required": False,
     }
+    plan["substrate_preflight"]["accepted_snapshot_file_sha256"] = sha256(
+        accepted_economics
+    )
+    plan["substrate_preflight"]["economics_drift_report_file_sha256"] = sha256(
+        economics_drift
+    )
     plan["plan_sha256"] = sealer._canonical_payload_sha256(
         plan, omit="plan_sha256"
     )
@@ -455,6 +444,10 @@ def prepare(
                 "token_id": TOKEN,
                 "requested_budget_pusd": 10,
                 "attempt_root": str(attempt.resolve()),
+                "execution_host_profile": execution_host_profile,
+                "execution_host_id": execution_host_id,
+                "market_id": "toronto",
+                "market_timezone": "America/Toronto",
             },
             "wrapper": {"path": str(stage0_wrapper), "sha256": sha256(stage0_wrapper)},
             "launcher": {"path": str(stage0_launcher), "sha256": sha256(stage0_launcher)},
@@ -474,6 +467,8 @@ def prepare(
             "schema_version": sealer.EXECUTION_SCHEMA_VERSION,
             "status": "PASS",
             "stage": "stage0",
+            "execution_host_profile": execution_host_profile,
+            "execution_host_id": execution_host_id,
             "phase": "complete",
             "production_tip": COMMIT,
             "target_date": NOW.date().isoformat(),
@@ -490,8 +485,10 @@ def prepare(
                     "checked_at_local": NOW.isoformat(),
                     "status_json_sha256": "9" * 64,
                     "status_flag_sha256": [],
+                    "execution_host_profile": execution_host_profile,
+                    "execution_host_id": execution_host_id,
                 }
-                for _index in range(2)
+                for _index in range(3)
             ],
             "wrapper": {"path": str(stage0_wrapper), "sha256": sha256(stage0_wrapper)},
             "artifacts": {
@@ -546,9 +543,11 @@ def prepare(
         stage0_run = write_json(
             attempt / "session/stage0-run-receipt.json",
             {
-                "schema_version": "international_live_session_run_v0.3",
+                "schema_version": "international_live_session_run_v0.4",
                 "status": "PASS",
                 "stage": "stage0",
+                "execution_host_profile": execution_host_profile,
+                "execution_host_id": execution_host_id,
                 "live_mutation_attempted": True,
                 "order_submit_attempted": False,
                 "authenticated_exchange_write_attempted": True,
@@ -603,7 +602,7 @@ def prepare(
         if stage == "stage1_dead_man":
             cancel_candidate = write_json(
                 attempt / "inputs/stage1-cancel-all-candidate.json",
-                candidate_payload(),
+                json.loads(json.dumps(plan)),
             )
             cancel_wrapper = attempt / "wrappers/stage1-cancel-all.py"
             cancel_wrapper.write_text("# sealed cancel wrapper\n", encoding="utf-8")
@@ -737,6 +736,8 @@ def prepare(
                     "schema_version": sealer.EXECUTION_SCHEMA_VERSION,
                     "status": "PASS",
                     "stage": "stage1_cancel_all",
+                    "execution_host_profile": execution_host_profile,
+                    "execution_host_id": execution_host_id,
                     "phase": "complete",
                     "production_tip": COMMIT,
                     "target_date": NOW.date().isoformat(),
@@ -802,6 +803,10 @@ def prepare(
                         "requested_budget_pusd": 10,
                         "cancellation_mode": "cancel_all",
                         "attempt_root": str(attempt.resolve()),
+                        "execution_host_profile": execution_host_profile,
+                        "execution_host_id": execution_host_id,
+                        "market_id": "toronto",
+                        "market_timezone": "America/Toronto",
                     },
                     "wrapper": {
                         "path": str(cancel_wrapper.resolve()),
@@ -842,9 +847,11 @@ def prepare(
             cancel_run = write_json(
                 attempt / "session/stage1_cancel_all-run-receipt.json",
                 {
-                    "schema_version": "international_live_session_run_v0.3",
+                    "schema_version": "international_live_session_run_v0.4",
                     "status": "PASS",
                     "stage": "stage1_cancel_all",
+                    "execution_host_profile": execution_host_profile,
+                    "execution_host_id": execution_host_id,
                     "live_mutation_attempted": True,
                     "order_submit_attempted": True,
                     "authenticated_exchange_write_attempted": True,
@@ -906,6 +913,7 @@ def prepare(
             set(sealer.LIVE_SOURCE_PATHS[stage]) | {sealer.WORKLOAD_ADMISSION_PATH}
         )
     }
+    git_executable = sealer.canonical_git_executable()
     spec = {
         "schema_version": sealer.SPEC_SCHEMA_VERSION,
         "stage": stage,
@@ -916,6 +924,9 @@ def prepare(
             "commit": COMMIT,
             "tree": TREE,
             "python": str(python.resolve()),
+            "git_executable": str(git_executable),
+            "git_executable_sha256": sha256(git_executable),
+            "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         "scope": {
             "target_date": NOW.date().isoformat(),
@@ -926,6 +937,10 @@ def prepare(
             "run_not_after_local": (NOW + timedelta(seconds=60)).isoformat(),
             "attempt_root": str(attempt.resolve()),
             "lease_workload": f"live-test-{stage}-attempt-1",
+            "execution_host_profile": "capture_colocated_v1",
+            "execution_host_id": sealer.current_execution_host_id(),
+            "market_id": "toronto",
+            "market_timezone": "America/Toronto",
         },
         "inputs": {
             role: {"path": str(path.resolve()), "sha256": sha256(path)}
@@ -960,6 +975,8 @@ def seal(
             "status": "PASS",
             "path": str(path),
         },
+        capture_assignment_validator=lambda *_args, **_kwargs: {},
+        portable_assignment_validator=lambda *_args, **_kwargs: {},
         template_root=production,
         sealer_repo_root=production,
     )
@@ -1081,6 +1098,66 @@ def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current
 
     with pytest.raises(sealer.SealError, match="00:30-09:00 America/Toronto"):
         seal(spec_path, production, now=current)
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path):
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    production, attempt, spec_path, spec = prepare(
+        tmp_path,
+        candidate=candidate_payload(current, remaining_seconds=600),
+    )
+    spec["prepared_at_local"] = current.isoformat()
+    spec["scope"].update(
+        target_date=current.date().isoformat(),
+        run_not_before_local=(current - timedelta(seconds=5)).isoformat(),
+        run_not_after_local=(current + timedelta(seconds=60)).isoformat(),
+        execution_host_profile="portable_execution_v1",
+        execution_host_id=sealer.current_execution_host_id(),
+    )
+    write_json(spec_path, spec)
+
+    result = seal(spec_path, production, now=current)
+
+    wrapper_text = Path(result["wrapper"]["path"]).read_text(encoding="utf-8")
+    launcher_text = Path(result["launcher"]["path"]).read_text(
+        encoding="utf-8-sig"
+    )
+    receipt = json.loads(Path(result["seal_receipt"]["path"]).read_text())
+    assert "international_live_execution_host_status.ps1" in wrapper_text
+    assert "portable_execution_v1" in launcher_text
+    assert sealer.current_execution_host_id() in launcher_text
+    assert receipt["scope"]["execution_host_profile"] == "portable_execution_v1"
+    assert receipt["scope"]["execution_host_id"] == sealer.current_execution_host_id()
+
+
+def test_seal_refuses_a_scope_bound_to_another_execution_host(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["scope"]["execution_host_id"] = "0" * 64
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="different execution host"):
+        seal(spec_path, production)
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_seal_refuses_capture_status_exception_on_portable_host(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["scope"]["execution_host_profile"] = "portable_execution_v1"
+    spec["reviewed_status_flags"] = [
+        {
+            "sha256": "c" * 64,
+            "review": "A capture-host exception cannot authorize a portable host.",
+        }
+    ]
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="cannot inherit capture-host"):
+        seal(spec_path, production)
 
     for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
         assert not (attempt / relative).exists()
@@ -1342,6 +1419,7 @@ def test_credential_import_receipt_accepts_exact_existing_verification(tmp_path)
     sealer._validate_credential_import_receipt(
         receipt,
         required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+        now=NOW,
     )
 
 
@@ -1361,6 +1439,34 @@ def test_fixed_scope_seal_rejects_create_new_credential_evidence(tmp_path):
         seal(spec_path, production)
 
 
+def test_fixed_scope_seal_rejects_credential_evidence_from_another_host(tmp_path):
+    production, _attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["execution_host_id"] = "0" * 64
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        seal(spec_path, production)
+
+
+def test_fixed_scope_seal_rejects_stale_credential_verification(tmp_path):
+    production, _attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["prepared_at_utc"] = (
+        NOW.astimezone(timezone.utc) - timedelta(hours=3)
+    ).isoformat()
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        seal(spec_path, production)
+
+
 def test_credential_import_receipt_retains_current_create_support(tmp_path):
     _production, _attempt, _spec_path, spec = prepare(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
@@ -1371,7 +1477,7 @@ def test_credential_import_receipt_retains_current_create_support(tmp_path):
     payload["credential_store_mutation_attempted"] = True
     write_json(receipt, payload)
 
-    sealer._validate_credential_import_receipt(receipt)
+    sealer._validate_credential_import_receipt(receipt, now=NOW)
 
 
 def test_credential_import_receipt_retains_strict_legacy_create_support(tmp_path):
@@ -1383,14 +1489,18 @@ def test_credential_import_receipt_retains_strict_legacy_create_support(tmp_path
     del payload["credential_mode"]
     del payload["credential_value_count_existing_exact_verified"]
     del payload["credential_store_mutation_attempted"]
+    del payload["prepared_at_utc"]
+    del payload["execution_host_id"]
+    del payload["execution_principal_id"]
     write_json(receipt, payload)
 
-    sealer._validate_credential_import_receipt(receipt)
+    sealer._validate_credential_import_receipt(receipt, now=NOW)
 
     with pytest.raises(sealer.SealError, match="compare-only exact verification"):
         sealer._validate_credential_import_receipt(
             receipt,
             required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            now=NOW,
         )
 
 
@@ -1419,7 +1529,7 @@ def test_credential_import_receipt_rejects_inexact_existing_verification(
     write_json(receipt, payload)
 
     with pytest.raises(sealer.SealError, match="exact clean PASS"):
-        sealer._validate_credential_import_receipt(receipt)
+        sealer._validate_credential_import_receipt(receipt, now=NOW)
 
 
 def test_seal_refuses_incomplete_credential_reference_manifest(tmp_path):
@@ -1521,7 +1631,7 @@ def test_inventory_blocks_on_bounded_live_remote_failure_without_writing(tmp_pat
         "ls-remote",
         "--exit-code",
         "--refs",
-        "origin",
+        sealer.CANONICAL_ORIGIN_URL,
         sealer.REMOTE_MASTER_REF,
     ) in git.calls
     assert sorted(path.relative_to(attempt) for path in attempt.rglob("*")) == before
@@ -1568,7 +1678,7 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
             "ls-remote",
             "--exit-code",
             "--refs",
-            "origin",
+            sealer.CANONICAL_ORIGIN_URL,
             sealer.REMOTE_MASTER_REF,
         ):
             return subprocess.CompletedProcess(
@@ -1592,6 +1702,9 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
             "commit": head,
             "tree": tree,
             "python": str(root / "venv/Scripts/python.exe"),
+            "git_executable": str(sealer.canonical_git_executable()),
+            "git_executable_sha256": sha256(sealer.canonical_git_executable()),
+            "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         git_runner=reviewed_master_proxy,
     )

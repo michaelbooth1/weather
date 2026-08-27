@@ -1,0 +1,8 @@
+{
+  "active_portable_execution_host_id": null,
+  "active_portable_execution_principal_id": null,
+  "assignment_status": "UNASSIGNED",
+  "dedicated_capture_execution_host_id": "6a085bc0e2017a1a619eead39f9daa9ffe0822b9add353d94cf2c06acb8889a7",
+  "reassignment_requires_new_production_tip": true,
+  "schema_version": "international_live_execution_host_assignment_v0.1"
+}

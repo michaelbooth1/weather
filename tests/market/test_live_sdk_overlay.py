@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -105,6 +106,56 @@ def test_validator_binds_complete_overlay_and_ordered_wheelhouse(tmp_path, monke
     assert file_hashes[str(root / "polymarket/__init__.py")] == sha(
         root / "polymarket/__init__.py"
     )
+
+
+def test_validator_accepts_explicit_profile_root_without_changing_runtime_root(
+    tmp_path, monkeypatch
+):
+    manifest, root, wheelhouse = build_fixture(tmp_path, monkeypatch)
+    explicit_profile = root.parents[1]
+    monkeypatch.setattr(
+        overlay,
+        "_profile_root",
+        lambda: (_ for _ in ()).throw(AssertionError("current profile was consulted")),
+    )
+
+    result = overlay.validate_live_sdk_overlay(
+        manifest,
+        sha(manifest),
+        profile_root=explicit_profile,
+    )
+
+    assert result["overlay"]["root"] == str(root.resolve())
+    assert result["wheelhouse"]["root"] == str(wheelhouse.resolve())
+    assert "profile_root" not in inspect.signature(
+        overlay.activate_live_sdk_overlay
+    ).parameters
+
+
+def test_explicit_profile_root_must_be_absolute_and_present(tmp_path, monkeypatch):
+    manifest, _root, _wheelhouse = build_fixture(tmp_path, monkeypatch)
+
+    with pytest.raises(overlay.LiveSdkOverlayError, match="absolute"):
+        overlay.validate_live_sdk_overlay(
+            manifest,
+            sha(manifest),
+            profile_root=Path("relative-profile"),
+        )
+    with pytest.raises(overlay.LiveSdkOverlayError, match="absent"):
+        overlay.validate_live_sdk_overlay(
+            manifest,
+            sha(manifest),
+            profile_root=(tmp_path / "absent").resolve(),
+        )
+
+
+def test_current_profile_rejects_ambient_profile_conflict(tmp_path, monkeypatch):
+    profile = (tmp_path / "token-profile").resolve()
+    profile.mkdir()
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "other-profile"))
+
+    with pytest.raises(overlay.LiveSdkOverlayError, match="USERPROFILE"):
+        overlay._reject_ambient_profile_conflict(profile)
 
 
 @pytest.mark.parametrize("target", ["overlay", "wheelhouse", "manifest"])

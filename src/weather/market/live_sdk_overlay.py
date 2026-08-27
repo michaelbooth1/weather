@@ -7,6 +7,7 @@ and affects only the current process after every public hash check passes.
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import importlib
 import importlib.metadata
@@ -32,8 +33,107 @@ class LiveSdkOverlayError(RuntimeError):
     """Raised when the sealed external SDK overlay does not match its manifest."""
 
 
+def _require_local_windows_path(path: Path, *, label: str) -> None:
+    if os.name != "nt":
+        return
+    normalized = str(path).replace("/", "\\")
+    if normalized.startswith("\\\\") or re.fullmatch(r"[A-Za-z]:", path.drive) is None:
+        raise LiveSdkOverlayError(f"{label} must be on a local Windows drive")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetDriveTypeW.argtypes = [ctypes.c_wchar_p]
+    kernel32.GetDriveTypeW.restype = ctypes.c_uint
+    if int(kernel32.GetDriveTypeW(path.drive + "\\")) not in {2, 3}:
+        raise LiveSdkOverlayError(f"{label} must be on fixed or removable local media")
+
+
+def _windows_token_profile_root() -> Path:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    userenv = ctypes.WinDLL("userenv", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+    advapi32.OpenProcessToken.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_ulong,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    advapi32.OpenProcessToken.restype = ctypes.c_int
+    userenv.GetUserProfileDirectoryW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_ulong),
+    ]
+    userenv.GetUserProfileDirectoryW.restype = ctypes.c_int
+    token = ctypes.c_void_p()
+    if not advapi32.OpenProcessToken(
+        kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(token)
+    ):
+        raise LiveSdkOverlayError("current Windows user token is unavailable")
+    try:
+        required = ctypes.c_ulong(0)
+        userenv.GetUserProfileDirectoryW(token, None, ctypes.byref(required))
+        if required.value <= 1:
+            raise LiveSdkOverlayError("current Windows profile is unavailable")
+        buffer = ctypes.create_unicode_buffer(required.value)
+        if not userenv.GetUserProfileDirectoryW(
+            token, buffer, ctypes.byref(required)
+        ):
+            raise LiveSdkOverlayError("current Windows profile is unavailable")
+        return Path(buffer.value)
+    finally:
+        kernel32.CloseHandle(token)
+
+
+def _reject_ambient_profile_conflict(profile: Path) -> None:
+    expected = os.path.normcase(os.path.abspath(str(profile)))
+    candidates = {
+        "USERPROFILE": os.environ.get("USERPROFILE"),
+        "HOME": os.environ.get("HOME"),
+    }
+    home_drive = os.environ.get("HOMEDRIVE")
+    home_path = os.environ.get("HOMEPATH")
+    if home_drive or home_path:
+        candidates["HOMEDRIVE/HOMEPATH"] = (home_drive or "") + (home_path or "")
+    for label, value in candidates.items():
+        if not value:
+            continue
+        candidate = Path(value)
+        if not candidate.is_absolute() or (
+            os.path.normcase(os.path.abspath(str(candidate))) != expected
+        ):
+            raise LiveSdkOverlayError(
+                f"ambient {label} conflicts with the current Windows token profile"
+            )
+
+
 def _profile_root() -> Path:
-    return Path.home().resolve()
+    if os.name != "nt":
+        return Path.home().resolve()
+    profile = _windows_token_profile_root()
+    _require_local_windows_path(profile, label="current Windows profile")
+    _reject_ambient_profile_conflict(profile)
+    cursor = Path(profile.anchor)
+    for part in profile.parts[1:]:
+        cursor /= part
+        try:
+            redirected = _is_reparse(cursor)
+        except FileNotFoundError:
+            redirected = False
+        if redirected:
+            raise LiveSdkOverlayError(
+                "current Windows profile contains a redirected entry"
+            )
+    resolved = profile.resolve()
+    if not resolved.is_dir() or _is_reparse(resolved):
+        raise LiveSdkOverlayError("current Windows profile is absent or redirected")
+    return resolved
+
+
+def current_live_sdk_profile_root() -> Path:
+    """Return the OS-token-bound profile used for runtime SDK activation."""
+
+    return _profile_root()
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -68,18 +168,49 @@ def _is_reparse(path: Path) -> bool:
     )
 
 
-def _resolve_profile_path(record: Mapping[str, Any], *, label: str) -> Path:
+def _explicit_profile_root(profile_root: str | Path | None) -> Path:
+    if profile_root is None:
+        return _profile_root()
+    raw = Path(profile_root)
+    if not raw.is_absolute():
+        raise LiveSdkOverlayError("explicit profile root must be absolute")
+    _require_local_windows_path(raw, label="explicit profile root")
+    cursor = Path(raw.anchor)
+    for part in raw.parts[1:]:
+        cursor /= part
+        try:
+            redirected = _is_reparse(cursor)
+        except FileNotFoundError:
+            redirected = False
+        if redirected:
+            raise LiveSdkOverlayError("explicit profile root contains a redirected entry")
+    resolved = raw.resolve()
+    if not resolved.is_dir() or _is_reparse(resolved):
+        raise LiveSdkOverlayError("explicit profile root is absent or redirected")
+    return resolved
+
+
+def _resolve_profile_path(
+    record: Mapping[str, Any],
+    *,
+    label: str,
+    profile_root: str | Path | None = None,
+) -> Path:
     if record.get("path_base") != "user_profile":
         raise LiveSdkOverlayError(f"{label} path base is unsupported")
     relative = Path(str(record.get("relative_path") or ""))
     if relative.is_absolute() or not relative.parts or ".." in relative.parts:
         raise LiveSdkOverlayError(f"{label} relative path is unsafe")
-    profile = _profile_root()
+    profile = _explicit_profile_root(profile_root)
     unresolved = profile / relative
     cursor = profile
     for part in relative.parts:
         cursor /= part
-        if (cursor.exists() or cursor.is_symlink()) and _is_reparse(cursor):
+        try:
+            redirected = _is_reparse(cursor)
+        except FileNotFoundError:
+            redirected = False
+        if redirected:
             raise LiveSdkOverlayError(f"{label} path contains a redirected entry")
     resolved = unresolved.resolve()
     try:
@@ -92,9 +223,16 @@ def _resolve_profile_path(record: Mapping[str, Any], *, label: str) -> Path:
 
 
 def _validate_overlay(
-    record: Mapping[str, Any], *, include_file_hashes: bool = False
+    record: Mapping[str, Any],
+    *,
+    include_file_hashes: bool = False,
+    profile_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    root = _resolve_profile_path(record, label="overlay")
+    root = _resolve_profile_path(
+        record,
+        label="overlay",
+        profile_root=profile_root,
+    )
     for entry in root.rglob("*"):
         if _is_reparse(entry):
             raise LiveSdkOverlayError("overlay contains a redirected entry")
@@ -149,8 +287,16 @@ def _validate_overlay(
     return result
 
 
-def _validate_wheelhouse(record: Mapping[str, Any]) -> dict[str, Any]:
-    root = _resolve_profile_path(record, label="wheelhouse")
+def _validate_wheelhouse(
+    record: Mapping[str, Any],
+    *,
+    profile_root: str | Path | None = None,
+) -> dict[str, Any]:
+    root = _resolve_profile_path(
+        record,
+        label="wheelhouse",
+        profile_root=profile_root,
+    )
     entries = list(root.iterdir())
     if any(not path.is_file() or _is_reparse(path) or path.suffix.lower() != ".whl" for path in entries):
         raise LiveSdkOverlayError("wheelhouse contains a non-wheel or redirected entry")
@@ -194,8 +340,15 @@ def _validate_wheelhouse(record: Mapping[str, Any]) -> dict[str, Any]:
 def validate_live_sdk_overlay(
     manifest_path: str | Path,
     expected_manifest_sha256: str,
+    *,
+    profile_root: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Validate the exact public manifest, overlay tree, and wheelhouse."""
+    """Validate the exact public manifest, overlay tree, and wheelhouse.
+
+    ``profile_root`` is a validation-only portability surface. Runtime
+    activation deliberately does not expose it and remains bound to the
+    current user's profile.
+    """
 
     path = Path(manifest_path).resolve()
     try:
@@ -244,8 +397,14 @@ def validate_live_sdk_overlay(
         "manifest_sha256": observed_hash,
         "distribution": EXPECTED_DISTRIBUTION,
         "version": EXPECTED_VERSION,
-        "overlay": _validate_overlay(overlay_record),
-        "wheelhouse": _validate_wheelhouse(wheelhouse_record),
+        "overlay": _validate_overlay(
+            overlay_record,
+            profile_root=profile_root,
+        ),
+        "wheelhouse": _validate_wheelhouse(
+            wheelhouse_record,
+            profile_root=profile_root,
+        ),
         "process_path_activated": False,
         "shared_environment_mutated": False,
         "live_mutation_attempted": False,
@@ -256,12 +415,22 @@ def validate_live_sdk_overlay(
 def validated_live_sdk_overlay_file_hashes(
     manifest_path: str | Path,
     expected_manifest_sha256: str,
+    *,
+    profile_root: str | Path | None = None,
 ) -> dict[str, str]:
     """Return every validated lazy-import file identity for held-read locking."""
 
-    validation = validate_live_sdk_overlay(manifest_path, expected_manifest_sha256)
+    validation = validate_live_sdk_overlay(
+        manifest_path,
+        expected_manifest_sha256,
+        profile_root=profile_root,
+    )
     payload = json.loads(Path(manifest_path).read_text(encoding="utf-8-sig"))
-    overlay = _validate_overlay(payload["overlay"], include_file_hashes=True)
+    overlay = _validate_overlay(
+        payload["overlay"],
+        include_file_hashes=True,
+        profile_root=profile_root,
+    )
     summary = {key: value for key, value in overlay.items() if key != "file_sha256"}
     if summary != validation["overlay"]:
         raise LiveSdkOverlayError("overlay changed while enumerating held files")
@@ -275,7 +444,12 @@ def activate_live_sdk_overlay(
     """Activate the validated overlay in this process only and prove its origin."""
 
     global _ACTIVATION
-    validation = validate_live_sdk_overlay(manifest_path, expected_manifest_sha256)
+    runtime_profile = _profile_root()
+    validation = validate_live_sdk_overlay(
+        manifest_path,
+        expected_manifest_sha256,
+        profile_root=runtime_profile,
+    )
     if _ACTIVATION is not None:
         if _ACTIVATION["manifest_sha256"] != validation["manifest_sha256"]:
             raise LiveSdkOverlayError("a different SDK overlay is already active")
@@ -304,6 +478,7 @@ def activate_live_sdk_overlay(
         post_import = validate_live_sdk_overlay(
             manifest_path,
             expected_manifest_sha256,
+            profile_root=runtime_profile,
         )
         if (
             post_import["overlay"] != validation["overlay"]

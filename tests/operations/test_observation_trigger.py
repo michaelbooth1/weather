@@ -147,6 +147,147 @@ class ObservationTriggerTests(unittest.TestCase):
             "disabled_fail_closed_live_bootstrap",
         )
 
+    def test_market_fetch_uses_explicit_date_and_attempt_local_cache_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache_root = Path(tmpdir) / "attempt" / "observation_source_cache"
+            requested_date = date(2026, 6, 17)
+            captured_kwargs = {}
+
+            class Model:
+                market_id = "toronto"
+                target_date = requested_date
+                spec = SimpleNamespace(tz=timezone.utc, unit="C")
+
+                def __init__(self, **kwargs):
+                    captured_kwargs.update(kwargs)
+
+                def load_last_good_sources(self):
+                    return {}
+
+            now = datetime(2026, 6, 16, 15, 0, tzinfo=timezone.utc)
+            config = SimpleNamespace(
+                target_date=requested_date,
+                event_slug="highest-temperature-in-toronto-on-june-17-2026",
+            )
+            base_state = obs_state(captured=now.isoformat())
+            with patch.object(observation_trigger, "spec_for_id", return_value=Model.spec), \
+                    patch.object(
+                        observation_trigger,
+                        "config_for_date",
+                        return_value=config,
+                    ) as config_for_date_mock, \
+                    patch.object(observation_trigger, "TorontoHighTempModel", Model), \
+                    patch.object(observation_trigger, "fetch_observation_sources", return_value={}), \
+                    patch.object(
+                        observation_trigger,
+                        "observation_state_from_sources",
+                        return_value=base_state,
+                    ):
+                state = observation_trigger.fetch_market_observation_state(
+                    "toronto",
+                    now=now,
+                    target_date=requested_date,
+                    source_cache_root=cache_root,
+                )
+
+        config_for_date_mock.assert_called_once_with(requested_date, "toronto")
+        self.assertEqual(captured_kwargs["target_date"], requested_date)
+        self.assertEqual(
+            captured_kwargs["source_cache_path"],
+            cache_root / "toronto.json",
+        )
+        self.assertEqual(
+            state["observation_source_cache"]["path"],
+            str(cache_root / "toronto.json"),
+        )
+
+    def test_once_parser_accepts_explicit_date_and_source_cache_root(self):
+        args = observation_trigger.build_parser().parse_args([
+            "once",
+            "--market",
+            "toronto",
+            "--target-date",
+            "2026-06-17",
+            "--source-cache-root",
+            "attempt-cache",
+            "--strict",
+        ])
+
+        self.assertEqual(args.target_date, date(2026, 6, 17))
+        self.assertEqual(args.source_cache_root, Path("attempt-cache"))
+        self.assertTrue(args.strict)
+
+    def test_run_once_forwards_explicit_date_and_source_cache_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            cache_root = root / "attempt-cache"
+            requested_date = date(2026, 6, 17)
+            now = datetime(2026, 6, 16, 15, 0, tzinfo=timezone.utc)
+            observed = {}
+
+            def fake_fetch(
+                market_id,
+                now=None,
+                *,
+                target_date=None,
+                source_cache_root=None,
+            ):
+                observed.update({
+                    "market_id": market_id,
+                    "now": now,
+                    "target_date": target_date,
+                    "source_cache_root": source_cache_root,
+                })
+                return obs_state(captured=now.isoformat())
+
+            args = SimpleNamespace(
+                market="toronto",
+                status_out=str(root / "status.json"),
+                events_out=str(root / "events.jsonl"),
+                diagnostics_out=str(root / "diagnostics.jsonl"),
+                support_margin=0.5,
+                dry_run=True,
+                trigger_on_first=False,
+                stale_after_seconds=180.0,
+                interval_seconds=60.0,
+                trigger_queue_root=str(root / "trigger-queue"),
+                trigger_policy=str(root / "missing-policy.json"),
+                target_date=requested_date,
+                source_cache_root=cache_root,
+            )
+
+            result = run_once(
+                args,
+                fetch_state_func=fake_fetch,
+                now=now,
+            )
+
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(observed["market_id"], "toronto")
+        self.assertEqual(observed["now"], now)
+        self.assertEqual(observed["target_date"], requested_date)
+        self.assertEqual(observed["source_cache_root"], cache_root)
+
+    def test_once_strict_exit_is_nonzero_after_logical_poll_failure(self):
+        with patch.object(
+            observation_trigger,
+            "run_once",
+            return_value={"status": "error", "markets": {}},
+        ), patch("builtins.print"):
+            exit_code = observation_trigger.main(["once", "--strict"])
+
+        self.assertEqual(exit_code, 2)
+
+    def test_once_default_exit_preserves_success_on_reported_poll_failure(self):
+        with patch.object(
+            observation_trigger,
+            "run_once",
+            return_value={"status": "error", "markets": {}},
+        ), patch("builtins.print"):
+            exit_code = observation_trigger.main(["once"])
+
+        self.assertIsNone(exit_code)
+
     def test_ensure_restarts_source_identity_watcher_before_erroring(self):
         self.assertEqual(
             ensure_decision(

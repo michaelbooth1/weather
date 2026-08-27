@@ -855,7 +855,13 @@ def preflight_market(
     add_gate("clob_features", bool(clob_feature_rows), "missing", "missing band-level CLOB feature rows")
     add_gate("clob_freshness", bool(book_audit.get("ok")), "stale", book_audit.get("reason") or "CLOB book audit failed")
     add_gate("observation_trigger", bool(observation.get("fresh")), "stale", observation.get("reason") or "observation watcher is stale")
-    add_gate("promotion_state", bool(promotion.get("promotion_state")), "missing", "missing promotion state")
+    if not market_harvest:
+        add_gate(
+            "promotion_state",
+            bool(promotion.get("promotion_state")),
+            "missing",
+            "missing promotion state",
+        )
     add_gate("reward_metadata", reward_metadata.get("available"), "missing", "missing min-order-size or tick-size metadata")
     data_layer_live_gate = data_layer_live_gate or {"required": False, "ok": True}
     if data_layer_live_gate.get("required"):

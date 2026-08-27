@@ -45,6 +45,11 @@ policy decision.
 
 Requires Python 3.11+ on Windows.
 
+The sealed International live SDK specifically requires 64-bit CPython 3.11.
+For an attended second-PC live executor, follow the
+[portable execution-host runbook](docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md)
+instead of copying a venv or ignored runtime state.
+
 ```powershell
 python -m venv venv
 .\venv\Scripts\python.exe -m pip install --upgrade pip
@@ -115,7 +120,7 @@ Checked-in configuration lives under `config/`.
 | --- | --- |
 | `config/locations.json` | Durable location, station, settlement, source-plan, and Polymarket series facts. |
 | `config/location_market_events.json` | Generated Gamma event metadata for configured locations. Refresh it, do not hand-edit it. |
-| `config/markets.json` | Deprecated external-override compatibility shell. The built-in `MarketSpec` definitions in `src/weather/market/market_registry.py` are authoritative unless `WEATHER_MARKET_REGISTRY` points elsewhere. |
+| `config/markets.json` | Deprecated external-override compatibility shell. The built-in `MarketSpec` definitions in `src/weather/market/market_registry.py` are authoritative unless a non-live workflow explicitly sets `WEATHER_MARKET_REGISTRY`; live candidate/session paths refuse that override. |
 | `config/model_variant_registry.json` | Model-variant lifecycle, artifact, and promotion registry. |
 | `config/supplemental_stations.json` | Supplemental station provenance and validation registry. |
 | `config/no_market_extra_locations.json` | Shadow-lane registry for non-market training candidates; active entries require backfilled evidence. |
@@ -132,7 +137,7 @@ Environment variables used by operator-facing code:
 | Env var | Purpose |
 | --- | --- |
 | `TORONTO_MARKET_DATE` | Legacy-named target-date override, ISO `YYYY-MM-DD`. Applies to registered markets that use the default date resolver; otherwise defaults to today's date in the market timezone. Restart long-running loops after changing it. |
-| `WEATHER_MARKET_REGISTRY` | Optional path to an external market registry override. |
+| `WEATHER_MARKET_REGISTRY` | Optional path to an external market registry override for non-live workflows; International live candidate/session paths reject it. |
 | `SETTLEMENT_LEDGER_ROOT` | Optional root for settlement ledgers; defaults to `data/settlements/`. |
 | `WEATHER_DISABLE_STAY_AWAKE` | Set to `1` to disable Windows stay-awake requests in long-running loops. |
 | `WEATHER_ALLOW_CONSOLE_CHILDREN` | Set to `1` to allow visible console child processes on Windows background workers. |
@@ -405,6 +410,10 @@ byte counts, paths, and the apply result are recorded under `data/taker_runs`.
 
 Live order modes have additional readiness gates and confirmation flags. Keep
 normal development and research runs in `shadow` or `paper-live-forward`.
+The bounded Stage 0/1 procedure is in the
+[International live-pilot runbook](docs/operations/INTERNATIONAL_MM_LIVE_PILOT.md);
+its optional second-PC topology is in the
+[portable execution-host runbook](docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md).
 The default permission profile remains `model`. The `market_harvest` profile
 is a separate paper-only route built from current event/token/book/features;
 it never reads model probabilities for permission, never changes model

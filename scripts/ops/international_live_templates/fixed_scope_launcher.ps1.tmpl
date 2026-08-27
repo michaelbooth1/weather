@@ -11,10 +11,14 @@ $python = "__SEAL_PRODUCTION_PYTHON__"
 $wrapper = "__SEAL_WRAPPER_PATH__"
 $expectedWrapperSha256 = "__SEAL_WRAPPER_SHA256__"
 $workload = "__SEAL_WORKLOAD__"
+$executionHostProfile = "__SEAL_EXECUTION_HOST_PROFILE__"
+$expectedExecutionHostId = "__SEAL_EXECUTION_HOST_ID__"
 $expectedLeaseScriptSha256 = "__SEAL_WORKLOAD_ADMISSION_SHA256__"
 $credentialManifest = "__SEAL_CREDENTIAL_MANIFEST_PATH__"
 $expectedCredentialManifestSha256 = "__SEAL_CREDENTIAL_MANIFEST_SHA256__"
 $leaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
+$venvRoot = Split-Path -Parent (Split-Path -Parent $python)
+$sitePackages = Join-Path $venvRoot "Lib\site-packages"
 
 function Get-SealedCredentialEnvironment {
     param(
@@ -160,6 +164,11 @@ foreach ($path in @($python, $wrapper, $leaseScript, $credentialManifest)) {
         throw "fixed-scope launcher dependency is absent"
     }
 }
+if (-not (Test-Path -LiteralPath $sitePackages -PathType Container) -or
+    ((Get-Item -LiteralPath $sitePackages -Force).Attributes -band
+        [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "fixed-scope site-packages directory is absent or redirected"
+}
 $lockedFiles = [Collections.Generic.List[IDisposable]]::new()
 try {
     Add-SealedReadLock -Path $wrapper -ExpectedSha256 $expectedWrapperSha256 -Locks $lockedFiles
@@ -174,13 +183,19 @@ try {
     $priorCredentialEnvironment = $null
     $exitCode = 1
     try {
-        $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $repo -Workload $workload
+        $lease = Enter-WeatherHeavyWorkloadLease `
+            -RepoRoot $repo `
+            -Workload $workload `
+            -ExecutionHostProfile $executionHostProfile `
+            -ExpectedExecutionHostId $expectedExecutionHostId
         if ($null -eq $lease) {
             throw "shared workload lease is busy"
         }
         $priorCredentialEnvironment = Enter-SealedCredentialEnvironment `
             -PublicEnvironment $sealedCredentialEnvironment
-        & $python $wrapper
+        & $python -I -S -B -c `
+            "import runpy,sys;sys.dont_write_bytecode=True;repo,site,wrapper=sys.argv[1:4];sys.path.insert(0,repo+'\\src');sys.path.append(site);sys.argv=[wrapper];runpy.run_path(wrapper,run_name='__main__')" `
+            $repo $sitePackages $wrapper
         $exitCode = $LASTEXITCODE
     }
     finally {

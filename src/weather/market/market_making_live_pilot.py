@@ -11,6 +11,9 @@ from weather.market.market_making_run_constants import (
 from weather.market.mm_policy import DEFAULT_POLICY_CONFIG
 
 
+MARKET_HARVEST_QUOTE_TTL_SECONDS = 600.0
+
+
 def build_run_policy_config(mode, budget_usdc, selected_market_count, overrides=None):
     """Build run policy without allowing live-pilot callers to raise risk ceilings."""
     budget = float(budget_usdc)
@@ -76,11 +79,23 @@ def build_market_harvest_policy_config(budget_usdc, config):
         "max_event_notional": float(DEFAULT_POLICY_CONFIG["max_event_notional"]),
         "max_band_notional": 10.0,
         "max_daily_loss": min(budget, float(DEFAULT_POLICY_CONFIG["max_daily_loss"])),
+        "quote_ttl_seconds": MARKET_HARVEST_QUOTE_TTL_SECONDS,
     }
     for key, ceiling in ceilings.items():
-        requested = float(config.get(key, ceiling))
-        if not math.isfinite(requested) or requested < 0:
-            raise ValueError(f"market_harvest {key} must be finite and non-negative")
+        default = (
+            DEFAULT_QUOTE_TTL_SECONDS
+            if key == "quote_ttl_seconds"
+            else ceiling
+        )
+        requested = float(config.get(key, default))
+        allow_zero = key != "quote_ttl_seconds"
+        if (
+            not math.isfinite(requested)
+            or requested < 0
+            or (not allow_zero and requested == 0)
+        ):
+            qualifier = "non-negative" if allow_zero else "greater than zero"
+            raise ValueError(f"market_harvest {key} must be finite and {qualifier}")
         config[key] = min(requested, ceiling)
     config["harvest_half_spread"] = 0.01
     config["max_harvest_spread"] = 0.08

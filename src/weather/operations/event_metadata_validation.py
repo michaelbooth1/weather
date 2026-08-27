@@ -920,6 +920,11 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     parser.add_argument("--report-out", default=str(DEFAULT_REPORT_OUT))
     parser.add_argument("--events-json", default="", help="Fixture live events JSON instead of live Gamma fetch.")
     parser.add_argument("--no-live-fetch", action="store_true")
+    parser.add_argument(
+        "--require-pass",
+        action="store_true",
+        help="Exit nonzero after writing outputs unless the validation status is PASS.",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=10.0)
     parser.add_argument("--max-age-hours", type=float, default=DEFAULT_MAX_AGE_HOURS)
     args = parser.parse_args(argv)
@@ -938,6 +943,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
     )
     json_out, report_out = write_outputs(payload, json_out=args.json_out, report_out=args.report_out)
     print(f"Event metadata validation: {payload['status']} json={json_out} report={report_out}")
+    if args.require_pass and payload.get("status") != "PASS":
+        raise SystemExit(2)
     return payload
 
 

@@ -10,7 +10,9 @@ These instructions apply to `config/`.
 - Keep `markets.json` as the deprecated external-override compatibility shell.
   Built-in `MarketSpec` definitions in
   `src/weather/market/market_registry.py` are authoritative unless
-  `WEATHER_MARKET_REGISTRY` explicitly selects another registry.
+  `WEATHER_MARKET_REGISTRY` explicitly selects another registry for non-live
+  workflows; International live candidate/session paths reject that ambient
+  override.
 - Treat `model_variant_registry.json`, `supplemental_stations.json`, and
   `no_market_extra_locations.json` as reviewed registries. Preserve schema,
   provenance, lifecycle, and archive fields; do not reformat or prune entries
@@ -18,6 +20,9 @@ These instructions apply to `config/`.
 - Treat `storage_pressure.json` as an operator activation policy. Its checked-in
   default must preserve current capture; activation is a separately reviewed
   production operation, not part of a code merge.
+- Treat `international_live_execution_host.json` as the single-active portable
+  executor assignment. Reassignment requires the new public host/principal IDs,
+  a reviewed change, and a new production tip; never edit prior receipts.
 - Never add credentials, secrets, machine-specific paths, or paid-weather
   provider requirements to checked-in config.
 

@@ -19,6 +19,10 @@ These instructions apply under `weather.market`. Inherit
 - Do not add direct secrets to config, logs, docs, or process arguments. Live
   actions require explicit user authorization plus existing readiness, release,
   credential-reference, risk, and confirmation gates.
+- The portable live SDK bundle is public substrate only. Keep its export/import
+  separate from credential transfer, preserve current-user-only runtime
+  activation, and require fresh host-bound compare-only credential evidence on
+  each execution PC.
 
 Run matching `tests/market` tests and operations/reporting gate tests for shared
 evidence contracts. See [Durable Agent Context](../../../docs/operations/AGENT_CONTEXT.md).

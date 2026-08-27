@@ -34,6 +34,14 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def test_fixed_session_launcher_locks_the_reviewed_real_git_payload() -> None:
+    text = launcher_sealer.TEMPLATE_PATH.read_text(encoding="utf-8-sig")
+
+    assert "manifestPayload.production.git_executable" in text
+    assert "manifestPayload.production.git_executable_sha256" in text
+    assert "Add-LockedExactFile" in text
+
+
 def fixture(tmp_path: Path):
     prepared = manifest_builder_fixture(tmp_path)
     build_receipt = build_manifest(prepared)
@@ -56,6 +64,9 @@ def prepare(repo, template, manifest, build_receipt):
         template_path=template,
         powershell_parser=lambda _source: None,
         attempt_root_validator=lambda path: {"status": "PASS", "path": str(path)},
+        capture_assignment_validator=lambda *_args, **_kwargs: {},
+        portable_assignment_validator=lambda *_args, **_kwargs: {},
+        now=NOW,
     )
 
 
@@ -77,7 +88,7 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     assert "[IO.FileShare]::Read" in text
     assert "source_sha256.psobject.Properties" in text
     assert "Get-ChildItem -LiteralPath $attemptRoot -File -Recurse" in text
-    assert "& $python -I -c" in text
+    assert "& $python -I -S -B -c" in text
     assert "PYTHONPATH" not in text
     assert receipt["production_python"]["sha256"] == sha(
         repo / "venv/Scripts/python.exe"
@@ -159,6 +170,37 @@ def discovery_payload(*, constrained: bool = False) -> dict:
         "exchange_economics_sha256": "e" * 32,
         "economics_gate_ok": True,
         "economics_gate_missing": [],
+        "substrate_preflight": {
+            "schema_version": candidate_cli.SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
+            "receipt_sha256": "0" * 64,
+            "checked_at_utc": created.isoformat(),
+            "expires_at_utc": (
+                created
+                + timedelta(
+                    seconds=candidate_cli.MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS
+                )
+            ).isoformat(),
+            "market_id": "toronto",
+            "target_date": NOW.date().isoformat(),
+            "event_slug": "toronto-high-temperature-test",
+            "validation_hash": "1" * 64,
+            "event_metadata_file_sha256": "2" * 64,
+            "event_metadata_validation_file_sha256": "3" * 64,
+            "observation_status_file_sha256": "4" * 64,
+            "economics_snapshot_file_sha256": "5" * 64,
+            "accepted_snapshot_file_sha256": "6" * 64,
+            "economics_drift_report_file_sha256": "7" * 64,
+            "paper_run_config_file_sha256": "a" * 64,
+            "paper_preflight_file_sha256": "8" * 64,
+            "paper_quote_intents_file_sha256": "b" * 64,
+            "clob_tokens_file_sha256": "9" * 64,
+            "order_books_summary_file_sha256": "c" * 64,
+            "source_status_long_file_sha256": "d" * 64,
+            "network_access": False,
+            "credential_access": False,
+            "exchange_contact": False,
+            "exchange_mutation": False,
+        },
         "selection_is_trading_authorization": False,
         "secret_values_retained": False,
         "selection_policy": {
@@ -299,9 +341,14 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
     credential_receipt = write_json(
         sources / "credential-import-receipt.json",
         {
-            "schema_version": "mm_live_credential_import_receipt_v0.2",
+            "schema_version": "mm_live_credential_import_receipt_v0.4",
             "status": "PASS",
             "platform": "polymarket_global",
+            "prepared_at_utc": NOW.astimezone(timezone.utc).isoformat(),
+            "execution_host_id": launcher_sealer.current_execution_host_id(),
+            "execution_principal_id": (
+                launcher_sealer.current_execution_principal_id()
+            ),
             "source_outside_repository_verified": True,
             "source_acl_private_confirmed": True,
             "credential_value_count_expected": 4,
@@ -406,6 +453,12 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
         "required_operator_acknowledgment": acknowledgment,
         "rescore_required": False,
     }
+    discovery_data["substrate_preflight"][
+        "accepted_snapshot_file_sha256"
+    ] = sha(accepted_economics)
+    discovery_data["substrate_preflight"][
+        "economics_drift_report_file_sha256"
+    ] = sha(economics_drift)
     discovery_data["plan_sha256"] = candidate_cli.candidate_plan_sha256(
         discovery_data
     )
@@ -416,6 +469,7 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
 
     def inventory(stage, root):
         root = Path(root)
+        git_executable = fixed_sealer.canonical_git_executable()
         source_paths = set(fixed_sealer.LIVE_SOURCE_PATHS[stage]) | {
             fixed_sealer.WORKLOAD_ADMISSION_PATH
         }
@@ -436,6 +490,9 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
                 "object_format": "sha1",
                 "python": str((root / "venv/Scripts/python.exe").resolve()),
                 "python_sha256": sha(root / "venv/Scripts/python.exe"),
+                "git_executable": str(git_executable),
+                "git_executable_sha256": sha(git_executable),
+                "canonical_origin_url": fixed_sealer.CANONICAL_ORIGIN_URL,
                 "interrupt_cleanup_ancestor_integrated": True,
             },
             "template_sha256": {
@@ -488,6 +545,7 @@ def build_manifest(prepared, **overrides):
         "economics_drift_report_source_path": prepared["economics_drift"],
         "attempt_root": prepared["attempt"],
         "lease_workload": workload,
+        "execution_host_profile": "capture_colocated_v1",
         "production_root": prepared["production"],
         "now": NOW,
         "inventory_builder": prepared["inventory"],
@@ -496,6 +554,8 @@ def build_manifest(prepared, **overrides):
             "status": "PASS",
             "path": str(path),
         },
+        "capture_assignment_validator": lambda *_args, **_kwargs: {},
+        "portable_assignment_validator": lambda *_args, **_kwargs: {},
     }
     arguments.update(overrides)
     return launcher_sealer.prepare_fixed_session_manifest(**arguments)
@@ -531,6 +591,10 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
         "requested_budget_pusd": 10,
         "attempt_root": str(prepared["attempt"].resolve()),
         "lease_workload": expected_workload,
+        "execution_host_profile": "capture_colocated_v1",
+        "execution_host_id": launcher_sealer.current_execution_host_id(),
+        "market_id": "toronto",
+        "market_timezone": "America/Toronto",
         "max_session_seconds": 120,
     }
     assert set(manifest["inputs"]) == {
@@ -569,6 +633,9 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
             "status": "PASS",
             "path": str(path),
         },
+        capture_assignment_validator=lambda *_args, **_kwargs: {},
+        portable_assignment_validator=lambda *_args, **_kwargs: {},
+        now=NOW,
     )
     assert launcher_receipt["status"] == "PASS"
     assert launcher_receipt["session_manifest"]["sha256"] == sha(manifest_path)
@@ -621,6 +688,9 @@ def test_manifest_builder_rejects_legacy_create_credential_evidence(tmp_path):
     del payload["credential_mode"]
     del payload["credential_value_count_existing_exact_verified"]
     del payload["credential_store_mutation_attempted"]
+    del payload["prepared_at_utc"]
+    del payload["execution_host_id"]
+    del payload["execution_principal_id"]
     write_json(receipt_path, payload)
 
     with pytest.raises(
@@ -745,6 +815,9 @@ def test_launcher_rejects_missing_canonical_builder_receipt(tmp_path):
                 "status": "PASS",
                 "path": str(path),
             },
+            capture_assignment_validator=lambda *_args, **_kwargs: {},
+            portable_assignment_validator=lambda *_args, **_kwargs: {},
+            now=NOW,
         )
 
     assert list((prepared["attempt"] / "session").glob("*")) == []
@@ -902,6 +975,72 @@ def test_manifest_builder_stages_optional_reviewed_status_flags_contract(tmp_pat
     assert Path(staged["path"]).read_bytes() == reviews.read_bytes()
 
 
+def test_manifest_builder_binds_portable_execution_host_without_capture_flags(
+    tmp_path,
+):
+    prepared = manifest_builder_fixture(tmp_path)
+
+    receipt = build_manifest(
+        prepared,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    manifest = json.loads(
+        Path(receipt["session_manifest"]["path"]).read_text(encoding="utf-8")
+    )
+    assert manifest["scope"]["execution_host_profile"] == "portable_execution_v1"
+    assert manifest["scope"]["execution_host_id"] == (
+        launcher_sealer.current_execution_host_id()
+    )
+    assert manifest["scope"]["max_session_seconds"] == 240
+    assert receipt["fixed_max_session_seconds"] == 240
+    assert manifest["reviewed_status_flags"] == []
+
+
+def test_manifest_builder_refuses_capture_status_exceptions_for_portable_host(
+    tmp_path,
+):
+    prepared = manifest_builder_fixture(tmp_path)
+    reviews = write_json(
+        tmp_path / "public-sources/reviewed-flags.json",
+        [
+            {
+                "sha256": "c" * 64,
+                "review": "This capture-host exception cannot move to PC2.",
+            }
+        ],
+    )
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="do not consume capture-host status exceptions",
+    ):
+        build_manifest(
+            prepared,
+            execution_host_profile="portable_execution_v1",
+            reviewed_status_flags_path=reviews,
+        )
+
+    assert list(prepared["attempt"].rglob("*.*")) == []
+
+
+def test_manifest_builder_refuses_invalid_execution_host_identity_before_writes(
+    tmp_path,
+):
+    prepared = manifest_builder_fixture(tmp_path)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="execution host identity is invalid",
+    ):
+        build_manifest(
+            prepared,
+            execution_host_id_provider=lambda: "not-a-sha256",
+        )
+
+    assert list(prepared["attempt"].rglob("*.*")) == []
+
+
 def test_attempt_initializer_creates_only_private_canonical_directories(tmp_path):
     production = tmp_path / "production"
     production.mkdir()
@@ -977,6 +1116,8 @@ def test_manifest_cli_has_no_typed_scope_or_ceiling_override_surface():
             r"C:\attempt",
             "--lease-workload",
             "InternationalLive-stage0-unique",
+            "--execution-host-profile",
+            "capture_colocated_v1",
         ]
     )
 

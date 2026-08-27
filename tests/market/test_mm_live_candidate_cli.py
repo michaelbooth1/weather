@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 from pathlib import Path
 
@@ -43,7 +44,13 @@ def book(token_id, bid, ask, *, bid_size=100, ask_size=100, condition=CONDITION)
     }
 
 
-def write_paper_evidence(tmp_path, snapshot, *, quote_permission=True):
+def write_paper_evidence(
+    tmp_path,
+    snapshot,
+    *,
+    quote_permission=True,
+    quote_ttl_seconds=120,
+):
     economics = json.loads(Path(snapshot).read_text(encoding="utf-8"))
     policy_hash = "paper-policy-hash"
     config = tmp_path / "paper-run-config.json"
@@ -65,7 +72,7 @@ def write_paper_evidence(tmp_path, snapshot, *, quote_permission=True):
         },
         "policy_config": {
             "quote_size": 5,
-            "quote_ttl_seconds": 120,
+            "quote_ttl_seconds": quote_ttl_seconds,
             "max_daily_loss": 25,
             "max_event_notional": 25,
             "max_band_notional": 10,
@@ -111,7 +118,7 @@ def write_paper_evidence(tmp_path, snapshot, *, quote_permission=True):
                 "clob_token_id": token,
                 "condition_id": CONDITION,
                 "generated_at_utc": NOW,
-                "quote_ttl_seconds": 120,
+                "quote_ttl_seconds": quote_ttl_seconds,
                 "bid_price": bid,
                 "bid_size": 5,
                 "ask_price": ask,
@@ -147,9 +154,105 @@ def write_acceptance_evidence(tmp_path, snapshot):
     return accepted, drift
 
 
-def select(snapshot, target_date, output, *, tmp_path, **kwargs):
-    config, quotes = write_paper_evidence(tmp_path, snapshot)
+def write_substrate_preflight(
+    tmp_path,
+    snapshot,
+    accepted,
+    drift,
+    config,
+    quotes,
+    *,
+    checked_at=NOW,
+):
+    event_slug = "highest-temperature-in-toronto-on-august-14-2026"
+    snapshots_root = tmp_path / "snapshots"
+    event_folder = snapshots_root / event_slug
+    event_folder.mkdir(parents=True, exist_ok=True)
+    supporting_paths = {
+        "event_metadata": tmp_path / "event-metadata.json",
+        "event_metadata_validation": tmp_path / "event-validation.json",
+        "observation_status": tmp_path / "observation-status.json",
+        "paper_preflight": tmp_path / "paper-preflight.json",
+        "clob_tokens": event_folder / "clob_tokens.csv",
+        "order_books_summary": event_folder / "order_books_summary.csv",
+        "source_status_long": event_folder / "source_status_long.csv",
+    }
+    for name, supporting_path in supporting_paths.items():
+        supporting_path.write_text(name + "\n", encoding="utf-8")
+    artifact_paths = {
+        **supporting_paths,
+        "economics_snapshot": Path(snapshot),
+        "accepted_economics_snapshot": Path(accepted),
+        "economics_drift_report": Path(drift),
+        "paper_run_config": Path(config),
+        "paper_quote_intents": Path(quotes),
+    }
+    artifact_sha256 = {
+        name: hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+        for name, artifact_path in artifact_paths.items()
+    }
+    economics = json.loads(Path(snapshot).read_text(encoding="utf-8"))
+    payload = {
+        "schema_version": candidate_cli.SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
+        "status": "PASS",
+        "checked_at_utc": checked_at,
+        "market_id": "toronto",
+        "target_date": TARGET_DATE,
+        "event_slug": event_slug,
+        "snapshots_root": str(snapshots_root.resolve()),
+        "event_folder": str(event_folder.resolve()),
+        "checks": {"fixture": True},
+        "blockers": [],
+        "missing_paths": [],
+        "artifact_paths": {
+            name: str(artifact_path.resolve())
+            for name, artifact_path in artifact_paths.items()
+        },
+        "artifact_sha256": artifact_sha256,
+        "validation_hash": "8" * 64,
+        "economics_snapshot_id": economics["snapshot_id"],
+        "economics_snapshot_sha256": economics["exchange_economics_hash"],
+        "accepted_snapshot_file_sha256": artifact_sha256[
+            "accepted_economics_snapshot"
+        ],
+        "economics_drift_report_file_sha256": artifact_sha256[
+            "economics_drift_report"
+        ],
+        "paper_quote_intents_sha256": artifact_sha256["paper_quote_intents"],
+        "paper_quote_intents_row_count": 2,
+        "credential_access": False,
+        "exchange_contact": False,
+        "exchange_mutation": False,
+        "network_access": False,
+    }
+    path = tmp_path / f"substrate-preflight-{len(list(tmp_path.glob('substrate-preflight-*')))}.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def select(
+    snapshot,
+    target_date,
+    output,
+    *,
+    tmp_path,
+    paper_quote_ttl_seconds=120,
+    **kwargs,
+):
+    config, quotes = write_paper_evidence(
+        tmp_path,
+        snapshot,
+        quote_ttl_seconds=paper_quote_ttl_seconds,
+    )
     accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
+    substrate = write_substrate_preflight(
+        tmp_path,
+        snapshot,
+        accepted,
+        drift,
+        config,
+        quotes,
+    )
     if "economics_baseline_acknowledgment" not in kwargs:
         token = str(kwargs.get("expected_token_id") or "101")
         kwargs["economics_baseline_acknowledgment"] = (
@@ -173,6 +276,7 @@ def select(snapshot, target_date, output, *, tmp_path, **kwargs):
         economics_drift_report=drift,
         paper_run_config=config,
         paper_quote_intents=quotes,
+        substrate_preflight=substrate,
         **kwargs,
     )
 
@@ -221,10 +325,71 @@ def test_selector_binds_current_economics_and_nonmarketable_stage1_intent(tmp_pa
     assert saved == plan
 
 
+def test_selector_accepts_portable_600_second_paper_proof_and_rejects_601(tmp_path):
+    snapshot = write_snapshot(tmp_path / "economics.json")
+    ttl_600 = tmp_path / "ttl-600"
+    ttl_601 = tmp_path / "ttl-601"
+    ttl_600.mkdir()
+    ttl_601.mkdir()
+
+    plan = select(
+        snapshot,
+        TARGET_DATE,
+        ttl_600 / "candidate.json",
+        tmp_path=ttl_600,
+        paper_quote_ttl_seconds=600,
+        now=NOW,
+        book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+    )
+
+    assert plan["status"] == "PASS"
+    assert plan["selected"]["paper_quote_proof"]["quote_ttl_seconds"] == 600.0
+    with pytest.raises(RuntimeError, match="paper"):
+        select(
+            snapshot,
+            TARGET_DATE,
+            ttl_601 / "candidate.json",
+            tmp_path=ttl_601,
+            paper_quote_ttl_seconds=601,
+            now=NOW,
+            book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
+        )
+
+
+def test_selector_rejects_substrate_receipt_used_as_an_artifact(tmp_path):
+    snapshot = write_snapshot(tmp_path / "economics.json")
+    config, quotes = write_paper_evidence(tmp_path, snapshot)
+    accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
+    substrate = write_substrate_preflight(
+        tmp_path, snapshot, accepted, drift, config, quotes
+    )
+    payload = json.loads(substrate.read_text(encoding="utf-8"))
+    payload["artifact_paths"]["event_metadata"] = str(substrate.resolve())
+    payload["artifact_sha256"]["event_metadata"] = hashlib.sha256(
+        substrate.read_bytes()
+    ).hexdigest()
+    substrate.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="artifact_paths"):
+        candidate_cli._load_substrate_preflight_receipt(
+            substrate,
+            target_date=TARGET_DATE,
+            economics_snapshot=snapshot,
+            accepted_economics_snapshot=accepted,
+            economics_drift_report=drift,
+            paper_run_config=config,
+            paper_quote_intents=quotes,
+            now=NOW,
+        )
+
+
 def test_selector_requires_candidate_date_and_evidence_bound_acceptance(tmp_path):
     snapshot = write_snapshot(tmp_path / "economics.json")
     accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
     config, quotes = write_paper_evidence(tmp_path, snapshot)
+    substrate = write_substrate_preflight(
+        tmp_path, snapshot, accepted, drift, config, quotes
+    )
     preview_path = tmp_path / "candidate-review.json"
 
     preview = candidate_cli.select_live_pilot_candidate(
@@ -235,6 +400,7 @@ def test_selector_requires_candidate_date_and_evidence_bound_acceptance(tmp_path
         economics_drift_report=drift,
         paper_run_config=config,
         paper_quote_intents=quotes,
+        substrate_preflight=substrate,
         now=NOW,
         book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
     )
@@ -260,6 +426,7 @@ def test_selector_requires_candidate_date_and_evidence_bound_acceptance(tmp_path
         economics_baseline_acknowledgment=required,
         paper_run_config=config,
         paper_quote_intents=quotes,
+        substrate_preflight=substrate,
         now=NOW,
         book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
     )
@@ -278,6 +445,9 @@ def test_selector_rejects_a_fabricated_drift_pass(tmp_path):
     drift_payload["accepted_snapshot_hash"] = "f" * 32
     drift.write_text(json.dumps(drift_payload), encoding="utf-8")
     config, quotes = write_paper_evidence(tmp_path, snapshot)
+    substrate = write_substrate_preflight(
+        tmp_path, snapshot, accepted, drift, config, quotes
+    )
 
     with pytest.raises(RuntimeError, match="drift_identity"):
         candidate_cli.select_live_pilot_candidate(
@@ -288,6 +458,7 @@ def test_selector_rejects_a_fabricated_drift_pass(tmp_path):
             economics_drift_report=drift,
             paper_run_config=config,
             paper_quote_intents=quotes,
+            substrate_preflight=substrate,
             now=NOW,
             book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
         )
@@ -302,6 +473,9 @@ def test_selector_rejects_drift_report_that_predates_human_acceptance(tmp_path):
     assert drift_payload["generated_at_utc"] < accepted_payload["accepted_at_utc"]
     drift.write_text(json.dumps(drift_payload), encoding="utf-8")
     config, quotes = write_paper_evidence(tmp_path, snapshot)
+    substrate = write_substrate_preflight(
+        tmp_path, snapshot, accepted, drift, config, quotes
+    )
 
     with pytest.raises(RuntimeError, match="drift_timestamp"):
         candidate_cli.select_live_pilot_candidate(
@@ -312,6 +486,7 @@ def test_selector_rejects_drift_report_that_predates_human_acceptance(tmp_path):
             economics_drift_report=drift,
             paper_run_config=config,
             paper_quote_intents=quotes,
+            substrate_preflight=substrate,
             now=NOW,
             book_reader=lambda _tokens: [book("101", 0.32, 0.33)],
         )
@@ -376,6 +551,9 @@ def test_selector_rejects_paper_run_without_quote_permission(tmp_path):
         quote_permission=False,
     )
     accepted, drift = write_acceptance_evidence(tmp_path, snapshot)
+    substrate = write_substrate_preflight(
+        tmp_path, snapshot, accepted, drift, config, quotes
+    )
     called = False
 
     def read_books(_tokens):
@@ -392,6 +570,7 @@ def test_selector_rejects_paper_run_without_quote_permission(tmp_path):
             economics_drift_report=drift,
             paper_run_config=config,
             paper_quote_intents=quotes,
+            substrate_preflight=substrate,
             now=NOW,
             book_reader=read_books,
         )
@@ -707,6 +886,7 @@ def test_main_never_prints_raw_network_exception(monkeypatch, capsys):
         "--target-date", TARGET_DATE,
         "--paper-run-config", "run-config.json",
         "--paper-quote-intents", "quotes.csv",
+        "--substrate-preflight", "substrate-preflight.json",
         "--plan-out", "candidate.json",
     ])
 

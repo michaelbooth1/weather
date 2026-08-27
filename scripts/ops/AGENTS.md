@@ -334,6 +334,12 @@ Every heavyweight wrapper must hold the shared lease from
 Resource headroom and time-window checks remain mandatory and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
+The one execution-only exception is the sealed `portable_execution_v1`
+International Stage 0/1 launcher described in
+`docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`. It must remain bound to the
+current Windows installation, canonical live-stage workload name, and
+dedicated-capture-host exclusion; never generalize that lane to another heavy
+command or to an unattended session.
 The bounded worktree suite must obtain its three-worker admission result from
 the production tree's canonical `weather.operations.capture_recovery_check`;
 a duplicate status/lock PID counter is not process-instance proof and is

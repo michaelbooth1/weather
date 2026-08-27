@@ -20,7 +20,7 @@ import subprocess
 import sys
 import time
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from weather.collection.snapshot_tracker import capture_snapshot
@@ -141,8 +141,22 @@ OBSERVATION_SUPERVISOR = SupervisorSpec(
 OBSERVATION_SOURCES = ("wu_history", "wu_current", "metar", "eccc_swob")
 
 
-def observation_source_cache_path(market_id):
-    return DEFAULT_OBSERVATION_SOURCE_CACHE_ROOT / f"{market_id}.json"
+def observation_source_cache_path(market_id, source_cache_root=None):
+    cache_root = (
+        DEFAULT_OBSERVATION_SOURCE_CACHE_ROOT
+        if source_cache_root is None
+        else Path(source_cache_root)
+    )
+    return cache_root / f"{market_id}.json"
+
+
+def parse_target_date(value):
+    try:
+        return date.fromisoformat(str(value))
+    except (TypeError, ValueError) as exc:
+        raise argparse.ArgumentTypeError(
+            "target date must be an ISO date in YYYY-MM-DD form"
+        ) from exc
 
 
 def runtime_observation_supervisor_spec():
@@ -320,11 +334,28 @@ def observation_state_from_sources(model_client, sources, captured_at=None, even
     return state
 
 
-def fetch_market_observation_state(market_id, now=None):
+def fetch_market_observation_state(
+    market_id,
+    now=None,
+    *,
+    target_date=None,
+    source_cache_root=None,
+):
     spec = spec_for_id(market_id)
     local_now = (now or datetime.now(spec.tz)).astimezone(spec.tz)
-    config = config_for_date(local_now.date(), market_id)
-    cache_path = observation_source_cache_path(market_id)
+    if target_date is None:
+        effective_target_date = local_now.date()
+    elif isinstance(target_date, datetime):
+        effective_target_date = target_date.date()
+    elif isinstance(target_date, date):
+        effective_target_date = target_date
+    else:
+        effective_target_date = parse_target_date(target_date)
+    config = config_for_date(effective_target_date, market_id)
+    cache_path = observation_source_cache_path(
+        market_id,
+        source_cache_root=source_cache_root,
+    )
     model_client = TorontoHighTempModel(
         target_date=config.target_date,
         market_id=market_id,
@@ -698,7 +729,14 @@ def run_once(
 
     for market_id in market_ids(args.market):
         try:
-            current = fetch_state_func(market_id, now=now)
+            fetch_kwargs = {"now": now}
+            target_date = getattr(args, "target_date", None)
+            source_cache_root = getattr(args, "source_cache_root", None)
+            if target_date is not None:
+                fetch_kwargs["target_date"] = target_date
+            if source_cache_root is not None:
+                fetch_kwargs["source_cache_root"] = source_cache_root
+            current = fetch_state_func(market_id, **fetch_kwargs)
             market_state = status["markets"].get(market_id) or {}
             previous = market_state.get("last_observation")
             current["settlement_normalization"] = update_monotonic_high_ledger(
@@ -1815,6 +1853,21 @@ def build_parser():
 
     once = sub.add_parser("once", help="Poll observations once and trigger recomputes if needed.")
     add_common(once)
+    once.add_argument(
+        "--target-date",
+        type=parse_target_date,
+        help="Use this exact YYYY-MM-DD market date instead of the market's current local date.",
+    )
+    once.add_argument(
+        "--source-cache-root",
+        type=Path,
+        help="Write observation-only source caches below this attempt-local directory.",
+    )
+    once.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 2 when any selected market's observation poll fails.",
+    )
 
     loop = sub.add_parser("loop", help="Run the observation watcher continuously.")
     add_common(loop)
@@ -1863,7 +1916,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     command = args.command or "once"
     if command == "once":
-        print(json.dumps(run_once(args), indent=2, sort_keys=True, default=str))
+        result = run_once(args)
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        if getattr(args, "strict", False) and result.get("status") != "ok":
+            return 2
         return
     if command == "loop":
         configure_json_console_logging()

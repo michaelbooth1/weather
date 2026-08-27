@@ -16,6 +16,8 @@ $manifestSidecar = "__SESSION_MANIFEST_SIDECAR__"
 $expectedManifestSidecarSha256 = "__SESSION_MANIFEST_SIDECAR_SHA256__"
 $manifestBuildReceipt = "__SESSION_MANIFEST_BUILD_RECEIPT__"
 $expectedManifestBuildReceiptSha256 = "__SESSION_MANIFEST_BUILD_RECEIPT_SHA256__"
+$venvRoot = Split-Path -Parent (Split-Path -Parent $python)
+$sitePackages = Join-Path $venvRoot "Lib\site-packages"
 
 if ($MyInvocation.UnboundArguments.Count -ne 0) {
     throw "fixed session launcher accepts no arguments"
@@ -24,6 +26,11 @@ foreach ($path in @($python, $runnerSource, $manifest, $manifestSidecar, $manife
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "fixed session launcher dependency is absent"
     }
+}
+if (-not (Test-Path -LiteralPath $sitePackages -PathType Container) -or
+    ((Get-Item -LiteralPath $sitePackages -Force).Attributes -band
+        [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "fixed session site-packages directory is absent or redirected"
 }
 function Add-LockedExactFile {
     param([string]$Path, [AllowNull()][string]$ExpectedSha256)
@@ -56,6 +63,7 @@ function Add-LockedExactFile {
 
 $lockedFiles = [Collections.Generic.List[IDisposable]]::new()
 $priorFixedSessionSrc = $env:WEATHER_FIXED_SESSION_SRC
+$priorFixedSessionSitePackages = $env:WEATHER_FIXED_SESSION_SITE_PACKAGES
 try {
     Add-LockedExactFile -Path $python -ExpectedSha256 $expectedPythonSha256
     Add-LockedExactFile -Path $runnerSource -ExpectedSha256 $expectedRunnerSha256
@@ -66,6 +74,9 @@ try {
     if ([string]$manifestPayload.production_python_sha256 -cne $expectedPythonSha256) {
         throw "session manifest interpreter hash differs from launcher review"
     }
+    Add-LockedExactFile `
+        -Path ([string]$manifestPayload.production.git_executable) `
+        -ExpectedSha256 ([string]$manifestPayload.production.git_executable_sha256).ToLowerInvariant()
     foreach ($property in $manifestPayload.session_bootstrap_sha256.psobject.Properties) {
         Add-LockedExactFile `
             -Path (Join-Path $repo $property.Name) `
@@ -90,9 +101,10 @@ try {
         }
     }
     $env:WEATHER_FIXED_SESSION_SRC = Join-Path $repo "src"
+    $env:WEATHER_FIXED_SESSION_SITE_PACKAGES = $sitePackages
     Push-Location -LiteralPath $repo
     try {
-        & $python -I -c "import os,runpy,sys;sys.path.insert(0,os.environ['WEATHER_FIXED_SESSION_SRC']);runpy.run_module('weather.operations.international_live_session_runner',run_name='__main__')" `
+        & $python -I -S -B -c "import os,runpy,sys;sys.dont_write_bytecode=True;sys.path.insert(0,os.environ['WEATHER_FIXED_SESSION_SRC']);sys.path.append(os.environ['WEATHER_FIXED_SESSION_SITE_PACKAGES']);runpy.run_module('weather.operations.international_live_session_runner',run_name='__main__')" `
             --session-manifest $manifest `
             --expected-session-manifest-sha256 $expectedManifestSha256 `
             --candidate $candidate
@@ -108,5 +120,11 @@ finally {
         Remove-Item Env:WEATHER_FIXED_SESSION_SRC -ErrorAction SilentlyContinue
     }
     else { $env:WEATHER_FIXED_SESSION_SRC = $priorFixedSessionSrc }
+    if ($null -eq $priorFixedSessionSitePackages) {
+        Remove-Item Env:WEATHER_FIXED_SESSION_SITE_PACKAGES -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:WEATHER_FIXED_SESSION_SITE_PACKAGES = $priorFixedSessionSitePackages
+    }
 }
 exit $exitCode

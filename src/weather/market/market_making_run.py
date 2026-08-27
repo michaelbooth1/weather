@@ -1318,7 +1318,12 @@ def build_run_once(
     release_summary_fields = worker_release_summary_fields(release_binding)
     quote_columns = worker_tape_columns(RUN_QUOTE_COLUMNS, release_binding)
     specs = selected_specs(markets)
-    policy_config = build_run_policy_config(mode, budget_usdc, len(specs), overrides=policy_config)
+    policy_config = build_run_policy_config(
+        mode,
+        budget_usdc,
+        len(specs),
+        overrides=policy_config,
+    )
     if permission_profile == "market_harvest":
         policy_config = build_market_harvest_policy_config(budget_usdc, policy_config)
     evidence_timezone = getattr(getattr(specs[0], "tz", None), "key", None) if specs else None
@@ -2014,6 +2019,11 @@ def main(argv=None):
     parser.add_argument("--exchange-economics-snapshot", default=str(exchange_economics.DEFAULT_SNAPSHOT), help="Current exchange economics snapshot required for paper/shadow/live evidence.")
     parser.add_argument("--exchange-economics-platform", default=exchange_economics.DEFAULT_PLATFORM)
     parser.add_argument("--event-metadata-validation", default=str(event_metadata_validation.DEFAULT_JSON_OUT), help="Event metadata validation JSON required for default-root active-day evidence.")
+    parser.add_argument(
+        "--require-preflight-pass",
+        action="store_true",
+        help="Exit nonzero after writing the run unless every selected market passes preflight.",
+    )
     parser.add_argument("--once", action="store_true", help="For paper-live-forward, run one tick instead of looping.")
     parser.add_argument("--interval-seconds", type=float, default=60.0)
     parser.add_argument("--until-utc", default=None)
@@ -2064,8 +2074,12 @@ def main(argv=None):
         )
     if payload is None:
         print("MM run: no ticks executed")
+        if args.require_preflight_pass:
+            raise SystemExit(2)
         return None
     print(format_run_cli_summary(payload))
+    if args.require_preflight_pass and payload.get("preflight_status") != "PASS":
+        raise SystemExit(2)
     return payload
 
 

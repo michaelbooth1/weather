@@ -72,3 +72,111 @@ def test_contained_file_rejects_redirect_before_resolve(tmp_path):
         security.validate_contained_regular_file(
             tmp_path, redirected / artifact.name
         )
+
+
+def test_no_ambient_proxy_configuration_accepts_exact_direct_state():
+    result = security.assert_no_ambient_proxy_configuration(
+        environment={"PATH": "ignored"},
+        user_proxy_reader=lambda: {
+            "proxy_enabled": False,
+            "automatic_configuration": False,
+            "automatic_detection": False,
+        },
+        winhttp_direct_reader=lambda: True,
+    )
+
+    assert result == {
+        "status": "PASS",
+        "market_registry_override": False,
+        "environment_proxy_variables": [],
+        "current_user_proxy": "DIRECT",
+        "winhttp_proxy": "DIRECT",
+    }
+
+
+@pytest.mark.parametrize(
+    "environment_key",
+    [
+        "HTTP_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "CURL_CA_BUNDLE",
+        "REQUESTS_CA_BUNDLE",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+    ],
+)
+def test_no_ambient_proxy_configuration_rejects_process_redirects(environment_key):
+    with pytest.raises(security.LivePathSecurityError, match="ambient proxy"):
+        security.assert_no_ambient_proxy_configuration(
+            environment={environment_key: "configured"},
+            user_proxy_reader=lambda: {
+                "proxy_enabled": False,
+                "automatic_configuration": False,
+                "automatic_detection": False,
+            },
+            winhttp_direct_reader=lambda: True,
+        )
+
+
+def test_no_ambient_market_registry_override_is_case_insensitive():
+    with pytest.raises(security.LivePathSecurityError, match="market-registry"):
+        security.assert_no_ambient_market_registry_override(
+            environment={"weather_market_registry": "C:/untracked/markets.json"}
+        )
+
+
+def test_proxy_gate_also_rejects_market_registry_override():
+    with pytest.raises(security.LivePathSecurityError, match="market-registry"):
+        security.assert_no_ambient_proxy_configuration(
+            environment={"WEATHER_MARKET_REGISTRY": "C:/untracked/markets.json"},
+            user_proxy_reader=lambda: {
+                "proxy_enabled": False,
+                "automatic_configuration": False,
+                "automatic_detection": False,
+            },
+            winhttp_direct_reader=lambda: True,
+        )
+
+
+@pytest.mark.parametrize(
+    "user_state",
+    [
+        {
+            "proxy_enabled": True,
+            "automatic_configuration": False,
+            "automatic_detection": False,
+        },
+        {
+            "proxy_enabled": False,
+            "automatic_configuration": True,
+            "automatic_detection": False,
+        },
+        {
+            "proxy_enabled": False,
+            "automatic_configuration": False,
+            "automatic_detection": True,
+        },
+    ],
+)
+def test_no_ambient_proxy_configuration_rejects_windows_user_proxy(user_state):
+    with pytest.raises(security.LivePathSecurityError, match="Windows proxy"):
+        security.assert_no_ambient_proxy_configuration(
+            environment={},
+            user_proxy_reader=lambda: user_state,
+            winhttp_direct_reader=lambda: True,
+        )
+
+
+def test_no_ambient_proxy_configuration_rejects_winhttp_proxy():
+    with pytest.raises(security.LivePathSecurityError, match="WinHTTP proxy"):
+        security.assert_no_ambient_proxy_configuration(
+            environment={},
+            user_proxy_reader=lambda: {
+                "proxy_enabled": False,
+                "automatic_configuration": False,
+                "automatic_detection": False,
+            },
+            winhttp_direct_reader=lambda: False,
+        )

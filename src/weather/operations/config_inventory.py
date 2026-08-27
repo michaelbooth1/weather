@@ -66,6 +66,12 @@ CONFIG_POLICIES = {
         "freshness_policy": "default_preserves_current_capture_until_operator_activation",
         "max_age_days": None,
     },
+    "international_live_execution_host.json": {
+        "owner": "weather.execution_host",
+        "classification": "single_active_execution_host_registry",
+        "freshness_policy": "review_and_merge_for_each_executor_reassignment",
+        "max_age_days": None,
+    },
 }
 
 
@@ -148,6 +154,48 @@ def no_market_extra_location_issues(payload: dict) -> list[dict]:
     return issues
 
 
+def execution_host_assignment_issues(payload: dict) -> list[dict]:
+    expected = {
+        "schema_version",
+        "assignment_status",
+        "dedicated_capture_execution_host_id",
+        "active_portable_execution_host_id",
+        "active_portable_execution_principal_id",
+        "reassignment_requires_new_production_tip",
+    }
+    if set(payload) != expected:
+        return [{"issue": "execution-host assignment keys are not exact"}]
+    def is_sha(value):
+        return (
+            isinstance(value, str)
+            and len(value) == 64
+            and all(character in "0123456789abcdef" for character in value)
+        )
+    status = payload.get("assignment_status")
+    valid = (
+        payload.get("schema_version")
+        == "international_live_execution_host_assignment_v0.1"
+        and is_sha(payload.get("dedicated_capture_execution_host_id"))
+        and payload.get("reassignment_requires_new_production_tip") is True
+        and status in {"UNASSIGNED", "ASSIGNED"}
+    )
+    if status == "UNASSIGNED":
+        valid = valid and payload.get("active_portable_execution_host_id") is None
+        valid = (
+            valid
+            and payload.get("active_portable_execution_principal_id") is None
+        )
+    elif status == "ASSIGNED":
+        active_host = payload.get("active_portable_execution_host_id")
+        valid = (
+            valid
+            and is_sha(active_host)
+            and is_sha(payload.get("active_portable_execution_principal_id"))
+            and active_host != payload.get("dedicated_capture_execution_host_id")
+        )
+    return [] if valid else [{"issue": "execution-host assignment contract is invalid"}]
+
+
 def config_record(path: Path, *, now: datetime, policy: dict) -> dict:
     payload = load_json(path)
     generated = generated_time(payload)
@@ -168,6 +216,8 @@ def config_record(path: Path, *, now: datetime, policy: dict) -> dict:
     elif name == "markets.json" and not payload.get("markets"):
         if payload.get("status") != "deprecated_compatibility_shell":
             issues.append({"issue": "empty market registry without deprecated compatibility-shell status"})
+    elif name == "international_live_execution_host.json":
+        issues.extend(execution_host_assignment_issues(payload))
     status = "WARN" if issues or freshness == "STALE" else "PASS"
     return {
         "path": relative_to_repo(path),

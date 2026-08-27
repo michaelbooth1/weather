@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
 from weather.paths import REPO_ROOT
 from weather.market.mm_geographic_eligibility import (
@@ -20,13 +21,17 @@ from weather.market.mm_geographic_eligibility import (
 )
 from weather.market.mm_live_candidate_cli import (
     ECONOMICS_ACCEPTANCE_KEYS,
+    MAX_PAPER_QUOTE_TTL_SECONDS,
     SCHEMA_VERSION as CANDIDATE_SCHEMA_VERSION,
     economics_acceptance_acknowledgment,
+    load_stage1_candidate_gate,
     validate_bound_economics_acceptance_files,
+    validate_candidate_substrate_binding,
 )
 from weather.market.mm_live_lifecycle_probe import (
     verify_stage1_user_stream_journal,
 )
+from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.operations import international_live_time_window as live_time_window
 from weather.operations.international_live_lineage import (
     CREDENTIAL_TOPOLOGY_KEYS,
@@ -35,12 +40,27 @@ from weather.operations.international_live_lineage import (
     exact_run_lineage,
 )
 from weather.operations.live_path_security import (
+    CAPTURE_COLOCATED_HOST_PROFILE,
+    EXECUTION_HOST_PROFILES,
+    PORTABLE_EXECUTION_HOST_PROFILE,
     SESSION_BOOTSTRAP_PATHS,
     STATUS_ATTESTATION_SOURCE_PATHS,
+    NETWORK_REDIRECT_ENVIRONMENT_KEYS,
+    MARKET_REGISTRY_OVERRIDE_ENVIRONMENT_KEY,
+    assert_no_ambient_market_registry_override,
+    assert_no_ambient_proxy_configuration,
+    canonical_git_executable,
+    canonical_windows_powershell,
+    current_execution_host_id,
     repository_python_source_paths,
     validate_nonreparse_directory,
     validate_private_attempt_root,
     validate_regular_nonreparse_file,
+)
+from weather.execution_host import (
+    current_execution_principal_id,
+    require_current_capture_execution_assignment,
+    require_current_portable_execution_assignment,
 )
 from weather.schema_registry import schema_version
 SPEC_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal_spec")
@@ -49,14 +69,15 @@ INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_invent
 EXECUTION_SCHEMA_VERSION = schema_version("international_live_fixed_scope_execution")
 REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = "da32c0895bb5b40c842b35232ff266c7968d4439"
 MAX_CANDIDATE_AGE_SECONDS = 300
-MAX_PAPER_QUOTE_TTL_SECONDS = 120
 MAX_RUN_WINDOW_SECONDS = 30 * 60
 MAX_STAGE1_ORDER_NOTIONAL_PUSD = Decimal("10")
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
 FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
 FIRST_SESSION_CREDENTIAL_MODE = "verify_existing_exact"
+CREDENTIAL_RECEIPT_MAX_AGE_SECONDS = 2 * 60 * 60
 REMOTE_MASTER_REF = "refs/heads/master"
+CANONICAL_ORIGIN_URL = "https://github.com/michaelbooth1/weather.git"
 REMOTE_PROOF_TIMEOUT_SECONDS = 10
 ALLOWED_DIRTY_PATHS = frozenset(
     {
@@ -78,6 +99,7 @@ PYTHON_TEMPLATE_PATHS = {
 }
 LAUNCHER_TEMPLATE_PATH = "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
 WORKLOAD_ADMISSION_PATH = "scripts/ops/workload_admission.ps1"
+EXECUTION_HOST_ASSIGNMENT_PATH = "config/international_live_execution_host.json"
 SDK_OVERLAY_MANIFEST_PATH = "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
 SDK_OVERLAY_MODULE_PATH = "src/weather/market/live_sdk_overlay.py"
 GEOGRAPHIC_ELIGIBILITY_MODULE_PATH = (
@@ -127,7 +149,13 @@ LIVE_SOURCE_PATHS = {
     ),
 }
 LIVE_SOURCE_PATHS = {
-    stage: tuple(sorted(set(paths) | set(repository_python_source_paths(REPO_ROOT))))
+    stage: tuple(
+        sorted(
+            set(paths)
+            | set(repository_python_source_paths(REPO_ROOT))
+            | {EXECUTION_HOST_ASSIGNMENT_PATH}
+        )
+    )
     for stage, paths in LIVE_SOURCE_PATHS.items()
 }
 
@@ -405,17 +433,52 @@ def _default_git_runner(
     root: Path,
     args: Sequence[str],
 ) -> subprocess.CompletedProcess[str]:
-    command = ["git", "-C", str(root), *args]
+    live_remote = bool(args) and args[0] == "ls-remote"
+    if live_remote:
+        assert_no_ambient_proxy_configuration()
+    git = canonical_git_executable()
+    command = [
+        str(git),
+        "-c",
+        "credential.helper=",
+        "-c",
+        "credential.interactive=false",
+        "-c",
+        f"core.hooksPath={os.devnull}",
+        "-C",
+        str(root),
+        *args,
+    ]
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith("GIT_")
+        and key.upper() not in NETWORK_REDIRECT_ENVIRONMENT_KEYS
+        and key.upper() != MARKET_REGISTRY_OVERRIDE_ENVIRONMENT_KEY
+    }
+    environment.update(
+        {
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_OPTIONAL_LOCKS": "0",
+            "GCM_INTERACTIVE": "Never",
+        }
+    )
     try:
-        return subprocess.run(
+        result = subprocess.run(
             command,
+            env=environment,
             text=True,
             capture_output=True,
             check=False,
             timeout=REMOTE_PROOF_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(command, 124, "", "")
+        result = subprocess.CompletedProcess(command, 124, "", "")
+    if live_remote:
+        assert_no_ambient_proxy_configuration()
+    return result
 
 
 def _git(
@@ -441,7 +504,7 @@ def _remote_master_oid(runner: GitRunner, root: Path) -> str:
         "ls-remote",
         "--exit-code",
         "--refs",
-        "origin",
+        CANONICAL_ORIGIN_URL,
         REMOTE_MASTER_REF,
     )
     rows = [line.split() for line in raw.splitlines() if line.strip()]
@@ -456,9 +519,7 @@ def _remote_master_oid(runner: GitRunner, root: Path) -> str:
 
 
 def _default_powershell_parser(source: str) -> None:
-    powershell = Path(os.environ.get("SystemRoot", r"C:\Windows")) / (
-        "System32/WindowsPowerShell/v1.0/powershell.exe"
-    )
+    powershell = canonical_windows_powershell()
     encoded = __import__("base64").b64encode(source.encode("utf-8")).decode("ascii")
     command = (
         "$tokens=$null;$errors=$null;"
@@ -500,11 +561,56 @@ def _verify_git_state(
     git_runner: GitRunner,
 ) -> dict[str, Any]:
     root = Path(str(production["root"])).resolve()
+    reviewed_git = validate_regular_nonreparse_file(production["git_executable"])
+    canonical_git = canonical_git_executable()
+    if (
+        not _same_path(reviewed_git, canonical_git)
+        or _sha256_file(reviewed_git) != production["git_executable_sha256"]
+    ):
+        raise SealError("reviewed Git executable is not the exact canonical binary")
     expected_commit = _require_git_oid(production["commit"], label="production.commit")
     expected_tree = _require_git_oid(production["tree"], label="production.tree")
     if production["branch"] != "master":
         raise SealError("fixed-scope sealing is restricted to production master")
+    origin_url = _git_text(
+        git_runner, root, "config", "--local", "--get", "remote.origin.url"
+    )
+    push_url = _git(
+        git_runner,
+        root,
+        "config",
+        "--local",
+        "--get-all",
+        "remote.origin.pushurl",
+        allowed=(0, 1),
+    )
+    local_config_names = _git(
+        git_runner,
+        root,
+        "config",
+        "--local",
+        "--name-only",
+        "--list",
+    ).stdout.splitlines()
+    forbidden_prefixes = (
+        "url.",
+        "include.",
+        "includeif.",
+        "http.",
+        "credential.",
+        "core.sshcommand",
+        "remote.origin.proxy",
+    )
+    if (
+        origin_url != CANONICAL_ORIGIN_URL
+        or push_url.stdout.strip()
+        or any(name.casefold().startswith(forbidden_prefixes) for name in local_config_names)
+    ):
+        raise SealError("production Git remote or local trust configuration is not exact")
     facts = {
+        "git_executable": str(reviewed_git),
+        "git_executable_sha256": _sha256_file(reviewed_git),
+        "origin_url": origin_url,
         "object_format": _git_text(
             git_runner, root, "rev-parse", "--show-object-format"
         ).lower(),
@@ -583,10 +689,21 @@ def _validate_candidate(
     target_date: str,
     condition_id: str,
     token_id: str,
+    execution_host_profile: str,
     now: datetime,
     run_stop: datetime,
 ) -> dict[str, Any]:
     payload, raw = _read_json_object(path, label="candidate plan")
+    try:
+        canonical_gate = load_stage1_candidate_gate(
+            path,
+            target_date,
+            expected_condition_id=condition_id,
+            expected_token_id=token_id,
+            now=now,
+        )
+    except RuntimeError as exc:
+        raise SealError("candidate plan failed the canonical gate") from exc
     selected = payload.get("selected")
     if not isinstance(selected, dict):
         raise SealError("candidate plan has no selected scope")
@@ -594,6 +711,7 @@ def _validate_candidate(
     intent = selected.get("stage1_intent")
     policy = payload.get("selection_policy")
     economics_acceptance = payload.get("economics_acceptance")
+    substrate = payload.get("substrate_preflight")
     if not isinstance(paper, dict) or not isinstance(intent, dict) or not isinstance(
         policy, dict
     ):
@@ -623,14 +741,31 @@ def _validate_candidate(
         paper.get("quote_ttl_seconds"), label="paper quote TTL"
     )
     expected_paper_expiry = paper_generated + timedelta(seconds=float(paper_ttl))
+    try:
+        substrate_gate = validate_candidate_substrate_binding(
+            substrate,
+            target_date=target_date,
+            market_id=str(paper.get("market_id") or ""),
+            created_at=payload.get("created_at_utc"),
+            now=now,
+        )
+        substrate_expires = _parse_aware(
+            substrate_gate["expires_at_utc"],
+            label="substrate preflight expires_at",
+        )
+    except RuntimeError as exc:
+        raise SealError("candidate substrate preflight binding failed") from exc
     expected_effective_expiry = min(
         created + timedelta(seconds=MAX_CANDIDATE_AGE_SECONDS),
         paper_expires,
+        substrate_expires,
     )
     now_utc = now.astimezone(timezone.utc)
     stop_utc = run_stop.astimezone(timezone.utc)
     economics_id = str(payload.get("exchange_economics_snapshot_id") or "")
     economics_hash = str(payload.get("exchange_economics_sha256") or "")
+    market_id = str(paper.get("market_id") or "")
+    market = MARKET_REGISTRY.get(market_id)
     try:
         required_acceptance = economics_acceptance_acknowledgment(
             target_date,
@@ -650,6 +785,17 @@ def _validate_candidate(
         "status": payload.get("status") == "PASS",
         "semantic_hash": payload.get("plan_sha256")
         == _canonical_payload_sha256(payload, omit="plan_sha256"),
+        "canonical_gate": (
+            canonical_gate.get("plan_sha256") == _sha256_bytes(raw)
+            and canonical_gate.get("semantic_plan_sha256")
+            == payload.get("plan_sha256")
+        ),
+        "substrate_preflight": (
+            substrate_gate.get("accepted_snapshot_file_sha256")
+            == economics_acceptance.get("accepted_snapshot_file_sha256")
+            and substrate_gate.get("economics_drift_report_file_sha256")
+            == economics_acceptance.get("drift_report_file_sha256")
+        ),
         "non_authorizing": payload.get("selection_is_trading_authorization") is False,
         "economics_identity": (
             len(economics_hash) == 32
@@ -677,6 +823,10 @@ def _validate_candidate(
             <= created.astimezone(timezone.utc)
         ),
         "target_date": payload.get("target_date") == target_date,
+        "market_identity": (
+            market is not None
+            and str(selected.get("location_id") or "") == market_id
+        ),
         "scope": str(selected.get("condition_id") or "").lower() == condition_id
         and str(selected.get("token_id") or "") == token_id,
         "constrained_scope": str(expected_scope.get("condition_id") or "").lower()
@@ -686,7 +836,13 @@ def _validate_candidate(
         and str(paper.get("token_id") or "") == token_id,
         "paper_permission": paper.get("quote_permission") is True
         and paper.get("live_trade_permission") is False,
-        "paper_ttl": Decimal("0") < paper_ttl <= MAX_PAPER_QUOTE_TTL_SECONDS,
+        "paper_ttl": (
+            Decimal("0") < paper_ttl <= MAX_PAPER_QUOTE_TTL_SECONDS
+            and (
+                execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+                or paper_ttl <= Decimal("120")
+            )
+        ),
         "paper_expiry": paper_expires == expected_paper_expiry,
         "effective_expiry": expires == expected_effective_expiry,
         "created_before_seal": created.astimezone(timezone.utc) <= now_utc,
@@ -729,6 +885,8 @@ def _validate_candidate(
         "remaining_seconds_at_seal": (
             expires.astimezone(timezone.utc) - now_utc
         ).total_seconds(),
+        "market_id": market_id,
+        "market_timezone": market.timezone,
     }
 
 
@@ -828,6 +986,7 @@ def _validate_credential_import_receipt(
     path: Path,
     *,
     required_mode: str | None = None,
+    now: datetime | None = None,
 ) -> None:
     if required_mode not in {None, FIRST_SESSION_CREDENTIAL_MODE}:
         raise SealError("credential import receipt mode requirement is unsupported")
@@ -849,7 +1008,9 @@ def _validate_credential_import_receipt(
         "source_deletion_required_after_transfer",
     }
     legacy_version = "mm_live_credential_import_receipt_v0.1"
-    current_version = "mm_live_credential_import_receipt_v0.2"
+    compare_only_legacy_version = "mm_live_credential_import_receipt_v0.2"
+    host_only_legacy_version = "mm_live_credential_import_receipt_v0.3"
+    current_version = "mm_live_credential_import_receipt_v0.4"
     version = payload.get("schema_version")
     if version == legacy_version:
         _require_exact_keys(
@@ -858,7 +1019,16 @@ def _validate_credential_import_receipt(
             label="credential import receipt",
         )
         mode_is_exact = payload.get("credential_value_count_written") == 4
-    elif version == current_version:
+    elif version in {
+        compare_only_legacy_version,
+        host_only_legacy_version,
+        current_version,
+    }:
+        version_fields = set()
+        if version in {host_only_legacy_version, current_version}:
+            version_fields = {"prepared_at_utc", "execution_host_id"}
+        if version == current_version:
+            version_fields.add("execution_principal_id")
         _require_exact_keys(
             payload,
             common_required
@@ -866,7 +1036,8 @@ def _validate_credential_import_receipt(
                 "credential_mode",
                 "credential_value_count_existing_exact_verified",
                 "credential_store_mutation_attempted",
-            },
+            }
+            | version_fields,
             label="credential import receipt",
         )
         mode = payload.get("credential_mode")
@@ -891,6 +1062,31 @@ def _validate_credential_import_receipt(
     else:
         raise SealError("credential import receipt is not an exact clean PASS")
     checks = payload.get("checks")
+    host_binding_ok = version not in {host_only_legacy_version, current_version}
+    principal_binding_ok = version != current_version
+    freshness_ok = version not in {host_only_legacy_version, current_version}
+    if version in {host_only_legacy_version, current_version}:
+        try:
+            prepared_at = _parse_aware(
+                payload.get("prepared_at_utc"),
+                label="credential receipt prepared_at_utc",
+            )
+            current = now or datetime.now().astimezone()
+            age_seconds = (
+                current.astimezone(timezone.utc)
+                - prepared_at.astimezone(timezone.utc)
+            ).total_seconds()
+            freshness_ok = -5 <= age_seconds <= CREDENTIAL_RECEIPT_MAX_AGE_SECONDS
+        except SealError:
+            freshness_ok = False
+        host_binding_ok = (
+            payload.get("execution_host_id") == current_execution_host_id()
+        )
+        if version == current_version:
+            principal_binding_ok = (
+                payload.get("execution_principal_id")
+                == current_execution_principal_id()
+            )
     if (
         payload["status"] != "PASS"
         or payload["platform"] != "polymarket_global"
@@ -904,10 +1100,17 @@ def _validate_credential_import_receipt(
         or payload["rollback_ok"] is not None
         or not isinstance(payload["ignored_source_key_count"], int)
         or not 0 <= payload["ignored_source_key_count"] <= 8
+        or (
+            version == current_version
+            and payload["ignored_source_key_count"] != 0
+        )
         or payload["missing"] != []
         or not isinstance(checks, dict)
         or set(checks) != EXPECTED_CREDENTIAL_IMPORT_CHECKS
         or any(value is not True for value in checks.values())
+        or not host_binding_ok
+        or not principal_binding_ok
+        or not freshness_ok
     ):
         raise SealError("credential import receipt is not an exact clean PASS")
     if required_mode == FIRST_SESSION_CREDENTIAL_MODE and not (
@@ -921,8 +1124,8 @@ def _validate_credential_import_receipt(
         and payload.get("credential_store_mutation_attempted") is False
     ):
         raise SealError(
-            "first-session credential evidence must be v0.2 compare-only exact "
-            "verification with four existing entries and zero mutation"
+            "first-session credential evidence must be fresh v0.4 host/principal-bound "
+            "compare-only exact verification with four existing entries and zero mutation"
         )
 
 
@@ -972,6 +1175,10 @@ def _validate_stage0_lineage(
     condition_id: str,
     token_id: str,
     budget: Decimal,
+    execution_host_profile: str,
+    execution_host_id: str,
+    market_id: str,
+    market_timezone: str,
 ) -> None:
     seal, _raw = _read_json_object(
         Path(inputs["stage0_seal_receipt"]["path"]),
@@ -1064,6 +1271,10 @@ def _validate_stage0_lineage(
         str(seal_scope.get("condition_id") or "").lower() == condition_id,
         str(seal_scope.get("token_id") or "") == token_id,
         seal_budget == budget,
+        seal_scope.get("execution_host_profile") == execution_host_profile,
+        seal_scope.get("execution_host_id") == execution_host_id,
+        seal_scope.get("market_id") == market_id,
+        seal_scope.get("market_timezone") == market_timezone,
         seal_credential.get("path") == expected_credential["path"],
         seal_credential.get("sha256") == expected_credential["sha256"],
         seal_reference.get("path") == expected_reference["path"],
@@ -1076,11 +1287,15 @@ def _validate_stage0_lineage(
         execution.get("live_mutation_attempted") is True,
         execution.get("order_submit_attempted") is False,
         execution.get("authenticated_exchange_write_attempted") is True,
+        execution.get("execution_host_profile") == execution_host_profile,
+        execution.get("execution_host_id") == execution_host_id,
         isinstance(attestations, list),
-        len(attestations or []) == 2,
+        len(attestations or []) == 3,
         all(
             len(str(row.get("status_json_sha256") or "")) == 64
             and sorted(row.get("status_flag_sha256") or []) == expected_flag_hashes
+            and row.get("execution_host_profile") == execution_host_profile
+            and row.get("execution_host_id") == execution_host_id
             and bool(row.get("checked_at_local"))
             for row in (attestations or [])
         ),
@@ -1147,9 +1362,11 @@ def _validate_stage0_lineage(
         == str(reference.get("wallet_address") or "").lower(),
         set(topology) == CREDENTIAL_TOPOLOGY_KEYS,
         all(value is True for key, value in topology.items() if key != "manifest_wallet_address"),
-        run.get("schema_version") == "international_live_session_run_v0.3",
+        run.get("schema_version") == "international_live_session_run_v0.4",
         run.get("status") == "PASS",
         run.get("stage") == "stage0",
+        run.get("execution_host_profile") == execution_host_profile,
+        run.get("execution_host_id") == execution_host_id,
         run.get("live_mutation_attempted") is True,
         run.get("order_submit_attempted") is False,
         run.get("authenticated_exchange_write_attempted") is True,
@@ -1184,6 +1401,10 @@ def _validate_cancel_all_predecessor(
     condition_id: str,
     token_id: str,
     budget: Decimal,
+    execution_host_profile: str,
+    execution_host_id: str,
+    market_id: str,
+    market_timezone: str,
 ) -> None:
     payloads = {}
     for role in (
@@ -1262,12 +1483,18 @@ def _validate_cancel_all_predecessor(
         str(seal_scope.get("condition_id") or "").lower() == condition_id,
         str(seal_scope.get("token_id") or "") == token_id,
         float(seal_scope.get("requested_budget_pusd")) == float(budget),
+        seal_scope.get("execution_host_profile") == execution_host_profile,
+        seal_scope.get("execution_host_id") == execution_host_id,
+        seal_scope.get("market_id") == market_id,
+        seal_scope.get("market_timezone") == market_timezone,
         seal_scope.get("cancellation_mode") == "cancel_all",
         seal_wrapper.get("path") == execution_wrapper.get("path"),
         seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
-        run.get("schema_version") == "international_live_session_run_v0.3",
+        run.get("schema_version") == "international_live_session_run_v0.4",
         run.get("status") == "PASS",
         run.get("stage") == "stage1_cancel_all",
+        run.get("execution_host_profile") == execution_host_profile,
+        run.get("execution_host_id") == execution_host_id,
         run.get("live_mutation_attempted") is True,
         run.get("order_submit_attempted") is True,
         run.get("authenticated_exchange_write_attempted") is True,
@@ -1288,6 +1515,8 @@ def _validate_cancel_all_predecessor(
         execution.get("schema_version") == EXECUTION_SCHEMA_VERSION,
         execution.get("status") == "PASS",
         execution.get("stage") == "stage1_cancel_all",
+        execution.get("execution_host_profile") == execution_host_profile,
+        execution.get("execution_host_id") == execution_host_id,
         execution.get("phase") == "complete",
         execution.get("live_mutation_attempted") is True,
         execution.get("order_submit_attempted") is True,
@@ -1574,6 +1803,8 @@ def _render_launcher(
     wrapper_path: Path,
     wrapper_sha256: str,
     workload: str,
+    execution_host_profile: str,
+    execution_host_id: str,
     workload_sha256: str,
     credential_manifest_path: Path,
     credential_manifest_sha256: str,
@@ -1584,6 +1815,8 @@ def _render_launcher(
         '"__SEAL_WRAPPER_PATH__"': str(wrapper_path),
         '"__SEAL_WRAPPER_SHA256__"': wrapper_sha256,
         '"__SEAL_WORKLOAD__"': workload,
+        '"__SEAL_EXECUTION_HOST_PROFILE__"': execution_host_profile,
+        '"__SEAL_EXECUTION_HOST_ID__"': execution_host_id,
         '"__SEAL_WORKLOAD_ADMISSION_SHA256__"': workload_sha256,
         '"__SEAL_CREDENTIAL_MANIFEST_PATH__"': str(credential_manifest_path),
         '"__SEAL_CREDENTIAL_MANIFEST_SHA256__"': credential_manifest_sha256,
@@ -1622,6 +1855,8 @@ def _validate_spec(
     now: datetime,
     template_root: Path,
     attempt_root_validator=validate_private_attempt_root,
+    capture_assignment_validator=require_current_capture_execution_assignment,
+    portable_assignment_validator=require_current_portable_execution_assignment,
 ) -> dict[str, Any]:
     spec, spec_raw = _read_json_object(spec_path, label="seal spec")
     _require_exact_keys(
@@ -1652,7 +1887,16 @@ def _validate_spec(
         raise SealError("seal spec stage is unsupported")
     production = _require_exact_keys(
         spec["production"],
-        {"root", "branch", "commit", "tree", "python"},
+        {
+            "root",
+            "branch",
+            "commit",
+            "tree",
+            "python",
+            "git_executable",
+            "git_executable_sha256",
+            "canonical_origin_url",
+        },
         label="production",
     )
     root_input = Path(str(production["root"]))
@@ -1666,6 +1910,19 @@ def _validate_spec(
     expected_python = (root / "venv/Scripts/python.exe").resolve()
     if not _same_path(python, expected_python) or not python.is_file():
         raise SealError("production interpreter is absent or not the canonical venv")
+    git_input = Path(str(production["git_executable"] or ""))
+    if not git_input.is_absolute():
+        raise SealError("production.git_executable must be absolute")
+    git_executable = validate_regular_nonreparse_file(git_input)
+    git_sha256 = _require_sha256(
+        production["git_executable_sha256"], label="production.git_executable_sha256"
+    )
+    if (
+        not _same_path(git_executable, canonical_git_executable())
+        or _sha256_file(git_executable) != git_sha256
+        or production["canonical_origin_url"] != CANONICAL_ORIGIN_URL
+    ):
+        raise SealError("production Git executable or canonical origin binding is invalid")
     scope = _require_exact_keys(
         spec["scope"],
         {
@@ -1677,6 +1934,10 @@ def _validate_spec(
             "run_not_after_local",
             "attempt_root",
             "lease_workload",
+            "execution_host_profile",
+            "execution_host_id",
+            "market_id",
+            "market_timezone",
         },
         label="scope",
     )
@@ -1702,14 +1963,64 @@ def _validate_spec(
         raise SealError("prepared_at_local is not current")
     if not start < stop or (stop - start).total_seconds() > MAX_RUN_WINDOW_SECONDS:
         raise SealError("reviewed run window is invalid or exceeds 30 minutes")
-    if not live_time_window.execution_window_is_supported(start, stop, target_date=target):
+    contained_end = stop + timedelta(
+        seconds=live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+    )
+    execution_host_profile = str(scope["execution_host_profile"] or "")
+    if (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and any(
+            value.astimezone(live_time_window.LIVE_WINDOW_TIMEZONE).date()
+            != target
+            for value in (start, stop, contained_end)
+        )
+    ):
+        raise SealError("reviewed execution timestamps do not share the target date")
+    execution_host_id = _require_sha256(
+        scope["execution_host_id"], label="execution host id"
+    )
+    if execution_host_profile not in EXECUTION_HOST_PROFILES:
+        raise SealError("execution host profile is unsupported")
+    if execution_host_id != current_execution_host_id():
+        raise SealError("seal scope is bound to a different execution host")
+    if execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE:
+        try:
+            portable_assignment_validator(
+                root / EXECUTION_HOST_ASSIGNMENT_PATH,
+                execution_host_id=execution_host_id,
+                execution_principal_id=current_execution_principal_id(),
+            )
+        except Exception as exc:
+            raise SealError(
+                "current host/principal is not the active portable executor"
+            ) from exc
+    else:
+        try:
+            capture_assignment_validator(
+                root / EXECUTION_HOST_ASSIGNMENT_PATH,
+                execution_host_id=execution_host_id,
+            )
+        except Exception as exc:
+            raise SealError(
+                "current host is not eligible for capture-colocated execution"
+            ) from exc
+    if (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and not live_time_window.execution_window_is_supported(
+            start, stop, target_date=target
+        )
+    ):
         raise SealError(
             "reviewed execution and cleanup window is outside the supported "
             "00:30-09:00 America/Toronto live window"
         )
     if not start.astimezone(timezone.utc) <= now_utc <= stop.astimezone(timezone.utc):
         raise SealError("sealer is outside the reviewed run window")
-    if prepared.astimezone(live_time_window.LIVE_WINDOW_TIMEZONE).date() != target:
+    if (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and prepared.astimezone(live_time_window.LIVE_WINDOW_TIMEZONE).date()
+        != target
+    ):
         raise SealError("reviewed timestamps do not share the target local date")
     workload = str(scope["lease_workload"] or "")
     if WORKLOAD_RE.fullmatch(workload) is None:
@@ -1743,6 +2054,13 @@ def _validate_spec(
     normalized_reviews.sort(key=lambda row: row["sha256"])
     if len({row["sha256"] for row in normalized_reviews}) != len(normalized_reviews):
         raise SealError("reviewed status flag hashes are not unique")
+    if (
+        execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and normalized_reviews
+    ):
+        raise SealError(
+            "portable execution hosts cannot inherit capture-host status exceptions"
+        )
 
     expected_inputs = INPUT_LAYOUTS[stage]
     inputs = _require_exact_keys(
@@ -1773,6 +2091,7 @@ def _validate_spec(
     _validate_credential_import_receipt(
         Path(normalized_inputs["credential_import_receipt"]["path"]),
         required_mode=FIRST_SESSION_CREDENTIAL_MODE,
+        now=now,
     )
     _validate_identity(
         Path(normalized_inputs["identity"]["path"]),
@@ -1832,11 +2151,26 @@ def _validate_spec(
         target_date=target.isoformat(),
         condition_id=condition,
         token_id=token,
+        execution_host_profile=execution_host_profile,
         now=now,
         run_stop=stop,
     )
     if candidate["sha256"] != normalized_inputs[candidate_role]["sha256"]:
         raise SealError("candidate file hash changed during validation")
+    if (
+        candidate["market_id"] != scope["market_id"]
+        or candidate["market_timezone"] != scope["market_timezone"]
+    ):
+        raise SealError("candidate market calendar differs from the reviewed scope")
+    if execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE:
+        market_timezone = ZoneInfo(candidate["market_timezone"])
+        if any(
+            value.astimezone(market_timezone).date() != target
+            for value in (prepared, start, stop, contained_end)
+        ):
+            raise SealError(
+                "portable execution timestamps do not share the market target date"
+            )
     if dict(spec_economics_acceptance) != candidate["economics_acceptance"]:
         raise SealError(
             "candidate economics acceptance differs from the reviewed seal spec"
@@ -1872,6 +2206,10 @@ def _validate_spec(
             condition_id=condition,
             token_id=token,
             budget=budget,
+            execution_host_profile=execution_host_profile,
+            execution_host_id=execution_host_id,
+            market_id=candidate["market_id"],
+            market_timezone=candidate["market_timezone"],
         )
         if stage == "stage1_dead_man":
             _validate_cancel_all_predecessor(
@@ -1884,6 +2222,10 @@ def _validate_spec(
                 condition_id=condition,
                 token_id=token,
                 budget=budget,
+                execution_host_profile=execution_host_profile,
+                execution_host_id=execution_host_id,
+                market_id=candidate["market_id"],
+                market_timezone=candidate["market_timezone"],
             )
 
     return {
@@ -1897,6 +2239,9 @@ def _validate_spec(
             "commit": _require_git_oid(production["commit"], label="production.commit"),
             "tree": _require_git_oid(production["tree"], label="production.tree"),
             "python": str(python),
+            "git_executable": str(git_executable),
+            "git_executable_sha256": git_sha256,
+            "canonical_origin_url": CANONICAL_ORIGIN_URL,
         },
         "scope": {
             "target_date": target.isoformat(),
@@ -1907,6 +2252,10 @@ def _validate_spec(
             "run_not_after_local": stop.isoformat(),
             "attempt_root": str(attempt_root),
             "lease_workload": workload,
+            "execution_host_profile": execution_host_profile,
+            "execution_host_id": execution_host_id,
+            "market_id": candidate["market_id"],
+            "market_timezone": candidate["market_timezone"],
         },
         "prepared_at_local": prepared.isoformat(),
         "reviewed_status_flags": normalized_reviews,
@@ -1935,6 +2284,11 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
     common = {
         "expected_production_tip": validated["production"]["commit"],
         "expected_production_tree": validated["production"]["tree"],
+        "git_executable": validated["production"]["git_executable"],
+        "git_executable_sha256": validated["production"][
+            "git_executable_sha256"
+        ],
+        "canonical_origin_url": validated["production"]["canonical_origin_url"],
         "target_date": scope["target_date"],
         "condition_id": scope["condition_id"],
         "token_id": scope["token_id"],
@@ -1944,6 +2298,10 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
         "cleanup_reserve_seconds": live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS,
         "attempt_root": scope["attempt_root"],
         "expected_lease_workload": scope["lease_workload"],
+        "execution_host_profile": scope["execution_host_profile"],
+        "execution_host_id": scope["execution_host_id"],
+        "market_id": scope["market_id"],
+        "market_timezone": scope["market_timezone"],
         "allowed_status_flag_sha256": [
             row["sha256"] for row in validated["reviewed_status_flags"]
         ],
@@ -2063,11 +2421,14 @@ def seal_fixed_scope(
     powershell_parser: PowerShellParser = _default_powershell_parser,
     sdk_validator: SdkValidator = _default_sdk_validator,
     attempt_root_validator=validate_private_attempt_root,
+    capture_assignment_validator=require_current_capture_execution_assignment,
+    portable_assignment_validator=require_current_portable_execution_assignment,
     template_root: str | Path | None = None,
     sealer_repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Validate *spec_path* and exclusively create its immutable seal artifacts."""
 
+    assert_no_ambient_market_registry_override()
     current = now or datetime.now().astimezone()
     if current.tzinfo is None or current.utcoffset() is None:
         raise SealError("sealer clock must be timezone-aware")
@@ -2079,6 +2440,8 @@ def seal_fixed_scope(
         now=current,
         template_root=templates_root,
         attempt_root_validator=attempt_root_validator,
+        capture_assignment_validator=capture_assignment_validator,
+        portable_assignment_validator=portable_assignment_validator,
     )
     production_root = Path(validated["production"]["root"])
     if not _same_path(code_root, production_root) or not _same_path(
@@ -2122,6 +2485,8 @@ def seal_fixed_scope(
         wrapper_path=validated["outputs"]["python_wrapper"],
         wrapper_sha256=wrapper_sha256,
         workload=validated["scope"]["lease_workload"],
+        execution_host_profile=validated["scope"]["execution_host_profile"],
+        execution_host_id=validated["scope"]["execution_host_id"],
         workload_sha256=validated["source_sha256"][WORKLOAD_ADMISSION_PATH],
         credential_manifest_path=Path(
             validated["inputs"]["credential_reference_manifest"]["path"]
@@ -2187,6 +2552,13 @@ def seal_fixed_scope(
             "remote_master": seal_git_facts["remote_master"],
             "remote_master_ref": REMOTE_MASTER_REF,
             "interpreter": validated["production"]["python"],
+            "git_executable": validated["production"]["git_executable"],
+            "git_executable_sha256": validated["production"][
+                "git_executable_sha256"
+            ],
+            "canonical_origin_url": validated["production"][
+                "canonical_origin_url"
+            ],
             "required_interrupt_cleanup_ancestor": REQUIRED_INTERRUPT_CLEANUP_ANCESTOR,
         },
         "scope": {
@@ -2273,6 +2645,7 @@ def build_public_inventory(
 ) -> dict[str, Any]:
     """Return public hashes needed to author a reviewed seal spec; write nothing."""
 
+    assert_no_ambient_market_registry_override()
     if stage not in STAGES:
         raise SealError("inventory stage is unsupported")
     root = Path(production_root).resolve()
@@ -2287,6 +2660,7 @@ def build_public_inventory(
         "launcher": _sha256_file(root / LAUNCHER_TEMPLATE_PATH),
     }
     python = root / "venv/Scripts/python.exe"
+    git_executable = canonical_git_executable()
     bootstrap = {
         relative: _sha256_file(root / relative)
         for relative in SESSION_BOOTSTRAP_PATHS
@@ -2341,6 +2715,9 @@ def build_public_inventory(
             ).lower(),
             "python": str(python.resolve()),
             "python_sha256": _sha256_file(python) if python.is_file() else None,
+            "git_executable": str(git_executable),
+            "git_executable_sha256": _sha256_file(git_executable),
+            "canonical_origin_url": CANONICAL_ORIGIN_URL,
             "interrupt_cleanup_ancestor_integrated": ancestry.returncode == 0,
         },
         "template_sha256": templates,

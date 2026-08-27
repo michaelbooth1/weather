@@ -542,6 +542,109 @@ class TestLoopHealth(unittest.TestCase):
         self.assertEqual(calls["store_event_slug"], expected_slug)
         self.assertEqual(calls["write"]["target_date"], "2026-06-27")
 
+    def test_capture_snapshot_uses_external_metadata_and_parent_snapshot_root(self):
+        calls = {}
+
+        class FakePolymarketClient:
+            def __init__(self, timeout=10, target_date=None, market_id="toronto"):
+                self.config = config_for_date(target_date, market_id)
+
+            def get_event(self):
+                return {"slug": self.config.event_slug, "markets": []}
+
+        class FakeModelClient:
+            def __init__(self, target_date=None, market_id="toronto"):
+                self.target_date = target_date
+
+            def fetch_historical_sources(self):
+                return {}
+
+            def fetch_live_sources(self):
+                return {}
+
+            def build(self, event, historical_sources=None, live_sources=None):
+                return {"ok": True}
+
+        class FakeStore:
+            def __init__(self, root=None, event_slug=None, **_kwargs):
+                calls["store_root"] = Path(root)
+                self.event_slug = event_slug
+
+            def maybe_write(self, event, model, model_client, **_kwargs):
+                return {"written": True, "event_slug": self.event_slug}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshots_root = Path(tmp) / "attempt-snapshots"
+            event_metadata = Path(tmp) / "location-market-events.json"
+            with patch(
+                "weather.market.polymarket_client.PolymarketClient",
+                FakePolymarketClient,
+            ), patch(
+                "weather.model.toronto_model.TorontoHighTempModel",
+                FakeModelClient,
+            ), patch(
+                "weather.operations.event_metadata_validation.build_validation_payload",
+                return_value={"validation_hash": "hash"},
+            ) as validation, patch(
+                "weather.operations.event_metadata_validation.gate_for_market",
+                return_value={"ok": True},
+            ), patch.object(tracker, "SnapshotStore", FakeStore):
+                result = tracker.capture_snapshot(
+                    force=True,
+                    market_id="austin",
+                    target_date="2026-06-27",
+                    snapshots_root=snapshots_root,
+                    event_metadata_path=event_metadata,
+                )
+
+        expected_slug = config_for_date("2026-06-27", "austin").event_slug
+        self.assertTrue(result["written"])
+        self.assertEqual(calls["store_root"], snapshots_root / expected_slug)
+        self.assertEqual(
+            validation.call_args.kwargs["event_metadata_path"],
+            event_metadata,
+        )
+
+    def test_snapshot_one_shot_require_pass_forwards_paths_and_returns_two_on_block(
+        self,
+    ):
+        blocked = {"status": "BLOCK", "blocked": True, "reason": "fixture"}
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshots_root = Path(tmp) / "attempt-snapshots"
+            event_metadata = Path(tmp) / "location-market-events.json"
+            argv = [
+                "snapshot_tracker",
+                "--market",
+                "austin",
+                "--date",
+                "2026-06-27",
+                "--snapshots-root",
+                str(snapshots_root),
+                "--event-metadata",
+                str(event_metadata),
+                "--require-pass",
+            ]
+            with patch.object(sys, "argv", argv), patch.object(
+                tracker,
+                "capture_runtime_fingerprint_gate",
+                return_value={"ok": True},
+            ), patch.object(
+                tracker,
+                "capture_snapshot",
+                return_value=blocked,
+            ) as capture, patch.object(tracker, "emit_capture_result"):
+                exit_code = tracker.main()
+
+        self.assertEqual(exit_code, 2)
+        self.assertEqual(
+            capture.call_args.kwargs["snapshots_root"],
+            str(snapshots_root),
+        )
+        self.assertEqual(
+            capture.call_args.kwargs["event_metadata_path"],
+            str(event_metadata),
+        )
+
     def test_capture_snapshot_skips_event_ahead_of_local_date(self):
         # Auto mode (no target_date): the live event resolves to june-27 but it is
         # still june-26 in the market's local tz -> skip the stray pre-local-day

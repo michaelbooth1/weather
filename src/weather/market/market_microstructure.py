@@ -2024,6 +2024,21 @@ def main():
     capture.add_argument("--fidelity-minutes", type=int, default=1)
     capture.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     capture.add_argument("--date", default=None, help="Target event date YYYY-MM-DD. Defaults to each market's local date.")
+    capture.add_argument(
+        "--snapshots-root",
+        default=None,
+        help="Parent snapshot root; each market writes below <root>/<event_slug>.",
+    )
+    capture.add_argument(
+        "--event-metadata",
+        default=None,
+        help="Event-metadata JSON used to validate this one-shot capture.",
+    )
+    capture.add_argument(
+        "--require-pass",
+        action="store_true",
+        help="Exit 2 if any requested market returns BLOCK or ERROR.",
+    )
     add_capture_enrichment_options(capture)
 
     raw_refresh = subparsers.add_parser(
@@ -2153,8 +2168,20 @@ def main():
             ws_connect_timeout=args.websocket_connect_timeout,
             batch_size=args.batch_size,
             include_clob_features=args.clob_features,
+            snapshots_root=args.snapshots_root,
+            event_metadata_path=args.event_metadata,
         )
         print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        if args.require_pass and any(
+            isinstance(row, dict)
+            and (
+                row.get("blocked")
+                or row.get("status") in {"BLOCK", "ERROR"}
+                or row.get("error")
+            )
+            for row in result.values()
+        ):
+            return 2
         return
     if command == "raw-refresh":
         result = capture_fleet_books_parallel(
