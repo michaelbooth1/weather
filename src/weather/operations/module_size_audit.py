@@ -131,7 +131,7 @@ OWNERSHIP_NOTES = {
     "src/weather/operations/international_live_wrapper_sealer.py": {
         "owner": "operations",
         "boundary": "Fixed-scope International Stage 0/1 prerequisite validation, deterministic Python and PowerShell wrapper rendering, atomic sealing, receipt and public-inventory construction, and CLI dispatch.",
-        "next_split": "Newly WARN in the 2026-08-24 audit after exact-existing credential reconciliation. Extract credential-reference and import-receipt, identity, and predecessor-lineage validators into a dependency-light International live evidence-validator module that does not import the sealer; preserve exact-key, schema, hash, and fail-closed refusal contracts.",
+        "next_split": "WARN at 2,770 lines in the 2026-08-27 portable execution-host audit. Extract credential-reference and import-receipt, identity, and predecessor-lineage validators into a dependency-light International live evidence-validator module that does not import the sealer; preserve exact-key, schema, hash, and fail-closed refusal contracts.",
     },
     "src/weather/reporting/daily/daily_learning.py": {
         "owner": "reporting",

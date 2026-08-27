@@ -48,8 +48,8 @@ def test_current_warning_modules_have_complete_ownership_metadata_and_no_orphans
     )
 
     warnings = [row for row in payload["largest_modules"] if row["status"] == "WARN"]
-    # 23 since 2026-08-24: exact-existing credential reconciliation moved
-    # weather.operations.international_live_wrapper_sealer from 1,999 to 2,039 lines.
+    # 23 since 2026-08-24; the portable execution-host work subsequently moved
+    # weather.operations.international_live_wrapper_sealer to 2,770 lines.
     # Raising this number is only legitimate alongside a real ownership entry in
     # module-ownership-map.md -- the point of the ratchet is that growth costs
     # documentation, so never bump it to make the suite green.
