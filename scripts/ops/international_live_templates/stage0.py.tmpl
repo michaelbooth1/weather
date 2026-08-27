@@ -40,6 +40,7 @@ ALLOWED_DIRTY_PATHS = {
 }
 CONDITION_RE = re.compile(r"0x[0-9a-f]{64}")
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+GIT_OID_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 CORE_WORKERS = {
     "snapshot_tracker",
     "market_microstructure",
@@ -62,6 +63,7 @@ def _run(command: list[str], *, allowed=(0,)) -> subprocess.CompletedProcess[str
         text=True,
         capture_output=True,
         check=False,
+        timeout=10,
     )
     if result.returncode not in allowed:
         raise RuntimeError(f"sealed public preflight exited {result.returncode}")
@@ -222,9 +224,32 @@ def _assert_git_and_sources() -> None:
     head = _git("rev-parse", "HEAD").stdout.strip().lower()
     master = _git("rev-parse", "master").stdout.strip().lower()
     origin = _git("rev-parse", "origin/master").stdout.strip().lower()
+    remote_rows = [
+        line.split()
+        for line in _git(
+            "ls-remote",
+            "--exit-code",
+            "--refs",
+            "origin",
+            "refs/heads/master",
+        ).stdout.splitlines()
+        if line.strip()
+    ]
+    if not (
+        len(remote_rows) == 1
+        and len(remote_rows[0]) == 2
+        and remote_rows[0][1] == "refs/heads/master"
+        and GIT_OID_RE.fullmatch(remote_rows[0][0].lower()) is not None
+    ):
+        raise RuntimeError("live origin master proof is malformed or unavailable")
+    remote_master = remote_rows[0][0].lower()
     branch = _git("branch", "--show-current").stdout.strip()
     if not (
-        head == master == origin == str(SCOPE["expected_production_tip"]).lower()
+        head
+        == master
+        == origin
+        == remote_master
+        == str(SCOPE["expected_production_tip"]).lower()
         and branch == "master"
     ):
         raise RuntimeError("production HEAD/master/origin or branch changed")
@@ -278,6 +303,8 @@ def _assert_paths(*, doctor_may_exist: bool = False) -> None:
     }
     output_names = (
         "doctor_receipt_out",
+        "geography_precredential_receipt_out",
+        "geography_premutation_receipt_out",
         "bootstrap_out",
         "command_receipt_out",
         "user_stream_journal_out",
@@ -398,6 +425,35 @@ def _atomic_json(path: Path, payload: dict) -> None:
         os.fsync(handle.fileno())
 
 
+def _run_geography_check(output_name: str) -> dict:
+    from weather.market import mm_geographic_eligibility as geography
+
+    expected_module = (
+        PRODUCTION / "src/weather/market/mm_geographic_eligibility.py"
+    ).resolve()
+    if Path(geography.__file__).resolve() != expected_module:
+        raise RuntimeError("geographic eligibility module resolved outside reviewed source")
+    confirmation = geography.PHYSICAL_LOCATION_CONFIRMATION
+    if _prompt_until(confirmation).strip() != confirmation:
+        raise RuntimeError("physical-location/no-circumvention confirmation did not match")
+    receipt = geography.check_geographic_eligibility(
+        SCOPE[output_name],
+        confirmation=confirmation,
+        physical_location_eligible=True,
+        no_circumvention=True,
+    )
+    if receipt.get("status") != "PASS" or receipt.get("eligible") is not True:
+        raise RuntimeError("geographic eligibility did not pass exactly")
+    return receipt
+
+
+def _run_premutation_geography_check() -> dict:
+    global EXECUTION_PHASE
+    EXECUTION_PHASE = "stage0_premutation_geography_gate"
+    _assert_host_state()
+    return _run_geography_check("geography_premutation_receipt_out")
+
+
 def _write_execution_receipt(status: str, exception_type: str | None = None) -> None:
     path = Path(str(SCOPE["wrapper_execution_receipt_out"])).resolve()
     root = Path(str(SCOPE["attempt_root"])).resolve()
@@ -408,6 +464,8 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     artifacts = {}
     for name in (
         "doctor_receipt_out",
+        "geography_precredential_receipt_out",
+        "geography_premutation_receipt_out",
         "bootstrap_out",
         "command_receipt_out",
         "user_stream_journal_out",
@@ -425,7 +483,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.4",
+            "schema_version": "international_live_fixed_scope_execution_v0.5",
             "stage": "stage0",
             "status": status,
             "finished_at_local": datetime.now().astimezone().isoformat(),
@@ -521,12 +579,14 @@ def main() -> int:
     _assert_git_and_sources()
     _assert_paths(doctor_may_exist=True)
     _assert_host_state()
-    load_stage1_candidate_gate(
+    candidate_gate = load_stage1_candidate_gate(
         SCOPE["scope_plan_path"],
         SCOPE["target_date"],
         expected_condition_id=SCOPE["condition_id"],
         expected_token_id=SCOPE["token_id"],
     )
+    EXECUTION_PHASE = "stage0_geography_gate"
+    _run_geography_check("geography_precredential_receipt_out")
     EXECUTION_PHASE = "stage0_command"
     credential_manifest = json.loads(
         Path(SCOPE["credential_reference_manifest_path"]).read_text(
@@ -543,9 +603,15 @@ def main() -> int:
         bootstrap_out=SCOPE["bootstrap_out"],
         receipt_out=SCOPE["command_receipt_out"],
         user_stream_journal=SCOPE["user_stream_journal_out"],
+        geography_premutation_receipt=(
+            SCOPE["geography_premutation_receipt_out"]
+        ),
         user_stream_ready_timeout_seconds=45.0,
         confirmation=expected_confirmation,
         expected_wallet_address=credential_manifest["wallet_address"],
+        expected_candidate_fee_rate=candidate_gate["fee_rate"],
+        expected_candidate_neg_risk=candidate_gate["neg_risk"],
+        pre_mutation_attestor=_run_premutation_geography_check,
     )
     receipt = live_cli.run_stage0(args)
     if receipt.get("status") != "PASS" or (receipt.get("cleanup") or {}).get("ok") is not True:

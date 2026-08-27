@@ -8,6 +8,7 @@ import pytest
 
 from weather.market import mm_live_pilot_cli as cli
 from weather.market import mm_live_candidate_cli as candidate_cli
+from weather.market import mm_geographic_eligibility as geography
 from weather.market.mm_credentials import STAGE0_AUTHORIZATION
 from weather.market.mm_live_lifecycle_probe import CONFIRMATION as STAGE1_CONFIRMATION
 
@@ -15,6 +16,48 @@ from weather.market.mm_live_lifecycle_probe import CONFIRMATION as STAGE1_CONFIR
 ADDRESS = "0x" + "a" * 40
 CONDITION_ID = "0x" + "b" * 64
 TOKEN_ID = "12345"
+
+
+def write_geography_receipt(path: Path, checked: datetime) -> Path:
+    current = checked.astimezone(timezone.utc)
+    decision = {"blocked": False, "country": "GB", "region": "ENG"}
+    payload = {
+        "agreement": True,
+        "blocker_code": None,
+        "checked_at_utc": geography._iso_utc(current),
+        "eligible": True,
+        "endpoint": geography.GEOBLOCK_ENDPOINT,
+        "fresh_until_utc": geography._iso_utc(
+            current + timedelta(seconds=geography.MAX_RECEIPT_AGE_SECONDS)
+        ),
+        "freshness_max_age_seconds": geography.MAX_RECEIPT_AGE_SECONDS,
+        "official": {
+            **decision,
+            "decision_sha256": geography._canonical_digest(decision),
+        },
+        "operator_attestation": {
+            "confirmation": geography.PHYSICAL_LOCATION_CONFIRMATION,
+            "no_circumvention": True,
+            "physical_location_eligible": True,
+        },
+        "privacy": {
+            "source_address_retained": False,
+            "secret_values_retained": False,
+        },
+        "receipt_payload_sha256": None,
+        "response_binding": {
+            "body_bytes": 80,
+            "redacted_body_sha256": geography._canonical_digest(decision),
+            "content_type": "application/json",
+            "final_url": geography.GEOBLOCK_ENDPOINT,
+            "http_status": 200,
+        },
+        "schema_version": geography.RECEIPT_SCHEMA_VERSION,
+        "status": "PASS",
+    }
+    payload["receipt_payload_sha256"] = geography._payload_digest(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 class FakeStream:
@@ -27,14 +70,18 @@ class FakeStream:
     def start(self):
         self.started = True
         self.journal_path.write_text(
-            '{"event_type":"subscription_sent"}\n',
+            '{"schema_version":"mm_user_stream_journal_v0.1",'
+            '"event_type":"subscription_sent"}\n',
             encoding="utf-8",
         )
 
     def stop(self):
         self.stopped = True
         with self.journal_path.open("a", encoding="utf-8") as handle:
-            handle.write('{"event_type":"stream_stopped"}\n')
+            handle.write(
+                '{"schema_version":"mm_user_stream_journal_v0.1",'
+                '"event_type":"stream_stopped"}\n'
+            )
 
     def bootstrap_evidence(self):
         return {
@@ -133,9 +180,22 @@ def args(tmp_path, command):
         "user_stream_ready_timeout_seconds": 5.0,
     }
     if command == "stage0":
+        geography_premutation = tmp_path / "stage0-geography-premutation.json"
+
+        def pre_mutation_attestor():
+            write_geography_receipt(
+                geography_premutation,
+                datetime.now(timezone.utc),
+            )
+            return json.loads(geography_premutation.read_text(encoding="utf-8"))
+
         common.update(
             confirmation=STAGE0_AUTHORIZATION,
             bootstrap_out=str(tmp_path / "bootstrap.json"),
+            geography_premutation_receipt=str(geography_premutation),
+            expected_candidate_fee_rate=0.05,
+            expected_candidate_neg_risk=False,
+            pre_mutation_attestor=pre_mutation_attestor,
         )
     else:
         bootstrap = tmp_path / "bootstrap-input.json"
@@ -147,6 +207,17 @@ def args(tmp_path, command):
         paper_expires = paper_generated + timedelta(seconds=120)
         economics_hash = "c" * 32
         economics_id = f"xecon-{economics_hash[:16]}"
+        accepted_file_hash = "a" * 64
+        drift_file_hash = "b" * 64
+        economics_acknowledgment = (
+            candidate_cli.economics_acceptance_acknowledgment(
+                "2026-08-14",
+                CONDITION_ID,
+                TOKEN_ID,
+                accepted_snapshot_file_sha256=accepted_file_hash,
+                drift_report_file_sha256=drift_file_hash,
+            )
+        )
         candidate_payload = {
             "schema_version": candidate_cli.SCHEMA_VERSION,
             "status": "PASS",
@@ -159,6 +230,21 @@ def args(tmp_path, command):
             "exchange_economics_sha256": economics_hash,
             "economics_gate_ok": True,
             "economics_gate_missing": [],
+            "economics_acceptance": {
+                "accepted_at_utc": (current - timedelta(seconds=3)).isoformat(),
+                "accepted_snapshot_file_sha256": accepted_file_hash,
+                "accepted_snapshot_id": economics_id,
+                "accepted_snapshot_sha256": economics_hash,
+                "drift_generated_at_utc": (
+                    current - timedelta(seconds=3)
+                ).isoformat(),
+                "drift_report_file_sha256": drift_file_hash,
+                "drift_status": "PASS",
+                "operator_acknowledgment": economics_acknowledgment,
+                "operator_acknowledgment_matches_candidate": True,
+                "required_operator_acknowledgment": economics_acknowledgment,
+                "rescore_required": False,
+            },
             "selection_is_trading_authorization": False,
             "secret_values_retained": False,
             "selection_policy": {
@@ -259,6 +345,7 @@ def args(tmp_path, command):
             candidate_plan=str(candidate),
             cancellation_mode="cancel_all",
             submit_deadline_utc=(current + timedelta(minutes=2)).isoformat(),
+            pre_submit_attestor=lambda: {},
             lifecycle_journal=str(tmp_path / "lifecycle.jsonl"),
             result_out=str(tmp_path / "stage1-result.json"),
         )
@@ -431,26 +518,39 @@ def test_keyless_doctor_names_missing_sdk_and_reference_without_reading_secrets(
 def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path):
     command_args = args(tmp_path, "stage0")
     live_context = context(tmp_path)
+    seen = {}
+
+    def collect(_adapter, stream, *_args, **kwargs):
+        seen.update(kwargs)
+        geography_receipt = kwargs["pre_mutation_attestor"]()
+        return {
+            "schema_version": "mm_platform_bootstrap_v0.4",
+            "status": "PASS",
+            "secret_values_redacted": True,
+            "user_stream": stream.bootstrap_evidence(),
+            "mutation_geographic_eligibility": {
+                "receipt_payload_sha256": geography_receipt[
+                    "receipt_payload_sha256"
+                ]
+            },
+        }
 
     receipt = cli.run_stage0(
         command_args,
         context_builder=lambda *_args, **_kwargs: live_context,
         stream_waiter=lambda stream, **_kwargs: stream.start(),
-        bootstrap_collector=lambda _adapter, stream, *_args, **_kwargs: {
-            "schema_version": "mm_platform_bootstrap_v0.3",
-            "status": "PASS",
-            "secret_values_redacted": True,
-            "user_stream": stream.bootstrap_evidence(),
-        },
+        bootstrap_collector=collect,
     )
 
     assert receipt["status"] == "PASS"
-    assert live_context.adapter.cancel_calls == 1
+    assert live_context.adapter.cancel_calls == 0
     assert live_context.user_stream.stopped
     assert json.loads(open(command_args.bootstrap_out, encoding="utf-8").read())["status"] == "PASS"
     saved_receipt = json.loads(open(command_args.receipt_out, encoding="utf-8").read())
     assert saved_receipt["cleanup"]["zero_open_orders_verified"] is True
     assert saved_receipt["cleanup"]["zero_positions_verified"] is True
+    assert saved_receipt["cleanup"]["cancel_all_required"] is False
+    assert saved_receipt["cleanup"]["cancel_all_sent"] is False
     assert saved_receipt["credential_resolution_attempted"] is True
     assert saved_receipt["credential_values_read_in_memory"] is True
     assert saved_receipt["exchange_mutation_attempted"] is True
@@ -464,6 +564,12 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_bootstrap["user_stream"]["transport_stopped_cleanly_after_collection"] is True
     assert saved_bootstrap["user_stream"]["journal_sha256_at_collection"] != final_sha256
     assert saved_bootstrap["user_stream"]["journal_sha256"] == final_sha256
+    assert seen["expected_candidate_fee_rate"] == 0.05
+    assert seen["expected_candidate_neg_risk"] is False
+    assert callable(seen["pre_mutation_attestor"])
+    assert saved_receipt["mutation_geographic_eligibility"]["path"] == str(
+        Path(command_args.geography_premutation_receipt).resolve()
+    )
 
 
 def test_retired_stage0_read_only_literal_stops_before_credential_resolution(
@@ -511,7 +617,7 @@ def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
     assert receipt["exception_type"] == "KeyboardInterrupt"
     assert receipt["cleanup"]["ok"] is True
     assert "RAW-STAGE0-INTERRUPT-TEXT" not in raw
-    assert live_context.adapter.cancel_calls == 1
+    assert live_context.adapter.cancel_calls == 0
     assert live_context.user_stream.stopped is True
     assert live_context.client.closed is True
     assert not Path(command_args.bootstrap_out).exists()
@@ -519,15 +625,27 @@ def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
 
 def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_path):
     command_args = args(tmp_path, "stage1")
-    live_context = context(tmp_path)
+    live_context = context(tmp_path, "stage1-stream.jsonl")
     seen = {}
 
     def execute(adapter, gate, **kwargs):
         seen.update(gate=gate, kwargs=kwargs)
         kwargs["journal_path"].write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
+        with live_context.user_stream.journal_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({
+                "schema_version": "mm_user_stream_journal_v0.1",
+                "event_type": "user_event",
+                "payload": {
+                    "id": "order-1",
+                    "type": "CANCELLATION",
+                    "status": "CANCELED",
+                    "size_matched": "0",
+                },
+            }) + "\n")
         return {
-            "schema_version": "mm_live_lifecycle_probe_v0.2",
+            "schema_version": "mm_live_lifecycle_probe_v0.3",
             "status": "PASS",
+            "order_id": "order-1",
             "secret_values_redacted": True,
         }
 
@@ -546,7 +664,9 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
     assert seen["kwargs"]["confirmation"] == STAGE1_CONFIRMATION
     assert seen["kwargs"]["cancellation_mode"] == "cancel_all"
     assert seen["kwargs"]["submit_deadline_utc"] == command_args.submit_deadline_utc
-    assert live_context.adapter.cancel_calls == 1
+    assert seen["kwargs"]["expected_candidate_fee_rate"] == 0.05
+    assert seen["kwargs"]["expected_candidate_neg_risk"] is False
+    assert live_context.adapter.cancel_calls == 0
     assert live_context.user_stream.stopped
     saved_result = json.loads(open(command_args.result_out, encoding="utf-8").read())
     assert saved_result["status"] == "PASS"
@@ -706,7 +826,7 @@ def test_stage1_result_write_failure_still_emits_fail_receipt(
             stream_waiter=lambda stream, **_kwargs: stream.start(),
             bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
             lifecycle_executor=lambda *_args, **_kwargs: {
-                "schema_version": "mm_live_lifecycle_probe_v0.2",
+                "schema_version": "mm_live_lifecycle_probe_v0.3",
                 "status": "PASS",
                 "secret_values_redacted": True,
             },
@@ -746,14 +866,63 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         launcher.write_text("# sealed launcher\n", encoding="utf-8")
         journal = attempt / stage_folder / "lifecycle.jsonl"
         journal.write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
+        stream = attempt / stage_folder / "user-stream.jsonl"
+        order_id = f"{mode}-order"
+        stream.write_text(
+            "".join(
+                json.dumps(row, separators=(",", ":")) + "\n"
+                for row in (
+                    {
+                        "schema_version": "mm_user_stream_journal_v0.1",
+                        "event_type": "user_event",
+                        "payload": {"orderID": order_id, "status": "live"},
+                    },
+                    {
+                        "schema_version": "mm_user_stream_journal_v0.1",
+                        "event_type": "user_event",
+                        "payload": {
+                            "orderID": order_id,
+                            "status": "canceled",
+                            "size_matched": "0",
+                        },
+                    },
+                    {
+                        "schema_version": "mm_user_stream_journal_v0.1",
+                        "event_type": "stream_stopped",
+                    },
+                )
+            ),
+            encoding="utf-8",
+        )
         result_path.write_text(
             json.dumps(
                 {
+                    "schema_version": "mm_live_lifecycle_probe_v0.3",
                     "mode": mode,
                     "status": "PASS",
                     "cancellation_mode": mode,
+                    "order_id": order_id,
                     "journal_path": str(journal.resolve()),
                     "candidate_plan_sha256": "c" * 64,
+                    "submit_boundary_heartbeat_acknowledged": True,
+                    "submit_boundary_market_rules_verified": True,
+                    "submit_boundary_geography_before_heartbeat_verified": True,
+                    "post_sign_order_placement_boundary_verified": True,
+                    "terminal_rest_order_verified": True,
+                    "terminal_rest_zero_matched_verified": True,
+                    "account_trades_rest_verified": True,
+                    "scoped_account_trade_count": 0,
+                    "post_cancel_quiescence_seconds": 2.0,
+                    "terminal_user_event_observed": True,
+                    "user_stream_journal_path": str(stream.resolve()),
+                    "user_stream_journal_sha256": hashlib.sha256(
+                        stream.read_bytes()
+                    ).hexdigest(),
+                    "cleanup_final_user_stream_journal_sha256": hashlib.sha256(
+                        stream.read_bytes()
+                    ).hexdigest(),
+                    "user_stream_journal_row_count": 3,
+                    "user_stream_scoped_order_event_count": 2,
                 }
             ),
             encoding="utf-8",
@@ -788,8 +957,16 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
             encoding="utf-8",
         )
         command_path = attempt / stage_folder / "command-receipt.json"
-        stream = attempt / stage_folder / "user-stream.jsonl"
-        stream.write_text('{"event_type":"stream_stopped"}\n', encoding="utf-8")
+        doctor = attempt / stage_folder / "doctor-receipt.json"
+        doctor.write_text('{"status":"PASS"}\n', encoding="utf-8")
+        geography_precredential = write_geography_receipt(
+            attempt / stage_folder / "geography-precredential-receipt.json",
+            datetime(2026, 8, 23, 5, 0, tzinfo=timezone.utc),
+        )
+        geography_presubmit = write_geography_receipt(
+            attempt / stage_folder / "geography-presubmit-receipt.json",
+            datetime(2026, 8, 23, 5, 0, tzinfo=timezone.utc),
+        )
         command_path.write_text(
             json.dumps(
                 {
@@ -827,7 +1004,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         execution_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_execution_v0.4",
+                    "schema_version": "international_live_fixed_scope_execution_v0.5",
                     "status": "PASS",
                     "stage": stage,
                     "phase": "complete",
@@ -847,6 +1024,22 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                         "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
                     },
                     "artifacts": {
+                        "doctor_receipt_out": {
+                            "path": str(doctor.resolve()),
+                            "sha256": hashlib.sha256(doctor.read_bytes()).hexdigest(),
+                        },
+                        "geography_precredential_receipt_out": {
+                            "path": str(geography_precredential.resolve()),
+                            "sha256": hashlib.sha256(
+                                geography_precredential.read_bytes()
+                            ).hexdigest(),
+                        },
+                        "geography_presubmit_receipt_out": {
+                            "path": str(geography_presubmit.resolve()),
+                            "sha256": hashlib.sha256(
+                                geography_presubmit.read_bytes()
+                            ).hexdigest(),
+                        },
                         "result_out": {
                             "path": str(result_path.resolve()),
                             "sha256": hashlib.sha256(result_path.read_bytes()).hexdigest(),
@@ -985,7 +1178,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     def builder(gate, cancel_all, dead_man):
         seen.update(gate=gate, cancel_all=cancel_all, dead_man=dead_man)
         return {
-            "schema_version": "mm_stage1_lifecycle_bundle_v0.2",
+            "schema_version": "mm_stage1_lifecycle_bundle_v0.3",
             "status": "PASS",
         }
 
@@ -1024,6 +1217,24 @@ def test_wrong_confirmation_stops_before_credentials_or_mutation(tmp_path):
     assert called is False
     assert not (tmp_path / "stage1-receipt.json").exists()
     assert not (tmp_path / "stage1-result.json").exists()
+
+
+def test_stage1_requires_sealed_pre_submit_attestor_before_credentials(tmp_path):
+    command_args = args(tmp_path, "stage1")
+    command_args.pre_submit_attestor = None
+    called = False
+
+    def build(*_args, **_kwargs):
+        nonlocal called
+        called = True
+        return context(tmp_path)
+
+    with pytest.raises(RuntimeError, match="sealed pre-submit attestor"):
+        cli.run_stage1(command_args, context_builder=build)
+
+    assert called is False
+    assert not Path(command_args.receipt_out).exists()
+    assert not Path(command_args.result_out).exists()
 
 
 def test_output_directories_are_proved_writable_before_context_construction(tmp_path):

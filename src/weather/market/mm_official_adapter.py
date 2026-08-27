@@ -708,7 +708,7 @@ class OfficialPolymarketGlobalAdapter:
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
             "ok": gate.get("ok") is True,
-            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.3",
+            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.4",
             "status": gate.get("status") == "PASS",
             "platform": gate.get("platform") == "polymarket_global",
             "settlement_unit": gate.get("settlement_unit") == "pUSD",
@@ -807,6 +807,15 @@ class OfficialPolymarketGlobalAdapter:
             "network_submit_deadline_passed": self._probe.get(
                 "network_submit_deadline_passed"
             ),
+            "geographic_eligibility_fresh_until_utc": self._probe.get(
+                "geographic_eligibility_fresh_until_utc"
+            ),
+            "network_submit_geography_freshness_passed": self._probe.get(
+                "network_submit_geography_freshness_passed"
+            ),
+            "post_sign_order_placement_boundary_verified": self._probe.get(
+                "post_sign_order_placement_boundary_verified"
+            ),
             "sdk_distribution": OFFICIAL_CLOB_DISTRIBUTION,
             "sdk_version": self.sdk_version,
             "sdk_version_pinned": self.sdk_version == OFFICIAL_CLOB_VERSION,
@@ -897,6 +906,16 @@ class OfficialPolymarketGlobalAdapter:
             observed = self.client.get_balance_allowance(asset_type="COLLATERAL")
             self._balance_allowance = _plain_sdk_value(observed or {})
         return self._balance_allowance
+
+    def refresh_balance_allowance(self):
+        """Return one new authenticated collateral snapshot without using cache."""
+
+        observed = self.client.get_balance_allowance(asset_type="COLLATERAL")
+        payload = _plain_sdk_value(observed or {})
+        if not isinstance(payload, dict):
+            raise RuntimeError("current collateral balance/allowance response is invalid")
+        self._balance_allowance = payload
+        return dict(payload)
 
     def balances(self):
         payload = self._balance_allowance_snapshot()
@@ -1223,7 +1242,13 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError("heartbeat response did not acknowledge status ok")
         return response
 
-    def place_order(self, intent, *, stage1_capability=None):
+    def place_order(
+        self,
+        intent,
+        *,
+        stage1_capability=None,
+        geographic_eligibility_fresh_until_utc=None,
+    ):
         self._require_order_placement()
         intent = dict(intent or {})
         token_id = str(intent.get("clob_token_id") or intent.get("token_id") or self.token_id or "").strip()
@@ -1280,6 +1305,12 @@ class OfficialPolymarketGlobalAdapter:
                     owned += position_size
             if owned < size:
                 raise RuntimeError("SELL size exceeds authoritative owned outcome inventory")
+        # closed-only and position checks are authenticated network reads.  A slow
+        # response must not let the short heartbeat/rule budgets expire unnoticed
+        # before signing and posting.  Re-read user-stream health and both monotonic
+        # freshness guards at the actual local-signing boundary.
+        self._require_order_placement()
+        rules = self._require_market_rules(token_id)
         if (
             self._stage1_capability is None
             or stage1_capability is not self._stage1_capability
@@ -1288,8 +1319,23 @@ class OfficialPolymarketGlobalAdapter:
             raise RuntimeError(
                 "official CLOB submit requires the unconsumed Stage 1 lifecycle capability"
             )
+        try:
+            geographic_fresh_until = datetime.fromisoformat(
+                str(geographic_eligibility_fresh_until_utc).replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "official CLOB submit requires a valid geographic eligibility deadline"
+            ) from exc
+        if self.utc_clock().astimezone(timezone.utc) >= geographic_fresh_until:
+            raise RuntimeError(
+                "Stage 1 geographic eligibility expired before signing"
+            )
         self._stage1_capability_consumed = True
         self._probe["stage1_capability_consumed"] = True
+        self._probe["geographic_eligibility_fresh_until_utc"] = (
+            geographic_fresh_until.isoformat()
+        )
         expiration = int(intent.get("expiration") or 0)
         # Do not use place_limit_order. The unified client convenience method
         # may mutate token allowances before retrying. Signing is local; the
@@ -1310,14 +1356,44 @@ class OfficialPolymarketGlobalAdapter:
         self._probe["submitted_signed_order_sha256"] = signed_proof[
             "signed_order_sha256"
         ]
+        # Local signing can invoke a hardware wallet or otherwise block long
+        # enough for the short heartbeat/rule leases to expire, and the
+        # authoritative user stream can fail concurrently.  Re-read all three
+        # immediately after the signature exists and before the sole POST.
+        self._require_order_placement()
+        post_sign_rules = self._require_market_rules(token_id)
+        if size < post_sign_rules["min_order_size"]:
+            raise RuntimeError("order size is below the post-sign market minimum")
+        if price % post_sign_rules["tick_size"] != 0:
+            raise RuntimeError("order price does not align to the post-sign tick size")
+        if (
+            side == "BUY"
+            and post_sign_rules["best_ask"] is not None
+            and price >= post_sign_rules["best_ask"]
+        ):
+            raise RuntimeError("post-only BUY would cross the post-sign best ask")
+        if (
+            side == "SELL"
+            and post_sign_rules["best_bid"] is not None
+            and price <= post_sign_rules["best_bid"]
+        ):
+            raise RuntimeError("post-only SELL would cross the post-sign best bid")
+        self._probe["post_sign_order_placement_boundary_verified"] = True
         submit_boundary = self.utc_clock().astimezone(timezone.utc)
         self._probe["network_submit_boundary_utc"] = submit_boundary.isoformat()
         self._probe["network_submit_deadline_passed"] = bool(
             self._stage1_submit_deadline_utc is not None
             and submit_boundary < self._stage1_submit_deadline_utc
         )
+        self._probe["network_submit_geography_freshness_passed"] = bool(
+            submit_boundary < geographic_fresh_until
+        )
         if not self._probe["network_submit_deadline_passed"]:
             raise RuntimeError("Stage 1 network submit deadline expired after signing")
+        if not self._probe["network_submit_geography_freshness_passed"]:
+            raise RuntimeError(
+                "Stage 1 geographic eligibility expired after signing"
+            )
         try:
             response = self.client.post_order(signed_order)
         except Exception:
@@ -1350,6 +1426,12 @@ class OfficialPolymarketGlobalAdapter:
 
     def get_order(self, order_id):
         return _plain_sdk_value(self.client.get_order(order_id=str(order_id)))
+
+    def account_trades(self):
+        return _paginator_items(self.client.list_account_trades(
+            token_id=self.token_id,
+            market=self.condition_id,
+        ))
 
     def cancel_order(self, order_id):
         return _plain_sdk_value(self.client.cancel_order(order_id=str(order_id)))

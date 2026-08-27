@@ -14,6 +14,10 @@ from weather.market.mm_credentials import (
     STAGE0_AUTHORIZATION,
     STAGE0_IDENTITY_SCHEMA_VERSION,
 )
+from weather.market.exchange_economics import (
+    accept_snapshot_baseline,
+    build_snapshot_payload,
+)
 from weather.market import mm_live_candidate_cli as candidate_cli
 from weather.operations import international_live_session_launcher_sealer as launcher_sealer
 from weather.operations import international_live_session_runner as runner
@@ -301,10 +305,10 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
             "source_outside_repository_verified": True,
             "source_acl_private_confirmed": True,
             "credential_value_count_expected": 4,
-            "credential_value_count_written": 4,
-            "credential_mode": "create_new",
-            "credential_value_count_existing_exact_verified": 0,
-            "credential_store_mutation_attempted": True,
+            "credential_value_count_written": 0,
+            "credential_mode": "verify_existing_exact",
+            "credential_value_count_existing_exact_verified": 4,
+            "credential_store_mutation_attempted": False,
             "credential_values_retained": False,
             "ignored_source_key_count": 0,
             "checks": {
@@ -337,10 +341,75 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
             "ignored_relayers_rpc_and_self_assertions": True,
         },
     )
-    discovery = write_json(
-        sources / "discovery.json",
-        discovery_payload(constrained=constrained),
+    current_economics = write_json(
+        sources / "current-economics.json",
+        build_snapshot_payload(
+            target_date=NOW.date().isoformat(),
+            verified_at_utc=(
+                NOW.astimezone(timezone.utc) - timedelta(seconds=30)
+            ).isoformat(),
+            platform="polymarket_global",
+            condition_id=CONDITION,
+            token_ids=[TOKEN, "102"],
+            reward_daily_rate_usdc=1,
+            rewards_min_size=20,
+            rewards_max_spread_cents=4.5,
+        ),
     )
+    accepted_economics = sources / "accepted-economics.json"
+    economics_drift = sources / "economics-drift.json"
+    accept_snapshot_baseline(
+        snapshot_path=current_economics,
+        accepted_snapshot_path=accepted_economics,
+        drift_report_path=economics_drift,
+        target_date=NOW.date().isoformat(),
+        now=NOW - timedelta(seconds=20),
+        max_age_hours=2,
+        acknowledge_payout_asset_conflict=True,
+    )
+    accepted_payload = json.loads(accepted_economics.read_text(encoding="utf-8"))
+    drift_payload = json.loads(economics_drift.read_text(encoding="utf-8"))
+    discovery_data = discovery_payload(constrained=constrained)
+    discovery_data["exchange_economics_snapshot_id"] = accepted_payload[
+        "snapshot_id"
+    ]
+    discovery_data["exchange_economics_sha256"] = accepted_payload[
+        "exchange_economics_hash"
+    ]
+    discovery_data["selected"]["paper_quote_proof"].update(
+        {
+            "exchange_economics_snapshot_id": accepted_payload["snapshot_id"],
+            "exchange_economics_hash": accepted_payload[
+                "exchange_economics_hash"
+            ],
+        }
+    )
+    acknowledgment = candidate_cli.economics_acceptance_acknowledgment(
+        NOW.date().isoformat(),
+        CONDITION,
+        TOKEN,
+        accepted_snapshot_file_sha256=sha(accepted_economics),
+        drift_report_file_sha256=sha(economics_drift),
+    )
+    discovery_data["economics_acceptance"] = {
+        "accepted_at_utc": accepted_payload["accepted_at_utc"],
+        "accepted_snapshot_file_sha256": sha(accepted_economics),
+        "accepted_snapshot_id": accepted_payload["snapshot_id"],
+        "accepted_snapshot_sha256": accepted_payload[
+            "exchange_economics_hash"
+        ],
+        "drift_generated_at_utc": drift_payload["generated_at_utc"],
+        "drift_report_file_sha256": sha(economics_drift),
+        "drift_status": "PASS",
+        "operator_acknowledgment": acknowledgment,
+        "operator_acknowledgment_matches_candidate": True,
+        "required_operator_acknowledgment": acknowledgment,
+        "rescore_required": False,
+    }
+    discovery_data["plan_sha256"] = candidate_cli.candidate_plan_sha256(
+        discovery_data
+    )
+    discovery = write_json(sources / "discovery.json", discovery_data)
     attempt = tmp_path / "attempt"
     for name in launcher_sealer.ATTEMPT_DIRECTORIES:
         (attempt / name).mkdir(parents=True, exist_ok=True)
@@ -358,6 +427,11 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
                 "root": str(root.resolve()),
                 "branch": "master",
                 "commit": "a" * 40,
+                "local_master": "a" * 40,
+                "cached_origin_master": "a" * 40,
+                "remote_master": "a" * 40,
+                "remote_master_ref": fixed_sealer.REMOTE_MASTER_REF,
+                "live_remote_master_equal": True,
                 "tree": "b" * 40,
                 "object_format": "sha1",
                 "python": str((root / "venv/Scripts/python.exe").resolve()),
@@ -386,6 +460,8 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
         "identity": identity,
         "credential_receipt": credential_receipt,
         "credential_manifest": credential_manifest,
+        "accepted_economics": accepted_economics,
+        "economics_drift": economics_drift,
         "discovery": discovery,
         "inventory": inventory,
         "outer_template": outer_template,
@@ -406,6 +482,10 @@ def build_manifest(prepared, **overrides):
         "credential_reference_manifest_source_path": prepared[
             "credential_manifest"
         ],
+        "accepted_economics_snapshot_source_path": prepared[
+            "accepted_economics"
+        ],
+        "economics_drift_report_source_path": prepared["economics_drift"],
         "attempt_root": prepared["attempt"],
         "lease_workload": workload,
         "production_root": prepared["production"],
@@ -457,11 +537,15 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
         "identity",
         "credential_import_receipt",
         "credential_reference_manifest",
+        "accepted_economics_snapshot",
+        "economics_drift_report",
     }
     for role, source_key in {
         "identity": "identity",
         "credential_import_receipt": "credential_receipt",
         "credential_reference_manifest": "credential_manifest",
+        "accepted_economics_snapshot": "accepted_economics",
+        "economics_drift_report": "economics_drift",
     }.items():
         copied = Path(manifest["inputs"][role]["path"])
         assert copied.is_relative_to(prepared["attempt"])
@@ -470,6 +554,9 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     assert Path(receipt["staged_public_inputs"]["discovery_plan"]["path"]).read_bytes() == prepared[
         "discovery"
     ].read_bytes()
+    assert manifest["economics_acceptance"] == json.loads(
+        prepared["discovery"].read_text(encoding="utf-8")
+    )["economics_acceptance"]
     assert Path(receipt["build_receipt_path"]).is_file()
     launcher_receipt = launcher_sealer.prepare_fixed_session_launcher(
         manifest_path,
@@ -485,6 +572,123 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     )
     assert launcher_receipt["status"] == "PASS"
     assert launcher_receipt["session_manifest"]["sha256"] == sha(manifest_path)
+
+
+def test_manifest_builder_rejects_create_new_credential_evidence(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    receipt_path = prepared["credential_receipt"]
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["credential_mode"] = "create_new"
+    payload["credential_value_count_written"] = 4
+    payload["credential_value_count_existing_exact_verified"] = 0
+    payload["credential_store_mutation_attempted"] = True
+    write_json(receipt_path, payload)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="requires compare-only credential evidence",
+    ):
+        build_manifest(prepared)
+
+    assert list((prepared["attempt"] / "inputs").iterdir()) == []
+
+
+def test_manifest_builder_rejects_drift_report_not_bound_by_discovery(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    drift = prepared["economics_drift"]
+    payload = json.loads(drift.read_text(encoding="utf-8"))
+    payload["generated_at_utc"] = (
+        datetime.fromisoformat(payload["generated_at_utc"])
+        + timedelta(seconds=1)
+    ).isoformat()
+    write_json(drift, payload)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="economics acceptance does not match its source evidence",
+    ):
+        build_manifest(prepared)
+
+    assert list((prepared["attempt"] / "inputs").iterdir()) == []
+
+
+def test_manifest_builder_rejects_legacy_create_credential_evidence(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    receipt_path = prepared["credential_receipt"]
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = "mm_live_credential_import_receipt_v0.1"
+    payload["credential_value_count_written"] = 4
+    del payload["credential_mode"]
+    del payload["credential_value_count_existing_exact_verified"]
+    del payload["credential_store_mutation_attempted"]
+    write_json(receipt_path, payload)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="requires compare-only credential evidence",
+    ):
+        build_manifest(prepared)
+
+    assert list((prepared["attempt"] / "inputs").iterdir()) == []
+
+
+def test_launcher_revalidates_staged_compare_only_credential_evidence(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    build_receipt = build_manifest(prepared)
+    manifest_path = Path(build_receipt["session_manifest"]["path"])
+    build_receipt_path = Path(build_receipt["build_receipt_path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    staged_receipt_path = Path(
+        manifest["inputs"]["credential_import_receipt"]["path"]
+    )
+    credential_payload = json.loads(
+        staged_receipt_path.read_text(encoding="utf-8")
+    )
+    credential_payload["credential_mode"] = "create_new"
+    credential_payload["credential_value_count_written"] = 4
+    credential_payload["credential_value_count_existing_exact_verified"] = 0
+    credential_payload["credential_store_mutation_attempted"] = True
+    write_json(staged_receipt_path, credential_payload)
+    staged_receipt_sha256 = sha(staged_receipt_path)
+
+    manifest["inputs"]["credential_import_receipt"]["sha256"] = (
+        staged_receipt_sha256
+    )
+    manifest["manifest_sha256"] = runner._canonical_payload_sha256(manifest)
+    manifest_path.write_bytes(launcher_sealer._canonical_json(manifest))
+    sidecar_path = manifest_path.with_suffix(manifest_path.suffix + ".sha256")
+    sidecar_path.write_text(
+        f"{sha(manifest_path)}  {manifest_path.name}\n",
+        encoding="ascii",
+    )
+
+    receipt_payload = json.loads(build_receipt_path.read_text(encoding="utf-8"))
+    staged_record = receipt_payload["staged_public_inputs"][
+        "credential_import_receipt"
+    ]
+    staged_record["sha256"] = staged_receipt_sha256
+    staged_record["bytes"] = staged_receipt_path.stat().st_size
+    receipt_payload["session_manifest"]["sha256"] = sha(manifest_path)
+    receipt_payload["session_manifest"]["semantic_sha256"] = manifest[
+        "manifest_sha256"
+    ]
+    receipt_payload["session_manifest_sidecar"]["sha256"] = sha(sidecar_path)
+    build_receipt_path.write_bytes(
+        launcher_sealer._canonical_json(receipt_payload)
+    )
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="staged first-session credential evidence is not compare-only",
+    ):
+        prepare(
+            prepared["production"],
+            prepared["outer_template"],
+            manifest_path,
+            build_receipt_path,
+        )
+
+    assert list((prepared["attempt"] / "session").glob("*")) == []
 
 
 def test_launcher_rejects_rehashed_manifest_not_bound_by_builder_receipt(tmp_path):
@@ -765,6 +969,10 @@ def test_manifest_cli_has_no_typed_scope_or_ceiling_override_surface():
             "import.json",
             "--credential-reference-manifest-source",
             "references.json",
+            "--accepted-economics-snapshot-source",
+            "accepted-economics.json",
+            "--economics-drift-report-source",
+            "economics-drift.json",
             "--attempt-root",
             r"C:\attempt",
             "--lease-workload",

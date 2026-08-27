@@ -13,6 +13,7 @@ import json
 import math
 import time
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -28,6 +29,11 @@ from weather.market.market_making_preflight import (
 )
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
+from weather.market.mm_geographic_eligibility import (
+    GEOBLOCK_ENDPOINT,
+    MAX_RECEIPT_AGE_SECONDS,
+    validate_geographic_eligibility_receipt,
+)
 from weather.market.mm_official_adapter import (
     CONDITION_ID_RE,
     OFFICIAL_CLOB_DISTRIBUTION,
@@ -36,7 +42,7 @@ from weather.market.mm_official_adapter import (
 )
 from weather.market.mm_policy import bool_value, maybe_float, utc_now
 from weather.market.mm_credentials import stage0_client_identity_gate
-SCHEMA_VERSION = "mm_platform_bootstrap_v0.3"
+SCHEMA_VERSION = "mm_platform_bootstrap_v0.4"
 PLATFORM_ID = "polymarket_global"
 API_BASE_URL = "https://polymarket.com"
 CLOB_HOST = "https://clob.polymarket.com"
@@ -117,7 +123,11 @@ def collect_platform_bootstrap_payload(
     target_date,
     requested_budget_usdc,
     secret_hygiene,
+    expected_candidate_fee_rate,
+    expected_candidate_neg_risk,
+    pre_mutation_attestor,
     now=None,
+    utc_clock=None,
     monotonic_clock=None,
     sleeper=None,
     heartbeat_cadence_seconds=5.0,
@@ -211,9 +221,32 @@ def collect_platform_bootstrap_payload(
     if str(market_rules.get("token_id") or "") != str(adapter.token_id):
         raise RuntimeError("Stage 0 market rules do not match the adapter token")
     fee_evidence = adapter.fees()
-    fee_rate_bps = maybe_float(fee_evidence.get("fee_rate_bps"))
-    if fee_rate_bps is None or not math.isfinite(fee_rate_bps) or fee_rate_bps <= 0:
+    try:
+        candidate_fee_rate = Decimal(str(expected_candidate_fee_rate))
+        fee_rate_bps_decimal = Decimal(str(fee_evidence.get("fee_rate_bps")))
+        rules_fee_rate_bps = Decimal(str(market_rules.get("fee_rate_bps")))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise RuntimeError("Stage 0 candidate/current fee binding is invalid") from exc
+    if (
+        not candidate_fee_rate.is_finite()
+        or candidate_fee_rate <= 0
+        or not fee_rate_bps_decimal.is_finite()
+        or fee_rate_bps_decimal <= 0
+        or not rules_fee_rate_bps.is_finite()
+        or rules_fee_rate_bps != fee_rate_bps_decimal
+        or str(fee_evidence.get("token_id") or "") != str(adapter.token_id)
+    ):
         raise RuntimeError("Stage 0 selected market has no positive fee/rebate eligibility")
+    if not isinstance(expected_candidate_neg_risk, bool):
+        raise RuntimeError("Stage 0 candidate neg-risk binding is invalid")
+    if (
+        candidate_fee_rate != fee_rate_bps_decimal / Decimal("10000")
+        or market_rules.get("neg_risk") is not expected_candidate_neg_risk
+    ):
+        raise RuntimeError(
+            "Stage 0 current fee/neg-risk rules differ from the sealed candidate"
+        )
+    fee_rate_bps = float(fee_rate_bps_decimal)
 
     signed_preview = adapter.preview_signed_order(
         {
@@ -248,13 +281,39 @@ def collect_platform_bootstrap_payload(
     cadence = float(heartbeat_cadence_seconds)
     if not 0 < cadence <= 5:
         raise RuntimeError("Stage 0 heartbeat cadence must be in (0, 5] seconds")
+    if not callable(pre_mutation_attestor):
+        raise RuntimeError("Stage 0 requires the sealed pre-mutation attestor")
+    boundary_clock = utc_clock or (lambda: datetime.now(timezone.utc))
+    geographic_receipt = pre_mutation_attestor()
+
+    def require_fresh_mutation_geography():
+        return validate_geographic_eligibility_receipt(
+            geographic_receipt,
+            now=boundary_clock().astimezone(timezone.utc),
+            require_fresh=True,
+        )
+
+    geographic_receipt = require_fresh_mutation_geography()
+    mutation_geography = {
+        "status": geographic_receipt["status"],
+        "eligible": geographic_receipt["eligible"],
+        "endpoint": geographic_receipt["endpoint"],
+        "receipt_payload_sha256": geographic_receipt["receipt_payload_sha256"],
+        "checked_at_utc": geographic_receipt["checked_at_utc"],
+        "fresh_until_utc": geographic_receipt["fresh_until_utc"],
+        "freshness_max_age_seconds": geographic_receipt[
+            "freshness_max_age_seconds"
+        ],
+    }
     clock = monotonic_clock or time.monotonic
     sleep = sleeper or time.sleep
     try:
+        geographic_receipt = require_fresh_mutation_geography()
         first_started = clock()
         first = adapter.heartbeat()
         first_elapsed = clock() - first_started
         sleep(cadence)
+        geographic_receipt = require_fresh_mutation_geography()
         second_started = clock()
         second = adapter.heartbeat()
         second_elapsed = clock() - second_started
@@ -269,11 +328,13 @@ def collect_platform_bootstrap_payload(
             raise RuntimeError("Stage 0 did not prove two current heartbeat acknowledgments")
     except Exception:
         try:
+            geographic_receipt = require_fresh_mutation_geography()
             adapter.cancel_all()
         except Exception:
             pass
         raise
 
+    geographic_receipt = require_fresh_mutation_geography()
     cancel_response = adapter.cancel_all()
     if adapter.open_orders():
         raise RuntimeError("Stage 0 cancel-all was not followed by zero open orders")
@@ -347,12 +408,15 @@ def collect_platform_bootstrap_payload(
             "stage0_identity_verified": True,
         },
         "account_snapshot": account_snapshot,
+        "mutation_geographic_eligibility": mutation_geography,
         "market_snapshot": {
             "condition_id": str(adapter.condition_id).lower(),
             "token_id": str(adapter.token_id),
             "book_verified": True,
             "fee_eligibility_verified": True,
             "fee_rate_bps": fee_rate_bps,
+            "candidate_fee_rate": float(candidate_fee_rate),
+            "candidate_neg_risk": expected_candidate_neg_risk,
             "min_order_size": market_rules.get("min_order_size"),
             "tick_size": market_rules.get("tick_size"),
             "neg_risk": market_rules.get("neg_risk"),
@@ -501,6 +565,7 @@ def load_platform_bootstrap_gate(
     sdk = dict_value(payload, "sdk_contract")
     account = dict_value(payload, "account_snapshot")
     market = dict_value(payload, "market_snapshot")
+    mutation_geography = dict_value(payload, "mutation_geographic_eligibility")
     user_stream = dict_value(payload, "user_stream")
     final_journal_path_text = str(user_stream.get("journal_path") or "").strip()
     final_journal_sha256 = None
@@ -541,11 +606,30 @@ def load_platform_bootstrap_gate(
     position_count = maybe_float(account.get("position_count"))
     min_order_size = maybe_float(market.get("min_order_size"))
     tick_size = maybe_float(market.get("tick_size"))
+    fee_rate_bps = maybe_float(market.get("fee_rate_bps"))
+    candidate_fee_rate = maybe_float(market.get("candidate_fee_rate"))
+    candidate_neg_risk = market.get("candidate_neg_risk")
     token_id = str(market.get("token_id") or "").strip()
     condition_id = str(market.get("condition_id") or "").strip()
     wallet_topology_checks = pilot_wallet_identity_topology_checks(
         payload,
         wallet_identity,
+    )
+    try:
+        geography_checked = datetime.fromisoformat(
+            str(mutation_geography.get("checked_at_utc") or "").replace("Z", "+00:00")
+        ).astimezone(timezone.utc)
+        geography_fresh_until = datetime.fromisoformat(
+            str(mutation_geography.get("fresh_until_utc") or "").replace(
+                "Z", "+00:00"
+            )
+        ).astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        geography_checked = geography_fresh_until = datetime.min.replace(
+            tzinfo=timezone.utc
+        )
+    geography_hash = str(
+        mutation_geography.get("receipt_payload_sha256") or ""
     )
 
     checks = {
@@ -665,9 +749,41 @@ def load_platform_bootstrap_gate(
             market.get("fee_eligibility_verified"),
             False,
         ),
+        "market_fee_rate_positive": fee_rate_bps is not None and fee_rate_bps > 0,
+        "market_candidate_fee_matches_current": (
+            candidate_fee_rate is not None
+            and candidate_fee_rate > 0
+            and fee_rate_bps is not None
+            and candidate_fee_rate == fee_rate_bps / 10000
+        ),
         "market_min_order_size_valid": min_order_size is not None and min_order_size > 0,
         "market_tick_size_valid": tick_size is not None and 0 < tick_size < 1,
         "market_neg_risk_recorded": isinstance(market.get("neg_risk"), bool),
+        "market_candidate_neg_risk_matches_current": (
+            isinstance(candidate_neg_risk, bool)
+            and market.get("neg_risk") is candidate_neg_risk
+        ),
+        "mutation_geography_exact": (
+            set(mutation_geography)
+            == {
+                "status",
+                "eligible",
+                "endpoint",
+                "receipt_payload_sha256",
+                "checked_at_utc",
+                "fresh_until_utc",
+                "freshness_max_age_seconds",
+            }
+            and mutation_geography.get("status") == "PASS"
+            and mutation_geography.get("eligible") is True
+            and mutation_geography.get("endpoint") == GEOBLOCK_ENDPOINT
+            and len(geography_hash) == 64
+            and all(character in "0123456789abcdef" for character in geography_hash)
+            and mutation_geography.get("freshness_max_age_seconds")
+            == MAX_RECEIPT_AGE_SECONDS
+            and geography_fresh_until - geography_checked
+            == timedelta(seconds=MAX_RECEIPT_AGE_SECONDS)
+        ),
         "user_stream_account_wide_request_recorded": bool_value(
             user_stream.get("account_wide_subscription_sent"),
             False,
@@ -775,6 +891,11 @@ def load_platform_bootstrap_gate(
         "account_snapshot_sha256": account.get("snapshot_sha256"),
         "condition_id": condition_id,
         "token_id": token_id,
+        "fee_rate_bps": fee_rate_bps,
+        "candidate_fee_rate": candidate_fee_rate,
+        "neg_risk": market.get("neg_risk"),
+        "candidate_neg_risk": candidate_neg_risk,
+        "mutation_geographic_eligibility": dict(mutation_geography),
         "checks": checks,
         "missing": missing,
         "reason": "ok" if not missing else "platform bootstrap proof missing: " + ", ".join(missing),

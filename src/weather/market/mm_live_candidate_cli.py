@@ -21,8 +21,13 @@ from pathlib import Path
 
 from weather.io import write_json_atomic
 from weather.market.exchange_economics import (
+    CURRENT_EVIDENCE_BASIS,
+    DRIFT_SCHEMA_VERSION,
+    SNAPSHOT_SCHEMA_VERSION,
+    build_drift_report,
     load_exchange_economics_gate,
     snapshot_hash,
+    snapshot_id,
 )
 from weather.market.market_config import ensure_date
 from weather.market.market_microstructure_capture import ClobClient
@@ -49,6 +54,51 @@ MAX_EVENT_NOTIONAL_PUSD = Decimal("25")
 MAX_BAND_NOTIONAL_PUSD = Decimal("10")
 MAX_PAPER_QUOTE_SIZE = Decimal("5")
 PAPER_PROFILE = "market_harvest"
+ECONOMICS_ACCEPTANCE_ACKNOWLEDGMENT_PREFIX = (
+    "I_ACCEPT_REVIEWED_INTERNATIONAL_ECONOMICS_BASELINE"
+)
+ECONOMICS_ACCEPTANCE_KEYS = {
+    "accepted_at_utc",
+    "accepted_snapshot_file_sha256",
+    "accepted_snapshot_id",
+    "accepted_snapshot_sha256",
+    "drift_generated_at_utc",
+    "drift_report_file_sha256",
+    "drift_status",
+    "operator_acknowledgment",
+    "operator_acknowledgment_matches_candidate",
+    "required_operator_acknowledgment",
+    "rescore_required",
+}
+ACCEPTED_GATE_KEYS = {
+    "status",
+    "evidence_basis",
+    "snapshot_id",
+    "snapshot_hash",
+    "source_hash",
+    "verified_at_utc",
+    "verified_for_target_date",
+    "payout_asset_conflict_acknowledged",
+}
+DRIFT_REPORT_KEYS = {
+    "schema_version",
+    "generated_at_utc",
+    "status",
+    "target_date",
+    "platform",
+    "snapshot_path",
+    "accepted_snapshot_path",
+    "current_gate",
+    "current_snapshot_id",
+    "current_snapshot_hash",
+    "accepted_snapshot_id",
+    "accepted_snapshot_hash",
+    "accepted_snapshot_present",
+    "material_change_count",
+    "material_changes",
+    "rescore_required",
+    "blockers",
+}
 
 
 def _canonical_sha256(payload):
@@ -100,6 +150,320 @@ def _is_sha256(value):
         and len(value) == 64
         and all(character in "0123456789abcdef" for character in value)
     )
+
+
+def _read_json_object(path, *, label):
+    source = Path(path).resolve()
+    try:
+        raw = source.read_bytes()
+        payload = json.loads(raw.decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise RuntimeError(f"{label} is not readable JSON") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"{label} must be a JSON object")
+    return source, payload, raw
+
+
+def economics_acceptance_acknowledgment(
+    target_date,
+    condition_id,
+    token_id,
+    *,
+    accepted_snapshot_file_sha256,
+    drift_report_file_sha256,
+):
+    """Return the exact informed-acceptance literal for one candidate and date."""
+
+    target = ensure_date(target_date).isoformat()
+    condition = str(condition_id or "").lower()
+    token = str(token_id or "")
+    if not (
+        len(condition) == 66
+        and condition.startswith("0x")
+        and all(character in "0123456789abcdef" for character in condition[2:])
+        and token
+        and token[0] in "123456789"
+        and all(character in "0123456789" for character in token)
+        and _is_sha256(accepted_snapshot_file_sha256)
+        and _is_sha256(drift_report_file_sha256)
+    ):
+        raise RuntimeError("economics acceptance scope or evidence hash is invalid")
+    return "|".join(
+        (
+            ECONOMICS_ACCEPTANCE_ACKNOWLEDGMENT_PREFIX,
+            target,
+            condition,
+            token,
+            str(accepted_snapshot_file_sha256),
+            str(drift_report_file_sha256),
+        )
+    )
+
+
+def load_economics_acceptance_evidence(
+    economics_snapshot,
+    accepted_economics_snapshot,
+    economics_drift_report,
+    target_date,
+    *,
+    now=None,
+):
+    """Validate an exact human-accepted baseline and its current no-drift proof."""
+
+    target = ensure_date(target_date).isoformat()
+    current_path, current, current_raw = _read_json_object(
+        economics_snapshot,
+        label="current economics snapshot",
+    )
+    accepted_path, accepted, accepted_raw = _read_json_object(
+        accepted_economics_snapshot,
+        label="accepted economics snapshot",
+    )
+    drift_path, drift, drift_raw = _read_json_object(
+        economics_drift_report,
+        label="economics drift report",
+    )
+    current_gate = load_exchange_economics_gate(
+        current_path,
+        target,
+        platform=PLATFORM,
+        now=now,
+        max_age_hours=2,
+    )
+    accepted_gate = load_exchange_economics_gate(
+        accepted_path,
+        target,
+        platform=PLATFORM,
+        now=now,
+        max_age_hours=2,
+    )
+    acceptance_gate = accepted.get("accepted_gate")
+    if not isinstance(acceptance_gate, dict):
+        raise RuntimeError("accepted economics snapshot has no acceptance gate")
+    try:
+        accepted_at = _parse_utc(accepted.get("accepted_at_utc"))
+        drift_generated = _parse_utc(drift.get("generated_at_utc"))
+    except RuntimeError as exc:
+        raise RuntimeError("economics acceptance timestamps are invalid") from exc
+    current_time = utc_now(now)
+    accepted_hash = snapshot_hash(accepted)
+    accepted_identifier = snapshot_id(accepted)
+    current_hash = snapshot_hash(current)
+    current_identifier = snapshot_id(current)
+    recomputed = build_drift_report(
+        current_path,
+        accepted_path,
+        target_date=target,
+        platform=PLATFORM,
+        now=now,
+        max_age_hours=2,
+    )
+    try:
+        report_snapshot_path_matches = (
+            Path(str(drift.get("snapshot_path") or "")).resolve() == current_path
+        )
+        report_accepted_path_matches = (
+            Path(str(drift.get("accepted_snapshot_path") or "")).resolve()
+            == accepted_path
+        )
+    except (OSError, RuntimeError, ValueError):
+        report_snapshot_path_matches = report_accepted_path_matches = False
+    checks = {
+        "current_gate": current_gate.get("ok") is True,
+        "accepted_current_gate": accepted_gate.get("ok") is True,
+        "accepted_schema": accepted.get("schema_version") == SNAPSHOT_SCHEMA_VERSION,
+        "accepted_gate_shape": set(acceptance_gate) == ACCEPTED_GATE_KEYS,
+        "accepted_gate_pass": (
+            acceptance_gate.get("status") == "PASS"
+            and acceptance_gate.get("evidence_basis") == CURRENT_EVIDENCE_BASIS
+        ),
+        "accepted_gate_identity": (
+            acceptance_gate.get("snapshot_id") == accepted_identifier
+            and acceptance_gate.get("snapshot_hash") == accepted_hash
+            and acceptance_gate.get("source_hash") == accepted.get("source_hash")
+            and acceptance_gate.get("verified_at_utc")
+            == accepted.get("verified_at_utc")
+            and acceptance_gate.get("verified_for_target_date")
+            == accepted.get("verified_for_target_date")
+        ),
+        "accepted_conflict_acknowledgment": (
+            isinstance(
+                acceptance_gate.get("payout_asset_conflict_acknowledged"), bool
+            )
+            and (
+                (accepted.get("maker_rebate") or {}).get(
+                    "documentation_asset_terms_conflict"
+                )
+                is not True
+                or acceptance_gate.get("payout_asset_conflict_acknowledged") is True
+            )
+        ),
+        "accepted_timestamp": accepted_at <= current_time,
+        "drift_timestamp": accepted_at <= drift_generated <= current_time,
+        "drift_shape": set(drift) == DRIFT_REPORT_KEYS,
+        "drift_schema": drift.get("schema_version") == DRIFT_SCHEMA_VERSION,
+        "drift_scope": (
+            drift.get("target_date") == target
+            and drift.get("platform") == PLATFORM
+            and report_snapshot_path_matches
+            and report_accepted_path_matches
+        ),
+        "drift_pass": (
+            drift.get("status") == "PASS"
+            and drift.get("rescore_required") is False
+            and drift.get("accepted_snapshot_present") is True
+            and type(drift.get("material_change_count")) is int
+            and drift.get("material_change_count") == 0
+            and drift.get("material_changes") == []
+            and drift.get("blockers") == []
+        ),
+        "drift_identity": (
+            drift.get("current_snapshot_id") == current_identifier
+            and drift.get("current_snapshot_hash") == current_hash
+            and drift.get("accepted_snapshot_id") == accepted_identifier
+            and drift.get("accepted_snapshot_hash") == accepted_hash
+            and current_identifier == accepted_identifier
+            and current_hash == accepted_hash
+        ),
+        "drift_current_gate": (
+            isinstance(drift.get("current_gate"), dict)
+            and drift["current_gate"].get("ok") is True
+            and drift["current_gate"].get("status") == "PASS"
+            and drift["current_gate"].get("missing") == []
+            and drift["current_gate"].get("snapshot_id") == current_identifier
+            and drift["current_gate"].get("snapshot_hash") == current_hash
+        ),
+        "recomputed_drift": (
+            recomputed.get("status") == "PASS"
+            and recomputed.get("rescore_required") is False
+            and recomputed.get("material_change_count") == 0
+            and recomputed.get("material_changes") == []
+            and recomputed.get("blockers") == []
+            and recomputed.get("current_snapshot_id") == current_identifier
+            and recomputed.get("accepted_snapshot_id") == accepted_identifier
+            and recomputed.get("current_snapshot_hash") == current_hash
+            and recomputed.get("accepted_snapshot_hash") == accepted_hash
+        ),
+        "current_stable": current_path.read_bytes() == current_raw,
+        "accepted_stable": accepted_path.read_bytes() == accepted_raw,
+        "drift_stable": drift_path.read_bytes() == drift_raw,
+    }
+    missing = sorted(name for name, passed in checks.items() if not passed)
+    if missing:
+        raise RuntimeError(
+            "economics baseline acceptance gate failed: " + ", ".join(missing)
+        )
+    return {
+        "accepted_at_utc": accepted_at.isoformat(),
+        "accepted_snapshot_file_sha256": hashlib.sha256(accepted_raw).hexdigest(),
+        "accepted_snapshot_id": accepted_identifier,
+        "accepted_snapshot_sha256": accepted_hash,
+        "drift_generated_at_utc": drift_generated.isoformat(),
+        "drift_report_file_sha256": hashlib.sha256(drift_raw).hexdigest(),
+        "drift_status": "PASS",
+        "rescore_required": False,
+    }
+
+
+def validate_bound_economics_acceptance_files(
+    accepted_economics_snapshot,
+    economics_drift_report,
+    binding,
+    *,
+    target_date,
+    current_snapshot_id,
+    current_snapshot_sha256,
+):
+    """Revalidate staged acceptance files against one candidate-plan binding."""
+
+    accepted_path, accepted, accepted_raw = _read_json_object(
+        accepted_economics_snapshot,
+        label="bound accepted economics snapshot",
+    )
+    drift_path, drift, drift_raw = _read_json_object(
+        economics_drift_report,
+        label="bound economics drift report",
+    )
+    acceptance_gate = accepted.get("accepted_gate")
+    candidate_binding = dict(binding) if isinstance(binding, dict) else {}
+    target = ensure_date(target_date).isoformat()
+    accepted_hash = snapshot_hash(accepted)
+    accepted_identifier = snapshot_id(accepted)
+    checks = {
+        "binding_shape": set(candidate_binding) == ECONOMICS_ACCEPTANCE_KEYS,
+        "accepted_schema": accepted.get("schema_version") == SNAPSHOT_SCHEMA_VERSION,
+        "accepted_gate_shape": (
+            isinstance(acceptance_gate, dict)
+            and set(acceptance_gate) == ACCEPTED_GATE_KEYS
+        ),
+        "accepted_gate": (
+            isinstance(acceptance_gate, dict)
+            and acceptance_gate.get("status") == "PASS"
+            and acceptance_gate.get("evidence_basis") == CURRENT_EVIDENCE_BASIS
+            and acceptance_gate.get("snapshot_id") == accepted_identifier
+            and acceptance_gate.get("snapshot_hash") == accepted_hash
+            and acceptance_gate.get("source_hash") == accepted.get("source_hash")
+        ),
+        "accepted_conflict_acknowledgment": (
+            isinstance(acceptance_gate, dict)
+            and isinstance(
+                acceptance_gate.get("payout_asset_conflict_acknowledged"), bool
+            )
+            and (
+                (accepted.get("maker_rebate") or {}).get(
+                    "documentation_asset_terms_conflict"
+                )
+                is not True
+                or acceptance_gate.get("payout_asset_conflict_acknowledged") is True
+            )
+        ),
+        "accepted_file": (
+            candidate_binding.get("accepted_snapshot_file_sha256")
+            == hashlib.sha256(accepted_raw).hexdigest()
+            and candidate_binding.get("accepted_snapshot_id")
+            == accepted_identifier
+            == current_snapshot_id
+            and candidate_binding.get("accepted_snapshot_sha256")
+            == accepted_hash
+            == current_snapshot_sha256
+            and candidate_binding.get("accepted_at_utc")
+            == str(accepted.get("accepted_at_utc"))
+        ),
+        "drift_file": (
+            candidate_binding.get("drift_report_file_sha256")
+            == hashlib.sha256(drift_raw).hexdigest()
+            and candidate_binding.get("drift_generated_at_utc")
+            == str(drift.get("generated_at_utc"))
+        ),
+        "drift_shape": set(drift) == DRIFT_REPORT_KEYS,
+        "drift_pass": (
+            drift.get("schema_version") == DRIFT_SCHEMA_VERSION
+            and drift.get("status") == candidate_binding.get("drift_status") == "PASS"
+            and drift.get("target_date") == target
+            and drift.get("platform") == PLATFORM
+            and drift.get("rescore_required")
+            is candidate_binding.get("rescore_required")
+            is False
+            and drift.get("accepted_snapshot_present") is True
+            and drift.get("material_change_count") == 0
+            and drift.get("material_changes") == []
+            and drift.get("blockers") == []
+        ),
+        "drift_identity": (
+            drift.get("current_snapshot_id") == current_snapshot_id
+            and drift.get("current_snapshot_hash") == current_snapshot_sha256
+            and drift.get("accepted_snapshot_id") == accepted_identifier
+            and drift.get("accepted_snapshot_hash") == accepted_hash
+        ),
+        "accepted_stable": accepted_path.read_bytes() == accepted_raw,
+        "drift_stable": drift_path.read_bytes() == drift_raw,
+    }
+    missing = sorted(name for name, passed in checks.items() if not passed)
+    if missing:
+        raise RuntimeError(
+            "bound economics acceptance files failed: " + ", ".join(missing)
+        )
+    return dict(candidate_binding)
 
 
 def _scan_hashed_csv(path, visitor):
@@ -378,8 +742,11 @@ def select_live_pilot_candidate(
     target_date,
     plan_out,
     *,
+    accepted_economics_snapshot,
+    economics_drift_report,
     paper_run_config,
     paper_quote_intents,
+    economics_baseline_acknowledgment=None,
     expected_condition_id=None,
     expected_token_id=None,
     now=None,
@@ -416,6 +783,7 @@ def select_live_pilot_candidate(
         "exchange_economics_sha256": gate.get("exchange_economics_hash"),
         "economics_gate_ok": gate.get("ok") is True,
         "economics_gate_missing": list(gate.get("missing") or []),
+        "economics_acceptance": None,
         "selection_is_trading_authorization": False,
         "secret_values_retained": False,
         "selection_policy": {
@@ -448,6 +816,19 @@ def select_live_pilot_candidate(
     snapshot = json.loads(Path(economics_snapshot).read_text(encoding="utf-8-sig"))
     if snapshot_hash(snapshot) != gate.get("exchange_economics_hash"):
         raise RuntimeError("economics snapshot changed after validation")
+    acceptance = load_economics_acceptance_evidence(
+        economics_snapshot,
+        accepted_economics_snapshot,
+        economics_drift_report,
+        target_text,
+        now=now,
+    )
+    base["economics_acceptance"] = {
+        **acceptance,
+        "operator_acknowledgment": None,
+        "operator_acknowledgment_matches_candidate": False,
+        "required_operator_acknowledgment": None,
+    }
     paper_evidence = _load_paper_quote_evidence(
         paper_run_config,
         paper_quote_intents,
@@ -501,12 +882,36 @@ def select_live_pilot_candidate(
     ))
     base["candidate_count"] = len(candidates)
     if candidates:
-        base["status"] = "PASS"
         base["selected"] = candidates[0]
         base["alternates"] = candidates[1:1 + MAX_ALTERNATES]
         paper_expiry = _parse_utc(candidates[0]["paper_quote_proof"]["expires_at_utc"])
         ordinary_expiry = created_at + timedelta(seconds=MAX_PLAN_AGE_SECONDS)
         base["expires_at_utc"] = min(ordinary_expiry, paper_expiry).isoformat()
+        required_acknowledgment = economics_acceptance_acknowledgment(
+            target_text,
+            candidates[0]["condition_id"],
+            candidates[0]["token_id"],
+            accepted_snapshot_file_sha256=acceptance[
+                "accepted_snapshot_file_sha256"
+            ],
+            drift_report_file_sha256=acceptance["drift_report_file_sha256"],
+        )
+        matched = economics_baseline_acknowledgment == required_acknowledgment
+        base["economics_acceptance"].update(
+            {
+                "operator_acknowledgment": (
+                    required_acknowledgment if matched else None
+                ),
+                "operator_acknowledgment_matches_candidate": matched,
+                "required_operator_acknowledgment": required_acknowledgment,
+            }
+        )
+        if matched:
+            base["status"] = "PASS"
+        else:
+            base["missing"] = [
+                "explicit_candidate_economics_baseline_acknowledgment"
+            ]
     else:
         base["missing"] = ["current_paper_proved_safe_fee_eligible_book_candidate"]
     base["plan_sha256"] = candidate_plan_sha256(base)
@@ -542,6 +947,10 @@ def _load_candidate_plan_gate(
     evidence = dict(evidence_value) if isinstance(evidence_value, dict) else {}
     policy_value = payload.get("selection_policy")
     policy = dict(policy_value) if isinstance(policy_value, dict) else {}
+    acceptance_value = payload.get("economics_acceptance")
+    acceptance = (
+        dict(acceptance_value) if isinstance(acceptance_value, dict) else {}
+    )
     expected_scope_value = policy.get("expected_bootstrap_scope")
     expected_scope = (
         dict(expected_scope_value) if isinstance(expected_scope_value, dict) else {}
@@ -560,10 +969,14 @@ def _load_candidate_plan_gate(
         expires = _parse_utc(payload.get("expires_at_utc"))
         paper_generated = _parse_utc(paper.get("generated_at_utc"))
         paper_expires = _parse_utc(paper.get("expires_at_utc"))
-    except RuntimeError:
-        created = expires = paper_generated = paper_expires = datetime.min.replace(
-            tzinfo=timezone.utc
+        accepted_at = _parse_utc(acceptance.get("accepted_at_utc"))
+        drift_generated = _parse_utc(
+            acceptance.get("drift_generated_at_utc")
         )
+    except RuntimeError:
+        invalid_time = datetime.min.replace(tzinfo=timezone.utc)
+        created = expires = paper_generated = paper_expires = invalid_time
+        accepted_at = drift_generated = invalid_time
     paper_ttl = _decimal(paper.get("quote_ttl_seconds"))
     notional = _decimal(intent.get("notional_pusd"))
     price = _decimal(intent.get("price"))
@@ -618,7 +1031,7 @@ def _load_candidate_plan_gate(
         "schema_version", "status", "created_at_utc", "expires_at_utc",
         "target_date", "platform", "settlement_unit",
         "exchange_economics_snapshot_id", "exchange_economics_sha256",
-        "economics_gate_ok", "economics_gate_missing",
+        "economics_gate_ok", "economics_gate_missing", "economics_acceptance",
         "selection_is_trading_authorization", "secret_values_retained",
         "selection_policy", "paper_quote_evidence", "candidate_count",
         "selected", "alternates", "missing", "plan_sha256",
@@ -687,6 +1100,20 @@ def _load_candidate_plan_gate(
             and str(expected_scope.get("token_id") or "") == token
         )
         scope_check_name = "constrained_scope"
+    try:
+        required_acceptance = economics_acceptance_acknowledgment(
+            expected_target,
+            condition,
+            token,
+            accepted_snapshot_file_sha256=acceptance.get(
+                "accepted_snapshot_file_sha256"
+            ),
+            drift_report_file_sha256=acceptance.get(
+                "drift_report_file_sha256"
+            ),
+        )
+    except (RuntimeError, TypeError, ValueError):
+        required_acceptance = ""
     paper_quote_shape = (
         paper_bid is not None
         and paper_ask is not None
@@ -766,12 +1193,14 @@ def _load_candidate_plan_gate(
             and isinstance(intent_value, dict)
             and isinstance(evidence_value, dict)
             and isinstance(policy_value, dict)
+            and isinstance(acceptance_value, dict)
             and set(payload) == top_level_keys
             and set(selected) == selected_keys
             and set(paper) == paper_keys
             and set(policy) == policy_keys
             and set(evidence) == evidence_keys
             and set(intent) == intent_keys
+            and set(acceptance) == ECONOMICS_ACCEPTANCE_KEYS
         ),
         "schema": payload.get("schema_version") == SCHEMA_VERSION,
         "status": payload.get("status") == "PASS",
@@ -794,6 +1223,20 @@ def _load_candidate_plan_gate(
             and len(economics_hash) == 32
             and all(character in "0123456789abcdef" for character in economics_hash)
             and economics_id == f"xecon-{economics_hash[:16]}"
+        ),
+        "economics_acceptance": (
+            acceptance.get("accepted_snapshot_id") == economics_id
+            and acceptance.get("accepted_snapshot_sha256") == economics_hash
+            and _is_sha256(acceptance.get("accepted_snapshot_file_sha256"))
+            and _is_sha256(acceptance.get("drift_report_file_sha256"))
+            and acceptance.get("drift_status") == "PASS"
+            and acceptance.get("rescore_required") is False
+            and acceptance.get("operator_acknowledgment_matches_candidate") is True
+            and bool(required_acceptance)
+            and acceptance.get("required_operator_acknowledgment")
+            == required_acceptance
+            and acceptance.get("operator_acknowledgment") == required_acceptance
+            and accepted_at <= drift_generated <= created
         ),
         "created": created <= current,
         "current": current < expires and current < paper_expires,
@@ -905,9 +1348,12 @@ def _load_candidate_plan_gate(
         "paper_run_config_sha256": evidence["run_config_sha256"],
         "paper_quote_intents_sha256": evidence["quote_intents_sha256"],
         "paper_quote_row_sha256": paper["quote_row_sha256"],
+        "economics_acceptance": dict(acceptance),
         "stage1_intent": dict(intent),
         "tick_size": float(tick_size),
         "order_min_size": float(min_size),
+        "fee_rate": float(fee_rate),
+        "neg_risk": selected["neg_risk"],
     }
 
 
@@ -941,6 +1387,15 @@ def load_stage1_candidate_gate(
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--economics-snapshot", required=True)
+    parser.add_argument("--accepted-economics-snapshot", required=True)
+    parser.add_argument("--economics-drift-report", required=True)
+    parser.add_argument(
+        "--economics-baseline-acknowledgment",
+        help=(
+            "exact candidate/date/evidence-bound literal emitted by a prior "
+            "review-only selector plan after informed operator review"
+        ),
+    )
     parser.add_argument("--target-date", required=True)
     parser.add_argument("--paper-run-config", required=True)
     parser.add_argument("--paper-quote-intents", required=True)
@@ -957,8 +1412,13 @@ def main(argv=None):
             args.economics_snapshot,
             args.target_date,
             args.plan_out,
+            accepted_economics_snapshot=args.accepted_economics_snapshot,
+            economics_drift_report=args.economics_drift_report,
             paper_run_config=args.paper_run_config,
             paper_quote_intents=args.paper_quote_intents,
+            economics_baseline_acknowledgment=(
+                args.economics_baseline_acknowledgment
+            ),
             expected_condition_id=args.expected_condition_id,
             expected_token_id=args.expected_token_id,
         )

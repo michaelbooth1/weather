@@ -23,12 +23,15 @@ the exact current production tip from Git and
 Their integration receipts grant no credential or live-exchange authority, and
 no Stage 0 or Stage 1 session has run.
 
-**Stage 0/1 execution is currently HOLD.** Before the first session, land and
-re-prove the explicit 00:30-09:00 live-window guard, the truthful Stage 0
-authenticated-write confirmation contract, the canonical fixed-session
-manifest builder, and the dated Stage 0/1-only substitute-gate decision below.
-The fixed-session manifest builder and operator decision are preparation only.
-Neither is temporal, credential, exchange-mutation, or trading authorization.
+**Stage 0/1 execution is currently HOLD.** The explicit 00:30-09:00 live-window
+guard, truthful Stage 0 authenticated-write confirmation contract, and
+canonical fixed-session manifest builder are implemented by the fixed-scope
+software described here; before the first session, use
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) to prove that exact code is adopted in
+production and has received exact-tip reproof. The fixed-session manifest
+builder and dated Stage 0/1-only substitute-gate decision below are preparation
+only. Neither is temporal, credential, exchange-mutation, or trading
+authorization.
 
 **Geographic eligibility is an action-time fact, not a repository or timezone
 inference.** This repository does not assert the operator's or execution host's
@@ -51,7 +54,8 @@ collateral balance or treating an unwrapped asset as pUSD.
 
 - Dedicated isolated wallet funded with no more than **100 pUSD**
   of the exchange-supported settlement collateral verified during preflight.
-- Requested run budget no more than the wallet cap and no more than **100**.
+- The first Stage 0/1 request is exactly **10 pUSD**. Any later authorized run
+  budget must remain no more than its wallet cap and no more than **100 pUSD**.
 - Exactly one weather market per run.
 - Existing ceilings may be lowered but not raised: **25** daily loss, **25**
   event notional, **10** band notional, and **120 seconds** quote TTL.
@@ -75,16 +79,16 @@ All must be current for the target date and selected market:
 1. Continuous execution capture is running and has produced rows. This remains
    ahead of the paper harvest lane in the approved sequence.
 2. The International economics snapshot passes and matches the live platform.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.3` passes for
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.4` passes for
    the exact token and condition. This non-order, at-most-one-hour-old artifact
    proves the isolated wallet identity, recorded cap, numeric collateral
    balance and allowance each backing the requested budget, a content-bound
-   account snapshot, an observed zero open-order count, current
-   book/min size/tick/neg-risk, market fee
+   account snapshot, an observed zero open-order count, fresh pre-mutation
+   geographic eligibility, current book/min size/tick/neg-risk, market fee
    eligibility, a non-posting signed-order preview bound to the exact EOA/API
    owner, order signer, funder/maker, signature type, and token (raw signature
-   discarded), account-wide
-   user stream, two current bodyless heartbeat acknowledgments,
+   discarded), account-wide user stream, two current bodyless heartbeat
+   acknowledgments,
    cancel-all-to-zero, SDK contract, and secret hygiene. It cannot authorize a
    general maker run.
 4. Credential references are present outside the repository. The API key,
@@ -112,8 +116,9 @@ All must be current for the target date and selected market:
    book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
    seconds.
 6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; production
-   adoption pending.** The general readiness prerequisite is circular for the
-   evidence-generating probes because `mm_platform_verification_v0.5` embeds
+   adoption must be proved from `STATE_OF_PLAY.md`.** The general readiness
+   prerequisite is circular for the evidence-generating probes because
+   `mm_platform_verification_v0.6` embeds
    both Stage 1 lifecycle proofs. For Stage 0/1 only, the operator approved the
    following exact non-circular substitute gates: current exact-tip production
    inventory; public credential references; target-date public book, paper, and
@@ -122,10 +127,11 @@ All must be current for the target date and selected market:
    reboot, and workload-lease health; zero unknown open orders and zero starting
    positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
    eligibility; and every stage-specific, hash-bound attended confirmation.
-   This decision is not self-executing and cannot clear the HOLD until this
-   complete branch lands and receives exact-tip reproof. The ordinary maker-run
-   live-readiness, target-date data-layer, production release, full risk, and
-   v0.5 platform gates remain unchanged for Stage 2.
+   This decision is not self-executing and cannot clear the HOLD until the
+   complete implementation is production-adopted and receives exact-tip
+   reproof. The ordinary maker-run live-readiness, target-date data-layer,
+   production release, full risk, and v0.6 platform gates remain unchanged for
+   Stage 2.
 7. A simultaneous one-market paper counterfactual has quote permission and is
    writing auditable artifacts. The separately authorized route is:
 
@@ -164,8 +170,9 @@ All must be current for the target date and selected market:
 9. Geographic eligibility passes immediately before credential resolution and
    again submit-adjacent for Stage 1. Query the official public
    `GET https://polymarket.com/api/geoblock` endpoint, retain only
-   `blocked/country/region`, observation time, and response hash (never the IP),
-   and require `blocked=false`. Separately require the attended operator to
+   `blocked/country/region`, observation time, and a redacted decision hash
+   (never the IP or a reversible IP commitment), and require `blocked=false`.
+   Separately require the attended operator to
    attest that the operator and execution host are physically in an eligible
    location and that no VPN, proxy, remote-location service, or other
    circumvention is in use. An unavailable endpoint, `blocked=true`, a
@@ -174,12 +181,32 @@ All must be current for the target date and selected market:
    [geographic-restrictions API](https://docs.polymarket.com/api-reference/geoblock)
    and [current geographic-restrictions policy](https://help.polymarket.com/en/articles/13364163-geographic-restrictions).
 
+   The sealed implementation is
+   `weather.market.mm_geographic_eligibility`. Each check sends an uncached,
+   credential-free request to that exact endpoint and writes a create-only
+   `mm_geographic_eligibility_receipt_v0.1` with a 60-second freshness window,
+   the raw response byte count, a recomputable hash of the retained
+   `blocked/country/region` decision, and a self-hash over the complete receipt.
+   It validates the returned source address but never retains that address.
+   The attended literal is
+   `INTERNATIONAL_POLYMARKET_PHYSICALLY_PRESENT_IN_ELIGIBLE_JURISDICTION_NO_VPN_PROXY_REMOTE_HOST_OR_CIRCUMVENTION`.
+   Refusing or mistyping it blocks before live mutation. Stage 0 writes distinct
+   precredential and pre-mutation receipts; each Stage 1 mode writes distinct
+   precredential and submit-adjacent receipts. All are sealed output paths,
+   source-hash-bound execution artifacts. Any failed check spends its receipt
+   namespace and requires review rather than an in-place overwrite. The sealed
+   Stage 1 attestor returns the submit-adjacent PASS receipt to the lifecycle;
+   after the fresh rules and collateral calls, the lifecycle recomputes its
+   self-hash and freshness immediately before the order-submit boundary. A
+   missing attestor, malformed receipt, or receipt that expires while those
+   calls run blocks before `place_order`.
+
 ## Staged protocol
 
 ### Stage 0: no-order account proof
 
 Stage 0 never submits an order, but it does send authenticated heartbeat and
-cancel-all/cleanup writes. Its v0.2 command, v0.4 execution, and v0.3 session-run
+cancel-all/cleanup writes. Its v0.2 command, v0.5 execution, and v0.3 session-run
 receipts therefore record `order_submit_attempted=false` separately from
 `authenticated_exchange_write_attempted=true`; generic exchange mutation is
 also true. Calling Stage 0 fully read-only is incorrect.
@@ -211,12 +238,24 @@ also true. Calling Stage 0 fully read-only is incorrect.
   seconds disarms placement.
 - Submit one far-from-mid, smallest-valid, post-only buy with notional no more
   than the band cap.
+- After the pre-submit host attestor, force an uncached authenticated collateral
+  balance/allowance read. The balance must back the exact 10 pUSD request and
+  remain at or below the isolated-wallet 100 pUSD funding cap; the minimum
+  allowance must back 10 pUSD. Record the normalized snapshot hash before
+  submit, refresh again after cancellation, and require exact balance/allowance
+  hash equality for a no-fill result.
 - Require both the placement response and authenticated stream/open-order
   observation.
 - Treat every scoped trade lifecycle state, including `MATCHED`, `MINED`, and
   `RETRYING`, as an unexpected Stage 1 outcome. Send cancel-all, reconcile, and
   stop; zero positions from a potentially lagging account API is not sufficient
   no-fill evidence.
+- A cancellation event is terminal no-fill evidence only when it carries an
+  exact zero `size_matched`. Missing, invalid, or nonzero matched size fails.
+  Continue observing the authoritative stream for a bounded post-cancel
+  quiescence interval, then require the authenticated REST order to be terminal
+  with zero matched size and no associated trade, plus an exact-scope account
+  trade listing with no row for the order.
 - Continue the bodyless heartbeat at no more than five-second intervals during
   placement and observation. Before either cancellation proof, acknowledge one
   fresh heartbeat and prove the order is still open. Otherwise a slow
@@ -236,24 +275,26 @@ also true. Calling Stage 0 fully read-only is incorrect.
   reconcile, stop, and do not let the attempt authorize Stage 2.
 - Repeat with one order, invoke cancel-all, and require zero open orders.
 
-This stage is a successful live test even if no fill occurs.
+This stage is a successful live test only if no fill occurs and every required
+stream, REST, collateral, cancellation, and final-state proof passes.
 
 After both distinct probes pass, construct
-`mm_stage1_lifecycle_bundle_v0.2` with
+`mm_stage1_lifecycle_bundle_v0.3` with
 `weather.market.mm_live_lifecycle_probe.build_stage1_lifecycle_bundle`. The
-builder rereads both append-only journals, verifies their hashes and critical
-events, requires distinct journal files and order IDs, and derives the no-fill,
-cancel-all, and heartbeat-lapse facts. It independently rejects a bootstrap
-wallet/request cap above 100 pUSD and either reported order above 10 pUSD;
-upstream PASS booleans do not substitute for these numeric checks. Do not
-hand-author those facts. The
-tracked bundle template is deliberately fail-safe.
+builder rereads both lifecycle journals and both final authenticated user-stream
+journals, verifies their hashes and scoped cancellation rows, requires distinct
+journal files and order IDs, and derives the no-fill,
+cancel-all, and heartbeat-lapse facts. It independently requires the exact
+10 pUSD bootstrap request, a wallet cap no higher than 100 pUSD, and each
+reported order at or below 10 pUSD; upstream PASS booleans do not substitute
+for these numeric checks. Do not hand-author those facts. The tracked bundle
+template is deliberately fail-safe.
 
 Stage 1 is the only order mutation allowed from the bootstrap artifact. Its
 completed, content-bound lifecycle bundle upgrades platform proof to
-`mm_platform_verification_v0.5`. The ordinary `market_making_run` live-pilot
+`mm_platform_verification_v0.6`. The ordinary `market_making_run` live-pilot
 path continues to require that stronger artifact and must never accept the
-bootstrap artifact. Version v0.4 embeds the bundle and its SHA-256, rechecks
+bootstrap artifact. Version v0.5 embeds the bundle and its SHA-256, rechecks
 the two probe identities and budgets, and requires its flattened private-stream,
 cancel-all, and heartbeat claims to match the bundle's derived facts. The
 fail-closed `weather.market.mm_live_pilot_cli` preparation surface exposes only
@@ -271,8 +312,10 @@ position check must carry the exact maker/condition request URL, HTTP status,
 and response hash; an unbound empty list is not zero-position evidence.
 The upgraded proof may satisfy the private-stream lifecycle requirement with a
 verified no-fill path: REST zero starting orders, authenticated placement and
-cancellation events, absence of every scoped trade lifecycle event, zero ending
-orders, and zero exact-scope positions. It
+cancellation events with zero matched size, a bounded post-cancel quiescence
+interval, terminal zero-match REST order and account-trade reconciliation,
+absence of every scoped trade lifecycle event in the final stream journals,
+zero ending orders, and zero exact-scope positions. It
 must not invent an initial WebSocket order snapshot, which the protocol does
 not document, and it does not claim that a fill path has been tested. Actual
 fill, settlement, fee, and payout evidence remains a Stage 3 requirement.
@@ -343,6 +386,17 @@ neither place nor cancel an order; it requires a passing content-bound
 International economics snapshot, a current paper-only market-harvest quote,
 and current book rules, then emits a content-hashed plan that explicitly is not
 trading authorization:
+
+Collection is not baseline acceptance. The operator must inspect and explicitly
+accept the exact snapshot, verify the supplied drift report is `PASS` with
+`rescore_required=false`, then acknowledge the exact target date, selected
+condition/token, accepted-snapshot file hash, and drift-report file hash. The
+first selector call without that literal is intentionally a review-only BLOCK;
+copying a file into place cannot satisfy informed acceptance. A refreshed
+baseline, different candidate, token, or date requires a new review and literal.
+The review and approved plans must use distinct exclusive-new paths; never aim
+the review-only call at a fixed session candidate inbox or overwrite either
+artifact.
 
 ```powershell
 $pilotTargetDate = "replace-with-target-date"
@@ -457,6 +511,14 @@ rollback and one of these truthful tuples:
 - `credential_mode=verify_existing_exact`, zero written, four existing
   verified, and no credential-store mutation attempted.
 
+Both tuples remain valid importer evidence, so a clean installation can retain
+its create-new receipt as provisioning history. The first-session manifest
+builder and fixed-scope sealer are stricter: they accept only the v0.2
+`verify_existing_exact` tuple with all four existing entries verified, zero
+written, and `credential_store_mutation_attempted=false`. A create-new or
+legacy receipt cannot be staged or sealed for the first live session; run the
+attended compare-only path into a new output namespace first.
+
 The latter proves only point-in-time local vault equivalence to the validated
 source. It does not prove exchange authentication, current account state,
 geographic eligibility, or live-trading authorization. Do not persist the
@@ -495,6 +557,17 @@ Only now start the expiring discovery and manifest-build sequence:
   --target-date $pilotTargetDate `
   --max-age-hours 2
 
+# Stop here and inspect the complete current snapshot. This is a human decision,
+# not a collector side effect. Accept only after the economics and payout-asset
+# conflict are understood.
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept `
+  --snapshot C:\pilot\exchange-economics.json `
+  --accepted-snapshot C:\pilot\exchange-economics-accepted.json `
+  --json-out C:\pilot\exchange-economics-drift.json `
+  --target-date $pilotTargetDate `
+  --max-age-hours 2 `
+  --acknowledge-payout-asset-conflict
+
 .\venv\Scripts\python.exe -m weather.market.market_making_run `
   --date $pilotTargetDate `
   --budget-usdc 25 `
@@ -506,8 +579,36 @@ Only now start the expiring discovery and manifest-build sequence:
   --run-id $paperRunId `
   --once
 
+# The first selector call is deliberately review-only: without the exact
+# candidate/date/evidence literal it writes BLOCK and returns 1.
+$pilotDiscoveryReviewPlan = $pilotDiscoveryPlan + ".review.json"
 .\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
   --economics-snapshot C:\pilot\exchange-economics.json `
+  --accepted-economics-snapshot C:\pilot\exchange-economics-accepted.json `
+  --economics-drift-report C:\pilot\exchange-economics-drift.json `
+  --target-date $pilotTargetDate `
+  --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
+  --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
+  --plan-out $pilotDiscoveryReviewPlan
+if ($LASTEXITCODE -ne 1) { throw "economics acceptance review plan had an unexpected result" }
+
+$pilotReviewPlan = Get-Content -LiteralPath $pilotDiscoveryReviewPlan -Raw | ConvertFrom-Json
+if (
+  $pilotReviewPlan.status -ne "BLOCK" -or
+  $pilotReviewPlan.missing -notcontains "explicit_candidate_economics_baseline_acknowledgment"
+) { throw "selector did not stop for informed economics acceptance" }
+Get-Content -LiteralPath C:\pilot\exchange-economics-accepted.json -Raw
+Get-Content -LiteralPath C:\pilot\exchange-economics-drift.json -Raw
+$pilotEconomicsAcknowledgment = Read-Host "After reviewing both files, paste the exact required economics acknowledgment"
+if ($pilotEconomicsAcknowledgment -cne [string]$pilotReviewPlan.economics_acceptance.required_operator_acknowledgment) {
+  throw "economics acknowledgment was not exact"
+}
+
+.\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
+  --economics-snapshot C:\pilot\exchange-economics.json `
+  --accepted-economics-snapshot C:\pilot\exchange-economics-accepted.json `
+  --economics-drift-report C:\pilot\exchange-economics-drift.json `
+  --economics-baseline-acknowledgment $pilotEconomicsAcknowledgment `
   --target-date $pilotTargetDate `
   --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
   --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
@@ -538,8 +639,14 @@ at most 120 seconds); refresh the economics snapshot too when its own gate
 expires. A constrained refresh must select the exact reviewed scope or block;
 it cannot silently switch markets after discovery or authenticated bootstrap.
 Stage 0 still rereads the exact book and fails closed on any condition, token,
-min-size, tick, neg-risk, fee, or closed-state drift. The plan's minimum-tick
-intent is only a far-from-mid lifecycle probe and will normally not qualify for
+min-size, tick, neg-risk, fee, or closed-state drift. The constrained candidate
+binds `fee_rate` exactly to the current endpoint as
+`fee_rate_bps / 10000` and binds the exact Boolean neg-risk state. Stage 1
+repeats both comparisons when preparing the intent and again after the host
+attestor, immediately before its submit-deadline event. A zero fee or any
+fee/neg-risk drift therefore fails before `submit_started` and `post_order`.
+The candidate's minimum-tick intent is only a far-from-mid lifecycle probe and
+will normally not qualify for
 liquidity rewards or provide maker-fill economics evidence. Stage 2 must use a
 separate current quote decision after Stage 1 passes.
 
@@ -552,7 +659,11 @@ Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
 The repository-owned manifest builder and sealers are the only supported path.
 The builder rereads the current public inventory, requires synchronized
-production `master`, derives the Git tree, interpreter, template, complete live
+production `master`, and uses a bounded live
+`git ls-remote --exit-code --refs origin refs/heads/master` proof. Inventory
+v0.2 passes only when local `HEAD`, local `master`, cached `origin/master`, and
+that live remote object ID are identical; a stale cached ref, malformed result,
+timeout, or unavailable remote blocks. It derives the Git tree, interpreter, template, complete live
 source, and session-bootstrap hashes, and hardcodes 10 pUSD and 120 seconds. It
 accepts no typed target, condition, token, budget, duration, output, or candidate
 override. Scope comes only from the complete candidate-discovery gate after it
@@ -566,7 +677,11 @@ inheritance disabled and FullControl granted only to the current user, SYSTEM,
 and Administrators, then validates the root plus `inputs`, `incoming`, and
 `session`. A pre-existing root is spent and cannot be adopted. `prepare-manifest`
 exclusively copies the reviewed public source files byte-for-byte into these
-stage-specific canonical names:
+stage-specific canonical names. Each stage also receives immutable
+`*-accepted-economics-snapshot.json` and `*-economics-drift-report.json` copies;
+their raw hashes and the candidate/date-specific acknowledgment are carried in
+the v0.3 candidate, v0.3 session manifest, and v0.3 seal spec and revalidated by
+the fixed-scope sealer:
 
 | Stage | Identity | Import receipt | Reference manifest | Discovery copy | Manifest / build receipt | Candidate inbox |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -599,13 +714,15 @@ foreach ($row in $pilotManifestStages) {
     --identity-source $pilotIdentitySource `
     --credential-import-receipt-source $pilotCredentialReceiptSource `
     --credential-reference-manifest-source $pilotCredentialManifestSource `
+    --accepted-economics-snapshot-source C:\pilot\exchange-economics-accepted.json `
+    --economics-drift-report-source C:\pilot\exchange-economics-drift.json `
     --attempt-root $pilotAttemptRoot `
     --lease-workload $row.Workload
   if ($LASTEXITCODE -ne 0) { throw "fixed-session manifest preparation blocked for $($row.Stage)" }
 }
 ```
 
-Each output manifest is `international_live_fixed_session_manifest_v0.2`; its
+Each output manifest is `international_live_fixed_session_manifest_v0.3`; its
 `manifest_sha256` is the semantic hash, while the adjacent `.sha256` binds the
 exact pretty-printed bytes. Independently inspect each staged copy, build
 receipt, semantic hash, raw hash, and sidecar. Record six reviewed raw hashes
@@ -639,8 +756,9 @@ $deadManBuildReceiptSha256 = "replace-with-independently-reviewed-dead-man-build
 
 Launcher preparation derives the build-receipt path from the stage; there is no
 path override. It validates the receipt's exact manifest raw/semantic hashes,
-sidecar, production, scope, staged public-input hashes, canonical paths, fixed
-10 pUSD/120-second limits, and no-credential/no-live-mutation facts. The
+sidecar, production, scope, staged public-input hashes, compare-only credential
+evidence, canonical paths, fixed 10 pUSD/120-second limits, and
+no-credential/no-live-mutation facts. The
 launcher review records the canonical receipt path/hash, and the launcher locks
 that exact receipt through child exit. A hand-authored manifest and recomputed
 sidecar are unsupported and cannot produce a launcher without the matching
@@ -703,6 +821,9 @@ $freshStage0PaperFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $
 
 .\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
   --economics-snapshot C:\pilot\exchange-economics.json `
+  --accepted-economics-snapshot C:\pilot\exchange-economics-accepted.json `
+  --economics-drift-report C:\pilot\exchange-economics-drift.json `
+  --economics-baseline-acknowledgment $pilotEconomicsAcknowledgment `
   --target-date $pilotTargetDate `
   --paper-run-config (Join-Path $freshStage0PaperFolder "run_config.json") `
   --paper-quote-intents (Join-Path $freshStage0PaperFolder "quote_intents_long.csv") `
@@ -729,14 +850,20 @@ if (
 Repeat that fresh paper tick and constrained selector with the cancel-all review
 receipt and then the dead-man review receipt immediately before those stages;
 never copy or rename the Stage 0 candidate. Refresh the economics snapshot first
-if its two-hour gate has expired. The launcher passes only the reviewed manifest
+if its two-hour gate has expired. Any economics refresh requires a new accepted
+snapshot, drift report, review-only candidate, and exact acknowledgment; the
+manifest-bound file hashes cannot be reused. The launcher passes only the reviewed manifest
 hash and fixed candidate path to the composer; no scope or ceiling is accepted at
 the live boundary. Before writing candidate/spec/composition/intent artifacts,
 the composer derives a candidate-bounded window of at most 120 seconds and
 rejects unless that window plus the full 20-second cleanup tail is contained in
 **[00:30, 09:00) America/Toronto**. It repeats the check at the execution
 boundary and requires at least 90 seconds still available immediately before
-launch, then writes an immutable ARMED intent and atomically claims the terminal
+launch. The manifest builder and fixed-scope sealer repeat the bounded live
+remote proof at their validation and publication boundaries; the composer
+repeats it after all protected-file checks immediately before launching, and
+the sealed wrapper repeats it before credentials. A cached `origin/master`
+match alone is never launch authority. The composer then writes an immutable ARMED intent and atomically claims the terminal
 receipt and sidecar paths. The no-argument launcher and parent runner hold
 deny-write/delete handles for the reviewed runner, production sources, public
 credential inputs, candidate, complete predecessor lineage, external SDK
@@ -756,7 +883,7 @@ heartbeat write is expected, and cancel-all cleanup is expected with
 activity. The
 prompt is bounded to preserve a 60-second pre-credential reserve. After
 confirmation it rechecks Git/source identity, host/capture/status/clock/reboot
-state, the full Toronto-supported window, and the candidate before credential
+state, the full America/Toronto scheduling window, and the candidate before credential
 resolution. The window guard also runs inside every host attestation. Stage 1
 therefore repeats it submit-adjacent, checks the cutoff before the
 adapter call, and binds the deadline into its one-use capability; the adapter
@@ -817,16 +944,16 @@ balance above the isolated-wallet cap, validates a public Data API position
 query scoped to the exact proxy wallet and condition, content-binds that query
 and the full account snapshot, locally constructs and hashes a signed minimum
 BUY without posting it, discards the raw signature, requires a live user-stream
-PONG, exercises two bodyless five-second heartbeat acknowledgements, and sends
-cancel-all followed
-by a zero-order query. The WebSocket does not document an initial account
-snapshot, so the gate does not invent one: REST establishes the starting state,
-PONG establishes transport liveness, and the first Stage 1 order event proves
+PONG, obtains and binds the separate fresh pre-mutation geography receipt,
+exercises two bodyless five-second heartbeat acknowledgements, and sends
+cancel-all followed by a zero-order query. The WebSocket does not document an
+initial account snapshot, so the gate does not invent one: REST establishes the
+starting state, PONG establishes transport liveness, and the first Stage 1 order event proves
 the authenticated event path.
 
 ### Stage 2: one-band maker quote
 
-- Require a current passing `mm_platform_verification_v0.5`, including the
+- Require a current passing `mm_platform_verification_v0.6`, including the
   Stage 1 automatic heartbeat-lapse cancellation and cancel-all-to-zero proof.
   The full gate repeats the numeric balance, allowance, actual-wallet-cap,
   zero-open-order-count, and account-snapshot-hash checks; Stage 0 booleans are

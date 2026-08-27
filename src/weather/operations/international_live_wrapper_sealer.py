@@ -14,6 +14,19 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from weather.paths import REPO_ROOT
+from weather.market.mm_geographic_eligibility import (
+    GeographicEligibilityError,
+    validate_geographic_eligibility_receipt,
+)
+from weather.market.mm_live_candidate_cli import (
+    ECONOMICS_ACCEPTANCE_KEYS,
+    SCHEMA_VERSION as CANDIDATE_SCHEMA_VERSION,
+    economics_acceptance_acknowledgment,
+    validate_bound_economics_acceptance_files,
+)
+from weather.market.mm_live_lifecycle_probe import (
+    verify_stage1_user_stream_journal,
+)
 from weather.operations import international_live_time_window as live_time_window
 from weather.operations.international_live_lineage import (
     CREDENTIAL_TOPOLOGY_KEYS,
@@ -33,8 +46,8 @@ from weather.schema_registry import schema_version
 SPEC_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal_spec")
 RECEIPT_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal")
 INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_inventory")
+EXECUTION_SCHEMA_VERSION = schema_version("international_live_fixed_scope_execution")
 REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = "da32c0895bb5b40c842b35232ff266c7968d4439"
-CANDIDATE_SCHEMA_VERSION = "mm_live_market_candidate_plan_v0.2"
 MAX_CANDIDATE_AGE_SECONDS = 300
 MAX_PAPER_QUOTE_TTL_SECONDS = 120
 MAX_RUN_WINDOW_SECONDS = 30 * 60
@@ -42,6 +55,9 @@ MAX_STAGE1_ORDER_NOTIONAL_PUSD = Decimal("10")
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
 FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
+FIRST_SESSION_CREDENTIAL_MODE = "verify_existing_exact"
+REMOTE_MASTER_REF = "refs/heads/master"
+REMOTE_PROOF_TIMEOUT_SECONDS = 10
 ALLOWED_DIRTY_PATHS = frozenset(
     {
         "config/location_market_events.json",
@@ -64,11 +80,15 @@ LAUNCHER_TEMPLATE_PATH = "scripts/ops/international_live_templates/fixed_scope_l
 WORKLOAD_ADMISSION_PATH = "scripts/ops/workload_admission.ps1"
 SDK_OVERLAY_MANIFEST_PATH = "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
 SDK_OVERLAY_MODULE_PATH = "src/weather/market/live_sdk_overlay.py"
+GEOGRAPHIC_ELIGIBILITY_MODULE_PATH = (
+    "src/weather/market/mm_geographic_eligibility.py"
+)
 LIVE_SOURCE_PATHS = {
     "stage0": (
         "src/weather/market/mm_live_pilot_cli.py",
         "src/weather/market/mm_live_bootstrap.py",
         "src/weather/market/mm_live_candidate_cli.py",
+        GEOGRAPHIC_ELIGIBILITY_MODULE_PATH,
         "src/weather/market/mm_credentials.py",
         "src/weather/market/mm_official_adapter.py",
         "src/weather/market/mm_official_transport.py",
@@ -82,6 +102,7 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_live_bootstrap.py",
         "src/weather/market/mm_live_lifecycle_probe.py",
         "src/weather/market/mm_live_candidate_cli.py",
+        GEOGRAPHIC_ELIGIBILITY_MODULE_PATH,
         "src/weather/market/mm_credentials.py",
         "src/weather/market/mm_official_adapter.py",
         "src/weather/market/mm_official_transport.py",
@@ -95,6 +116,7 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_live_bootstrap.py",
         "src/weather/market/mm_live_lifecycle_probe.py",
         "src/weather/market/mm_live_candidate_cli.py",
+        GEOGRAPHIC_ELIGIBILITY_MODULE_PATH,
         "src/weather/market/mm_credentials.py",
         "src/weather/market/mm_official_adapter.py",
         "src/weather/market/mm_official_transport.py",
@@ -113,6 +135,10 @@ INPUT_LAYOUTS = {
     "stage0": {
         "identity": "inputs/stage0-identity.json",
         "scope_plan": "inputs/stage0-scope-plan.json",
+        "accepted_economics_snapshot": (
+            "inputs/stage0-accepted-economics-snapshot.json"
+        ),
+        "economics_drift_report": "inputs/stage0-economics-drift-report.json",
         "credential_import_receipt": None,
         "credential_reference_manifest": None,
     },
@@ -125,6 +151,12 @@ INPUT_LAYOUTS = {
         "stage0_run_receipt_sidecar": "session/stage0-run-receipt.json.sha256",
         "stage0_wrapper_execution_receipt": "stage0/wrapper-execution-receipt.json",
         "candidate_plan": "inputs/stage1-cancel-all-candidate.json",
+        "accepted_economics_snapshot": (
+            "inputs/stage1-cancel-all-accepted-economics-snapshot.json"
+        ),
+        "economics_drift_report": (
+            "inputs/stage1-cancel-all-economics-drift-report.json"
+        ),
         "credential_import_receipt": None,
         "credential_reference_manifest": None,
     },
@@ -137,6 +169,12 @@ INPUT_LAYOUTS = {
         "stage0_run_receipt_sidecar": "session/stage0-run-receipt.json.sha256",
         "stage0_wrapper_execution_receipt": "stage0/wrapper-execution-receipt.json",
         "candidate_plan": "inputs/stage1-dead-man-candidate.json",
+        "accepted_economics_snapshot": (
+            "inputs/stage1-dead-man-accepted-economics-snapshot.json"
+        ),
+        "economics_drift_report": (
+            "inputs/stage1-dead-man-economics-drift-report.json"
+        ),
         "credential_import_receipt": None,
         "credential_reference_manifest": None,
         "cancel_all_seal_receipt": "seal/stage1-cancel-all-seal-receipt.json",
@@ -158,6 +196,12 @@ OUTPUT_LAYOUTS = {
         "python_wrapper": "wrappers/stage0.py",
         "launcher": "wrappers/stage0.ps1",
         "doctor_receipt": "stage0/doctor-receipt.json",
+        "geography_precredential_receipt": (
+            "stage0/geography-precredential-receipt.json"
+        ),
+        "geography_premutation_receipt": (
+            "stage0/geography-premutation-receipt.json"
+        ),
         "bootstrap": "stage0/bootstrap.json",
         "command_receipt": "stage0/command-receipt.json",
         "user_stream_journal": "stage0/user-stream.jsonl",
@@ -169,6 +213,12 @@ OUTPUT_LAYOUTS = {
         "python_wrapper": "wrappers/stage1-cancel-all.py",
         "launcher": "wrappers/stage1-cancel-all.ps1",
         "doctor_receipt": "stage1-cancel-all/doctor-receipt.json",
+        "geography_precredential_receipt": (
+            "stage1-cancel-all/geography-precredential-receipt.json"
+        ),
+        "geography_presubmit_receipt": (
+            "stage1-cancel-all/geography-presubmit-receipt.json"
+        ),
         "result": "stage1-cancel-all/result.json",
         "command_receipt": "stage1-cancel-all/command-receipt.json",
         "user_stream_journal": "stage1-cancel-all/user-stream.jsonl",
@@ -185,6 +235,12 @@ OUTPUT_LAYOUTS = {
         "python_wrapper": "wrappers/stage1-dead-man.py",
         "launcher": "wrappers/stage1-dead-man.ps1",
         "doctor_receipt": "stage1-dead-man/doctor-receipt.json",
+        "geography_precredential_receipt": (
+            "stage1-dead-man/geography-precredential-receipt.json"
+        ),
+        "geography_presubmit_receipt": (
+            "stage1-dead-man/geography-presubmit-receipt.json"
+        ),
         "result": "stage1-dead-man/result.json",
         "command_receipt": "stage1-dead-man/command-receipt.json",
         "user_stream_journal": "stage1-dead-man/user-stream.jsonl",
@@ -245,6 +301,30 @@ def _read_json_object(path: Path, *, label: str) -> tuple[dict[str, Any], bytes]
     if not isinstance(payload, dict):
         raise SealError(f"{label} is not a JSON object")
     return payload, raw
+
+
+def _validate_geography_artifact(
+    artifact: Any,
+    *,
+    expected_path: Path,
+) -> bool:
+    if not isinstance(artifact, Mapping):
+        return False
+    path = Path(str(artifact.get("path") or "")).resolve()
+    expected = expected_path.resolve()
+    try:
+        payload, _raw = _read_json_object(path, label="geographic eligibility receipt")
+        validate_geographic_eligibility_receipt(
+            payload,
+            require_fresh=False,
+        )
+    except (OSError, SealError, GeographicEligibilityError):
+        return False
+    return (
+        path == expected
+        and path.is_file()
+        and _sha256_file(path) == artifact.get("sha256")
+    )
 
 
 def _require_exact_keys(
@@ -325,12 +405,17 @@ def _default_git_runner(
     root: Path,
     args: Sequence[str],
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(root), *args],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+    command = ["git", "-C", str(root), *args]
+    try:
+        return subprocess.run(
+            command,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=REMOTE_PROOF_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(command, 124, "", "")
 
 
 def _git(
@@ -347,6 +432,27 @@ def _git(
 
 def _git_text(runner: GitRunner, root: Path, *args: str) -> str:
     return _git(runner, root, *args).stdout.strip()
+
+
+def _remote_master_oid(runner: GitRunner, root: Path) -> str:
+    raw = _git_text(
+        runner,
+        root,
+        "ls-remote",
+        "--exit-code",
+        "--refs",
+        "origin",
+        REMOTE_MASTER_REF,
+    )
+    rows = [line.split() for line in raw.splitlines() if line.strip()]
+    if not (
+        len(rows) == 1
+        and len(rows[0]) == 2
+        and rows[0][1] == REMOTE_MASTER_REF
+        and GIT_OID_RE.fullmatch(rows[0][0].lower()) is not None
+    ):
+        raise SealError("live origin master proof is malformed or ambiguous")
+    return rows[0][0].lower()
 
 
 def _default_powershell_parser(source: str) -> None:
@@ -407,6 +513,7 @@ def _verify_git_state(
         "origin_master": _git_text(
             git_runner, root, "rev-parse", "origin/master"
         ).lower(),
+        "remote_master": _remote_master_oid(git_runner, root),
         "tree": _git_text(git_runner, root, "rev-parse", "HEAD^{tree}").lower(),
         "branch": _git_text(git_runner, root, "branch", "--show-current"),
     }
@@ -420,9 +527,12 @@ def _verify_git_state(
         facts["head"]
         == facts["master"]
         == facts["origin_master"]
+        == facts["remote_master"]
         == expected_commit
     ):
-        raise SealError("production HEAD/master/origin does not match the reviewed commit")
+        raise SealError(
+            "production HEAD/master/cached origin/live origin does not match the reviewed commit"
+        )
     if facts["tree"] != expected_tree or facts["branch"] != "master":
         raise SealError("production tree or branch does not match the reviewed target")
     ancestry = _git(
@@ -483,10 +593,13 @@ def _validate_candidate(
     paper = selected.get("paper_quote_proof")
     intent = selected.get("stage1_intent")
     policy = payload.get("selection_policy")
+    economics_acceptance = payload.get("economics_acceptance")
     if not isinstance(paper, dict) or not isinstance(intent, dict) or not isinstance(
         policy, dict
     ):
         raise SealError("candidate plan omits paper, intent, or policy evidence")
+    if not isinstance(economics_acceptance, dict):
+        raise SealError("candidate plan omits economics acceptance evidence")
     expected_scope = policy.get("expected_bootstrap_scope")
     if not isinstance(expected_scope, dict):
         raise SealError("candidate plan is not constrained to a bootstrap scope")
@@ -498,6 +611,14 @@ def _validate_candidate(
     paper_expires = _parse_aware(
         paper.get("expires_at_utc"), label="paper quote expires_at"
     )
+    accepted_at = _parse_aware(
+        economics_acceptance.get("accepted_at_utc"),
+        label="economics accepted_at",
+    )
+    drift_generated = _parse_aware(
+        economics_acceptance.get("drift_generated_at_utc"),
+        label="economics drift generated_at",
+    )
     paper_ttl = _parse_decimal(
         paper.get("quote_ttl_seconds"), label="paper quote TTL"
     )
@@ -508,12 +629,53 @@ def _validate_candidate(
     )
     now_utc = now.astimezone(timezone.utc)
     stop_utc = run_stop.astimezone(timezone.utc)
+    economics_id = str(payload.get("exchange_economics_snapshot_id") or "")
+    economics_hash = str(payload.get("exchange_economics_sha256") or "")
+    try:
+        required_acceptance = economics_acceptance_acknowledgment(
+            target_date,
+            condition_id,
+            token_id,
+            accepted_snapshot_file_sha256=economics_acceptance.get(
+                "accepted_snapshot_file_sha256"
+            ),
+            drift_report_file_sha256=economics_acceptance.get(
+                "drift_report_file_sha256"
+            ),
+        )
+    except RuntimeError:
+        required_acceptance = ""
     checks = {
         "schema": payload.get("schema_version") == CANDIDATE_SCHEMA_VERSION,
         "status": payload.get("status") == "PASS",
         "semantic_hash": payload.get("plan_sha256")
         == _canonical_payload_sha256(payload, omit="plan_sha256"),
         "non_authorizing": payload.get("selection_is_trading_authorization") is False,
+        "economics_identity": (
+            len(economics_hash) == 32
+            and all(character in "0123456789abcdef" for character in economics_hash)
+            and economics_id == f"xecon-{economics_hash[:16]}"
+        ),
+        "economics_acceptance": (
+            set(economics_acceptance) == ECONOMICS_ACCEPTANCE_KEYS
+            and economics_acceptance.get("accepted_snapshot_id") == economics_id
+            and economics_acceptance.get("accepted_snapshot_sha256")
+            == economics_hash
+            and economics_acceptance.get("drift_status") == "PASS"
+            and economics_acceptance.get("rescore_required") is False
+            and economics_acceptance.get(
+                "operator_acknowledgment_matches_candidate"
+            )
+            is True
+            and bool(required_acceptance)
+            and economics_acceptance.get("required_operator_acknowledgment")
+            == required_acceptance
+            and economics_acceptance.get("operator_acknowledgment")
+            == required_acceptance
+            and accepted_at.astimezone(timezone.utc)
+            <= drift_generated.astimezone(timezone.utc)
+            <= created.astimezone(timezone.utc)
+        ),
         "target_date": payload.get("target_date") == target_date,
         "scope": str(selected.get("condition_id") or "").lower() == condition_id
         and str(selected.get("token_id") or "") == token_id,
@@ -561,6 +723,9 @@ def _validate_candidate(
         "created_at_utc": created.astimezone(timezone.utc).isoformat(),
         "expires_at_utc": expires.astimezone(timezone.utc).isoformat(),
         "paper_quote_expires_at_utc": paper_expires.astimezone(timezone.utc).isoformat(),
+        "economics_snapshot_id": economics_id,
+        "economics_snapshot_sha256": economics_hash,
+        "economics_acceptance": dict(economics_acceptance),
         "remaining_seconds_at_seal": (
             expires.astimezone(timezone.utc) - now_utc
         ).total_seconds(),
@@ -659,7 +824,13 @@ def _validate_credential_reference_manifest(path: Path) -> dict[str, Any]:
     return dict(payload)
 
 
-def _validate_credential_import_receipt(path: Path) -> None:
+def _validate_credential_import_receipt(
+    path: Path,
+    *,
+    required_mode: str | None = None,
+) -> None:
+    if required_mode not in {None, FIRST_SESSION_CREDENTIAL_MODE}:
+        raise SealError("credential import receipt mode requirement is unsupported")
     payload, _raw = _read_json_object(path, label="credential import receipt")
     common_required = {
         "schema_version",
@@ -710,7 +881,7 @@ def _validate_credential_import_receipt(path: Path) -> None:
             and verified == 0
             and mutation_attempted is True
         ) or (
-            mode == "verify_existing_exact"
+            mode == FIRST_SESSION_CREDENTIAL_MODE
             and type(written) is int
             and written == 0
             and type(verified) is int
@@ -739,6 +910,20 @@ def _validate_credential_import_receipt(path: Path) -> None:
         or any(value is not True for value in checks.values())
     ):
         raise SealError("credential import receipt is not an exact clean PASS")
+    if required_mode == FIRST_SESSION_CREDENTIAL_MODE and not (
+        version == current_version
+        and payload.get("credential_mode") == FIRST_SESSION_CREDENTIAL_MODE
+        and type(payload.get("credential_value_count_written")) is int
+        and payload["credential_value_count_written"] == 0
+        and type(payload.get("credential_value_count_existing_exact_verified"))
+        is int
+        and payload["credential_value_count_existing_exact_verified"] == 4
+        and payload.get("credential_store_mutation_attempted") is False
+    ):
+        raise SealError(
+            "first-session credential evidence must be v0.2 compare-only exact "
+            "verification with four existing entries and zero mutation"
+        )
 
 
 def _validate_identity(
@@ -836,6 +1021,18 @@ def _validate_stage0_lineage(
     bootstrap_artifact = artifacts.get("bootstrap_out") or {}
     command_artifact = artifacts.get("command_receipt_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    geography_premutation_artifact = (
+        artifacts.get("geography_premutation_receipt_out") or {}
+    )
+    command_geography = command.get("mutation_geographic_eligibility") or {}
+    bootstrap, _raw = _read_json_object(
+        Path(inputs["bootstrap"]["path"]), label="Stage 0 bootstrap"
+    )
+    bootstrap_geography = bootstrap.get("mutation_geographic_eligibility") or {}
+    premutation_geography, _raw = _read_json_object(
+        Path(str(geography_premutation_artifact.get("path") or "")),
+        label="Stage 0 pre-mutation geography receipt",
+    )
     run_child = run.get("child_execution") or {}
     run_lineage_ok = exact_run_lineage(
         run,
@@ -871,8 +1068,7 @@ def _validate_stage0_lineage(
         seal_credential.get("sha256") == expected_credential["sha256"],
         seal_reference.get("path") == expected_reference["path"],
         seal_reference.get("sha256") == expected_reference["sha256"],
-        execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.4",
+        execution.get("schema_version") == EXECUTION_SCHEMA_VERSION,
         execution.get("status") == "PASS",
         execution.get("stage") == "stage0",
         execution.get("phase") == "complete",
@@ -897,10 +1093,36 @@ def _validate_stage0_lineage(
         set(artifacts)
         == {
             "doctor_receipt_out",
+            "geography_precredential_receipt_out",
+            "geography_premutation_receipt_out",
             "bootstrap_out",
             "command_receipt_out",
             "user_stream_journal_out",
         },
+        _validate_geography_artifact(
+            artifacts.get("geography_precredential_receipt_out"),
+            expected_path=(
+                attempt_root
+                / OUTPUT_LAYOUTS["stage0"]["geography_precredential_receipt"]
+            ),
+        ),
+        _validate_geography_artifact(
+            geography_premutation_artifact,
+            expected_path=(
+                attempt_root
+                / OUTPUT_LAYOUTS["stage0"]["geography_premutation_receipt"]
+            ),
+        ),
+        command_geography.get("path")
+        == geography_premutation_artifact.get("path"),
+        command_geography.get("sha256")
+        == geography_premutation_artifact.get("sha256"),
+        bootstrap.get("schema_version") == "mm_platform_bootstrap_v0.4",
+        bootstrap_geography.get("status") == "PASS",
+        bootstrap_geography.get("eligible") is True,
+        len(str(bootstrap_geography.get("receipt_payload_sha256") or "")) == 64,
+        bootstrap_geography.get("receipt_payload_sha256")
+        == premutation_geography.get("receipt_payload_sha256"),
         seal_wrapper.get("path") == execution_wrapper.get("path"),
         seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
         bootstrap_artifact.get("path") == inputs["bootstrap"]["path"],
@@ -989,6 +1211,22 @@ def _validate_cancel_all_predecessor(
         for row in (seal.get("inputs") or [])
         if isinstance(row, dict) and row.get("role")
     }
+    candidate_record = seal_inputs.get("candidate_plan") or {}
+    candidate, _raw = _read_json_object(
+        Path(str(candidate_record.get("path") or "")),
+        label="cancel-all predecessor candidate plan",
+    )
+    candidate_selected = candidate.get("selected") or {}
+    try:
+        candidate_fee_rate = Decimal(str(candidate_selected.get("fee_rate")))
+        result_candidate_fee_rate = Decimal(
+            str(result.get("candidate_fee_rate"))
+        )
+        result_current_fee_rate_bps = Decimal(
+            str(result.get("current_fee_rate_bps"))
+        )
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise SealError("cancel-all predecessor fee binding is invalid") from exc
     topology = command.get("credential_topology") or {}
     seal_wrapper = seal.get("wrapper") or {}
     execution_wrapper = execution.get("wrapper") or {}
@@ -997,6 +1235,15 @@ def _validate_cancel_all_predecessor(
     command_artifact = artifacts.get("command_receipt_out") or {}
     journal_artifact = artifacts.get("lifecycle_journal_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    try:
+        final_stream_evidence = verify_stage1_user_stream_journal(
+            Path(str(stream_artifact.get("path") or "")),
+            result,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise SealError(
+            "cancel-all predecessor final user-stream evidence is invalid"
+        ) from exc
     run_lineage_ok = exact_run_lineage(
         run,
         attempt_root=attempt_root,
@@ -1038,8 +1285,7 @@ def _validate_cancel_all_predecessor(
         == inputs["cancel_all_seal_receipt"]["sha256"],
         run.get("candidate_sha256") == result.get("candidate_plan_sha256"),
         run_lineage_ok,
-        execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.4",
+        execution.get("schema_version") == EXECUTION_SCHEMA_VERSION,
         execution.get("status") == "PASS",
         execution.get("stage") == "stage1_cancel_all",
         execution.get("phase") == "complete",
@@ -1056,11 +1302,31 @@ def _validate_cancel_all_predecessor(
         set(artifacts)
         == {
             "doctor_receipt_out",
+            "geography_precredential_receipt_out",
+            "geography_presubmit_receipt_out",
             "result_out",
             "command_receipt_out",
             "user_stream_journal_out",
             "lifecycle_journal_out",
         },
+        _validate_geography_artifact(
+            artifacts.get("geography_precredential_receipt_out"),
+            expected_path=(
+                attempt_root
+                / OUTPUT_LAYOUTS["stage1_cancel_all"][
+                    "geography_precredential_receipt"
+                ]
+            ),
+        ),
+        _validate_geography_artifact(
+            artifacts.get("geography_presubmit_receipt_out"),
+            expected_path=(
+                attempt_root
+                / OUTPUT_LAYOUTS["stage1_cancel_all"][
+                    "geography_presubmit_receipt"
+                ]
+            ),
+        ),
         result_artifact.get("path") == inputs["cancel_all_result"]["path"],
         result_artifact.get("sha256") == inputs["cancel_all_result"]["sha256"],
         command_artifact.get("path") == inputs["cancel_all_command_receipt"]["path"],
@@ -1096,19 +1362,48 @@ def _validate_cancel_all_predecessor(
         all(value is True for key, value in topology.items() if key != "manifest_wallet_address"),
         (command.get("cleanup") or {}).get("ok") is True,
         command.get("exception_type") is None,
-        result.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
+        result.get("schema_version") == "mm_live_lifecycle_probe_v0.3",
         result.get("status") == "PASS",
         result.get("cancellation_mode") == "cancel_all",
         str(result.get("condition_id") or "").lower() == condition_id,
         str(result.get("token_id") or "") == token_id,
         result.get("candidate_plan_sha256")
         == (seal_inputs.get("candidate_plan") or {}).get("sha256"),
+        result.get("submit_boundary_heartbeat_acknowledged") is True,
+        result.get("submit_boundary_market_rules_verified") is True,
+        result.get("submit_boundary_geography_before_heartbeat_verified") is True,
+        result.get("post_sign_order_placement_boundary_verified") is True,
+        result_candidate_fee_rate == candidate_fee_rate,
+        result_current_fee_rate_bps == candidate_fee_rate * Decimal("10000"),
+        result.get("candidate_neg_risk") is candidate_selected.get("neg_risk"),
+        result.get("current_neg_risk") is candidate_selected.get("neg_risk"),
         bool(str(result.get("order_id") or "")),
         result.get("placement_status") == "live",
         result.get("zero_open_orders_verified") is True,
         result.get("zero_positions_verified") is True,
         result.get("no_trade_lifecycle_event_observed") is True,
+        result.get("terminal_rest_order_verified") is True,
+        result.get("terminal_rest_zero_matched_verified") is True,
+        result.get("account_trades_rest_verified") is True,
+        result.get("scoped_account_trade_count") == 0,
+        result.get("post_cancel_quiescence_seconds") == 2.0,
+        result.get("collateral_no_fill_reconciliation_verified") is True,
+        len(str(result.get("submit_collateral_snapshot_sha256") or "")) == 64,
+        result.get("submit_collateral_snapshot_sha256")
+        == result.get("post_cancel_collateral_snapshot_sha256"),
+        10 <= float(result.get("submit_collateral_balance_usdc")) <= 100,
+        float(result.get("submit_collateral_allowance_usdc")) >= 10,
         result.get("terminal_user_event_observed") is True,
+        Path(str(result.get("user_stream_journal_path") or "")).resolve()
+        == Path(str(stream_artifact.get("path") or "")).resolve(),
+        result.get("user_stream_journal_sha256") == stream_artifact.get("sha256"),
+        result.get("cleanup_final_user_stream_journal_sha256")
+        == stream_artifact.get("sha256"),
+        final_stream_evidence.get("sha256")
+        == result.get("user_stream_journal_sha256"),
+        final_stream_evidence.get("terminal_stream_stopped_verified") is True,
+        type(result.get("user_stream_scoped_order_event_count")) is int,
+        result.get("user_stream_scoped_order_event_count") >= 2,
         result.get("cancel_response_present") is True,
         Path(str(result.get("journal_path") or "")).resolve() == journal_path,
         result.get("journal_sha256") == inputs["cancel_all_lifecycle_journal"][
@@ -1338,6 +1633,7 @@ def _validate_spec(
             "production",
             "scope",
             "inputs",
+            "economics_acceptance",
             "reviewed_status_flags",
             "template_sha256",
             "source_sha256",
@@ -1346,6 +1642,11 @@ def _validate_spec(
     )
     if spec["schema_version"] != SPEC_SCHEMA_VERSION:
         raise SealError("seal spec schema is unsupported")
+    spec_economics_acceptance = _require_exact_keys(
+        spec["economics_acceptance"],
+        ECONOMICS_ACCEPTANCE_KEYS,
+        label="economics_acceptance",
+    )
     stage = str(spec["stage"])
     if stage not in STAGES:
         raise SealError("seal spec stage is unsupported")
@@ -1470,7 +1771,8 @@ def _validate_spec(
         Path(normalized_inputs["credential_reference_manifest"]["path"])
     )
     _validate_credential_import_receipt(
-        Path(normalized_inputs["credential_import_receipt"]["path"])
+        Path(normalized_inputs["credential_import_receipt"]["path"]),
+        required_mode=FIRST_SESSION_CREDENTIAL_MODE,
     )
     _validate_identity(
         Path(normalized_inputs["identity"]["path"]),
@@ -1535,6 +1837,23 @@ def _validate_spec(
     )
     if candidate["sha256"] != normalized_inputs[candidate_role]["sha256"]:
         raise SealError("candidate file hash changed during validation")
+    if dict(spec_economics_acceptance) != candidate["economics_acceptance"]:
+        raise SealError(
+            "candidate economics acceptance differs from the reviewed seal spec"
+        )
+    try:
+        validate_bound_economics_acceptance_files(
+            Path(normalized_inputs["accepted_economics_snapshot"]["path"]),
+            Path(normalized_inputs["economics_drift_report"]["path"]),
+            candidate["economics_acceptance"],
+            target_date=target.isoformat(),
+            current_snapshot_id=candidate["economics_snapshot_id"],
+            current_snapshot_sha256=candidate["economics_snapshot_sha256"],
+        )
+    except RuntimeError as exc:
+        raise SealError(
+            "candidate economics acceptance does not match the sealed evidence"
+        ) from exc
     if stage != "stage0":
         _validate_stage0_receipt(
             Path(normalized_inputs["stage0_receipt"]["path"]),
@@ -1649,6 +1968,9 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
             SDK_OVERLAY_MANIFEST_PATH
         ],
         "doctor_receipt_out": str(outputs["doctor_receipt"]),
+        "geography_precredential_receipt_out": str(
+            outputs["geography_precredential_receipt"]
+        ),
         "command_receipt_out": str(outputs["command_receipt"]),
         "user_stream_journal_out": str(outputs["user_stream_journal"]),
         "wrapper_execution_receipt_out": str(outputs["wrapper_execution_receipt"]),
@@ -1658,6 +1980,9 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
             {
                 "scope_plan_path": inputs["scope_plan"]["path"],
                 "scope_plan_sha256": inputs["scope_plan"]["sha256"],
+                "geography_premutation_receipt_out": str(
+                    outputs["geography_premutation_receipt"]
+                ),
                 "bootstrap_out": str(outputs["bootstrap"]),
             }
         )
@@ -1690,6 +2015,9 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
                 ]["sha256"],
                 "candidate_plan_path": inputs["candidate_plan"]["path"],
                 "candidate_plan_sha256": inputs["candidate_plan"]["sha256"],
+                "geography_presubmit_receipt_out": str(
+                    outputs["geography_presubmit_receipt"]
+                ),
                 "result_out": str(outputs["result"]),
                 "lifecycle_journal_out": str(outputs["lifecycle_journal"]),
             }
@@ -1757,7 +2085,9 @@ def seal_fixed_scope(
         templates_root, production_root
     ):
         raise SealError("sealer code and templates must run from the reviewed production tree")
-    _verify_git_state(validated["production"], git_runner=git_runner)
+    seal_git_facts = _verify_git_state(
+        validated["production"], git_runner=git_runner
+    )
     sdk_validation = dict(
         sdk_validator(
             production_root / SDK_OVERLAY_MANIFEST_PATH,
@@ -1853,6 +2183,9 @@ def seal_fixed_scope(
             "branch": validated["production"]["branch"],
             "commit": validated["production"]["commit"],
             "tree": validated["production"]["tree"],
+            "cached_origin_master": seal_git_facts["origin_master"],
+            "remote_master": seal_git_facts["remote_master"],
+            "remote_master_ref": REMOTE_MASTER_REF,
             "interpreter": validated["production"]["python"],
             "required_interrupt_cleanup_ancestor": REQUIRED_INTERRUPT_CLEANUP_ANCESTOR,
         },
@@ -1895,6 +2228,7 @@ def seal_fixed_scope(
             "source_import_guard": "PASS",
             "candidate_ttl_and_scope": "PASS",
             "interrupt_cleanup_ancestry": "PASS",
+            "live_remote_master_equality": "PASS",
             "reviewed_input_hashes": "PASS",
             "deterministic_render": "PASS",
         },
@@ -1959,6 +2293,19 @@ def build_public_inventory(
         if (root / relative).is_file()
     }
     head = _git_text(git_runner, root, "rev-parse", "HEAD").lower()
+    master = _git_text(git_runner, root, "rev-parse", "master").lower()
+    cached_origin_master = _git_text(
+        git_runner, root, "rev-parse", "origin/master"
+    ).lower()
+    branch = _git_text(git_runner, root, "branch", "--show-current")
+    try:
+        remote_master = _remote_master_oid(git_runner, root)
+    except SealError:
+        remote_master = None
+    live_remote_master_equal = (
+        remote_master is not None
+        and head == master == cached_origin_master == remote_master
+    )
     ancestry = _git(
         git_runner,
         root,
@@ -1972,6 +2319,8 @@ def build_public_inventory(
         "schema_version": INVENTORY_SCHEMA_VERSION,
         "status": "PASS"
         if ancestry.returncode == 0
+        and branch == "master"
+        and live_remote_master_equal
         and len(paths) == len(sources)
         and python.is_file()
         and len(bootstrap) == len(SESSION_BOOTSTRAP_PATHS)
@@ -1979,8 +2328,13 @@ def build_public_inventory(
         "stage": stage,
         "production": {
             "root": str(root),
-            "branch": _git_text(git_runner, root, "branch", "--show-current"),
+            "branch": branch,
             "commit": head,
+            "local_master": master,
+            "cached_origin_master": cached_origin_master,
+            "remote_master": remote_master,
+            "remote_master_ref": REMOTE_MASTER_REF,
+            "live_remote_master_equal": live_remote_master_equal,
             "tree": _git_text(git_runner, root, "rev-parse", "HEAD^{tree}").lower(),
             "object_format": _git_text(
                 git_runner, root, "rev-parse", "--show-object-format"
