@@ -17,7 +17,7 @@ costs. **No market edge is proved.**
 | Production | A fresh canonical remote query on Aug 27 observed `master` at `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`, equal to the production checkout and its tracking ref. Preserve the two expected fleet-generated location-config modifications. |
 | Overnight bootstrap | The offline integration runner bootstrap is production-adopted at that tip. Do not reuse or reconstruct the spent historical attempts that preceded it. |
 | Portable executor | Work is cleanly restacked from the exact production baseline on `codex/portable-execution-host-clean-20260827`. It adds explicit profiles, one tracked active host/principal assignment, execution-only status, host-global admission, public SDK transfer, fresh host/principal-bound credential receipts, isolated public-candidate collection, and relocation documentation. It is not yet qualified, published, or production-adopted. The tracked assignment is deliberately `UNASSIGNED` until the chosen second PC reports its public IDs. |
-| Verification | Static syntax and diff checks are permitted now; the focused and bounded suites have not run for this candidate. Production-host pytest/compileall remains deferred to an admitted 00:30-09:00 serial window. Static review is not qualification. |
+| Verification | The clean-restack, syntax, import/schema, template, identity, security, and runbook audits passed for code tip `0c0b71e2930fb947dc272753be9353008bef2244`, including two independent reviews. The focused and bounded suites have not run; production-host runtime qualification remains deferred to an admitted 00:30-09:00 serial window. |
 | Second PC | No second PC has been inspected from this session. Its Windows/Python/Git/clock/reboot/SDK/credential/location/account state is unknown until provisioned and checked locally. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
 | Credentials | No credential value was accessed. Each execution PC needs its own current-user WinCred entries and a fresh host-and-token-principal-bound v0.4 compare-only receipt; another host/principal's receipt and attempt artifacts are invalid. |
@@ -54,8 +54,8 @@ costs. **No market edge is proved.**
 
 ## Ordered critical path
 
-1. Finish the portable candidate's code/docs audit and resolve every static
-   finding. Do not treat the public SDK bundle as credential transfer.
+1. Preserve the reviewed clean candidate; do not publish the polluted source
+   lineage or treat the public SDK bundle as credential transfer.
 2. In the next admitted production-host window, run focused tests and the
    repository-owned bounded suite serially. Any partial, stale, timed-out, or
    non-contained result is not PASS.
@@ -78,18 +78,6 @@ costs. **No market edge is proved.**
    and every exact attended stage literal.
 7. Stop on any ambiguity. PASS requires terminal receipts plus cancel-all and
    authenticated zero-open-order/zero-position reconciliation.
-
-## What portability does not solve
-
-- It does not provide the second PC, install Windows/Python/Git, move the SDK,
-  or create its per-user credentials without an operator on that machine.
-- It does not prove geographic eligibility before the action-time official
-  check and physical-location attestation.
-- It does not make stale candidates, economics, credential receipts, or prior
-  stage lineage reusable.
-- It does not prove capture health, trading edge, fills, rebates, settlement,
-  or profitability.
-- It does not eliminate the production merge/qualification step for this code.
 
 ## Verification boundary
 

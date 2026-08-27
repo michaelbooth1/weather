@@ -563,13 +563,14 @@ the fixed-scope sealer accepts only either truthful all-four tuple. This local
 vault proof remains separate from authenticated doctor, account, eligibility,
 candidate, Stage 0/1, and live lifecycle evidence; no exchange call or order is
 part of credential reconciliation.
+
 ## 2026-08-27 portable execution-host candidate
 
 The operator reopened the former one-PC topology because daytime memory
 pressure on the 16 GB capture host is a technical obstacle to an attended live
-test. Candidate branch `codex/portable-execution-host-clean-20260827` separates the
-existing capture-colocated profile from one execution-only Windows-host
-profile. The portable profile keeps exact Git/source/interpreter/SDK,
+test. Candidate branch `codex/portable-execution-host-clean-20260827`
+separates the existing capture-colocated profile from one execution-only
+Windows-host profile. The portable profile keeps exact Git/source/interpreter/SDK,
 credential, geography, account, balance/allowance, zero-state, order,
 cancellation, deadline, cleanup, budget, and attended-confirmation gates. It
 does not consume the other PC's capture/tape/streak state or timetable and
@@ -584,3 +585,14 @@ focused or bounded suites, has not been published or merged, and has contacted
 neither credentials nor the exchange. It closes no live-evidence checkbox
 until exact-tip qualification, guarded production adoption, and on-host
 provisioning all pass.
+
+The final static audit covered code tip
+`0c0b71e2930fb947dc272753be9353008bef2244`. Its five-commit linear restack
+starts at exact production `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`,
+contains exactly 86 reviewed paths, and excludes every unrelated overnight,
+Scheduler, one-shot, hook, and integration-attempt path and ancestor. Python,
+PowerShell, JSON, import/schema, template-marker, identity, status, SDK cleanup,
+and runbook consistency checks passed, including independent code and lineage
+reviews. No runtime test, credential access, exchange contact, Scheduler
+mutation, production edit, publication, or merge occurred; this is static
+review evidence, not runtime qualification.
