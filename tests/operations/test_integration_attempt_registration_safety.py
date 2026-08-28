@@ -2,12 +2,18 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
 CONTRACT = OPS / "integration_attempt_contract.ps1"
 REGISTRAR = OPS / "register_integration_attempt.ps1"
 CREATOR = OPS / "new_integration_attempt.ps1"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 
 
 def _run_powershell(script: str, **extra_env: str) -> subprocess.CompletedProcess[str]:
@@ -83,6 +89,7 @@ def test_registrar_journals_before_mutation_and_binds_complete_task_identity() -
     assert terminal_lock < terminal_check < intent_write < first_scheduler_write
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_exact_task_binding_rejects_trigger_principal_and_setting_drift() -> None:
     script = r"""
 $ErrorActionPreference = 'Stop'
@@ -276,6 +283,7 @@ foreach ($case in $cases) {
     assert result.stdout.strip() == "PASS"
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_pre_registration_intent_can_close_tasks_after_registrar_crash(
     tmp_path: Path,
 ) -> None:

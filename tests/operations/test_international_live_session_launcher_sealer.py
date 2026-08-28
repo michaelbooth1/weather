@@ -28,6 +28,10 @@ from weather.operations.live_path_security import canonical_windows_powershell
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
 CONDITION = "0x" + "1" * 64
 TOKEN = "101"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 
 
 def sha(path: Path) -> str:
@@ -112,6 +116,7 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     )["manifest_sha256"]
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_no_argument_launcher_rejects_manifest_and_sidecar_rewrite(tmp_path):
     repo, template, attempt, manifest, build_receipt = fixture(tmp_path)
     receipt = prepare(repo, template, manifest, build_receipt)

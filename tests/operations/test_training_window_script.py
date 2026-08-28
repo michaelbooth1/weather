@@ -3,6 +3,8 @@ import os
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from weather.operations.producer_provenance import (
     _windows_argv,
     decode_scheduler_action_arguments,
@@ -27,6 +29,10 @@ REGISTER_NIGHTLY = (
     / "scripts"
     / "ops"
     / "register_nightly_retrain.ps1"
+)
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
 )
 BASE_BINDING_NAMES = (
     "BaseRetrainTargetDate",
@@ -282,6 +288,7 @@ def test_training_as_of_strict_iso_is_preserved_and_natural_language_rejected():
     assert "DateTimeOffset]::TryParse" in direct
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_training_binding_resolver_rejects_existing_candidate_and_natural_time(
     tmp_path: Path,
 ) -> None:

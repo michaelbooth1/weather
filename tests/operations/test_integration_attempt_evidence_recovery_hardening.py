@@ -3,9 +3,15 @@ import json
 import os
 import subprocess
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 
 
 def _text(name: str) -> str:
@@ -233,6 +239,7 @@ def test_boot_recovery_uses_exact_worker_proof_for_the_primary_verdict() -> None
     assert proof < verdict < retry < record
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_equal_final_inventory_is_strict_mode_safe() -> None:
     probe = r"""
 Set-StrictMode -Version Latest
@@ -267,6 +274,7 @@ def test_documentation_begin_is_idempotent_across_marker_write_kill() -> None:
     assert "pending-$documentationPendingSha256.json" in reconcile
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_changed_recovery_powershell_parses() -> None:
     names = [
         "integration_attempt_merge.ps1",

@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 import pytest
 
 from weather.operations import live_path_security as security
 
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 
+
+@WINDOWS_POWERSHELL_REQUIRED
 def test_canonical_powershell_ignores_path_shadow(monkeypatch, tmp_path):
     shadow = tmp_path / "powershell.exe"
     shadow.write_text("shadow", encoding="utf-8")
@@ -30,7 +37,7 @@ def test_private_acl_validator_accepts_only_current_user_owned_root(monkeypatch,
     )
 
     result = security.validate_private_attempt_root(
-        tmp_path, powershell_path=security.canonical_windows_powershell()
+        tmp_path, powershell_path=tmp_path / "powershell.exe"
     )
 
     assert result["status"] == "PASS"
@@ -47,13 +54,13 @@ def test_private_acl_validator_rejects_broad_write_or_reparse(monkeypatch, tmp_p
     )
     with pytest.raises(security.LivePathSecurityError, match="broadly writable"):
         security.validate_private_attempt_root(
-            tmp_path, powershell_path=security.canonical_windows_powershell()
+            tmp_path, powershell_path=tmp_path / "powershell.exe"
         )
 
     monkeypatch.setattr(security, "is_reparse", lambda _path: True)
     with pytest.raises(security.LivePathSecurityError, match="redirected"):
         security.validate_private_attempt_root(
-            tmp_path, powershell_path=security.canonical_windows_powershell()
+            tmp_path, powershell_path=tmp_path / "powershell.exe"
         )
 
 

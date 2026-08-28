@@ -27,7 +27,10 @@ From the repository root on Windows:
 `pytest.ini` collects only `tests/` and exposes `src/`. The editable install is
 still the primary package contract. CI uses Python 3.11 on Ubuntu, so production
 modules must remain cross-platform even though scheduled operations are Windows
-specific.
+specific. Tests that actually execute Windows PowerShell, ACL, Scheduler, or
+Job semantics carry precise non-Windows skips; their static and portable Python
+contracts continue to run on Ubuntu, while executable Windows coverage remains
+part of the admitted production-host bounded suite.
 
 On the 16 GB production capture host, the commands above are not authority to
 run a direct full suite or parallel verification. Focused tests run serially

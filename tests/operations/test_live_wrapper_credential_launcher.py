@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATE = (
@@ -14,6 +16,10 @@ TEMPLATE = (
     / "ops"
     / "international_live_templates"
     / "fixed_scope_launcher.ps1.tmpl"
+)
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
 )
 REFERENCE_NAMES = (
     "POLYMARKET_API_KEY_STORAGE_REF",
@@ -92,6 +98,7 @@ foreach($name in @('Get-SealedCredentialEnvironment','Enter-SealedCredentialEnvi
 """
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_launcher_contains_public_refs_clears_poison_and_restores_parent(tmp_path):
     path = manifest(tmp_path / "references.json")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -130,6 +137,7 @@ $restoredDirect=@($direct|Where-Object{[Environment]::GetEnvironmentVariable($_,
     }
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_launcher_rejects_missing_or_tampered_reference_manifest(tmp_path):
     path = manifest(tmp_path / "references.json")
     wrong_hash = "0" * 64
@@ -150,6 +158,7 @@ if(-not $rejected){throw 'invalid manifest was accepted'}
         assert result.returncode == 0, result.stderr
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_launcher_no_argument_entry_does_not_trip_strict_mode_args_variable(tmp_path):
     script_path = tmp_path / "fixed_scope_launcher.ps1"
     script_path.write_text(TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")

@@ -3,9 +3,15 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "ops" / "bounded_worktree_test_suite.ps1"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 
 
 def test_bounded_suite_is_fail_closed_and_non_mutating():
@@ -131,6 +137,7 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "Register-ScheduledTask" not in text
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_bounded_suite_powershell_parses_and_emits_invariant_timestamps(
     tmp_path: Path,
 ):
