@@ -17,8 +17,10 @@ capture-recovery, Scheduler, release, or live-exchange gate.
 **Operator decision 2026-08-28:** the dedicated capture-host load timetable
 does not follow the portable assignment onto the separate 32 GB workstation.
 That PC may perform ordinary implementation, testing, training, replay, and
-measurement at any local time. Its separate live-executor role remains
-fixed-scope and grants no additional production or live authority.
+measurement at any local time when no sealed live attempt is active. Heavy
+workstation processes must end before a live stage is sealed or launched and
+remain stopped through terminal cleanup. Its separate live-executor role
+remains fixed-scope and grants no additional production or live authority.
 
 Conventions for naming, ordering and reading the correspondence are in
 [`docs/roadmap/AGENTS.md`](../roadmap/AGENTS.md). This file owns the *content* contract.
@@ -30,7 +32,7 @@ Conventions for naming, ordering and reading the correspondence are in
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, guarded runtime integration, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
-| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Outside the capture-host timetable and lease; cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
+| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Outside the capture-host timetable and lease, but never concurrent with a sealed live attempt; cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
 | **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session; may be the same physical PC as the workstation | No capture, release, Scheduler, production-state, unattended, or general-live authority; Git/PR actions follow explicit operator authority and `docs/git-workflow.md`; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
 
 The portable executor is a role, not a permanent machine name. The same

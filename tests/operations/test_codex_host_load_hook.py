@@ -24,6 +24,17 @@ def reason(result: dict | None) -> str:
     return result["hookSpecificOutput"]["permissionDecisionReason"]
 
 
+def assignment_payload(dedicated_id: str) -> dict:
+    return {
+        "active_portable_execution_host_id": None,
+        "active_portable_execution_principal_id": None,
+        "assignment_status": "UNASSIGNED",
+        "dedicated_capture_execution_host_id": dedicated_id,
+        "reassignment_requires_new_production_tip": True,
+        "schema_version": "international_live_execution_host_assignment_v0.1",
+    }
+
+
 def test_hook_installer_covers_unified_exec_at_the_user_layer():
     text = INSTALL_PATH.read_text(encoding="utf-8-sig")
     assert '$hookPath = Join-Path $CodexRoot "hooks.json"' in text
@@ -103,16 +114,11 @@ def test_policy_is_inactive_on_a_non_capture_host():
 def test_automatic_policy_uses_exact_host_identity_not_ram(tmp_path: Path):
     capture_guid = "11111111-2222-3333-4444-555555555555"
     workstation_guid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    capture_id = "cbf93e84ec69a10cb04b0c8f8a00297a1ba050b0ebb7535b2c667292896d21db"
+    assert HOOK._derive_execution_host_id(capture_guid) == capture_id
     assignment_path = tmp_path / "international_live_execution_host.json"
     assignment_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "international_live_execution_host_assignment_v0.1",
-                "dedicated_capture_execution_host_id": (
-                    HOOK._derive_execution_host_id(capture_guid)
-                ),
-            }
-        ),
+        json.dumps(assignment_payload(capture_id)),
         encoding="utf-8",
     )
 
@@ -157,3 +163,44 @@ def test_malformed_host_role_proof_is_indeterminate_and_blocks_heavy_work(
     blocked = HOOK.evaluate(payload(r"venv\Scripts\python.exe -m pytest -q"))
     assert "blocked fail-closed" in reason(blocked)
     assert HOOK.evaluate(payload("git status --short")) is None
+
+
+def test_assignment_role_proof_rejects_bom_duplicate_and_unstable_files(
+    tmp_path: Path,
+    monkeypatch,
+):
+    path = tmp_path / "international_live_execution_host.json"
+    capture_id = "f" * 64
+    malformed = (
+        b"\xef\xbb\xbf" + json.dumps(assignment_payload(capture_id)).encode("utf-8"),
+        (
+            '{"schema_version":"international_live_execution_host_assignment_v0.1",'
+            '"schema_version":"international_live_execution_host_assignment_v0.1",'
+            '"assignment_status":"UNASSIGNED",'
+            f'"dedicated_capture_execution_host_id":"{capture_id}",'
+            '"active_portable_execution_host_id":null,'
+            '"active_portable_execution_principal_id":null,'
+            '"reassignment_requires_new_production_tip":true}'
+        ).encode("utf-8"),
+    )
+    for raw in malformed:
+        path.write_bytes(raw)
+        assert (
+            HOOK._capture_host_policy_state(
+                assignment_path=path,
+                machine_guid="11111111-2222-3333-4444-555555555555",
+                windows=True,
+            )
+            is None
+        )
+
+    path.write_text(json.dumps(assignment_payload(capture_id)), encoding="utf-8")
+    monkeypatch.setattr(HOOK.os.path, "samestat", lambda *_args: False)
+    assert (
+        HOOK._capture_host_policy_state(
+            assignment_path=path,
+            machine_guid="11111111-2222-3333-4444-555555555555",
+            windows=True,
+        )
+        is None
+    )

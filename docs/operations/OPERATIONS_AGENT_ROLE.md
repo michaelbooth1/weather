@@ -99,7 +99,9 @@ production integration/adoption runbook remains separately binding.
 property of this 16 GB capture host, not of the separate 32 GB workstation.
 That workstation may run ordinary implementation, tests, training, replay,
 and measurement at any local time even when it also holds the portable
-live-executor assignment. The live profile remains fixed-scope and grants no
+live-executor assignment, but never while a sealed live attempt is active.
+Heavy workstation processes must end before a stage is sealed or launched and
+remain stopped through terminal cleanup. The live profile remains fixed-scope and grants no
 capture, production, Scheduler, credential, exchange, unattended-trading, or
 live-order authority.
 
@@ -305,7 +307,8 @@ was wrong, several in the opposite direction from the defect.
 
 The 32 GB workstation (`DESKTOP-RFCD2GH`) runs a separate implementation and
 research agent. Its ordinary development, verification, training, replay, and
-measurement work is outside this capture host's timetable and lease. It
+measurement work is outside this capture host's timetable and lease, but may
+not overlap a sealed portable live attempt. It
 communicates **only** through origin topic branches and operator-relayed
 prompts. You never talk to it directly.
 

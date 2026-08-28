@@ -34,6 +34,7 @@
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$ExpectedExecutionHostId = "",
     [double]$WarnPercent = 85.0,
     [double]$ActPercent = 92.0,
     [long]$MinKillPrivateBytes = 8GB,
@@ -45,22 +46,40 @@ param(
     [int]$MaxConcurrentAgentHeavyWorkloads = 1
 )
 
-$hostIdentityScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
-if (-not (Test-Path -LiteralPath $hostIdentityScript -PathType Leaf)) {
-    throw "capture-host identity helper is missing: $hostIdentityScript"
+function Get-MemoryGuardExecutionHostId {
+    $machineGuid = [string](Get-ItemPropertyValue `
+        -LiteralPath "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography" `
+        -Name "MachineGuid" `
+        -ErrorAction Stop)
+    $machineGuid = $machineGuid.Trim().ToLowerInvariant()
+    if (-not $machineGuid) {
+        throw "memory guard execution-host identity is unavailable"
+    }
+    $material = "international_live_execution_host_v2`0$machineGuid"
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        return -join ($hasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($material)
+        ) | ForEach-Object { $_.ToString("x2") })
+    }
+    finally { $hasher.Dispose() }
 }
-. $hostIdentityScript
-$guardExecutionHostId = Get-WeatherExecutionHostId
-$guardAssignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
-if (
-    $guardExecutionHostId -cne
-        [string]$guardAssignment.dedicated_capture_execution_host_id
-) {
-    Write-Output (
-        "SKIPPED: memory commit guard is restricted to the tracked " +
-        "dedicated capture host"
-    )
-    exit 0
+
+# Existing production registrations predate the immutable host binding and
+# retain their protection until the separately authorized registrar is rerun.
+# Every new registration supplies the exact validated capture-host ID.
+if ($ExpectedExecutionHostId) {
+    if ($ExpectedExecutionHostId -cnotmatch '\A[0-9a-f]{64}\z') {
+        throw "memory guard expected execution-host identity is invalid"
+    }
+    $guardExecutionHostId = Get-MemoryGuardExecutionHostId
+    if ($guardExecutionHostId -cne $ExpectedExecutionHostId) {
+        Write-Output (
+            "SKIPPED: memory commit guard is restricted to its registered " +
+            "dedicated capture host"
+        )
+        exit 0
+    }
 }
 
 $logDir = Join-Path $RepoRoot "data\logs"

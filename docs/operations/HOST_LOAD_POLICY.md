@@ -8,9 +8,11 @@ be rescheduled — is never starved.
 This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
-and replay outside this timetable and without the capture-host lease. That
-allowance comes from the machine's non-capture workstation role, not from a
-live profile.
+and replay outside this timetable and without the capture-host lease when no
+sealed live attempt is active. Heavy workstation processes must end before a
+live stage is sealed or launched and may not restart until terminal cleanup
+evidence exists. That allowance comes from the machine's non-capture
+workstation role, not from a live profile.
 
 The exact attended, host-bound International Stage 0/1 lane remains governed
 by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its

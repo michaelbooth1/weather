@@ -29,7 +29,7 @@ if (
 
 $action = New-ScheduledTaskAction `
     -Execute "powershell.exe" `
-    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script`" -RepoRoot `"$RepoRoot`"" `
+    -Argument "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$script`" -RepoRoot `"$RepoRoot`" -ExpectedExecutionHostId $registrarExecutionHostId" `
     -WorkingDirectory $RepoRoot
 
 # Single once trigger with indefinite repetition. The duration is blanked to

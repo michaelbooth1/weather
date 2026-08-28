@@ -43,7 +43,10 @@ On a separate non-capture workstation, including the 32 GB PC when it also
 holds the portable live-executor assignment, ordinary local development and
 verification are not subject to the capture-host timetable, lease, 25-file
 wrapper, or serial-only rule. Run the baseline commands directly and size
-concurrency to that workstation's current resources. This does not authorize
+concurrency to that workstation's current resources. Do not overlap heavy
+verification with a sealed portable live attempt: finish its complete process
+tree before sealing or launching a live stage and wait for terminal cleanup
+before resuming. This does not authorize
 production `data/` access, Scheduler or capture mutation, credentials,
 networked collectors, exchange contact, or live orders, and a workstation
 PASS does not replace any explicitly required production-host qualification.

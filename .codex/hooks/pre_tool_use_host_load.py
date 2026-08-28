@@ -23,6 +23,7 @@ ASSIGNMENT_PATH = (
 )
 _REPARSE_POINT = 0x400
 _HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
+_MAX_ASSIGNMENT_BYTES = 16_384
 
 _PYTEST = re.compile(
     r"(?i)(?:^|\s)-m\s+pytest\b|(?:^|[\s;&|])pytest(?:\.exe)?\b"
@@ -59,29 +60,104 @@ def _read_machine_guid() -> str:
     return value
 
 
+def _reject_duplicate_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("capture-host assignment contains a duplicate key")
+        result[key] = value
+    return result
+
+
+def _read_stable_assignment(path: Path) -> bytes:
+    assignment_path = Path(os.path.abspath(os.fspath(path)))
+    cursor = Path(assignment_path.anchor)
+    for part in assignment_path.parts[1:]:
+        cursor /= part
+        entry = cursor.lstat()
+        if cursor.is_symlink() or bool(
+            getattr(entry, "st_file_attributes", 0) & _REPARSE_POINT
+        ):
+            raise ValueError("capture-host assignment path is redirected")
+
+    descriptor = os.open(
+        assignment_path,
+        os.O_RDONLY | getattr(os, "O_BINARY", 0),
+    )
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_size <= 0
+            or opened.st_size > _MAX_ASSIGNMENT_BYTES
+        ):
+            raise ValueError("capture-host assignment is not a bounded regular file")
+        chunks: list[bytes] = []
+        remaining = _MAX_ASSIGNMENT_BYTES + 1
+        while remaining > 0:
+            block = os.read(descriptor, min(8192, remaining))
+            if not block:
+                break
+            chunks.append(block)
+            remaining -= len(block)
+        raw = b"".join(chunks)
+        after_handle = os.fstat(descriptor)
+        after_path = assignment_path.stat()
+        if (
+            len(raw) != opened.st_size
+            or not os.path.samestat(opened, after_handle)
+            or not os.path.samestat(opened, after_path)
+            or after_handle.st_size != opened.st_size
+            or after_handle.st_mtime_ns != opened.st_mtime_ns
+        ):
+            raise ValueError("capture-host assignment changed while it was read")
+        return raw
+    finally:
+        os.close(descriptor)
+
+
 def _read_dedicated_capture_host_id(path: Path) -> str:
-    metadata = path.lstat()
+    raw = _read_stable_assignment(path)
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("capture-host assignment must not contain a BOM")
+    assignment = json.loads(
+        raw.decode("utf-8"),
+        object_pairs_hook=_reject_duplicate_json_pairs,
+    )
+    expected = {
+        "active_portable_execution_host_id",
+        "active_portable_execution_principal_id",
+        "assignment_status",
+        "dedicated_capture_execution_host_id",
+        "reassignment_requires_new_production_tip",
+        "schema_version",
+    }
+    if not isinstance(assignment, dict) or set(assignment) != expected:
+        raise ValueError("capture-host assignment does not have the exact keys")
+    dedicated_id = assignment["dedicated_capture_execution_host_id"]
+    active_host_id = assignment["active_portable_execution_host_id"]
+    active_principal_id = assignment["active_portable_execution_principal_id"]
+    status_value = assignment["assignment_status"]
     if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_size <= 0
-        or metadata.st_size > 16_384
-        or getattr(metadata, "st_file_attributes", 0) & _REPARSE_POINT
-    ):
-        raise ValueError("capture-host assignment is not a bounded regular file")
-    raw = path.read_bytes()
-    if len(raw) != metadata.st_size:
-        raise ValueError("capture-host assignment changed while it was read")
-    assignment = json.loads(raw.decode("utf-8-sig"))
-    if not isinstance(assignment, dict):
-        raise ValueError("capture-host assignment is not an object")
-    dedicated_id = assignment.get("dedicated_capture_execution_host_id")
-    if (
-        assignment.get("schema_version")
+        assignment["schema_version"]
         != "international_live_execution_host_assignment_v0.1"
         or not isinstance(dedicated_id, str)
         or _HEX64.fullmatch(dedicated_id) is None
+        or assignment["reassignment_requires_new_production_tip"] is not True
+        or status_value not in {"UNASSIGNED", "ASSIGNED"}
     ):
         raise ValueError("capture-host assignment contract is invalid")
+    if status_value == "UNASSIGNED":
+        if active_host_id is not None or active_principal_id is not None:
+            raise ValueError("unassigned capture-host assignment has active identities")
+    elif (
+        not isinstance(active_host_id, str)
+        or _HEX64.fullmatch(active_host_id) is None
+        or not isinstance(active_principal_id, str)
+        or _HEX64.fullmatch(active_principal_id) is None
+        or active_host_id == dedicated_id
+    ):
+        raise ValueError("assigned portable execution-host identity is invalid")
     return dedicated_id
 
 

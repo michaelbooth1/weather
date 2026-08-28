@@ -71,8 +71,11 @@ machine-local state.
 - That timetable does not govern a separate non-capture workstation. The
   32 GB workstation may run ordinary implementation, tests, training, and
   replay work without the capture-host window or lease, including when that
-  same physical PC is assigned the portable live-executor role. Live work on
-  it still requires the exact host-bound `portable_execution_v1` International
+  same physical PC is assigned the portable live-executor role, but never
+  while a sealed live attempt is active. End heavy workstation processes
+  before sealing or launching a live stage, and do not start them until that
+  stage has terminal cleanup evidence. Live work still requires the exact
+  host-bound `portable_execution_v1` International
   Stage 0/1 lane in `docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`; this
   workstation allowance grants no capture, production-state, Scheduler,
   credential, exchange, unattended-trading, or live-order authority.

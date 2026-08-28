@@ -124,7 +124,8 @@ dedicated-capture-host exclusion; never generalize that lane to another heavy
 command or to an unattended session. Ordinary implementation, tests,
 training, and replay on the same physical non-capture workstation are allowed
 by its workstation role; they do not use this live lease or create live-stage
-evidence.
+evidence and must end before a live stage is sealed or launched. They may not
+resume until that stage has terminal cleanup evidence.
 
 `install_codex_host_load_hook.ps1` owns the production host's user-layer
 PreToolUse guard. It must never overwrite an existing `~/.codex/hooks.json`,
@@ -133,9 +134,12 @@ requires review/trust on the next session. The hook is prevention at launch;
 the one-minute S4U memory/process guard remains the enforcement backstop.
 Both the hook and the S4U guard use the tracked MachineGuid-derived dedicated
 capture-host identity, not RAM, machine name, or portable assignment, as role
-authority. The guard and its registrar must exit or refuse before log creation,
-process enumeration, Scheduler mutation, or termination on any non-capture
-host.
+authority. The registrar proves that identity before Scheduler mutation and
+seals it into the task action; a bound guard exits before log creation,
+process enumeration, or termination on any other host. Legacy task actions
+without the binding keep enforcing until separately authorized
+re-registration, so a source update cannot silently remove the capture-host
+backstop.
 
 One-date settlement backfills must use the canonical bounded daily-refresh
 slice ending at `market_day_labels_finalize`; never run the remaining chain and
