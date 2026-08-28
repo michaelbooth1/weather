@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-27 America/Toronto.** Read this first; read
+**Last rewritten: 2026-08-28 America/Toronto.** Read this first; read
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative
@@ -14,13 +14,13 @@ costs. **No market edge is proved.**
 
 | Area | State / next action |
 | --- | --- |
-| Production | A fresh canonical remote query on Aug 27 observed `master` at `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`, equal to the production checkout and its tracking ref. Preserve the two expected fleet-generated location-config modifications. |
+| Production | A fresh canonical remote query on Aug 28 observed `master` at `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`. The production checkout must reprove local/remote equality before qualification or integration. Preserve the two expected fleet-generated location-config modifications there. |
 | Overnight bootstrap | The offline integration runner bootstrap is production-adopted at that tip. Do not reuse or reconstruct the spent historical attempts that preceded it. |
-| Portable executor | Work is cleanly restacked from the exact production baseline on `codex/portable-execution-host-clean-20260827`. It adds explicit profiles, one tracked active host/principal assignment, execution-only status, host-global admission, public SDK transfer, fresh host/principal-bound credential receipts, isolated public-candidate collection, and relocation documentation. It is not yet qualified, published, or production-adopted. The tracked assignment is deliberately `UNASSIGNED` until the chosen second PC reports its public IDs. |
+| Portable executor | `codex/portable-execution-host-clean-20260827` is published through audit tip `996f16fc68588f8304cf1c22f4734c543ea9e23a` from exact production baseline `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`. It adds explicit profiles, one tracked active host/principal assignment, execution-only status, host-global admission, public SDK transfer, fresh host/principal-bound credential receipts, isolated public-candidate collection, and relocation documentation. It has no PR/CI, qualification, or production adoption yet. The tracked assignment remains deliberately `UNASSIGNED` until the chosen second PC reports its public IDs. |
 | Verification | The clean-restack, syntax, import/schema, template, identity, security, and runbook audits passed for code tip `0c0b71e2930fb947dc272753be9353008bef2244`, including two independent reviews. The focused and bounded suites have not run; production-host runtime qualification remains deferred to an admitted 00:30-09:00 serial window. |
-| Second PC | No second PC has been inspected from this session. Its Windows/Python/Git/clock/reboot/SDK/credential/location/account state is unknown until provisioned and checked locally. |
+| Second PC | The selected 32 GB Windows PC was inspected on Aug 28. Fixed local media, CPython 3.11.9 x64, machine-wide Git/LFS, canonical HTTPS origin, and all 26 transferred HGB LFS objects pass. Its clean portable clone remains at production `788ff8e...`. Clock service, pending reboot, and automatic proxy discovery fail; the venv, public SDK, assignment, WinCred entries, and live attempt are absent. No credential value or exchange endpoint was accessed. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
-| Credentials | No credential value was accessed. Each execution PC needs its own current-user WinCred entries and a fresh host-and-token-principal-bound v0.4 compare-only receipt; another host/principal's receipt and attempt artifacts are invalid. |
+| Credentials | No credential value was accessed. The selected PC's four current-user WinCred targets are not provisioned. It needs a fresh host-and-token-principal-bound v0.4 compare-only receipt after enrollment; another host/principal's receipt and attempt artifacts are invalid. |
 | Live money | No exchange endpoint was contacted and no Stage 0/1 session has run. The first session remains attended, International-only, exact 10 pUSD request / 100 pUSD wallet cap, and separately gated at every mutation boundary. |
 
 ## Closed decisions -- do not relitigate without new evidence
@@ -54,14 +54,17 @@ costs. **No market edge is proved.**
 
 ## Ordered critical path
 
-1. Preserve the reviewed clean candidate; do not publish the polluted source
-   lineage or treat the public SDK bundle as credential transfer.
-2. In the next admitted production-host window, run focused tests and the
+1. Preserve the published clean candidate and correct publication state only
+   with descendant commits; never rewrite its history, publish the polluted
+   source lineage, or treat the public SDK bundle as credential transfer.
+2. On the production host, fetch and independently review the final exact tip.
+   In the next admitted window, run focused tests and the
    repository-owned bounded suite serially. Any partial, stale, timed-out, or
    non-contained result is not PASS.
-3. Obtain the canonical roll verdict, publish one exact topic tip, complete CI
-   and owner review, then use the appropriate guarded integration path. A
-   topic push or CI PASS is not production adoption.
+3. Obtain the canonical roll verdict there, open the draft PR under the
+   operator's explicit Git authority, complete CI and owner review, then use
+   the appropriate guarded integration path. A topic push or CI PASS is not
+   production adoption; Scheduler registration still needs separate explicit authority.
 4. On the chosen second PC, make a clean local clone at the adopted exact tip,
    create a new 64-bit CPython 3.11 venv, import/audit a uniquely named exact
    non-secret SDK bundle, report its public host/principal IDs, merge the exact

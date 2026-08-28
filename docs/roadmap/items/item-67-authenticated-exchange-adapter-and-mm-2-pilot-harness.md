@@ -596,3 +596,21 @@ and runbook consistency checks passed, including independent code and lineage
 reviews. No runtime test, credential access, exchange contact, Scheduler
 mutation, production edit, publication, or merge occurred; this is static
 review evidence, not runtime qualification.
+
+## 2026-08-28 portable publication and second-PC transfer
+
+The clean candidate's audit tip
+`996f16fc68588f8304cf1c22f4734c543ea9e23a` is published from exact production
+`788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`; no PR, CI, runtime qualification,
+canonical production roll verdict, or merge evidence exists. The schema change
+is not additive-only, so the production-host `roll_verdict.ps1` result and its
+guarded integration path remain mandatory.
+
+The selected 32 GB Windows PC then imported the separately verified Google
+Drive LFS transfer without GitHub LFS traffic. Its portable clone is clean at
+production `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`, with all 26 tracked HGB
+objects materialized. Fixed local media, CPython 3.11.9 x64, machine-wide
+Git/LFS, and the canonical HTTPS origin pass. Clock service, pending reboot,
+automatic proxy discovery, venv, public SDK, tracked assignment, host-local
+WinCred entries, and fresh live-attempt evidence remain open. No credential
+value or exchange endpoint was accessed during this inspection.

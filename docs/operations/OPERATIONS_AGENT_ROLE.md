@@ -83,11 +83,17 @@ is still operational state and must not be hidden from the operator.
 The research workstation may not call exchange or weather-provider endpoints. **Operator decision
 2026-08-27:** the attended International Stage 0/1 executor may instead be a separately provisioned
 Windows PC using the exact `portable_execution_v1` contract. The 16 GB production PC remains the
-capture, release, merge, and scheduling authority and cannot claim that portable profile. The
-selected execution host may authenticate, place, or cancel only when explicit authorization plus
+capture, release, guarded runtime-integration, and scheduling authority and
+cannot claim that portable profile. The selected execution host may
+authenticate, place, or cancel only when explicit authorization plus
 the exact-tip, readiness, risk, host-local credential, host-identity, and fixed-scope-wrapper gates
 all pass. Follow `PORTABLE_LIVE_EXECUTION_HOST.md` for provisioning or relocation; this decision
 weakens no exchange or risk gate and grants the portable PC no production or Scheduler authority.
+
+**Operator correction 2026-08-28:** source-control actions are not reserved to
+the production PC. An explicitly authorized workstation or portable-PC agent
+may create a PR or perform a Git merge under `docs/git-workflow.md`; any owning
+production integration/adoption runbook remains separately binding.
 
 ---
 
