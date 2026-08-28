@@ -1106,8 +1106,8 @@ def test_readiness_snapshot_can_load_one_shot_run_folder_from_status_payload(tmp
 def test_find_latest_paper_score_prefers_newest_mm_paper_json(tmp_path):
     old = write_json(tmp_path / "mm_paper_report.json", {"summary": {"quote_permission_rows": 0}})
     new = write_json(tmp_path / "mm_paper_new.json", {"summary": {"quote_permission_rows": 1}})
-    old.touch()
-    new.touch()
+    os.utime(old, (100, 100))
+    os.utime(new, (200, 200))
 
     assert find_latest_paper_score(tmp_path) == new
 

@@ -162,6 +162,17 @@ class GitStub:
 
 def local_remote_equal_git_runner(root: Path, args):
     command = tuple(args)
+    if command in {
+        ("rev-parse", "master"),
+        ("rev-parse", "origin/master"),
+    }:
+        head = sealer._default_git_runner(root, ["rev-parse", "HEAD"])
+        return subprocess.CompletedProcess(
+            args,
+            head.returncode,
+            head.stdout,
+            head.stderr,
+        )
     if command == (
         "ls-remote",
         "--exit-code",
@@ -176,6 +187,12 @@ def local_remote_equal_git_runner(root: Path, args):
             f"{head.stdout.strip()}\t{sealer.REMOTE_MASTER_REF}\n",
             head.stderr,
         )
+    if command == ("branch", "--show-current"):
+        return subprocess.CompletedProcess(args, 0, "master\n", "")
+    if command[:2] == ("merge-base", "--is-ancestor"):
+        return subprocess.CompletedProcess(args, 0, "", "")
+    if command == ("status", "--porcelain=v1", "--untracked-files=all"):
+        return subprocess.CompletedProcess(args, 0, "", "")
     return sealer._default_git_runner(root, args)
 
 
@@ -1080,7 +1097,7 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
         datetime.fromisoformat("2026-08-23T08:59:30-04:00"),
         datetime.fromisoformat("2026-08-23T12:00:00-04:00"),
         datetime.fromisoformat("2026-08-23T18:00:00-04:00"),
-        datetime.fromisoformat("2026-08-23T23:59:00-04:00"),
+        datetime.fromisoformat("2026-08-23T23:58:00-04:00"),
     ],
 )
 def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current):
@@ -1116,6 +1133,17 @@ def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path)
         run_not_after_local=(current + timedelta(seconds=60)).isoformat(),
         execution_host_profile="portable_execution_v1",
         execution_host_id=sealer.current_execution_host_id(),
+    )
+    credential_receipt = Path(
+        spec["inputs"]["credential_import_receipt"]["path"]
+    )
+    credential_payload = json.loads(credential_receipt.read_text(encoding="utf-8"))
+    credential_payload["prepared_at_utc"] = current.astimezone(
+        timezone.utc
+    ).isoformat()
+    write_json(credential_receipt, credential_payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(
+        credential_receipt
     )
     write_json(spec_path, spec)
 
@@ -1184,7 +1212,10 @@ def test_seal_refuses_expired_candidate_before_writing(tmp_path):
     )
     production, attempt, spec_path, _spec = prepare(tmp_path, candidate=candidate)
 
-    with pytest.raises(sealer.SealError, match="candidate plan gate failed"):
+    with pytest.raises(
+        sealer.SealError,
+        match="candidate plan failed the canonical gate",
+    ):
         seal(spec_path, production)
 
     assert not (attempt / "wrappers/stage0.py").exists()

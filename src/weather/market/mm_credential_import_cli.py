@@ -19,6 +19,7 @@ import json
 import os
 import stat
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -77,6 +78,191 @@ SIGNATURE_TOPOLOGIES = {
     "POLY_1271": ("deposit_wallet", "POLY_1271", 3),
 }
 
+WINDOWS_RESERVATION_SHARE_MODE = 0  # exclusive until publication or disposition
+
+
+def _open_create_only_descriptor(path: Path, flags: int, mode: int = 0o600) -> int:
+    if os.name != "nt":
+        return os.open(path, flags, mode)
+
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+    desired_access = 0x80000000 | 0x40000000 | 0x00010000
+    handle = create_file(
+        str(path),
+        desired_access,
+        WINDOWS_RESERVATION_SHARE_MODE,
+        None,
+        1,  # CREATE_NEW
+        0x00000080,  # FILE_ATTRIBUTE_NORMAL
+        None,
+    )
+    invalid_handle = ctypes.c_void_p(-1).value
+    if handle == invalid_handle:
+        error = ctypes.get_last_error()
+        if error in {80, 183}:  # ERROR_FILE_EXISTS / ERROR_ALREADY_EXISTS
+            raise FileExistsError(error, f"output path already exists: {path}")
+        raise ctypes.WinError(error)
+    try:
+        descriptor = msvcrt.open_osfhandle(
+            int(handle),
+            os.O_RDWR
+            | getattr(os, "O_BINARY", 0)
+            | getattr(os, "O_NOINHERIT", 0),
+        )
+    except BaseException:
+        close_handle(handle)
+        raise
+    try:
+        os.set_inheritable(descriptor, False)
+    except BaseException:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _delete_windows_descriptor(descriptor: int) -> bool:
+    if os.name != "nt":
+        return False
+
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    class FileDispositionInfo(ctypes.Structure):
+        _fields_ = [("delete_file", ctypes.c_ubyte)]
+
+    set_information = ctypes.WinDLL(
+        "kernel32", use_last_error=True
+    ).SetFileInformationByHandle
+    set_information.argtypes = (
+        wintypes.HANDLE,
+        ctypes.c_int,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+    )
+    set_information.restype = wintypes.BOOL
+    disposition = FileDispositionInfo(1)
+    return bool(
+        set_information(
+            wintypes.HANDLE(msvcrt.get_osfhandle(descriptor)),
+            4,  # FileDispositionInfo
+            ctypes.byref(disposition),
+            ctypes.sizeof(disposition),
+        )
+    )
+
+
+def _windows_handle_information(handle: int) -> tuple[tuple[int, int, int], int]:
+    import ctypes
+    from ctypes import wintypes
+
+    class FileTime(ctypes.Structure):
+        _fields_ = (
+            ("low", wintypes.DWORD),
+            ("high", wintypes.DWORD),
+        )
+
+    class ByHandleFileInformation(ctypes.Structure):
+        _fields_ = (
+            ("attributes", wintypes.DWORD),
+            ("creation_time", FileTime),
+            ("last_access_time", FileTime),
+            ("last_write_time", FileTime),
+            ("volume_serial_number", wintypes.DWORD),
+            ("file_size_high", wintypes.DWORD),
+            ("file_size_low", wintypes.DWORD),
+            ("number_of_links", wintypes.DWORD),
+            ("file_index_high", wintypes.DWORD),
+            ("file_index_low", wintypes.DWORD),
+        )
+
+    get_information = ctypes.WinDLL(
+        "kernel32", use_last_error=True
+    ).GetFileInformationByHandle
+    get_information.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(ByHandleFileInformation),
+    )
+    get_information.restype = wintypes.BOOL
+    information = ByHandleFileInformation()
+    if not get_information(wintypes.HANDLE(handle), ctypes.byref(information)):
+        raise ctypes.WinError(ctypes.get_last_error())
+    identity = (
+        int(information.volume_serial_number),
+        int(information.file_index_high),
+        int(information.file_index_low),
+    )
+    size = (int(information.file_size_high) << 32) | int(
+        information.file_size_low
+    )
+    return identity, size
+
+
+def _windows_descriptor_information(
+    descriptor: int,
+) -> tuple[tuple[int, int, int], int]:
+    import msvcrt
+
+    return _windows_handle_information(msvcrt.get_osfhandle(descriptor))
+
+
+def _windows_path_information(path: Path) -> tuple[tuple[int, int, int], int]:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+    handle = create_file(
+        str(path),
+        0,  # metadata query without read/write/delete access
+        0x00000001 | 0x00000002 | 0x00000004,
+        None,
+        3,  # OPEN_EXISTING
+        0x00200000,  # FILE_FLAG_OPEN_REPARSE_POINT
+        None,
+    )
+    invalid_handle = ctypes.c_void_p(-1).value
+    if handle == invalid_handle:
+        error = ctypes.get_last_error()
+        if error in {2, 3}:  # ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND
+            raise FileNotFoundError(error, f"output path disappeared: {path}")
+        raise ctypes.WinError(error)
+    try:
+        return _windows_handle_information(int(handle))
+    finally:
+        close_handle(handle)
+
 
 class SourceCredentialBundle:
     __slots__ = (
@@ -117,7 +303,13 @@ class CredentialValidationDependencyError(RuntimeError):
 
 
 class _CreateOnlyOutput:
-    """Own one new output file identity from reservation through publication."""
+    """Own one new output file identity from reservation through publication.
+
+    Credential import rejects real non-Windows operation before reservation.
+    The POSIX cleanup path exists for deterministic cross-platform simulation;
+    it preserves uncertain objects in a caller-visible quarantine instead of
+    performing a pathname unlink without handle-bound ownership.
+    """
 
     def __init__(self, path: Path, *, label: str):
         self.path = path
@@ -125,11 +317,29 @@ class _CreateOnlyOutput:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
         try:
-            self._descriptor = os.open(self.path, flags, 0o600)
+            descriptor = _open_create_only_descriptor(
+                self.path,
+                flags,
+                0o600,
+            )
         except FileExistsError as exc:
             raise RuntimeError(f"{label} output path must be new") from exc
-        self._identity = os.fstat(self._descriptor)
+        try:
+            identity = os.fstat(descriptor)
+            windows_identity = (
+                _windows_descriptor_information(descriptor)[0]
+                if os.name == "nt"
+                else None
+            )
+        except BaseException:
+            os.close(descriptor)
+            raise
+        self._descriptor = descriptor
+        self._identity = identity
+        self._windows_identity = windows_identity
         self._expected_sha256 = None
+        self._owned_sha256 = hashlib.sha256(b"").hexdigest()
+        self.quarantine_path: Path | None = None
 
     def write_json(self, payload) -> None:
         raw = (json.dumps(payload, indent=2, sort_keys=True, default=str) + "\n").encode(
@@ -150,14 +360,30 @@ class _CreateOnlyOutput:
         finally:
             view.release()
         self._expected_sha256 = hashlib.sha256(raw).hexdigest()
+        self._owned_sha256 = self._expected_sha256
+        self._identity = os.fstat(descriptor)
 
     def verify(self) -> None:
         descriptor = self._require_open()
         try:
-            observed_identity = self.path.stat()
+            if os.name == "nt":
+                descriptor_identity, _descriptor_size = (
+                    _windows_descriptor_information(descriptor)
+                )
+                observed_identity, _observed_size = _windows_path_information(
+                    self.path
+                )
+                same_identity = (
+                    self._windows_identity
+                    == descriptor_identity
+                    == observed_identity
+                )
+            else:
+                observed_identity = self.path.stat()
+                same_identity = os.path.samestat(self._identity, observed_identity)
         except OSError as exc:
             raise RuntimeError(f"{self.label} publication path disappeared") from exc
-        if not os.path.samestat(self._identity, observed_identity):
+        if not same_identity:
             raise RuntimeError(f"{self.label} publication ownership changed")
         if self._expected_sha256 is None:
             raise RuntimeError(f"{self.label} publication was not written")
@@ -178,17 +404,109 @@ class _CreateOnlyOutput:
             os.close(descriptor)
 
     def remove_if_owned(self) -> bool:
-        self.close()
-        try:
-            observed_identity = self.path.stat()
-        except FileNotFoundError:
-            return True
-        except OSError:
-            return False
-        if not os.path.samestat(self._identity, observed_identity):
+        descriptor = self._descriptor
+        if descriptor is None:
+            # Once the reservation handle is closed, a recycled filesystem
+            # identity cannot prove that the current path is still ours.
             return False
         try:
-            self.path.unlink()
+            try:
+                descriptor_identity = os.fstat(descriptor)
+                if os.name == "nt":
+                    descriptor_windows_identity, descriptor_windows_size = (
+                        _windows_descriptor_information(descriptor)
+                    )
+                    descriptor_sha256 = self._descriptor_sha256(descriptor)
+                    if not (
+                        os.path.samestat(self._identity, descriptor_identity)
+                        and self._windows_identity == descriptor_windows_identity
+                        and descriptor_identity.st_size == descriptor_windows_size
+                        and descriptor_sha256 == self._owned_sha256
+                    ):
+                        return False
+                    return _delete_windows_descriptor(descriptor)
+
+                observed_identity = self.path.lstat()
+                descriptor_sha256 = self._descriptor_sha256(descriptor)
+            except FileNotFoundError:
+                return True
+            except OSError:
+                return False
+            if not (
+                os.path.samestat(self._identity, descriptor_identity)
+                and os.path.samestat(descriptor_identity, observed_identity)
+                and descriptor_identity.st_size == observed_identity.st_size
+                and descriptor_sha256 == self._owned_sha256
+            ):
+                return False
+
+            try:
+                quarantine_root = Path(
+                    tempfile.mkdtemp(
+                        prefix=f".{self.path.name}.cleanup-",
+                        dir=self.path.parent,
+                    )
+                )
+            except OSError:
+                return False
+            quarantined = quarantine_root / self.path.name
+            try:
+                os.rename(self.path, quarantined)
+            except FileNotFoundError:
+                try:
+                    quarantine_root.rmdir()
+                except OSError:
+                    pass
+                return True
+            except OSError:
+                try:
+                    quarantine_root.rmdir()
+                except OSError:
+                    pass
+                return False
+            self.quarantine_path = quarantined
+            try:
+                quarantined_identity = quarantined.lstat()
+                owned = (
+                    stat.S_ISREG(quarantined_identity.st_mode)
+                    and os.path.samestat(descriptor_identity, quarantined_identity)
+                    and descriptor_identity.st_size == quarantined_identity.st_size
+                    and self._path_sha256(quarantined) == self._owned_sha256
+                )
+                if not owned:
+                    self._restore_quarantined_replacement(quarantined)
+                    return False
+                return True
+            except OSError:
+                return False
+        finally:
+            self.close()
+
+    @staticmethod
+    def _path_sha256(path: Path) -> str:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            while block := handle.read(1024 * 1024):
+                digest.update(block)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _descriptor_sha256(descriptor: int) -> str:
+        position = os.lseek(descriptor, 0, os.SEEK_CUR)
+        digest = hashlib.sha256()
+        try:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            while block := os.read(descriptor, 1024 * 1024):
+                digest.update(block)
+        finally:
+            os.lseek(descriptor, position, os.SEEK_SET)
+        return digest.hexdigest()
+
+    def _restore_quarantined_replacement(self, quarantined: Path) -> bool:
+        try:
+            if not stat.S_ISREG(quarantined.lstat().st_mode):
+                return False
+            os.link(quarantined, self.path)
         except OSError:
             return False
         return True
@@ -408,6 +726,8 @@ def import_live_pilot_credentials(
         raise RuntimeError("credential preparation requires the exact confirmation token")
     if not source_acl_private_confirmed:
         raise RuntimeError("credential import requires private source ACL confirmation")
+    if platform_name != "nt":
+        raise RuntimeError("credential import is supported only on Windows")
     source, manifest_out, receipt_out = _new_external_paths(
         source_path,
         manifest_path,
@@ -469,8 +789,6 @@ def import_live_pilot_credentials(
     manifest = None
     manifest_written = False
     try:
-        if platform_name != "nt":
-            raise RuntimeError("credential import is supported only on Windows")
         values = _parse_source(_read_source_snapshot(source))
         bundle, checks = _validated_bundle(
             values,

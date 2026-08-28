@@ -317,6 +317,28 @@ def test_mutable_outputs_are_refused_inside_repository(
         )
 
 
+def test_bundle_audit_refuses_repository_receipt_before_tool_identity(
+    tmp_path,
+    monkeypatch,
+    supported_host,
+):
+    _profile, _manifest, bundle, _receipt, _result = export_fixture(
+        tmp_path, monkeypatch, supported_host
+    )
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    monkeypatch.setattr(portability, "REPOSITORY_ROOT", repository.resolve())
+
+    with pytest.raises(
+        portability.LiveSdkPortabilityError,
+        match="outside the repository",
+    ):
+        portability.audit_sdk_bundle(
+            bundle,
+            receipt_out=repository / "forbidden-receipt.json",
+        )
+
+
 def test_export_is_idempotent_for_an_exact_existing_bundle(
     tmp_path, monkeypatch, supported_host
 ):

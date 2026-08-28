@@ -985,7 +985,10 @@ def test_composer_refuses_candidate_without_launch_reserve(tmp_path):
         tmp_path, "stage0", remaining_seconds=20
     )
 
-    with pytest.raises(runner.SessionCompositionError, match="too little"):
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="full profile-fixed session envelope",
+    ):
         runner.compose_and_run_live_session(
             manifest,
             fresh,

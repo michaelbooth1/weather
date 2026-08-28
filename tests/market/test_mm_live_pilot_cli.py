@@ -841,13 +841,44 @@ def test_stage1_result_write_failure_still_emits_fail_receipt(
     monkeypatch,
 ):
     command_args = args(tmp_path, "stage1")
-    live_context = context(tmp_path)
+    live_context = context(tmp_path, "stage1-stream.jsonl")
     real_writer = cli.write_json_atomic
 
     def writer(path, payload, **kwargs):
         if Path(path) == Path(command_args.result_out):
             raise OSError("RAW-RESULT-WRITE-DETAIL")
         return real_writer(path, payload, **kwargs)
+
+    def execute(_adapter, _gate, **kwargs):
+        kwargs["journal_path"].write_text(
+            '{"event_type":"submit_started"}\n'
+            '{"event_type":"probe_passed"}\n',
+            encoding="utf-8",
+        )
+        with live_context.user_stream.journal_path.open(
+            "a", encoding="utf-8"
+        ) as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "schema_version": "mm_user_stream_journal_v0.1",
+                        "event_type": "user_event",
+                        "payload": {
+                            "id": "order-1",
+                            "type": "CANCELLATION",
+                            "status": "CANCELED",
+                            "size_matched": "0",
+                        },
+                    }
+                )
+                + "\n"
+            )
+        return {
+            "schema_version": "mm_live_lifecycle_probe_v0.3",
+            "status": "PASS",
+            "order_id": "order-1",
+            "secret_values_redacted": True,
+        }
 
     monkeypatch.setattr(cli, "write_json_atomic", writer)
 
@@ -857,19 +888,21 @@ def test_stage1_result_write_failure_still_emits_fail_receipt(
             context_builder=lambda *_args, **_kwargs: live_context,
             stream_waiter=lambda stream, **_kwargs: stream.start(),
             bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
-            lifecycle_executor=lambda *_args, **_kwargs: {
-                "schema_version": "mm_live_lifecycle_probe_v0.3",
-                "status": "PASS",
-                "secret_values_redacted": True,
-            },
+            lifecycle_executor=execute,
         )
 
     raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
     receipt = json.loads(raw)
     assert receipt["status"] == "FAIL"
     assert receipt["exception_type"] == "OSError"
+    assert receipt["order_submit_attempted"] is True
+    assert receipt["cleanup"]["ok"] is True
+    assert receipt["cleanup"]["user_stream_stopped"] is True
+    assert receipt["cleanup"]["client_closed"] is True
     assert "RAW-RESULT-WRITE-DETAIL" not in raw
     assert not Path(command_args.result_out).exists()
+    assert live_context.user_stream.stopped is True
+    assert live_context.client.closed is True
 
 
 def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_path):

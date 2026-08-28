@@ -1147,6 +1147,7 @@ def audit_installed_sdk(
             manifest,
         ],
     )
+    _preflight_receipt_path(receipt_out, target_will_mutate=False)
     validation = _validate_sdk_roots_exact(
         manifest,
         expected_manifest_sha256,
@@ -1178,6 +1179,7 @@ def audit_sdk_bundle(
     host = _host_evidence()
     evidence = validate_public_sdk_bundle(bundle_root)
     _refuse_receipt_overlap(receipt_out, [Path(evidence["bundle_root"])])
+    _preflight_receipt_path(receipt_out, target_will_mutate=False)
     public_evidence = {key: value for key, value in evidence.items() if key != "sdk_payload"}
     receipt = _receipt(
         operation="audit-bundle",

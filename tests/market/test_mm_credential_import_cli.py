@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -403,6 +404,181 @@ def test_owned_output_cleanup_does_not_delete_a_replacement(tmp_path):
     assert path.read_bytes() == marker
 
 
+def test_owned_output_cleanup_removes_the_open_reservation(tmp_path):
+    path = tmp_path / "reserved.json"
+    output = importer._CreateOnlyOutput(path, label="fixture output")
+
+    assert output.remove_if_owned() is True
+    assert output._descriptor is None
+    assert not path.exists()
+    if os.name != "nt":
+        assert output.quarantine_path is not None
+        assert output.quarantine_path.read_bytes() == b""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="exercises POSIX quarantine fallback")
+def test_posix_cleanup_quarantines_and_restores_a_boundary_replacement(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "reserved.json"
+    marker = b"unrelated-boundary-race-winner\n"
+    output = importer._CreateOnlyOutput(path, label="fixture output")
+    raced = False
+
+    def install_replacement():
+        nonlocal raced
+        if not raced:
+            raced = True
+            path.unlink()
+            path.write_bytes(marker)
+
+    real_rename = importer.os.rename
+
+    def rename_with_replacement(source, destination):
+        if Path(source) == path:
+            install_replacement()
+        return real_rename(source, destination)
+
+    monkeypatch.setattr(importer.os, "rename", rename_with_replacement)
+
+    removed = output.remove_if_owned()
+
+    assert raced is True
+    assert removed is False
+    assert output._descriptor is None
+    assert path.read_bytes() == marker
+    assert output.quarantine_path is not None
+    assert output.quarantine_path.read_bytes() == marker
+
+
+def test_owned_output_cleanup_closes_descriptor_when_platform_step_raises(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "reserved.json"
+    output = importer._CreateOnlyOutput(path, label="fixture output")
+
+    if os.name == "nt":
+        monkeypatch.setattr(
+            importer,
+            "_delete_windows_descriptor",
+            lambda _descriptor: (_ for _ in ()).throw(RuntimeError("injected")),
+        )
+    else:
+        monkeypatch.setattr(
+            importer.os,
+            "rename",
+            lambda *_args: (_ for _ in ()).throw(RuntimeError("injected")),
+        )
+
+    with pytest.raises(RuntimeError, match="injected"):
+        output.remove_if_owned()
+
+    assert output._descriptor is None
+    assert path.read_bytes() == b""
+
+
+@pytest.mark.skipif(os.name == "nt", reason="exercises POSIX quarantine fallback")
+def test_posix_cleanup_preserves_boundary_replacement_when_restore_fails(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "reserved.json"
+    marker = b"unrelated-boundary-race-winner\n"
+    output = importer._CreateOnlyOutput(path, label="fixture output")
+    real_rename = importer.os.rename
+
+    def rename_with_replacement(source, destination):
+        path.unlink()
+        path.write_bytes(marker)
+        return real_rename(source, destination)
+
+    monkeypatch.setattr(importer.os, "rename", rename_with_replacement)
+    monkeypatch.setattr(
+        importer.os,
+        "link",
+        lambda *_args: (_ for _ in ()).throw(OSError("injected")),
+    )
+
+    assert output.remove_if_owned() is False
+    assert output._descriptor is None
+    assert not path.exists()
+    assert output.quarantine_path is not None
+    assert output.quarantine_path.read_bytes() == marker
+
+
+def test_create_only_output_closes_descriptor_when_initial_stat_fails(
+    tmp_path,
+    monkeypatch,
+):
+    path = tmp_path / "reserved.json"
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+    real_fstat = os.fstat
+    monkeypatch.setattr(
+        importer,
+        "_open_create_only_descriptor",
+        lambda *_args, **_kwargs: descriptor,
+    )
+    monkeypatch.setattr(
+        importer.os,
+        "fstat",
+        lambda _descriptor: (_ for _ in ()).throw(OSError("injected")),
+    )
+
+    with pytest.raises(OSError, match="injected"):
+        importer._CreateOnlyOutput(path, label="fixture output")
+
+    with pytest.raises(OSError):
+        real_fstat(descriptor)
+
+
+def test_windows_reservation_share_mode_denies_second_writer():
+    assert importer.WINDOWS_RESERVATION_SHARE_MODE == 0
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires native Windows file handles")
+def test_windows_reservation_verifies_and_removes_without_a_racer(tmp_path):
+    path = tmp_path / "reserved.json"
+    output = importer._CreateOnlyOutput(path, label="fixture output")
+    output.write_json({"status": "PASS"})
+
+    output.verify()
+    assert output.remove_if_owned() is True
+
+    assert output._descriptor is None
+    assert not path.exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires native Windows file handles")
+def test_windows_reservation_refuses_writer_and_rename_while_open(tmp_path):
+    path = tmp_path / "reserved.json"
+    moved = tmp_path / "renamed-owned.json"
+    output = importer._CreateOnlyOutput(path, label="fixture output")
+
+    with pytest.raises(OSError):
+        path.write_bytes(b"unrelated-writer\n")
+    with pytest.raises(OSError):
+        path.replace(moved)
+
+    assert output.remove_if_owned() is True
+
+    assert output._descriptor is None
+    assert not moved.exists()
+    assert not path.exists()
+
+
+def test_non_windows_import_rejects_before_output_reservation(tmp_path):
+    args = import_args(tmp_path)
+    args["platform_name"] = "posix"
+
+    with pytest.raises(RuntimeError, match="supported only on Windows"):
+        importer.import_live_pilot_credentials(**args)
+
+    assert not Path(args["manifest_path"]).exists()
+    assert not Path(args["receipt_path"]).exists()
+
+
 def test_manifest_reservation_race_stops_before_vault_and_preserves_winner(
     tmp_path,
     monkeypatch,
@@ -418,7 +594,7 @@ def test_manifest_reservation_race_stops_before_vault_and_preserves_winner(
     )
     manifest = Path(args["manifest_path"])
     marker = b"manifest-race-winner\n"
-    original_open = importer.os.open
+    original_open = importer._open_create_only_descriptor
     raced = False
 
     def open_with_race(path, flags, mode=0o777):
@@ -428,7 +604,7 @@ def test_manifest_reservation_race_stops_before_vault_and_preserves_winner(
             manifest.write_bytes(marker)
         return original_open(path, flags, mode)
 
-    monkeypatch.setattr(importer.os, "open", open_with_race)
+    monkeypatch.setattr(importer, "_open_create_only_descriptor", open_with_race)
 
     with pytest.raises(RuntimeError, match="manifest output path must be new"):
         importer.import_live_pilot_credentials(**args)
@@ -455,7 +631,7 @@ def test_receipt_reservation_race_cleans_owned_manifest_before_vault(
     manifest = Path(args["manifest_path"])
     receipt = Path(args["receipt_path"])
     marker = b"receipt-race-winner\n"
-    original_open = importer.os.open
+    original_open = importer._open_create_only_descriptor
     raced = False
 
     def open_with_race(path, flags, mode=0o777):
@@ -465,7 +641,7 @@ def test_receipt_reservation_race_cleans_owned_manifest_before_vault(
             receipt.write_bytes(marker)
         return original_open(path, flags, mode)
 
-    monkeypatch.setattr(importer.os, "open", open_with_race)
+    monkeypatch.setattr(importer, "_open_create_only_descriptor", open_with_race)
 
     with pytest.raises(RuntimeError, match="receipt output path must be new"):
         importer.import_live_pilot_credentials(**args)
