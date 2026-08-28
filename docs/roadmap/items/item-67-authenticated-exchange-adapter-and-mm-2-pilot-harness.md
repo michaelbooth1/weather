@@ -601,10 +601,11 @@ review evidence, not runtime qualification.
 
 The clean candidate's audit tip
 `996f16fc68588f8304cf1c22f4734c543ea9e23a` is published from exact production
-`788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`; no PR, CI, runtime qualification,
-canonical production roll verdict, or merge evidence exists. The schema change
-is not additive-only, so the production-host `roll_verdict.ps1` result and its
-guarded integration path remain mandatory.
+`788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`. [Draft PR #3](https://github.com/michaelbooth1/weather/pull/3)
+tracks the final branch head; CI evidence must bind that head. Runtime
+qualification, the canonical production roll verdict, and merge evidence do
+not yet exist. The schema change is not additive-only, so the production-host
+`roll_verdict.ps1` result and its guarded integration path remain mandatory.
 
 The selected 32 GB Windows PC then imported the separately verified Google
 Drive LFS transfer without GitHub LFS traffic. Its portable clone is clean at
