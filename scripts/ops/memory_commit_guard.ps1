@@ -30,7 +30,7 @@
 #                     Orphaned bare-script python is logged but not killed
 #                     (detached-by-design launchers exist in this repo).
 #
-# Registered by register_memory_commit_guard.ps1 (every 5 minutes).
+# Registered by register_memory_commit_guard.ps1 (every minute).
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -44,6 +44,24 @@ param(
     [ValidateRange(0, 64)]
     [int]$MaxConcurrentAgentHeavyWorkloads = 1
 )
+
+$hostIdentityScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+if (-not (Test-Path -LiteralPath $hostIdentityScript -PathType Leaf)) {
+    throw "capture-host identity helper is missing: $hostIdentityScript"
+}
+. $hostIdentityScript
+$guardExecutionHostId = Get-WeatherExecutionHostId
+$guardAssignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
+if (
+    $guardExecutionHostId -cne
+        [string]$guardAssignment.dedicated_capture_execution_host_id
+) {
+    Write-Output (
+        "SKIPPED: memory commit guard is restricted to the tracked " +
+        "dedicated capture host"
+    )
+    exit 0
+}
 
 $logDir = Join-Path $RepoRoot "data\logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force $logDir | Out-Null }

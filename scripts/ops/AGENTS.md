@@ -116,18 +116,26 @@ Every heavyweight wrapper must hold the shared lease from
 Resource headroom and time-window checks remain mandatory and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
-The one execution-only exception is the sealed `portable_execution_v1`
+The one non-capture live exception is the sealed `portable_execution_v1`
 International Stage 0/1 launcher described in
 `docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`. It must remain bound to the
 current Windows installation, canonical live-stage workload name, and
 dedicated-capture-host exclusion; never generalize that lane to another heavy
-command or to an unattended session.
+command or to an unattended session. Ordinary implementation, tests,
+training, and replay on the same physical non-capture workstation are allowed
+by its workstation role; they do not use this live lease or create live-stage
+evidence.
 
 `install_codex_host_load_hook.ps1` owns the production host's user-layer
 PreToolUse guard. It must never overwrite an existing `~/.codex/hooks.json`,
 must point at the repository-owned policy script, and must state that Codex
 requires review/trust on the next session. The hook is prevention at launch;
 the one-minute S4U memory/process guard remains the enforcement backstop.
+Both the hook and the S4U guard use the tracked MachineGuid-derived dedicated
+capture-host identity, not RAM, machine name, or portable assignment, as role
+authority. The guard and its registrar must exit or refuse before log creation,
+process enumeration, Scheduler mutation, or termination on any non-capture
+host.
 
 One-date settlement backfills must use the canonical bounded daily-refresh
 slice ending at `market_day_labels_finalize`; never run the remaining chain and

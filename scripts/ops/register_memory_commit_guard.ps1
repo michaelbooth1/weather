@@ -10,8 +10,21 @@ param(
 )
 
 $script = Join-Path $RepoRoot "scripts\ops\memory_commit_guard.ps1"
-if (-not (Test-Path $script)) {
+if (-not (Test-Path -LiteralPath $script -PathType Leaf)) {
     throw "guard script not found at $script"
+}
+$hostIdentityScript = Join-Path $RepoRoot "scripts\ops\workload_admission.ps1"
+if (-not (Test-Path -LiteralPath $hostIdentityScript -PathType Leaf)) {
+    throw "capture-host identity helper is missing: $hostIdentityScript"
+}
+. $hostIdentityScript
+$registrarExecutionHostId = Get-WeatherExecutionHostId
+$registrarAssignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
+if (
+    $registrarExecutionHostId -cne
+        [string]$registrarAssignment.dedicated_capture_execution_host_id
+) {
+    throw "memory commit guard may be registered only on the tracked dedicated capture host"
 }
 
 $action = New-ScheduledTaskAction `

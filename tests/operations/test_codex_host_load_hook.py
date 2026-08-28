@@ -1,5 +1,6 @@
 from datetime import datetime
 import importlib.util
+import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -97,3 +98,62 @@ def test_policy_is_inactive_on_a_non_capture_host():
         )
         is None
     )
+
+
+def test_automatic_policy_uses_exact_host_identity_not_ram(tmp_path: Path):
+    capture_guid = "11111111-2222-3333-4444-555555555555"
+    workstation_guid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    assignment_path = tmp_path / "international_live_execution_host.json"
+    assignment_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "international_live_execution_host_assignment_v0.1",
+                "dedicated_capture_execution_host_id": (
+                    HOOK._derive_execution_host_id(capture_guid)
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        HOOK._capture_host_policy_state(
+            assignment_path=assignment_path,
+            machine_guid=capture_guid,
+            windows=True,
+        )
+        is True
+    )
+    assert (
+        HOOK._capture_host_policy_state(
+            assignment_path=assignment_path,
+            machine_guid=workstation_guid,
+            windows=True,
+        )
+        is False
+    )
+    source = HOOK_PATH.read_text(encoding="utf-8")
+    assert "GlobalMemoryStatusEx" not in source
+    assert "CAPTURE_HOST_MAX_PHYSICAL_BYTES" not in source
+    assert "WEATHER_CODEX_HOST_LOAD_POLICY" not in source
+
+
+def test_malformed_host_role_proof_is_indeterminate_and_blocks_heavy_work(
+    tmp_path: Path,
+    monkeypatch,
+):
+    assignment_path = tmp_path / "international_live_execution_host.json"
+    assignment_path.write_text("{}", encoding="utf-8")
+    assert (
+        HOOK._capture_host_policy_state(
+            assignment_path=assignment_path,
+            machine_guid="11111111-2222-3333-4444-555555555555",
+            windows=True,
+        )
+        is None
+    )
+
+    monkeypatch.setattr(HOOK, "_capture_host_policy_state", lambda: None)
+    blocked = HOOK.evaluate(payload(r"venv\Scripts\python.exe -m pytest -q"))
+    assert "blocked fail-closed" in reason(blocked)
+    assert HOOK.evaluate(payload("git status --short")) is None

@@ -5,14 +5,21 @@ Owner: operations. This host is dedicated to the weather platform; the policy
 spreads load across the 24-hour day so capture — the one workload that cannot
 be rescheduled — is never starved.
 
-This timetable governs the dedicated capture PC, not a separately provisioned
-execution-only PC. The only portable exception is the exact attended,
-host-bound International Stage 0/1 lane in
-[`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
+This timetable governs only the dedicated capture PC. A separate non-capture
+workstation, including the 32 GB PC when it also holds the portable
+live-executor assignment, may run ordinary implementation, tests, training,
+and replay outside this timetable and without the capture-host lease. That
+allowance comes from the machine's non-capture workstation role, not from a
+live profile.
+
+The exact attended, host-bound International Stage 0/1 lane remains governed
+by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
 `portable_execution_v1` lease is restricted to canonical live-stage workload
 names and is refused when the tracked assignment identifies the machine as the
-dedicated capture host. It does not loosen this policy for tests, training, replay, capture,
-integration, or any other workload.
+dedicated capture host. General workstation work must not claim that live
+lease or its evidence, and the workstation allowance grants no capture,
+production integration, Scheduler, credential, exchange, unattended-trading,
+or live-order authority.
 
 > **For the current governing numbers, read
 > [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md).** It is generated from repository-owned

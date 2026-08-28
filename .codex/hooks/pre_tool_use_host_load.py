@@ -1,19 +1,28 @@
-"""Block agent shell commands that violate the capture-host load policy."""
+"""Block agent shell commands that violate the exact capture-host load policy."""
 
 from __future__ import annotations
 
-import ctypes
 from datetime import datetime, time
+import hashlib
 import json
 import os
+from pathlib import Path
 import re
+import stat
 import sys
 from typing import Any
 
 
 HEAVY_START = time(0, 30)
 HEAVY_END = time(9, 0)
-CAPTURE_HOST_MAX_PHYSICAL_BYTES = 20 * 1024**3
+EXECUTION_HOST_DOMAIN = "international_live_execution_host_v2\0"
+ASSIGNMENT_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "config"
+    / "international_live_execution_host.json"
+)
+_REPARSE_POINT = 0x400
+_HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
 
 _PYTEST = re.compile(
     r"(?i)(?:^|\s)-m\s+pytest\b|(?:^|[\s;&|])pytest(?:\.exe)?\b"
@@ -25,35 +34,76 @@ _DIRECT_HEAVY_WEATHER = re.compile(
 _TEST_FILE = re.compile(r"(?i)(?:^|\s)(?:[^\s\"']*[\\/])?test_[^\s\"']*\.py(?=\s|$)")
 
 
-class _MemoryStatusEx(ctypes.Structure):
-    _fields_ = [
-        ("length", ctypes.c_ulong),
-        ("memory_load", ctypes.c_ulong),
-        ("total_physical", ctypes.c_ulonglong),
-        ("available_physical", ctypes.c_ulonglong),
-        ("total_page_file", ctypes.c_ulonglong),
-        ("available_page_file", ctypes.c_ulonglong),
-        ("total_virtual", ctypes.c_ulonglong),
-        ("available_virtual", ctypes.c_ulonglong),
-        ("available_extended_virtual", ctypes.c_ulonglong),
-    ]
+def _derive_execution_host_id(machine_guid: str) -> str:
+    canonical = machine_guid.strip().lower()
+    if not canonical:
+        raise ValueError("empty Windows installation identity")
+    return hashlib.sha256(
+        f"{EXECUTION_HOST_DOMAIN}{canonical}".encode("utf-8")
+    ).hexdigest()
 
 
-def _is_constrained_capture_host() -> bool:
-    override = os.environ.get("WEATHER_CODEX_HOST_LOAD_POLICY", "").strip().lower()
-    if override in {"1", "true", "yes", "on"}:
-        return True
-    if override in {"0", "false", "no", "off"}:
+def _read_machine_guid() -> str:
+    import winreg
+
+    access = winreg.KEY_READ | getattr(winreg, "KEY_WOW64_64KEY", 0)
+    with winreg.OpenKey(
+        winreg.HKEY_LOCAL_MACHINE,
+        r"SOFTWARE\Microsoft\Cryptography",
+        0,
+        access,
+    ) as key:
+        value, value_type = winreg.QueryValueEx(key, "MachineGuid")
+    if value_type != winreg.REG_SZ or not isinstance(value, str):
+        raise ValueError("Windows installation identity is not a string")
+    return value
+
+
+def _read_dedicated_capture_host_id(path: Path) -> str:
+    metadata = path.lstat()
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size <= 0
+        or metadata.st_size > 16_384
+        or getattr(metadata, "st_file_attributes", 0) & _REPARSE_POINT
+    ):
+        raise ValueError("capture-host assignment is not a bounded regular file")
+    raw = path.read_bytes()
+    if len(raw) != metadata.st_size:
+        raise ValueError("capture-host assignment changed while it was read")
+    assignment = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(assignment, dict):
+        raise ValueError("capture-host assignment is not an object")
+    dedicated_id = assignment.get("dedicated_capture_execution_host_id")
+    if (
+        assignment.get("schema_version")
+        != "international_live_execution_host_assignment_v0.1"
+        or not isinstance(dedicated_id, str)
+        or _HEX64.fullmatch(dedicated_id) is None
+    ):
+        raise ValueError("capture-host assignment contract is invalid")
+    return dedicated_id
+
+
+def _capture_host_policy_state(
+    *,
+    assignment_path: Path = ASSIGNMENT_PATH,
+    machine_guid: str | None = None,
+    windows: bool | None = None,
+) -> bool | None:
+    """Return exact capture-host match, non-match, or indeterminate proof."""
+
+    is_windows = os.name == "nt" if windows is None else windows
+    if not is_windows:
         return False
-    if os.name != "nt":
-        return False
-    status = _MemoryStatusEx()
-    status.length = ctypes.sizeof(status)
     try:
-        ok = ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status))
-    except (AttributeError, OSError):
-        return False
-    return bool(ok) and 0 < status.total_physical <= CAPTURE_HOST_MAX_PHYSICAL_BYTES
+        observed_id = _derive_execution_host_id(
+            _read_machine_guid() if machine_guid is None else machine_guid
+        )
+        dedicated_id = _read_dedicated_capture_host_id(assignment_path)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return None
+    return observed_id == dedicated_id
 
 
 def _inside_heavy_window(now: datetime) -> bool:
@@ -74,6 +124,15 @@ def _unbounded_pytest(command: str) -> bool:
     if not _PYTEST.search(command):
         return False
     return not _TEST_FILE.search(command)
+
+
+def _recognized_host_load_command(command: str) -> bool:
+    return bool(
+        _forbidden_recursive_scan(command)
+        or _PYTEST.search(command)
+        or _COMPILEALL.search(command)
+        or _DIRECT_HEAVY_WEATHER.search(command)
+    )
 
 
 def _deny(reason: str) -> dict[str, Any]:
@@ -102,7 +161,18 @@ def evaluate(
     command = tool_input.get("command")
     if not isinstance(command, str) or not command.strip():
         return None
-    active = _is_constrained_capture_host() if constrained_capture_host is None else constrained_capture_host
+    active = (
+        _capture_host_policy_state()
+        if constrained_capture_host is None
+        else constrained_capture_host
+    )
+    if active is None:
+        if _recognized_host_load_command(command):
+            return _deny(
+                "Cannot prove this Windows installation differs from the tracked "
+                "dedicated capture host; recognized heavy work is blocked fail-closed."
+            )
+        return None
     if not active:
         return None
 

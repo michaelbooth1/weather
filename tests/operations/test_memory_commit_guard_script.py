@@ -96,3 +96,25 @@ def test_memory_guard_reaps_only_unowned_evidence_refresh_inside_protected_windo
     assert "$ageMinutes -lt 2" in block
     assert "Sort-Object PrivateBytes -Descending" in block
     assert "Stop-Process -Id $target.Id" in block
+
+
+def test_memory_guard_and_registrar_are_exact_capture_host_bound_before_side_effects():
+    guard = SCRIPT.read_text(encoding="utf-8-sig")
+    register = REGISTER.read_text(encoding="utf-8-sig")
+
+    guard_gate = guard.index("$guardExecutionHostId = Get-WeatherExecutionHostId")
+    assert "Get-WeatherExecutionHostAssignment" in guard[guard_gate:]
+    assert "dedicated_capture_execution_host_id" in guard[guard_gate:]
+    assert "restricted to the tracked" in guard[guard_gate:]
+    assert guard_gate < guard.index('$logDir = Join-Path $RepoRoot "data\\logs"')
+    assert guard_gate < guard.index("Get-CimInstance Win32_OperatingSystem")
+    assert guard_gate < guard.index("Stop-Process")
+
+    registrar_gate = register.index(
+        "$registrarExecutionHostId = Get-WeatherExecutionHostId"
+    )
+    assert "Get-WeatherExecutionHostAssignment" in register[registrar_gate:]
+    assert "dedicated_capture_execution_host_id" in register[registrar_gate:]
+    assert "only on the tracked dedicated capture host" in register[registrar_gate:]
+    assert registrar_gate < register.index("New-ScheduledTaskAction")
+    assert registrar_gate < register.index("Register-ScheduledTask")

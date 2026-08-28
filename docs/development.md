@@ -39,6 +39,15 @@ only inside 00:30–09:00; the full suite uses
 workload lease. The user-layer Codex hook rejects direct unbounded pytest at
 every hour and rejects pytest/compileall outside that window.
 
+On a separate non-capture workstation, including the 32 GB PC when it also
+holds the portable live-executor assignment, ordinary local development and
+verification are not subject to the capture-host timetable, lease, 25-file
+wrapper, or serial-only rule. Run the baseline commands directly and size
+concurrency to that workstation's current resources. This does not authorize
+production `data/` access, Scheduler or capture mutation, credentials,
+networked collectors, exchange contact, or live orders, and a workstation
+PASS does not replace any explicitly required production-host qualification.
+
 ## Focused verification matrix
 
 | Change | Minimum focused verification |

@@ -9,6 +9,13 @@ streak state, and protected host-load timetable. It does not remove Git,
 source, SDK, credential, identity, geography, account, balance, allowance,
 zero-state, order, cancellation, deadline, or cleanup checks.
 
+`portable_execution_v1` describes this PC's live-production role, not every
+use of the physical machine. The separate 32 GB PC may also perform ordinary
+workstation implementation, tests, training, replay, and measurement outside
+a sealed live attempt. Those workloads do not use the portable live lease or
+produce live-readiness evidence, and they grant no capture, production-state,
+Scheduler, credential, exchange, unattended-trading, or live-order authority.
+
 The live protocol remains owned by
 [`INTERNATIONAL_MM_LIVE_PILOT.md`](INTERNATIONAL_MM_LIVE_PILOT.md). This file
 owns only execution-host provisioning and relocation.
@@ -18,7 +25,7 @@ owns only execution-host provisioning and relocation.
 | Profile | Intended machine | Local host gate |
 | --- | --- | --- |
 | `capture_colocated_v1` | Dedicated capture PC | Three capture workers, execution tape, streak, clock, reboot, shared lease, and `[00:30, 09:00) America/Toronto` containment |
-| `portable_execution_v1` | Separate attended execution-only PC | Exact tracked Windows-installation and token-principal assignment, clock, reboot, and a host-global exclusive lease; no local capture/tape/streak dependency |
+| `portable_execution_v1` | Separate attended non-capture PC in its live-executor role | Exact tracked Windows-installation and token-principal assignment, clock, reboot, and a host-global exclusive lease; no local capture/tape/streak dependency |
 
 The profile is explicit and immutable in every session manifest, seal,
 launcher, execution receipt, and predecessor lineage. It is never inferred

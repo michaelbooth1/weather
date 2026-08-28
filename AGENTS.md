@@ -61,18 +61,21 @@ machine-local state.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
   readiness/release gates.
-- Agent-started or ad-hoc heavy host work is allowed only from 00:30–09:00
-  local and must hold the shared lease from
+- On the dedicated 16 GB capture host, agent-started or ad-hoc heavy work is
+  allowed only from 00:30–09:00 local and must hold the shared lease from
   `scripts/ops/workload_admission.ps1`. The repository-owned Stage-A daily
   chain is the sole scheduled exception: it may run 09:30–11:55 under an
   absolute child-tree teardown deadline. The 12:00–18:00 graded window and
   18:00–00:30 near-close window are protected; separate resource checks do
   not make overlapping heavy jobs safe.
-- That timetable protects the dedicated capture host. A separate attended
-  execution-only PC may use only the exact host-bound `portable_execution_v1`
-  International Stage 0/1 lane described in
-  `docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`; it grants no exception to
-  ordinary tests, training, replays, capture-host work, or unattended trading.
+- That timetable does not govern a separate non-capture workstation. The
+  32 GB workstation may run ordinary implementation, tests, training, and
+  replay work without the capture-host window or lease, including when that
+  same physical PC is assigned the portable live-executor role. Live work on
+  it still requires the exact host-bound `portable_execution_v1` International
+  Stage 0/1 lane in `docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`; this
+  workstation allowance grants no capture, production-state, Scheduler,
+  credential, exchange, unattended-trading, or live-order authority.
 - **Merging code on the production host can restart live capture.** Supervisors
   fingerprint the source files they have imported, so landing a change to a
   loop-imported module triggers a `STALE_CODE` readoption restart. Inside the
