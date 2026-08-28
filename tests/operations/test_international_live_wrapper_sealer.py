@@ -1724,6 +1724,22 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
             return subprocess.CompletedProcess(args, 0, "", "")
         if command == ("status", "--porcelain=v1", "--untracked-files=all"):
             return subprocess.CompletedProcess(args, 0, "", "")
+        if command == ("config", "--local", "--get", "remote.origin.url"):
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                sealer.CANONICAL_ORIGIN_URL + "\n",
+                "",
+            )
+        if command == (
+            "config",
+            "--local",
+            "--get-all",
+            "remote.origin.pushurl",
+        ):
+            return subprocess.CompletedProcess(args, 1, "", "")
+        if command == ("config", "--local", "--name-only", "--list"):
+            return subprocess.CompletedProcess(args, 0, "remote.origin.url\n", "")
         return sealer._default_git_runner(repo_root, args)
 
     facts = sealer._verify_git_state(
