@@ -1,6 +1,6 @@
 # Artifact Storage Policy
 
-Last updated: 2026-06-20
+Last updated: 2026-08-28
 
 Durable model and calibration artifacts live under `artifacts/`. Small JSON
 calibration artifacts, manifests, and provenance files remain tracked in Git.
@@ -74,6 +74,13 @@ restore policy, variant bindings, counts, and totals must match exactly. The
 default command therefore fails when an artifact changed without regenerating
 both manifests. `--skip-tracked-manifest-verification` is limited to deliberate
 custom-root diagnostics and is not valid promotion evidence.
+
+For a path already proven Git-LFS-tracked, registry construction treats an
+exact canonical Git LFS v1 pointer's declared object ID and size as the logical
+artifact SHA-256 and byte count. This keeps checkout identity stable when CI
+deliberately leaves LFS objects unsmudged. Pointer-like but noncanonical content
+fails closed. Runtime loading and production qualification still require the
+materialized object; pointer normalization is manifest validation, not restore.
 
 Nightly retrain should publish both
 `artifacts/manifests/model_artifact_registry.json` and

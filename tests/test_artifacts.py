@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 import unittest
@@ -6,6 +7,7 @@ from weather.artifacts import (
     CandidateArtifactPathError,
     DEFAULT_VARIANT_REGISTRY_PATH,
     artifact_candidates,
+    artifact_record,
     artifact_path,
     build_artifact_externalization_manifest,
     build_artifact_promotion_preflight,
@@ -101,6 +103,108 @@ class TestArtifactPaths(unittest.TestCase):
             "calibrated_weights_v0.1",
         )
         self.assertEqual(len(rows["models/hgb/feature_model_hgb.pkl"]["sha256"]), 64)
+
+    def test_lfs_pointer_uses_materialized_object_identity(self):
+        materialized = b"deterministic-model-bytes\x00\xff"
+        object_sha256 = hashlib.sha256(materialized).hexdigest()
+        pointer = (
+            "version https://git-lfs.github.com/spec/v1\n"
+            f"oid sha256:{object_sha256}\n"
+            f"size {len(materialized)}\n"
+        ).encode("ascii")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            path = root / "models" / "hgb" / "model.pkl"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(materialized)
+            materialized_row = artifact_record(
+                path,
+                root=root,
+                git_lfs_tracked=True,
+            )
+            path.write_bytes(pointer)
+            pointer_row = artifact_record(
+                path,
+                root=root,
+                git_lfs_tracked=True,
+            )
+
+        for field in (
+            "bytes",
+            "managed_external_bytes",
+            "sha256",
+            "storage_backend",
+            "storage_managed",
+        ):
+            with self.subTest(field=field):
+                self.assertEqual(pointer_row[field], materialized_row[field])
+        self.assertEqual(pointer_row["bytes"], len(materialized))
+        self.assertEqual(pointer_row["sha256"], object_sha256)
+
+    def test_pointer_text_is_not_normalized_for_non_lfs_artifact(self):
+        object_sha256 = "a" * 64
+        pointer = (
+            "version https://git-lfs.github.com/spec/v1\n"
+            f"oid sha256:{object_sha256}\n"
+            "size 1234\n"
+        ).encode("ascii")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            path = root / "models" / "hgb" / "model.pkl"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(pointer)
+
+            row = artifact_record(
+                path,
+                root=root,
+                git_lfs_tracked=False,
+            )
+
+        self.assertEqual(row["bytes"], len(pointer))
+        self.assertEqual(row["sha256"], hashlib.sha256(pointer).hexdigest())
+        self.assertEqual(row["storage_backend"], "git")
+
+    def test_malformed_lfs_pointer_fails_closed(self):
+        valid_oid = "a" * 64
+        malformed = {
+            "wrong_version": (
+                "version https://git-lfs.github.com/spec/v2\n"
+                f"oid sha256:{valid_oid}\n"
+                "size 12\n"
+            ),
+            "short_oid": (
+                "version https://git-lfs.github.com/spec/v1\n"
+                "oid sha256:abc\n"
+                "size 12\n"
+            ),
+            "noncanonical_size": (
+                "version https://git-lfs.github.com/spec/v1\n"
+                f"oid sha256:{valid_oid}\n"
+                "size 012\n"
+            ),
+            "unsupported_extension": (
+                "version https://git-lfs.github.com/spec/v1\n"
+                "ext-0-demo value\n"
+                f"oid sha256:{valid_oid}\n"
+                "size 12\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "artifacts"
+            path = root / "models" / "hgb" / "model.pkl"
+            path.parent.mkdir(parents=True)
+            for name, content in malformed.items():
+                with self.subTest(name=name):
+                    path.write_text(content, encoding="ascii", newline="")
+                    with self.assertRaisesRegex(
+                        ValueError,
+                        "malformed Git LFS pointer",
+                    ):
+                        artifact_record(
+                            path,
+                            root=root,
+                            git_lfs_tracked=True,
+                        )
 
     def test_write_artifact_registry_creates_manifest(self):
         with tempfile.TemporaryDirectory() as tmp:
