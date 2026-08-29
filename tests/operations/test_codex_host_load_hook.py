@@ -1172,6 +1172,7 @@ def test_malformed_host_role_proof_is_indeterminate_and_blocks_heavy_work(
         is None
     )
 
+    monkeypatch.setattr(HOOK, "os", SimpleNamespace(name="nt"))
     monkeypatch.setattr(HOOK, "_capture_host_policy_state", lambda: None)
     blocked = HOOK.evaluate(payload(r"venv\Scripts\python.exe -m pytest -q"))
     assert "blocked fail-closed" in reason(blocked)
