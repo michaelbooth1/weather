@@ -181,7 +181,10 @@ All must be current for the target date and selected market:
    **[00:30, 09:00) America/Toronto**; 08:59:40 is the latest execution cutoff.
    For `portable_execution_v1`, the same bounded window and cleanup reserve
    must remain on the target date, but the capture PC's timetable is not a
-   constraint. Both profiles hold the exclusive shared lease. The portable
+   constraint. Both profiles hold the exclusive shared lease. The distinct
+   admission-only workstation wrapper also holds the same host-global mutex,
+   so recognized offline heavy work cannot overlap a launched portable stage;
+   it is not a third live profile and creates no live evidence. The portable
    lane accepts only canonical attended International Stage 0/1 workloads and
    is refused on the dedicated capture host. Provision or relocate it only via
    [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md).
@@ -382,7 +385,14 @@ overlap. After boot and network recovery, prove all capture workers and the
 public execution-tape producer recovered. For `portable_execution_v1`, the
 execution and cleanup tail may run at another time on the target date, but the
 host/principal must match the tracked active assignment and pass its offline
-execution-only status before identity or credential preparation.
+execution-only status before identity or credential preparation. Recognized
+heavy work on that PC must run through `scripts/ops/workstation_heavy.ps1`.
+The wrapper and portable launcher each own their full child tree in a kill-on-
+close Windows Job and contend for the same host-global mutex. Finish heavy work
+before sealing to avoid spending an inert reviewed attempt; the mechanical
+exclusion begins when either compliant runtime acquires the mutex and lasts
+through complete child-tree cleanup. An obsolete or manually bypassed launcher
+is not made compliant by this protocol.
 For both profiles, log in as the Windows user who owns Credential Manager,
 prove master equals a freshly observed origin at the reviewed exact tip, clear
 pending reboot state, and ensure no other local live stage holds the lease. Do

@@ -12,8 +12,14 @@ zero-state, order, cancellation, deadline, or cleanup checks.
 `portable_execution_v1` describes this PC's live-production role, not every
 use of the physical machine. The separate 32 GB PC may also perform ordinary
 workstation implementation, tests, training, replay, and measurement outside
-a sealed live attempt. Those workloads do not use the portable live lease or
-produce live-readiness evidence, and they grant no capture, production-state,
+a launched live attempt. Recognized heavy commands use the repository
+workstation wrapper. Its admission-only profile shares the live launcher's
+host-global mutex without producing live-readiness evidence; both profiles are
+bound to the assignment's exact Windows installation and attending principal,
+and both launch paths own their full child tree in a kill-on-close Windows Job.
+Finish heavy work before sealing as an operational attempt-preservation rule;
+inert sealed files alone are not live authority. These
+workloads grant no capture, production-state,
 Scheduler, credential, exchange, unattended-trading, or live-order authority.
 
 The live protocol remains owned by
@@ -68,6 +74,35 @@ changes it and intentionally invalidates all old manifests and launchers.
   WinHTTP proxy set to direct. The builder, sealer, and sealed wrapper recheck
   these conditions around live Git proof and at both sides of every official
   geographic-eligibility request.
+- Every recognized heavy command on this PC uses the exact adopted
+  `scripts/ops/workstation_heavy.ps1` wrapper. If a Codex session can remain
+  open during live preparation, install and trust the adopted checkout's
+  user-layer host-role hook; otherwise close every Codex session before
+  sealing. The hook is a launch-prevention backstop, never host-role or live
+  authority.
+
+Every workstation-heavy or inner fixed-scope live launcher creates and flushes
+`%ProgramData%\WeatherProject\heavy_workload_v1.poison` as `ACTIVE` while it
+owns the host-global lease. Immediately before explicit Job teardown it
+atomically transitions that record to `TEARDOWN_PENDING`. A proved zero-child
+teardown deletes and verifies the record before releasing the lease. If the
+launcher reports that its Windows Job failed to reach zero active processes,
+stop: the pending record remains and all repository roots block workstation and
+portable admission. Do not delete it manually. After rebooting the PC, open a
+fresh PowerShell process, dot-source
+`scripts\ops\workload_admission.ps1`, and run
+`Clear-WeatherHeavyWorkloadPoison -Confirmation
+I_HAVE_VERIFIED_NO_RESIDUAL_WEATHER_WORKLOAD_PROCESSES`. The function independently
+requires a different Windows boot-session identifier and proves zero residual
+heavy processes while it owns the host-global mutex. A forced launcher exit is
+different: it leaves `ACTIVE`, and kill-on-close containment owns that child
+tree. The next exact attended operation may recover only after proving the
+recorded PID plus process-creation identity is gone and a bounded residual scan
+reaches zero while holding the mutex; that first attempt rejects with an exact
+retry instruction. The inner fixed-scope launcher owns this live-stage
+state/lease lifecycle. Its outer fixed-session launcher independently contains
+the session runner in a kill-on-close Job and propagates teardown failure, but
+does not claim or mutate the inner lease state.
 
 Do not copy `data/` from the capture PC. It is ignored local runtime state and
 is not cross-host authority. A new execution host must nevertheless collect a

@@ -41,15 +41,52 @@ every hour and rejects pytest/compileall outside that window.
 
 On a separate non-capture workstation, including the 32 GB PC when it also
 holds the portable live-executor assignment, ordinary local development and
-verification are not subject to the capture-host timetable, lease, 25-file
-wrapper, or serial-only rule. Run the baseline commands directly and size
-concurrency to that workstation's current resources. Do not overlap heavy
-verification with a sealed portable live attempt: finish its complete process
-tree before sealing or launching a live stage and wait for terminal cleanup
-before resuming. This does not authorize
+verification are not subject to the capture-host timetable, 25-file wrapper,
+or serial-only rule. Route recognized heavy Python work through
+`scripts/ops/workstation_heavy.ps1` with an absolute repository root, absolute
+Python path, and the documented base64 JSON argument contract. Its distinct
+offline profile admits only the assignment's exact non-capture Windows
+installation and attending principal and holds the same host-global mutex as
+the portable launcher. Both paths own their complete child tree in a kill-on-
+close Windows Job, so wrapped heavy work and launched live work cannot overlap.
+Size concurrency to the workstation's current resources and finish heavy work
+before sealing to avoid spending an attempt. This does not authorize
 production `data/` access, Scheduler or capture mutation, credentials,
 networked collectors, exchange contact, or live orders, and a workstation
 PASS does not replace any explicitly required production-host qualification.
+
+An attended PowerShell operator can build the bounded argument contract like
+this (use `compileall` or an allowlisted `weather_heavy` module as appropriate).
+This variable-based form is for a person at an interactive shell, not for a
+Codex tool call:
+
+```powershell
+$repoRoot = (Resolve-Path .).Path
+$pythonPath = (Resolve-Path .\venv\Scripts\python.exe).Path
+$argumentJson = ConvertTo-Json -InputObject @("-m", "pytest", "-q") -Compress
+$argumentBase64 = [Convert]::ToBase64String(
+  [Text.Encoding]::UTF8.GetBytes($argumentJson)
+)
+& (Join-Path $repoRoot "scripts\ops\workstation_heavy.ps1") `
+  -Kind pytest -PythonPath $pythonPath -ArgumentsBase64 $argumentBase64 `
+  -RepoRoot $repoRoot
+```
+
+For a Codex tool call, replace every `C:\absolute\weather` placeholder with the
+same real repository root, then submit this exact literal shape as one line:
+
+```powershell
+& 'C:\absolute\weather\scripts\ops\workstation_heavy.ps1' -Kind pytest -PythonPath 'C:\absolute\weather\venv\Scripts\python.exe' -ArgumentsBase64 'WyItbSIsInB5dGVzdCIsIi1xIl0=' -RepoRoot 'C:\absolute\weather'
+```
+
+The hook accepts the wrapper owned by that absolute repository root, in the
+exact parameter order shown, with literal absolute paths and a literal
+canonical base64 value. A sibling worktree or clone is accepted only
+when its workstation wrapper, workload-admission script, and Windows Job helper
+are byte-identical to the installed hook's reference checkout. Compute the
+base64 value in a light command, then submit the wrapper invocation as a second
+command; backtick continuations, chained commands, variables, `Join-Path`, and
+other dynamically expanded forms fail closed.
 
 ## Focused verification matrix
 

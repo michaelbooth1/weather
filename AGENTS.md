@@ -70,11 +70,18 @@ machine-local state.
   not make overlapping heavy jobs safe.
 - That timetable does not govern a separate non-capture workstation. The
   32 GB workstation may run ordinary implementation, tests, training, and
-  replay work without the capture-host window or lease, including when that
-  same physical PC is assigned the portable live-executor role, but never
-  while a sealed live attempt is active. End heavy workstation processes
-  before sealing or launching a live stage, and do not start them until that
-  stage has terminal cleanup evidence. Live work still requires the exact
+  replay work without the capture-host window, bounded-suite, or serial-only
+  rules, including when that same physical PC is assigned the portable live-
+  executor role. Heavy commands there must use
+  `scripts/ops/workstation_heavy.ps1`: its admission-only
+  `workstation_offline_v1` profile requires the assignment's exact non-capture
+  Windows installation and attending principal and holds the same host-global
+  mutex as the portable live launcher. Both launch paths own their complete
+  child tree in a kill-on-close Windows Job, making wrapped heavy work and a
+  launched live stage mutually exclusive through cleanup. Operationally,
+  finish heavy work before sealing so a reviewed attempt is not needlessly
+  spent; an inert seal alone is not live authority.
+  Live work still requires the exact
   host-bound `portable_execution_v1` International
   Stage 0/1 lane in `docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`; this
   workstation allowance grants no capture, production-state, Scheduler,

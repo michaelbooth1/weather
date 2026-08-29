@@ -1296,6 +1296,20 @@ def prepare_fixed_session_launcher(
         source = validate_regular_nonreparse_file(root / relative)
         if _sha(source) != str(expected_hash).lower():
             raise SessionLauncherSealError("session bootstrap source hash changed")
+    source_hashes = manifest.get("source_sha256")
+    if not isinstance(source_hashes, dict):
+        raise SessionLauncherSealError("session source closure is unavailable")
+    expected_job_helper_sha256 = str(
+        source_hashes.get(fixed_sealer.WINDOWS_JOB_HELPER_PATH) or ""
+    ).lower()
+    job_helper = validate_regular_nonreparse_file(
+        root / fixed_sealer.WINDOWS_JOB_HELPER_PATH
+    )
+    if (
+        fixed_sealer.SHA256_RE.fullmatch(expected_job_helper_sha256) is None
+        or _sha(job_helper) != expected_job_helper_sha256
+    ):
+        raise SessionLauncherSealError("session Windows Job helper hash changed")
     candidate = attempt_root / "incoming" / f"fresh-{stage}-candidate.json"
     if candidate.exists():
         raise SessionLauncherSealError("fixed candidate inbox must be new at review time")
@@ -1322,6 +1336,7 @@ def prepare_fixed_session_launcher(
         "__SESSION_MANIFEST_BUILD_RECEIPT__": build_receipt["path"],
         "__SESSION_MANIFEST_BUILD_RECEIPT_SHA256__": build_receipt["sha256"],
         "__SESSION_CANDIDATE_INBOX__": str(candidate.resolve()),
+        "__SESSION_WINDOWS_JOB_HELPER_SHA256__": expected_job_helper_sha256,
     }
     for marker, value in replacements.items():
         rendered = _replace(rendered, marker, value)

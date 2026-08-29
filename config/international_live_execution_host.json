@@ -1,7 +1,7 @@
 {
-  "active_portable_execution_host_id": null,
-  "active_portable_execution_principal_id": null,
-  "assignment_status": "UNASSIGNED",
+  "active_portable_execution_host_id": "a740ee7dc03165b0c88094f8b313aa6676f0984b30737ec5bcd9f723709fe5dc",
+  "active_portable_execution_principal_id": "899c8218f19e948baf648733e34ab9e3301c154300a30477816ed749c3c8507b",
+  "assignment_status": "ASSIGNED",
   "dedicated_capture_execution_host_id": "6a085bc0e2017a1a619eead39f9daa9ffe0822b9add353d94cf2c06acb8889a7",
   "reassignment_requires_new_production_tip": true,
   "schema_version": "international_live_execution_host_assignment_v0.1"

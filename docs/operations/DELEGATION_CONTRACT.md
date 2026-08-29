@@ -17,9 +17,13 @@ capture-recovery, Scheduler, release, or live-exchange gate.
 **Operator decision 2026-08-28:** the dedicated capture-host load timetable
 does not follow the portable assignment onto the separate 32 GB workstation.
 That PC may perform ordinary implementation, testing, training, replay, and
-measurement at any local time when no sealed live attempt is active. Heavy
-workstation processes must end before a live stage is sealed or launched and
-remain stopped through terminal cleanup. Its separate live-executor role
+measurement at any local time. Recognized heavy commands use the repository
+workstation wrapper; its admission-only profile shares the portable launcher's
+host-global mutex and admits only the assignment's exact non-capture Windows
+installation and attending principal. Both launch paths own their complete
+child tree in a kill-on-close Windows Job, so wrapped work and a launched stage
+cannot overlap through cleanup. Heavy work still ends before sealing as an operational attempt-
+preservation rule. Its separate live-executor role
 remains fixed-scope and grants no additional production or live authority.
 
 Conventions for naming, ordering and reading the correspondence are in
@@ -32,13 +36,14 @@ Conventions for naming, ordering and reading the correspondence are in
 | Host | Role | Constraint |
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, guarded runtime integration, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
-| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Outside the capture-host timetable and lease, but never concurrent with a sealed live attempt; cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
+| **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Exact tracked non-capture host/principal; outside the capture-host timetable/resource admission; heavy commands use the admission-only shared-mutex wrapper and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
 | **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session; may be the same physical PC as the workstation | No capture, release, Scheduler, production-state, unattended, or general-live authority; Git/PR actions follow explicit operator authority and `docs/git-workflow.md`; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
 
 The portable executor is a role, not a permanent machine name. The same
-physical PC may do ordinary workstation work outside a sealed live attempt;
-that work uses the workstation role and must not claim the portable live lease
-or its evidence. The live role uses a clean
+physical PC may do ordinary workstation work outside a launched live stage;
+that work uses the workstation role and must not claim the portable live
+profile or its evidence. Its offline wrapper shares only the host-global mutex.
+The live role uses a clean
 checkout at the production-adopted exact tip, creates host-local credentials
 and attempt evidence, and is rebound whenever it moves to another Windows
 installation. A portable live session is not a delegated research mission:

@@ -8,18 +8,44 @@ be rescheduled — is never starved.
 This timetable governs only the dedicated capture PC. A separate non-capture
 workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
-and replay outside this timetable and without the capture-host lease when no
-sealed live attempt is active. Heavy workstation processes must end before a
-live stage is sealed or launched and may not restart until terminal cleanup
-evidence exists. That allowance comes from the machine's non-capture
-workstation role, not from a live profile.
+and replay outside this timetable and without the capture-host resource/time
+admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`.
+Its admission-only `workstation_offline_v1` profile and the portable launcher
+are both bound to the assignment's exact non-capture Windows installation and
+attending principal. They hold the same host-global mutex and each owns its
+entire child tree in a kill-on-close Windows Job; wrapped work and a launched
+live stage therefore cannot overlap. Finish heavy work before sealing as an
+operational rule so an inert
+reviewed attempt is not spent. While either profile owns the lease, it first
+creates and flushes the protected host-global state file
+`%ProgramData%\WeatherProject\heavy_workload_v1.poison` as `ACTIVE`, including
+the owner PID and process-creation identity. Immediately before explicit Job
+teardown it atomically replaces that state with a flushed
+`TEARDOWN_PENDING` record. A proved zero-child teardown deletes and verifies
+the record before releasing the shared lease. If teardown fails, the pending
+record and lease remain fail-closed; every checkout and worktree then blocks
+portable/offline admission. Recovery requires a fresh PowerShell process, a
+different proved Windows boot session, a zero-residual scan while holding the
+global mutex, and the exact confirmation accepted by
+`Clear-WeatherHeavyWorkloadPoison`.
+
+An abrupt launcher exit instead leaves `ACTIVE`; kill-on-close containment owns
+the child tree. A later attended admission may clear that state only after the
+exact owner process identity is proved gone and a bounded scan proves zero
+residual heavy processes while the mutex is owned. That recovery rejects once
+and requires retrying the exact operation. No marker means ordinary admission
+does not perform the recovery scan. This state machine applies only to the
+portable/offline profiles; capture-colocated admission keeps its existing
+capture-host teardown contract. The workstation allowance comes from the
+machine's non-capture workstation role, not from a live profile.
 
 The exact attended, host-bound International Stage 0/1 lane remains governed
 by [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
-`portable_execution_v1` lease is restricted to canonical live-stage workload
+`portable_execution_v1` admission is restricted to canonical live-stage workload
 names and is refused when the tracked assignment identifies the machine as the
 dedicated capture host. General workstation work must not claim that live
-lease or its evidence, and the workstation allowance grants no capture,
+profile or its evidence; it shares only the mutex through its distinct offline
+profile. The workstation allowance grants no capture,
 production integration, Scheduler, credential, exchange, unattended-trading,
 or live-order authority.
 

@@ -615,3 +615,47 @@ Git/LFS, and the canonical HTTPS origin pass. Clock service, pending reboot,
 automatic proxy discovery, venv, public SDK, tracked assignment, host-local
 WinCred entries, and fresh live-attempt evidence remain open. No credential
 value or exchange endpoint was accessed during this inspection.
+
+## 2026-08-28 workstation-load correction and assignment candidate
+
+The operator corrected the host-role contract: the 00:30–09:00 heavy-work
+timetable belongs to the 16 GB capture host and does not follow the portable
+assignment onto the separate 32 GB workstation. Stacked branch
+`codex/portable-workstation-policy-20260828` records that ordinary offline
+implementation, tests, training, replay, and measurement may run there at any
+local time. Recognized heavy commands use the admission-only workstation
+wrapper; finish them before sealing to avoid spending an inert attempt. A seal
+alone is not live authority.
+Policy commits `c5e9ca7b03443cc6fa4f1151a4ef182dd7cfdf4a` and
+`c2c80de97c7323c3f315b757bce0b8673a7cd9a0` replace the optional Codex hook's
+RAM heuristic with exact stable assignment/host identity and make new memory-
+guard registrations bind the validated capture host before side effects while
+legacy production actions retain protection. The descendant implementation
+adds a distinct non-live `workstation_offline_v1` admission path. It and the
+portable launcher hold the same host-global mutex; both launch paths bind their
+complete child tree to a kill-on-close Windows Job through cleanup. The
+protocol closes overlap between adopted compliant paths; it does not make an
+obsolete or manually bypassed launcher compliant. The production-only bounded
+suite, integration wrappers, capture recovery, and capture-host timetable
+remain unchanged, and no third live profile exists.
+
+The same branch prepares the selected host's public MachineGuid/principal
+assignment. An escalated audit under the exact interactive `Michael` token
+proved that both tracked hashes match this non-capture machine without reading
+credentials. A real pwsh 7.6 wrapper smoke created the protected
+`%ProgramData%` state directory with no untrusted mutation grant, ran 17 tests,
+and removed the ACTIVE marker only after clean Job teardown. Cross-edition
+PowerShell probes cover 5.1 and 7.6. The final snapshot also passed 38
+admission/recovery tests with one expected skip, 72 launcher/security tests
+with two expected layout skips, the 4,076-test logical full suite with 9 skips,
+one exact external-SDK deselection and 862 subtests, and all 24 executor tests
+under the documented short extended Windows temp root. Compilation, the agent-
+doc audit, and roadmap generation/check pass.
+
+The current host inspection still reports three independent blockers: Windows
+Time is stopped, Windows reports a pending reboot, and current-user automatic
+proxy discovery is enabled. The assignment is not live authority until review
+and production adoption; the portable clone still needs the adopted tip, its
+own new venv, and the separately transferred exact non-secret SDK 0.6.0. No
+credential value or exchange endpoint was accessed, and no Scheduler, capture,
+production-state, or live-order mutation occurred.

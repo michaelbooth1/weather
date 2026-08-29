@@ -99,6 +99,7 @@ PYTHON_TEMPLATE_PATHS = {
 }
 LAUNCHER_TEMPLATE_PATH = "scripts/ops/international_live_templates/fixed_scope_launcher.ps1.tmpl"
 WORKLOAD_ADMISSION_PATH = "scripts/ops/workload_admission.ps1"
+WINDOWS_JOB_HELPER_PATH = "scripts/ops/windows_kill_on_close_job.ps1"
 EXECUTION_HOST_ASSIGNMENT_PATH = "config/international_live_execution_host.json"
 SDK_OVERLAY_MANIFEST_PATH = "scripts/ops/international_live_templates/sdk_overlay_manifest.json"
 SDK_OVERLAY_MODULE_PATH = "src/weather/market/live_sdk_overlay.py"
@@ -153,7 +154,7 @@ LIVE_SOURCE_PATHS = {
         sorted(
             set(paths)
             | set(repository_python_source_paths(REPO_ROOT))
-            | {EXECUTION_HOST_ASSIGNMENT_PATH}
+            | {EXECUTION_HOST_ASSIGNMENT_PATH, WINDOWS_JOB_HELPER_PATH}
         )
     )
     for stage, paths in LIVE_SOURCE_PATHS.items()
@@ -1806,6 +1807,7 @@ def _render_launcher(
     execution_host_profile: str,
     execution_host_id: str,
     workload_sha256: str,
+    job_helper_sha256: str,
     credential_manifest_path: Path,
     credential_manifest_sha256: str,
 ) -> str:
@@ -1818,6 +1820,7 @@ def _render_launcher(
         '"__SEAL_EXECUTION_HOST_PROFILE__"': execution_host_profile,
         '"__SEAL_EXECUTION_HOST_ID__"': execution_host_id,
         '"__SEAL_WORKLOAD_ADMISSION_SHA256__"': workload_sha256,
+        '"__SEAL_WINDOWS_JOB_HELPER_SHA256__"': job_helper_sha256,
         '"__SEAL_CREDENTIAL_MANIFEST_PATH__"': str(credential_manifest_path),
         '"__SEAL_CREDENTIAL_MANIFEST_SHA256__"': credential_manifest_sha256,
     }
@@ -2488,6 +2491,7 @@ def seal_fixed_scope(
         execution_host_profile=validated["scope"]["execution_host_profile"],
         execution_host_id=validated["scope"]["execution_host_id"],
         workload_sha256=validated["source_sha256"][WORKLOAD_ADMISSION_PATH],
+        job_helper_sha256=validated["source_sha256"][WINDOWS_JOB_HELPER_PATH],
         credential_manifest_path=Path(
             validated["inputs"]["credential_reference_manifest"]["path"]
         ),

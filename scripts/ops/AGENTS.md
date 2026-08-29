@@ -113,7 +113,8 @@ recovery proof; failure must propagate out of `finally`.
 
 Every heavyweight wrapper must hold the shared lease from
 `workload_admission.ps1` across its expensive or capture-disrupting section.
-Resource headroom and time-window checks remain mandatory and independent; the
+On the capture host, resource headroom and time-window checks remain mandatory
+and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
 The one non-capture live exception is the sealed `portable_execution_v1`
@@ -123,14 +124,23 @@ current Windows installation, canonical live-stage workload name, and
 dedicated-capture-host exclusion; never generalize that lane to another heavy
 command or to an unattended session. Ordinary implementation, tests,
 training, and replay on the same physical non-capture workstation are allowed
-by its workstation role; they do not use this live lease or create live-stage
-evidence and must end before a live stage is sealed or launched. They may not
-resume until that stage has terminal cleanup evidence.
+by its workstation role. Recognized heavy commands must use
+`workstation_heavy.ps1`; its admission-only `workstation_offline_v1` profile
+shares the live launcher's host-global mutex without claiming the portable live
+profile or its evidence. Both profiles require the assignment's exact
+non-capture Windows installation and attending principal, and both paths own
+the complete child tree in a kill-on-close Windows Job.
+Wrapped work and a launched live stage are mechanically exclusive through
+cleanup. Finish heavy work before sealing as an operational attempt-
+preservation rule.
 
-`install_codex_host_load_hook.ps1` owns the production host's user-layer
-PreToolUse guard. It must never overwrite an existing `~/.codex/hooks.json`,
-must point at the repository-owned policy script, and must state that Codex
-requires review/trust on the next session. The hook is prevention at launch;
+`install_codex_host_load_hook.ps1` owns the host-role user-layer PreToolUse
+guard. It protects the capture host and, on an exact non-capture Windows host,
+denies recognized heavy commands unless they use the canonical workstation
+wrapper form with absolute Python and repository paths. It must never overwrite
+an existing `~/.codex/hooks.json`, must point at the repository-owned policy
+script, and must state that Codex requires review/trust on the next session.
+The hook is prevention at launch;
 the one-minute S4U memory/process guard remains the enforcement backstop.
 Both the hook and the S4U guard use the tracked MachineGuid-derived dedicated
 capture-host identity, not RAM, machine name, or portable assignment, as role
