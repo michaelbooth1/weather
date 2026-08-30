@@ -13,11 +13,11 @@
 | Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
 | Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
 | Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
-| Verification | The code-bearing exact tip `f12e5785abbf6e4077a64e7dfdfb295cf337ce31` has green [CI](https://github.com/michaelbooth1/weather/actions/runs/33337317130); the preceding identical tree reported 4,084 tests passed, 92 skips, one warning, and 860 subtests. Local focused live-gate verification passed 178 tests plus compile, template AST, documentation, and whitespace audits. Any later documentation-only tip still needs its own exact-head green check before use. |
-| Second PC | The clean portable clone is on the authorized topic at `f12e5785...`; HEAD/local/cached/live topic equality, synchronized `3361520f...` master, master ancestry, and zero status rows pass. Its CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, fresh installed audit, clock/proxy/reboot state, and exact assigned host/principal audit all pass. The development checkout's ambient SDK remains excluded from live use. |
+| Verification | Paper preparation exposed a CLI-only omission: the run orchestrator rejected the documented portable 600-second proof TTL before creating a paper run. Exact repair tip `99f4707b4da6793185a35ea41d1e6c0ca6c1aa14` has green [CI](https://github.com/michaelbooth1/weather/actions/runs/33339730827); local verification passed 70 focused tests plus compile, 11 embedded PowerShell AST blocks, documentation, and whitespace audits. Any later documentation-only tip still needs its own exact-head green check before use. |
+| Second PC | The clean portable clone remains on the authorized topic at the prior green tip until this state correction receives exact-head CI. Its CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, fresh installed audit, clock/proxy/reboot state, and exact assigned host/principal audit all pass. After publication, fast-forward it to the final exact topic tip and repeat branch/master inventory; the development checkout's ambient SDK remains excluded from live use. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
-| Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets. Fresh attempt `pilot-20260830T215248084Z` then produced a v0.4 compare-only PASS for this exact host/principal: four exact matches, zero writes, zero mutation, no retained values. Keep the private transfer source locked down until a final comparison is consumed, then use the approved deletion procedure. |
-| Public substrate | Today's Toronto metadata and strict dry-run observation collection passed without credentials. The first weather snapshot attempt exposed a legacy Windows path-length failure at a 267-character CAS filename; preserve that partial namespace. The runbook now uses short local root `%LOCALAPPDATA%\WLive`; create a new attempt and substrate there after final exact-head CI. |
+| Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets. Attempt `pilot-20260830T220702761Z` produced a v0.4 compare-only PASS for this exact host/principal: four exact matches, zero writes, zero mutation, no retained values. Preserve it as pre-repair history; the next attempt needs new compare-only output. Keep the private transfer source locked down until a final comparison is consumed, then use the approved deletion procedure. |
+| Public substrate | Preserve both partial namespaces. The first exposed a 267-character legacy Windows CAS failure. Short-root attempt `pilot-20260830T220702761Z` passed public Toronto metadata, observation, weather, CLOB, and reviewed economics acceptance, then the paper CLI blocked on the now-repaired TTL parser before creating a run. Later Stage refreshes now use compact attempt-bound sibling roots so their projected Toronto CAS paths remain below 260 characters. Do not reuse either attempt after publication. |
 | Live money | Public unauthenticated metadata/weather endpoints were contacted; no credentialed exchange call, authenticated write, order, cancellation, or Stage 0/1 session occurred. The first session remains attended, International-only, exact 10 pUSD request / 100 pUSD wallet cap, and separately gated at every mutation boundary. |
 
 ## Closed decisions -- do not relitigate without new evidence
@@ -59,17 +59,16 @@
 
 ## Ordered critical path
 
-1. Push this short-root/state correction, require exact-head green CI, then
-   fast-forward the clean portable clone to that exact authorized remote topic
-   tip and repeat its branch/master inventory. A production merge is not a
-   portable blocker; production/capture adoption remains a separate later task.
+1. Publish this state correction, require exact-head green CI, fast-forward the
+   clean portable clone to that exact authorized remote topic tip, and repeat
+   its branch/master inventory. A production merge is not a portable blocker.
 2. Create a new `%LOCALAPPDATA%\WLive` attempt namespace. Prepare a new public
    identity and fresh host/principal-bound compare-only credential receipt;
-   consume the receipt within two hours.
-3. Build a new attempt-local public substrate from metadata, observation,
-   weather/source, CLOB, economics and a strictly passing paper tick; run its
-   no-network local preflight. Stop for the exact informed economics acceptance
-   literal; never infer it from a collector PASS.
+   consume the receipt within two hours. Never reuse either partial attempt.
+3. Build fresh attempt-local metadata, observation, weather/source, CLOB, and
+   economics evidence. Obtain reviewed baseline acceptance, run the canonical
+   600-second paper tick and no-network preflight, then stop for the exact
+   candidate/date/hash-bound acknowledgment emitted by the review-only selector.
 4. Build and review all three immutable manifests and launchers, then refresh a
    constrained candidate immediately before each stage. Never reuse the failed
    long-path namespace or an expired artifact.
