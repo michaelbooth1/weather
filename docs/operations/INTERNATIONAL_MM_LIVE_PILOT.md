@@ -17,18 +17,23 @@ The claim boundary and frozen economics decision rule are preregistered in
 ## Current production disposition
 
 The fixed-scope Stage 0/1 sealer, session runner, process-local pinned SDK
-overlay, and interrupt-cleanup path are integrated production software. Read
-the exact current production tip from Git and
+overlay, and interrupt-cleanup path are integrated production software. The
+portable execution-host extension is a separate candidate until
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) records its production adoption and
+qualification. Read the exact current production tip from Git and
 [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated hash copied here.
 Their integration receipts grant no credential or live-exchange authority, and
 no Stage 0 or Stage 1 session has run.
 
-**Stage 0/1 execution is currently HOLD.** Before the first session, land and
-re-prove the explicit 00:30-09:00 live-window guard, the truthful Stage 0
-authenticated-write confirmation contract, the canonical fixed-session
-manifest builder, and the dated Stage 0/1-only substitute-gate decision below.
-The fixed-session manifest builder and operator decision are preparation only.
-Neither is temporal, credential, exchange-mutation, or trading authorization.
+**Stage 0/1 execution is currently HOLD.** The explicit execution-host profile,
+truthful Stage 0 authenticated-write confirmation contract, and canonical
+fixed-session manifest builder are implemented by the fixed-scope software
+described here; before the first session, use
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) to prove that exact code is adopted in
+production and has received exact-tip reproof. The fixed-session manifest
+builder and dated Stage 0/1-only substitute-gate decision below are preparation
+only. Neither is temporal, credential, exchange-mutation, or trading
+authorization.
 
 **Geographic eligibility is an action-time fact, not a repository or timezone
 inference.** This repository does not assert the operator's or execution host's
@@ -51,12 +56,18 @@ collateral balance or treating an unwrapped asset as pUSD.
 
 - Dedicated isolated wallet funded with no more than **100 pUSD**
   of the exchange-supported settlement collateral verified during preflight.
-- Requested run budget no more than the wallet cap and no more than **100**.
+- The first Stage 0/1 request is exactly **10 pUSD**. Any later authorized run
+  budget must remain no more than its wallet cap and no more than **100 pUSD**.
 - Exactly one weather market per run.
 - Existing ceilings may be lowered but not raised: **25** daily loss, **25**
   event notional, **10** band notional, and **120 seconds** quote TTL.
   `weather.market.market_making_live_pilot` owns this mode-specific normalization;
   the general run orchestrator delegates to it before evaluating any gate.
+- The Stage 0/1 lifecycle envelope is profile-bound. `capture_colocated_v1`
+  retains a 120-second session envelope and 120-second public paper proof.
+  `portable_execution_v1` uses a 240-second session envelope and a 600-second
+  public paper proof; the latter is candidate-freshness evidence, not an order
+  TTL or permission to leave an order resting for 600 seconds.
 - Smallest current exchange-valid share size and current tick size, read from
   the selected book immediately before the order.
 - Post-only limit orders only. No marketable retry after a post-only rejection.
@@ -72,19 +83,22 @@ collateral balance or treating an unwrapped asset as pUSD.
 
 All must be current for the target date and selected market:
 
-1. Continuous execution capture is running and has produced rows. This remains
-   ahead of the paper harvest lane in the approved sequence.
+1. Continuous execution capture remains running on the dedicated capture PC
+   and has produced rows. A `capture_colocated_v1` session validates that state
+   locally. A `portable_execution_v1` session does not consume or claim remote
+   capture-host health; its lifecycle receipt is therefore not simultaneous
+   capture-health or streak evidence.
 2. The International economics snapshot passes and matches the live platform.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.3` passes for
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.4` passes for
    the exact token and condition. This non-order, at-most-one-hour-old artifact
    proves the isolated wallet identity, recorded cap, numeric collateral
    balance and allowance each backing the requested budget, a content-bound
-   account snapshot, an observed zero open-order count, current
-   book/min size/tick/neg-risk, market fee
+   account snapshot, an observed zero open-order count, fresh pre-mutation
+   geographic eligibility, current book/min size/tick/neg-risk, market fee
    eligibility, a non-posting signed-order preview bound to the exact EOA/API
    owner, order signer, funder/maker, signature type, and token (raw signature
-   discarded), account-wide
-   user stream, two current bodyless heartbeat acknowledgments,
+   discarded), account-wide user stream, two current bodyless heartbeat
+   acknowledgments,
    cancel-all-to-zero, SDK contract, and secret hygiene. It cannot authorize a
    general maker run.
 4. Credential references are present outside the repository. The API key,
@@ -112,26 +126,36 @@ All must be current for the target date and selected market:
    book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
    seconds.
 6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; production
-   adoption pending.** The general readiness prerequisite is circular for the
-   evidence-generating probes because `mm_platform_verification_v0.5` embeds
+   adoption must be proved from `STATE_OF_PLAY.md`.** The general readiness
+   prerequisite is circular for the evidence-generating probes because
+   `mm_platform_verification_v0.6` embeds
    both Stage 1 lifecycle proofs. For Stage 0/1 only, the operator approved the
    following exact non-circular substitute gates: current exact-tip production
    inventory; public credential references; target-date public book, paper, and
    International economics evidence; current market rules; fixed non-raisable
-   10 pUSD order and 100 pUSD wallet caps; host, fleet, capture, tape, clock,
-   reboot, and workload-lease health; zero unknown open orders and zero starting
+   10 pUSD order and 100 pUSD wallet caps; execution-host, clock, reboot, and
+   workload-lease health plus capture/tape/streak health when using the
+   colocated profile; zero unknown open orders and zero starting
    positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
    eligibility; and every stage-specific, hash-bound attended confirmation.
-   This decision is not self-executing and cannot clear the HOLD until this
-   complete branch lands and receives exact-tip reproof. The ordinary maker-run
-   live-readiness, target-date data-layer, production release, full risk, and
-   v0.5 platform gates remain unchanged for Stage 2.
+   This decision is not self-executing and cannot clear the HOLD until the
+   complete implementation is production-adopted and receives exact-tip
+   reproof. The ordinary maker-run live-readiness, target-date data-layer,
+   production release, full risk, and v0.6 platform gates remain unchanged for
+   Stage 2.
 7. A simultaneous one-market paper counterfactual has quote permission and is
-   writing auditable artifacts. The separately authorized route is:
+   writing auditable artifacts. The following command is only an interface
+   illustration for a host that already owns the canonical default capture
+   tree; it is **not** the portable-host command:
 
-   ```powershell
+   ```text
    .\venv\Scripts\python.exe -m weather.market.market_making_run --date <YYYY-MM-DD> --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets <market-id> --once
    ```
+
+   On a clean portable executor, do not run that abbreviated form. Use the
+   attempt-local public-substrate sequence below, including every explicit
+   snapshot, observation, metadata-validation, economics, run-root, run-id,
+   and 600-second quote-TTL binding.
 
    `market_harvest` assembles rows from current event metadata, CLOB tokens,
    books, and features. When no prebuilt feature file exists, it projects the
@@ -151,21 +175,22 @@ All must be current for the target date and selected market:
    The resulting plan remains non-authorizing; Stage 0, account state, current
    market rules, the literal confirmation, and the
    one-submit adapter capability remain independent mutation gates.
-8. The complete candidate-derived execution window **plus the fixed 20-second
-   cooperative-cleanup reserve** is contained in the supported
-   **[00:30, 09:00) America/Toronto** fixed-session window, holds the ordinary
-   shared workload lease, and overlaps no scheduled heavy job. A sealed
-   execution cutoff of 08:59:40 is the latest allowed value: its reserved
-   contained-process end may equal 09:00, while any later cutoff blocks. This
-   keeps every Stage 0/1 session outside both the 12:00-18:00 graded window and
-   the 18:00-00:30 near-close window. The existing heavy-workload lease remains
-   an independent enforcement boundary; do not interpret 09:00-12:00 as a
-   supported live-session gap.
+8. Select exactly one immutable execution-host profile. For
+   `capture_colocated_v1`, the complete candidate-derived execution window
+   **plus the fixed 20-second cooperative-cleanup reserve** must remain inside
+   **[00:30, 09:00) America/Toronto**; 08:59:40 is the latest execution cutoff.
+   For `portable_execution_v1`, the same bounded window and cleanup reserve
+   must remain on the target date, but the capture PC's timetable is not a
+   constraint. Both profiles hold the exclusive shared lease. The portable
+   lane accepts only canonical attended International Stage 0/1 workloads and
+   is refused on the dedicated capture host. Provision or relocate it only via
+   [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md).
 9. Geographic eligibility passes immediately before credential resolution and
    again submit-adjacent for Stage 1. Query the official public
    `GET https://polymarket.com/api/geoblock` endpoint, retain only
-   `blocked/country/region`, observation time, and response hash (never the IP),
-   and require `blocked=false`. Separately require the attended operator to
+   `blocked/country/region`, observation time, and a redacted decision hash
+   (never the IP or a reversible IP commitment), and require `blocked=false`.
+   Separately require the attended operator to
    attest that the operator and execution host are physically in an eligible
    location and that no VPN, proxy, remote-location service, or other
    circumvention is in use. An unavailable endpoint, `blocked=true`, a
@@ -174,12 +199,32 @@ All must be current for the target date and selected market:
    [geographic-restrictions API](https://docs.polymarket.com/api-reference/geoblock)
    and [current geographic-restrictions policy](https://help.polymarket.com/en/articles/13364163-geographic-restrictions).
 
+   The sealed implementation is
+   `weather.market.mm_geographic_eligibility`. Each check sends an uncached,
+   credential-free request to that exact endpoint and writes a create-only
+   `mm_geographic_eligibility_receipt_v0.1` with a 60-second freshness window,
+   the raw response byte count, a recomputable hash of the retained
+   `blocked/country/region` decision, and a self-hash over the complete receipt.
+   It validates the returned source address but never retains that address.
+   The attended literal is
+   `INTERNATIONAL_POLYMARKET_PHYSICALLY_PRESENT_IN_ELIGIBLE_JURISDICTION_NO_VPN_PROXY_REMOTE_HOST_OR_CIRCUMVENTION`.
+   Refusing or mistyping it blocks before live mutation. Stage 0 writes distinct
+   precredential and pre-mutation receipts; each Stage 1 mode writes distinct
+   precredential and submit-adjacent receipts. All are sealed output paths,
+   source-hash-bound execution artifacts. Any failed check spends its receipt
+   namespace and requires review rather than an in-place overwrite. The sealed
+   Stage 1 attestor returns the submit-adjacent PASS receipt to the lifecycle;
+   after the fresh rules and collateral calls, the lifecycle recomputes its
+   self-hash and freshness immediately before the order-submit boundary. A
+   missing attestor, malformed receipt, or receipt that expires while those
+   calls run blocks before `place_order`.
+
 ## Staged protocol
 
 ### Stage 0: no-order account proof
 
 Stage 0 never submits an order, but it does send authenticated heartbeat and
-cancel-all/cleanup writes. Its v0.2 command, v0.4 execution, and v0.3 session-run
+cancel-all/cleanup writes. Its v0.2 command, v0.6 execution, and v0.4 session-run
 receipts therefore record `order_submit_attempted=false` separately from
 `authenticated_exchange_write_attempted=true`; generic exchange mutation is
 also true. Calling Stage 0 fully read-only is incorrect.
@@ -211,12 +256,24 @@ also true. Calling Stage 0 fully read-only is incorrect.
   seconds disarms placement.
 - Submit one far-from-mid, smallest-valid, post-only buy with notional no more
   than the band cap.
+- After the pre-submit host attestor, force an uncached authenticated collateral
+  balance/allowance read. The balance must back the exact 10 pUSD request and
+  remain at or below the isolated-wallet 100 pUSD funding cap; the minimum
+  allowance must back 10 pUSD. Record the normalized snapshot hash before
+  submit, refresh again after cancellation, and require exact balance/allowance
+  hash equality for a no-fill result.
 - Require both the placement response and authenticated stream/open-order
   observation.
 - Treat every scoped trade lifecycle state, including `MATCHED`, `MINED`, and
   `RETRYING`, as an unexpected Stage 1 outcome. Send cancel-all, reconcile, and
   stop; zero positions from a potentially lagging account API is not sufficient
   no-fill evidence.
+- A cancellation event is terminal no-fill evidence only when it carries an
+  exact zero `size_matched`. Missing, invalid, or nonzero matched size fails.
+  Continue observing the authoritative stream for a bounded post-cancel
+  quiescence interval, then require the authenticated REST order to be terminal
+  with zero matched size and no associated trade, plus an exact-scope account
+  trade listing with no row for the order.
 - Continue the bodyless heartbeat at no more than five-second intervals during
   placement and observation. Before either cancellation proof, acknowledge one
   fresh heartbeat and prove the order is still open. Otherwise a slow
@@ -236,24 +293,26 @@ also true. Calling Stage 0 fully read-only is incorrect.
   reconcile, stop, and do not let the attempt authorize Stage 2.
 - Repeat with one order, invoke cancel-all, and require zero open orders.
 
-This stage is a successful live test even if no fill occurs.
+This stage is a successful live test only if no fill occurs and every required
+stream, REST, collateral, cancellation, and final-state proof passes.
 
 After both distinct probes pass, construct
-`mm_stage1_lifecycle_bundle_v0.2` with
+`mm_stage1_lifecycle_bundle_v0.3` with
 `weather.market.mm_live_lifecycle_probe.build_stage1_lifecycle_bundle`. The
-builder rereads both append-only journals, verifies their hashes and critical
-events, requires distinct journal files and order IDs, and derives the no-fill,
-cancel-all, and heartbeat-lapse facts. It independently rejects a bootstrap
-wallet/request cap above 100 pUSD and either reported order above 10 pUSD;
-upstream PASS booleans do not substitute for these numeric checks. Do not
-hand-author those facts. The
-tracked bundle template is deliberately fail-safe.
+builder rereads both lifecycle journals and both final authenticated user-stream
+journals, verifies their hashes and scoped cancellation rows, requires distinct
+journal files and order IDs, and derives the no-fill,
+cancel-all, and heartbeat-lapse facts. It independently requires the exact
+10 pUSD bootstrap request, a wallet cap no higher than 100 pUSD, and each
+reported order at or below 10 pUSD; upstream PASS booleans do not substitute
+for these numeric checks. Do not hand-author those facts. The tracked bundle
+template is deliberately fail-safe.
 
 Stage 1 is the only order mutation allowed from the bootstrap artifact. Its
 completed, content-bound lifecycle bundle upgrades platform proof to
-`mm_platform_verification_v0.5`. The ordinary `market_making_run` live-pilot
+`mm_platform_verification_v0.6`. The ordinary `market_making_run` live-pilot
 path continues to require that stronger artifact and must never accept the
-bootstrap artifact. Version v0.4 embeds the bundle and its SHA-256, rechecks
+bootstrap artifact. Version v0.5 embeds the bundle and its SHA-256, rechecks
 the two probe identities and budgets, and requires its flattened private-stream,
 cancel-all, and heartbeat claims to match the bundle's derived facts. The
 fail-closed `weather.market.mm_live_pilot_cli` preparation surface exposes only
@@ -271,8 +330,10 @@ position check must carry the exact maker/condition request URL, HTTP status,
 and response hash; an unbound empty list is not zero-position evidence.
 The upgraded proof may satisfy the private-stream lifecycle requirement with a
 verified no-fill path: REST zero starting orders, authenticated placement and
-cancellation events, absence of every scoped trade lifecycle event, zero ending
-orders, and zero exact-scope positions. It
+cancellation events with zero matched size, a bounded post-cancel quiescence
+interval, terminal zero-match REST order and account-trade reconciliation,
+absence of every scoped trade lifecycle event in the final stream journals,
+zero ending orders, and zero exact-scope positions. It
 must not invent an initial WebSocket order snapshot, which the protocol does
 not document, and it does not claim that a fill path has been tested. Actual
 fill, settlement, fee, and payout evidence remains a Stage 3 requirement.
@@ -303,32 +364,37 @@ observed bootstrap and its separate literal confirmation, may perform Stage 1.
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
 
-### Production-host preparation
+### Execution-host preparation
 
-The final sequence runs from this production checkout. There is no
-source-transfer or second-machine deployment step. Public metadata, economics,
-and book selection must be rerun for the live session. Never put a secret value
-in the command line, environment, identity manifest, output path, or shell
-history.
+The final sequence runs from one clean, production-adopted checkout. It may be
+the dedicated capture checkout under `capture_colocated_v1`, or a separately
+provisioned Windows PC under `portable_execution_v1`. Follow
+[`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md) for every
+second-PC deployment or later relocation. Public metadata, economics, paper
+evidence, candidate selection, credentials, and attempt manifests must be
+regenerated on the chosen execution host. Never put a secret value in the
+command line, environment, identity manifest, output path, or shell history.
 
-Plan the first lifecycle session so its entire candidate-derived execution
-window and fixed 20-second cleanup reserve are within **[00:30, 09:00)
-America/Toronto**. The execution cutoff must be no later than 08:59:40. Merely
-avoiding the 12:00-18:00 graded and 18:00-00:30 near-close windows is
-insufficient; 09:00-12:00 is not a supported fixed-session lane, and no heavy
-scheduled work may overlap. After boot and network recovery, log in once so
-Credential Manager and `WeatherOneShotPush` are
-available, prove master equals origin at the reviewed exact tip, prove all
-capture workers and the public execution-tape producer recovered, clear the
-pending reboot state, and ensure no heavy scheduled job can overlap the session.
-Do not trade merely because Windows restarted successfully.
+For `capture_colocated_v1`, plan the entire candidate-derived execution window
+and fixed 20-second cleanup reserve inside **[00:30, 09:00)
+America/Toronto**; 08:59:40 is the latest execution cutoff, and no heavy job may
+overlap. After boot and network recovery, prove all capture workers and the
+public execution-tape producer recovered. For `portable_execution_v1`, the
+execution and cleanup tail may run at another time on the target date, but the
+host/principal must match the tracked active assignment and pass its offline
+execution-only status before identity or credential preparation.
+For both profiles, log in as the Windows user who owns Credential Manager,
+prove master equals a freshly observed origin at the reviewed exact tip, clear
+pending reboot state, and ensure no other local live stage holds the lease. Do
+not trade merely because Windows restarted successfully.
 
 Do not continue merely because a public endpoint classifies the host's egress
 as unblocked. Eligibility also follows the attended operator's and execution
 host's real physical location. A session in a blocked location must stop;
 VPN/proxy/location circumvention is not an allowed workaround.
 
-Prepare the identity and public credential receipt/reference sources first;
+After that host audit, prepare the identity and public credential
+receipt/reference sources first;
 they do not bind a market. Only after both preparations pass, discover the
 exact Stage 0/1 scope from fresh public data and a successful one-market paper
 tick, then run all three manifest builds without pausing past the plan expiry.
@@ -344,23 +410,112 @@ International economics snapshot, a current paper-only market-harvest quote,
 and current book rules, then emits a content-hashed plan that explicitly is not
 trading authorization:
 
+Collection is not baseline acceptance. The operator must inspect and explicitly
+accept the exact snapshot, verify the supplied drift report is `PASS` with
+`rescore_required=false`, then acknowledge the exact target date, selected
+condition/token, accepted-snapshot file hash, and drift-report file hash. The
+first selector call without that literal is intentionally a review-only BLOCK;
+copying a file into place cannot satisfy informed acceptance. A refreshed
+baseline, different candidate, token, or date requires a new review and literal.
+The review and approved plans must use distinct exclusive-new paths; never aim
+the review-only call at a fixed session candidate inbox or overwrite either
+artifact.
+
 ```powershell
+$ErrorActionPreference = "Stop"
+function Get-VerifiedPilotLocalPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $suppliedRoot = [IO.Path]::GetPathRoot($Path)
+  if (-not [IO.Path]::IsPathRooted($Path) -or
+      $suppliedRoot -cnotmatch '\A[A-Za-z]:\\\z') {
+    throw "live-pilot paths must be absolute local-drive paths"
+  }
+  $fullPath = [IO.Path]::GetFullPath($Path)
+  $pathRoot = [IO.Path]::GetPathRoot($fullPath)
+  $drive = [IO.DriveInfo]::new($pathRoot)
+  if ($drive.DriveType -notin @(
+      [IO.DriveType]::Fixed,
+      [IO.DriveType]::Removable
+    )) {
+    throw "live-pilot paths must use fixed or removable local media"
+  }
+  $cursor = $pathRoot
+  foreach ($component in $fullPath.Substring($pathRoot.Length).Split(
+      [char[]]@(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar
+      ),
+      [StringSplitOptions]::RemoveEmptyEntries
+    )) {
+    $cursor = Join-Path $cursor $component
+    if (-not (Test-Path -LiteralPath $cursor)) { break }
+    $item = Get-Item -LiteralPath $cursor -Force -ErrorAction Stop
+    if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "live-pilot path contains a redirected entry"
+    }
+  }
+  return $fullPath
+}
 $pilotTargetDate = "replace-with-target-date"
 $pilotMarketId = "replace-with-one-built-in-market-id"
+$pilotExecutionHostProfile = "portable_execution_v1" # or capture_colocated_v1
+if ($pilotExecutionHostProfile -eq "portable_execution_v1") {
+  $pilotExpectedSessionSeconds = 240
+  $pilotPaperQuoteTtlSeconds = 600
+  $pilotPaperQuoteTtlConfig = "quote_ttl_seconds=600"
+} elseif ($pilotExecutionHostProfile -eq "capture_colocated_v1") {
+  $pilotExpectedSessionSeconds = 120
+  $pilotPaperQuoteTtlSeconds = 120
+  $pilotPaperQuoteTtlConfig = "quote_ttl_seconds=120"
+} else {
+  throw "unsupported execution-host profile"
+}
 $pilotAttemptId = "pilot-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
-$pilotPublicRoot = "C:\pilot-public"
-$pilotAttemptsParent = "C:\pilot-attempts" # must already exist as a non-reparse directory
+$pilotLocalApplicationData = [Environment]::GetFolderPath("LocalApplicationData")
+if ([string]::IsNullOrWhiteSpace($pilotLocalApplicationData) -or
+    -not [IO.Path]::IsPathRooted($pilotLocalApplicationData) -or
+    [IO.Path]::GetPathRoot($pilotLocalApplicationData) -cnotmatch
+      '\A[A-Za-z]:\\\z') {
+  throw "current-user local application-data path is unavailable"
+}
+$pilotStateRoot = Get-VerifiedPilotLocalPath (
+  Join-Path $pilotLocalApplicationData "WeatherPortable\live-pilot"
+)
+$null = New-Item -ItemType Directory -Path $pilotStateRoot -Force `
+  -ErrorAction Stop
+$pilotStateRoot = Get-VerifiedPilotLocalPath $pilotStateRoot
+$pilotPublicRoot = Join-Path $pilotStateRoot "public"
+$pilotAttemptsParent = Join-Path $pilotStateRoot "attempts" # init-attempt validates it
 $pilotAttemptRoot = Join-Path $pilotAttemptsParent $pilotAttemptId
 $pilotDiscoveryPlan = Join-Path $pilotPublicRoot ($pilotAttemptId + "-discovery.json")
 $pilotIdentitySource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity.json")
 $pilotIdentityReceipt = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity-receipt.json")
-$pilotCredentialManifestSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-references.json")
-$pilotCredentialReceiptSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-import-receipt.json")
+$pilotCredentialProvisioningManifest = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-provisioning-references.json")
+$pilotCredentialProvisioningReceipt = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-provisioning-receipt.json")
+$pilotCredentialManifestSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-verified-references.json")
+$pilotCredentialReceiptSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-verified-receipt.json")
+$pilotSubstrateRoot = Join-Path $pilotPublicRoot ($pilotAttemptId + "-candidate-substrate")
+$pilotEventMetadata = Join-Path $pilotSubstrateRoot "location-market-events.json"
+$pilotEventValidation = Join-Path $pilotSubstrateRoot "event-metadata-validation.json"
+$pilotObservationStatus = Join-Path $pilotSubstrateRoot "observation-status.json"
+$pilotSnapshotsRoot = Join-Path $pilotSubstrateRoot "snapshots"
+$pilotEconomicsSnapshot = Join-Path $pilotSubstrateRoot "exchange-economics.json"
+$pilotAcceptedEconomics = Join-Path $pilotSubstrateRoot "exchange-economics-accepted.json"
+$pilotEconomicsDrift = Join-Path $pilotSubstrateRoot "exchange-economics-drift.json"
 $paperRunId = "pilot-paper-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
-$paperRunsRoot = "C:\pilot\paper-runs"
+$paperRunsRoot = Join-Path $pilotSubstrateRoot "paper-runs"
 $paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRunId)
 
 New-Item -ItemType Directory -Path $pilotPublicRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $pilotAttemptsParent -Force | Out-Null
+$pilotPublicRoot = Get-VerifiedPilotLocalPath $pilotPublicRoot
+$pilotAttemptsParent = Get-VerifiedPilotLocalPath $pilotAttemptsParent
+if (Test-Path -LiteralPath $pilotSubstrateRoot) {
+  throw "candidate substrate namespace must be new"
+}
+New-Item -ItemType Directory -Path $pilotSubstrateRoot -ErrorAction Stop |
+  Out-Null
+$pilotSubstrateRoot = Get-VerifiedPilotLocalPath $pilotSubstrateRoot
 $attemptInit = .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer init-attempt `
   --attempt-root $pilotAttemptRoot | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0 -or $attemptInit.status -ne "PASS") {
@@ -372,7 +527,7 @@ Prepare the public identity now, before starting the expiring discovery
 sequence. The command derives the numeric signature ID and writes no identity
 if any public gate fails. Only these two documented topologies are accepted:
 
-| Wallet class | Signature | EOA/API owner | Order signer | Funder/maker |
+| Wallet class | Signature | Private-key/API client signer | Signed-order signer field | Funder/maker |
 | --- | --- | --- | --- | --- |
 | Existing Gnosis Safe | `POLY_GNOSIS_SAFE` / `2` | private-key EOA | same EOA | distinct Safe |
 | New deposit wallet | `POLY_1271` / `3` | private-key EOA | deposit wallet | same deposit wallet |
@@ -382,14 +537,15 @@ validation on 2026-08-13 with the exact pinned SDK proved that its private key
 derives its public EOA, that the SDK selects that EOA as the type-2 order signer,
 and that the configured Safe funder is distinct. This is not exchange
 authentication or order evidence; Stage 0 must still prove it against live
-account reads on the production host. Do not switch topology after a failed probe:
+account reads on the selected execution host. Do not switch topology after a failed probe:
 
 ```powershell
+$ErrorActionPreference = "Stop"
 $pilotFunderAddress = "replace-with-public-funder-address"
 $pilotWalletType = "gnosis_safe"
 $pilotSignatureType = "POLY_GNOSIS_SAFE"
 
-.\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli prepare-identity `
+$identityPreparationOutput = .\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli prepare-identity `
   --funder-address $pilotFunderAddress `
   --wallet-type $pilotWalletType `
   --signature-type $pilotSignatureType `
@@ -400,31 +556,200 @@ $pilotSignatureType = "POLY_GNOSIS_SAFE"
   --confirm-international-platform `
   --confirm-isolated-wallet `
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
+$identityPreparationExit = $LASTEXITCODE
+$identityPreparation = $identityPreparationOutput |
+  ConvertFrom-Json -ErrorAction Stop
+if ($identityPreparationExit -ne 0 -or
+    $identityPreparation.status -cne "PASS") {
+  throw "public identity preparation blocked"
+}
 ```
 
-Only after identity preparation passes, provision the four secret values as
-Windows Credential Manager generic credentials. If an external source file is
-used, keep it outside the repository and remove inherited broad ACLs. The
-importer validates the private key/address and exact wallet/signature topology,
-refuses existing fixed targets, rolls back partial writes, ignores unrelated
-relayer/RPC/live-flag fields, and emits only a public reference manifest and
-secret-free receipt. It activates the same complete hash-pinned process-local
-SDK overlay used by the live wrappers before deriving the signer; the shared
-production environment intentionally does not supply `eth_account`:
+Only after identity preparation passes, create the four secret values as
+Windows Credential Manager generic credentials. Compare-only verification of
+entries created by an earlier reviewed import is not provisioning and does not
+replace the identity gate. If an external source file is used, keep it outside
+the repository and remove inherited broad ACLs. The importer validates the
+private key/address and exact wallet/signature topology, refuses existing fixed
+targets, rolls back partial writes, rejects unrelated relayer/RPC/live-flag
+fields, and emits only a public reference manifest and secret-free receipt. It
+activates the same complete hash-pinned process-local SDK overlay used by the
+live wrappers before deriving the signer; the shared production environment
+intentionally does not supply `eth_account`.
+
+Create a dedicated source containing exactly these nine keys. Do not copy the
+project `.env`: unrelated keys, duplicate keys, empty values, and shell-quoted
+values are deliberately rejected. Replace every placeholder with one
+unquoted, non-empty value; the values shown here are names/placeholders only:
+
+```text
+POLYMM_API_KEY=<api-key>
+POLYMM_API_SECRET=<api-secret>
+POLYMM_API_PASSPHRASE=<api-passphrase>
+POLYMM_PRIVATE_KEY=<private-key>
+POLYMM_CLOB_HOST=https://clob.polymarket.com
+POLYMM_CHAIN_ID=137
+POLYMM_WALLET_ADDRESS=<public-signer-address>
+POLYMM_FUNDER_ADDRESS=<public-funder-address>
+POLYMM_SIGNATURE_TYPE=POLY_GNOSIS_SAFE
+```
+
+For the alternate deposit-wallet topology, use its reviewed public addresses
+and `POLYMM_SIGNATURE_TYPE=POLY_1271`. Save the nine-line file as UTF-8 (a BOM
+is accepted); Windows PowerShell 5.1's default UTF-16 output is not accepted.
+Before passing `--confirm-source-acl-private`, create one dedicated
+non-reparse directory, remove inherited entries from both it and the file, and
+verify that every effective allow entry belongs only to the current token user,
+LocalSystem, or local Administrators. This rejects broad read access as well as
+broad write. The importer independently rejects any redirected ancestor and
+reads one retained, identity-checked source generation:
 
 ```powershell
+$ErrorActionPreference = "Stop"
+$credentialParent = Join-Path $pilotStateRoot "private"
+New-Item -ItemType Directory -Path $credentialParent -Force -ErrorAction Stop |
+  Out-Null
+$credentialParent = Get-VerifiedPilotLocalPath $credentialParent
+$credentialRoot = Join-Path $credentialParent (
+  "weather-live-credential-source-" + $pilotAttemptId
+)
+$null = New-Item -ItemType Directory -Path $credentialRoot -ErrorAction Stop
+$credentialRoot = Get-VerifiedPilotLocalPath $credentialRoot
+$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$null = & icacls.exe $credentialRoot /inheritance:r /grant:r `
+  "*${currentSid}:(OI)(CI)(F)" "*S-1-5-18:(OI)(CI)(F)" `
+  "*S-1-5-32-544:(OI)(CI)(F)"
+if ($LASTEXITCODE -ne 0) { throw "could not install private source-directory ACLs" }
+$credentialSource = Join-Path $credentialRoot "pilot.env.txt"
+# Create the exact nine-line file in a trusted editor, save it as UTF-8, then
+# continue only after this check.
+if (-not (Test-Path -LiteralPath $credentialSource -PathType Leaf)) {
+  throw "credential source file is absent"
+}
+$null = & icacls.exe $credentialSource /inheritance:r
+if ($LASTEXITCODE -ne 0) { throw "could not remove inherited credential ACLs" }
+$null = & icacls.exe $credentialSource /grant:r `
+  "*${currentSid}:(R,W)" "*S-1-5-18:(F)" "*S-1-5-32-544:(F)"
+if ($LASTEXITCODE -ne 0) { throw "could not install private credential ACLs" }
+$allowedSids = @($currentSid, "S-1-5-18", "S-1-5-32-544")
+$unexpectedReaders = @(
+  foreach ($aclPath in @($credentialRoot, $credentialSource)) {
+    (Get-Acl -LiteralPath $aclPath).Access | ForEach-Object {
+      $sid = $_.IdentityReference.Translate(
+        [Security.Principal.SecurityIdentifier]
+      ).Value
+      if (
+        $_.AccessControlType -eq "Allow" -and
+        $sid -notin $allowedSids
+      ) { "$aclPath => $sid" }
+    }
+  }
+)
+if ($unexpectedReaders.Count -ne 0) {
+  throw "credential source has a non-private allow ACL"
+}
+$currentUserCanRead = @(
+  (Get-Acl -LiteralPath $credentialSource).Access | Where-Object {
+    $_.AccessControlType -eq "Allow" -and
+    $_.IdentityReference.Translate(
+      [Security.Principal.SecurityIdentifier]
+    ).Value -ceq $currentSid -and
+    ($_.FileSystemRights -band
+      [Security.AccessControl.FileSystemRights]::Read) -ne 0
+  }
+).Count -gt 0
+if (-not $currentUserCanRead) {
+  throw "current token user cannot read the credential source"
+}
+```
+
+Choose the provisioning branch before executing it. Set the Boolean below to
+`$true` only for a new host/principal whose four fixed targets are known empty.
+Set it to `$false` only when a prior reviewed clean create receipt for this same
+host/principal proves those targets were intentionally provisioned. Never turn
+a generic create failure into the reuse branch; stop and review it.
+
+```powershell
+$ErrorActionPreference = "Stop"
+$provisionNewCredentialTargets = $true # reviewed choice; do not infer from failure
+if ($provisionNewCredentialTargets) {
+  .\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
+    --source-env $credentialSource `
+    --manifest-out $pilotCredentialProvisioningManifest `
+    --receipt-out $pilotCredentialProvisioningReceipt `
+    --sdk-overlay-manifest .\scripts\ops\international_live_templates\sdk_overlay_manifest.json `
+    --sdk-overlay-manifest-sha256 2044d0570d38c34057c520ab19bfcc114c751fe8c76f97091b605acc1deecd13 `
+    --confirm-source-acl-private `
+    --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
+  if ($LASTEXITCODE -ne 0) { throw "create-only credential import blocked" }
+  $credentialProvisioningReceipt = Get-Content `
+    -LiteralPath $pilotCredentialProvisioningReceipt -Raw |
+    ConvertFrom-Json -ErrorAction Stop
+  if ($credentialProvisioningReceipt.status -cne "PASS" -or
+      $credentialProvisioningReceipt.credential_mode -cne "create_new" -or
+      $credentialProvisioningReceipt.credential_value_count_written -ne 4) {
+    throw "create-only credential import receipt did not pass exactly"
+  }
+}
+```
+
+An occupancy refusal is not permission to overwrite or delete an existing
+target. Whether the selected branch just provisioned the four entries or a
+prior reviewed import did so, use distinct new verified-output paths and opt in
+explicitly to the compare-only path required by the session builder:
+
+```powershell
+$ErrorActionPreference = "Stop"
 .\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
-  --source-env C:\secure\pilot.env.txt `
+  --source-env $credentialSource `
   --manifest-out $pilotCredentialManifestSource `
   --receipt-out $pilotCredentialReceiptSource `
   --sdk-overlay-manifest .\scripts\ops\international_live_templates\sdk_overlay_manifest.json `
   --sdk-overlay-manifest-sha256 2044d0570d38c34057c520ab19bfcc114c751fe8c76f97091b605acc1deecd13 `
   --confirm-source-acl-private `
-  --confirmation INTERNATIONAL_POLYMARKET_IMPORT_CREDENTIALS
+  --verify-existing-exact `
+  --confirmation INTERNATIONAL_POLYMARKET_VERIFY_EXISTING_EXACT_CREDENTIALS
+if ($LASTEXITCODE -ne 0) { throw "compare-only credential verification blocked" }
+$credentialComparisonReceipt = Get-Content `
+  -LiteralPath $pilotCredentialReceiptSource -Raw |
+  ConvertFrom-Json -ErrorAction Stop
+if ($credentialComparisonReceipt.status -cne "PASS" -or
+    $credentialComparisonReceipt.credential_mode -cne "verify_existing_exact" -or
+    $credentialComparisonReceipt.credential_store_mutation_attempted -ne $false) {
+  throw "compare-only credential receipt did not pass exactly"
+}
 ```
 
-Do not proceed unless the receipt is `PASS`, reports exactly four entries, and
-has no rollback. Do not persist its references in User or Machine environment.
+This mode requires all four fixed entries to exist, reads their values only in
+the importer process, compares all four to the independently retained source,
+and never calls the credential writer or deleter. It emits no target-specific
+match result, secret-derived hash, or credential value. Any absent, unreadable,
+or unequal entry fails generically and requires manual provenance review; it
+must never fall back automatically to creation, overwrite, or deletion.
+
+Do not proceed unless the v0.4 receipt is an exact clean `PASS` with no
+rollback and one of these truthful tuples:
+
+- `credential_mode=create_new`, four written, zero existing verified, and
+  credential-store mutation attempted;
+- `credential_mode=verify_existing_exact`, zero written, four existing
+  verified, and no credential-store mutation attempted.
+
+Both tuples remain valid importer evidence, so a clean installation can retain
+its create-new receipt as provisioning history. The first-session manifest
+builder and fixed-scope sealer are stricter: they accept only a v0.4
+`verify_existing_exact` tuple generated for the current execution host and
+Windows token principal within two hours, with all four existing entries
+verified, zero written, and `credential_store_mutation_attempted=false`. A
+create-new, legacy, stale, other-host, or other-principal receipt cannot be
+staged or sealed; run the attended compare-only path into a new output
+namespace first.
+
+The latter proves only point-in-time local vault equivalence to the validated
+source. It does not prove exchange authentication, current account state,
+geographic eligibility, or live-trading authorization. Do not persist the
+manifest references in User or Machine environment.
+
 The hash-sealed launcher parses the public reference manifest, sets the five
 required values only in its child-process scope, clears all direct-secret names,
 and restores its own prior process environment afterward. The required variables are
@@ -437,25 +762,89 @@ credentials themselves. Do not install the live extra into the shared production
 venv. The repository manifest instead validates the complete fixed external
 SDK overlay and all 34 offline wheels before and after process-local import; the
 runtime rejects any version or import origin other than the pinned 0.6.0 tree.
-After a successful import, independent verification of the public receipt and
-reference manifest, and operator verification of the external source's retained
-copy, delete the source credential file using the approved secure-deletion
-procedure. The importer never deletes it automatically.
+Git does not contain that external substrate. Use the non-secret export/import
+tool in the
+[`portable execution-host runbook`](PORTABLE_LIVE_EXECUTION_HOST.md) before
+credential preparation on each new PC; never include credentials in its bundle.
+After successful creation or exact verification, independent verification of
+the public receipt and reference manifest, and operator verification of the
+external source's retained copy, delete the source credential file using the
+approved secure-deletion procedure. The importer never deletes it
+automatically.
 
 Only now start the expiring discovery and manifest-build sequence:
 
 ```powershell
-
+$ErrorActionPreference = "Stop"
 .\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
   --locations .\config\locations.json `
-  --event-metadata C:\pilot\location-market-events.json `
+  --event-metadata $pilotEventMetadata `
   --metadata-only
+if ($LASTEXITCODE -ne 0) { throw "event metadata refresh failed" }
+
+.\venv\Scripts\python.exe -m weather.operations.event_metadata_validation `
+  --target-date $pilotTargetDate `
+  --markets $pilotMarketId `
+  --locations .\config\locations.json `
+  --event-metadata $pilotEventMetadata `
+  --json-out $pilotEventValidation `
+  --report-out (Join-Path $pilotSubstrateRoot "event-metadata-validation.md") `
+  --max-age-hours 2 `
+  --require-pass
+if ($LASTEXITCODE -ne 0) { throw "event metadata validation blocked" }
+
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger once `
+  --market $pilotMarketId `
+  --target-date $pilotTargetDate `
+  --source-cache-root (Join-Path $pilotSubstrateRoot "observation-source-cache") `
+  --status-out $pilotObservationStatus `
+  --events-out (Join-Path $pilotSubstrateRoot "observation-events.jsonl") `
+  --diagnostics-out (Join-Path $pilotSubstrateRoot "observation-diagnostics.jsonl") `
+  --trigger-queue-root (Join-Path $pilotSubstrateRoot "observation-trigger-queue") `
+  --dry-run `
+  --strict
+if ($LASTEXITCODE -ne 0) { throw "selected-market observation collection blocked" }
+
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker `
+  --force `
+  --market $pilotMarketId `
+  --date $pilotTargetDate `
+  --snapshots-root $pilotSnapshotsRoot `
+  --event-metadata $pilotEventMetadata `
+  --result-json (Join-Path $pilotSubstrateRoot "weather-capture-result.json") `
+  --require-pass
+if ($LASTEXITCODE -ne 0) { throw "selected-market weather/source capture blocked" }
+
+.\venv\Scripts\python.exe -m weather.market.market_microstructure capture `
+  --market $pilotMarketId `
+  --date $pilotTargetDate `
+  --snapshots-root $pilotSnapshotsRoot `
+  --event-metadata $pilotEventMetadata `
+  --outcomes all `
+  --no-price-history `
+  --no-websocket-events `
+  --clob-features `
+  --require-pass
+if ($LASTEXITCODE -ne 0) { throw "selected-market CLOB capture blocked" }
 
 .\venv\Scripts\python.exe -m weather.market.exchange_economics collect-global `
-  --event-metadata C:\pilot\location-market-events.json `
-  --snapshot C:\pilot\exchange-economics.json `
+  --event-metadata $pilotEventMetadata `
+  --snapshot $pilotEconomicsSnapshot `
   --target-date $pilotTargetDate `
   --max-age-hours 2
+if ($LASTEXITCODE -ne 0) { throw "International economics collection failed" }
+
+# Stop here and inspect the complete current snapshot. This is a human decision,
+# not a collector side effect. Accept only after the economics and payout-asset
+# conflict are understood.
+.\venv\Scripts\python.exe -m weather.market.exchange_economics accept `
+  --snapshot $pilotEconomicsSnapshot `
+  --accepted-snapshot $pilotAcceptedEconomics `
+  --json-out $pilotEconomicsDrift `
+  --target-date $pilotTargetDate `
+  --max-age-hours 2 `
+  --acknowledge-payout-asset-conflict
+if ($LASTEXITCODE -ne 0) { throw "reviewed economics acceptance failed" }
 
 .\venv\Scripts\python.exe -m weather.market.market_making_run `
   --date $pilotTargetDate `
@@ -463,17 +852,71 @@ Only now start the expiring discovery and manifest-build sequence:
   --mode paper-live-forward `
   --permission-profile market_harvest `
   --markets $pilotMarketId `
-  --exchange-economics-snapshot C:\pilot\exchange-economics.json `
+  --snapshots-root $pilotSnapshotsRoot `
+  --observation-status $pilotObservationStatus `
+  --event-metadata-validation $pilotEventValidation `
+  --exchange-economics-snapshot $pilotEconomicsSnapshot `
   --runs-root $paperRunsRoot `
   --run-id $paperRunId `
-  --once
+  --config $pilotPaperQuoteTtlConfig `
+  --once `
+  --require-preflight-pass
+if ($LASTEXITCODE -ne 0) { throw "strict paper market-harvest tick blocked" }
 
+$pilotSubstratePreflight = Join-Path $pilotSubstrateRoot "portable-candidate-preflight.json"
+.\venv\Scripts\python.exe -m weather.market.portable_live_candidate_preflight `
+  --market $pilotMarketId `
+  --target-date $pilotTargetDate `
+  --event-metadata $pilotEventMetadata `
+  --event-metadata-validation $pilotEventValidation `
+  --snapshots-root $pilotSnapshotsRoot `
+  --observation-status $pilotObservationStatus `
+  --economics-snapshot $pilotEconomicsSnapshot `
+  --accepted-economics-snapshot $pilotAcceptedEconomics `
+  --economics-drift-report $pilotEconomicsDrift `
+  --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
+  --paper-preflight (Join-Path $paperRunFolder "preflight.json") `
+  --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
+  --json-out $pilotSubstratePreflight
+if ($LASTEXITCODE -ne 0) { throw "portable public candidate substrate audit blocked" }
+
+# The first selector call is deliberately review-only: without the exact
+# candidate/date/evidence literal it writes BLOCK and returns 1.
+$pilotDiscoveryReviewPlan = $pilotDiscoveryPlan + ".review.json"
 .\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
-  --economics-snapshot C:\pilot\exchange-economics.json `
+  --economics-snapshot $pilotEconomicsSnapshot `
+  --accepted-economics-snapshot $pilotAcceptedEconomics `
+  --economics-drift-report $pilotEconomicsDrift `
   --target-date $pilotTargetDate `
   --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
   --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
+  --substrate-preflight $pilotSubstratePreflight `
+  --plan-out $pilotDiscoveryReviewPlan
+if ($LASTEXITCODE -ne 1) { throw "economics acceptance review plan had an unexpected result" }
+
+$pilotReviewPlan = Get-Content -LiteralPath $pilotDiscoveryReviewPlan -Raw | ConvertFrom-Json
+if (
+  $pilotReviewPlan.status -ne "BLOCK" -or
+  $pilotReviewPlan.missing -notcontains "explicit_candidate_economics_baseline_acknowledgment"
+) { throw "selector did not stop for informed economics acceptance" }
+Get-Content -LiteralPath $pilotAcceptedEconomics -Raw
+Get-Content -LiteralPath $pilotEconomicsDrift -Raw
+$pilotEconomicsAcknowledgment = Read-Host "After reviewing both files, paste the exact required economics acknowledgment"
+if ($pilotEconomicsAcknowledgment -cne [string]$pilotReviewPlan.economics_acceptance.required_operator_acknowledgment) {
+  throw "economics acknowledgment was not exact"
+}
+
+.\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
+  --economics-snapshot $pilotEconomicsSnapshot `
+  --accepted-economics-snapshot $pilotAcceptedEconomics `
+  --economics-drift-report $pilotEconomicsDrift `
+  --economics-baseline-acknowledgment $pilotEconomicsAcknowledgment `
+  --target-date $pilotTargetDate `
+  --paper-run-config (Join-Path $paperRunFolder "run_config.json") `
+  --paper-quote-intents (Join-Path $paperRunFolder "quote_intents_long.csv") `
+  --substrate-preflight $pilotSubstratePreflight `
   --plan-out $pilotDiscoveryPlan
+if ($LASTEXITCODE -ne 0) { throw "approved discovery candidate selection blocked" }
 
 $pilotPlan = Get-Content -LiteralPath $pilotDiscoveryPlan -Raw | ConvertFrom-Json
 if (
@@ -495,13 +938,25 @@ paths plus `--expected-condition-id $pilotConditionId` and
 `--expected-token-id $pilotTokenId`, and write that constrained plan only to the
 Stage 0 launcher's fixed candidate inbox. Repeat a new paper tick and the same
 constrained selector immediately before each Stage 1 mode. Every plan expires
-at the earlier of five minutes or the selected paper row's quote TTL (currently
-at most 120 seconds); refresh the economics snapshot too when its own gate
-expires. A constrained refresh must select the exact reviewed scope or block;
+at the earlier of five minutes or the selected paper row's quote TTL. The
+canonical paper tick uses 120 seconds for `capture_colocated_v1` and passes
+`--config quote_ttl_seconds=600` for `portable_execution_v1`. The portable
+no-network substrate-preflight receipt binds its own path plus the exact
+absolute paths and SHA-256 hashes of all 12 consumed artifacts; all 13 file
+identities must be distinct. It is accepted for no more than 600 seconds,
+while the constrained candidate plan still expires after at most 300 seconds.
+Refresh the economics snapshot too when its own gate expires. A constrained refresh must
+select the exact reviewed scope or block;
 it cannot silently switch markets after discovery or authenticated bootstrap.
 Stage 0 still rereads the exact book and fails closed on any condition, token,
-min-size, tick, neg-risk, fee, or closed-state drift. The plan's minimum-tick
-intent is only a far-from-mid lifecycle probe and will normally not qualify for
+min-size, tick, neg-risk, fee, or closed-state drift. The constrained candidate
+binds `fee_rate` exactly to the current endpoint as
+`fee_rate_bps / 10000` and binds the exact Boolean neg-risk state. Stage 1
+repeats both comparisons when preparing the intent and again after the host
+attestor, immediately before its submit-deadline event. A zero fee or any
+fee/neg-risk drift therefore fails before `submit_started` and `post_order`.
+The candidate's minimum-tick intent is only a far-from-mid lifecycle probe and
+will normally not qualify for
 liquidity rewards or provide maker-fill economics evidence. Stage 2 must use a
 separate current quote decision after Stage 1 passes.
 
@@ -514,8 +969,15 @@ Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
 The repository-owned manifest builder and sealers are the only supported path.
 The builder rereads the current public inventory, requires synchronized
-production `master`, derives the Git tree, interpreter, template, complete live
-source, and session-bootstrap hashes, and hardcodes 10 pUSD and 120 seconds. It
+production `master`, the exact canonical Git executable and hash, the canonical
+HTTPS origin URL with no local trust/proxy override, no ambient
+`WEATHER_MARKET_REGISTRY`, and a bounded live query of
+`refs/heads/master` against that literal canonical URL. Inventory v0.3 passes
+only when local `HEAD`, local `master`, cached `origin/master`, and that live
+remote object ID are identical; a stale cached ref, malformed result, timeout,
+or unavailable remote blocks. It derives the Git tree, interpreter, template,
+complete live source, and session-bootstrap hashes, and hardcodes 10 pUSD plus
+the profile-bound 120-second colocated or 240-second portable session envelope. It
 accepts no typed target, condition, token, budget, duration, output, or candidate
 override. Scope comes only from the complete candidate-discovery gate after it
 revalidates the still-current, unconstrained, self-hashed, non-authorizing
@@ -528,7 +990,11 @@ inheritance disabled and FullControl granted only to the current user, SYSTEM,
 and Administrators, then validates the root plus `inputs`, `incoming`, and
 `session`. A pre-existing root is spent and cannot be adopted. `prepare-manifest`
 exclusively copies the reviewed public source files byte-for-byte into these
-stage-specific canonical names:
+stage-specific canonical names. Each stage also receives immutable
+`*-accepted-economics-snapshot.json` and `*-economics-drift-report.json` copies;
+their raw hashes and the candidate/date-specific acknowledgment are carried in
+the v0.4 candidate, v0.4 session manifest, and v0.4 seal spec and revalidated by
+the fixed-scope sealer:
 
 | Stage | Identity | Import receipt | Reference manifest | Discovery copy | Manifest / build receipt | Candidate inbox |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -541,13 +1007,16 @@ failure spends that stage namespace. The optional
 `--reviewed-status-flags-json` source must be a JSON list whose rows have exactly
 `sha256` and a 12-500 character `review`; it is also copied to the corresponding
 stage-specific `inputs/*-reviewed-status-flags.json`. Omit the option only when
-the reviewed list is empty.
+the reviewed list is empty. The option is forbidden for
+`portable_execution_v1`, because capture-host exceptions cannot be transferred
+to an execution-only PC.
 
 Prepare all three manifests from the same reviewed discovery plan while it is
 still current. The distinct workload strings prevent one stage from reusing
 another stage's host lease:
 
 ```powershell
+$ErrorActionPreference = "Stop"
 $pilotManifestStages = @(
   [pscustomobject]@{ Stage = "stage0"; Workload = $attemptInit.lease_workloads.stage0 },
   [pscustomobject]@{ Stage = "stage1_cancel_all"; Workload = $attemptInit.lease_workloads.stage1_cancel_all },
@@ -561,13 +1030,16 @@ foreach ($row in $pilotManifestStages) {
     --identity-source $pilotIdentitySource `
     --credential-import-receipt-source $pilotCredentialReceiptSource `
     --credential-reference-manifest-source $pilotCredentialManifestSource `
+    --accepted-economics-snapshot-source $pilotAcceptedEconomics `
+    --economics-drift-report-source $pilotEconomicsDrift `
     --attempt-root $pilotAttemptRoot `
-    --lease-workload $row.Workload
+    --lease-workload $row.Workload `
+    --execution-host-profile $pilotExecutionHostProfile
   if ($LASTEXITCODE -ne 0) { throw "fixed-session manifest preparation blocked for $($row.Stage)" }
 }
 ```
 
-Each output manifest is `international_live_fixed_session_manifest_v0.2`; its
+Each output manifest is `international_live_fixed_session_manifest_v0.4`; its
 `manifest_sha256` is the semantic hash, while the adjacent `.sha256` binds the
 exact pretty-printed bytes. Independently inspect each staged copy, build
 receipt, semantic hash, raw hash, and sidecar. Record six reviewed raw hashes
@@ -576,6 +1048,7 @@ pipe `Get-FileHash` directly into launcher creation. Then turn each reviewed
 manifest/receipt pair into a no-argument outer launcher:
 
 ```powershell
+$ErrorActionPreference = "Stop"
 $stage0ManifestSha256 = "replace-with-independently-reviewed-stage0-raw-sha256"
 $cancelAllManifestSha256 = "replace-with-independently-reviewed-cancel-all-raw-sha256"
 $deadManManifestSha256 = "replace-with-independently-reviewed-dead-man-raw-sha256"
@@ -583,26 +1056,40 @@ $stage0BuildReceiptSha256 = "replace-with-independently-reviewed-stage0-build-re
 $cancelAllBuildReceiptSha256 = "replace-with-independently-reviewed-cancel-all-build-receipt-sha256"
 $deadManBuildReceiptSha256 = "replace-with-independently-reviewed-dead-man-build-receipt-sha256"
 
-.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
+$stage0LauncherPreparation = .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
   --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage0-session-manifest.json") `
   --expected-session-manifest-sha256 $stage0ManifestSha256 `
   --expected-manifest-build-receipt-sha256 $stage0BuildReceiptSha256
+if ($LASTEXITCODE -ne 0 -or
+    ($stage0LauncherPreparation | ConvertFrom-Json -ErrorAction Stop).status -cne "PASS") {
+  throw "stage0 launcher preparation blocked"
+}
 
-.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
+$cancelAllLauncherPreparation = .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
   --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage1_cancel_all-session-manifest.json") `
   --expected-session-manifest-sha256 $cancelAllManifestSha256 `
   --expected-manifest-build-receipt-sha256 $cancelAllBuildReceiptSha256
+if ($LASTEXITCODE -ne 0 -or
+    ($cancelAllLauncherPreparation | ConvertFrom-Json -ErrorAction Stop).status -cne "PASS") {
+  throw "cancel-all launcher preparation blocked"
+}
 
-.\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
+$deadManLauncherPreparation = .\venv\Scripts\python.exe -m weather.operations.international_live_session_launcher_sealer prepare-launcher `
   --session-manifest (Join-Path $pilotAttemptRoot "inputs\stage1_dead_man-session-manifest.json") `
   --expected-session-manifest-sha256 $deadManManifestSha256 `
   --expected-manifest-build-receipt-sha256 $deadManBuildReceiptSha256
+if ($LASTEXITCODE -ne 0 -or
+    ($deadManLauncherPreparation | ConvertFrom-Json -ErrorAction Stop).status -cne "PASS") {
+  throw "dead-man launcher preparation blocked"
+}
 ```
 
 Launcher preparation derives the build-receipt path from the stage; there is no
 path override. It validates the receipt's exact manifest raw/semantic hashes,
-sidecar, production, scope, staged public-input hashes, canonical paths, fixed
-10 pUSD/120-second limits, and no-credential/no-live-mutation facts. The
+sidecar, production, scope, staged public-input hashes, compare-only credential
+evidence, canonical paths, the fixed 10 pUSD limit, and the profile-bound
+120-second colocated or 240-second portable session envelope, and
+no-credential/no-live-mutation facts. The
 launcher review records the canonical receipt path/hash, and the launcher locks
 that exact receipt through child exit. A hand-authored manifest and recomputed
 sidecar are unsupported and cannot produce a launcher without the matching
@@ -625,12 +1112,14 @@ The outer session launcher composes the candidate-bounded seal spec and invokes
 the fixed-scope sealer; operators do not hand-author or directly invoke that
 inner surface. The sealer never opens Credential Manager or runs the generated
 launcher. It independently validates the inert SDK overlay helper, candidate
-semantic hash, 120-second paper TTL, complete **[00:30, 09:00)
-America/Toronto** containment including the shared 20-second cleanup reserve,
+semantic hash, a paper TTL no greater than 600 seconds, same-target-date
+containment including the shared 20-second cleanup reserve and, for
+`capture_colocated_v1`, complete
+**[00:30, 09:00) America/Toronto** containment,
 all public inputs, every imported live-source hash, exact production ancestry,
 and new contained output paths. It creates a fixed no-argument Python wrapper,
 a hash-bound inner PowerShell launcher, an
-`international_live_fixed_scope_seal_v0.3` receipt, and its SHA-256 sidecar.
+`international_live_fixed_scope_seal_v0.4` receipt, and its SHA-256 sidecar.
 Each Stage 1 mode also requires the exact successful predecessor lineage. A
 partial or failed build, seal, or run spends that stage namespace; create a new
 attempt rather than overwriting it.
@@ -640,65 +1129,428 @@ new paper run and a new constrained selector output at the outer launcher's
 fixed inbox. This is the required discovery-then-fresh-candidate sequence:
 
 ```powershell
+$ErrorActionPreference = "Stop"
 $stage0ReviewPath = Join-Path $pilotAttemptRoot "session\stage0-launcher-review.json"
+$stage0ReviewSidecarPath = $stage0ReviewPath + ".sha256"
+$stage0ReviewHash = (Get-FileHash -LiteralPath $stage0ReviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$expectedStage0ReviewSidecar = $stage0ReviewHash + "  " + [IO.Path]::GetFileName($stage0ReviewPath) + "`n"
+if ([IO.File]::ReadAllText($stage0ReviewSidecarPath, [Text.Encoding]::ASCII) -cne
+    $expectedStage0ReviewSidecar) {
+  throw "Stage 0 launcher-review sidecar does not bind the exact review bytes"
+}
 $stage0Review = Get-Content -LiteralPath $stage0ReviewPath -Raw | ConvertFrom-Json
-if ($stage0Review.status -ne "PASS" -or -not $stage0Review.no_argument_surface) {
+$expectedStage0CandidateInbox = [IO.Path]::GetFullPath(
+  (Join-Path $pilotAttemptRoot "incoming\fresh-stage0-candidate.json")
+)
+$expectedStage0ManifestPath = [IO.Path]::GetFullPath(
+  (Join-Path $pilotAttemptRoot "inputs\stage0-session-manifest.json")
+)
+if (
+  $stage0Review.status -cne "PASS" -or
+  [string]$stage0Review.stage -cne "stage0" -or
+  -not $stage0Review.no_argument_surface -or
+  [IO.Path]::GetFullPath([string]$stage0Review.candidate_inbox) -cne
+    $expectedStage0CandidateInbox -or
+  [IO.Path]::GetFullPath([string]$stage0Review.session_manifest.path) -cne
+    $expectedStage0ManifestPath
+) {
   throw "Stage 0 outer-launcher review did not pass"
 }
 $observedStage0LauncherHash = (Get-FileHash -LiteralPath $stage0Review.launcher.path -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($observedStage0LauncherHash -ne $stage0Review.launcher.sha256) {
+if ($observedStage0LauncherHash -cne ([string]$stage0Review.launcher.sha256).ToLowerInvariant()) {
   throw "Stage 0 outer launcher differs from its immutable review"
 }
+if ((Get-FileHash -LiteralPath $expectedStage0ManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+    ([string]$stage0Review.session_manifest.sha256).ToLowerInvariant()) {
+  throw "Stage 0 session manifest differs from its immutable review"
+}
+$stage0Manifest = Get-Content -LiteralPath $stage0Review.session_manifest.path -Raw | ConvertFrom-Json
+if (
+  [string]$stage0Manifest.scope.execution_host_profile -cne $pilotExecutionHostProfile -or
+  [int]$stage0Manifest.scope.max_session_seconds -ne $pilotExpectedSessionSeconds
+) {
+  throw "Stage 0 manifest does not preserve the selected execution-host profile"
+}
+if (Test-Path -LiteralPath $expectedStage0CandidateInbox) {
+  throw "Stage 0 fixed candidate inbox is already spent"
+}
 
-$freshStage0PaperRunId = "pilot-stage0-paper-" + [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
-$freshStage0PaperFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $freshStage0PaperRunId)
+$freshStage0Id = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
+$freshStage0Root = Join-Path $pilotSubstrateRoot ("stage0-refresh-" + $freshStage0Id)
+$freshStage0EventMetadata = Join-Path $freshStage0Root "location-market-events.json"
+$freshStage0Validation = Join-Path $freshStage0Root "event-metadata-validation.json"
+$freshStage0Observation = Join-Path $freshStage0Root "observation-status.json"
+$freshStage0Snapshots = Join-Path $freshStage0Root "snapshots"
+$freshStage0PaperRuns = Join-Path $freshStage0Root "paper-runs"
+$freshStage0PaperRunId = "pilot-stage0-paper-" + $freshStage0Id
+$freshStage0PaperFolder = Join-Path $freshStage0PaperRuns (Join-Path $pilotTargetDate $freshStage0PaperRunId)
+if (Test-Path -LiteralPath $freshStage0Root) { throw "Stage 0 refresh namespace must be new" }
+New-Item -ItemType Directory -Path $freshStage0Root -ErrorAction Stop |
+  Out-Null
+$freshStage0Root = Get-VerifiedPilotLocalPath $freshStage0Root
+
+.\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
+  --locations .\config\locations.json `
+  --event-metadata $freshStage0EventMetadata `
+  --metadata-only
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 metadata refresh failed" }
+
+.\venv\Scripts\python.exe -m weather.operations.event_metadata_validation `
+  --target-date $pilotTargetDate `
+  --markets $pilotMarketId `
+  --locations .\config\locations.json `
+  --event-metadata $freshStage0EventMetadata `
+  --json-out $freshStage0Validation `
+  --report-out (Join-Path $freshStage0Root "event-metadata-validation.md") `
+  --max-age-hours 2 `
+  --require-pass
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 metadata validation blocked" }
+
+.\venv\Scripts\python.exe -m weather.operations.observation_trigger once `
+  --market $pilotMarketId `
+  --target-date $pilotTargetDate `
+  --source-cache-root (Join-Path $freshStage0Root "observation-source-cache") `
+  --status-out $freshStage0Observation `
+  --events-out (Join-Path $freshStage0Root "observation-events.jsonl") `
+  --diagnostics-out (Join-Path $freshStage0Root "observation-diagnostics.jsonl") `
+  --trigger-queue-root (Join-Path $freshStage0Root "observation-trigger-queue") `
+  --dry-run `
+  --strict
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 observation capture blocked" }
+
+.\venv\Scripts\python.exe -m weather.collection.snapshot_tracker `
+  --force --market $pilotMarketId --date $pilotTargetDate `
+  --snapshots-root $freshStage0Snapshots `
+  --event-metadata $freshStage0EventMetadata `
+  --result-json (Join-Path $freshStage0Root "weather-capture-result.json") `
+  --require-pass
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 weather capture blocked" }
+
+.\venv\Scripts\python.exe -m weather.market.market_microstructure capture `
+  --market $pilotMarketId --date $pilotTargetDate `
+  --snapshots-root $freshStage0Snapshots `
+  --event-metadata $freshStage0EventMetadata `
+  --outcomes all --no-price-history --no-websocket-events --clob-features `
+  --require-pass
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 CLOB capture blocked" }
+
 .\venv\Scripts\python.exe -m weather.market.market_making_run `
   --date $pilotTargetDate `
   --budget-usdc 25 `
   --mode paper-live-forward `
   --permission-profile market_harvest `
   --markets $pilotMarketId `
-  --exchange-economics-snapshot C:\pilot\exchange-economics.json `
-  --runs-root $paperRunsRoot `
+  --snapshots-root $freshStage0Snapshots `
+  --observation-status $freshStage0Observation `
+  --event-metadata-validation $freshStage0Validation `
+  --exchange-economics-snapshot $pilotEconomicsSnapshot `
+  --runs-root $freshStage0PaperRuns `
   --run-id $freshStage0PaperRunId `
-  --once
+  --config $pilotPaperQuoteTtlConfig `
+  --once `
+  --require-preflight-pass
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 strict paper tick blocked" }
+
+.\venv\Scripts\python.exe -m weather.market.portable_live_candidate_preflight `
+  --market $pilotMarketId --target-date $pilotTargetDate `
+  --event-metadata $freshStage0EventMetadata `
+  --event-metadata-validation $freshStage0Validation `
+  --snapshots-root $freshStage0Snapshots `
+  --observation-status $freshStage0Observation `
+  --economics-snapshot $pilotEconomicsSnapshot `
+  --accepted-economics-snapshot $pilotAcceptedEconomics `
+  --economics-drift-report $pilotEconomicsDrift `
+  --paper-run-config (Join-Path $freshStage0PaperFolder "run_config.json") `
+  --paper-preflight (Join-Path $freshStage0PaperFolder "preflight.json") `
+  --paper-quote-intents (Join-Path $freshStage0PaperFolder "quote_intents_long.csv") `
+  --json-out (Join-Path $freshStage0Root "portable-candidate-preflight.json")
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 public substrate audit blocked" }
 
 .\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
-  --economics-snapshot C:\pilot\exchange-economics.json `
+  --economics-snapshot $pilotEconomicsSnapshot `
+  --accepted-economics-snapshot $pilotAcceptedEconomics `
+  --economics-drift-report $pilotEconomicsDrift `
+  --economics-baseline-acknowledgment $pilotEconomicsAcknowledgment `
   --target-date $pilotTargetDate `
   --paper-run-config (Join-Path $freshStage0PaperFolder "run_config.json") `
   --paper-quote-intents (Join-Path $freshStage0PaperFolder "quote_intents_long.csv") `
+  --substrate-preflight (Join-Path $freshStage0Root "portable-candidate-preflight.json") `
   --expected-condition-id $pilotConditionId `
   --expected-token-id $pilotTokenId `
   --plan-out ([string]$stage0Review.candidate_inbox)
+if ($LASTEXITCODE -ne 0) { throw "fresh Stage 0 constrained candidate selection blocked" }
 
+$stage0CandidateHash = (Get-FileHash -LiteralPath $stage0Review.candidate_inbox -Algorithm SHA256).Hash.ToLowerInvariant()
 $stage0Candidate = Get-Content -LiteralPath $stage0Review.candidate_inbox -Raw | ConvertFrom-Json
 if (
-  $stage0Candidate.status -ne "PASS" -or
+  $stage0Candidate.status -cne "PASS" -or
   $stage0Candidate.selection_is_trading_authorization -or
-  $stage0Candidate.selection_policy.expected_bootstrap_scope.condition_id -ne $pilotConditionId -or
-  [string]$stage0Candidate.selection_policy.expected_bootstrap_scope.token_id -ne $pilotTokenId -or
-  [DateTimeOffset]::Parse($stage0Candidate.expires_at_utc) -le [DateTimeOffset]::UtcNow
+  [string]$stage0Candidate.selected.location_id -cne $pilotMarketId -or
+  [string]$stage0Candidate.selected.event_date -cne $pilotTargetDate -or
+  [string]$stage0Candidate.paper_quote_evidence.run_id -cne $freshStage0PaperRunId -or
+  [int]$stage0Candidate.selected.paper_quote_proof.quote_ttl_seconds -ne $pilotPaperQuoteTtlSeconds -or
+  [string]$stage0Candidate.selection_policy.expected_bootstrap_scope.condition_id -cne $pilotConditionId -or
+  [string]$stage0Candidate.selection_policy.expected_bootstrap_scope.token_id -cne $pilotTokenId -or
+  [string]$stage0Candidate.plan_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+  [DateTimeOffset]::Parse([string]$stage0Candidate.expires_at_utc) -le [DateTimeOffset]::UtcNow
 ) {
   throw "fresh Stage 0 constrained candidate did not pass exact scope"
 }
 
 # Do not cross this boundary while any HOLD in this runbook remains unresolved.
 # After dated operator approval clears every HOLD, invoke only the reviewed path:
+if (
+  (Get-FileHash -LiteralPath $stage0ReviewPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $stage0ReviewHash -or
+  (Get-FileHash -LiteralPath $stage0Review.launcher.path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $observedStage0LauncherHash -or
+  (Get-FileHash -LiteralPath $stage0Review.candidate_inbox -Algorithm SHA256).Hash.ToLowerInvariant() -cne $stage0CandidateHash
+) {
+  throw "Stage 0 review, launcher, or candidate changed before invocation"
+}
+Write-Host "Stage 0 launcher-review SHA-256: $stage0ReviewHash"
+Write-Host "Stage 0 candidate SHA-256: $stage0CandidateHash"
 & ([string]$stage0Review.launcher.path)
+if ($LASTEXITCODE -ne 0) { throw "Stage 0 reviewed launcher failed" }
 ```
 
-Repeat that fresh paper tick and constrained selector with the cancel-all review
-receipt and then the dead-man review receipt immediately before those stages;
-never copy or rename the Stage 0 candidate. Refresh the economics snapshot first
-if its two-hour gate has expired. The launcher passes only the reviewed manifest
+Run this exact helper once for each Stage 1 mode. It creates a distinct refresh
+root and paper run, verifies the stage-specific launcher review sidecar and
+launcher/manifest hashes, writes only to that review's new fixed candidate
+inbox, captures and rechecks the candidate's raw hash, and then invokes only the
+reviewed no-argument launcher:
+
+```powershell
+$ErrorActionPreference = "Stop"
+function Invoke-FreshReviewedStage1 {
+  param(
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("stage1_cancel_all", "stage1_dead_man")]
+    [string]$Stage
+  )
+
+  $stageLabel = if ($Stage -eq "stage1_cancel_all") {
+    "Stage 1 cancel-all"
+  } else {
+    "Stage 1 dead-man"
+  }
+  $reviewPath = Join-Path $pilotAttemptRoot ("session\" + $Stage + "-launcher-review.json")
+  $reviewSidecarPath = $reviewPath + ".sha256"
+  $reviewHash = (Get-FileHash -LiteralPath $reviewPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  $expectedReviewSidecar = $reviewHash + "  " + [IO.Path]::GetFileName($reviewPath) + "`n"
+  if ([IO.File]::ReadAllText($reviewSidecarPath, [Text.Encoding]::ASCII) -cne
+      $expectedReviewSidecar) {
+    throw "$stageLabel launcher-review sidecar does not bind the exact review bytes"
+  }
+  $review = Get-Content -LiteralPath $reviewPath -Raw | ConvertFrom-Json
+  $expectedCandidateInbox = [IO.Path]::GetFullPath(
+    (Join-Path $pilotAttemptRoot ("incoming\fresh-" + $Stage + "-candidate.json"))
+  )
+  $expectedLauncherPath = [IO.Path]::GetFullPath(
+    (Join-Path $pilotAttemptRoot ("session\" + $Stage + "-launch.ps1"))
+  )
+  $expectedManifestPath = [IO.Path]::GetFullPath(
+    (Join-Path $pilotAttemptRoot ("inputs\" + $Stage + "-session-manifest.json"))
+  )
+  if (
+    $review.status -cne "PASS" -or
+    [string]$review.stage -cne $Stage -or
+    -not $review.no_argument_surface -or
+    [IO.Path]::GetFullPath([string]$review.candidate_inbox) -cne $expectedCandidateInbox -or
+    [IO.Path]::GetFullPath([string]$review.launcher.path) -cne $expectedLauncherPath -or
+    [IO.Path]::GetFullPath([string]$review.session_manifest.path) -cne $expectedManifestPath
+  ) {
+    throw "$stageLabel review does not bind its canonical stage paths"
+  }
+  $launcherHash = (Get-FileHash -LiteralPath $expectedLauncherPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($launcherHash -cne ([string]$review.launcher.sha256).ToLowerInvariant()) {
+    throw "$stageLabel outer launcher differs from its immutable review"
+  }
+  if ((Get-FileHash -LiteralPath $expectedManifestPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+      ([string]$review.session_manifest.sha256).ToLowerInvariant()) {
+    throw "$stageLabel session manifest differs from its immutable review"
+  }
+  $sessionManifest = Get-Content -LiteralPath $expectedManifestPath -Raw | ConvertFrom-Json
+  if (
+    [string]$sessionManifest.stage -cne $Stage -or
+    [string]$sessionManifest.scope.execution_host_profile -cne $pilotExecutionHostProfile -or
+    [int]$sessionManifest.scope.max_session_seconds -ne $pilotExpectedSessionSeconds
+  ) {
+    throw "$stageLabel manifest does not preserve the selected execution-host profile"
+  }
+  if (Test-Path -LiteralPath $expectedCandidateInbox) {
+    throw "$stageLabel fixed candidate inbox is already spent"
+  }
+
+  $freshId = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
+  $freshRoot = Join-Path $pilotSubstrateRoot ($Stage + "-refresh-" + $freshId)
+  $freshEventMetadata = Join-Path $freshRoot "location-market-events.json"
+  $freshValidation = Join-Path $freshRoot "event-metadata-validation.json"
+  $freshObservation = Join-Path $freshRoot "observation-status.json"
+  $freshSnapshots = Join-Path $freshRoot "snapshots"
+  $freshPaperRuns = Join-Path $freshRoot "paper-runs"
+  $freshPaperRunId = "pilot-" + $Stage + "-paper-" + $freshId
+  $freshPaperFolder = Join-Path $freshPaperRuns (Join-Path $pilotTargetDate $freshPaperRunId)
+  if (Test-Path -LiteralPath $freshRoot) {
+    throw "$stageLabel refresh namespace must be new"
+  }
+  New-Item -ItemType Directory -Path $freshRoot -ErrorAction Stop |
+    Out-Null
+  $freshRoot = Get-VerifiedPilotLocalPath $freshRoot
+
+  .\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
+    --locations .\config\locations.json `
+    --event-metadata $freshEventMetadata `
+    --metadata-only
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel metadata refresh failed" }
+
+  .\venv\Scripts\python.exe -m weather.operations.event_metadata_validation `
+    --target-date $pilotTargetDate `
+    --markets $pilotMarketId `
+    --locations .\config\locations.json `
+    --event-metadata $freshEventMetadata `
+    --json-out $freshValidation `
+    --report-out (Join-Path $freshRoot "event-metadata-validation.md") `
+    --max-age-hours 2 `
+    --require-pass
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel metadata validation blocked" }
+
+  .\venv\Scripts\python.exe -m weather.operations.observation_trigger once `
+    --market $pilotMarketId `
+    --target-date $pilotTargetDate `
+    --source-cache-root (Join-Path $freshRoot "observation-source-cache") `
+    --status-out $freshObservation `
+    --events-out (Join-Path $freshRoot "observation-events.jsonl") `
+    --diagnostics-out (Join-Path $freshRoot "observation-diagnostics.jsonl") `
+    --trigger-queue-root (Join-Path $freshRoot "observation-trigger-queue") `
+    --dry-run `
+    --strict
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel observation capture blocked" }
+
+  .\venv\Scripts\python.exe -m weather.collection.snapshot_tracker `
+    --force `
+    --market $pilotMarketId `
+    --date $pilotTargetDate `
+    --snapshots-root $freshSnapshots `
+    --event-metadata $freshEventMetadata `
+    --result-json (Join-Path $freshRoot "weather-capture-result.json") `
+    --require-pass
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel weather/source capture blocked" }
+
+  .\venv\Scripts\python.exe -m weather.market.market_microstructure capture `
+    --market $pilotMarketId `
+    --date $pilotTargetDate `
+    --snapshots-root $freshSnapshots `
+    --event-metadata $freshEventMetadata `
+    --outcomes all `
+    --no-price-history `
+    --no-websocket-events `
+    --clob-features `
+    --require-pass
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel CLOB capture blocked" }
+
+  .\venv\Scripts\python.exe -m weather.market.market_making_run `
+    --date $pilotTargetDate `
+    --budget-usdc 25 `
+    --mode paper-live-forward `
+    --permission-profile market_harvest `
+    --markets $pilotMarketId `
+    --snapshots-root $freshSnapshots `
+    --observation-status $freshObservation `
+    --event-metadata-validation $freshValidation `
+    --exchange-economics-snapshot $pilotEconomicsSnapshot `
+    --runs-root $freshPaperRuns `
+    --run-id $freshPaperRunId `
+    --config $pilotPaperQuoteTtlConfig `
+    --once `
+    --require-preflight-pass
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel strict paper tick blocked" }
+
+  .\venv\Scripts\python.exe -m weather.market.portable_live_candidate_preflight `
+    --market $pilotMarketId `
+    --target-date $pilotTargetDate `
+    --event-metadata $freshEventMetadata `
+    --event-metadata-validation $freshValidation `
+    --snapshots-root $freshSnapshots `
+    --observation-status $freshObservation `
+    --economics-snapshot $pilotEconomicsSnapshot `
+    --accepted-economics-snapshot $pilotAcceptedEconomics `
+    --economics-drift-report $pilotEconomicsDrift `
+    --paper-run-config (Join-Path $freshPaperFolder "run_config.json") `
+    --paper-preflight (Join-Path $freshPaperFolder "preflight.json") `
+    --paper-quote-intents (Join-Path $freshPaperFolder "quote_intents_long.csv") `
+    --json-out (Join-Path $freshRoot "portable-candidate-preflight.json")
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel public substrate audit blocked" }
+
+  .\venv\Scripts\python.exe -m weather.market.mm_live_candidate_cli `
+    --economics-snapshot $pilotEconomicsSnapshot `
+    --accepted-economics-snapshot $pilotAcceptedEconomics `
+    --economics-drift-report $pilotEconomicsDrift `
+    --economics-baseline-acknowledgment $pilotEconomicsAcknowledgment `
+    --target-date $pilotTargetDate `
+    --paper-run-config (Join-Path $freshPaperFolder "run_config.json") `
+    --paper-quote-intents (Join-Path $freshPaperFolder "quote_intents_long.csv") `
+    --substrate-preflight (Join-Path $freshRoot "portable-candidate-preflight.json") `
+    --expected-condition-id $pilotConditionId `
+    --expected-token-id $pilotTokenId `
+    --plan-out $expectedCandidateInbox
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel constrained candidate selection blocked" }
+
+  $candidateHash = (Get-FileHash -LiteralPath $expectedCandidateInbox -Algorithm SHA256).Hash.ToLowerInvariant()
+  $candidate = Get-Content -LiteralPath $expectedCandidateInbox -Raw | ConvertFrom-Json
+  if (
+    $candidate.status -cne "PASS" -or
+    $candidate.selection_is_trading_authorization -or
+    [string]$candidate.selected.location_id -cne $pilotMarketId -or
+    [string]$candidate.selected.event_date -cne $pilotTargetDate -or
+    [string]$candidate.paper_quote_evidence.run_id -cne $freshPaperRunId -or
+    [int]$candidate.selected.paper_quote_proof.quote_ttl_seconds -ne $pilotPaperQuoteTtlSeconds -or
+    [string]$candidate.selection_policy.expected_bootstrap_scope.condition_id -cne $pilotConditionId -or
+    [string]$candidate.selection_policy.expected_bootstrap_scope.token_id -cne $pilotTokenId -or
+    [string]$candidate.plan_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+    [DateTimeOffset]::Parse([string]$candidate.expires_at_utc) -le [DateTimeOffset]::UtcNow
+  ) {
+    throw "$stageLabel constrained candidate did not pass exact scope and freshness"
+  }
+  if (
+    (Get-FileHash -LiteralPath $reviewPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $reviewHash -or
+    (Get-FileHash -LiteralPath $expectedLauncherPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $launcherHash -or
+    (Get-FileHash -LiteralPath $expectedCandidateInbox -Algorithm SHA256).Hash.ToLowerInvariant() -cne $candidateHash
+  ) {
+    throw "$stageLabel review, launcher, or candidate changed before invocation"
+  }
+  Write-Host "$stageLabel launcher-review SHA-256: $reviewHash"
+  Write-Host "$stageLabel candidate SHA-256: $candidateHash"
+  & $expectedLauncherPath
+  if ($LASTEXITCODE -ne 0) { throw "$stageLabel reviewed launcher failed" }
+}
+
+# Run immediately after Stage 0, in predecessor order. Each call refreshes and
+# then launches without a pause that spends the candidate's 300-second plan.
+Invoke-FreshReviewedStage1 -Stage "stage1_cancel_all"
+Invoke-FreshReviewedStage1 -Stage "stage1_dead_man"
+```
+
+Never append another capture to a prior refresh root, copy or rename an earlier
+candidate, or call a Stage 1 launcher without that stage's immediately
+preceding strict refresh and raw-hash recheck.
+If the two-hour economics gate has expired or any economics/token identity has
+changed, stop this attempt. A refreshed snapshot requires a new accepted
+snapshot, drift report, review-only candidate, exact acknowledgment, and three
+new manifests because the old manifest-bound hashes cannot be reused. The
+launcher passes only the reviewed manifest
 hash and fixed candidate path to the composer; no scope or ceiling is accepted at
 the live boundary. Before writing candidate/spec/composition/intent artifacts,
-the composer derives a candidate-bounded window of at most 120 seconds and
-rejects unless that window plus the full 20-second cleanup tail is contained in
-**[00:30, 09:00) America/Toronto**. It repeats the check at the execution
-boundary and requires at least 90 seconds still available immediately before
-launch, then writes an immutable ARMED intent and atomically claims the terminal
+the composer derives a candidate-bounded window of at most 120 seconds for
+`capture_colocated_v1` or 240 seconds for `portable_execution_v1` and
+rejects unless that window plus the full 20-second cleanup tail stays on the
+target date. The colocated profile additionally requires complete
+**[00:30, 09:00) America/Toronto** containment. It repeats the check at the execution
+boundary and requires at least 90 seconds for the colocated profile or 180
+seconds for the portable profile still available immediately before launch.
+The manifest builder and fixed-scope sealer repeat the bounded live
+remote proof at their validation and publication boundaries; the composer
+repeats it after all protected-file checks immediately before launching, and
+the sealed wrapper repeats it before credentials. A cached `origin/master`
+match alone is never launch authority. The composer then writes an immutable ARMED intent and atomically claims the terminal
 receipt and sidecar paths. The no-argument launcher and parent runner hold
 deny-write/delete handles for the reviewed runner, production sources, public
 credential inputs, candidate, complete predecessor lineage, external SDK
@@ -706,8 +1558,8 @@ overlay, interpreter, and status-attestation helper closure. They rehash after
 acquiring those handles and retain them through child exit. The parent sends
 cooperative cleanup at the sealed execution stop, allows only the same
 sealer-owned 20-second grace already reserved by every window check, and then
-uses kill-on-close containment if required. The reserved end may equal 09:00;
-it must never exceed it.
+uses kill-on-close containment if required. For the colocated profile the
+reserved end may equal 09:00; it must never exceed it.
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
 request, 100 pUSD wallet cap, execution cutoff, cleanup reserve, and contained
@@ -716,9 +1568,15 @@ Stage 0 display also states `order_submit_expected=false`, an authenticated
 heartbeat write is expected, and cancel-all cleanup is expected with
 `ACCOUNT_WIDE` scope so those writes cannot be mistaken for read-only
 activity. The
-prompt is bounded to preserve a 60-second pre-credential reserve. After
-confirmation it rechecks Git/source identity, host/capture/status/clock/reboot
-state, the full Toronto-supported window, and the candidate before credential
+prompt is bounded by the same absolute cutoff. The portable profile requires
+120 seconds remaining before entering credential context and 60 seconds
+immediately before an authenticated mutation boundary. The stage,
+physical-location/no-circumvention, and mutation-specific attended
+confirmations all consume the same candidate-derived cutoff; no prompt resets
+or extends it. The fresh-candidate helper must therefore flow directly into
+the reviewed launcher, and hesitation is a stop-and-refresh event. After
+confirmation it rechecks Git/source identity, profile-specific host status,
+clock/reboot state, the applicable time boundary, and the candidate before credential
 resolution. The window guard also runs inside every host attestation. Stage 1
 therefore repeats it submit-adjacent, checks the cutoff before the
 adapter call, and binds the deadline into its one-use capability; the adapter
@@ -746,31 +1604,44 @@ builder rereads and hashes both lifecycle journals rather than trusting copied
 booleans:
 
 ```powershell
+$ErrorActionPreference = "Stop"
+$pilotStage0ManifestPath = Join-Path $pilotAttemptRoot "inputs\stage0-session-manifest.json"
+$pilotStage0Manifest = Get-Content -LiteralPath $pilotStage0ManifestPath -Raw | ConvertFrom-Json
+$pilotReviewedProductionTip = [string]$pilotStage0Manifest.production.commit
+if ($pilotReviewedProductionTip -cnotmatch '^(?:[0-9a-f]{40}|[0-9a-f]{64})$') {
+  throw "reviewed production tip is not a Git object ID"
+}
+$pilotBundleRoot = Join-Path $pilotAttemptRoot "bundle"
+$pilotStage1Bundle = Join-Path $pilotBundleRoot "stage1-lifecycle-bundle.json"
+$pilotStage1BundleReceipt = Join-Path $pilotBundleRoot "stage1-lifecycle-bundle-receipt.json"
+
 .\venv\Scripts\python.exe -m weather.market.mm_live_pilot_cli bundle `
-  --bootstrap C:\pilot\stage0-bootstrap.json `
-  --expected-production-tip <reviewed-production-git-oid> `
+  --bootstrap (Join-Path $pilotAttemptRoot "stage0\bootstrap.json") `
+  --expected-production-tip $pilotReviewedProductionTip `
   --target-date $pilotTargetDate `
   --condition-id $pilotConditionId `
   --token-id $pilotTokenId `
   --budget 10 `
-  --cancel-all-result C:\pilot\cancel-all-result.json `
-  --cancel-all-seal-receipt C:\pilot\cancel-all-seal-receipt.json `
-  --cancel-all-command-receipt C:\pilot\cancel-all-command-receipt.json `
-  --cancel-all-execution-receipt C:\pilot\cancel-all-execution-receipt.json `
-  --cancel-all-run-receipt C:\pilot\cancel-all-run-receipt.json `
-  --dead-man-result C:\pilot\dead-man-result.json `
-  --dead-man-seal-receipt C:\pilot\dead-man-seal-receipt.json `
-  --dead-man-command-receipt C:\pilot\dead-man-command-receipt.json `
-  --dead-man-execution-receipt C:\pilot\dead-man-execution-receipt.json `
-  --dead-man-run-receipt C:\pilot\dead-man-run-receipt.json `
-  --bundle-out C:\pilot\stage1-bundle.json `
-  --receipt-out C:\pilot\stage1-bundle-receipt.json `
+  --cancel-all-result (Join-Path $pilotAttemptRoot "stage1-cancel-all\result.json") `
+  --cancel-all-seal-receipt (Join-Path $pilotAttemptRoot "seal\stage1-cancel-all-seal-receipt.json") `
+  --cancel-all-command-receipt (Join-Path $pilotAttemptRoot "stage1-cancel-all\command-receipt.json") `
+  --cancel-all-execution-receipt (Join-Path $pilotAttemptRoot "stage1-cancel-all\wrapper-execution-receipt.json") `
+  --cancel-all-run-receipt (Join-Path $pilotAttemptRoot "session\stage1_cancel_all-run-receipt.json") `
+  --dead-man-result (Join-Path $pilotAttemptRoot "stage1-dead-man\result.json") `
+  --dead-man-seal-receipt (Join-Path $pilotAttemptRoot "seal\stage1-dead-man-seal-receipt.json") `
+  --dead-man-command-receipt (Join-Path $pilotAttemptRoot "stage1-dead-man\command-receipt.json") `
+  --dead-man-execution-receipt (Join-Path $pilotAttemptRoot "stage1-dead-man\wrapper-execution-receipt.json") `
+  --dead-man-run-receipt (Join-Path $pilotAttemptRoot "session\stage1_dead_man-run-receipt.json") `
+  --bundle-out $pilotStage1Bundle `
+  --receipt-out $pilotStage1BundleReceipt `
   --confirmation INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE
+if ($LASTEXITCODE -ne 0) { throw "offline Stage 1 lifecycle bundle construction blocked" }
 ```
 
-All paths shown above are illustrative and must be replaced with a protected
-operator-owned directory. Every output and journal path must be new. A FAIL
-receipt is evidence to stop and investigate, never permission to retry a submit.
+These are the canonical attempt-local Stage 0/1 layouts emitted by the sealed
+launchers. The two bundle outputs are new under the same protected
+`$pilotAttemptRoot`; a FAIL receipt is evidence to stop and investigate, never
+permission to retry a submit.
 
 `weather.market.mm_live_bootstrap.collect_platform_bootstrap_payload` is the
 prepared Stage 0 evidence collector. It converts the CLOB's integer atomic
@@ -779,16 +1650,16 @@ balance above the isolated-wallet cap, validates a public Data API position
 query scoped to the exact proxy wallet and condition, content-binds that query
 and the full account snapshot, locally constructs and hashes a signed minimum
 BUY without posting it, discards the raw signature, requires a live user-stream
-PONG, exercises two bodyless five-second heartbeat acknowledgements, and sends
-cancel-all followed
-by a zero-order query. The WebSocket does not document an initial account
-snapshot, so the gate does not invent one: REST establishes the starting state,
-PONG establishes transport liveness, and the first Stage 1 order event proves
+PONG, obtains and binds the separate fresh pre-mutation geography receipt,
+exercises two bodyless five-second heartbeat acknowledgements, and sends
+cancel-all followed by a zero-order query. The WebSocket does not document an
+initial account snapshot, so the gate does not invent one: REST establishes the
+starting state, PONG establishes transport liveness, and the first Stage 1 order event proves
 the authenticated event path.
 
 ### Stage 2: one-band maker quote
 
-- Require a current passing `mm_platform_verification_v0.5`, including the
+- Require a current passing `mm_platform_verification_v0.6`, including the
   Stage 1 automatic heartbeat-lapse cancellation and cancel-all-to-zero proof.
   The full gate repeats the numeric balance, allowance, actual-wallet-cap,
   zero-open-order-count, and account-snapshot-hash checks; Stage 0 booleans are
@@ -967,8 +1838,12 @@ Cancel all and do not resume on any of the following:
   truth;
 - unknown order, unexpected partial fill, unbacked sell, or risk-cap breach;
 - cancel-all is not followed by zero open orders;
-- the execution cutoff plus its full cleanup reserve leaves **[00:30, 09:00)
-  America/Toronto**, host enters a protected window, or capture health degrades.
+- the execution cutoff plus its cleanup reserve leaves the target date;
+- under `capture_colocated_v1`, the contained interval leaves **[00:30, 09:00)
+  America/Toronto**, the host enters a protected window, or capture health
+  degrades;
+- under `portable_execution_v1`, the execution-only status, exact host binding,
+  clock, reboot, capture-host exclusion, or exclusive lease stops passing;
 - official geoblock state is unavailable or blocked, physical eligibility is
   unconfirmed, or endpoint and attended physical-location attestations disagree.
 

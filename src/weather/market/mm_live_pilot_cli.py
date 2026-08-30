@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 import tempfile
@@ -34,6 +35,10 @@ from weather.market.mm_credentials import (
     stage0_client_identity_gate,
 )
 from weather.market.mm_exchange import credential_diagnostics
+from weather.market.mm_geographic_eligibility import (
+    GeographicEligibilityError,
+    validate_geographic_eligibility_receipt,
+)
 from weather.market.mm_live_bootstrap import (
     collect_platform_bootstrap_payload,
     finalize_platform_bootstrap_payload,
@@ -43,6 +48,7 @@ from weather.market.mm_live_lifecycle_probe import (
     CONFIRMATION as STAGE1_CONFIRMATION,
     build_stage1_lifecycle_bundle,
     execute_stage1_lifecycle_probe,
+    verify_stage1_user_stream_journal,
 )
 from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
 from weather.market.mm_official_adapter import (
@@ -65,6 +71,7 @@ from weather.market.market_making_preflight import (
 )
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
+from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.schema_registry import schema_version
 
 
@@ -110,6 +117,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
     command = _read_json_object(command_path)
     execution = _read_json_object(execution_path)
     run = _read_json_object(run_path)
+    result_payload = _read_json_object(result)
     seal_scope = seal.get("scope") if isinstance(seal.get("scope"), dict) else {}
     attempt_root = Path(str(seal_scope.get("attempt_root") or "")).resolve()
     stage_folder = "stage1-cancel-all" if mode == "cancel_all" else "stage1-dead-man"
@@ -121,6 +129,12 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         "result": attempt_root / stage_folder / "result.json",
         "journal": attempt_root / stage_folder / "lifecycle.jsonl",
         "stream": attempt_root / stage_folder / "user-stream.jsonl",
+        "geography_precredential": (
+            attempt_root / stage_folder / "geography-precredential-receipt.json"
+        ),
+        "geography_presubmit": (
+            attempt_root / stage_folder / "geography-presubmit-receipt.json"
+        ),
         "manifest": attempt_root / "inputs" / f"{stage_name}-session-manifest.json",
         "composition": attempt_root / "session" / f"{stage_name}-composition-receipt.json",
         "intent": attempt_root / "session" / f"{stage_name}-run-intent.json",
@@ -134,13 +148,43 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
     command_artifact = artifacts.get("command_receipt_out") or {}
     journal_artifact = artifacts.get("lifecycle_journal_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    geography_precredential_artifact = (
+        artifacts.get("geography_precredential_receipt_out") or {}
+    )
+    geography_presubmit_artifact = (
+        artifacts.get("geography_presubmit_receipt_out") or {}
+    )
+    geography_artifacts_ok = True
+    for artifact, expected_path in (
+        (geography_precredential_artifact, expected_paths["geography_precredential"]),
+        (geography_presubmit_artifact, expected_paths["geography_presubmit"]),
+    ):
+        artifact_path = Path(str(artifact.get("path") or "")).resolve()
+        try:
+            geography_payload = _read_json_object(artifact_path)
+            validate_geographic_eligibility_receipt(
+                geography_payload,
+                require_fresh=False,
+            )
+        except (RuntimeError, GeographicEligibilityError):
+            geography_artifacts_ok = False
+        geography_artifacts_ok = geography_artifacts_ok and (
+            artifact_path == expected_path
+            and artifact_path.is_file()
+            and _sha256_file(artifact_path) == artifact.get("sha256")
+        )
     run_child = run.get("child_execution") or {}
     run_topology = run.get("credential_topology") or {}
     seal_production = seal.get("production") or {}
+    market = MARKET_REGISTRY.get(str(seal_scope.get("market_id") or ""))
     command_paths = command.get("paths") or {}
     credential_topology = command.get("credential_topology") or {}
     run_sidecar = run_path.with_suffix(run_path.suffix + ".sha256")
     expected_run_sidecar = f"{_sha256_file(run_path)}  {run_path.name}\n"
+    final_stream_evidence = verify_stage1_user_stream_journal(
+        expected_paths["stream"],
+        result_payload,
+    )
     run_lineage_ok = True
     expected_run_lineage = {
         "session_manifest": expected_paths["manifest"],
@@ -167,16 +211,27 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and _sha256_file(manifest_sidecar) == run_manifest.get("sidecar_sha256")
     )
     checks = {
-        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.3"
+        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.4"
         and seal.get("status") == "PASS"
         and seal.get("stage") == stage_name,
         "production": seal_production.get("commit") == args.expected_production_tip,
         "seal_scope": seal_scope.get("target_date") == args.target_date
+        and market is not None
+        and seal_scope.get("market_timezone") == market.timezone
         and str(seal_scope.get("condition_id") or "").lower()
         == str(args.condition_id).lower()
         and str(seal_scope.get("token_id") or "") == str(args.token_id)
         and float(seal_scope.get("requested_budget_pusd")) == float(args.budget)
         and seal_scope.get("cancellation_mode") == mode,
+        "execution_host": seal_scope.get("execution_host_profile")
+        in {"capture_colocated_v1", "portable_execution_v1"}
+        and len(str(seal_scope.get("execution_host_id") or "")) == 64
+        and execution.get("execution_host_profile")
+        == seal_scope.get("execution_host_profile")
+        and execution.get("execution_host_id") == seal_scope.get("execution_host_id")
+        and run.get("execution_host_profile")
+        == seal_scope.get("execution_host_profile")
+        and run.get("execution_host_id") == seal_scope.get("execution_host_id"),
         "canonical_paths": seal_path == expected_paths["seal"]
         and run_path == expected_paths["run"]
         and execution_path == expected_paths["execution"]
@@ -213,7 +268,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and command_paths.get("lifecycle_journal")
         == journal_artifact.get("path"),
         "execution": execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.4"
+        == "international_live_fixed_scope_execution_v0.6"
         and execution.get("status") == "PASS"
         and execution.get("stage") == stage_name
         and execution.get("target_date") == args.target_date
@@ -229,6 +284,17 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and execution.get("order_submit_attempted") is True
         and execution.get("authenticated_exchange_write_attempted") is True
         and execution.get("exception_type") is None,
+        "execution_artifacts": set(artifacts)
+        == {
+            "doctor_receipt_out",
+            "geography_precredential_receipt_out",
+            "geography_presubmit_receipt_out",
+            "result_out",
+            "command_receipt_out",
+            "user_stream_journal_out",
+            "lifecycle_journal_out",
+        }
+        and geography_artifacts_ok,
         "wrapper": seal_wrapper.get("path") == execution_wrapper.get("path")
         and seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
         "result": result_artifact.get("path") == str(result)
@@ -243,11 +309,44 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and len(str(stream_artifact.get("sha256") or "")) == 64
         and Path(str(stream_artifact.get("path"))).is_file()
         and _sha256_file(stream_artifact["path"]) == stream_artifact["sha256"],
+        "result_stream_journal": Path(
+            str(result_payload.get("user_stream_journal_path") or "")
+        ).resolve()
+        == Path(str(stream_artifact.get("path") or "")).resolve()
+        and result_payload.get("user_stream_journal_sha256")
+        == stream_artifact.get("sha256")
+        and result_payload.get("cleanup_final_user_stream_journal_sha256")
+        == stream_artifact.get("sha256")
+        and final_stream_evidence.get("sha256")
+        == result_payload.get("user_stream_journal_sha256")
+        and final_stream_evidence.get("terminal_stream_stopped_verified") is True
+        and type(result_payload.get("user_stream_scoped_order_event_count")) is int
+        and result_payload.get("user_stream_scoped_order_event_count") >= 2,
+        "result_terminal_no_fill": (
+            result_payload.get("schema_version")
+            == "mm_live_lifecycle_probe_v0.3"
+            and result_payload.get("submit_boundary_heartbeat_acknowledged") is True
+            and result_payload.get("submit_boundary_market_rules_verified") is True
+            and result_payload.get(
+                "submit_boundary_geography_before_heartbeat_verified"
+            )
+            is True
+            and result_payload.get(
+                "post_sign_order_placement_boundary_verified"
+            )
+            is True
+            and result_payload.get("terminal_rest_order_verified") is True
+            and result_payload.get("terminal_rest_zero_matched_verified") is True
+            and result_payload.get("account_trades_rest_verified") is True
+            and result_payload.get("scoped_account_trade_count") == 0
+            and result_payload.get("post_cancel_quiescence_seconds") == 2.0
+            and result_payload.get("terminal_user_event_observed") is True
+        ),
         "result_journal": Path(
-            str(_read_json_object(result).get("journal_path") or "")
+            str(result_payload.get("journal_path") or "")
         ).resolve()
         == Path(str(journal_artifact.get("path") or "")).resolve(),
-        "run": run.get("schema_version") == "international_live_session_run_v0.3"
+        "run": run.get("schema_version") == "international_live_session_run_v0.4"
         and run.get("status") == "PASS"
         and run.get("stage") == stage_name
         and run.get("live_mutation_attempted") is True
@@ -266,7 +365,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and run_child.get("path") == str(execution_path)
         and run_child.get("sha256") == _sha256_file(execution_path)
         and run.get("candidate_sha256")
-        == _read_json_object(result).get("candidate_plan_sha256")
+        == result_payload.get("candidate_plan_sha256")
         and (run.get("seal_receipt") or {}).get("path") == str(seal_path)
         and (run.get("seal_receipt") or {}).get("sha256")
         == _sha256_file(seal_path)
@@ -290,6 +389,8 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         "run_receipt_sha256": _sha256_file(run_path),
         "result_sha256": _sha256_file(result),
         "journal_sha256": journal_artifact["sha256"],
+        "market_id": market.id,
+        "market_timezone": market.timezone,
     }
 
 
@@ -459,9 +560,14 @@ def wait_for_user_stream(
     raise RuntimeError("authoritative user stream did not become ready before its deadline")
 
 
-def _cleanup_context(context: LivePilotContext | None) -> dict:
+def _cleanup_context(
+    context: LivePilotContext | None,
+    *,
+    cancel_all_required: bool = True,
+) -> dict:
     outcome = {
         "attempted": context is not None,
+        "cancel_all_required": bool(cancel_all_required),
         "cancel_all_sent": False,
         "zero_open_orders_verified": False,
         "zero_positions_verified": False,
@@ -474,8 +580,9 @@ def _cleanup_context(context: LivePilotContext | None) -> dict:
     if context is None:
         return outcome
     try:
-        context.adapter.cancel_all()
-        outcome["cancel_all_sent"] = True
+        if cancel_all_required:
+            context.adapter.cancel_all()
+            outcome["cancel_all_sent"] = True
         outcome["zero_open_orders_verified"] = not bool(context.adapter.open_orders())
         positions = context.adapter.positions()
         evidence = context.adapter.position_evidence(positions)
@@ -515,7 +622,7 @@ def _cleanup_context(context: LivePilotContext | None) -> dict:
             outcome["exception_type"] = outcome["exception_type"] or type(exc).__name__
     outcome["ok"] = all(
         (
-            outcome["cancel_all_sent"],
+            outcome["cancel_all_sent"] or not outcome["cancel_all_required"],
             outcome["zero_open_orders_verified"],
             outcome["zero_positions_verified"],
             outcome["user_stream_stopped"],
@@ -754,9 +861,23 @@ def run_stage0(
             "Stage 0 requires the exact heartbeat/account-wide-cancel-all/"
             "no-order confirmation token"
         )
+    pre_mutation_attestor = getattr(args, "pre_mutation_attestor", None)
+    if not callable(pre_mutation_attestor):
+        raise RuntimeError("Stage 0 requires the sealed pre-mutation attestor")
     stage0_budget = _validate_budget(args.budget)
     if stage0_budget != 10.0:
         raise RuntimeError("first Stage 0 requires exactly 10 pUSD")
+    try:
+        candidate_fee_rate = float(args.expected_candidate_fee_rate)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise RuntimeError("Stage 0 requires the sealed candidate fee rate") from exc
+    candidate_neg_risk = getattr(args, "expected_candidate_neg_risk", None)
+    if (
+        not math.isfinite(candidate_fee_rate)
+        or candidate_fee_rate <= 0
+        or not isinstance(candidate_neg_risk, bool)
+    ):
+        raise RuntimeError("Stage 0 requires exact eligible candidate market rules")
     credential_deadline = _require_current_deadline(
         getattr(args, "credential_resolution_deadline_utc", None),
         label="Stage 0 credential resolution",
@@ -766,6 +887,9 @@ def run_stage0(
             "bootstrap": args.bootstrap_out,
             "receipt": args.receipt_out,
             "user_stream_journal": args.user_stream_journal,
+            "geography_premutation_receipt": (
+                args.geography_premutation_receipt
+            ),
         }
     )
     receipt = _receipt("stage0", args, paths)
@@ -774,6 +898,10 @@ def run_stage0(
     receipt["exchange_mutation_attempted"] = False
     receipt["order_submit_attempted"] = False
     receipt["authenticated_exchange_write_attempted"] = False
+    receipt["candidate_market_rules"] = {
+        "fee_rate": candidate_fee_rate,
+        "neg_risk": candidate_neg_risk,
+    }
     context = None
     operation_error = None
     payload = None
@@ -807,15 +935,30 @@ def run_stage0(
             target_date=args.target_date,
             requested_budget_usdc=args.budget,
             secret_hygiene=credential_secret_hygiene(),
+            expected_candidate_fee_rate=candidate_fee_rate,
+            expected_candidate_neg_risk=candidate_neg_risk,
+            pre_mutation_attestor=pre_mutation_attestor,
         )
     except BaseException as exc:
         operation_error = exc
 
-    cleanup = _cleanup_context(context)
+    cleanup = _cleanup_context(
+        context,
+        # Stage 0 never places an order.  The bootstrap collector owns its one
+        # geography-gated cancel-all write; an outer cleanup cancel would be a
+        # redundant authenticated mutation with no current geography receipt.
+        cancel_all_required=False,
+    )
     if context is not None:
         receipt["authenticated_exchange_write_attempted"] = True
         receipt["exchange_mutation_attempted"] = True
     receipt["cleanup"] = cleanup
+    geography_path = paths["geography_premutation_receipt"]
+    if geography_path.is_file():
+        receipt["mutation_geographic_eligibility"] = {
+            "path": str(geography_path),
+            "sha256": _sha256_file(geography_path),
+        }
     if operation_error is None and not cleanup["ok"]:
         operation_error = RuntimeError("final Stage 0 cleanup did not prove zero account state")
     if operation_error is None:
@@ -851,6 +994,9 @@ def run_stage1(
 ) -> dict:
     if args.confirmation != STAGE1_CONFIRMATION:
         raise RuntimeError("Stage 1 requires the exact lifecycle confirmation token")
+    pre_submit_attestor = getattr(args, "pre_submit_attestor", None)
+    if not callable(pre_submit_attestor):
+        raise RuntimeError("Stage 1 requires the sealed pre-submit attestor")
     stage1_budget = _validate_budget(args.budget)
     if stage1_budget != 10.0:
         raise RuntimeError("first Stage 1 probe requires exactly 10 pUSD")
@@ -926,10 +1072,12 @@ def run_stage1(
             cancellation_mode=args.cancellation_mode,
             journal_path=paths["lifecycle_journal"],
             submit_deadline_utc=submit_deadline_utc,
-            pre_submit_attestor=getattr(args, "pre_submit_attestor", None),
+            pre_submit_attestor=pre_submit_attestor,
             expected_candidate_intent=candidate_gate["stage1_intent"],
             expected_candidate_tick_size=candidate_gate["tick_size"],
             expected_candidate_order_min_size=candidate_gate["order_min_size"],
+            expected_candidate_fee_rate=candidate_gate["fee_rate"],
+            expected_candidate_neg_risk=candidate_gate["neg_risk"],
         )
         receipt["exchange_mutation_attempted"] = True
         receipt["order_submit_attempted"] = True
@@ -950,7 +1098,10 @@ def run_stage1(
     except BaseException as exc:
         operation_error = exc
 
-    cleanup = _cleanup_context(context)
+    cleanup = _cleanup_context(
+        context,
+        cancel_all_required=operation_error is not None,
+    )
     if context is not None:
         receipt["authenticated_exchange_write_attempted"] = True
         receipt["exchange_mutation_attempted"] = True
@@ -967,6 +1118,32 @@ def run_stage1(
     receipt["cleanup"] = cleanup
     if operation_error is None and not cleanup["ok"]:
         operation_error = RuntimeError("final Stage 1 cleanup did not prove zero account state")
+    if operation_error is None:
+        try:
+            cleanup_stream_sha256 = str(
+                cleanup.get("user_stream_journal_sha256") or ""
+            )
+            if len(cleanup_stream_sha256) != 64:
+                raise RuntimeError(
+                    "Stage 1 cleanup omitted the final user-stream journal hash"
+                )
+            result["user_stream_journal_path"] = str(
+                paths["user_stream_journal"].resolve()
+            )
+            result["user_stream_journal_sha256"] = cleanup_stream_sha256
+            result[
+                "cleanup_final_user_stream_journal_sha256"
+            ] = cleanup_stream_sha256
+            stream_evidence = verify_stage1_user_stream_journal(
+                paths["user_stream_journal"],
+                result,
+            )
+            result["user_stream_journal_row_count"] = stream_evidence["row_count"]
+            result["user_stream_scoped_order_event_count"] = stream_evidence[
+                "scoped_order_event_count"
+            ]
+        except BaseException as exc:
+            operation_error = exc
     if operation_error is None:
         try:
             write_json_atomic(paths["result"], result, trailing_newline=True)
@@ -1034,6 +1211,13 @@ def run_bundle(
                 args, "dead_man", args.dead_man_result
             ),
         }
+        if (
+            lineages["cancel_all"]["market_id"]
+            != lineages["dead_man"]["market_id"]
+            or lineages["cancel_all"]["market_timezone"]
+            != lineages["dead_man"]["market_timezone"]
+        ):
+            raise RuntimeError("Stage 1 bundle market lineage does not match")
         bundle = bundle_builder(gate, cancel_all_result, dead_man_result)
     except Exception as exc:
         operation_error = exc

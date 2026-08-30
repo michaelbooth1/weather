@@ -12,10 +12,13 @@
 # land in FLAGS. Pure host tooling, imports nothing from a capture loop -> roll-free.
 # See docs/ops/streak-soak.md.
 [CmdletBinding()]
-param([switch]$Json)
+param(
+    [switch]$Json,
+    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+)
 
 $ErrorActionPreference = "SilentlyContinue"
-$repo = "C:\Users\micha\Desktop\github\weather"
+$repo = [IO.Path]::GetFullPath($RepoRoot)
 $py = Join-Path $repo "venv\Scripts\python.exe"
 if (-not (Test-Path $py)) { $py = "python" }
 
@@ -2704,7 +2707,7 @@ $mirrorPaused = $false
 try { $mirrorPaused = ([string](Get-ScheduledTask -TaskName "WeatherDataMirror" -EA Stop).State -eq "Disabled") } catch {}
 $mirror = $null
 $mirrorAgeH = $null
-$mf = "C:\Users\micha\ops\mirror_status.json"
+$mf = Join-Path $env:USERPROFILE "ops\mirror_status.json"
 if (Test-Path $mf) {
     try {
         $mirror = Get-Content $mf -Raw | ConvertFrom-Json

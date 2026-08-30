@@ -630,6 +630,9 @@ COMPATIBILITY_FALLBACK_MARKERS = (
 )
 ALLOWED_OPTIONAL_IMPORT_ERROR_MODULES = {
     Path("src/weather/market/market_microstructure_capture.py"),
+    # eth_account exists only in the validated process-local SDK overlay.
+    # Import failure must remain a dependency error, never a bad-key result.
+    Path("src/weather/market/mm_credential_import_cli.py"),
     Path("src/weather/sources/historical_coverage.py"),
 }
 

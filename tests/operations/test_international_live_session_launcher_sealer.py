@@ -14,6 +14,10 @@ from weather.market.mm_credentials import (
     STAGE0_AUTHORIZATION,
     STAGE0_IDENTITY_SCHEMA_VERSION,
 )
+from weather.market.exchange_economics import (
+    accept_snapshot_baseline,
+    build_snapshot_payload,
+)
 from weather.market import mm_live_candidate_cli as candidate_cli
 from weather.operations import international_live_session_launcher_sealer as launcher_sealer
 from weather.operations import international_live_session_runner as runner
@@ -24,10 +28,22 @@ from weather.operations.live_path_security import canonical_windows_powershell
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
 CONDITION = "0x" + "1" * 64
 TOKEN = "101"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 
 
 def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_fixed_session_launcher_locks_the_reviewed_real_git_payload() -> None:
+    text = launcher_sealer.TEMPLATE_PATH.read_text(encoding="utf-8-sig")
+
+    assert "manifestPayload.production.git_executable" in text
+    assert "manifestPayload.production.git_executable_sha256" in text
+    assert "Add-LockedExactFile" in text
 
 
 def fixture(tmp_path: Path):
@@ -52,6 +68,9 @@ def prepare(repo, template, manifest, build_receipt):
         template_path=template,
         powershell_parser=lambda _source: None,
         attempt_root_validator=lambda path: {"status": "PASS", "path": str(path)},
+        capture_assignment_validator=lambda *_args, **_kwargs: {},
+        portable_assignment_validator=lambda *_args, **_kwargs: {},
+        now=NOW,
     )
 
 
@@ -73,7 +92,7 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     assert "[IO.FileShare]::Read" in text
     assert "source_sha256.psobject.Properties" in text
     assert "Get-ChildItem -LiteralPath $attemptRoot -File -Recurse" in text
-    assert "& $python -I -c" in text
+    assert "& $python -I -S -B -c" in text
     assert "PYTHONPATH" not in text
     assert receipt["production_python"]["sha256"] == sha(
         repo / "venv/Scripts/python.exe"
@@ -97,6 +116,7 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     )["manifest_sha256"]
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_no_argument_launcher_rejects_manifest_and_sidecar_rewrite(tmp_path):
     repo, template, attempt, manifest, build_receipt = fixture(tmp_path)
     receipt = prepare(repo, template, manifest, build_receipt)
@@ -155,6 +175,37 @@ def discovery_payload(*, constrained: bool = False) -> dict:
         "exchange_economics_sha256": "e" * 32,
         "economics_gate_ok": True,
         "economics_gate_missing": [],
+        "substrate_preflight": {
+            "schema_version": candidate_cli.SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
+            "receipt_sha256": "0" * 64,
+            "checked_at_utc": created.isoformat(),
+            "expires_at_utc": (
+                created
+                + timedelta(
+                    seconds=candidate_cli.MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS
+                )
+            ).isoformat(),
+            "market_id": "toronto",
+            "target_date": NOW.date().isoformat(),
+            "event_slug": "toronto-high-temperature-test",
+            "validation_hash": "1" * 64,
+            "event_metadata_file_sha256": "2" * 64,
+            "event_metadata_validation_file_sha256": "3" * 64,
+            "observation_status_file_sha256": "4" * 64,
+            "economics_snapshot_file_sha256": "5" * 64,
+            "accepted_snapshot_file_sha256": "6" * 64,
+            "economics_drift_report_file_sha256": "7" * 64,
+            "paper_run_config_file_sha256": "a" * 64,
+            "paper_preflight_file_sha256": "8" * 64,
+            "paper_quote_intents_file_sha256": "b" * 64,
+            "clob_tokens_file_sha256": "9" * 64,
+            "order_books_summary_file_sha256": "c" * 64,
+            "source_status_long_file_sha256": "d" * 64,
+            "network_access": False,
+            "credential_access": False,
+            "exchange_contact": False,
+            "exchange_mutation": False,
+        },
         "selection_is_trading_authorization": False,
         "secret_values_retained": False,
         "selection_policy": {
@@ -295,13 +346,21 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
     credential_receipt = write_json(
         sources / "credential-import-receipt.json",
         {
-            "schema_version": "mm_live_credential_import_receipt_v0.1",
+            "schema_version": "mm_live_credential_import_receipt_v0.4",
             "status": "PASS",
             "platform": "polymarket_global",
+            "prepared_at_utc": NOW.astimezone(timezone.utc).isoformat(),
+            "execution_host_id": launcher_sealer.current_execution_host_id(),
+            "execution_principal_id": (
+                launcher_sealer.current_execution_principal_id()
+            ),
             "source_outside_repository_verified": True,
             "source_acl_private_confirmed": True,
             "credential_value_count_expected": 4,
-            "credential_value_count_written": 4,
+            "credential_value_count_written": 0,
+            "credential_mode": "verify_existing_exact",
+            "credential_value_count_existing_exact_verified": 4,
+            "credential_store_mutation_attempted": False,
             "credential_values_retained": False,
             "ignored_source_key_count": 0,
             "checks": {
@@ -334,16 +393,88 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
             "ignored_relayers_rpc_and_self_assertions": True,
         },
     )
-    discovery = write_json(
-        sources / "discovery.json",
-        discovery_payload(constrained=constrained),
+    current_economics = write_json(
+        sources / "current-economics.json",
+        build_snapshot_payload(
+            target_date=NOW.date().isoformat(),
+            verified_at_utc=(
+                NOW.astimezone(timezone.utc) - timedelta(seconds=30)
+            ).isoformat(),
+            platform="polymarket_global",
+            condition_id=CONDITION,
+            token_ids=[TOKEN, "102"],
+            reward_daily_rate_usdc=1,
+            rewards_min_size=20,
+            rewards_max_spread_cents=4.5,
+        ),
     )
+    accepted_economics = sources / "accepted-economics.json"
+    economics_drift = sources / "economics-drift.json"
+    accept_snapshot_baseline(
+        snapshot_path=current_economics,
+        accepted_snapshot_path=accepted_economics,
+        drift_report_path=economics_drift,
+        target_date=NOW.date().isoformat(),
+        now=NOW - timedelta(seconds=20),
+        max_age_hours=2,
+        acknowledge_payout_asset_conflict=True,
+    )
+    accepted_payload = json.loads(accepted_economics.read_text(encoding="utf-8"))
+    drift_payload = json.loads(economics_drift.read_text(encoding="utf-8"))
+    discovery_data = discovery_payload(constrained=constrained)
+    discovery_data["exchange_economics_snapshot_id"] = accepted_payload[
+        "snapshot_id"
+    ]
+    discovery_data["exchange_economics_sha256"] = accepted_payload[
+        "exchange_economics_hash"
+    ]
+    discovery_data["selected"]["paper_quote_proof"].update(
+        {
+            "exchange_economics_snapshot_id": accepted_payload["snapshot_id"],
+            "exchange_economics_hash": accepted_payload[
+                "exchange_economics_hash"
+            ],
+        }
+    )
+    acknowledgment = candidate_cli.economics_acceptance_acknowledgment(
+        NOW.date().isoformat(),
+        CONDITION,
+        TOKEN,
+        accepted_snapshot_file_sha256=sha(accepted_economics),
+        drift_report_file_sha256=sha(economics_drift),
+    )
+    discovery_data["economics_acceptance"] = {
+        "accepted_at_utc": accepted_payload["accepted_at_utc"],
+        "accepted_snapshot_file_sha256": sha(accepted_economics),
+        "accepted_snapshot_id": accepted_payload["snapshot_id"],
+        "accepted_snapshot_sha256": accepted_payload[
+            "exchange_economics_hash"
+        ],
+        "drift_generated_at_utc": drift_payload["generated_at_utc"],
+        "drift_report_file_sha256": sha(economics_drift),
+        "drift_status": "PASS",
+        "operator_acknowledgment": acknowledgment,
+        "operator_acknowledgment_matches_candidate": True,
+        "required_operator_acknowledgment": acknowledgment,
+        "rescore_required": False,
+    }
+    discovery_data["substrate_preflight"][
+        "accepted_snapshot_file_sha256"
+    ] = sha(accepted_economics)
+    discovery_data["substrate_preflight"][
+        "economics_drift_report_file_sha256"
+    ] = sha(economics_drift)
+    discovery_data["plan_sha256"] = candidate_cli.candidate_plan_sha256(
+        discovery_data
+    )
+    discovery = write_json(sources / "discovery.json", discovery_data)
     attempt = tmp_path / "attempt"
     for name in launcher_sealer.ATTEMPT_DIRECTORIES:
         (attempt / name).mkdir(parents=True, exist_ok=True)
 
     def inventory(stage, root):
         root = Path(root)
+        git_executable = fixed_sealer.canonical_git_executable()
         source_paths = set(fixed_sealer.LIVE_SOURCE_PATHS[stage]) | {
             fixed_sealer.WORKLOAD_ADMISSION_PATH
         }
@@ -355,10 +486,18 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
                 "root": str(root.resolve()),
                 "branch": "master",
                 "commit": "a" * 40,
+                "local_master": "a" * 40,
+                "cached_origin_master": "a" * 40,
+                "remote_master": "a" * 40,
+                "remote_master_ref": fixed_sealer.REMOTE_MASTER_REF,
+                "live_remote_master_equal": True,
                 "tree": "b" * 40,
                 "object_format": "sha1",
                 "python": str((root / "venv/Scripts/python.exe").resolve()),
                 "python_sha256": sha(root / "venv/Scripts/python.exe"),
+                "git_executable": str(git_executable),
+                "git_executable_sha256": sha(git_executable),
+                "canonical_origin_url": fixed_sealer.CANONICAL_ORIGIN_URL,
                 "interrupt_cleanup_ancestor_integrated": True,
             },
             "template_sha256": {
@@ -383,6 +522,8 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
         "identity": identity,
         "credential_receipt": credential_receipt,
         "credential_manifest": credential_manifest,
+        "accepted_economics": accepted_economics,
+        "economics_drift": economics_drift,
         "discovery": discovery,
         "inventory": inventory,
         "outer_template": outer_template,
@@ -403,8 +544,13 @@ def build_manifest(prepared, **overrides):
         "credential_reference_manifest_source_path": prepared[
             "credential_manifest"
         ],
+        "accepted_economics_snapshot_source_path": prepared[
+            "accepted_economics"
+        ],
+        "economics_drift_report_source_path": prepared["economics_drift"],
         "attempt_root": prepared["attempt"],
         "lease_workload": workload,
+        "execution_host_profile": "capture_colocated_v1",
         "production_root": prepared["production"],
         "now": NOW,
         "inventory_builder": prepared["inventory"],
@@ -413,6 +559,8 @@ def build_manifest(prepared, **overrides):
             "status": "PASS",
             "path": str(path),
         },
+        "capture_assignment_validator": lambda *_args, **_kwargs: {},
+        "portable_assignment_validator": lambda *_args, **_kwargs: {},
     }
     arguments.update(overrides)
     return launcher_sealer.prepare_fixed_session_manifest(**arguments)
@@ -448,17 +596,25 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
         "requested_budget_pusd": 10,
         "attempt_root": str(prepared["attempt"].resolve()),
         "lease_workload": expected_workload,
+        "execution_host_profile": "capture_colocated_v1",
+        "execution_host_id": launcher_sealer.current_execution_host_id(),
+        "market_id": "toronto",
+        "market_timezone": "America/Toronto",
         "max_session_seconds": 120,
     }
     assert set(manifest["inputs"]) == {
         "identity",
         "credential_import_receipt",
         "credential_reference_manifest",
+        "accepted_economics_snapshot",
+        "economics_drift_report",
     }
     for role, source_key in {
         "identity": "identity",
         "credential_import_receipt": "credential_receipt",
         "credential_reference_manifest": "credential_manifest",
+        "accepted_economics_snapshot": "accepted_economics",
+        "economics_drift_report": "economics_drift",
     }.items():
         copied = Path(manifest["inputs"][role]["path"])
         assert copied.is_relative_to(prepared["attempt"])
@@ -467,6 +623,9 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     assert Path(receipt["staged_public_inputs"]["discovery_plan"]["path"]).read_bytes() == prepared[
         "discovery"
     ].read_bytes()
+    assert manifest["economics_acceptance"] == json.loads(
+        prepared["discovery"].read_text(encoding="utf-8")
+    )["economics_acceptance"]
     assert Path(receipt["build_receipt_path"]).is_file()
     launcher_receipt = launcher_sealer.prepare_fixed_session_launcher(
         manifest_path,
@@ -479,9 +638,132 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
             "status": "PASS",
             "path": str(path),
         },
+        capture_assignment_validator=lambda *_args, **_kwargs: {},
+        portable_assignment_validator=lambda *_args, **_kwargs: {},
+        now=NOW,
     )
     assert launcher_receipt["status"] == "PASS"
     assert launcher_receipt["session_manifest"]["sha256"] == sha(manifest_path)
+
+
+def test_manifest_builder_rejects_create_new_credential_evidence(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    receipt_path = prepared["credential_receipt"]
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["credential_mode"] = "create_new"
+    payload["credential_value_count_written"] = 4
+    payload["credential_value_count_existing_exact_verified"] = 0
+    payload["credential_store_mutation_attempted"] = True
+    write_json(receipt_path, payload)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="requires compare-only credential evidence",
+    ):
+        build_manifest(prepared)
+
+    assert list((prepared["attempt"] / "inputs").iterdir()) == []
+
+
+def test_manifest_builder_rejects_drift_report_not_bound_by_discovery(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    drift = prepared["economics_drift"]
+    payload = json.loads(drift.read_text(encoding="utf-8"))
+    payload["generated_at_utc"] = (
+        datetime.fromisoformat(payload["generated_at_utc"])
+        + timedelta(seconds=1)
+    ).isoformat()
+    write_json(drift, payload)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="economics acceptance does not match its source evidence",
+    ):
+        build_manifest(prepared)
+
+    assert list((prepared["attempt"] / "inputs").iterdir()) == []
+
+
+def test_manifest_builder_rejects_legacy_create_credential_evidence(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    receipt_path = prepared["credential_receipt"]
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["schema_version"] = "mm_live_credential_import_receipt_v0.1"
+    payload["credential_value_count_written"] = 4
+    del payload["credential_mode"]
+    del payload["credential_value_count_existing_exact_verified"]
+    del payload["credential_store_mutation_attempted"]
+    del payload["prepared_at_utc"]
+    del payload["execution_host_id"]
+    del payload["execution_principal_id"]
+    write_json(receipt_path, payload)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="requires compare-only credential evidence",
+    ):
+        build_manifest(prepared)
+
+    assert list((prepared["attempt"] / "inputs").iterdir()) == []
+
+
+def test_launcher_revalidates_staged_compare_only_credential_evidence(tmp_path):
+    prepared = manifest_builder_fixture(tmp_path)
+    build_receipt = build_manifest(prepared)
+    manifest_path = Path(build_receipt["session_manifest"]["path"])
+    build_receipt_path = Path(build_receipt["build_receipt_path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    staged_receipt_path = Path(
+        manifest["inputs"]["credential_import_receipt"]["path"]
+    )
+    credential_payload = json.loads(
+        staged_receipt_path.read_text(encoding="utf-8")
+    )
+    credential_payload["credential_mode"] = "create_new"
+    credential_payload["credential_value_count_written"] = 4
+    credential_payload["credential_value_count_existing_exact_verified"] = 0
+    credential_payload["credential_store_mutation_attempted"] = True
+    write_json(staged_receipt_path, credential_payload)
+    staged_receipt_sha256 = sha(staged_receipt_path)
+
+    manifest["inputs"]["credential_import_receipt"]["sha256"] = (
+        staged_receipt_sha256
+    )
+    manifest["manifest_sha256"] = runner._canonical_payload_sha256(manifest)
+    manifest_path.write_bytes(launcher_sealer._canonical_json(manifest))
+    sidecar_path = manifest_path.with_suffix(manifest_path.suffix + ".sha256")
+    sidecar_path.write_text(
+        f"{sha(manifest_path)}  {manifest_path.name}\n",
+        encoding="ascii",
+    )
+
+    receipt_payload = json.loads(build_receipt_path.read_text(encoding="utf-8"))
+    staged_record = receipt_payload["staged_public_inputs"][
+        "credential_import_receipt"
+    ]
+    staged_record["sha256"] = staged_receipt_sha256
+    staged_record["bytes"] = staged_receipt_path.stat().st_size
+    receipt_payload["session_manifest"]["sha256"] = sha(manifest_path)
+    receipt_payload["session_manifest"]["semantic_sha256"] = manifest[
+        "manifest_sha256"
+    ]
+    receipt_payload["session_manifest_sidecar"]["sha256"] = sha(sidecar_path)
+    build_receipt_path.write_bytes(
+        launcher_sealer._canonical_json(receipt_payload)
+    )
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="staged first-session credential evidence is not compare-only",
+    ):
+        prepare(
+            prepared["production"],
+            prepared["outer_template"],
+            manifest_path,
+            build_receipt_path,
+        )
+
+    assert list((prepared["attempt"] / "session").glob("*")) == []
 
 
 def test_launcher_rejects_rehashed_manifest_not_bound_by_builder_receipt(tmp_path):
@@ -538,6 +820,9 @@ def test_launcher_rejects_missing_canonical_builder_receipt(tmp_path):
                 "status": "PASS",
                 "path": str(path),
             },
+            capture_assignment_validator=lambda *_args, **_kwargs: {},
+            portable_assignment_validator=lambda *_args, **_kwargs: {},
+            now=NOW,
         )
 
     assert list((prepared["attempt"] / "session").glob("*")) == []
@@ -695,6 +980,72 @@ def test_manifest_builder_stages_optional_reviewed_status_flags_contract(tmp_pat
     assert Path(staged["path"]).read_bytes() == reviews.read_bytes()
 
 
+def test_manifest_builder_binds_portable_execution_host_without_capture_flags(
+    tmp_path,
+):
+    prepared = manifest_builder_fixture(tmp_path)
+
+    receipt = build_manifest(
+        prepared,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    manifest = json.loads(
+        Path(receipt["session_manifest"]["path"]).read_text(encoding="utf-8")
+    )
+    assert manifest["scope"]["execution_host_profile"] == "portable_execution_v1"
+    assert manifest["scope"]["execution_host_id"] == (
+        launcher_sealer.current_execution_host_id()
+    )
+    assert manifest["scope"]["max_session_seconds"] == 240
+    assert receipt["fixed_max_session_seconds"] == 240
+    assert manifest["reviewed_status_flags"] == []
+
+
+def test_manifest_builder_refuses_capture_status_exceptions_for_portable_host(
+    tmp_path,
+):
+    prepared = manifest_builder_fixture(tmp_path)
+    reviews = write_json(
+        tmp_path / "public-sources/reviewed-flags.json",
+        [
+            {
+                "sha256": "c" * 64,
+                "review": "This capture-host exception cannot move to PC2.",
+            }
+        ],
+    )
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="do not consume capture-host status exceptions",
+    ):
+        build_manifest(
+            prepared,
+            execution_host_profile="portable_execution_v1",
+            reviewed_status_flags_path=reviews,
+        )
+
+    assert list(prepared["attempt"].rglob("*.*")) == []
+
+
+def test_manifest_builder_refuses_invalid_execution_host_identity_before_writes(
+    tmp_path,
+):
+    prepared = manifest_builder_fixture(tmp_path)
+
+    with pytest.raises(
+        launcher_sealer.SessionLauncherSealError,
+        match="execution host identity is invalid",
+    ):
+        build_manifest(
+            prepared,
+            execution_host_id_provider=lambda: "not-a-sha256",
+        )
+
+    assert list(prepared["attempt"].rglob("*.*")) == []
+
+
 def test_attempt_initializer_creates_only_private_canonical_directories(tmp_path):
     production = tmp_path / "production"
     production.mkdir()
@@ -762,10 +1113,16 @@ def test_manifest_cli_has_no_typed_scope_or_ceiling_override_surface():
             "import.json",
             "--credential-reference-manifest-source",
             "references.json",
+            "--accepted-economics-snapshot-source",
+            "accepted-economics.json",
+            "--economics-drift-report-source",
+            "economics-drift.json",
             "--attempt-root",
             r"C:\attempt",
             "--lease-workload",
             "InternationalLive-stage0-unique",
+            "--execution-host-profile",
+            "capture_colocated_v1",
         ]
     )
 

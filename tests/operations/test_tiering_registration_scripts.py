@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import subprocess
 
@@ -6,6 +7,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 
 
 def _text(name: str) -> str:
@@ -67,6 +72,7 @@ def _assert_exact_readback(text: str, *, at: str, status_name: str) -> None:
     "name",
     ("register_clob_tiering.ps1", "register_clob_raw_tape_tiering.ps1"),
 )
+@WINDOWS_POWERSHELL_REQUIRED
 def test_tiering_registrar_powershell_syntax(name: str) -> None:
     path = OPS / name
     command = (

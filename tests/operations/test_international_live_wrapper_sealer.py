@@ -10,8 +10,14 @@ from pathlib import Path
 
 import pytest
 
+from weather.market import mm_geographic_eligibility as geography
+from weather.market.exchange_economics import (
+    accept_snapshot_baseline,
+    build_snapshot_payload,
+)
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_wrapper_sealer as sealer
+from tests.live_candidate_fixture import build_live_candidate_payload
 
 
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
@@ -31,53 +37,60 @@ def write_json(path: Path, payload: dict) -> Path:
     return path
 
 
-def candidate_payload(now: datetime = NOW) -> dict:
-    current = now.astimezone(timezone.utc)
-    created = current - timedelta(seconds=5)
-    paper_generated = current - timedelta(seconds=10)
-    paper_expires = paper_generated + timedelta(seconds=120)
-    payload = {
-        "schema_version": "mm_live_market_candidate_plan_v0.2",
-        "status": "PASS",
-        "created_at_utc": created.isoformat(),
-        "expires_at_utc": paper_expires.isoformat(),
-        "target_date": now.date().isoformat(),
-        "platform": "polymarket_global",
-        "settlement_unit": "pUSD",
-        "selection_is_trading_authorization": False,
-        "selection_policy": {
-            "expected_bootstrap_scope": {
-                "condition_id": CONDITION,
-                "token_id": TOKEN,
-            }
-        },
-        "selected": {
-            "condition_id": CONDITION,
-            "token_id": TOKEN,
-            "tick_size": 0.01,
-            "order_min_size": 5,
-            "stage1_intent": {
-                "side": "BUY",
-                "price": 0.01,
-                "size": 5,
-                "notional_pusd": 0.05,
-                "post_only": True,
-            },
-            "paper_quote_proof": {
-                "condition_id": CONDITION,
-                "token_id": TOKEN,
-                "generated_at_utc": paper_generated.isoformat(),
-                "expires_at_utc": paper_expires.isoformat(),
-                "quote_ttl_seconds": 120,
-                "quote_permission": True,
-                "live_trade_permission": False,
-            },
-        },
+def write_geography_receipt(path: Path, *, checked: datetime = NOW) -> Path:
+    current = checked.astimezone(timezone.utc)
+    decision = {"blocked": False, "country": "GB", "region": "ENG"}
+    official = {
+        **decision,
+        "decision_sha256": geography._canonical_digest(decision),
     }
-    payload["plan_sha256"] = sealer._canonical_payload_sha256(
-        payload, omit="plan_sha256"
+    payload = {
+        "agreement": True,
+        "blocker_code": None,
+        "checked_at_utc": geography._iso_utc(current),
+        "eligible": True,
+        "endpoint": geography.GEOBLOCK_ENDPOINT,
+        "fresh_until_utc": geography._iso_utc(
+            current + timedelta(seconds=geography.MAX_RECEIPT_AGE_SECONDS)
+        ),
+        "freshness_max_age_seconds": geography.MAX_RECEIPT_AGE_SECONDS,
+        "official": official,
+        "operator_attestation": {
+            "confirmation": geography.PHYSICAL_LOCATION_CONFIRMATION,
+            "no_circumvention": True,
+            "physical_location_eligible": True,
+        },
+        "privacy": {
+            "source_address_retained": False,
+            "secret_values_retained": False,
+        },
+        "receipt_payload_sha256": None,
+        "response_binding": {
+            "body_bytes": 80,
+            "redacted_body_sha256": geography._canonical_digest(decision),
+            "content_type": "application/json",
+            "final_url": geography.GEOBLOCK_ENDPOINT,
+            "http_status": 200,
+        },
+        "schema_version": geography.RECEIPT_SCHEMA_VERSION,
+        "status": "PASS",
+    }
+    payload["receipt_payload_sha256"] = geography._payload_digest(payload)
+    return write_json(path, payload)
+
+
+def candidate_payload(
+    now: datetime = NOW,
+    *,
+    remaining_seconds: int = 120,
+) -> dict:
+    return build_live_candidate_payload(
+        now=now,
+        target_date=now.date().isoformat(),
+        condition_id=CONDITION,
+        token_id=TOKEN,
+        remaining_seconds=remaining_seconds,
     )
-    return payload
 
 
 class GitStub:
@@ -88,11 +101,17 @@ class GitStub:
         dirty: str = "",
         commit: str = COMMIT,
         tree: str = TREE,
+        origin_commit: str | None = None,
+        remote_commit: str | None = None,
+        remote_failure: bool = False,
     ):
         self.ancestry = ancestry
         self.dirty = dirty
         self.commit = commit
         self.tree = tree
+        self.origin_commit = origin_commit or commit
+        self.remote_commit = remote_commit or commit
+        self.remote_failure = remote_failure
         self.calls: list[tuple[str, ...]] = []
 
     def __call__(self, _root: Path, args):
@@ -100,14 +119,32 @@ class GitStub:
         self.calls.append(command)
         returncode = 0
         stdout = ""
-        if command == ("rev-parse", "HEAD"):
+        if command == ("config", "--local", "--get", "remote.origin.url"):
+            stdout = sealer.CANONICAL_ORIGIN_URL + "\n"
+        elif command == (
+            "config", "--local", "--get-all", "remote.origin.pushurl"
+        ):
+            returncode = 1
+        elif command == ("config", "--local", "--name-only", "--list"):
+            stdout = "remote.origin.url\n"
+        elif command == ("rev-parse", "HEAD"):
             stdout = self.commit + "\n"
         elif command == ("rev-parse", "--show-object-format"):
             stdout = "sha1\n"
         elif command == ("rev-parse", "master"):
             stdout = self.commit + "\n"
         elif command == ("rev-parse", "origin/master"):
-            stdout = self.commit + "\n"
+            stdout = self.origin_commit + "\n"
+        elif command == (
+            "ls-remote",
+            "--exit-code",
+            "--refs",
+            sealer.CANONICAL_ORIGIN_URL,
+            sealer.REMOTE_MASTER_REF,
+        ):
+            returncode = 2 if self.remote_failure else 0
+            if not self.remote_failure:
+                stdout = f"{self.remote_commit}\t{sealer.REMOTE_MASTER_REF}\n"
         elif command == ("rev-parse", "HEAD^{tree}"):
             stdout = self.tree + "\n"
         elif command == ("branch", "--show-current"):
@@ -123,6 +160,42 @@ class GitStub:
         return subprocess.CompletedProcess(args, returncode, stdout, "")
 
 
+def local_remote_equal_git_runner(root: Path, args):
+    command = tuple(args)
+    if command in {
+        ("rev-parse", "master"),
+        ("rev-parse", "origin/master"),
+    }:
+        head = sealer._default_git_runner(root, ["rev-parse", "HEAD"])
+        return subprocess.CompletedProcess(
+            args,
+            head.returncode,
+            head.stdout,
+            head.stderr,
+        )
+    if command == (
+        "ls-remote",
+        "--exit-code",
+        "--refs",
+        sealer.CANONICAL_ORIGIN_URL,
+        sealer.REMOTE_MASTER_REF,
+    ):
+        head = sealer._default_git_runner(root, ["rev-parse", "HEAD"])
+        return subprocess.CompletedProcess(
+            args,
+            head.returncode,
+            f"{head.stdout.strip()}\t{sealer.REMOTE_MASTER_REF}\n",
+            head.stderr,
+        )
+    if command == ("branch", "--show-current"):
+        return subprocess.CompletedProcess(args, 0, "master\n", "")
+    if command[:2] == ("merge-base", "--is-ancestor"):
+        return subprocess.CompletedProcess(args, 0, "", "")
+    if command == ("status", "--porcelain=v1", "--untracked-files=all"):
+        return subprocess.CompletedProcess(args, 0, "", "")
+    return sealer._default_git_runner(root, args)
+
+
 def prepare(
     tmp_path: Path,
     *,
@@ -132,6 +205,8 @@ def prepare(
     production = tmp_path / "production"
     attempt = tmp_path / "ops" / "2026-08-23" / "attempt-1"
     attempt.mkdir(parents=True)
+    execution_host_profile = "capture_colocated_v1"
+    execution_host_id = sealer.current_execution_host_id()
     python = production / "venv/Scripts/python.exe"
     python.parent.mkdir(parents=True)
     python.write_bytes(b"test interpreter placeholder")
@@ -155,13 +230,19 @@ def prepare(
     credential = write_json(
         tmp_path / "credential-import-receipt.json",
         {
-            "schema_version": "mm_live_credential_import_receipt_v0.1",
+            "schema_version": "mm_live_credential_import_receipt_v0.4",
             "status": "PASS",
             "platform": "polymarket_global",
+            "prepared_at_utc": NOW.astimezone(timezone.utc).isoformat(),
+            "execution_host_id": execution_host_id,
+            "execution_principal_id": sealer.current_execution_principal_id(),
             "source_outside_repository_verified": True,
             "source_acl_private_confirmed": True,
             "credential_value_count_expected": 4,
-            "credential_value_count_written": 4,
+            "credential_value_count_written": 0,
+            "credential_mode": "verify_existing_exact",
+            "credential_value_count_existing_exact_verified": 4,
+            "credential_store_mutation_attempted": False,
             "credential_values_retained": False,
             "ignored_source_key_count": 0,
             "checks": {
@@ -211,11 +292,85 @@ def prepare(
         "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100,
     }
-    plan = candidate or candidate_payload()
+    current_economics = write_json(
+        tmp_path / f"{stage}-current-economics.json",
+        build_snapshot_payload(
+            target_date=NOW.date().isoformat(),
+            verified_at_utc=NOW.astimezone(timezone.utc).isoformat(),
+            platform="polymarket_global",
+            condition_id=CONDITION,
+            token_ids=[TOKEN, "102"],
+            reward_daily_rate_usdc=1,
+            rewards_min_size=20,
+            rewards_max_spread_cents=4.5,
+        ),
+    )
+    accepted_economics = (
+        attempt / sealer.INPUT_LAYOUTS[stage]["accepted_economics_snapshot"]
+    )
+    economics_drift = (
+        attempt / sealer.INPUT_LAYOUTS[stage]["economics_drift_report"]
+    )
+    accept_snapshot_baseline(
+        snapshot_path=current_economics,
+        accepted_snapshot_path=accepted_economics,
+        drift_report_path=economics_drift,
+        target_date=NOW.date().isoformat(),
+        now=NOW,
+        max_age_hours=2,
+        acknowledge_payout_asset_conflict=True,
+    )
+    accepted_payload = json.loads(accepted_economics.read_text(encoding="utf-8"))
+    drift_payload = json.loads(economics_drift.read_text(encoding="utf-8"))
+    plan = json.loads(json.dumps(candidate or candidate_payload()))
+    plan["schema_version"] = sealer.CANDIDATE_SCHEMA_VERSION
+    plan["exchange_economics_snapshot_id"] = accepted_payload["snapshot_id"]
+    plan["exchange_economics_sha256"] = accepted_payload[
+        "exchange_economics_hash"
+    ]
+    plan["selected"]["paper_quote_proof"][
+        "exchange_economics_snapshot_id"
+    ] = accepted_payload["snapshot_id"]
+    plan["selected"]["paper_quote_proof"][
+        "exchange_economics_hash"
+    ] = accepted_payload["exchange_economics_hash"]
+    acknowledgment = sealer.economics_acceptance_acknowledgment(
+        plan["target_date"],
+        plan["selected"]["condition_id"],
+        plan["selected"]["token_id"],
+        accepted_snapshot_file_sha256=sha256(accepted_economics),
+        drift_report_file_sha256=sha256(economics_drift),
+    )
+    plan["economics_acceptance"] = {
+        "accepted_at_utc": accepted_payload["accepted_at_utc"],
+        "accepted_snapshot_file_sha256": sha256(accepted_economics),
+        "accepted_snapshot_id": accepted_payload["snapshot_id"],
+        "accepted_snapshot_sha256": accepted_payload[
+            "exchange_economics_hash"
+        ],
+        "drift_generated_at_utc": drift_payload["generated_at_utc"],
+        "drift_report_file_sha256": sha256(economics_drift),
+        "drift_status": "PASS",
+        "operator_acknowledgment": acknowledgment,
+        "operator_acknowledgment_matches_candidate": True,
+        "required_operator_acknowledgment": acknowledgment,
+        "rescore_required": False,
+    }
+    plan["substrate_preflight"]["accepted_snapshot_file_sha256"] = sha256(
+        accepted_economics
+    )
+    plan["substrate_preflight"]["economics_drift_report_file_sha256"] = sha256(
+        economics_drift
+    )
+    plan["plan_sha256"] = sealer._canonical_payload_sha256(
+        plan, omit="plan_sha256"
+    )
     if stage == "stage0":
         input_paths = {
             "identity": write_json(attempt / "inputs/stage0-identity.json", identity_payload),
             "scope_plan": write_json(attempt / "inputs/stage0-scope-plan.json", plan),
+            "accepted_economics_snapshot": accepted_economics,
+            "economics_drift_report": economics_drift,
             "credential_import_receipt": credential,
             "credential_reference_manifest": credential_manifest,
         }
@@ -253,7 +408,38 @@ def prepare(
             else "stage1-dead-man-candidate.json"
         )
         identity_path = write_json(attempt / "inputs" / identity_name, identity_payload)
-        bootstrap_path = write_json(attempt / "stage0/bootstrap.json", {"status": "PASS"})
+        stage0_geography_path = write_geography_receipt(
+            attempt / "stage0/geography-precredential-receipt.json"
+        )
+        stage0_premutation_geography_path = write_geography_receipt(
+            attempt / "stage0/geography-premutation-receipt.json"
+        )
+        stage0_premutation_geography = json.loads(
+            stage0_premutation_geography_path.read_text(encoding="utf-8")
+        )
+        bootstrap_path = write_json(
+            attempt / "stage0/bootstrap.json",
+            {
+                "schema_version": "mm_platform_bootstrap_v0.4",
+                "status": "PASS",
+                "mutation_geographic_eligibility": {
+                    key: stage0_premutation_geography[key]
+                    for key in (
+                        "status",
+                        "eligible",
+                        "endpoint",
+                        "receipt_payload_sha256",
+                        "checked_at_utc",
+                        "fresh_until_utc",
+                        "freshness_max_age_seconds",
+                    )
+                },
+            },
+        )
+        stage0_receipt["mutation_geographic_eligibility"] = {
+            "path": str(stage0_premutation_geography_path.resolve()),
+            "sha256": sha256(stage0_premutation_geography_path),
+        }
         stage0_receipt_path = write_json(
             attempt / "stage0/command-receipt.json", stage0_receipt
         )
@@ -275,6 +461,10 @@ def prepare(
                 "token_id": TOKEN,
                 "requested_budget_pusd": 10,
                 "attempt_root": str(attempt.resolve()),
+                "execution_host_profile": execution_host_profile,
+                "execution_host_id": execution_host_id,
+                "market_id": "toronto",
+                "market_timezone": "America/Toronto",
             },
             "wrapper": {"path": str(stage0_wrapper), "sha256": sha256(stage0_wrapper)},
             "launcher": {"path": str(stage0_launcher), "sha256": sha256(stage0_launcher)},
@@ -291,9 +481,11 @@ def prepare(
             attempt / "seal/stage0-seal-receipt.json", stage0_seal
         )
         stage0_execution = {
-            "schema_version": "international_live_fixed_scope_execution_v0.4",
+            "schema_version": sealer.EXECUTION_SCHEMA_VERSION,
             "status": "PASS",
             "stage": "stage0",
+            "execution_host_profile": execution_host_profile,
+            "execution_host_id": execution_host_id,
             "phase": "complete",
             "production_tip": COMMIT,
             "target_date": NOW.date().isoformat(),
@@ -310,8 +502,10 @@ def prepare(
                     "checked_at_local": NOW.isoformat(),
                     "status_json_sha256": "9" * 64,
                     "status_flag_sha256": [],
+                    "execution_host_profile": execution_host_profile,
+                    "execution_host_id": execution_host_id,
                 }
-                for _index in range(2)
+                for _index in range(3)
             ],
             "wrapper": {"path": str(stage0_wrapper), "sha256": sha256(stage0_wrapper)},
             "artifacts": {
@@ -322,6 +516,14 @@ def prepare(
                         ).resolve()
                     ),
                     "sha256": sha256(attempt / "stage0/doctor-receipt.json"),
+                },
+                "geography_precredential_receipt_out": {
+                    "path": str(stage0_geography_path.resolve()),
+                    "sha256": sha256(stage0_geography_path),
+                },
+                "geography_premutation_receipt_out": {
+                    "path": str(stage0_premutation_geography_path.resolve()),
+                    "sha256": sha256(stage0_premutation_geography_path),
                 },
                 "bootstrap_out": {
                     "path": str(bootstrap_path.resolve()),
@@ -358,9 +560,11 @@ def prepare(
         stage0_run = write_json(
             attempt / "session/stage0-run-receipt.json",
             {
-                "schema_version": "international_live_session_run_v0.3",
+                "schema_version": "international_live_session_run_v0.4",
                 "status": "PASS",
                 "stage": "stage0",
+                "execution_host_profile": execution_host_profile,
+                "execution_host_id": execution_host_id,
                 "live_mutation_attempted": True,
                 "order_submit_attempted": False,
                 "authenticated_exchange_write_attempted": True,
@@ -407,13 +611,15 @@ def prepare(
             "stage0_run_receipt_sidecar": stage0_run_sidecar,
             "stage0_wrapper_execution_receipt": stage0_execution_path,
             "candidate_plan": write_json(attempt / "inputs" / candidate_name, plan),
+            "accepted_economics_snapshot": accepted_economics,
+            "economics_drift_report": economics_drift,
             "credential_import_receipt": credential,
             "credential_reference_manifest": credential_manifest,
         }
         if stage == "stage1_dead_man":
             cancel_candidate = write_json(
                 attempt / "inputs/stage1-cancel-all-candidate.json",
-                candidate_payload(),
+                json.loads(json.dumps(plan)),
             )
             cancel_wrapper = attempt / "wrappers/stage1-cancel-all.py"
             cancel_wrapper.write_text("# sealed cancel wrapper\n", encoding="utf-8")
@@ -422,10 +628,42 @@ def prepare(
             cancel_stream = attempt / "stage1-cancel-all/user-stream.jsonl"
             cancel_stream.parent.mkdir(parents=True, exist_ok=True)
             cancel_stream.write_text(
-                '{"event_type":"stream_stopped"}\n', encoding="utf-8"
+                "".join(
+                    json.dumps(row, separators=(",", ":")) + "\n"
+                    for row in (
+                        {
+                            "schema_version": "mm_user_stream_journal_v0.1",
+                            "event_type": "user_event",
+                            "payload": {
+                                "orderID": "cancel-order",
+                                "status": "live",
+                            },
+                        },
+                        {
+                            "schema_version": "mm_user_stream_journal_v0.1",
+                            "event_type": "user_event",
+                            "payload": {
+                                "orderID": "cancel-order",
+                                "status": "canceled",
+                                "size_matched": "0",
+                            },
+                        },
+                        {
+                            "schema_version": "mm_user_stream_journal_v0.1",
+                            "event_type": "stream_stopped",
+                        },
+                    )
+                ),
+                encoding="utf-8",
             )
             cancel_doctor = write_json(
                 attempt / "stage1-cancel-all/doctor-receipt.json", {"status": "PASS"}
+            )
+            cancel_geography_precredential = write_geography_receipt(
+                attempt / "stage1-cancel-all/geography-precredential-receipt.json"
+            )
+            cancel_geography_presubmit = write_geography_receipt(
+                attempt / "stage1-cancel-all/geography-presubmit-receipt.json"
             )
             cancel_journal = attempt / "stage1-cancel-all/lifecycle.jsonl"
             cancel_journal.parent.mkdir(parents=True, exist_ok=True)
@@ -433,18 +671,43 @@ def prepare(
             cancel_result = write_json(
                 attempt / "stage1-cancel-all/result.json",
                 {
-                    "schema_version": "mm_live_lifecycle_probe_v0.2",
+                    "schema_version": "mm_live_lifecycle_probe_v0.3",
                     "status": "PASS",
                     "cancellation_mode": "cancel_all",
                     "condition_id": CONDITION,
                     "token_id": TOKEN,
                     "candidate_plan_sha256": sha256(cancel_candidate),
+                    "submit_boundary_heartbeat_acknowledged": True,
+                    "submit_boundary_market_rules_verified": True,
+                    "submit_boundary_geography_before_heartbeat_verified": True,
+                    "post_sign_order_placement_boundary_verified": True,
+                    "candidate_fee_rate": 0.05,
+                    "current_fee_rate_bps": 500,
+                    "candidate_neg_risk": False,
+                    "current_neg_risk": False,
                     "order_id": "cancel-order",
                     "placement_status": "live",
                     "zero_open_orders_verified": True,
                     "zero_positions_verified": True,
                     "no_trade_lifecycle_event_observed": True,
+                    "terminal_rest_order_verified": True,
+                    "terminal_rest_zero_matched_verified": True,
+                    "account_trades_rest_verified": True,
+                    "scoped_account_trade_count": 0,
+                    "post_cancel_quiescence_seconds": 2.0,
+                    "submit_collateral_balance_usdc": 100.0,
+                    "submit_collateral_allowance_usdc": 100.0,
+                    "submit_collateral_snapshot_sha256": "a" * 64,
+                    "post_cancel_collateral_snapshot_sha256": "a" * 64,
+                    "collateral_no_fill_reconciliation_verified": True,
                     "terminal_user_event_observed": True,
+                    "user_stream_journal_path": str(cancel_stream.resolve()),
+                    "user_stream_journal_sha256": sha256(cancel_stream),
+                    "cleanup_final_user_stream_journal_sha256": sha256(
+                        cancel_stream
+                    ),
+                    "user_stream_journal_row_count": 3,
+                    "user_stream_scoped_order_event_count": 2,
                     "cancel_response_present": True,
                     "journal_path": str(cancel_journal.resolve()),
                     "journal_sha256": sha256(cancel_journal),
@@ -487,9 +750,11 @@ def prepare(
             cancel_execution = write_json(
                 attempt / "stage1-cancel-all/wrapper-execution-receipt.json",
                 {
-                    "schema_version": "international_live_fixed_scope_execution_v0.4",
+                    "schema_version": sealer.EXECUTION_SCHEMA_VERSION,
                     "status": "PASS",
                     "stage": "stage1_cancel_all",
+                    "execution_host_profile": execution_host_profile,
+                    "execution_host_id": execution_host_id,
                     "phase": "complete",
                     "production_tip": COMMIT,
                     "target_date": NOW.date().isoformat(),
@@ -513,6 +778,14 @@ def prepare(
                         "doctor_receipt_out": {
                             "path": str(cancel_doctor.resolve()),
                             "sha256": sha256(cancel_doctor),
+                        },
+                        "geography_precredential_receipt_out": {
+                            "path": str(cancel_geography_precredential.resolve()),
+                            "sha256": sha256(cancel_geography_precredential),
+                        },
+                        "geography_presubmit_receipt_out": {
+                            "path": str(cancel_geography_presubmit.resolve()),
+                            "sha256": sha256(cancel_geography_presubmit),
                         },
                         "result_out": {
                             "path": str(cancel_result.resolve()),
@@ -547,6 +820,10 @@ def prepare(
                         "requested_budget_pusd": 10,
                         "cancellation_mode": "cancel_all",
                         "attempt_root": str(attempt.resolve()),
+                        "execution_host_profile": execution_host_profile,
+                        "execution_host_id": execution_host_id,
+                        "market_id": "toronto",
+                        "market_timezone": "America/Toronto",
                     },
                     "wrapper": {
                         "path": str(cancel_wrapper.resolve()),
@@ -587,9 +864,11 @@ def prepare(
             cancel_run = write_json(
                 attempt / "session/stage1_cancel_all-run-receipt.json",
                 {
-                    "schema_version": "international_live_session_run_v0.3",
+                    "schema_version": "international_live_session_run_v0.4",
                     "status": "PASS",
                     "stage": "stage1_cancel_all",
+                    "execution_host_profile": execution_host_profile,
+                    "execution_host_id": execution_host_id,
                     "live_mutation_attempted": True,
                     "order_submit_attempted": True,
                     "authenticated_exchange_write_attempted": True,
@@ -651,6 +930,7 @@ def prepare(
             set(sealer.LIVE_SOURCE_PATHS[stage]) | {sealer.WORKLOAD_ADMISSION_PATH}
         )
     }
+    git_executable = sealer.canonical_git_executable()
     spec = {
         "schema_version": sealer.SPEC_SCHEMA_VERSION,
         "stage": stage,
@@ -661,6 +941,9 @@ def prepare(
             "commit": COMMIT,
             "tree": TREE,
             "python": str(python.resolve()),
+            "git_executable": str(git_executable),
+            "git_executable_sha256": sha256(git_executable),
+            "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         "scope": {
             "target_date": NOW.date().isoformat(),
@@ -671,11 +954,16 @@ def prepare(
             "run_not_after_local": (NOW + timedelta(seconds=60)).isoformat(),
             "attempt_root": str(attempt.resolve()),
             "lease_workload": f"live-test-{stage}-attempt-1",
+            "execution_host_profile": "capture_colocated_v1",
+            "execution_host_id": sealer.current_execution_host_id(),
+            "market_id": "toronto",
+            "market_timezone": "America/Toronto",
         },
         "inputs": {
             role: {"path": str(path.resolve()), "sha256": sha256(path)}
             for role, path in input_paths.items()
         },
+        "economics_acceptance": plan["economics_acceptance"],
         "reviewed_status_flags": [],
         "template_sha256": {
             "python": sha256(production / sealer.PYTHON_TEMPLATE_PATHS[stage]),
@@ -704,6 +992,8 @@ def seal(
             "status": "PASS",
             "path": str(path),
         },
+        capture_assignment_validator=lambda *_args, **_kwargs: {},
+        portable_assignment_validator=lambda *_args, **_kwargs: {},
         template_root=production,
         sealer_repo_root=production,
     )
@@ -807,7 +1097,7 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
         datetime.fromisoformat("2026-08-23T08:59:30-04:00"),
         datetime.fromisoformat("2026-08-23T12:00:00-04:00"),
         datetime.fromisoformat("2026-08-23T18:00:00-04:00"),
-        datetime.fromisoformat("2026-08-23T23:59:00-04:00"),
+        datetime.fromisoformat("2026-08-23T23:58:00-04:00"),
     ],
 )
 def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current):
@@ -825,6 +1115,77 @@ def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current
 
     with pytest.raises(sealer.SealError, match="00:30-09:00 America/Toronto"):
         seal(spec_path, production, now=current)
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path):
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    production, attempt, spec_path, spec = prepare(
+        tmp_path,
+        candidate=candidate_payload(current, remaining_seconds=600),
+    )
+    spec["prepared_at_local"] = current.isoformat()
+    spec["scope"].update(
+        target_date=current.date().isoformat(),
+        run_not_before_local=(current - timedelta(seconds=5)).isoformat(),
+        run_not_after_local=(current + timedelta(seconds=60)).isoformat(),
+        execution_host_profile="portable_execution_v1",
+        execution_host_id=sealer.current_execution_host_id(),
+    )
+    credential_receipt = Path(
+        spec["inputs"]["credential_import_receipt"]["path"]
+    )
+    credential_payload = json.loads(credential_receipt.read_text(encoding="utf-8"))
+    credential_payload["prepared_at_utc"] = current.astimezone(
+        timezone.utc
+    ).isoformat()
+    write_json(credential_receipt, credential_payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(
+        credential_receipt
+    )
+    write_json(spec_path, spec)
+
+    result = seal(spec_path, production, now=current)
+
+    wrapper_text = Path(result["wrapper"]["path"]).read_text(encoding="utf-8")
+    launcher_text = Path(result["launcher"]["path"]).read_text(
+        encoding="utf-8-sig"
+    )
+    receipt = json.loads(Path(result["seal_receipt"]["path"]).read_text())
+    assert "international_live_execution_host_status.ps1" in wrapper_text
+    assert "portable_execution_v1" in launcher_text
+    assert sealer.current_execution_host_id() in launcher_text
+    assert receipt["scope"]["execution_host_profile"] == "portable_execution_v1"
+    assert receipt["scope"]["execution_host_id"] == sealer.current_execution_host_id()
+
+
+def test_seal_refuses_a_scope_bound_to_another_execution_host(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["scope"]["execution_host_id"] = "0" * 64
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="different execution host"):
+        seal(spec_path, production)
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_seal_refuses_capture_status_exception_on_portable_host(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["scope"]["execution_host_profile"] = "portable_execution_v1"
+    spec["reviewed_status_flags"] = [
+        {
+            "sha256": "c" * 64,
+            "review": "A capture-host exception cannot authorize a portable host.",
+        }
+    ]
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="cannot inherit capture-host"):
+        seal(spec_path, production)
 
     for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
         assert not (attempt / relative).exists()
@@ -851,7 +1212,10 @@ def test_seal_refuses_expired_candidate_before_writing(tmp_path):
     )
     production, attempt, spec_path, _spec = prepare(tmp_path, candidate=candidate)
 
-    with pytest.raises(sealer.SealError, match="candidate plan gate failed"):
+    with pytest.raises(
+        sealer.SealError,
+        match="candidate plan failed the canonical gate",
+    ):
         seal(spec_path, production)
 
     assert not (attempt / "wrappers/stage0.py").exists()
@@ -863,6 +1227,26 @@ def test_seal_refuses_input_hash_mismatch_before_writing(tmp_path):
     write_json(spec_path, spec)
 
     with pytest.raises(sealer.SealError, match="hash-mismatched"):
+        seal(spec_path, production)
+
+    assert not (attempt / "wrappers/stage0.py").exists()
+
+
+def test_seal_rejects_rehashed_accepted_economics_evidence_drift(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    accepted = Path(spec["inputs"]["accepted_economics_snapshot"]["path"])
+    payload = json.loads(accepted.read_text(encoding="utf-8"))
+    payload["accepted_at_utc"] = (
+        datetime.fromisoformat(payload["accepted_at_utc"]) + timedelta(seconds=1)
+    ).isoformat()
+    write_json(accepted, payload)
+    spec["inputs"]["accepted_economics_snapshot"]["sha256"] = sha256(accepted)
+    write_json(spec_path, spec)
+
+    with pytest.raises(
+        sealer.SealError,
+        match="candidate economics acceptance does not match the sealed evidence",
+    ):
         seal(spec_path, production)
 
     assert not (attempt / "wrappers/stage0.py").exists()
@@ -922,7 +1306,7 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert 'ZoneInfo("America/Toronto")' in text
     assert "activate_live_sdk_overlay(" in text
     assert text.split("def main()", 1)[1].count("_assert_host_state()") == 2
-    assert "pre_submit_attestor=_assert_host_state" in text
+    assert "pre_submit_attestor=_pre_submit_attestor" in text
     receipt = json.loads(
         (attempt / "seal/stage1-cancel-all-seal-receipt.json").read_text(
             encoding="utf-8"
@@ -1060,6 +1444,125 @@ def test_seal_refuses_incomplete_credential_import_check_set(tmp_path):
         seal(spec_path, production)
 
 
+def test_credential_import_receipt_accepts_exact_existing_verification(tmp_path):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    sealer._validate_credential_import_receipt(
+        receipt,
+        required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+        now=NOW,
+    )
+
+
+def test_fixed_scope_seal_rejects_create_new_credential_evidence(tmp_path):
+    production, _attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["credential_mode"] = "create_new"
+    payload["credential_value_count_written"] = 4
+    payload["credential_value_count_existing_exact_verified"] = 0
+    payload["credential_store_mutation_attempted"] = True
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="compare-only exact verification"):
+        seal(spec_path, production)
+
+
+def test_fixed_scope_seal_rejects_credential_evidence_from_another_host(tmp_path):
+    production, _attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["execution_host_id"] = "0" * 64
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        seal(spec_path, production)
+
+
+def test_fixed_scope_seal_rejects_stale_credential_verification(tmp_path):
+    production, _attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["prepared_at_utc"] = (
+        NOW.astimezone(timezone.utc) - timedelta(hours=3)
+    ).isoformat()
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        seal(spec_path, production)
+
+
+def test_credential_import_receipt_retains_current_create_support(tmp_path):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["credential_mode"] = "create_new"
+    payload["credential_value_count_written"] = 4
+    payload["credential_value_count_existing_exact_verified"] = 0
+    payload["credential_store_mutation_attempted"] = True
+    write_json(receipt, payload)
+
+    sealer._validate_credential_import_receipt(receipt, now=NOW)
+
+
+def test_credential_import_receipt_retains_strict_legacy_create_support(tmp_path):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["schema_version"] = "mm_live_credential_import_receipt_v0.1"
+    payload["credential_value_count_written"] = 4
+    del payload["credential_mode"]
+    del payload["credential_value_count_existing_exact_verified"]
+    del payload["credential_store_mutation_attempted"]
+    del payload["prepared_at_utc"]
+    del payload["execution_host_id"]
+    del payload["execution_principal_id"]
+    write_json(receipt, payload)
+
+    sealer._validate_credential_import_receipt(receipt, now=NOW)
+
+    with pytest.raises(sealer.SealError, match="compare-only exact verification"):
+        sealer._validate_credential_import_receipt(
+            receipt,
+            required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            now=NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("credential_mode", "create_new"),
+        ("credential_value_count_written", 1),
+        ("credential_value_count_existing_exact_verified", 3),
+        ("credential_store_mutation_attempted", True),
+    ),
+)
+def test_credential_import_receipt_rejects_inexact_existing_verification(
+    tmp_path,
+    field,
+    value,
+):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["credential_mode"] = "verify_existing_exact"
+    payload["credential_value_count_written"] = 0
+    payload["credential_value_count_existing_exact_verified"] = 4
+    payload["credential_store_mutation_attempted"] = False
+    payload[field] = value
+    write_json(receipt, payload)
+
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        sealer._validate_credential_import_receipt(receipt, now=NOW)
+
+
 def test_seal_refuses_incomplete_credential_reference_manifest(tmp_path):
     production, _attempt, spec_path, spec = prepare(tmp_path)
     manifest = Path(spec["inputs"]["credential_reference_manifest"]["path"])
@@ -1123,6 +1626,57 @@ def test_inventory_is_read_only_and_reports_ancestry_state(tmp_path):
     assert before == after
 
 
+def test_inventory_blocks_when_cached_origin_is_stale_even_if_live_remote_matches(tmp_path):
+    production, attempt, _spec_path, _spec = prepare(tmp_path)
+    before = sorted(path.relative_to(attempt) for path in attempt.rglob("*"))
+    git = GitStub(origin_commit="c" * 40, remote_commit=COMMIT)
+
+    result = sealer.build_public_inventory(
+        "stage0",
+        production,
+        git_runner=git,
+    )
+
+    assert result["status"] == "BLOCK"
+    assert result["production"]["cached_origin_master"] == "c" * 40
+    assert result["production"]["remote_master"] == COMMIT
+    assert result["production"]["live_remote_master_equal"] is False
+    assert sorted(path.relative_to(attempt) for path in attempt.rglob("*")) == before
+
+
+def test_inventory_blocks_on_bounded_live_remote_failure_without_writing(tmp_path):
+    production, attempt, _spec_path, _spec = prepare(tmp_path)
+    before = sorted(path.relative_to(attempt) for path in attempt.rglob("*"))
+    git = GitStub(remote_failure=True)
+
+    result = sealer.build_public_inventory(
+        "stage0",
+        production,
+        git_runner=git,
+    )
+
+    assert result["status"] == "BLOCK"
+    assert result["production"]["remote_master"] is None
+    assert result["production"]["live_remote_master_equal"] is False
+    assert (
+        "ls-remote",
+        "--exit-code",
+        "--refs",
+        sealer.CANONICAL_ORIGIN_URL,
+        sealer.REMOTE_MASTER_REF,
+    ) in git.calls
+    assert sorted(path.relative_to(attempt) for path in attempt.rglob("*")) == before
+
+
+def test_seal_refuses_when_live_remote_master_cannot_be_proved(tmp_path):
+    production, attempt, spec_path, _spec = prepare(tmp_path)
+
+    with pytest.raises(sealer.SealError, match="ls-remote"):
+        seal(spec_path, production, GitStub(remote_failure=True))
+
+    assert not (attempt / sealer.OUTPUT_LAYOUTS["stage0"]["python_wrapper"]).exists()
+
+
 def test_every_stage_binds_complete_status_attestation_source_closure():
     python_closure = set(sealer.repository_python_source_paths(sealer.REPO_ROOT))
     for stage in sealer.STAGES:
@@ -1134,7 +1688,11 @@ def test_every_stage_binds_complete_status_attestation_source_closure():
 
 def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
     root = Path(sealer.REPO_ROOT)
-    inventory = sealer.build_public_inventory("stage0", root)
+    inventory = sealer.build_public_inventory(
+        "stage0",
+        root,
+        git_runner=local_remote_equal_git_runner,
+    )
     head = inventory["production"]["commit"]
     tree = inventory["production"]["tree"]
     assert inventory["production"]["object_format"] == "sha1"
@@ -1147,12 +1705,41 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
             ("rev-parse", "origin/master"),
         }:
             return subprocess.CompletedProcess(args, 0, head + "\n", "")
+        if command == (
+            "ls-remote",
+            "--exit-code",
+            "--refs",
+            sealer.CANONICAL_ORIGIN_URL,
+            sealer.REMOTE_MASTER_REF,
+        ):
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                f"{head}\t{sealer.REMOTE_MASTER_REF}\n",
+                "",
+            )
         if command == ("branch", "--show-current"):
             return subprocess.CompletedProcess(args, 0, "master\n", "")
         if command[:2] == ("merge-base", "--is-ancestor"):
             return subprocess.CompletedProcess(args, 0, "", "")
         if command == ("status", "--porcelain=v1", "--untracked-files=all"):
             return subprocess.CompletedProcess(args, 0, "", "")
+        if command == ("config", "--local", "--get", "remote.origin.url"):
+            return subprocess.CompletedProcess(
+                args,
+                0,
+                sealer.CANONICAL_ORIGIN_URL + "\n",
+                "",
+            )
+        if command == (
+            "config",
+            "--local",
+            "--get-all",
+            "remote.origin.pushurl",
+        ):
+            return subprocess.CompletedProcess(args, 1, "", "")
+        if command == ("config", "--local", "--name-only", "--list"):
+            return subprocess.CompletedProcess(args, 0, "remote.origin.url\n", "")
         return sealer._default_git_runner(repo_root, args)
 
     facts = sealer._verify_git_state(
@@ -1162,6 +1749,9 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
             "commit": head,
             "tree": tree,
             "python": str(root / "venv/Scripts/python.exe"),
+            "git_executable": str(sealer.canonical_git_executable()),
+            "git_executable_sha256": sha256(sealer.canonical_git_executable()),
+            "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         git_runner=reviewed_master_proxy,
     )
@@ -1169,7 +1759,11 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
 
 
 def test_real_repository_inventory_object_ids_flow_through_a_dry_seal(tmp_path):
-    inventory = sealer.build_public_inventory("stage0", sealer.REPO_ROOT)
+    inventory = sealer.build_public_inventory(
+        "stage0",
+        sealer.REPO_ROOT,
+        git_runner=local_remote_equal_git_runner,
+    )
     commit = inventory["production"]["commit"]
     tree = inventory["production"]["tree"]
     production, _attempt, spec_path, spec = prepare(tmp_path)
@@ -1186,3 +1780,69 @@ def test_real_repository_inventory_object_ids_flow_through_a_dry_seal(tmp_path):
     receipt = json.loads(Path(result["seal_receipt"]["path"]).read_text())
     assert receipt["production"]["commit"] == commit
     assert receipt["production"]["tree"] == tree
+
+
+def test_sealed_templates_gate_before_credentials_and_immediately_before_submit():
+    root = Path(sealer.REPO_ROOT)
+    stage0 = (root / sealer.PYTHON_TEMPLATE_PATHS["stage0"]).read_text(
+        encoding="utf-8"
+    )
+    stage1 = (root / sealer.PYTHON_TEMPLATE_PATHS["stage1_cancel_all"]).read_text(
+        encoding="utf-8"
+    )
+    lifecycle = (
+        root / "src/weather/market/mm_live_lifecycle_probe.py"
+    ).read_text(encoding="utf-8")
+
+    stage0_candidate = stage0.rindex("candidate_gate = load_stage1_candidate_gate(")
+    stage0_geography = stage0.index(
+        '_run_geography_check("geography_precredential_receipt_out")',
+        stage0_candidate,
+    )
+    stage0_credentials = stage0.index("credential_manifest = json.loads(")
+    stage0_mutation = stage0.index("live_cli.run_stage0(args)")
+    assert stage0_candidate < stage0_geography < stage0_credentials < stage0_mutation
+    assert "pre_mutation_attestor=_run_premutation_geography_check" in stage0
+    stage0_attestor = stage0[
+        stage0.index("def _run_premutation_geography_check()") :
+    ]
+    assert stage0_attestor.index("_assert_host_state()") < stage0_attestor.index(
+        '_run_geography_check("geography_premutation_receipt_out")'
+    )
+
+    stage1_candidate = stage1.rindex("load_stage1_candidate_gate(")
+    stage1_geography = stage1.index(
+        '_run_geography_check("geography_precredential_receipt_out")',
+        stage1_candidate,
+    )
+    stage1_credentials = stage1.index("credential_manifest = json.loads(")
+    stage1_mutation = stage1.index("live_cli.run_stage1(args)")
+    assert stage1_candidate < stage1_geography < stage1_credentials < stage1_mutation
+    assert "pre_submit_attestor=_pre_submit_attestor" in stage1
+
+    attestor = stage1[stage1.index("def _pre_submit_attestor()") :]
+    assert attestor.index("_assert_host_state()") < attestor.index(
+        '_run_geography_check("geography_presubmit_receipt_out")'
+    )
+    assert 'return _run_geography_check("geography_presubmit_receipt_out")' in attestor
+    lifecycle_collateral = lifecycle.index(
+        "submit_collateral = _action_time_collateral_snapshot(",
+    )
+    lifecycle_attestor = lifecycle.index(
+        "geographic_eligibility_receipt = pre_submit_attestor()",
+        lifecycle_collateral,
+    )
+    lifecycle_geography_revalidation = lifecycle.index(
+        "geographic_eligibility_receipt = validate_geographic_eligibility_receipt(",
+        lifecycle_attestor,
+    )
+    lifecycle_submit = lifecycle.index("response = adapter.place_order(")
+    assert (
+        lifecycle_collateral
+        < lifecycle_attestor
+        < lifecycle_geography_revalidation
+        < lifecycle_submit
+    )
+    assert "geographic_eligibility_fresh_until_utc=(" in lifecycle[
+        lifecycle_submit :
+    ]

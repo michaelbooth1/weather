@@ -14,6 +14,48 @@ from weather.schema_registry_data import INTENTIONAL_SCHEMA_VERSION_ALIASES  # n
 
 
 class TestSchemaRegistry(unittest.TestCase):
+    def test_live_lifecycle_schema_versions_are_advanced_with_legacy_entries(self):
+        self.assertEqual(
+            schema_version("mm_platform_verification"),
+            "mm_platform_verification_v0.6",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_verification_v0_5_legacy"),
+            "mm_platform_verification_v0.5",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_bootstrap"),
+            "mm_platform_bootstrap_v0.4",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_bootstrap_v0_3_legacy"),
+            "mm_platform_bootstrap_v0.3",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe"),
+            "mm_live_lifecycle_probe_v0.3",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe_v0_2_legacy"),
+            "mm_live_lifecycle_probe_v0.2",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe_journal"),
+            "mm_live_lifecycle_probe_journal_v0.2",
+        )
+        self.assertEqual(
+            schema_version("mm_live_lifecycle_probe_journal_v0_1_legacy"),
+            "mm_live_lifecycle_probe_journal_v0.1",
+        )
+        self.assertEqual(
+            schema_version("mm_stage1_lifecycle_bundle"),
+            "mm_stage1_lifecycle_bundle_v0.3",
+        )
+        self.assertEqual(
+            schema_version("mm_stage1_lifecycle_bundle_v0_2_legacy"),
+            "mm_stage1_lifecycle_bundle_v0.2",
+        )
+
     def test_registry_lookup_returns_public_versions(self):
         self.assertEqual(
             schema_version("residual_distribution_v1"),
@@ -49,6 +91,26 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("mm_scoring_projection"),
             "mm_scoring_projection_v0.2",
+        )
+        self.assertEqual(
+            schema_version("mm_live_credential_import_receipt"),
+            "mm_live_credential_import_receipt_v0.4",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_scope_inventory"),
+            "international_live_fixed_scope_inventory_v0.3",
+        )
+        self.assertEqual(
+            schema_version("portable_live_candidate_substrate_preflight"),
+            "portable_live_candidate_substrate_preflight_v0.1",
+        )
+        self.assertEqual(
+            schema_version("international_live_sdk_public_bundle"),
+            "international_live_sdk_public_bundle_v0.1",
+        )
+        self.assertEqual(
+            schema_version("international_live_sdk_portability_receipt"),
+            "international_live_sdk_portability_receipt_v0.1",
         )
         self.assertEqual(
             schema_version("maker_scoring_input_binding"),
@@ -437,6 +499,12 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertTrue(validate_schema_version("market_registry", "market_registry_v0.1"))
         self.assertTrue(validate_schema_version("live_forward_gate_legacy", "live_forward_gate_v0.1"))
         self.assertTrue(validate_schema_version("market_making_daily_roll_legacy", "market_making_daily_roll_v0.1"))
+        self.assertTrue(
+            validate_schema_version(
+                "mm_live_credential_import_receipt_legacy",
+                "mm_live_credential_import_receipt_v0.1",
+            )
+        )
 
     def test_registry_payload_has_stable_schema(self):
         payload = registry_payload()

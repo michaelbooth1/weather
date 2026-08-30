@@ -5,6 +5,15 @@ Owner: operations. This host is dedicated to the weather platform; the policy
 spreads load across the 24-hour day so capture — the one workload that cannot
 be rescheduled — is never starved.
 
+This timetable governs the dedicated capture PC, not a separately provisioned
+execution-only PC. The only portable exception is the exact attended,
+host-bound International Stage 0/1 lane in
+[`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md). Its
+`portable_execution_v1` lease is restricted to canonical live-stage workload
+names and is refused when the tracked assignment identifies the machine as the
+dedicated capture host. It does not loosen this policy for tests, training, replay, capture,
+integration, or any other workload.
+
 > **For the current governing numbers, read
 > [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md).** It is generated from repository-owned
 > constants. For the live timetable read `data/alerts/OPERATING_SCHEDULE.md` and Task Scheduler.

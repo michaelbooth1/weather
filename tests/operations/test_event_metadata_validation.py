@@ -1,5 +1,8 @@
 import copy
 import json
+from unittest.mock import patch
+
+import pytest
 
 from weather.operations import event_metadata_validation as gate
 from weather.operations.location_config_refresh import build_location_market_events
@@ -153,3 +156,18 @@ def test_blank_live_clob_token_blocks_countability():
     market_gate = gate.gate_for_market(payload, "atlanta")
     assert market_gate["ok"] is False
     assert market_gate["validation_hash"] == payload["validation_hash"]
+
+
+def test_cli_require_pass_exits_nonzero_after_writing_block_outputs(tmp_path):
+    blocked = validate([], live_events=[])
+    with patch.object(gate, "build_validation_payload", return_value=blocked):
+        with pytest.raises(SystemExit) as error:
+            gate.main([
+                "--target-date", TARGET_DATE,
+                "--json-out", str(tmp_path / "validation.json"),
+                "--report-out", str(tmp_path / "validation.md"),
+                "--require-pass",
+            ])
+
+    assert error.value.code == 2
+    assert (tmp_path / "validation.json").exists()

@@ -2,7 +2,11 @@ import math
 
 import pytest
 
-from weather.market.market_making_live_pilot import build_run_policy_config
+from weather.market.market_making_live_pilot import (
+    MARKET_HARVEST_QUOTE_TTL_SECONDS,
+    build_market_harvest_policy_config,
+    build_run_policy_config,
+)
 from weather.market.mm_policy import DEFAULT_POLICY_CONFIG
 
 
@@ -59,3 +63,21 @@ def test_non_live_policy_behavior_still_clamps_daily_loss_to_budget():
 
     assert config["max_daily_loss"] == 7
     assert config["quote_ttl_seconds"] == 30
+
+
+def test_market_harvest_defaults_to_capture_ttl_and_allows_portable_ceiling():
+    defaulted = build_market_harvest_policy_config(25, {})
+    portable = build_market_harvest_policy_config(
+        25,
+        {"quote_ttl_seconds": MARKET_HARVEST_QUOTE_TTL_SECONDS},
+    )
+    clamped = build_market_harvest_policy_config(
+        25,
+        {"quote_ttl_seconds": MARKET_HARVEST_QUOTE_TTL_SECONDS + 1},
+    )
+
+    assert defaulted["quote_ttl_seconds"] == 120.0
+    assert portable["quote_ttl_seconds"] == MARKET_HARVEST_QUOTE_TTL_SECONDS
+    assert clamped["quote_ttl_seconds"] == MARKET_HARVEST_QUOTE_TTL_SECONDS
+    with pytest.raises(ValueError, match="quote_ttl_seconds"):
+        build_market_harvest_policy_config(25, {"quote_ttl_seconds": 0})

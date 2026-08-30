@@ -5,9 +5,9 @@ You are the **operations master agent** for this Polymarket weather-trading plat
 release, the merge timing, and the research agenda.
 
 This file is the role. `docs/roadmap/AGENTS.md` is the coding contract and
-`DELEGATION_CONTRACT.md` is the two-host contract — read both, they are not repeated here.
+`DELEGATION_CONTRACT.md` is the cross-host contract — read both, they are not repeated here.
 
-**Rewritten 2026-08-13 by the outgoing session.** Every dated fact below is dated on purpose.
+**Rewritten 2026-08-27 for the portable-executor decision.** Every dated fact below is dated on purpose.
 **Verify anything load-bearing before acting on it** — the previous version of this file went ten
 days without a rewrite and ended up asserting three things that were no longer true.
 
@@ -80,12 +80,20 @@ Durability findings are acted on when evidence changes; do not repeatedly re-der
 standing condition. A frozen or unverified copy, an unencrypted system disk, or changed power risk
 is still operational state and must not be hidden from the operator.
 
-The research workstation may not call exchange or weather-provider endpoints unless a mission
-explicitly designates it as the International execution host. **Operator decision 2026-08-14:**
-this 16 GB production PC is the intended live execution host. It may authenticate, place, or cancel
-only when the explicit authorization, exact-tip, readiness, risk, credential-by-reference, and
-fixed-scope-wrapper gates all pass. The designation removes a separate-host/source-transfer
-requirement; it weakens no exchange or risk gate.
+The research workstation may not call exchange or weather-provider endpoints. **Operator decision
+2026-08-27:** the attended International Stage 0/1 executor may instead be a separately provisioned
+Windows PC using the exact `portable_execution_v1` contract. The 16 GB production PC remains the
+capture, release, guarded runtime-integration, and scheduling authority and
+cannot claim that portable profile. The selected execution host may
+authenticate, place, or cancel only when explicit authorization plus
+the exact-tip, readiness, risk, host-local credential, host-identity, and fixed-scope-wrapper gates
+all pass. Follow `PORTABLE_LIVE_EXECUTION_HOST.md` for provisioning or relocation; this decision
+weakens no exchange or risk gate and grants the portable PC no production or Scheduler authority.
+
+**Operator correction 2026-08-28:** source-control actions are not reserved to
+the production PC. An explicitly authorized workstation or portable-PC agent
+may create a PR or perform a Git merge under `docs/git-workflow.md`; any owning
+production integration/adoption runbook remains separately binding.
 
 ---
 

@@ -32,6 +32,10 @@ CLOB_RAW_BOOK_ARTIFACT_KEYS = (
     "order_books_long",
     "order_books_long_gzip",
 )
+PLATFORM_BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.4"
+LIVE_LIFECYCLE_PROBE_SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.3"
+STAGE1_LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.3"
+POST_CANCEL_QUIESCENCE_SECONDS = 2.0
 
 
 def _has_any_artifact(row, keys):
@@ -285,6 +289,115 @@ def stage1_lifecycle_bundle_sha256(bundle):
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _is_sha256(value):
+    return re.fullmatch(r"[0-9a-f]{64}", str(value or "")) is not None
+
+
+def _stage1_probe_hardening_checks(
+    probe,
+    lifecycle_journal,
+    user_stream_journal,
+    *,
+    lifecycle_budget,
+    wallet_cap,
+):
+    """Validate the v0.3 proofs that an upstream PASS boolean cannot replace."""
+
+    candidate_fee_rate = maybe_float(probe.get("candidate_fee_rate"))
+    current_fee_rate_bps = maybe_float(probe.get("current_fee_rate_bps"))
+    collateral_balance = maybe_float(probe.get("submit_collateral_balance_usdc"))
+    collateral_allowance = maybe_float(probe.get("submit_collateral_allowance_usdc"))
+    quiescence_seconds = maybe_float(probe.get("post_cancel_quiescence_seconds"))
+    lifecycle_row_count = lifecycle_journal.get("row_count")
+    stream_row_count = user_stream_journal.get("row_count")
+    scoped_stream_count = user_stream_journal.get("scoped_order_event_count")
+    reported_stream_row_count = probe.get("user_stream_journal_row_count")
+    reported_scoped_stream_count = probe.get(
+        "user_stream_scoped_order_event_count"
+    )
+
+    return {
+        "action_time_market_rules_verified": all((
+            probe.get("submit_boundary_heartbeat_acknowledged") is True,
+            probe.get("submit_boundary_market_rules_verified") is True,
+            probe.get(
+                "submit_boundary_geography_before_heartbeat_verified"
+            )
+            is True,
+            probe.get("post_sign_order_placement_boundary_verified") is True,
+            candidate_fee_rate is not None and candidate_fee_rate > 0,
+            current_fee_rate_bps is not None and current_fee_rate_bps > 0,
+            (
+                candidate_fee_rate is not None
+                and current_fee_rate_bps is not None
+                and candidate_fee_rate == current_fee_rate_bps / 10_000
+            ),
+            type(probe.get("candidate_neg_risk")) is bool,
+            probe.get("candidate_neg_risk") is probe.get("current_neg_risk"),
+        )),
+        "action_time_collateral_verified": all((
+            lifecycle_budget is not None and lifecycle_budget > 0,
+            (
+                collateral_balance is not None
+                and lifecycle_budget is not None
+                and collateral_balance >= lifecycle_budget
+            ),
+            (
+                collateral_balance is not None
+                and wallet_cap is not None
+                and collateral_balance <= wallet_cap
+            ),
+            (
+                collateral_allowance is not None
+                and lifecycle_budget is not None
+                and collateral_allowance >= lifecycle_budget
+            ),
+            probe.get("collateral_no_fill_reconciliation_verified") is True,
+            _is_sha256(probe.get("submit_collateral_snapshot_sha256")),
+            probe.get("submit_collateral_snapshot_sha256")
+            == probe.get("post_cancel_collateral_snapshot_sha256"),
+        )),
+        "terminal_rest_and_account_trades_verified": all((
+            probe.get("terminal_rest_order_verified") is True,
+            probe.get("terminal_rest_zero_matched_verified") is True,
+            _is_sha256(probe.get("terminal_rest_order_sha256")),
+            probe.get("account_trades_rest_verified") is True,
+            type(probe.get("scoped_account_trade_count")) is int,
+            probe.get("scoped_account_trade_count") == 0,
+        )),
+        "post_cancel_quiescence_verified": (
+            quiescence_seconds == POST_CANCEL_QUIESCENCE_SECONDS
+        ),
+        "lifecycle_journal_bound": all((
+            non_empty_text(probe.get("journal_path")),
+            lifecycle_journal.get("path") == probe.get("journal_path"),
+            _is_sha256(probe.get("journal_sha256")),
+            lifecycle_journal.get("sha256") == probe.get("journal_sha256"),
+            type(lifecycle_row_count) is int and lifecycle_row_count > 0,
+        )),
+        "final_user_stream_journal_bound": all((
+            non_empty_text(probe.get("user_stream_journal_path")),
+            user_stream_journal.get("path")
+            == probe.get("user_stream_journal_path"),
+            _is_sha256(probe.get("user_stream_journal_sha256")),
+            user_stream_journal.get("sha256")
+            == probe.get("user_stream_journal_sha256"),
+            _is_sha256(
+                probe.get("cleanup_final_user_stream_journal_sha256")
+            ),
+            probe.get("cleanup_final_user_stream_journal_sha256")
+            == probe.get("user_stream_journal_sha256"),
+            user_stream_journal.get("terminal_stream_stopped_verified") is True,
+            type(stream_row_count) is int and stream_row_count > 0,
+            type(reported_stream_row_count) is int,
+            reported_stream_row_count == stream_row_count,
+            type(scoped_stream_count) is int and scoped_stream_count > 0,
+            type(reported_scoped_stream_count) is int,
+            reported_scoped_stream_count == scoped_stream_count,
+        )),
+    }
+
+
 def dict_value(payload, key):
     value = payload.get(key)
     return value if isinstance(value, dict) else {}
@@ -355,6 +468,11 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
     cancel_probe = dict_value(lifecycle_results, "cancel_all")
     dead_man_probe = dict_value(lifecycle_results, "dead_man")
     lifecycle_derived = dict_value(lifecycle_bundle, "derived_platform_evidence")
+    lifecycle_journals = dict_value(lifecycle_bundle, "journal_evidence")
+    user_stream_journals = dict_value(
+        lifecycle_bundle,
+        "user_stream_journal_evidence",
+    )
     lifecycle_bundle_hash = str(lifecycle_bundle.get("bundle_sha256") or "")
     lifecycle_bundle_budget = maybe_float(lifecycle_bundle.get("requested_budget_usdc"))
     cancel_probe_notional = maybe_float(cancel_probe.get("order_notional_usdc"))
@@ -435,7 +553,8 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             == open_order_count,
         )),
         "stage1_lifecycle_bundle_schema_supported": (
-            lifecycle_bundle.get("schema_version") == "mm_stage1_lifecycle_bundle_v0.2"
+            lifecycle_bundle.get("schema_version")
+            == STAGE1_LIFECYCLE_BUNDLE_SCHEMA_VERSION
         ),
         "stage1_lifecycle_bundle_status_pass": lifecycle_bundle.get("status") == "PASS",
         "stage1_lifecycle_bundle_created_recent": recent_utc_timestamp(
@@ -476,7 +595,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             and (pilot_wallet_cap is None or lifecycle_bundle_budget <= pilot_wallet_cap)
         ),
         "stage1_cancel_all_probe_verified": all((
-            cancel_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
+            cancel_probe.get("schema_version") == LIVE_LIFECYCLE_PROBE_SCHEMA_VERSION,
             cancel_probe.get("status") == "PASS",
             recent_utc_timestamp(cancel_probe.get("completed_at_utc"), now, max_age_hours),
             cancel_probe.get("platform") == "polymarket_global",
@@ -498,7 +617,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             len(str(cancel_probe.get("journal_sha256") or "")) == 64,
         )),
         "stage1_dead_man_probe_verified": all((
-            dead_man_probe.get("schema_version") == "mm_live_lifecycle_probe_v0.2",
+            dead_man_probe.get("schema_version") == LIVE_LIFECYCLE_PROBE_SCHEMA_VERSION,
             dead_man_probe.get("status") == "PASS",
             recent_utc_timestamp(dead_man_probe.get("completed_at_utc"), now, max_age_hours),
             dead_man_probe.get("platform") == "polymarket_global",
@@ -527,7 +646,7 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         ),
         "stage1_probe_identity_and_budget_match": all((
             lifecycle_bundle.get("bootstrap_schema_version")
-            == "mm_platform_bootstrap_v0.3",
+            == PLATFORM_BOOTSTRAP_SCHEMA_VERSION,
             cancel_probe.get("bootstrap_schema_version")
             == lifecycle_bundle.get("bootstrap_schema_version"),
             dead_man_probe.get("bootstrap_schema_version")
@@ -561,6 +680,18 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             and private_stream.get("no_fill_lifecycle_verified") is True,
             lifecycle_derived.get("final_state_reconciliation_verified") is True
             and private_stream.get("final_state_reconciliation_verified") is True,
+            lifecycle_derived.get("terminal_order_rest_verified") is True
+            and private_stream.get("terminal_order_rest_verified") is True,
+            lifecycle_derived.get("account_trades_rest_verified") is True
+            and private_stream.get("account_trades_rest_verified") is True,
+            lifecycle_derived.get("final_user_stream_journals_verified") is True
+            and private_stream.get("final_user_stream_journals_verified") is True,
+            lifecycle_derived.get("action_time_collateral_verified") is True
+            and private_stream.get("action_time_collateral_verified") is True,
+            lifecycle_derived.get("no_fill_collateral_reconciliation_verified")
+            is True
+            and private_stream.get("no_fill_collateral_reconciliation_verified")
+            is True,
             lifecycle_derived.get("cancel_all_request_verified") is True
             and cancel_all.get("request_verified") is True,
             lifecycle_derived.get("cancel_all_zero_open_orders_verified") is True
@@ -596,6 +727,26 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
         ),
         "private_user_stream_final_state_reconciliation_verified": bool_value(
             private_stream.get("final_state_reconciliation_verified"),
+            False,
+        ),
+        "private_user_stream_terminal_order_rest_verified": bool_value(
+            private_stream.get("terminal_order_rest_verified"),
+            False,
+        ),
+        "private_user_stream_account_trades_rest_verified": bool_value(
+            private_stream.get("account_trades_rest_verified"),
+            False,
+        ),
+        "private_user_stream_final_journals_verified": bool_value(
+            private_stream.get("final_user_stream_journals_verified"),
+            False,
+        ),
+        "private_user_stream_action_time_collateral_verified": bool_value(
+            private_stream.get("action_time_collateral_verified"),
+            False,
+        ),
+        "private_user_stream_no_fill_collateral_reconciliation_verified": bool_value(
+            private_stream.get("no_fill_collateral_reconciliation_verified"),
             False,
         ),
         "cancel_all_verified": bool_value(payload.get("cancel_all_verified"), False),
@@ -677,6 +828,46 @@ def load_platform_verification_gate(path, target_date, mode, now=None, requested
             in {str(url).rstrip("/") for url in source_urls}
         ),
     }
+    cancel_hardening = _stage1_probe_hardening_checks(
+        cancel_probe,
+        dict_value(lifecycle_journals, "cancel_all"),
+        dict_value(user_stream_journals, "cancel_all"),
+        lifecycle_budget=lifecycle_bundle_budget,
+        wallet_cap=pilot_wallet_cap,
+    )
+    dead_man_hardening = _stage1_probe_hardening_checks(
+        dead_man_probe,
+        dict_value(lifecycle_journals, "dead_man"),
+        dict_value(user_stream_journals, "dead_man"),
+        lifecycle_budget=lifecycle_bundle_budget,
+        wallet_cap=pilot_wallet_cap,
+    )
+    checks.update({
+        f"stage1_cancel_all_{name}": passed
+        for name, passed in cancel_hardening.items()
+    })
+    checks.update({
+        f"stage1_dead_man_{name}": passed
+        for name, passed in dead_man_hardening.items()
+    })
+    journal_paths = (
+        cancel_probe.get("journal_path"),
+        dead_man_probe.get("journal_path"),
+        cancel_probe.get("user_stream_journal_path"),
+        dead_man_probe.get("user_stream_journal_path"),
+    )
+    journal_hashes = (
+        cancel_probe.get("journal_sha256"),
+        dead_man_probe.get("journal_sha256"),
+        cancel_probe.get("user_stream_journal_sha256"),
+        dead_man_probe.get("user_stream_journal_sha256"),
+    )
+    checks["stage1_lifecycle_and_user_stream_journals_are_distinct"] = all((
+        all(non_empty_text(value) for value in journal_paths),
+        len(set(journal_paths)) == len(journal_paths),
+        all(_is_sha256(value) for value in journal_hashes),
+        len(set(journal_hashes)) == len(journal_hashes),
+    ))
     missing = [name for name, ok in checks.items() if not ok]
     return {
         "required": True,

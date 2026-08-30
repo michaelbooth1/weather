@@ -53,6 +53,12 @@ VARIANT_CONTRACT_FIELDS = (
     "live_runtime",
 )
 FEATURE_SCHEMA_RE = re.compile(r"^(?P<family>.+)_v(?P<major>\d+)(?:\.(?P<minor>\d+))?$")
+GIT_LFS_POINTER_MAX_BYTES = 512
+GIT_LFS_POINTER_RE = re.compile(
+    rb"\Aversion https://git-lfs\.github\.com/spec/v1\n"
+    rb"oid sha256:([0-9a-f]{64})\n"
+    rb"size (0|[1-9][0-9]*)\n\Z"
+)
 
 
 class CandidateArtifactPathError(ValueError):
@@ -425,6 +431,34 @@ def sha256_file(path: str | Path) -> str:
     return hasher.hexdigest()
 
 
+def _git_lfs_pointer_identity(path: Path) -> tuple[int, str] | None:
+    """Return the logical object identity for one canonical LFS pointer.
+
+    Materialized LFS objects return ``None`` and retain the ordinary byte/hash
+    path. Pointer-like content is rejected unless it is the exact three-line
+    Git LFS v1 form used by this repository.
+    """
+
+    with path.open("rb") as handle:
+        candidate = handle.read(GIT_LFS_POINTER_MAX_BYTES + 1)
+    if len(candidate) <= GIT_LFS_POINTER_MAX_BYTES:
+        match = GIT_LFS_POINTER_RE.fullmatch(candidate)
+        if match is not None:
+            return int(match.group(2)), match.group(1).decode("ascii")
+    pointer_like = (
+        b"git-lfs.github.com/spec/" in candidate
+        or candidate.startswith(b"oid sha256:")
+        or (
+            candidate.startswith(b"version ")
+            and b"\noid " in candidate
+            and b"\nsize " in candidate
+        )
+    )
+    if pointer_like:
+        raise ValueError(f"malformed Git LFS pointer: {path}")
+    return None
+
+
 def artifact_kind(path: str | Path) -> str:
     path = Path(path)
     name = path.name
@@ -645,6 +679,9 @@ def artifact_record(
     path = Path(path)
     root = Path(root)
     stat = path.stat()
+    lfs_pointer_identity = (
+        _git_lfs_pointer_identity(path) if git_lfs_tracked else None
+    )
     try:
         artifact_id = path.relative_to(root).as_posix()
     except ValueError:
@@ -656,7 +693,11 @@ def artifact_record(
     registry_use = _registry_use(refs, path)
     storage_backend = _storage_backend(path, git_lfs_tracked=git_lfs_tracked)
     storage_managed = storage_backend in EXTERNALIZED_BACKENDS
-    bytes_value = int(stat.st_size)
+    if lfs_pointer_identity is None:
+        bytes_value = int(stat.st_size)
+        sha256 = sha256_file(path)
+    else:
+        bytes_value, sha256 = lfs_pointer_identity
     return {
         "artifact_id": artifact_id,
         "path": repo_path,
@@ -671,7 +712,7 @@ def artifact_record(
         "registry_use": registry_use,
         "reproducibility_requirement": _reproducibility_requirement(registry_use, kind),
         "variant_refs": refs,
-        "sha256": sha256_file(path),
+        "sha256": sha256,
         "modified_at_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
         "schema_version": versions.get("schema_version"),
         "feature_schema_version": versions.get("feature_schema_version"),

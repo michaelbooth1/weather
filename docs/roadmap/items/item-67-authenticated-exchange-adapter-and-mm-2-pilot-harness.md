@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-23 - FIXED-SCOPE STAGE 0/1 SOFTWARE INTEGRATED; LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-27 - PORTABLE EXECUTOR CANDIDATE UNQUALIFIED; LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -43,8 +43,9 @@ behavior before any size increase.
   contract audit on 2026-08-14; production wallet and exchange evidence
   remain separate open gates.
 - [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
-  production execution host. Do not add a generic repository live
-  mutation CLI to close this item.
+  selected exact execution host using either the capture-colocated or portable
+  profile. Do not add a generic repository live mutation CLI to close this
+  item.
 - [x] Add report-side paid-vs-predicted reconciliation for maker rebates,
   liquidity rewards, redemptions, fees, pUSD/USDC balances, and settlement P&L
   before any size increase.
@@ -543,3 +544,74 @@ open: no fresh safe candidate, production-bound Stage 0 identity/doctor,
 authenticated bootstrap, supervised Stage 1 cancellation probes, order, fill,
 fee, rebate, position, settlement, or P&L evidence exists. The old prepared
 host templates must not substitute for a newly sealed current attempt.
+
+## 2026-08-23 credential reconciliation repair
+
+The owner-approved live-readiness closure subsequently landed at
+`4feef39a44f920affcb05387a8882fb5f735cfa0` with capture and execution-tape
+recovery plus remote acknowledgement. An attended credential-import attempt
+then passed every offline source, signer, and topology check but refused before
+mutation because one or more fixed Credential Manager entries already existed;
+it wrote and overwrote zero entries.
+
+The follow-up repair adds an explicit compare-only mode with a separate literal
+confirmation. It requires all four fixed entries to exist and match the
+independently retained source, reads and compares every value only in-process,
+and never calls the writer or deleter. A versioned secret-free receipt
+distinguishes four new writes from four exact existing-value verifications, and
+the fixed-scope sealer accepts only either truthful all-four tuple. This local
+vault proof remains separate from authenticated doctor, account, eligibility,
+candidate, Stage 0/1, and live lifecycle evidence; no exchange call or order is
+part of credential reconciliation.
+
+## 2026-08-27 portable execution-host candidate
+
+The operator reopened the former one-PC topology because daytime memory
+pressure on the 16 GB capture host is a technical obstacle to an attended live
+test. Candidate branch `codex/portable-execution-host-clean-20260827`
+separates the existing capture-colocated profile from one execution-only
+Windows-host profile. The portable profile keeps exact Git/source/interpreter/SDK,
+credential, geography, account, balance/allowance, zero-state, order,
+cancellation, deadline, cleanup, budget, and attended-confirmation gates. It
+does not consume the other PC's capture/tape/streak state or timetable and
+cannot claim capture-health evidence.
+
+The candidate also adds a stable Windows-installation identity, fresh
+host-bound compare-only credential receipts, an execution-only clock/reboot
+audit, and a create-only public SDK export/import path. Moving again requires a
+new clone and venv, SDK import, host-local WinCred preparation, host audit,
+candidate, and all three attempt lineages. The candidate has not passed its
+focused or bounded suites, has not been published or merged, and has contacted
+neither credentials nor the exchange. It closes no live-evidence checkbox
+until exact-tip qualification, guarded production adoption, and on-host
+provisioning all pass.
+
+The final static audit covered code tip
+`0c0b71e2930fb947dc272753be9353008bef2244`. Its five-commit linear restack
+starts at exact production `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`,
+contains exactly 86 reviewed paths, and excludes every unrelated overnight,
+Scheduler, one-shot, hook, and integration-attempt path and ancestor. Python,
+PowerShell, JSON, import/schema, template-marker, identity, status, SDK cleanup,
+and runbook consistency checks passed, including independent code and lineage
+reviews. No runtime test, credential access, exchange contact, Scheduler
+mutation, production edit, publication, or merge occurred; this is static
+review evidence, not runtime qualification.
+
+## 2026-08-28 portable publication and second-PC transfer
+
+The clean candidate's audit tip
+`996f16fc68588f8304cf1c22f4734c543ea9e23a` is published from exact production
+`788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`. [Draft PR #3](https://github.com/michaelbooth1/weather/pull/3)
+tracks the final branch head; CI evidence must bind that head. Runtime
+qualification, the canonical production roll verdict, and merge evidence do
+not yet exist. The schema change is not additive-only, so the production-host
+`roll_verdict.ps1` result and its guarded integration path remain mandatory.
+
+The selected 32 GB Windows PC then imported the separately verified Google
+Drive LFS transfer without GitHub LFS traffic. Its portable clone is clean at
+production `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`, with all 26 tracked HGB
+objects materialized. Fixed local media, CPython 3.11.9 x64, machine-wide
+Git/LFS, and the canonical HTTPS origin pass. Clock service, pending reboot,
+automatic proxy discovery, venv, public SDK, tracked assignment, host-local
+WinCred entries, and fresh live-attempt evidence remain open. No credential
+value or exchange endpoint was accessed during this inspection.

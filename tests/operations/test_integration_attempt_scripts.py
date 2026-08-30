@@ -5,9 +5,15 @@ from pathlib import Path
 import shutil
 import subprocess
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 OPS = ROOT / "scripts" / "ops"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
 SCRIPTS = {
     name: OPS / name
     for name in (
@@ -214,6 +220,7 @@ def test_recovery_dispatch_is_reviewed_non_mutating_and_single_use() -> None:
     assert "git commit" not in dispatch.lower()
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_orchestration_repair_scope_excludes_governing_policy_documents() -> None:
     env = os.environ.copy()
     env["WEATHER_ATTEMPT_CONTRACT"] = str(
@@ -272,6 +279,7 @@ $paths = @(
     }
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
     tmp_path: Path,
 ) -> None:
@@ -422,6 +430,7 @@ def test_recovery_dispatch_writes_one_hash_bound_successor_instruction(
     assert "already exists" in refused.stderr.lower()
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_closer_uses_registration_receipt_when_orchestration_helpers_drift(
     tmp_path: Path,
 ) -> None:
@@ -644,6 +653,7 @@ def test_merged_unverified_reconciliation_is_immutable_and_non_authorizing() -> 
     assert "receipt.manifest_path" in contract
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_manifest_contract_accepts_canonical_paths_and_rejects_tampering(
     tmp_path: Path,
 ) -> None:
@@ -744,6 +754,7 @@ catch {
     assert "manifest hash mismatch" in rejected.stderr.lower()
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_immutable_writer_allows_exactly_one_concurrent_claim(tmp_path: Path) -> None:
     target = tmp_path / "claim.json"
     base_env = os.environ.copy()
@@ -779,6 +790,7 @@ Write-WeatherIntegrationImmutableJson `
     assert json.loads(target.read_text(encoding="utf-8"))["writer"] in {"one", "two"}
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_suite_wait_decision_waits_for_running_task_and_fails_only_at_deadline() -> None:
     env = os.environ.copy()
     env["WEATHER_ATTEMPT_CONTRACT"] = str(SCRIPTS["integration_attempt_contract.ps1"])
@@ -833,6 +845,7 @@ $cases = @(
     ]
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_log_verdict_helper_executes_and_rejects_false_chunk_ratios(
     tmp_path: Path,
 ) -> None:
@@ -924,6 +937,7 @@ catch { $prefixedPreflightRejected = $_.Exception.Message -like '*exact PASS ver
     assert payload["prefixed_preflight_rejected"] is True
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_schedule_helper_rejects_invalid_and_ambiguous_eastern_times() -> None:
     env = os.environ.copy()
     env["WEATHER_ATTEMPT_CONTRACT"] = str(
@@ -995,6 +1009,7 @@ catch { $directUtcRejected = $_.Exception.Message -like '*without a UTC marker*'
     }
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_git_baseline_gate_detects_production_advance(tmp_path: Path) -> None:
     repo_root = tmp_path / "baseline-repo"
     subprocess.run(
@@ -1070,6 +1085,7 @@ catch { $failed = $_.Exception.Message -like '*baseline changed after attempt fr
     assert json.loads(result.stdout) == {"pass": True, "rejected_advance": True}
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_repair_manifest_requires_exact_single_successor_claim(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     prior_root = tmp_path / "prior"
@@ -1243,6 +1259,7 @@ $result = Assert-WeatherIntegrationAttemptManifest `
     assert "successor claim does not bind" in rejected.stderr.lower()
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_creator_rejects_equal_tree_commit_and_claims_one_exact_retry(
     tmp_path: Path,
 ) -> None:
@@ -1447,6 +1464,7 @@ def test_creator_rejects_equal_tree_commit_and_claims_one_exact_retry(
     assert "already has a successor claim" in sibling.stderr.lower()
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_integration_attempt_powershell_sources_parse_without_execution() -> None:
     env = os.environ.copy()
     env["WEATHER_INTEGRATION_ATTEMPT_SCRIPTS"] = os.pathsep.join(

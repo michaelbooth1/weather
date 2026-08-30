@@ -20,6 +20,9 @@ commands or policies into another guide.
 - [Host Load Policy](HOST_LOAD_POLICY.md) defines the protected capture window,
   resource limits, and the single-host training window. It owns the *policy*;
   the Operating Reference owns the *current numbers*.
+- [Portable Live Execution Host](PORTABLE_LIVE_EXECUTION_HOST.md) owns the
+  second-PC provisioning, public SDK transfer, exact host binding, and
+  relocation procedure for the attended International Stage 0/1 lane.
 - [Module Ownership Map](module-ownership-map.md) and
   [Package Boundaries](package-boundaries.md) route code changes to their
   owning subsystems.

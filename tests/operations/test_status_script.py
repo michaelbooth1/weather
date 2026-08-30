@@ -3,8 +3,26 @@ import os
 from pathlib import Path
 import subprocess
 
+import pytest
+
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
+WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
+    os.name != "nt",
+    reason="requires Windows PowerShell",
+)
+
+
+def test_status_paths_are_derived_from_the_invoked_checkout_and_user_profile() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert (
+        "[string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))"
+        in text
+    )
+    assert "$repo = [IO.Path]::GetFullPath($RepoRoot)" in text
+    assert 'Join-Path $env:USERPROFILE "ops\\mirror_status.json"' in text
+    assert "C:\\Users\\micha" not in text
 
 
 def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
@@ -108,6 +126,7 @@ def test_integration_attempt_recovery_states_are_operator_visible() -> None:
     assert 'Write-Output "  ATTEMPTS  :"' in text
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_integration_attempt_alert_lifecycle_executes_without_running_status() -> None:
     env = os.environ.copy()
     env["WEATHER_STATUS_SCRIPT"] = str(SCRIPT)
@@ -189,6 +208,7 @@ $cases = @(
     }
 
 
+@WINDOWS_POWERSHELL_REQUIRED
 def test_attempt_observation_distinguishes_running_interrupted_and_missed(
     tmp_path: Path,
 ) -> None:

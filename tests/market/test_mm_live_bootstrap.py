@@ -1,9 +1,14 @@
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
+from weather.market import mm_geographic_eligibility as geography
+from weather.market import mm_live_bootstrap as bootstrap_module
 from weather.market.mm_live_bootstrap import (
+    SCHEMA_VERSION,
     account_snapshot_sha256,
     collect_platform_bootstrap_payload,
     finalize_platform_bootstrap_payload,
@@ -15,6 +20,45 @@ ADDRESS = "0x0000000000000000000000000000000000000001"
 SIGNER_ADDRESS = "0x0000000000000000000000000000000000000002"
 CONDITION_ID = "0x" + "1" * 64
 TOKEN_ID = "12345"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def geographic_receipt(checked_at=NOW):
+    checked = datetime.fromisoformat(str(checked_at)).astimezone(timezone.utc)
+    decision = {"blocked": False, "country": "GB", "region": "ENG"}
+    receipt = {
+        "agreement": True,
+        "blocker_code": None,
+        "checked_at_utc": geography._iso_utc(checked),
+        "eligible": True,
+        "endpoint": geography.GEOBLOCK_ENDPOINT,
+        "fresh_until_utc": geography._iso_utc(
+            checked + timedelta(seconds=geography.MAX_RECEIPT_AGE_SECONDS)
+        ),
+        "freshness_max_age_seconds": geography.MAX_RECEIPT_AGE_SECONDS,
+        "official": {**decision, "decision_sha256": geography._canonical_digest(decision)},
+        "operator_attestation": {
+            "confirmation": geography.PHYSICAL_LOCATION_CONFIRMATION,
+            "no_circumvention": True,
+            "physical_location_eligible": True,
+        },
+        "privacy": {
+            "source_address_retained": False,
+            "secret_values_retained": False,
+        },
+        "receipt_payload_sha256": None,
+        "response_binding": {
+            "body_bytes": 80,
+            "redacted_body_sha256": geography._canonical_digest(decision),
+            "content_type": "application/json",
+            "final_url": geography.GEOBLOCK_ENDPOINT,
+            "http_status": 200,
+        },
+        "schema_version": geography.RECEIPT_SCHEMA_VERSION,
+        "status": "PASS",
+    }
+    receipt["receipt_payload_sha256"] = geography._payload_digest(receipt)
+    return receipt
 
 
 def stage0_identity():
@@ -39,7 +83,7 @@ def stage0_identity():
 
 def bootstrap_payload():
     payload = {
-        "schema_version": "mm_platform_bootstrap_v0.3",
+        "schema_version": "mm_platform_bootstrap_v0.4",
         "status": "PASS",
         "verified_at_utc": NOW,
         "verified_for_target_date": TARGET_DATE,
@@ -84,14 +128,31 @@ def bootstrap_payload():
             "zero_positions_verified": True,
             "position_count": 0,
         },
+        "mutation_geographic_eligibility": {
+            key: value
+            for key, value in geographic_receipt().items()
+            if key
+            in {
+                "status",
+                "eligible",
+                "endpoint",
+                "receipt_payload_sha256",
+                "checked_at_utc",
+                "fresh_until_utc",
+                "freshness_max_age_seconds",
+            }
+        },
         "market_snapshot": {
             "condition_id": CONDITION_ID,
             "token_id": TOKEN_ID,
             "book_verified": True,
             "fee_eligibility_verified": True,
+            "fee_rate_bps": 500,
+            "candidate_fee_rate": 0.05,
             "min_order_size": 5,
             "tick_size": 0.01,
             "neg_risk": False,
+            "candidate_neg_risk": False,
         },
         "user_stream": {
             "account_wide_subscription_sent": True,
@@ -199,6 +260,73 @@ def test_bootstrap_gate_accepts_fresh_exact_no_order_authenticated_write_proof(
     assert gate["ok"]
     assert gate["missing"] == []
     assert gate["platform"] == "polymarket_global"
+
+
+def test_bootstrap_gate_refuses_the_published_v03_contract(tmp_path):
+    payload = finalized_bootstrap_payload(tmp_path, name="legacy-v03")
+    payload["schema_version"] = "mm_platform_bootstrap_v0.3"
+    path = write_payload(tmp_path / "legacy-v03.json", payload)
+
+    gate = load_platform_bootstrap_gate(
+        path,
+        TARGET_DATE,
+        requested_budget_usdc=100,
+        expected_token_id=TOKEN_ID,
+        expected_condition_id=CONDITION_ID,
+        now=NOW,
+    )
+
+    assert SCHEMA_VERSION == "mm_platform_bootstrap_v0.4"
+    assert gate["ok"] is False
+    assert "schema_version_supported" in gate["missing"]
+
+
+def test_bootstrap_research_template_tracks_the_active_contract():
+    payload = json.loads(
+        (
+            REPO_ROOT / "docs" / "research" / "mm_platform_bootstrap_template.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert payload["schema_version"] == SCHEMA_VERSION
+    assert set(payload["mutation_geographic_eligibility"]) == {
+        "status",
+        "eligible",
+        "endpoint",
+        "receipt_payload_sha256",
+        "checked_at_utc",
+        "fresh_until_utc",
+        "freshness_max_age_seconds",
+    }
+    assert payload["market_snapshot"]["candidate_fee_rate"] is None
+    assert payload["market_snapshot"]["candidate_neg_risk"] is None
+
+
+def test_bootstrap_gate_rejects_zero_fee_or_candidate_neg_risk_drift(tmp_path):
+    cases = (
+        ("zero-fee", {"fee_rate_bps": 0}, "market_fee_rate_positive"),
+        (
+            "neg-risk-drift",
+            {"neg_risk": True},
+            "market_candidate_neg_risk_matches_current",
+        ),
+    )
+    for name, change, expected_missing in cases:
+        payload = finalized_bootstrap_payload(tmp_path, name=name)
+        payload["market_snapshot"].update(change)
+        path = write_payload(tmp_path / f"{name}.json", payload)
+
+        gate = load_platform_bootstrap_gate(
+            path,
+            TARGET_DATE,
+            requested_budget_usdc=100,
+            expected_token_id=TOKEN_ID,
+            expected_condition_id=CONDITION_ID,
+            now=NOW,
+        )
+
+        assert gate["ok"] is False
+        assert expected_missing in gate["missing"]
 
 
 def test_persisted_active_stream_boolean_cannot_authorize_stage1(tmp_path):
@@ -330,7 +458,27 @@ def test_finite_stage0_gate_rejects_a_modified_final_journal(tmp_path):
     assert "user_stream_final_journal_content_bound" in gate["missing"]
 
 
-def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path):
+def test_collector_converts_atomic_collateral_and_produces_passing_gate(
+    tmp_path,
+    monkeypatch,
+):
+    boundary_events = []
+    geography_validation_count = 0
+    original_geography_validator = (
+        bootstrap_module.validate_geographic_eligibility_receipt
+    )
+
+    def count_geography_validation(*args, **kwargs):
+        nonlocal geography_validation_count
+        geography_validation_count += 1
+        return original_geography_validator(*args, **kwargs)
+
+    monkeypatch.setattr(
+        bootstrap_module,
+        "validate_geographic_eligibility_receipt",
+        count_geography_validation,
+    )
+
     class Client:
         signer = SIGNER_ADDRESS
 
@@ -412,6 +560,7 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
                 "min_order_size": "5",
                 "tick_size": "0.01",
                 "neg_risk": False,
+                "fee_rate_bps": "500",
                 "best_bid": "0.49",
                 "best_ask": "0.51",
             }
@@ -420,6 +569,7 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
             return {"token_id": TOKEN_ID, "fee_rate_bps": 500}
 
         def preview_signed_order(self, intent, *, expected_signature_type_id):
+            boundary_events.append("signed_preview")
             assert intent == {
                 "token_id": TOKEN_ID,
                 "price": "0.01",
@@ -440,10 +590,12 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
             }
 
         def heartbeat(self):
+            boundary_events.append("heartbeat")
             self.heartbeat_calls += 1
             return {"status": "ok"}
 
         def cancel_all(self):
+            boundary_events.append("cancel_all")
             return {"canceled": []}
 
         def diagnostics(self):
@@ -464,6 +616,11 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
 
     clock = Clock()
     user_stream = UserStream(tmp_path / "collector-user-stream.jsonl")
+
+    def attest_at_mutation_boundary():
+        boundary_events.append("geography")
+        return geographic_receipt()
+
     payload = collect_platform_bootstrap_payload(
         Adapter(),
         user_stream,
@@ -475,7 +632,11 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
             "direct_secret_environment_absent_verified": True,
             "diagnostic_redaction_verified": True,
         },
+        expected_candidate_fee_rate=0.05,
+        expected_candidate_neg_risk=False,
+        pre_mutation_attestor=attest_at_mutation_boundary,
         now=NOW,
+        utc_clock=lambda: datetime.fromisoformat(NOW),
         monotonic_clock=clock,
         sleeper=clock.sleep,
     )
@@ -497,6 +658,17 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(tmp_path
     assert payload["dead_man_heartbeat"]["acknowledgment_count"] == 2
     assert payload["wallet_identity"]["signed_order_preview_verified"] is True
     assert payload["wallet_identity"]["signed_order_preview_signature_retained"] is False
+    assert payload["market_snapshot"]["candidate_fee_rate"] == 0.05
+    assert payload["market_snapshot"]["candidate_neg_risk"] is False
+    assert payload["mutation_geographic_eligibility"]["status"] == "PASS"
+    assert boundary_events == [
+        "signed_preview",
+        "geography",
+        "heartbeat",
+        "heartbeat",
+        "cancel_all",
+    ]
+    assert geography_validation_count == 4
     assert gate["ok"], gate["missing"]
 
 

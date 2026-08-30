@@ -1,5 +1,5 @@
 {
-  "schema_version": "mm_platform_bootstrap_v0.3",
+  "schema_version": "mm_platform_bootstrap_v0.4",
   "status": "TEMPLATE_FAIL_SAFE",
   "verified_at_utc": null,
   "verified_for_target_date": null,
@@ -44,14 +44,26 @@
     "zero_positions_verified": false,
     "position_count": null
   },
+  "mutation_geographic_eligibility": {
+    "status": "TEMPLATE_FAIL_SAFE",
+    "eligible": false,
+    "endpoint": "https://polymarket.com/api/geoblock",
+    "receipt_payload_sha256": null,
+    "checked_at_utc": null,
+    "fresh_until_utc": null,
+    "freshness_max_age_seconds": 60
+  },
   "market_snapshot": {
     "condition_id": null,
     "token_id": null,
     "book_verified": false,
     "fee_eligibility_verified": false,
+    "fee_rate_bps": null,
+    "candidate_fee_rate": null,
     "min_order_size": null,
     "tick_size": null,
-    "neg_risk": null
+    "neg_risk": null,
+    "candidate_neg_risk": null
   },
   "user_stream": {
     "account_wide_subscription_sent": false,

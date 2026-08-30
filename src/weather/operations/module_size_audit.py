@@ -128,6 +128,11 @@ OWNERSHIP_NOTES = {
         "boundary": "Verified experiment selection, host admission, isolated workspace construction, output validation, resource measurement, and candidate publication.",
         "next_split": "Extract bounded workspace copy, fingerprint, and cleanup mechanics into an experiment workspace module; keep claim, admission, execution, and publication policy fail-closed.",
     },
+    "src/weather/operations/international_live_wrapper_sealer.py": {
+        "owner": "operations",
+        "boundary": "Fixed-scope International Stage 0/1 prerequisite validation, deterministic Python and PowerShell wrapper rendering, atomic sealing, receipt and public-inventory construction, and CLI dispatch.",
+        "next_split": "WARN at 2,770 lines in the 2026-08-27 portable execution-host audit. Extract credential-reference and import-receipt, identity, and predecessor-lineage validators into a dependency-light International live evidence-validator module that does not import the sealer; preserve exact-key, schema, hash, and fail-closed refusal contracts.",
+    },
     "src/weather/reporting/daily/daily_learning.py": {
         "owner": "reporting",
         "boundary": "Daily learning synthesis, retrain recommendations, output writing, CLI wiring, and compatibility exports for scorecard helpers.",

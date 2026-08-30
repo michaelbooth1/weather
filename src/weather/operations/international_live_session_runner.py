@@ -20,24 +20,51 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
+from zoneinfo import ZoneInfo
 
+from weather.market.mm_geographic_eligibility import (
+    GeographicEligibilityError,
+    validate_geographic_eligibility_receipt,
+)
+from weather.market.mm_live_lifecycle_probe import (
+    verify_stage1_user_stream_journal,
+)
+from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.operations import international_live_time_window as live_time_window
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
 from weather.operations.live_path_security import (
+    CAPTURE_COLOCATED_HOST_PROFILE,
+    EXECUTION_HOST_PROFILES,
+    PORTABLE_EXECUTION_HOST_PROFILE,
+    assert_no_ambient_market_registry_override,
     canonical_windows_powershell,
     SESSION_BOOTSTRAP_PATHS,
+    current_execution_host_id,
     validate_contained_regular_file,
     validate_nonreparse_directory,
     validate_private_attempt_root,
     validate_regular_nonreparse_file,
 )
+from weather.schema_registry import schema_version
 
 
-SESSION_SCHEMA_VERSION = "international_live_fixed_session_manifest_v0.2"
+SESSION_SCHEMA_VERSION = schema_version("international_live_fixed_session_manifest")
 COMPOSITION_SCHEMA_VERSION = "international_live_session_composition_v0.2"
-RUN_SCHEMA_VERSION = "international_live_session_run_v0.3"
-MAX_SESSION_SECONDS = 120
-MIN_LAUNCH_REMAINING_SECONDS = 90
+RUN_SCHEMA_VERSION = schema_version("international_live_session_run")
+CAPTURE_COLOCATED_SESSION_SECONDS = 120
+PORTABLE_EXECUTION_SESSION_SECONDS = 240
+MAX_SESSION_SECONDS = PORTABLE_EXECUTION_SESSION_SECONDS
+MIN_LAUNCH_REMAINING_SECONDS_BY_PROFILE = {
+    CAPTURE_COLOCATED_HOST_PROFILE: 90,
+    PORTABLE_EXECUTION_HOST_PROFILE: 180,
+}
+MAX_MIN_LAUNCH_REMAINING_SECONDS = max(
+    MIN_LAUNCH_REMAINING_SECONDS_BY_PROFILE.values()
+)
+SESSION_SECONDS_BY_PROFILE = {
+    CAPTURE_COLOCATED_HOST_PROFILE: CAPTURE_COLOCATED_SESSION_SECONDS,
+    PORTABLE_EXECUTION_HOST_PROFILE: PORTABLE_EXECUTION_SESSION_SECONDS,
+}
 LAUNCHER_CLEANUP_MARGIN_SECONDS = 30
 MAX_LAUNCHER_RUNTIME_SECONDS = MAX_SESSION_SECONDS
 COOPERATIVE_CLEANUP_GRACE_SECONDS = (
@@ -58,6 +85,22 @@ class LauncherControlError(SessionCompositionError):
 
 
 LauncherRunner = Callable[[Path], subprocess.CompletedProcess[str]]
+
+
+def _verify_launch_git_state(
+    production: Mapping[str, Any],
+    *,
+    git_runner: fixed_sealer.GitRunner,
+) -> dict[str, Any]:
+    try:
+        return fixed_sealer._verify_git_state(
+            production,
+            git_runner=git_runner,
+        )
+    except fixed_sealer.SealError as exc:
+        raise SessionCompositionError(
+            "live remote production equality failed at launch boundary"
+        ) from exc
 
 
 def _default_overlay_file_provider(
@@ -160,7 +203,7 @@ def _default_launcher_runner(
     ):
         raise SessionCompositionError("launcher absolute deadline is not timezone-aware")
     minimum_start_remaining = float(minimum_start_remaining_seconds)
-    if not 0 <= minimum_start_remaining <= MIN_LAUNCH_REMAINING_SECONDS:
+    if not 0 <= minimum_start_remaining <= MAX_MIN_LAUNCH_REMAINING_SECONDS:
         raise SessionCompositionError("launcher start reserve is outside the fixed bound")
     cleanup_grace = float(cleanup_grace_seconds)
     if not 0 < cleanup_grace <= COOPERATIVE_CLEANUP_GRACE_SECONDS:
@@ -467,6 +510,13 @@ def _child_execution_facts(
                 == str(expected_scope["token_id"]),
                 float(seal_scope.get("requested_budget_pusd"))
                 == float(expected_scope["requested_budget_pusd"]),
+                seal_scope.get("execution_host_profile")
+                == expected_scope["execution_host_profile"],
+                seal_scope.get("execution_host_id")
+                == expected_scope["execution_host_id"],
+                seal_scope.get("market_id") == expected_scope["market_id"],
+                seal_scope.get("market_timezone")
+                == expected_scope["market_timezone"],
                 seal_scope.get("cancellation_mode")
                 == (expected_mode or "not_applicable"),
             )
@@ -474,8 +524,7 @@ def _child_execution_facts(
             raise SessionCompositionError("seal receipt lineage or scope changed")
         if not all(
             (
-                payload.get("schema_version")
-                == "international_live_fixed_scope_execution_v0.4",
+                payload.get("schema_version") == fixed_sealer.EXECUTION_SCHEMA_VERSION,
                 payload.get("stage") == stage,
                 payload.get("status") in {"PASS", "FAIL"},
                 payload.get("production_tip") == expected_production["commit"],
@@ -486,6 +535,10 @@ def _child_execution_facts(
                 == str(expected_scope["token_id"]),
                 float(payload.get("requested_budget_pusd"))
                 == float(expected_scope["requested_budget_pusd"]),
+                payload.get("execution_host_profile")
+                == expected_scope["execution_host_profile"],
+                payload.get("execution_host_id")
+                == expected_scope["execution_host_id"],
                 (
                     expected_mode is None
                     or payload.get("cancellation_mode") == expected_mode
@@ -500,6 +553,8 @@ def _child_execution_facts(
         required_roles = (
             {
                 "doctor_receipt_out",
+                "geography_precredential_receipt_out",
+                "geography_premutation_receipt_out",
                 "bootstrap_out",
                 "command_receipt_out",
                 "user_stream_journal_out",
@@ -507,6 +562,8 @@ def _child_execution_facts(
             if stage == "stage0"
             else {
                 "doctor_receipt_out",
+                "geography_precredential_receipt_out",
+                "geography_presubmit_receipt_out",
                 "result_out",
                 "command_receipt_out",
                 "user_stream_journal_out",
@@ -529,6 +586,20 @@ def _child_execution_facts(
                 or _sha256_file(artifact_path) != artifact.get("sha256")
             ):
                 raise SessionCompositionError("wrapper execution artifact changed")
+            if role.startswith("geography_"):
+                try:
+                    geographic_payload = _read_object(
+                        artifact_path,
+                        "geographic eligibility receipt",
+                    )[0]
+                    validate_geographic_eligibility_receipt(
+                        geographic_payload,
+                        require_fresh=False,
+                    )
+                except GeographicEligibilityError as exc:
+                    raise SessionCompositionError(
+                        "wrapper geographic eligibility artifact is invalid"
+                    ) from exc
         mutation = payload.get("live_mutation_attempted", "UNKNOWN")
         order_submit = payload.get("order_submit_attempted", "UNKNOWN")
         authenticated_write = payload.get(
@@ -542,7 +613,7 @@ def _child_execution_facts(
             raise SessionCompositionError("wrapper execution facts are malformed")
         if payload["status"] == "PASS":
             attestations = payload.get("host_attestations")
-            expected_attestation_count = 2 if stage == "stage0" else 3
+            expected_attestation_count = 3
             expected_flag_hashes = sorted(
                 row["sha256"] for row in seal_scope.get("reviewed_status_flags") or []
             )
@@ -568,6 +639,10 @@ def _child_execution_facts(
                         len(str(row.get("status_json_sha256") or "")) == 64
                         and sorted(row.get("status_flag_sha256") or [])
                         == expected_flag_hashes
+                        and row.get("execution_host_profile")
+                        == expected_scope["execution_host_profile"]
+                        and row.get("execution_host_id")
+                        == expected_scope["execution_host_id"]
                         and bool(row.get("checked_at_local"))
                         for row in (attestations or [])
                     ),
@@ -595,6 +670,12 @@ def _child_execution_facts(
                     "user_stream_journal": str(
                         (attempt_root / output_layout["user_stream_journal"]).resolve()
                     ),
+                    "geography_premutation_receipt": str(
+                        (
+                            attempt_root
+                            / output_layout["geography_premutation_receipt"]
+                        ).resolve()
+                    ),
                 }
                 if stage == "stage0"
                 else {
@@ -610,6 +691,32 @@ def _child_execution_facts(
                     ),
                 }
             )
+            stage0_mutation_geography_bound = True
+            if stage == "stage0":
+                bootstrap_payload = _read_object(
+                    attempt_root / output_layout["bootstrap"],
+                    "Stage 0 bootstrap",
+                )[0]
+                mutation_artifact = artifacts.get(
+                    "geography_premutation_receipt_out", {}
+                )
+                mutation_receipt = _read_object(
+                    Path(str(mutation_artifact.get("path") or "")),
+                    "Stage 0 pre-mutation geography receipt",
+                )[0]
+                bootstrap_geography = bootstrap_payload.get(
+                    "mutation_geographic_eligibility", {}
+                )
+                stage0_mutation_geography_bound = all(
+                    (
+                        bootstrap_payload.get("schema_version")
+                        == "mm_platform_bootstrap_v0.4",
+                        bootstrap_geography.get("status") == "PASS",
+                        bootstrap_geography.get("eligible") is True,
+                        bootstrap_geography.get("receipt_payload_sha256")
+                        == mutation_receipt.get("receipt_payload_sha256"),
+                    )
+                )
             if not all(
                 (
                     command.get("schema_version")
@@ -636,6 +743,23 @@ def _child_execution_facts(
                     ),
                     command.get("authenticated_exchange_write_attempted") is True,
                     command.get("order_submit_attempted") is (stage != "stage0"),
+                    stage0_mutation_geography_bound,
+                    (
+                        (command.get("mutation_geographic_eligibility") or {}).get(
+                            "path"
+                        )
+                        == artifacts.get(
+                            "geography_premutation_receipt_out", {}
+                        ).get("path")
+                        and (
+                            command.get("mutation_geographic_eligibility") or {}
+                        ).get("sha256")
+                        == artifacts.get(
+                            "geography_premutation_receipt_out", {}
+                        ).get("sha256")
+                        if stage == "stage0"
+                        else True
+                    ),
                     topology.get("manifest_wallet_address")
                     == str(reference_manifest.get("wallet_address") or "").lower(),
                     all(
@@ -656,6 +780,13 @@ def _child_execution_facts(
                 ).resolve()
                 validate_contained_regular_file(attempt_root, result_path)
                 result = _read_object(result_path, "Stage 1 result")[0]
+                stream_path = (
+                    attempt_root / output_layout["user_stream_journal"]
+                ).resolve()
+                final_stream_evidence = verify_stage1_user_stream_journal(
+                    stream_path,
+                    result,
+                )
                 result_intent = result.get("intent") or {}
                 try:
                     result_notional = Decimal(str(result.get("order_notional_usdc")))
@@ -674,6 +805,21 @@ def _child_execution_facts(
                     )
                     result_price = Decimal(str(result_intent.get("price")))
                     result_size = Decimal(str(result_intent.get("size")))
+                    collateral_balance = Decimal(
+                        str(result.get("submit_collateral_balance_usdc"))
+                    )
+                    collateral_allowance = Decimal(
+                        str(result.get("submit_collateral_allowance_usdc"))
+                    )
+                    candidate_fee_rate = Decimal(
+                        str(expected_candidate["fee_rate"])
+                    )
+                    result_candidate_fee_rate = Decimal(
+                        str(result.get("candidate_fee_rate"))
+                    )
+                    result_current_fee_rate_bps = Decimal(
+                        str(result.get("current_fee_rate_bps"))
+                    )
                 except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
                     raise SessionCompositionError(
                         "Stage 1 result numeric evidence is invalid"
@@ -681,7 +827,7 @@ def _child_execution_facts(
                 if not all(
                     (
                         result.get("schema_version")
-                        == "mm_live_lifecycle_probe_v0.2",
+                        == "mm_live_lifecycle_probe_v0.3",
                         result.get("status") == "PASS",
                         result.get("platform") == "polymarket_global",
                         result.get("settlement_unit") == "pUSD",
@@ -695,10 +841,27 @@ def _child_execution_facts(
                         result.get("candidate_semantic_plan_sha256")
                         == expected_candidate["semantic_plan_sha256"],
                         result.get("bootstrap_schema_version")
-                        == "mm_platform_bootstrap_v0.3",
+                        == "mm_platform_bootstrap_v0.4",
                         result.get("bootstrap_sha256")
                         == (seal_inputs.get("bootstrap") or {}).get("sha256"),
                         result.get("heartbeat_acknowledged") is True,
+                        result.get("submit_boundary_heartbeat_acknowledged") is True,
+                        result.get("submit_boundary_market_rules_verified") is True,
+                        result.get(
+                            "submit_boundary_geography_before_heartbeat_verified"
+                        )
+                        is True,
+                        result.get(
+                            "post_sign_order_placement_boundary_verified"
+                        )
+                        is True,
+                        result_candidate_fee_rate == candidate_fee_rate,
+                        result_current_fee_rate_bps
+                        == candidate_fee_rate * Decimal("10000"),
+                        result.get("candidate_neg_risk")
+                        is expected_candidate["neg_risk"],
+                        result.get("current_neg_risk")
+                        is expected_candidate["neg_risk"],
                         result.get("starting_zero_open_orders_verified") is True,
                         result.get("starting_zero_positions_verified") is True,
                         result_intent.get("side") == "BUY",
@@ -718,6 +881,24 @@ def _child_execution_facts(
                         result.get("zero_open_orders_verified") is True,
                         result.get("zero_positions_verified") is True,
                         result.get("no_trade_lifecycle_event_observed") is True,
+                        result.get("terminal_rest_order_verified") is True,
+                        result.get("terminal_rest_zero_matched_verified") is True,
+                        result.get("account_trades_rest_verified") is True,
+                        result.get("scoped_account_trade_count") == 0,
+                        result.get("post_cancel_quiescence_seconds") == 2.0,
+                        result.get("collateral_no_fill_reconciliation_verified")
+                        is True,
+                        len(
+                            str(
+                                result.get("submit_collateral_snapshot_sha256")
+                                or ""
+                            )
+                        )
+                        == 64,
+                        result.get("submit_collateral_snapshot_sha256")
+                        == result.get("post_cancel_collateral_snapshot_sha256"),
+                        Decimal("10") <= collateral_balance <= Decimal("100"),
+                        collateral_allowance >= Decimal("10"),
                         result.get("terminal_user_event_observed") is True,
                         result.get("secret_values_redacted") is True,
                         Path(str(result.get("journal_path") or "")).resolve()
@@ -726,6 +907,25 @@ def _child_execution_facts(
                         ).resolve(),
                         result.get("journal_sha256")
                         == artifacts["lifecycle_journal_out"]["sha256"],
+                        Path(
+                            str(result.get("user_stream_journal_path") or "")
+                        ).resolve()
+                        == stream_path,
+                        result.get("user_stream_journal_sha256")
+                        == artifacts["user_stream_journal_out"]["sha256"],
+                        result.get(
+                            "cleanup_final_user_stream_journal_sha256"
+                        )
+                        == artifacts["user_stream_journal_out"]["sha256"],
+                        final_stream_evidence.get("sha256")
+                        == result.get("user_stream_journal_sha256"),
+                        final_stream_evidence.get(
+                            "terminal_stream_stopped_verified"
+                        )
+                        is True,
+                        type(result.get("user_stream_scoped_order_event_count"))
+                        is int,
+                        result.get("user_stream_scoped_order_event_count") >= 2,
                         (
                             result.get("cancel_response_present") is True
                             if expected_mode == "cancel_all"
@@ -803,12 +1003,14 @@ def compose_and_run_live_session(
     seal_function=fixed_sealer.seal_fixed_scope,
     launcher_runner: LauncherRunner = _default_launcher_runner,
     before_launch: Callable[[], None] | None = None,
+    launch_git_runner: fixed_sealer.GitRunner | None = None,
     attempt_root_validator=None,
     clock: Callable[[], datetime] | None = None,
     overlay_file_provider=None,
 ) -> dict[str, Any]:
     """Seal and launch one immutable session while its candidate remains current."""
 
+    assert_no_ambient_market_registry_override()
     current = now or (clock() if clock is not None else datetime.now().astimezone())
     if current.tzinfo is None:
         raise SessionCompositionError("session clock must be timezone-aware")
@@ -837,6 +1039,7 @@ def compose_and_run_live_session(
             "production",
             "scope",
             "inputs",
+            "economics_acceptance",
             "reviewed_status_flags",
             "template_sha256",
             "source_sha256",
@@ -862,17 +1065,42 @@ def compose_and_run_live_session(
             "requested_budget_pusd",
             "attempt_root",
             "lease_workload",
+            "execution_host_profile",
+            "execution_host_id",
+            "market_id",
+            "market_timezone",
             "max_session_seconds",
         },
         "session scope",
     )
+    execution_host_profile = str(scope["execution_host_profile"] or "")
+    execution_host_id = str(scope["execution_host_id"] or "").lower()
+    market = MARKET_REGISTRY.get(str(scope["market_id"] or ""))
+    expected_session_seconds = SESSION_SECONDS_BY_PROFILE.get(
+        execution_host_profile
+    )
+    minimum_launch_remaining_seconds = (
+        MIN_LAUNCH_REMAINING_SECONDS_BY_PROFILE.get(execution_host_profile)
+    )
     if (
-        float(scope["requested_budget_pusd"])
+        execution_host_profile not in EXECUTION_HOST_PROFILES
+        or fixed_sealer.SHA256_RE.fullmatch(execution_host_id) is None
+        or execution_host_id != current_execution_host_id()
+        or market is None
+        or scope["market_timezone"] != market.timezone
+        or (
+            execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+            and manifest["reviewed_status_flags"] != []
+        )
+        or float(scope["requested_budget_pusd"])
         != float(fixed_sealer.FIRST_TEST_REQUESTED_BUDGET_PUSD)
-        or int(scope["max_session_seconds"]) < MIN_LAUNCH_REMAINING_SECONDS
-        or int(scope["max_session_seconds"]) > MAX_SESSION_SECONDS
+        or expected_session_seconds is None
+        or minimum_launch_remaining_seconds is None
+        or int(scope["max_session_seconds"]) != expected_session_seconds
     ):
-        raise SessionCompositionError("session budget or duration exceeds the fixed contract")
+        raise SessionCompositionError(
+            "session host, budget, or duration differs from the fixed contract"
+        )
     production_root = validate_nonreparse_directory(
         str(manifest["production"]["root"])
     )
@@ -917,7 +1145,11 @@ def compose_and_run_live_session(
 
     static_inputs = _exact(
         manifest["inputs"],
-        {"identity", "credential_import_receipt", "credential_reference_manifest"},
+        {
+            "identity", "credential_import_receipt",
+            "credential_reference_manifest", "accepted_economics_snapshot",
+            "economics_drift_report",
+        },
         "session inputs",
     )
     input_records = {
@@ -929,6 +1161,14 @@ def compose_and_run_live_session(
     ).resolve()
     if Path(input_records["identity"]["path"]) != expected_identity:
         raise SessionCompositionError("session identity path is not canonical")
+    for role in ("accepted_economics_snapshot", "economics_drift_report"):
+        expected_path = (
+            attempt_root / fixed_sealer.INPUT_LAYOUTS[stage][role]
+        ).resolve()
+        if Path(input_records[role]["path"]) != expected_path:
+            raise SessionCompositionError(
+                f"session {role.replace('_', ' ')} path is not canonical"
+            )
     input_records.update(_derived_lineage_inputs(stage, attempt_root))
 
     try:
@@ -944,12 +1184,41 @@ def compose_and_run_live_session(
     candidate_raw = candidate_source.read_bytes()
     candidate_hash = _sha256_bytes(candidate_raw)
     candidate_payload, _unused = _read_object(candidate_source, "fresh candidate")
+    try:
+        candidate_gate = fixed_sealer.load_stage1_candidate_gate(
+            candidate_source,
+            str(scope["target_date"]),
+            expected_condition_id=str(scope["condition_id"]).lower(),
+            expected_token_id=str(scope["token_id"]),
+            now=current,
+        )
+    except RuntimeError as exc:
+        raise SessionCompositionError(
+            "fresh candidate failed the canonical constrained gate"
+        ) from exc
+    if candidate_payload.get("economics_acceptance") != manifest[
+        "economics_acceptance"
+    ]:
+        raise SessionCompositionError(
+            "fresh candidate economics acceptance differs from the reviewed manifest"
+        )
     candidate_selected = candidate_payload.get("selected") or {}
+    candidate_paper = candidate_selected.get("paper_quote_proof") or {}
+    if (
+        candidate_selected.get("location_id") != scope["market_id"]
+        or candidate_paper.get("market_id") != scope["market_id"]
+        or candidate_gate.get("market_id") != scope["market_id"]
+    ):
+        raise SessionCompositionError(
+            "fresh candidate market differs from the reviewed session scope"
+        )
     expected_candidate = {
-        "intent": dict(candidate_selected.get("stage1_intent") or {}),
-        "tick_size": candidate_selected.get("tick_size"),
-        "order_min_size": candidate_selected.get("order_min_size"),
-        "semantic_plan_sha256": candidate_payload.get("plan_sha256"),
+        "intent": dict(candidate_gate["stage1_intent"]),
+        "tick_size": candidate_gate["tick_size"],
+        "order_min_size": candidate_gate["order_min_size"],
+        "fee_rate": candidate_gate["fee_rate"],
+        "neg_risk": candidate_gate["neg_risk"],
+        "semantic_plan_sha256": candidate_gate["semantic_plan_sha256"],
     }
     try:
         expires = datetime.fromisoformat(
@@ -966,17 +1235,37 @@ def compose_and_run_live_session(
         current + timedelta(seconds=int(scope["max_session_seconds"])),
         expires.astimezone(current.tzinfo),
     )
-    if not live_time_window.execution_window_is_supported(
-        current,
-        stop,
-        target_date=str(scope["target_date"]),
+    target_date = str(scope["target_date"])
+    contained_end = stop + timedelta(seconds=COOPERATIVE_CLEANUP_GRACE_SECONDS)
+    calendar_timezone = (
+        live_time_window.LIVE_WINDOW_TIMEZONE
+        if execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        else ZoneInfo(str(scope["market_timezone"]))
+    )
+    if any(
+        value.astimezone(calendar_timezone).date().isoformat()
+        != target_date
+        for value in (current, stop, contained_end)
+    ):
+        raise SessionCompositionError(
+            "candidate-derived execution timestamps do not share the target date"
+        )
+    if (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and not live_time_window.execution_window_is_supported(
+            current,
+            stop,
+            target_date=str(scope["target_date"]),
+        )
     ):
         raise SessionCompositionError(
             "candidate-derived execution and cleanup window is outside the "
             "supported 00:30-09:00 America/Toronto live window"
         )
-    if (stop - current).total_seconds() < MIN_LAUNCH_REMAINING_SECONDS:
-        raise SessionCompositionError("fresh candidate leaves too little launch time")
+    if (stop - current).total_seconds() < expected_session_seconds:
+        raise SessionCompositionError(
+            "fresh candidate does not leave the full profile-fixed session envelope"
+        )
     candidate_destination.parent.mkdir(parents=True, exist_ok=True)
     fixed_sealer._write_new(candidate_destination, candidate_raw)
     if _sha256_file(candidate_source) != candidate_hash:
@@ -1001,8 +1290,13 @@ def compose_and_run_live_session(
             "run_not_after_local": stop.isoformat(),
             "attempt_root": str(attempt_root),
             "lease_workload": scope["lease_workload"],
+            "execution_host_profile": execution_host_profile,
+            "execution_host_id": execution_host_id,
+            "market_id": scope["market_id"],
+            "market_timezone": scope["market_timezone"],
         },
         "inputs": input_records,
+        "economics_acceptance": manifest["economics_acceptance"],
         "reviewed_status_flags": manifest["reviewed_status_flags"],
         "template_sha256": manifest["template_sha256"],
         "source_sha256": manifest["source_sha256"],
@@ -1088,10 +1382,20 @@ def compose_and_run_live_session(
         if clock is not None
         else (datetime.now().astimezone() if now is None else current)
     )
-    if not live_time_window.execution_window_is_supported(
-        launch_now,
-        stop,
-        target_date=str(scope["target_date"]),
+    if (
+        launch_now.astimezone(calendar_timezone)
+        .date()
+        .isoformat()
+        != str(scope["target_date"])
+    ):
+        raise SessionCompositionError("launch boundary no longer matches the target date")
+    if (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and not live_time_window.execution_window_is_supported(
+            launch_now,
+            stop,
+            target_date=str(scope["target_date"]),
+        )
     ):
         raise SessionCompositionError(
             "execution and cleanup boundary is outside the supported "
@@ -1104,6 +1408,7 @@ def compose_and_run_live_session(
         target_date=str(scope["target_date"]),
         condition_id=str(scope["condition_id"]).lower(),
         token_id=str(scope["token_id"]),
+        execution_host_profile=execution_host_profile,
         now=launch_now,
         run_stop=stop,
     )
@@ -1114,7 +1419,7 @@ def compose_and_run_live_session(
     effective_deadline_remaining_seconds = (
         min(launch_expiry.astimezone(stop.tzinfo), stop) - launch_now
     ).total_seconds()
-    if effective_deadline_remaining_seconds < MIN_LAUNCH_REMAINING_SECONDS:
+    if effective_deadline_remaining_seconds < minimum_launch_remaining_seconds:
         raise SessionCompositionError(
             "fresh candidate no longer leaves the fixed pre-submit launch reserve"
         )
@@ -1173,6 +1478,14 @@ def compose_and_run_live_session(
             protected_parent
         ).get("status") != "PASS":
             raise SessionCompositionError("sealed artifact directory ACL is not private")
+    boundary_git_runner = launch_git_runner
+    if boundary_git_runner is None and seal_function is fixed_sealer.seal_fixed_scope:
+        boundary_git_runner = fixed_sealer._default_git_runner
+    if boundary_git_runner is not None:
+        _verify_launch_git_state(
+            manifest["production"],
+            git_runner=boundary_git_runner,
+        )
     launcher_timeout_seconds = min(
         MAX_LAUNCHER_RUNTIME_SECONDS,
         effective_deadline_remaining_seconds,
@@ -1191,7 +1504,7 @@ def compose_and_run_live_session(
                 launcher,
                 timeout_seconds=launcher_timeout_seconds,
                 absolute_deadline=stop,
-                minimum_start_remaining_seconds=MIN_LAUNCH_REMAINING_SECONDS,
+                minimum_start_remaining_seconds=minimum_launch_remaining_seconds,
                 protected_files=protected_expected,
             )
         else:
@@ -1239,6 +1552,8 @@ def compose_and_run_live_session(
         "schema_version": RUN_SCHEMA_VERSION,
         "status": terminal_status,
         "stage": stage,
+        "execution_host_profile": execution_host_profile,
+        "execution_host_id": execution_host_id,
         "finished_at_local": datetime.now().astimezone().isoformat(),
         "launcher": seal_result["launcher"],
         "wrapper": seal_result["wrapper"],
