@@ -121,15 +121,18 @@ def _selected_observation(payload: dict, market_id: str) -> dict:
     return observation if isinstance(observation, dict) else {}
 
 
-def _economics_market(payload: dict, market_id: str, target_date: str) -> dict:
-    matches = [
+def _economics_markets(
+    payload: dict,
+    market_id: str,
+    target_date: str,
+) -> list[dict]:
+    return [
         row
         for row in payload.get("markets") or []
         if isinstance(row, dict)
         and row.get("location_id") == market_id
         and row.get("event_date") == target_date
     ]
-    return matches[0] if len(matches) == 1 else {}
 
 
 def _validation_content_is_intact(payload: dict) -> bool:
@@ -275,7 +278,7 @@ def build_preflight(
         max_age_hours=2,
         required=True,
     )
-    economics_market = _economics_market(economics_payload, market_id, target)
+    economics_markets = _economics_markets(economics_payload, market_id, target)
     acceptance = load_economics_acceptance_evidence(
         paths["economics_snapshot"],
         paths["accepted_economics_snapshot"],
@@ -300,15 +303,20 @@ def build_preflight(
         for row in token_rows
         if row.get("condition_id")
     }
-    token_ids = {
-        str(row.get("clob_token_id") or "")
-        for row in token_rows
-        if row.get("clob_token_id")
-    }
-    economics_condition = str(economics_market.get("condition_id") or "").lower()
-    economics_tokens = {
-        str(value) for value in economics_market.get("token_ids") or [] if value
-    }
+    token_condition_tokens: dict[str, set[str]] = {}
+    for row in token_rows:
+        condition = str(row.get("condition_id") or "").lower()
+        token = str(row.get("clob_token_id") or "")
+        if condition and token:
+            token_condition_tokens.setdefault(condition, set()).add(token)
+    economics_condition_tokens: dict[str, set[str]] = {}
+    for row in economics_markets:
+        condition = str(row.get("condition_id") or "").lower()
+        if condition:
+            economics_condition_tokens.setdefault(condition, set()).update(
+                str(value) for value in row.get("token_ids") or [] if value
+            )
+    economics_conditions = set(economics_condition_tokens)
     paper_markets = paper_preflight.get("markets") or []
     paper_market = paper_markets[0] if len(paper_markets) == 1 else {}
     token_times = [
@@ -382,13 +390,24 @@ def build_preflight(
             selected_observation.get("event_slug") == config.event_slug
         ),
         "economics_gate_pass": economics_gate.get("ok") is True,
-        "economics_market_exact": bool(economics_market),
+        "economics_market_exact": (
+            bool(economics_markets)
+            and len(economics_markets) == len(economics_condition_tokens)
+            and all(
+                row.get("event_slug") == config.event_slug
+                and isinstance(row.get("token_ids"), list)
+                and len(row["token_ids"]) == 2
+                and len({str(value) for value in row["token_ids"] if value}) == 2
+                for row in economics_markets
+            )
+        ),
         "economics_condition_matches_tokens": (
-            bool(economics_condition)
-            and token_conditions == {economics_condition}
+            bool(economics_conditions)
+            and token_conditions == economics_conditions
         ),
         "economics_tokens_match_collector": (
-            bool(economics_tokens) and economics_tokens == token_ids
+            bool(economics_condition_tokens)
+            and economics_condition_tokens == token_condition_tokens
         ),
         "economics_acceptance_pass": acceptance.get("drift_status") == "PASS",
         "paper_config_snapshot_root": _same_path(

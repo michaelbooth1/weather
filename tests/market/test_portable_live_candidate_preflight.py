@@ -48,6 +48,7 @@ def _fixture(tmp_path, monkeypatch):
         "markets": [{
             "location_id": MARKET,
             "event_date": TARGET_DATE,
+            "event_slug": config.event_slug,
             "condition_id": CONDITION,
             "token_ids": ["101", "102"],
         }]
@@ -189,6 +190,113 @@ def test_preflight_passes_exact_isolated_public_substrate(tmp_path, monkeypatch)
     assert payload["credential_access"] is False
     assert payload["exchange_contact"] is False
     assert payload["network_access"] is False
+
+
+def test_preflight_passes_multi_bin_event_with_exact_economics_sets(
+    tmp_path,
+    monkeypatch,
+):
+    inputs = _fixture(tmp_path, monkeypatch)
+    second_condition = "0x" + "2" * 64
+    economics_path = inputs["economics_snapshot_path"]
+    economics = json.loads(economics_path.read_text(encoding="utf-8"))
+    economics["markets"].append({
+        "location_id": MARKET,
+        "event_date": TARGET_DATE,
+        "event_slug": preflight.config_for_date(TARGET_DATE, MARKET).event_slug,
+        "condition_id": second_condition,
+        "token_ids": ["201", "202"],
+    })
+    economics_path.write_text(json.dumps(economics), encoding="utf-8")
+    monkeypatch.setattr(preflight, "_latest_token_rows", lambda _folder: [
+        {
+            "captured_at_utc": "2026-08-27T12:00:00+00:00",
+            "condition_id": condition,
+            "clob_token_id": token,
+            "outcome": outcome,
+            "active": True,
+            "closed": False,
+        }
+        for condition, token, outcome in (
+            (CONDITION, "101", "yes"),
+            (CONDITION, "102", "no"),
+            (second_condition, "201", "yes"),
+            (second_condition, "202", "no"),
+        )
+    ])
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "PASS"
+    assert payload["checks"]["economics_market_exact"] is True
+    assert payload["checks"]["economics_condition_matches_tokens"] is True
+    assert payload["checks"]["economics_tokens_match_collector"] is True
+
+
+def test_preflight_rejects_tokens_swapped_between_conditions(
+    tmp_path,
+    monkeypatch,
+):
+    inputs = _fixture(tmp_path, monkeypatch)
+    second_condition = "0x" + "2" * 64
+    economics_path = inputs["economics_snapshot_path"]
+    economics = json.loads(economics_path.read_text(encoding="utf-8"))
+    economics["markets"].append({
+        "location_id": MARKET,
+        "event_date": TARGET_DATE,
+        "event_slug": preflight.config_for_date(TARGET_DATE, MARKET).event_slug,
+        "condition_id": second_condition,
+        "token_ids": ["201", "202"],
+    })
+    economics_path.write_text(json.dumps(economics), encoding="utf-8")
+    monkeypatch.setattr(preflight, "_latest_token_rows", lambda _folder: [
+        {
+            "captured_at_utc": "2026-08-27T12:00:00+00:00",
+            "condition_id": condition,
+            "clob_token_id": token,
+            "outcome": outcome,
+            "active": True,
+            "closed": False,
+        }
+        for condition, token, outcome in (
+            (CONDITION, "101", "yes"),
+            (CONDITION, "201", "no"),
+            (second_condition, "102", "yes"),
+            (second_condition, "202", "no"),
+        )
+    ])
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "BLOCK"
+    assert payload["checks"]["economics_condition_matches_tokens"] is True
+    assert payload["checks"]["economics_tokens_match_collector"] is False
+
+
+def test_preflight_rejects_wrong_economics_event_slug(tmp_path, monkeypatch):
+    inputs = _fixture(tmp_path, monkeypatch)
+    economics_path = inputs["economics_snapshot_path"]
+    economics = json.loads(economics_path.read_text(encoding="utf-8"))
+    economics["markets"][0]["event_slug"] = "wrong-event"
+    economics_path.write_text(json.dumps(economics), encoding="utf-8")
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "BLOCK"
+    assert payload["checks"]["economics_market_exact"] is False
+
+
+def test_preflight_rejects_duplicate_economics_condition(tmp_path, monkeypatch):
+    inputs = _fixture(tmp_path, monkeypatch)
+    economics_path = inputs["economics_snapshot_path"]
+    economics = json.loads(economics_path.read_text(encoding="utf-8"))
+    economics["markets"].append(dict(economics["markets"][0]))
+    economics_path.write_text(json.dumps(economics), encoding="utf-8")
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "BLOCK"
+    assert payload["checks"]["economics_market_exact"] is False
 
 
 def test_preflight_blocks_paper_run_bound_to_another_snapshot_root(
