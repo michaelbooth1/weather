@@ -366,7 +366,7 @@ def validate_private_attempt_root(
     script = r"""
 $ErrorActionPreference='Stop'
 $path=$env:WEATHER_ATTEMPT_ROOT
-$acl=Get-Acl -LiteralPath $path
+$acl=[IO.Directory]::GetAccessControl($path)
 $current=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed=@($current,'S-1-5-18','S-1-5-32-544')
 $danger=[Security.AccessControl.FileSystemRights]::Write -bor

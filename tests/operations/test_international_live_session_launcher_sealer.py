@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import shutil
 import subprocess
+import sys
+import time
 
 import pytest
 
@@ -92,7 +94,12 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     assert "[IO.FileShare]::Read" in text
     assert "source_sha256.psobject.Properties" in text
     assert "Get-ChildItem -LiteralPath $attemptRoot -File -Recurse" in text
-    assert "& $python -I -S -B -c" in text
+    assert "& $python -I -S -B -c" not in text
+    assert "__SESSION_WINDOWS_JOB_HELPER_SHA256__" not in text
+    assert "Start-WeatherInteractiveProcessInJob" in text
+    assert text.index("$child.WaitForExit()") < text.index(
+        "$job.TerminateAndWait(5000)"
+    )
     assert "PYTHONPATH" not in text
     assert receipt["production_python"]["sha256"] == sha(
         repo / "venv/Scripts/python.exe"
@@ -114,6 +121,127 @@ def test_preparer_writes_no_argument_hash_bound_launcher_and_review_receipt(tmp_
     assert receipt["session_manifest"]["semantic_sha256"] == json.loads(
         manifest.read_text(encoding="utf-8")
     )["manifest_sha256"]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_forced_outer_launcher_exit_kills_session_runner_tree(tmp_path):
+    repo = tmp_path / "production"
+    python = Path(sys.executable).resolve()
+    site_packages = python.parent.parent / "Lib/site-packages"
+    if not site_packages.is_dir():
+        pytest.skip("test interpreter does not use the required Windows venv layout")
+
+    job_relative = fixed_sealer.WINDOWS_JOB_HELPER_PATH
+    job_script = repo / job_relative
+    job_script.parent.mkdir(parents=True)
+    shutil.copyfile(fixed_sealer.REPO_ROOT / job_relative, job_script)
+
+    runner_relative = "src/weather/operations/international_live_session_runner.py"
+    runner_source = repo / runner_relative
+    runner_source.parent.mkdir(parents=True)
+    (runner_source.parents[1] / "__init__.py").write_text("", encoding="utf-8")
+    (runner_source.parent / "__init__.py").write_text("", encoding="utf-8")
+    runner_source.write_text(
+        "import os, pathlib, subprocess, sys, time\n"
+        "code = (\"import os,pathlib,time;time.sleep(2.5);\"\n"
+        "        \"pathlib.Path(os.environ['WEATHER_OUTER_JOB_SURVIVED']).write_text('survived')\")\n"
+        "grandchild = subprocess.Popen([sys.executable, '-c', code])\n"
+        "pathlib.Path(os.environ['WEATHER_OUTER_JOB_READY']).write_text(\n"
+        "    f'{os.getpid()},{grandchild.pid}'\n"
+        ")\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    git_payload = repo / "git.exe"
+    git_payload.write_bytes(b"reviewed git payload")
+
+    attempt = tmp_path / "attempt"
+    inputs = attempt / "inputs"
+    incoming = attempt / "incoming"
+    session = attempt / "session"
+    for directory in (inputs, incoming, session):
+        directory.mkdir(parents=True)
+    manifest = inputs / "stage0-session-manifest.json"
+    manifest_payload = {
+        "production_python_sha256": sha(python),
+        "production": {
+            "git_executable": str(git_payload.resolve()),
+            "git_executable_sha256": sha(git_payload),
+        },
+        "session_bootstrap_sha256": {runner_relative: sha(runner_source)},
+        "source_sha256": {job_relative: sha(job_script)},
+        "inputs": {},
+        "scope": {"attempt_root": str(attempt.resolve())},
+    }
+    manifest.write_text(json.dumps(manifest_payload), encoding="utf-8")
+    sidecar = manifest.with_suffix(manifest.suffix + ".sha256")
+    sidecar.write_text(f"{sha(manifest)}  {manifest.name}\n", encoding="ascii")
+    build_receipt = inputs / "stage0-manifest-build-receipt.json"
+    build_receipt.write_text("{}\n", encoding="utf-8")
+    candidate = incoming / "fresh-stage0-candidate.json"
+    candidate.write_text("{}\n", encoding="utf-8")
+
+    replacements = {
+        "__SESSION_REPO_ROOT__": str(repo.resolve()),
+        "__SESSION_PYTHON__": str(python),
+        "__SESSION_PYTHON_SHA256__": sha(python),
+        "__SESSION_RUNNER_SOURCE__": str(runner_source.resolve()),
+        "__SESSION_RUNNER_SHA256__": sha(runner_source),
+        "__SESSION_MANIFEST__": str(manifest.resolve()),
+        "__SESSION_MANIFEST_SHA256__": sha(manifest),
+        "__SESSION_CANDIDATE_INBOX__": str(candidate.resolve()),
+        "__SESSION_MANIFEST_SIDECAR__": str(sidecar.resolve()),
+        "__SESSION_MANIFEST_SIDECAR_SHA256__": sha(sidecar),
+        "__SESSION_MANIFEST_BUILD_RECEIPT__": str(build_receipt.resolve()),
+        "__SESSION_MANIFEST_BUILD_RECEIPT_SHA256__": sha(build_receipt),
+        "__SESSION_WINDOWS_JOB_HELPER_SHA256__": sha(job_script),
+    }
+    source = launcher_sealer.TEMPLATE_PATH.read_text(encoding="utf-8-sig")
+    for marker, value in replacements.items():
+        source = launcher_sealer._replace(source, marker, value)
+    assert "__SESSION_" not in source
+    launcher_path = tmp_path / "outer-session-launcher.ps1"
+    launcher_path.write_text(source, encoding="utf-8-sig")
+
+    ready = tmp_path / "outer-runner-ready.txt"
+    survived = tmp_path / "outer-grandchild-survived.txt"
+    environment = {
+        **os.environ,
+        "WEATHER_OUTER_JOB_READY": str(ready),
+        "WEATHER_OUTER_JOB_SURVIVED": str(survived),
+    }
+    launcher = subprocess.Popen(
+        [
+            str(canonical_windows_powershell()),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(launcher_path),
+        ],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            if launcher.poll() is not None:
+                stdout, stderr = launcher.communicate()
+                pytest.fail(f"outer launcher exited before readiness: {stdout} {stderr}")
+            time.sleep(0.05)
+        assert ready.is_file(), "contained session runner did not reach readiness"
+        launcher.terminate()
+        launcher.wait(timeout=10)
+    finally:
+        if launcher.poll() is None:
+            launcher.kill()
+            launcher.wait(timeout=10)
+
+    time.sleep(3)
+    assert not survived.exists()
 
 
 @WINDOWS_POWERSHELL_REQUIRED
@@ -300,6 +428,7 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
     python = production / "venv/Scripts/python.exe"
     python.parent.mkdir(parents=True)
     python.write_bytes(b"reviewed production interpreter")
+    (production / "venv/Lib/site-packages").mkdir(parents=True)
     for relative in {
         *fixed_sealer.LIVE_SOURCE_PATHS["stage0"],
         fixed_sealer.WORKLOAD_ADMISSION_PATH,

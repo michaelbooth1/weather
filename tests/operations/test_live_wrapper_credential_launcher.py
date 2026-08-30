@@ -4,7 +4,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
+import time
 
 import pytest
 
@@ -182,3 +185,157 @@ def test_launcher_no_argument_entry_does_not_trip_strict_mode_args_variable(tmp_
         result.stdout + result.stderr
     )
     assert "VariableIsUndefined" not in result.stderr
+
+
+def test_launcher_job_contains_the_complete_live_child_tree():
+    source = TEMPLATE.read_text(encoding="utf-8")
+
+    assert '$jobScript = Join-Path $repo "scripts\\ops\\windows_kill_on_close_job.ps1"' in source
+    assert "__SEAL_WINDOWS_JOB_HELPER_SHA256__" in source
+    assert '"PSModulePath"' in source
+    assert '"System32\\WindowsPowerShell\\v1.0\\Modules"' in source
+    assert "Add-SealedReadLock -Path $jobScript" in source
+    assert source.index(". $jobScript") < source.index("New-WeatherKillOnCloseJob")
+    assert source.index("New-WeatherKillOnCloseJob") < source.index(
+        "Start-WeatherInteractiveProcessInJob"
+    )
+    assert source.index("$child.WaitForExit()") < source.index(
+        "$job.TerminateAndWait(5000)"
+    )
+    assert source.index(
+        "Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease"
+    ) < source.index("$job.TerminateAndWait(5000)")
+    assert source.index("$job.TerminateAndWait(5000)") < source.index(
+        "Exit-WeatherHeavyWorkloadLease"
+    )
+    assert "Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease" in source
+    assert "& $python" not in source
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.skipif(
+    os.environ.get("WEATHER_WORKSTATION_WRAPPER_ACTIVE") == "1",
+    reason="outer workstation lease owns the shared mutex",
+)
+def test_forced_launcher_exit_kills_the_live_child_tree_before_mutex_reuse(tmp_path):
+    repo = tmp_path / "production"
+    ops = repo / "scripts/ops"
+    ops.mkdir(parents=True)
+    job_script = ops / "windows_kill_on_close_job.ps1"
+    shutil.copyfile(
+        REPO_ROOT / "scripts/ops/windows_kill_on_close_job.ps1",
+        job_script,
+    )
+    lease_script = ops / "workload_admission.ps1"
+    lease_script.write_text(
+        "function Enter-WeatherHeavyWorkloadLease {\n"
+        "  param($RepoRoot,$Workload,$ExecutionHostProfile,$ExpectedExecutionHostId)\n"
+        "  $mutex=[Threading.Mutex]::new($false,'Global\\WeatherProjectHeavyWorkloadV1')\n"
+        "  if(-not $mutex.WaitOne(0,$false)){$mutex.Dispose();return $null}\n"
+        "  [pscustomobject]@{Mutex=$mutex;MutexOwned=$true}\n"
+        "}\n"
+        "function Exit-WeatherHeavyWorkloadLease {\n"
+        "  param($Lease)\n"
+        "  if($Lease.MutexOwned){$Lease.Mutex.ReleaseMutex()}\n"
+        "  $Lease.Mutex.Dispose()\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    python = Path(sys.executable).resolve()
+    site_packages = python.parent.parent / "Lib/site-packages"
+    if not site_packages.is_dir():
+        pytest.skip("test interpreter does not use the required Windows venv layout")
+    ready = tmp_path / "live-child-ready.txt"
+    survived = tmp_path / "live-grandchild-survived.txt"
+    wrapper = tmp_path / "stage0.py"
+    wrapper.write_text(
+        "import os, pathlib, subprocess, sys, time\n"
+        "code = (\"import os,pathlib,time;time.sleep(2.5);\"\n"
+        "        \"pathlib.Path(os.environ['WEATHER_JOB_SURVIVED']).write_text('survived')\")\n"
+        "grandchild = subprocess.Popen([sys.executable, '-c', code])\n"
+        "pathlib.Path(os.environ['WEATHER_JOB_READY']).write_text(str(grandchild.pid))\n"
+        "time.sleep(30)\n",
+        encoding="utf-8",
+    )
+    references = manifest(tmp_path / "references.json")
+    replacements = {
+        "__SEAL_PRODUCTION_ROOT__": str(repo.resolve()),
+        "__SEAL_PRODUCTION_PYTHON__": str(python),
+        "__SEAL_WRAPPER_PATH__": str(wrapper.resolve()),
+        "__SEAL_WRAPPER_SHA256__": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+        "__SEAL_WORKLOAD__": "InternationalLive-stage0-job-test",
+        "__SEAL_EXECUTION_HOST_PROFILE__": "portable_execution_v1",
+        "__SEAL_EXECUTION_HOST_ID__": "a" * 64,
+        "__SEAL_WORKLOAD_ADMISSION_SHA256__": hashlib.sha256(
+            lease_script.read_bytes()
+        ).hexdigest(),
+        "__SEAL_WINDOWS_JOB_HELPER_SHA256__": hashlib.sha256(
+            job_script.read_bytes()
+        ).hexdigest(),
+        "__SEAL_CREDENTIAL_MANIFEST_PATH__": str(references.resolve()),
+        "__SEAL_CREDENTIAL_MANIFEST_SHA256__": hashlib.sha256(
+            references.read_bytes()
+        ).hexdigest(),
+    }
+    source = TEMPLATE.read_text(encoding="utf-8")
+    for marker, value in replacements.items():
+        source = source.replace(marker, value)
+    assert "__SEAL_" not in source
+    launcher_path = tmp_path / "fixed-scope-launcher.ps1"
+    launcher_path.write_text(source, encoding="utf-8-sig")
+
+    env = {
+        **os.environ,
+        "WEATHER_JOB_READY": str(ready),
+        "WEATHER_JOB_SURVIVED": str(survived),
+    }
+    launcher = subprocess.Popen(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(launcher_path),
+        ],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            if launcher.poll() is not None:
+                stdout, stderr = launcher.communicate()
+                pytest.fail(f"launcher exited before readiness: {stdout} {stderr}")
+            time.sleep(0.05)
+        assert ready.is_file(), "contained live child did not reach readiness"
+        launcher.terminate()
+        launcher.wait(timeout=10)
+    finally:
+        if launcher.poll() is None:
+            launcher.kill()
+            launcher.wait(timeout=10)
+
+    mutex_probe = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "$m=[Threading.Mutex]::new($false,'Global\\WeatherProjectHeavyWorkloadV1');"
+            "$owned=$false;try{try{$owned=$m.WaitOne(0,$false)}"
+            "catch [Threading.AbandonedMutexException]{$owned=$true};"
+            "if(-not $owned){exit 2};$m.ReleaseMutex()}finally{$m.Dispose()}",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert mutex_probe.returncode == 0, mutex_probe.stderr
+    time.sleep(3)
+    assert not survived.exists()

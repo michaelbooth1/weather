@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -28,19 +29,25 @@ def test_canonical_powershell_ignores_path_shadow(monkeypatch, tmp_path):
 
 def test_private_acl_validator_accepts_only_current_user_owned_root(monkeypatch, tmp_path):
     monkeypatch.setattr(security, "is_reparse", lambda _path: False)
-    monkeypatch.setattr(
-        security.subprocess,
-        "run",
-        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+    captured = {}
+
+    def runner(command, **kwargs):
+        captured["command"] = command
+        return subprocess.CompletedProcess(
             [], 0, json.dumps({"current_user_write": True, "broad_write_count": 0}), ""
-        ),
-    )
+        )
+
+    monkeypatch.setattr(security.subprocess, "run", runner)
 
     result = security.validate_private_attempt_root(
         tmp_path, powershell_path=tmp_path / "powershell.exe"
     )
 
     assert result["status"] == "PASS"
+    encoded = captured["command"][captured["command"].index("-EncodedCommand") + 1]
+    source = base64.b64decode(encoded).decode("utf-16le")
+    assert "[IO.Directory]::GetAccessControl($path)" in source
+    assert "Get-Acl" not in source
 
 
 def test_private_acl_validator_rejects_broad_write_or_reparse(monkeypatch, tmp_path):

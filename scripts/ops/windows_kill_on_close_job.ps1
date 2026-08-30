@@ -15,6 +15,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 namespace Weather.Operations
 {
@@ -24,6 +25,7 @@ namespace Weather.Operations
         private const Int32 JobObjectExtendedLimitInformation = 9;
         private const UInt32 CREATE_SUSPENDED = 0x00000004;
         private const UInt32 CREATE_NO_WINDOW = 0x08000000;
+        private const Int32 JobObjectBasicAccountingInformation = 1;
         private IntPtr handle;
 
         [StructLayout(LayoutKind.Sequential)]
@@ -62,6 +64,19 @@ namespace Weather.Operations
             public UIntPtr PeakJobMemoryUsed;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JOBOBJECT_BASIC_ACCOUNTING_INFORMATION
+        {
+            public Int64 TotalUserTime;
+            public Int64 TotalKernelTime;
+            public Int64 ThisPeriodTotalUserTime;
+            public Int64 ThisPeriodTotalKernelTime;
+            public UInt32 TotalPageFaultCount;
+            public UInt32 TotalProcesses;
+            public UInt32 ActiveProcesses;
+            public UInt32 TotalTerminatedProcesses;
+        }
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern IntPtr CreateJobObject(
             IntPtr jobAttributes,
@@ -81,6 +96,18 @@ namespace Weather.Operations
             IntPtr job,
             IntPtr process
         );
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool QueryInformationJobObject(
+            IntPtr job,
+            Int32 informationClass,
+            IntPtr information,
+            UInt32 informationLength,
+            out UInt32 returnLength
+        );
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool TerminateJobObject(IntPtr job, UInt32 exitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr handle);
@@ -188,10 +215,11 @@ namespace Weather.Operations
             }
         }
 
-        public Process StartAssigned(
+        private Process StartAssignedInternal(
             string executable,
             string arguments,
-            string workingDirectory
+            string workingDirectory,
+            bool interactive
         )
         {
             if (String.IsNullOrWhiteSpace(executable))
@@ -215,8 +243,10 @@ namespace Weather.Operations
                 commandLine,
                 IntPtr.Zero,
                 IntPtr.Zero,
+                // Console attachment does not require inheriting every ambient
+                // inheritable handle held by the launcher process.
                 false,
-                CREATE_SUSPENDED | CREATE_NO_WINDOW,
+                CREATE_SUSPENDED | (interactive ? 0 : CREATE_NO_WINDOW),
                 IntPtr.Zero,
                 workingDirectory,
                 ref startup,
@@ -264,6 +294,100 @@ namespace Weather.Operations
             }
         }
 
+        public Process StartAssigned(
+            string executable,
+            string arguments,
+            string workingDirectory
+        )
+        {
+            return StartAssignedInternal(
+                executable,
+                arguments,
+                workingDirectory,
+                false
+            );
+        }
+
+        public Process StartAssignedInteractive(
+            string executable,
+            string arguments,
+            string workingDirectory
+        )
+        {
+            return StartAssignedInternal(
+                executable,
+                arguments,
+                workingDirectory,
+                true
+            );
+        }
+
+        private UInt32 ActiveProcessCount()
+        {
+            JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting =
+                new JOBOBJECT_BASIC_ACCOUNTING_INFORMATION();
+            Int32 size = Marshal.SizeOf(accounting);
+            IntPtr information = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(accounting, information, false);
+                UInt32 returned;
+                if (!QueryInformationJobObject(
+                    handle,
+                    JobObjectBasicAccountingInformation,
+                    information,
+                    (UInt32)size,
+                    out returned
+                ))
+                {
+                    throw new Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "QueryInformationJobObject(accounting) failed"
+                    );
+                }
+                accounting = (JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)
+                    Marshal.PtrToStructure(
+                        information,
+                        typeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)
+                    );
+                return accounting.ActiveProcesses;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(information);
+            }
+        }
+
+        public void TerminateAndWait(Int32 timeoutMilliseconds)
+        {
+            if (handle == IntPtr.Zero)
+            {
+                throw new ObjectDisposedException("KillOnCloseJob");
+            }
+            if (timeoutMilliseconds < 0)
+            {
+                throw new ArgumentOutOfRangeException("timeoutMilliseconds");
+            }
+            if (!TerminateJobObject(handle, 1))
+            {
+                throw new Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    "TerminateJobObject failed"
+                );
+            }
+            Stopwatch deadline = Stopwatch.StartNew();
+            while (ActiveProcessCount() != 0)
+            {
+                if (deadline.ElapsedMilliseconds >= timeoutMilliseconds)
+                {
+                    throw new TimeoutException(
+                        "Windows Job child tree did not reach zero active processes"
+                    );
+                }
+                Thread.Sleep(10);
+            }
+        }
+
         public void Dispose()
         {
             if (handle == IntPtr.Zero)
@@ -305,4 +429,63 @@ function Start-WeatherProcessInJob {
     )
 
     return $Job.StartAssigned($FilePath, $ArgumentString, $WorkingDirectory)
+}
+
+function Start-WeatherInteractiveProcessInJob {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [Weather.Operations.KillOnCloseJob]$Job,
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ArgumentString,
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory
+    )
+
+    return $Job.StartAssignedInteractive(
+        $FilePath,
+        $ArgumentString,
+        $WorkingDirectory
+    )
+}
+
+function ConvertTo-WeatherWindowsArgumentString {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string[]]$Tokens)
+
+    $encoded = foreach ($token in $Tokens) {
+        $value = [string]$token
+        if ($value -notmatch '[\s"]' -and $value.Length -gt 0) {
+            $value
+            continue
+        }
+        $builder = [Text.StringBuilder]::new()
+        [void]$builder.Append('"')
+        $slashes = 0
+        foreach ($character in $value.ToCharArray()) {
+            if ($character -eq '\') {
+                $slashes++
+                continue
+            }
+            if ($character -eq '"') {
+                [void]$builder.Append(('\' * (($slashes * 2) + 1)))
+                [void]$builder.Append('"')
+                $slashes = 0
+                continue
+            }
+            if ($slashes -gt 0) {
+                [void]$builder.Append(('\' * $slashes))
+                $slashes = 0
+            }
+            [void]$builder.Append($character)
+        }
+        if ($slashes -gt 0) {
+            [void]$builder.Append(('\' * ($slashes * 2)))
+        }
+        [void]$builder.Append('"')
+        $builder.ToString()
+    }
+    return ($encoded -join ' ')
 }
