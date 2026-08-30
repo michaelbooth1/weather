@@ -322,14 +322,18 @@ def _validate_public_inventory(
     production_root: Path,
     inventory: Mapping[str, Any],
     *,
+    execution_host_profile: str,
     git_state_validator: Callable[[Mapping[str, Any]], Any] | None,
 ) -> dict[str, Any]:
+    if execution_host_profile not in EXECUTION_HOST_PROFILES:
+        raise SessionLauncherSealError("execution host profile is unsupported")
     _require_exact_object(
         inventory,
         {
             "schema_version",
             "status",
             "stage",
+            "execution_host_profile",
             "production",
             "template_sha256",
             "source_sha256",
@@ -344,6 +348,7 @@ def _validate_public_inventory(
             inventory["schema_version"] == fixed_sealer.INVENTORY_SCHEMA_VERSION,
             inventory["status"] == "PASS",
             inventory["stage"] == stage,
+            inventory["execution_host_profile"] == execution_host_profile,
             inventory["live_mutation_attempted"] is False,
             inventory["credential_value_read"] is False,
         )
@@ -360,6 +365,13 @@ def _validate_public_inventory(
             "remote_master",
             "remote_master_ref",
             "live_remote_master_equal",
+            "local_branch_tip",
+            "cached_origin_branch_tip",
+            "remote_branch_tip",
+            "remote_branch_ref",
+            "live_remote_branch_equal",
+            "live_remote_master_ancestor",
+            "worktree_policy_clean",
             "tree",
             "object_format",
             "python",
@@ -387,15 +399,32 @@ def _validate_public_inventory(
     git_hash = _require_sha256(
         production["git_executable_sha256"], label="Git executable hash"
     )
+    branch = str(production["branch"] or "")
+    branch_allowed = (
+        branch == "master"
+        if execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        else branch
+        in {
+            "master",
+            fixed_sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+        }
+    )
     if not all(
         (
             _same_path(root, production_root),
-            production["branch"] == "master",
-            production["local_master"] == commit,
-            production["cached_origin_master"] == commit,
-            production["remote_master"] == commit,
+            branch_allowed,
+            production["local_branch_tip"] == commit,
+            production["cached_origin_branch_tip"] == commit,
+            production["remote_branch_tip"] == commit,
+            production["remote_branch_ref"] == f"refs/heads/{branch}",
+            production["live_remote_branch_equal"] is True,
+            production["local_master"]
+            == production["cached_origin_master"]
+            == production["remote_master"],
             production["remote_master_ref"] == fixed_sealer.REMOTE_MASTER_REF,
             production["live_remote_master_equal"] is True,
+            production["live_remote_master_ancestor"] is True,
+            production["worktree_policy_clean"] is True,
             production["interrupt_cleanup_ancestor_integrated"] is True,
             oid_length is not None,
             fixed_sealer.GIT_OID_RE.fullmatch(commit) is not None,
@@ -413,7 +442,7 @@ def _validate_public_inventory(
         raise SessionLauncherSealError("public inventory production is not canonical")
     production_record = {
         "root": str(root),
-        "branch": "master",
+        "branch": branch,
         "commit": commit,
         "tree": tree,
         "python": str(python),
@@ -424,6 +453,7 @@ def _validate_public_inventory(
     if git_state_validator is None:
         fixed_sealer._verify_git_state(
             production_record,
+            execution_host_profile=execution_host_profile,
             git_runner=fixed_sealer._default_git_runner,
         )
     else:
@@ -643,11 +673,16 @@ def prepare_fixed_session_manifest(
                 "current host is not eligible for capture-colocated execution"
             ) from exc
 
-    inventory = inventory_builder(stage, production)
+    inventory = inventory_builder(
+        stage,
+        production,
+        execution_host_profile=execution_host_profile,
+    )
     reviewed_inventory = _validate_public_inventory(
         stage,
         production,
         inventory,
+        execution_host_profile=execution_host_profile,
         git_state_validator=git_state_validator,
     )
     layout = STAGED_INPUT_LAYOUTS[stage]
@@ -844,6 +879,7 @@ def prepare_fixed_session_manifest(
         stage,
         production,
         inventory,
+        execution_host_profile=execution_host_profile,
         git_state_validator=git_state_validator,
     )
     if final_inventory != reviewed_inventory:
@@ -1006,6 +1042,17 @@ def _validate_manifest_build_receipt(
     expected_session_seconds = FIXED_SESSION_SECONDS_BY_PROFILE.get(
         str(scope["execution_host_profile"])
     )
+    manifest_profile = str(scope["execution_host_profile"])
+    production_branch = str(production["branch"] or "")
+    production_branch_allowed = (
+        production_branch == "master"
+        if manifest_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        else production_branch
+        in {
+            "master",
+            fixed_sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+        }
+    )
     if not all(
         (
             receipt["schema_version"] == MANIFEST_BUILD_SCHEMA_VERSION,
@@ -1025,7 +1072,7 @@ def _validate_manifest_build_receipt(
             manifest["manifest_sha256"] == _canonical_payload_sha256(manifest),
             manifest_path.read_bytes() == _canonical_json(manifest),
             Path(str(production["root"])).resolve() == production_root,
-            production["branch"] == "master",
+            production_branch_allowed,
             Path(str(scope["attempt_root"])).resolve() == attempt_root,
             scope["lease_workload"] == _canonical_lease_workload(attempt_root, stage),
             scope["execution_host_profile"] in EXECUTION_HOST_PROFILES,

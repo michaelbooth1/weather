@@ -98,19 +98,33 @@ class GitStub:
         self,
         *,
         ancestry: bool = True,
+        master_ancestry: bool = True,
         dirty: str = "",
         commit: str = COMMIT,
         tree: str = TREE,
+        branch: str = "master",
+        master_commit: str | None = None,
         origin_commit: str | None = None,
         remote_commit: str | None = None,
+        cached_master_commit: str | None = None,
+        remote_master_commit: str | None = None,
         remote_failure: bool = False,
     ):
         self.ancestry = ancestry
+        self.master_ancestry = master_ancestry
         self.dirty = dirty
         self.commit = commit
         self.tree = tree
+        self.branch = branch
+        self.master_commit = master_commit or commit
         self.origin_commit = origin_commit or commit
         self.remote_commit = remote_commit or commit
+        self.cached_master_commit = cached_master_commit or (
+            self.origin_commit if branch == "master" else self.master_commit
+        )
+        self.remote_master_commit = remote_master_commit or (
+            self.remote_commit if branch == "master" else self.master_commit
+        )
         self.remote_failure = remote_failure
         self.calls: list[tuple[str, ...]] = []
 
@@ -131,26 +145,41 @@ class GitStub:
             stdout = self.commit + "\n"
         elif command == ("rev-parse", "--show-object-format"):
             stdout = "sha1\n"
-        elif command == ("rev-parse", "master"):
+        elif command == ("rev-parse", f"refs/heads/{self.branch}"):
             stdout = self.commit + "\n"
-        elif command == ("rev-parse", "origin/master"):
+        elif command == ("rev-parse", f"refs/remotes/origin/{self.branch}"):
             stdout = self.origin_commit + "\n"
-        elif command == (
+        elif command == ("rev-parse", "refs/heads/master"):
+            stdout = self.master_commit + "\n"
+        elif command == ("rev-parse", "refs/remotes/origin/master"):
+            stdout = self.cached_master_commit + "\n"
+        elif command[:4] == (
             "ls-remote",
             "--exit-code",
             "--refs",
             sealer.CANONICAL_ORIGIN_URL,
-            sealer.REMOTE_MASTER_REF,
         ):
             returncode = 2 if self.remote_failure else 0
             if not self.remote_failure:
-                stdout = f"{self.remote_commit}\t{sealer.REMOTE_MASTER_REF}\n"
+                rows = []
+                for ref in command[4:]:
+                    if ref == sealer.REMOTE_MASTER_REF:
+                        oid = self.remote_master_commit
+                    elif ref == f"refs/heads/{self.branch}":
+                        oid = self.remote_commit
+                    else:
+                        raise AssertionError(f"unexpected live remote ref: {ref}")
+                    rows.append(f"{oid}\t{ref}")
+                stdout = "\n".join(rows) + "\n"
         elif command == ("rev-parse", "HEAD^{tree}"):
             stdout = self.tree + "\n"
         elif command == ("branch", "--show-current"):
-            stdout = "master\n"
+            stdout = self.branch + "\n"
         elif command[:2] == ("merge-base", "--is-ancestor"):
-            returncode = 0 if self.ancestry else 1
+            is_hardening = command[2] == sealer.REQUIRED_INTERRUPT_CLEANUP_ANCESTOR
+            returncode = 0 if (
+                self.ancestry if is_hardening else self.master_ancestry
+            ) else 1
         elif command == ("status", "--porcelain=v1", "--untracked-files=all"):
             stdout = self.dirty
         elif command[:3] == ("rev-parse", "-q", "--verify"):
@@ -163,8 +192,8 @@ class GitStub:
 def local_remote_equal_git_runner(root: Path, args):
     command = tuple(args)
     if command in {
-        ("rev-parse", "master"),
-        ("rev-parse", "origin/master"),
+        ("rev-parse", "refs/heads/master"),
+        ("rev-parse", "refs/remotes/origin/master"),
     }:
         head = sealer._default_git_runner(root, ["rev-parse", "HEAD"])
         return subprocess.CompletedProcess(
@@ -173,18 +202,20 @@ def local_remote_equal_git_runner(root: Path, args):
             head.stdout,
             head.stderr,
         )
-    if command == (
+    if command[:4] == (
         "ls-remote",
         "--exit-code",
         "--refs",
         sealer.CANONICAL_ORIGIN_URL,
-        sealer.REMOTE_MASTER_REF,
     ):
         head = sealer._default_git_runner(root, ["rev-parse", "HEAD"])
         return subprocess.CompletedProcess(
             args,
             head.returncode,
-            f"{head.stdout.strip()}\t{sealer.REMOTE_MASTER_REF}\n",
+            "".join(
+                f"{head.stdout.strip()}\t{ref}\n"
+                for ref in command[4:]
+            ),
             head.stderr,
         )
     if command == ("branch", "--show-current"):
@@ -226,6 +257,12 @@ def prepare(
         path = production / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"reviewed source: {relative}\n", encoding="utf-8")
+    for relative in sealer.SESSION_BOOTSTRAP_PATHS:
+        path = production / relative
+        if path.is_file():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"reviewed bootstrap: {relative}\n", encoding="utf-8")
 
     credential = write_json(
         tmp_path / "credential-import-receipt.json",
@@ -1134,6 +1171,9 @@ def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path)
         execution_host_profile="portable_execution_v1",
         execution_host_id=sealer.current_execution_host_id(),
     )
+    spec["production"]["branch"] = (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
     credential_receipt = Path(
         spec["inputs"]["credential_import_receipt"]["path"]
     )
@@ -1147,7 +1187,15 @@ def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path)
     )
     write_json(spec_path, spec)
 
-    result = seal(spec_path, production, now=current)
+    result = seal(
+        spec_path,
+        production,
+        GitStub(
+            branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+            master_commit="d" * 40,
+        ),
+        now=current,
+    )
 
     wrapper_text = Path(result["wrapper"]["path"]).read_text(encoding="utf-8")
     launcher_text = Path(result["launcher"]["path"]).read_text(
@@ -1159,6 +1207,145 @@ def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path)
     assert sealer.current_execution_host_id() in launcher_text
     assert receipt["scope"]["execution_host_profile"] == "portable_execution_v1"
     assert receipt["scope"]["execution_host_id"] == sealer.current_execution_host_id()
+    assert receipt["production"]["branch"] == (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
+    assert receipt["production"]["remote_branch_ref"] == (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_REF
+    )
+    assert receipt["production"]["live_remote_branch_equal"] is True
+    assert receipt["production"]["live_remote_master_ancestor"] is True
+
+
+def test_portable_seal_refuses_an_unlisted_topic_branch(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["production"]["branch"] = "codex/not-the-authorized-portable-topic"
+    spec["scope"]["execution_host_profile"] = "portable_execution_v1"
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="exact authorized portable topic"):
+        seal(
+            spec_path,
+            production,
+            GitStub(branch="codex/not-the-authorized-portable-topic"),
+        )
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_capture_seal_refuses_the_portable_topic_branch(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["production"]["branch"] = (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="restricted to production master"):
+        seal(
+            spec_path,
+            production,
+            GitStub(branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH),
+        )
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+@pytest.mark.parametrize(
+    ("git", "message"),
+    [
+        (
+            GitStub(
+                branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+                master_commit="d" * 40,
+                origin_commit="c" * 40,
+            ),
+            "cached origin branch",
+        ),
+        (
+            GitStub(
+                branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+                master_commit="d" * 40,
+                remote_commit="c" * 40,
+            ),
+            "live origin branch",
+        ),
+    ],
+)
+def test_portable_seal_refuses_stale_cached_or_live_topic_tip(
+    tmp_path,
+    git,
+    message,
+):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["production"]["branch"] = (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
+    spec["scope"]["execution_host_profile"] = "portable_execution_v1"
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match=message):
+        seal(spec_path, production, git)
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_portable_seal_refuses_bounded_live_remote_failure(tmp_path):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    spec["production"]["branch"] = (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
+    spec["scope"]["execution_host_profile"] = "portable_execution_v1"
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="ls-remote"):
+        seal(
+            spec_path,
+            production,
+            GitStub(
+                branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+                master_commit="d" * 40,
+                remote_failure=True,
+            ),
+        )
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_portable_requires_clean_worktree_but_capture_retains_generated_allowlist(
+    tmp_path,
+):
+    portable_root = tmp_path / "portable"
+    production, _attempt, spec_path, spec = prepare(portable_root)
+    spec["production"]["branch"] = (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
+    spec["scope"]["execution_host_profile"] = "portable_execution_v1"
+    write_json(spec_path, spec)
+    generated_dirty = " M config/locations.json\n"
+
+    with pytest.raises(sealer.SealError, match="completely clean"):
+        seal(
+            spec_path,
+            production,
+            GitStub(
+                branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+                master_commit="d" * 40,
+                dirty=generated_dirty,
+            ),
+        )
+
+    capture_root = tmp_path / "capture"
+    production, _attempt, spec_path, _spec = prepare(capture_root)
+    result = seal(
+        spec_path,
+        production,
+        GitStub(dirty=generated_dirty),
+    )
+    assert result["status"] == "PASS"
 
 
 def test_seal_refuses_a_scope_bound_to_another_execution_host(tmp_path):
@@ -1616,7 +1803,10 @@ def test_inventory_is_read_only_and_reports_ancestry_state(tmp_path):
     before = sorted(path.relative_to(attempt) for path in attempt.rglob("*"))
 
     result = sealer.build_public_inventory(
-        "stage0", production, git_runner=GitStub(ancestry=False)
+        "stage0",
+        production,
+        execution_host_profile="capture_colocated_v1",
+        git_runner=GitStub(ancestry=False),
     )
 
     after = sorted(path.relative_to(attempt) for path in attempt.rglob("*"))
@@ -1624,6 +1814,92 @@ def test_inventory_is_read_only_and_reports_ancestry_state(tmp_path):
     assert result["production"]["interrupt_cleanup_ancestor_integrated"] is False
     assert result["live_mutation_attempted"] is False
     assert before == after
+
+
+def test_portable_topic_inventory_binds_one_exact_live_branch_and_master_query(
+    tmp_path,
+):
+    production, attempt, _spec_path, _spec = prepare(tmp_path)
+    before = sorted(path.relative_to(attempt) for path in attempt.rglob("*"))
+    git = GitStub(
+        branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+        master_commit="d" * 40,
+    )
+
+    result = sealer.build_public_inventory(
+        "stage0",
+        production,
+        execution_host_profile="portable_execution_v1",
+        git_runner=git,
+    )
+
+    assert result["status"] == "PASS"
+    assert result["execution_host_profile"] == "portable_execution_v1"
+    facts = result["production"]
+    assert facts["branch"] == sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    assert facts["local_branch_tip"] == COMMIT
+    assert facts["cached_origin_branch_tip"] == COMMIT
+    assert facts["remote_branch_tip"] == COMMIT
+    assert facts["remote_branch_ref"] == (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_REF
+    )
+    assert facts["live_remote_branch_equal"] is True
+    assert facts["local_master"] == "d" * 40
+    assert facts["cached_origin_master"] == "d" * 40
+    assert facts["remote_master"] == "d" * 40
+    assert facts["live_remote_master_equal"] is True
+    assert facts["live_remote_master_ancestor"] is True
+    assert facts["worktree_policy_clean"] is True
+    assert (
+        "ls-remote",
+        "--exit-code",
+        "--refs",
+        sealer.CANONICAL_ORIGIN_URL,
+        sealer.REMOTE_MASTER_REF,
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_REF,
+    ) in git.calls
+    assert sorted(path.relative_to(attempt) for path in attempt.rglob("*")) == before
+
+
+@pytest.mark.parametrize(
+    ("profile", "branch", "origin_commit"),
+    [
+        (
+            "portable_execution_v1",
+            "codex/not-the-authorized-portable-topic",
+            COMMIT,
+        ),
+        (
+            "capture_colocated_v1",
+            sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+            COMMIT,
+        ),
+        (
+            "portable_execution_v1",
+            sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+            "c" * 40,
+        ),
+    ],
+)
+def test_inventory_blocks_wrong_profile_branch_or_stale_cached_topic(
+    tmp_path,
+    profile,
+    branch,
+    origin_commit,
+):
+    production, _attempt, _spec_path, _spec = prepare(tmp_path)
+    result = sealer.build_public_inventory(
+        "stage0",
+        production,
+        execution_host_profile=profile,
+        git_runner=GitStub(
+            branch=branch,
+            master_commit="d" * 40 if branch != "master" else COMMIT,
+            origin_commit=origin_commit,
+        ),
+    )
+
+    assert result["status"] == "BLOCK"
 
 
 def test_inventory_blocks_when_cached_origin_is_stale_even_if_live_remote_matches(tmp_path):
@@ -1634,6 +1910,7 @@ def test_inventory_blocks_when_cached_origin_is_stale_even_if_live_remote_matche
     result = sealer.build_public_inventory(
         "stage0",
         production,
+        execution_host_profile="capture_colocated_v1",
         git_runner=git,
     )
 
@@ -1652,6 +1929,7 @@ def test_inventory_blocks_on_bounded_live_remote_failure_without_writing(tmp_pat
     result = sealer.build_public_inventory(
         "stage0",
         production,
+        execution_host_profile="capture_colocated_v1",
         git_runner=git,
     )
 
@@ -1666,6 +1944,25 @@ def test_inventory_blocks_on_bounded_live_remote_failure_without_writing(tmp_pat
         sealer.REMOTE_MASTER_REF,
     ) in git.calls
     assert sorted(path.relative_to(attempt) for path in attempt.rglob("*")) == before
+
+
+def test_inventory_cli_requires_profile_without_branch_or_ref_override():
+    parser = sealer.build_parser()
+    args = parser.parse_args(
+        [
+            "inventory",
+            "--stage",
+            "stage0",
+            "--execution-host-profile",
+            "portable_execution_v1",
+        ]
+    )
+
+    assert args.execution_host_profile == "portable_execution_v1"
+    assert not hasattr(args, "branch")
+    assert not hasattr(args, "remote_ref")
+    with pytest.raises(SystemExit):
+        parser.parse_args(["inventory", "--stage", "stage0"])
 
 
 def test_seal_refuses_when_live_remote_master_cannot_be_proved(tmp_path):
@@ -1691,6 +1988,7 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
     inventory = sealer.build_public_inventory(
         "stage0",
         root,
+        execution_host_profile="capture_colocated_v1",
         git_runner=local_remote_equal_git_runner,
     )
     head = inventory["production"]["commit"]
@@ -1701,8 +1999,8 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
     def reviewed_master_proxy(repo_root, args):
         command = tuple(args)
         if command in {
-            ("rev-parse", "master"),
-            ("rev-parse", "origin/master"),
+            ("rev-parse", "refs/heads/master"),
+            ("rev-parse", "refs/remotes/origin/master"),
         }:
             return subprocess.CompletedProcess(args, 0, head + "\n", "")
         if command == (
@@ -1753,6 +2051,7 @@ def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
             "git_executable_sha256": sha256(sealer.canonical_git_executable()),
             "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
+        execution_host_profile="capture_colocated_v1",
         git_runner=reviewed_master_proxy,
     )
     assert facts["object_format"] == "sha1"
@@ -1762,6 +2061,7 @@ def test_real_repository_inventory_object_ids_flow_through_a_dry_seal(tmp_path):
     inventory = sealer.build_public_inventory(
         "stage0",
         sealer.REPO_ROOT,
+        execution_host_profile="capture_colocated_v1",
         git_runner=local_remote_equal_git_runner,
     )
     commit = inventory["production"]["commit"]
@@ -1793,6 +2093,11 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
     lifecycle = (
         root / "src/weather/market/mm_live_lifecycle_probe.py"
     ).read_text(encoding="utf-8")
+
+    for template in (stage0, stage1):
+        assert 'execution_profile == "portable_execution_v1"' in template
+        assert "not dirty" in template
+        assert "dirty.issubset(ALLOWED_DIRTY_PATHS)" in template
 
     stage0_candidate = stage0.rindex("candidate_gate = load_stage1_candidate_gate(")
     stage0_geography = stage0.index(

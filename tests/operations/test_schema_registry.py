@@ -98,7 +98,7 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("international_live_fixed_scope_inventory"),
-            "international_live_fixed_scope_inventory_v0.3",
+            "international_live_fixed_scope_inventory_v0.4",
         )
         self.assertEqual(
             schema_version("portable_live_candidate_substrate_preflight"),

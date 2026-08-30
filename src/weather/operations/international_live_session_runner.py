@@ -90,11 +90,13 @@ LauncherRunner = Callable[[Path], subprocess.CompletedProcess[str]]
 def _verify_launch_git_state(
     production: Mapping[str, Any],
     *,
+    execution_host_profile: str,
     git_runner: fixed_sealer.GitRunner,
 ) -> dict[str, Any]:
     try:
         return fixed_sealer._verify_git_state(
             production,
+            execution_host_profile=execution_host_profile,
             git_runner=git_runner,
         )
     except fixed_sealer.SealError as exc:
@@ -1484,6 +1486,7 @@ def compose_and_run_live_session(
     if boundary_git_runner is not None:
         _verify_launch_git_state(
             manifest["production"],
+            execution_host_profile=execution_host_profile,
             git_runner=boundary_git_runner,
         )
     launcher_timeout_seconds = min(

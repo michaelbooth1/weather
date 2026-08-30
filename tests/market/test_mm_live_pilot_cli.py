@@ -997,7 +997,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         seal_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_seal_v0.4",
+                    "schema_version": cli.FIXED_SCOPE_SEAL_SCHEMA_VERSION,
                     "status": "PASS",
                     "stage": stage,
                     "production": {"commit": command_args.expected_production_tip},

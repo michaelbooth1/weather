@@ -1499,11 +1499,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "international_live_fixed_scope_seal",
-        "international_live_fixed_scope_seal_v0.4",
+        "international_live_fixed_scope_seal_v0.5",
         "weather.operations.international_live_wrapper_sealer",
         "active",
-        "Immutable secret-free seal receipt binding one generated wrapper and launcher to an exact execution host, production, source, SDK, credential-reference, predecessor, scope, TTL, output, and hardening evidence.",
-        supersedes=("international_live_fixed_scope_seal_v0.3",),
+        "Immutable secret-free seal receipt binding one generated wrapper and launcher to an exact execution host, profile-authorized remote Git ref, source, SDK, credential-reference, predecessor, scope, TTL, output, and hardening evidence.",
+        supersedes=("international_live_fixed_scope_seal_v0.4",),
+    ),
+    SchemaSpec(
+        "international_live_fixed_scope_seal_v0_4_legacy",
+        "international_live_fixed_scope_seal_v0.4",
+        "weather.operations.international_live_wrapper_sealer",
+        "legacy",
+        "Fixed-scope seal receipt before the portable profile could bind one operator-authorized exact remote topic branch.",
     ),
     SchemaSpec(
         "international_live_fixed_scope_seal_v0_3_legacy",
@@ -1557,11 +1564,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "international_live_fixed_scope_inventory",
-        "international_live_fixed_scope_inventory_v0.3",
+        "international_live_fixed_scope_inventory_v0.4",
         "weather.operations.international_live_wrapper_sealer",
         "active",
-        "Read-only public inventory binding the canonical Git executable and origin plus bounded live-remote master equality, template, and source hashes used to author a reviewed fixed-scope seal spec.",
-        supersedes=("international_live_fixed_scope_inventory_v0.2",),
+        "Read-only public inventory binding the execution profile, canonical Git executable and origin, synchronized canonical master, exact selected local/cached/live remote branch, ancestry, template, and source hashes used to author a reviewed fixed-scope seal spec.",
+        supersedes=("international_live_fixed_scope_inventory_v0.3",),
+    ),
+    SchemaSpec(
+        "international_live_fixed_scope_inventory_v0_3_legacy",
+        "international_live_fixed_scope_inventory_v0.3",
+        "weather.operations.international_live_wrapper_sealer",
+        "legacy",
+        "Inventory before profile-authorized exact remote topic-branch evidence was recorded separately from canonical master state.",
     ),
     SchemaSpec(
         "international_live_fixed_scope_inventory_v0_2_legacy",

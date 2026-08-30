@@ -18,22 +18,36 @@ The claim boundary and frozen economics decision rule are preregistered in
 
 The fixed-scope Stage 0/1 sealer, session runner, process-local pinned SDK
 overlay, and interrupt-cleanup path are integrated production software. The
-portable execution-host extension is a separate candidate until
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) records its production adoption and
-qualification. Read the exact current production tip from Git and
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated hash copied here.
+portable execution-host extension remains an unmerged candidate, but an
+operator-authorized portable-only exception permits the exact reviewed branch
+`codex/portable-execution-host-clean-20260827` to supply live code for
+`portable_execution_v1` before master adoption. Read the current exact branch
+tip, exact-head CI/review status, operator authorization, and production master
+baseline from Git and [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated
+hash copied here.
 Their integration receipts grant no credential or live-exchange authority, and
 no Stage 0 or Stage 1 session has run.
 
-**Stage 0/1 execution is currently HOLD.** The explicit execution-host profile,
+**Stage 0/1 execution is currently HOLD until every action-time gate below
+passes.** The explicit execution-host profile,
 truthful Stage 0 authenticated-write confirmation contract, and canonical
 fixed-session manifest builder are implemented by the fixed-scope software
-described here; before the first session, use
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) to prove that exact code is adopted in
-production and has received exact-tip reproof. The fixed-session manifest
+described here. `capture_colocated_v1` still requires exact production-adopted
+canonical `master`. For `portable_execution_v1`, use
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) and fresh Git proof to require the exact
+owner-authorized, reviewed, CI-green remote branch named above; local `HEAD`,
+its local branch tip, cached origin branch, and live canonical branch tip must
+be identical, while local/cached/live canonical master are synchronized and
+that master is an ancestor of the topic tip. The fixed-session manifest
 builder and dated Stage 0/1-only substitute-gate decision below are preparation
 only. Neither is temporal, credential, exchange-mutation, or trading
 authorization.
+
+The portable exception removes only master promotion. It does not make the
+branch production-adopted or claim production-host integration, capture
+recovery, or Scheduler state, and it does not remove any money, SDK,
+credential, identity, geography, account, balance, allowance, zero-state,
+order, cancellation, deadline, cleanup, or attended-confirmation gate.
 
 **Geographic eligibility is an action-time fact, not a repository or timezone
 inference.** This repository does not assert the operator's or execution host's
@@ -125,8 +139,8 @@ All must be current for the target date and selected market:
    exact `{status: "ok"}` acknowledgment within 7.5 seconds, and matching
    book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
    seconds.
-6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; production
-   adoption must be proved from `STATE_OF_PLAY.md`.** The general readiness
+6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; exact Git
+   authority must be proved from `STATE_OF_PLAY.md` and the live remote.** The general readiness
    prerequisite is circular for the evidence-generating probes because
    `mm_platform_verification_v0.6` embeds
    both Stage 1 lifecycle proofs. For Stage 0/1 only, the operator approved the
@@ -139,8 +153,12 @@ All must be current for the target date and selected market:
    positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
    eligibility; and every stage-specific, hash-bound attended confirmation.
    This decision is not self-executing and cannot clear the HOLD until the
-   complete implementation is production-adopted and receives exact-tip
-   reproof. The ordinary maker-run live-readiness, target-date data-layer,
+   complete implementation receives exact-tip reproof. For the capture profile
+   that means production-adopted master. For the portable profile only, the
+   exact reviewed, CI-green, owner-authorized
+   `codex/portable-execution-host-clean-20260827` remote branch may substitute
+   under the branch/master equality and ancestry contract above. The ordinary
+   maker-run live-readiness, target-date data-layer,
    production release, full risk, and v0.6 platform gates remain unchanged for
    Stage 2.
 7. A simultaneous one-market paper counterfactual has quote permission and is
@@ -369,9 +387,10 @@ by the live runner and cannot authorize an order.
 
 ### Execution-host preparation
 
-The final sequence runs from one clean, production-adopted checkout. It may be
-the dedicated capture checkout under `capture_colocated_v1`, or a separately
-provisioned Windows PC under `portable_execution_v1`. Follow
+The final sequence runs from one clean, exact remote-synchronized checkout. It
+may be the production-adopted master checkout on the dedicated capture PC under
+`capture_colocated_v1`, or the exact operator-authorized portable branch on a
+separately provisioned Windows PC under `portable_execution_v1`. Follow
 [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md) for every
 second-PC deployment or later relocation. Public metadata, economics, paper
 evidence, candidate selection, credentials, and attempt manifests must be
@@ -394,9 +413,16 @@ exclusion begins when either compliant runtime acquires the mutex and lasts
 through complete child-tree cleanup. An obsolete or manually bypassed launcher
 is not made compliant by this protocol.
 For both profiles, log in as the Windows user who owns Credential Manager,
-prove master equals a freshly observed origin at the reviewed exact tip, clear
-pending reboot state, and ensure no other local live stage holds the lease. Do
-not trade merely because Windows restarted successfully.
+clear pending reboot state, and ensure no other local live stage holds the
+lease. The capture profile must prove `HEAD == master == cached origin/master ==
+live canonical refs/heads/master`. The portable profile must prove
+`HEAD == local codex/portable-execution-host-clean-20260827 == cached
+origin/codex/portable-execution-host-clean-20260827 == live canonical
+refs/heads/codex/portable-execution-host-clean-20260827`; it must separately
+prove local master equals cached and live canonical master and is an ancestor
+of that branch tip. It must also match the exact tracked host/principal and the
+operator-recorded reviewed, exact-head CI-green authorization. Do not trade
+merely because Windows restarted successfully or because a branch was pushed.
 
 Do not continue merely because a public endpoint classifies the host's egress
 as unblocked. Eligibility also follows the attended operator's and execution
@@ -978,14 +1004,18 @@ edit timestamps or reuse an earlier gate.
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
 The repository-owned manifest builder and sealers are the only supported path.
-The builder rereads the current public inventory, requires synchronized
-production `master`, the exact canonical Git executable and hash, the canonical
-HTTPS origin URL with no local trust/proxy override, no ambient
-`WEATHER_MARKET_REGISTRY`, and a bounded live query of
-`refs/heads/master` against that literal canonical URL. Inventory v0.3 passes
-only when local `HEAD`, local `master`, cached `origin/master`, and that live
-remote object ID are identical; a stale cached ref, malformed result, timeout,
-or unavailable remote blocks. It derives the Git tree, interpreter, template,
+The builder rereads the current public inventory and requires the exact
+canonical Git executable and hash, the canonical HTTPS origin URL with no local
+trust/proxy override, no ambient `WEATHER_MARKET_REGISTRY`, and a bounded live
+query of the profile-authorized ref against that literal canonical URL. The
+capture profile remains master-only. On the pre-adoption exception path, the
+portable profile accepts only `codex/portable-execution-host-clean-20260827`,
+and only when local `HEAD`, the
+local branch, cached origin branch, and live canonical branch object ID are
+identical; local/cached/live master must also be synchronized and that master
+must be an ancestor of the branch. A stale cached ref, malformed result,
+timeout, unavailable remote, detached checkout, dirty tree, master drift, or
+missing ancestry blocks. It derives the Git tree, interpreter, template,
 complete live source, and session-bootstrap hashes, and hardcodes 10 pUSD plus
 the profile-bound 120-second colocated or 240-second portable session envelope. It
 accepts no typed target, condition, token, budget, duration, output, or candidate
@@ -1129,7 +1159,7 @@ containment including the shared 20-second cleanup reserve and, for
 all public inputs, every imported live-source hash, exact production ancestry,
 and new contained output paths. It creates a fixed no-argument Python wrapper,
 a hash-bound inner PowerShell launcher, an
-`international_live_fixed_scope_seal_v0.4` receipt, and its SHA-256 sidecar.
+`international_live_fixed_scope_seal_v0.5` receipt, and its SHA-256 sidecar.
 Each Stage 1 mode also requires the exact successful predecessor lineage. A
 partial or failed build, seal, or run spends that stage namespace; create a new
 attempt rather than overwriting it.
@@ -1556,11 +1586,13 @@ target date. The colocated profile additionally requires complete
 **[00:30, 09:00) America/Toronto** containment. It repeats the check at the execution
 boundary and requires at least 90 seconds for the colocated profile or 180
 seconds for the portable profile still available immediately before launch.
-The manifest builder and fixed-scope sealer repeat the bounded live
-remote proof at their validation and publication boundaries; the composer
+The manifest builder and fixed-scope sealer repeat the bounded, profile-aware
+live remote proof at their validation and publication boundaries; the composer
 repeats it after all protected-file checks immediately before launching, and
-the sealed wrapper repeats it before credentials. A cached `origin/master`
-match alone is never launch authority. The composer then writes an immutable ARMED intent and atomically claims the terminal
+the sealed wrapper repeats it before credentials. A cached master or topic ref
+match alone is never launch authority. For the portable exception, every
+boundary repeats exact topic equality plus synchronized-master ancestry; for
+the capture profile every boundary remains exact master-only. The composer then writes an immutable ARMED intent and atomically claims the terminal
 receipt and sidecar paths. The no-argument launcher and parent runner hold
 deny-write/delete handles for the reviewed runner, production sources, public
 credential inputs, candidate, complete predecessor lineage, external SDK

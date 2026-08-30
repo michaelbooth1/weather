@@ -117,9 +117,12 @@ class LaunchGitStub:
             return subprocess.CompletedProcess(args, 0, "remote.origin.url\n", "")
         if command == ("rev-parse", "--show-object-format"):
             return subprocess.CompletedProcess(args, 0, "sha1\n", "")
-        if command in (("rev-parse", "HEAD"), ("rev-parse", "master")):
+        if command in (
+            ("rev-parse", "HEAD"),
+            ("rev-parse", "refs/heads/master"),
+        ):
             return subprocess.CompletedProcess(args, 0, self.commit + "\n", "")
-        if command == ("rev-parse", "origin/master"):
+        if command == ("rev-parse", "refs/remotes/origin/master"):
             return subprocess.CompletedProcess(args, 0, self.origin_commit + "\n", "")
         if command == ("rev-parse", "HEAD^{tree}"):
             return subprocess.CompletedProcess(args, 0, self.tree + "\n", "")
@@ -817,6 +820,7 @@ def test_launch_boundary_refuses_stale_cached_origin_despite_matching_live_remot
     ):
         runner._verify_launch_git_state(
             production,
+            execution_host_profile="capture_colocated_v1",
             git_runner=LaunchGitStub(
                 origin_commit="c" * 40,
                 remote_commit="a" * 40,
@@ -844,6 +848,7 @@ def test_launch_boundary_refuses_live_remote_lookup_failure(tmp_path):
     ):
         runner._verify_launch_git_state(
             production,
+            execution_host_profile="capture_colocated_v1",
             git_runner=git,
         )
 

@@ -26,6 +26,19 @@ cannot overlap through cleanup. Heavy work still ends before sealing as an opera
 preservation rule. Its separate live-executor role
 remains fixed-scope and grants no additional production or live authority.
 
+**Operator decision 2026-08-30:** the exact reviewed remote branch
+`codex/portable-execution-host-clean-20260827` may be live code authority before
+master adoption for `portable_execution_v1` only. This is not a general
+topic-branch rule. The worktree must be clean; local HEAD, local branch, cached
+origin branch, and freshly queried canonical branch must be identical;
+local/cached/live canonical master must be synchronized and ancestral to the
+topic tip; exact-head CI and review must pass; the repository owner must
+explicitly authorize the tip; and the tracked host/principal assignment must
+match. `capture_colocated_v1` remains exact-master-only. This exception removes
+only master promotion: it does not make the topic branch production-adopted,
+alter capture or Scheduler state, or relax any credential, geography, account,
+money, order, cancellation, deadline, cleanup, or attendance gate.
+
 Conventions for naming, ordering and reading the correspondence are in
 [`docs/roadmap/AGENTS.md`](../roadmap/AGENTS.md). This file owns the *content* contract.
 
@@ -37,16 +50,18 @@ Conventions for naming, ordering and reading the correspondence are in
 | --- | --- | --- |
 | **Production (16 GB)** | Live capture, settlement, release, guarded runtime integration, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
 | **Workstation (32 GB)** | Research, implementation, tests, training, replay, measurement | Exact tracked non-capture host/principal; outside the capture-host timetable/resource admission; heavy commands use the admission-only shared-mutex wrapper and cannot overlap a launched live stage; cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
-| **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session; may be the same physical PC as the workstation | No capture, release, Scheduler, production-state, unattended, or general-live authority; Git/PR actions follow explicit operator authority and `docs/git-workflow.md`; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
+| **Portable live executor** | One attended fixed-scope International Stage 0/1 lifecycle session; may be the same physical PC as the workstation | Exact adopted master or the single operator-authorized topic ref under its full equality/ancestry contract; no capture, release, Scheduler, production-state, unattended, or general-live authority; Git/PR actions follow explicit operator authority and `docs/git-workflow.md`; provision and relocate only through `PORTABLE_LIVE_EXECUTION_HOST.md` |
 
 The portable executor is a role, not a permanent machine name. The same
 physical PC may do ordinary workstation work outside a launched live stage;
 that work uses the workstation role and must not claim the portable live
 profile or its evidence. Its offline wrapper shares only the host-global mutex.
-The live role uses a clean
-checkout at the production-adopted exact tip, creates host-local credentials
-and attempt evidence, and is rebound whenever it moves to another Windows
-installation. A portable live session is not a delegated research mission:
+The live role uses a clean checkout at an exact reviewed Git authority, creates
+host-local credentials and attempt evidence, and is rebound whenever it moves
+to another Windows installation. Normally that authority is the
+production-adopted master tip; the exact portable-only topic branch permitted
+by the 2026-08-30 operator decision is the sole pre-adoption exception. A
+portable live session is not a delegated research mission:
 its narrowly authorized exchange writes are governed by
 [`INTERNATIONAL_MM_LIVE_PILOT.md`](INTERNATIONAL_MM_LIVE_PILOT.md), while all
 implementation or research work on that PC remains inside the workstation
@@ -86,7 +101,10 @@ role file and host runbooks.
 - PR creation and merge require explicit repository-owner authority and the Git
   workflow's review, CI, and merge-method gates. When an owning runbook requires
   guarded production-host integration, use that path; a remote ref change is
-  not production adoption.
+  not production adoption. The narrow portable topic-ref exception above is
+  live authority only for its exact portable role and branch; it does not claim
+  a production merge, capture adoption/recovery, Scheduler state, or broader
+  exchange authority.
 
 **Evidence integrity**
 
@@ -221,8 +239,14 @@ The production agent verifies before accepting. Standard checks:
 - **Reproduction commands are checked for path existence on this host.** Workstation scratch paths are
   the most common defect in an otherwise correct report.
 - **Roll verdict is re-derived** before scheduling a merge window.
-- **Push is verified**, always: `git ls-tree -r --name-only origin/master | Select-String '<slug>'`.
-  Claiming a push without verifying it has happened here and was caught by the operator.
+- **Push is verified**, always: production adoption uses
+  `git ls-tree -r --name-only origin/master | Select-String '<slug>'`. The
+  portable-only pre-adoption exception instead requires an exact bounded
+  `git ls-remote --exit-code --refs` query of canonical
+  `refs/heads/codex/portable-execution-host-clean-20260827`, equality to the
+  reviewed local/cached tip, exact-head CI/review, and explicit owner
+  authorization. Claiming a push without verifying the governing remote ref
+  has happened here and was caught by the operator.
 
 ---
 

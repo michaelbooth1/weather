@@ -77,6 +77,12 @@ FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
 FIRST_SESSION_CREDENTIAL_MODE = "verify_existing_exact"
 CREDENTIAL_RECEIPT_MAX_AGE_SECONDS = 2 * 60 * 60
 REMOTE_MASTER_REF = "refs/heads/master"
+PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH = (
+    "codex/portable-execution-host-clean-20260827"
+)
+PORTABLE_EXECUTION_AUTHORIZED_TOPIC_REF = (
+    f"refs/heads/{PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH}"
+)
 CANONICAL_ORIGIN_URL = "https://github.com/michaelbooth1/weather.git"
 REMOTE_PROOF_TIMEOUT_SECONDS = 10
 ALLOWED_DIRTY_PATHS = frozenset(
@@ -498,7 +504,17 @@ def _git_text(runner: GitRunner, root: Path, *args: str) -> str:
     return _git(runner, root, *args).stdout.strip()
 
 
-def _remote_master_oid(runner: GitRunner, root: Path) -> str:
+def _remote_ref_oids(
+    runner: GitRunner,
+    root: Path,
+    refs: Sequence[str],
+) -> dict[str, str]:
+    expected_refs = tuple(dict.fromkeys(str(ref) for ref in refs))
+    if not expected_refs or any(
+        not ref.startswith("refs/heads/") or ref == "refs/heads/"
+        for ref in expected_refs
+    ):
+        raise SealError("live origin ref proof request is invalid")
     raw = _git_text(
         runner,
         root,
@@ -506,17 +522,79 @@ def _remote_master_oid(runner: GitRunner, root: Path) -> str:
         "--exit-code",
         "--refs",
         CANONICAL_ORIGIN_URL,
-        REMOTE_MASTER_REF,
+        *expected_refs,
     )
     rows = [line.split() for line in raw.splitlines() if line.strip()]
-    if not (
-        len(rows) == 1
-        and len(rows[0]) == 2
-        and rows[0][1] == REMOTE_MASTER_REF
-        and GIT_OID_RE.fullmatch(rows[0][0].lower()) is not None
-    ):
-        raise SealError("live origin master proof is malformed or ambiguous")
-    return rows[0][0].lower()
+    parsed: dict[str, str] = {}
+    for row in rows:
+        if (
+            len(row) != 2
+            or row[1] not in expected_refs
+            or row[1] in parsed
+            or GIT_OID_RE.fullmatch(row[0].lower()) is None
+        ):
+            raise SealError("live origin ref proof is malformed or ambiguous")
+        parsed[row[1]] = row[0].lower()
+    if set(parsed) != set(expected_refs):
+        raise SealError("live origin ref proof is incomplete or ambiguous")
+    return parsed
+
+
+def _remote_master_oid(runner: GitRunner, root: Path) -> str:
+    """Return the live canonical master tip for compatibility callers."""
+
+    return _remote_ref_oids(runner, root, (REMOTE_MASTER_REF,))[REMOTE_MASTER_REF]
+
+
+def _remote_branch_ref(branch: str) -> str:
+    return f"refs/heads/{branch}"
+
+
+def _local_branch_ref(branch: str) -> str:
+    return f"refs/heads/{branch}"
+
+
+def _cached_origin_branch_ref(branch: str) -> str:
+    return f"refs/remotes/origin/{branch}"
+
+
+def _branch_is_authorized(execution_host_profile: str, branch: str) -> bool:
+    if execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE:
+        return branch == "master"
+    if execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE:
+        return branch in {
+            "master",
+            PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+        }
+    return False
+
+
+def _require_authorized_branch(execution_host_profile: str, branch: str) -> None:
+    if execution_host_profile not in EXECUTION_HOST_PROFILES:
+        raise SealError("execution host profile is unsupported")
+    if _branch_is_authorized(execution_host_profile, branch):
+        return
+    if execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE:
+        raise SealError("capture-colocated sealing is restricted to production master")
+    raise SealError(
+        "portable sealing is restricted to production master or the exact authorized "
+        "portable topic branch"
+    )
+
+
+def _worktree_policy_clean(
+    execution_host_profile: str,
+    status_lines: Sequence[str],
+) -> bool:
+    if any(line[:2] == "??" for line in status_lines):
+        return False
+    dirty = {line[3:].replace("\\", "/") for line in status_lines}
+    if execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE:
+        return not dirty
+    return (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and dirty.issubset(ALLOWED_DIRTY_PATHS)
+    )
 
 
 def _default_powershell_parser(source: str) -> None:
@@ -559,6 +637,7 @@ def _default_sdk_validator(
 def _verify_git_state(
     production: Mapping[str, Any],
     *,
+    execution_host_profile: str,
     git_runner: GitRunner,
 ) -> dict[str, Any]:
     root = Path(str(production["root"])).resolve()
@@ -571,8 +650,11 @@ def _verify_git_state(
         raise SealError("reviewed Git executable is not the exact canonical binary")
     expected_commit = _require_git_oid(production["commit"], label="production.commit")
     expected_tree = _require_git_oid(production["tree"], label="production.tree")
-    if production["branch"] != "master":
-        raise SealError("fixed-scope sealing is restricted to production master")
+    expected_branch = str(production["branch"] or "")
+    _require_authorized_branch(execution_host_profile, expected_branch)
+    local_branch_ref = _local_branch_ref(expected_branch)
+    cached_origin_branch_ref = _cached_origin_branch_ref(expected_branch)
+    remote_branch_ref = _remote_branch_ref(expected_branch)
     origin_url = _git_text(
         git_runner, root, "config", "--local", "--get", "remote.origin.url"
     )
@@ -608,6 +690,11 @@ def _verify_git_state(
         or any(name.casefold().startswith(forbidden_prefixes) for name in local_config_names)
     ):
         raise SealError("production Git remote or local trust configuration is not exact")
+    remote_refs = _remote_ref_oids(
+        git_runner,
+        root,
+        (REMOTE_MASTER_REF, remote_branch_ref),
+    )
     facts = {
         "git_executable": str(reviewed_git),
         "git_executable_sha256": _sha256_file(reviewed_git),
@@ -616,11 +703,22 @@ def _verify_git_state(
             git_runner, root, "rev-parse", "--show-object-format"
         ).lower(),
         "head": _git_text(git_runner, root, "rev-parse", "HEAD").lower(),
-        "master": _git_text(git_runner, root, "rev-parse", "master").lower(),
-        "origin_master": _git_text(
-            git_runner, root, "rev-parse", "origin/master"
+        "local_branch_tip": _git_text(
+            git_runner, root, "rev-parse", local_branch_ref
         ).lower(),
-        "remote_master": _remote_master_oid(git_runner, root),
+        "cached_origin_branch_tip": _git_text(
+            git_runner, root, "rev-parse", cached_origin_branch_ref
+        ).lower(),
+        "remote_branch_tip": remote_refs[remote_branch_ref],
+        "remote_branch_ref": remote_branch_ref,
+        "local_master": _git_text(
+            git_runner, root, "rev-parse", "refs/heads/master"
+        ).lower(),
+        "cached_origin_master": _git_text(
+            git_runner, root, "rev-parse", "refs/remotes/origin/master"
+        ).lower(),
+        "remote_master": remote_refs[REMOTE_MASTER_REF],
+        "remote_master_ref": REMOTE_MASTER_REF,
         "tree": _git_text(git_runner, root, "rev-parse", "HEAD^{tree}").lower(),
         "branch": _git_text(git_runner, root, "branch", "--show-current"),
     }
@@ -632,15 +730,38 @@ def _verify_git_state(
         raise SealError("reviewed Git object ids do not match the repository format")
     if not (
         facts["head"]
-        == facts["master"]
-        == facts["origin_master"]
-        == facts["remote_master"]
+        == facts["local_branch_tip"]
+        == facts["cached_origin_branch_tip"]
+        == facts["remote_branch_tip"]
         == expected_commit
     ):
         raise SealError(
-            "production HEAD/master/cached origin/live origin does not match the reviewed commit"
+            "production HEAD/local branch/cached origin branch/live origin branch does "
+            "not match the reviewed commit"
         )
-    if facts["tree"] != expected_tree or facts["branch"] != "master":
+    if facts["branch"] != expected_branch:
+        raise SealError("checked-out production branch changed from the reviewed branch")
+    if not (
+        facts["local_master"]
+        == facts["cached_origin_master"]
+        == facts["remote_master"]
+    ):
+        raise SealError("local, cached-origin, and live origin master are not synchronized")
+    master_ancestry = _git(
+        git_runner,
+        root,
+        "merge-base",
+        "--is-ancestor",
+        facts["remote_master"],
+        expected_commit,
+        allowed=(0, 1),
+    )
+    facts["live_remote_master_equal"] = True
+    facts["live_remote_master_ancestor"] = master_ancestry.returncode == 0
+    facts["live_remote_branch_equal"] = True
+    if master_ancestry.returncode != 0:
+        raise SealError("live origin master is not an ancestor of the reviewed branch tip")
+    if facts["tree"] != expected_tree:
         raise SealError("production tree or branch does not match the reviewed target")
     ancestry = _git(
         git_runner,
@@ -655,19 +776,21 @@ def _verify_git_state(
         raise SealError("interrupt-cleanup hardening is not an ancestor of production")
     status_lines = [
         line
-        for line in _git_text(
+        for line in _git(
             git_runner,
             root,
             "status",
             "--porcelain=v1",
             "--untracked-files=all",
-        ).splitlines()
+        ).stdout.splitlines()
         if line.strip()
     ]
     if any(line[:2] == "??" for line in status_lines):
         raise SealError("production worktree has an untracked nonignored path")
     dirty = {line[3:].replace("\\", "/") for line in status_lines}
-    if not dirty.issubset(ALLOWED_DIRTY_PATHS):
+    if not _worktree_policy_clean(execution_host_profile, status_lines):
+        if execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE and dirty:
+            raise SealError("portable production worktree must be completely clean")
         raise SealError("production worktree has unexpected tracked changes")
     for marker in ("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"):
         result = _git(
@@ -1984,6 +2107,8 @@ def _validate_spec(
     )
     if execution_host_profile not in EXECUTION_HOST_PROFILES:
         raise SealError("execution host profile is unsupported")
+    production_branch = str(production["branch"] or "")
+    _require_authorized_branch(execution_host_profile, production_branch)
     if execution_host_id != current_execution_host_id():
         raise SealError("seal scope is bound to a different execution host")
     if execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE:
@@ -2238,7 +2363,7 @@ def _validate_spec(
         "stage": stage,
         "production": {
             "root": str(root),
-            "branch": "master",
+            "branch": production_branch,
             "commit": _require_git_oid(production["commit"], label="production.commit"),
             "tree": _require_git_oid(production["tree"], label="production.tree"),
             "python": str(python),
@@ -2287,6 +2412,10 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
     common = {
         "expected_production_tip": validated["production"]["commit"],
         "expected_production_tree": validated["production"]["tree"],
+        "expected_production_branch": validated["production"]["branch"],
+        "expected_remote_branch_ref": _remote_branch_ref(
+            validated["production"]["branch"]
+        ),
         "git_executable": validated["production"]["git_executable"],
         "git_executable_sha256": validated["production"][
             "git_executable_sha256"
@@ -2403,7 +2532,11 @@ def _recheck_before_write(
     *,
     git_runner: GitRunner,
 ) -> None:
-    _verify_git_state(validated["production"], git_runner=git_runner)
+    _verify_git_state(
+        validated["production"],
+        execution_host_profile=validated["scope"]["execution_host_profile"],
+        git_runner=git_runner,
+    )
     for record in validated["inputs"].values():
         path = Path(record["path"])
         if not path.is_file() or _sha256_file(path) != record["sha256"]:
@@ -2452,7 +2585,9 @@ def seal_fixed_scope(
     ):
         raise SealError("sealer code and templates must run from the reviewed production tree")
     seal_git_facts = _verify_git_state(
-        validated["production"], git_runner=git_runner
+        validated["production"],
+        execution_host_profile=validated["scope"]["execution_host_profile"],
+        git_runner=git_runner,
     )
     sdk_validation = dict(
         sdk_validator(
@@ -2552,9 +2687,25 @@ def seal_fixed_scope(
             "branch": validated["production"]["branch"],
             "commit": validated["production"]["commit"],
             "tree": validated["production"]["tree"],
-            "cached_origin_master": seal_git_facts["origin_master"],
+            "local_branch_tip": seal_git_facts["local_branch_tip"],
+            "cached_origin_branch_tip": seal_git_facts[
+                "cached_origin_branch_tip"
+            ],
+            "remote_branch_tip": seal_git_facts["remote_branch_tip"],
+            "remote_branch_ref": seal_git_facts["remote_branch_ref"],
+            "live_remote_branch_equal": seal_git_facts[
+                "live_remote_branch_equal"
+            ],
+            "local_master": seal_git_facts["local_master"],
+            "cached_origin_master": seal_git_facts["cached_origin_master"],
             "remote_master": seal_git_facts["remote_master"],
             "remote_master_ref": REMOTE_MASTER_REF,
+            "live_remote_master_equal": seal_git_facts[
+                "live_remote_master_equal"
+            ],
+            "live_remote_master_ancestor": seal_git_facts[
+                "live_remote_master_ancestor"
+            ],
             "interpreter": validated["production"]["python"],
             "git_executable": validated["production"]["git_executable"],
             "git_executable_sha256": validated["production"][
@@ -2604,7 +2755,8 @@ def seal_fixed_scope(
             "source_import_guard": "PASS",
             "candidate_ttl_and_scope": "PASS",
             "interrupt_cleanup_ancestry": "PASS",
-            "live_remote_master_equality": "PASS",
+            "live_remote_branch_equality": "PASS",
+            "live_remote_master_baseline": "PASS",
             "reviewed_input_hashes": "PASS",
             "deterministic_render": "PASS",
         },
@@ -2645,6 +2797,7 @@ def build_public_inventory(
     stage: str,
     production_root: str | Path = REPO_ROOT,
     *,
+    execution_host_profile: str,
     git_runner: GitRunner = _default_git_runner,
 ) -> dict[str, Any]:
     """Return public hashes needed to author a reviewed seal spec; write nothing."""
@@ -2652,6 +2805,8 @@ def build_public_inventory(
     assert_no_ambient_market_registry_override()
     if stage not in STAGES:
         raise SealError("inventory stage is unsupported")
+    if execution_host_profile not in EXECUTION_HOST_PROFILES:
+        raise SealError("inventory execution host profile is unsupported")
     root = Path(production_root).resolve()
     sources = list(LIVE_SOURCE_PATHS[stage]) + [WORKLOAD_ADMISSION_PATH]
     paths = {
@@ -2671,20 +2826,59 @@ def build_public_inventory(
         if (root / relative).is_file()
     }
     head = _git_text(git_runner, root, "rev-parse", "HEAD").lower()
-    master = _git_text(git_runner, root, "rev-parse", "master").lower()
-    cached_origin_master = _git_text(
-        git_runner, root, "rev-parse", "origin/master"
-    ).lower()
     branch = _git_text(git_runner, root, "branch", "--show-current")
+    remote_branch_ref = _remote_branch_ref(branch)
+    local_branch_tip = _git_text(
+        git_runner, root, "rev-parse", _local_branch_ref(branch)
+    ).lower()
+    cached_origin_branch_tip = _git_text(
+        git_runner, root, "rev-parse", _cached_origin_branch_ref(branch)
+    ).lower()
+    local_master = _git_text(
+        git_runner, root, "rev-parse", "refs/heads/master"
+    ).lower()
+    cached_origin_master = _git_text(
+        git_runner, root, "rev-parse", "refs/remotes/origin/master"
+    ).lower()
     try:
-        remote_master = _remote_master_oid(git_runner, root)
+        remote_refs = _remote_ref_oids(
+            git_runner,
+            root,
+            (REMOTE_MASTER_REF, remote_branch_ref),
+        )
+        remote_master = remote_refs[REMOTE_MASTER_REF]
+        remote_branch_tip = remote_refs[remote_branch_ref]
     except SealError:
         remote_master = None
+        remote_branch_tip = None
+    live_remote_branch_equal = (
+        remote_branch_tip is not None
+        and head
+        == local_branch_tip
+        == cached_origin_branch_tip
+        == remote_branch_tip
+    )
     live_remote_master_equal = (
         remote_master is not None
-        and head == master == cached_origin_master == remote_master
+        and local_master == cached_origin_master == remote_master
     )
-    ancestry = _git(
+    master_ancestry = (
+        _git(
+            git_runner,
+            root,
+            "merge-base",
+            "--is-ancestor",
+            remote_master,
+            head,
+            allowed=(0, 1),
+        )
+        if remote_master is not None
+        else None
+    )
+    live_remote_master_ancestor = (
+        master_ancestry is not None and master_ancestry.returncode == 0
+    )
+    hardening_ancestry = _git(
         git_runner,
         root,
         "merge-base",
@@ -2693,26 +2887,52 @@ def build_public_inventory(
         head,
         allowed=(0, 1),
     )
+    status_lines = [
+        line
+        for line in _git(
+            git_runner,
+            root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ).stdout.splitlines()
+        if line.strip()
+    ]
+    worktree_policy_clean = _worktree_policy_clean(
+        execution_host_profile,
+        status_lines,
+    )
     return {
         "schema_version": INVENTORY_SCHEMA_VERSION,
         "status": "PASS"
-        if ancestry.returncode == 0
-        and branch == "master"
+        if hardening_ancestry.returncode == 0
+        and _branch_is_authorized(execution_host_profile, branch)
+        and live_remote_branch_equal
         and live_remote_master_equal
+        and live_remote_master_ancestor
+        and worktree_policy_clean
         and len(paths) == len(sources)
         and python.is_file()
         and len(bootstrap) == len(SESSION_BOOTSTRAP_PATHS)
         else "BLOCK",
         "stage": stage,
+        "execution_host_profile": execution_host_profile,
         "production": {
             "root": str(root),
             "branch": branch,
             "commit": head,
-            "local_master": master,
+            "local_branch_tip": local_branch_tip,
+            "cached_origin_branch_tip": cached_origin_branch_tip,
+            "remote_branch_tip": remote_branch_tip,
+            "remote_branch_ref": remote_branch_ref,
+            "live_remote_branch_equal": live_remote_branch_equal,
+            "local_master": local_master,
             "cached_origin_master": cached_origin_master,
             "remote_master": remote_master,
             "remote_master_ref": REMOTE_MASTER_REF,
             "live_remote_master_equal": live_remote_master_equal,
+            "live_remote_master_ancestor": live_remote_master_ancestor,
+            "worktree_policy_clean": worktree_policy_clean,
             "tree": _git_text(git_runner, root, "rev-parse", "HEAD^{tree}").lower(),
             "object_format": _git_text(
                 git_runner, root, "rev-parse", "--show-object-format"
@@ -2722,7 +2942,9 @@ def build_public_inventory(
             "git_executable": str(git_executable),
             "git_executable_sha256": _sha256_file(git_executable),
             "canonical_origin_url": CANONICAL_ORIGIN_URL,
-            "interrupt_cleanup_ancestor_integrated": ancestry.returncode == 0,
+            "interrupt_cleanup_ancestor_integrated": (
+                hardening_ancestry.returncode == 0
+            ),
         },
         "template_sha256": templates,
         "source_sha256": dict(sorted(paths.items())),
@@ -2740,6 +2962,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     inventory.add_argument("--stage", choices=STAGES, required=True)
     inventory.add_argument("--production-root", default=str(REPO_ROOT))
+    inventory.add_argument(
+        "--execution-host-profile",
+        choices=sorted(EXECUTION_HOST_PROFILES),
+        required=True,
+    )
     seal = subparsers.add_parser(
         "seal", help="seal one reviewed public spec without executing its wrapper"
     )
@@ -2751,7 +2978,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "inventory":
-            result = build_public_inventory(args.stage, args.production_root)
+            result = build_public_inventory(
+                args.stage,
+                args.production_root,
+                execution_host_profile=args.execution_host_profile,
+            )
             exit_code = 0 if result["status"] == "PASS" else 2
         else:
             result = seal_fixed_scope(args.spec)

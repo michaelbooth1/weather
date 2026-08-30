@@ -48,6 +48,7 @@ CORE_WORKERS = {
 }
 CAPTURE_COLOCATED_HOST_PROFILE = "capture_colocated_v1"
 PORTABLE_EXECUTION_HOST_PROFILE = "portable_execution_v1"
+PORTABLE_TOPIC_BRANCH = "codex/portable-execution-host-clean-20260827"
 EXECUTION_HOST_ID_DOMAIN = "international_live_execution_host_v2"
 PRE_CREDENTIAL_RESERVE_SECONDS = (
     120
@@ -167,6 +168,16 @@ def _assert_sealed() -> None:
         PORTABLE_EXECUTION_HOST_PROFILE,
     }:
         raise RuntimeError("execution host profile is invalid")
+    expected_branch = str(SCOPE.get("expected_production_branch") or "")
+    expected_remote_ref = str(SCOPE.get("expected_remote_branch_ref") or "")
+    if (
+        profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and expected_branch != "master"
+    ) or (
+        profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and expected_branch not in {"master", PORTABLE_TOPIC_BRANCH}
+    ) or expected_remote_ref != f"refs/heads/{expected_branch}":
+        raise RuntimeError("sealed production branch is invalid for the host profile")
     if (
         SHA256_RE.fullmatch(str(SCOPE.get("execution_host_id") or "").lower())
         is None
@@ -388,16 +399,38 @@ def _assert_git_and_sources() -> None:
         )
     ):
         raise RuntimeError("production Git remote or trust configuration changed")
+    profile = str(SCOPE["execution_host_profile"])
+    selected_branch = str(SCOPE["expected_production_branch"])
+    if (
+        profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and selected_branch != "master"
+    ) or (
+        profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and selected_branch not in {"master", PORTABLE_TOPIC_BRANCH}
+    ):
+        raise RuntimeError("sealed production branch is invalid for the host profile")
+    selected_local_ref = f"refs/heads/{selected_branch}"
+    selected_cached_ref = f"refs/remotes/origin/{selected_branch}"
+    selected_remote_ref = str(SCOPE["expected_remote_branch_ref"])
+    if selected_remote_ref != selected_local_ref:
+        raise RuntimeError("sealed remote branch ref does not match the selected branch")
+    master_remote_ref = "refs/heads/master"
     head = _git("rev-parse", "HEAD").stdout.strip().lower()
-    master = _git("rev-parse", "master").stdout.strip().lower()
-    origin = _git("rev-parse", "origin/master").stdout.strip().lower()
+    local_selected = _git("rev-parse", selected_local_ref).stdout.strip().lower()
+    cached_selected = _git("rev-parse", selected_cached_ref).stdout.strip().lower()
+    master = _git("rev-parse", "refs/heads/master").stdout.strip().lower()
+    cached_master = _git(
+        "rev-parse", "refs/remotes/origin/master"
+    ).stdout.strip().lower()
+    branch = _git("branch", "--show-current").stdout.strip()
+    required_remote_refs = sorted({master_remote_ref, selected_remote_ref})
     assert_no_ambient_proxy_configuration()
     remote_result = _git(
         "ls-remote",
         "--exit-code",
         "--refs",
         SCOPE["canonical_origin_url"],
-        "refs/heads/master",
+        *required_remote_refs,
     )
     assert_no_ambient_proxy_configuration()
     remote_rows = [
@@ -405,24 +438,39 @@ def _assert_git_and_sources() -> None:
         for line in remote_result.stdout.splitlines()
         if line.strip()
     ]
-    if not (
-        len(remote_rows) == 1
-        and len(remote_rows[0]) == 2
-        and remote_rows[0][1] == "refs/heads/master"
-        and GIT_OID_RE.fullmatch(remote_rows[0][0].lower()) is not None
-    ):
-        raise RuntimeError("live origin master proof is malformed or unavailable")
-    remote_master = remote_rows[0][0].lower()
-    branch = _git("branch", "--show-current").stdout.strip()
+    remote_by_ref = {}
+    for row in remote_rows:
+        if (
+            len(row) != 2
+            or row[1] not in required_remote_refs
+            or row[1] in remote_by_ref
+            or GIT_OID_RE.fullmatch(row[0].lower()) is None
+        ):
+            raise RuntimeError("live origin ref proof is malformed or unavailable")
+        remote_by_ref[row[1]] = row[0].lower()
+    if set(remote_by_ref) != set(required_remote_refs):
+        raise RuntimeError("live origin ref proof is malformed or unavailable")
+    remote_master = remote_by_ref[master_remote_ref]
+    remote_selected = remote_by_ref[selected_remote_ref]
     if not (
         head
-        == master
-        == origin
-        == remote_master
+        == local_selected
+        == cached_selected
+        == remote_selected
         == str(SCOPE["expected_production_tip"]).lower()
-        and branch == "master"
+        and master == cached_master == remote_master
+        and branch == selected_branch
     ):
-        raise RuntimeError("production HEAD/master/origin or branch changed")
+        raise RuntimeError("production selected ref, master baseline, or branch changed")
+    base_ancestry = _git(
+        "merge-base",
+        "--is-ancestor",
+        remote_master,
+        head,
+        allowed=(0, 1),
+    )
+    if base_ancestry.returncode != 0:
+        raise RuntimeError("live origin master is not an ancestor of the selected tip")
     tree = _git("rev-parse", "HEAD^{tree}").stdout.strip().lower()
     if tree != str(SCOPE["expected_production_tree"]).lower():
         raise RuntimeError("production tree changed after wrapper review")
@@ -443,7 +491,13 @@ def _assert_git_and_sources() -> None:
         for line in _git("status", "--porcelain=v1").stdout.splitlines()
         if line.strip()
     }
-    if not dirty.issubset(ALLOWED_DIRTY_PATHS):
+    execution_profile = str(SCOPE["execution_host_profile"])
+    worktree_policy_clean = (
+        not dirty
+        if execution_profile == "portable_execution_v1"
+        else dirty.issubset(ALLOWED_DIRTY_PATHS)
+    )
+    if not worktree_policy_clean:
         raise RuntimeError("production worktree has unexpected changes")
     for relative, expected in SOURCE_SHA256.items():
         path = (PRODUCTION / relative).resolve()

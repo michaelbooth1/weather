@@ -601,9 +601,20 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
     for name in launcher_sealer.ATTEMPT_DIRECTORIES:
         (attempt / name).mkdir(parents=True, exist_ok=True)
 
-    def inventory(stage, root):
+    def inventory(
+        stage,
+        root,
+        *,
+        execution_host_profile="capture_colocated_v1",
+    ):
         root = Path(root)
         git_executable = fixed_sealer.canonical_git_executable()
+        branch = (
+            fixed_sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+            if execution_host_profile == "portable_execution_v1"
+            else "master"
+        )
+        master_tip = "c" * 40 if branch != "master" else "a" * 40
         source_paths = set(fixed_sealer.LIVE_SOURCE_PATHS[stage]) | {
             fixed_sealer.WORKLOAD_ADMISSION_PATH
         }
@@ -611,15 +622,23 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
             "schema_version": fixed_sealer.INVENTORY_SCHEMA_VERSION,
             "status": "PASS",
             "stage": stage,
+            "execution_host_profile": execution_host_profile,
             "production": {
                 "root": str(root.resolve()),
-                "branch": "master",
+                "branch": branch,
                 "commit": "a" * 40,
-                "local_master": "a" * 40,
-                "cached_origin_master": "a" * 40,
-                "remote_master": "a" * 40,
+                "local_branch_tip": "a" * 40,
+                "cached_origin_branch_tip": "a" * 40,
+                "remote_branch_tip": "a" * 40,
+                "remote_branch_ref": f"refs/heads/{branch}",
+                "live_remote_branch_equal": True,
+                "local_master": master_tip,
+                "cached_origin_master": master_tip,
+                "remote_master": master_tip,
                 "remote_master_ref": fixed_sealer.REMOTE_MASTER_REF,
                 "live_remote_master_equal": True,
+                "live_remote_master_ancestor": True,
+                "worktree_policy_clean": True,
                 "tree": "b" * 40,
                 "object_format": "sha1",
                 "python": str((root / "venv/Scripts/python.exe").resolve()),
@@ -1022,7 +1041,7 @@ def test_manifest_builder_rejects_inventory_drift_before_writes(tmp_path):
     ):
         build_manifest(
             prepared,
-            inventory_builder=lambda _stage, _root: inventory,
+            inventory_builder=lambda _stage, _root, **_kwargs: inventory,
         )
 
     assert list(prepared["attempt"].rglob("*.*")) == []
@@ -1127,6 +1146,9 @@ def test_manifest_builder_binds_portable_execution_host_without_capture_flags(
         launcher_sealer.current_execution_host_id()
     )
     assert manifest["scope"]["max_session_seconds"] == 240
+    assert manifest["production"]["branch"] == (
+        fixed_sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
     assert receipt["fixed_max_session_seconds"] == 240
     assert manifest["reviewed_status_flags"] == []
 

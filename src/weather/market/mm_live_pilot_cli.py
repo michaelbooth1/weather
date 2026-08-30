@@ -76,6 +76,9 @@ from weather.schema_registry import schema_version
 
 
 RECEIPT_SCHEMA_VERSION = schema_version("mm_live_pilot_command_receipt")
+FIXED_SCOPE_SEAL_SCHEMA_VERSION = schema_version(
+    "international_live_fixed_scope_seal"
+)
 MAX_PILOT_BUDGET = MAX_OPERATOR_PILOT_BUDGET_USDC
 BUNDLE_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE"
 IDENTITY_CONFIRMATION = "INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY"
@@ -211,7 +214,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and _sha256_file(manifest_sidecar) == run_manifest.get("sidecar_sha256")
     )
     checks = {
-        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.4"
+        "seal": seal.get("schema_version") == FIXED_SCOPE_SEAL_SCHEMA_VERSION
         and seal.get("status") == "PASS"
         and seal.get("stage") == stage_name,
         "production": seal_production.get("commit") == args.expected_production_tip,
