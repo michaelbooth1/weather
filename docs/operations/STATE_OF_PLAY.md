@@ -12,11 +12,11 @@
 | --- | --- |
 | Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
 | Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
-| Portable executor | Corrective [draft PR #5](https://github.com/michaelbooth1/weather/pull/5) targets `master` and contains code-bearing head `24443acaa4dc1d736c18b8f5ff6285626da15b2d` plus this state rewrite. It names this selected 32 GB host and attending principal and keeps workstation-heavy work outside the capture timetable, but remains non-authoritative until the production host supplies the canonical roll verdict and guarded adoption. |
-| Verification | Corrective PR #5 code-head [CI](https://github.com/michaelbooth1/weather/actions/runs/33326014520) passed compilation, knowledge contracts, roadmap validation, 4,073 tests, 92 skips, and 860 subtests. The portable clone's new environment passed import and package-integrity smoke plus 35 focused portable-host/SDK tests; one additional local test hits a known OS-marker harness issue, and PR #5 contains its module-local fix. Production-host qualification and adoption remain separate and pending. |
-| Second PC | The clean portable clone now matches current `origin/master` at `3361520f...`; all 26 HGB LFS objects hash exactly, and a new CPython 3.11.9 x64 venv has pinned runtime/test dependencies with `pip check` clean. The exact 34-wheel SDK wheelhouse was independently rebuilt from public releases and matches the sealed manifest, but the path-bound compiled overlay cannot be reproduced byte-for-byte and still needs the source PC's non-secret canonical export. Pending reboot and automatic proxy discovery are cleared; Windows Time remains stopped because starting it needs interactive administrator elevation. The four WinCred targets, production-adopted assignment, public attempt substrate, and live attempt remain absent. No credential value or exchange endpoint was accessed. |
+| Portable executor | Corrective [draft PR #5](https://github.com/michaelbooth1/weather/pull/5) targets `master` and contains exact reviewed head `e1f7985ed9057019ccbfa1034fbdeadd8fd52a4a` plus this state rewrite. It names this selected 32 GB host and attending principal and keeps workstation-heavy work outside the capture timetable, but remains non-authoritative until the production host supplies the canonical roll verdict and guarded adoption. |
+| Verification | Corrective PR #5 exact-head [CI](https://github.com/michaelbooth1/weather/actions/runs/33326607314) passed compilation, knowledge contracts, roadmap validation, 4,073 tests, 92 skips, and 860 subtests. The portable clone's new environment passed import and package-integrity smoke plus 35 focused portable-host/SDK tests. Its clean venv activates only the sealed SDK overlay; the older development-checkout venv has an ambient `polymarket` install and is deliberately not an execution-lane interpreter. Production-host qualification and adoption remain separate and pending. |
+| Second PC | The clean portable clone still matches production `origin/master` at `3361520f...`; all 26 HGB LFS objects hash exactly, and its CPython 3.11.9 x64 venv has pinned runtime/test dependencies with `pip check` clean. Source transfer `20260830T184120257Z` supplied the canonical SDK 0.6.0 overlay and 34-wheel wheelhouse; destination bundle audit, create-only import, and installed audit all passed exact hashes. Windows Time is running and synchronized, proxy/reboot checks are clear, and the offline host audit passes on the corrective policy branch for this exact host/principal. The production clone remains unassigned until PR #5 lands, so no attempt has started and no exchange endpoint was contacted. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
-| Credentials | No credential value was accessed. The selected PC's four current-user WinCred targets are not provisioned. It needs a fresh host-and-token-principal-bound v0.4 compare-only receipt after enrollment; another host/principal's receipt and attempt artifacts are invalid. |
+| Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets, then a distinct v0.4 compare-only run verified all four exactly with zero mutation; public outputs retain no secret values. That receipt is intentionally short-lived, so a new compare-only receipt is required after production enrollment. Keep the private transfer source locked down until that final comparison is consumed, then use the approved deletion procedure. |
 | Live money | No exchange endpoint was contacted and no Stage 0/1 session has run. The first session remains attended, International-only, exact 10 pUSD request / 100 pUSD wallet cap, and separately gated at every mutation boundary. |
 
 ## Closed decisions -- do not relitigate without new evidence
@@ -60,16 +60,16 @@
    are not production adoption; never rewrite the published history.
 2. After PR #5 is adopted, update the clean portable clone to that exact
    `master` tip and require local `HEAD`, tree, cached `origin/master`, and a
-   fresh canonical remote query to agree.
-3. Export the exact non-secret SDK overlay/wheelhouse from its validated source
-   PC, import and audit it here through the create-only portability tool, then
-   start/synchronize Windows Time and require a clean offline host status.
-   Never copy `data/`, a venv, credentials, or an old attempt.
+   fresh canonical remote query to agree. Rerun the installed SDK and offline
+   host audits; do not use the ambient-SDK development venv.
+3. Generate a fresh host/principal-bound compare-only credential receipt into
+   new paths, consume it within two hours, and then dispose of the temporary
+   private source through the approved deletion procedure.
 4. Build a new attempt-local public substrate from metadata, observation,
    weather/source, CLOB, economics and a strictly passing paper tick; run its
-   no-network local preflight. Provision WinCred under the attending Windows
-   user, then create a new compare-only receipt on that host within two hours.
-   Regenerate identity, candidate, and all three immutable attempts.
+   no-network local preflight. Regenerate identity, candidate, and all three
+   immutable attempts. Never reuse another host's or an expired attempt's
+   artifacts.
 5. At action time, require eligible physical presence/no circumvention,
    official geoblock PASS, exact account topology, balance/allowance, zero
    unknown orders and positions, current market rules, clean synchronized Git,
