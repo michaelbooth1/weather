@@ -515,7 +515,10 @@ if ([string]::IsNullOrWhiteSpace($pilotLocalApplicationData) -or
   throw "current-user local application-data path is unavailable"
 }
 $pilotStateRoot = Get-VerifiedPilotLocalPath (
-  Join-Path $pilotLocalApplicationData "WeatherPortable\live-pilot"
+  # Keep this root intentionally short. Snapshot CAS filenames include the
+  # complete event slug and a SHA-256 digest, and supported Windows hosts may
+  # still enforce the legacy 260-character filesystem limit.
+  Join-Path $pilotLocalApplicationData "WLive"
 )
 $null = New-Item -ItemType Directory -Path $pilotStateRoot -Force `
   -ErrorAction Stop

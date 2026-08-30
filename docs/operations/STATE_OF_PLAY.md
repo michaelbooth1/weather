@@ -12,12 +12,13 @@
 | --- | --- |
 | Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
 | Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
-| Portable executor | Corrective [draft PR #5](https://github.com/michaelbooth1/weather/pull/5) targets `master` and contains exact reviewed head `e1f7985ed9057019ccbfa1034fbdeadd8fd52a4a` plus this state rewrite. It names this selected 32 GB host and attending principal and keeps workstation-heavy work outside the capture timetable, but remains non-authoritative until the production host supplies the canonical roll verdict and guarded adoption. |
-| Verification | Corrective PR #5 exact-head [CI](https://github.com/michaelbooth1/weather/actions/runs/33326607314) passed compilation, knowledge contracts, roadmap validation, 4,073 tests, 92 skips, and 860 subtests. The portable clone's new environment passed import and package-integrity smoke plus 35 focused portable-host/SDK tests. Its clean venv activates only the sealed SDK overlay; the older development-checkout venv has an ambient `polymarket` install and is deliberately not an execution-lane interpreter. Production-host qualification and adoption remain separate and pending. |
-| Second PC | The clean portable clone still matches production `origin/master` at `3361520f...`; all 26 HGB LFS objects hash exactly, and its CPython 3.11.9 x64 venv has pinned runtime/test dependencies with `pip check` clean. Source transfer `20260830T184120257Z` supplied the canonical SDK 0.6.0 overlay and 34-wheel wheelhouse; destination bundle audit, create-only import, and installed audit all passed exact hashes. Windows Time is running and synchronized, proxy/reboot checks are clear, and the offline host audit passes on the corrective policy branch for this exact host/principal. The production clone remains unassigned until PR #5 lands, so no attempt has started and no exchange endpoint was contacted. |
+| Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
+| Verification | The code-bearing exact tip `f12e5785abbf6e4077a64e7dfdfb295cf337ce31` has green [CI](https://github.com/michaelbooth1/weather/actions/runs/33337317130); the preceding identical tree reported 4,084 tests passed, 92 skips, one warning, and 860 subtests. Local focused live-gate verification passed 178 tests plus compile, template AST, documentation, and whitespace audits. Any later documentation-only tip still needs its own exact-head green check before use. |
+| Second PC | The clean portable clone is on the authorized topic at `f12e5785...`; HEAD/local/cached/live topic equality, synchronized `3361520f...` master, master ancestry, and zero status rows pass. Its CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, fresh installed audit, clock/proxy/reboot state, and exact assigned host/principal audit all pass. The development checkout's ambient SDK remains excluded from live use. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
-| Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets, then a distinct v0.4 compare-only run verified all four exactly with zero mutation; public outputs retain no secret values. That receipt is intentionally short-lived, so a new compare-only receipt is required after production enrollment. Keep the private transfer source locked down until that final comparison is consumed, then use the approved deletion procedure. |
-| Live money | No exchange endpoint was contacted and no Stage 0/1 session has run. The first session remains attended, International-only, exact 10 pUSD request / 100 pUSD wallet cap, and separately gated at every mutation boundary. |
+| Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets. Fresh attempt `pilot-20260830T215248084Z` then produced a v0.4 compare-only PASS for this exact host/principal: four exact matches, zero writes, zero mutation, no retained values. Keep the private transfer source locked down until a final comparison is consumed, then use the approved deletion procedure. |
+| Public substrate | Today's Toronto metadata and strict dry-run observation collection passed without credentials. The first weather snapshot attempt exposed a legacy Windows path-length failure at a 267-character CAS filename; preserve that partial namespace. The runbook now uses short local root `%LOCALAPPDATA%\WLive`; create a new attempt and substrate there after final exact-head CI. |
+| Live money | Public unauthenticated metadata/weather endpoints were contacted; no credentialed exchange call, authenticated write, order, cancellation, or Stage 0/1 session occurred. The first session remains attended, International-only, exact 10 pUSD request / 100 pUSD wallet cap, and separately gated at every mutation boundary. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -48,6 +49,9 @@
   credential, account, deadline, cancellation, and cleanup gate, but no local
   capture/tape/streak or capture timetable. It accepts one tracked non-capture
   host/principal and cannot authorize another workload; the hook is not role authority.
+- Its sole pre-master code exception is the literal remote topic branch named
+  above. No arbitrary branch argument exists; changing that branch requires a
+  new reviewed code and operator decision.
 - Moving the executor again means a new production-tip assignment, clone/venv,
   uniquely named SDK transfer, WinCred setup, fresh compare receipt, host
   audit, public substrate, candidates, and attempt manifests. Never edit an old
@@ -55,21 +59,20 @@
 
 ## Ordered critical path
 
-1. On the production host, fetch and independently review PR #5's current exact tip,
-   obtain the canonical roll verdict, run the required serial qualification, and use the guarded integration path. Green CI and a remote mergeable state
-   are not production adoption; never rewrite the published history.
-2. After PR #5 is adopted, update the clean portable clone to that exact
-   `master` tip and require local `HEAD`, tree, cached `origin/master`, and a
-   fresh canonical remote query to agree. Rerun the installed SDK and offline
-   host audits; do not use the ambient-SDK development venv.
-3. Generate a fresh host/principal-bound compare-only credential receipt into
-   new paths, consume it within two hours, and then dispose of the temporary
-   private source through the approved deletion procedure.
-4. Build a new attempt-local public substrate from metadata, observation,
+1. Push this short-root/state correction, require exact-head green CI, then
+   fast-forward the clean portable clone to that exact authorized remote topic
+   tip and repeat its branch/master inventory. A production merge is not a
+   portable blocker; production/capture adoption remains a separate later task.
+2. Create a new `%LOCALAPPDATA%\WLive` attempt namespace. Prepare a new public
+   identity and fresh host/principal-bound compare-only credential receipt;
+   consume the receipt within two hours.
+3. Build a new attempt-local public substrate from metadata, observation,
    weather/source, CLOB, economics and a strictly passing paper tick; run its
-   no-network local preflight. Regenerate identity, candidate, and all three
-   immutable attempts. Never reuse another host's or an expired attempt's
-   artifacts.
+   no-network local preflight. Stop for the exact informed economics acceptance
+   literal; never infer it from a collector PASS.
+4. Build and review all three immutable manifests and launchers, then refresh a
+   constrained candidate immediately before each stage. Never reuse the failed
+   long-path namespace or an expired artifact.
 5. At action time, require eligible physical presence/no circumvention,
    official geoblock PASS, exact account topology, balance/allowance, zero
    unknown orders and positions, current market rules, clean synchronized Git,
@@ -81,9 +84,9 @@
 
 A finite audit cannot predict every unknown defect. The durable standard is
 fail-closed identity and path binding, early deterministic checks, immutable
-receipts, bounded execution, and truthful claims. Until focused/bounded tests
-pass and the exact code is production-adopted, the portable executor is a
-reviewed candidate, not a runnable live lane.
+receipts, bounded execution, and truthful claims. The portable lane requires
+the exact profile-authorized Git authority and every action-time gate; a green
+branch alone is never a runnable live session.
 
 ## Update this file when
 
