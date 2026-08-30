@@ -106,6 +106,14 @@ def test_shared_lease_owns_the_heavy_window_and_exact_dated_exceptions() -> None
     assert "owner_approved_merge_20260823" in text
     assert 'Workload -cne "quiet_window_merge"' in text
     assert 'ToString("yyyy-MM-dd") -cne "2026-08-23"' in text
+    assert "OwnerApprovedShortTask" in text
+    assert "OwnerApprovalId" in text
+    assert "OwnerApprovalReason" in text
+    assert "OwnerApprovalMinutes" in text
+    assert 'PolicyWindow = "owner_approved_short_task"' in text
+    assert "owner short-task approval must be between 1 and 30 minutes" in text
+    assert "record.owner_approval" in text
+    assert 'schema_version = "weather_heavy_workload_lease_v2"' in text
 
 
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
@@ -164,4 +172,126 @@ catch { $expired = $true }
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == (
         '{"accepted":"owner_approved_merge_20260823","expired":true}'
+    )
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_owner_short_task_override_is_explicit_scoped_and_bounded() -> None:
+    env = os.environ.copy()
+    env["WEATHER_LEASE_SCRIPT"] = str(LEASE_SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$accepted = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-08-28T13:00:00' `
+    -Workload 'manual_export' `
+    -OwnerApprovedShortTask `
+    -OwnerApprovalId 'owner-20260828-export' `
+    -OwnerApprovalReason 'Owner requested one bounded export.' `
+    -OwnerApprovalMinutes 15
+$missing = $false
+try {
+    Get-WeatherHeavyWorkloadPolicyWindow `
+        -Now '2026-08-28T13:00:00' `
+        -Workload 'manual_export' `
+        -OwnerApprovedShortTask `
+        -OwnerApprovalMinutes 15
+}
+catch { $missing = $true }
+$tooLong = $false
+try {
+    Get-WeatherHeavyWorkloadPolicyWindow `
+        -Now '2026-08-28T13:00:00' `
+        -Workload 'manual_export' `
+        -OwnerApprovedShortTask `
+        -OwnerApprovalId 'owner-20260828-export' `
+        -OwnerApprovalReason 'Owner requested one bounded export.' `
+        -OwnerApprovalMinutes 31
+}
+catch { $tooLong = $true }
+$mixed = $false
+try {
+    Get-WeatherHeavyWorkloadPolicyWindow `
+        -Now '2026-08-28T13:00:00' `
+        -Workload 'manual_export' `
+        -AllowStageAWindow `
+        -OwnerApprovedShortTask `
+        -OwnerApprovalId 'owner-20260828-export' `
+        -OwnerApprovalReason 'Owner requested one bounded export.' `
+        -OwnerApprovalMinutes 15
+}
+catch { $mixed = $true }
+[pscustomobject]@{
+    accepted = $accepted
+    missing = $missing
+    too_long = $tooLong
+    mixed = $mixed
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        '{"accepted":"owner_approved_short_task","missing":true,'
+        '"too_long":true,"mixed":true}'
+    )
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_owner_short_task_lease_records_approval_and_deadline(tmp_path: Path) -> None:
+    env = os.environ.copy()
+    env["WEATHER_LEASE_SCRIPT"] = str(LEASE_SCRIPT)
+    env["WEATHER_TEST_REPO_ROOT"] = str(tmp_path)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$lease = $null
+try {
+    $lease = Enter-WeatherHeavyWorkloadLease `
+        -RepoRoot $env:WEATHER_TEST_REPO_ROOT `
+        -Workload 'manual_export' `
+        -OwnerApprovedShortTask `
+        -OwnerApprovalId 'owner-20260828-export' `
+        -OwnerApprovalReason 'Owner requested one bounded export.' `
+        -OwnerApprovalMinutes 15
+    if ($null -eq $lease) { throw 'lease was unexpectedly busy' }
+    $record = Get-Content -LiteralPath $lease.Path -Raw | ConvertFrom-Json
+    [pscustomobject]@{
+        schema = $record.schema_version
+        policy_window = $record.policy_window
+        workload = $record.workload
+        approval_id = $record.owner_approval.approval_id
+        reason = $record.owner_approval.reason
+        max_minutes = $record.owner_approval.max_minutes
+        has_deadline = -not [string]::IsNullOrWhiteSpace(
+            [string]$record.owner_approval.expires_at_utc
+        )
+        lease_has_deadline = $null -ne $lease.ExpiresAtUtc
+    } | ConvertTo-Json -Compress
+}
+finally { Exit-WeatherHeavyWorkloadLease -Lease $lease }
+"""
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        '{"schema":"weather_heavy_workload_lease_v2",'
+        '"policy_window":"owner_approved_short_task",'
+        '"workload":"manual_export",'
+        '"approval_id":"owner-20260828-export",'
+        '"reason":"Owner requested one bounded export.",'
+        '"max_minutes":15,"has_deadline":true,'
+        '"lease_has_deadline":true}'
     )

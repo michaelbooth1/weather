@@ -5,13 +5,88 @@
 # authority. Metadata is diagnostic only, so an unclean process exit releases ownership
 # automatically even if old JSON remains on disk.
 
+function Resolve-WeatherOwnerApprovedShortTask {
+    [CmdletBinding()]
+    param(
+        [datetime]$Now = (Get-Date),
+        [string]$Workload = "",
+        [switch]$OwnerApprovedShortTask,
+        [string]$OwnerApprovalId = "",
+        [string]$OwnerApprovalReason = "",
+        [int]$OwnerApprovalMinutes = 0,
+        [switch]$AllowStageAWindow,
+        [string]$OwnerApprovedException = ""
+    )
+
+    $hasOwnerShortTaskInput = (
+        $OwnerApprovedShortTask -or
+        -not [string]::IsNullOrWhiteSpace($OwnerApprovalId) -or
+        -not [string]::IsNullOrWhiteSpace($OwnerApprovalReason) -or
+        $OwnerApprovalMinutes -ne 0
+    )
+    if (-not $hasOwnerShortTaskInput) { return $null }
+
+    if (-not $OwnerApprovedShortTask) {
+        throw "owner short-task fields require -OwnerApprovedShortTask"
+    }
+    if ($AllowStageAWindow -or $OwnerApprovedException) {
+        throw "owner short-task approval cannot be combined with another workload exception"
+    }
+    if ([string]::IsNullOrWhiteSpace($Workload)) {
+        throw "owner short-task approval requires an exact workload name"
+    }
+
+    $approvalId = $OwnerApprovalId.Trim()
+    if ($approvalId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$') {
+        throw "owner short-task approval ID must be 3-64 safe identifier characters"
+    }
+
+    $reason = $OwnerApprovalReason.Trim()
+    if (
+        $reason.Length -lt 8 -or
+        $reason.Length -gt 256 -or
+        $reason.Contains("`r") -or
+        $reason.Contains("`n")
+    ) {
+        throw "owner short-task reason must be a single line of 8-256 characters"
+    }
+    if ($OwnerApprovalMinutes -lt 1 -or $OwnerApprovalMinutes -gt 30) {
+        throw "owner short-task approval must be between 1 and 30 minutes"
+    }
+
+    $expiresAtUtc = $Now.ToUniversalTime().AddMinutes($OwnerApprovalMinutes)
+    return [PSCustomObject]@{
+        PolicyWindow = "owner_approved_short_task"
+        ApprovalId = $approvalId
+        Reason = $reason
+        MaxMinutes = $OwnerApprovalMinutes
+        ExpiresAtUtc = $expiresAtUtc
+    }
+}
+
 function Get-WeatherHeavyWorkloadPolicyWindow {
     [CmdletBinding()]
     param(
         [datetime]$Now = (Get-Date),
+        [string]$Workload = "",
         [switch]$AllowStageAWindow,
-        [string]$OwnerApprovedException = ""
+        [string]$OwnerApprovedException = "",
+        [switch]$OwnerApprovedShortTask,
+        [string]$OwnerApprovalId = "",
+        [string]$OwnerApprovalReason = "",
+        [int]$OwnerApprovalMinutes = 0
     )
+
+    $ownerShortTask = Resolve-WeatherOwnerApprovedShortTask `
+        -Now $Now `
+        -Workload $Workload `
+        -OwnerApprovedShortTask:$OwnerApprovedShortTask `
+        -OwnerApprovalId $OwnerApprovalId `
+        -OwnerApprovalReason $OwnerApprovalReason `
+        -OwnerApprovalMinutes $OwnerApprovalMinutes `
+        -AllowStageAWindow:$AllowStageAWindow `
+        -OwnerApprovedException $OwnerApprovedException
+    if ($null -ne $ownerShortTask) { return $ownerShortTask.PolicyWindow }
 
     if ($OwnerApprovedException) {
         if (
@@ -45,19 +120,40 @@ function Enter-WeatherHeavyWorkloadLease {
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Workload,
         [switch]$AllowStageAWindow,
-        [string]$OwnerApprovedException = ""
+        [string]$OwnerApprovedException = "",
+        [switch]$OwnerApprovedShortTask,
+        [string]$OwnerApprovalId = "",
+        [string]$OwnerApprovalReason = "",
+        [int]$OwnerApprovalMinutes = 0
     )
 
     if ($OwnerApprovedException -and $Workload -cne "quiet_window_merge") {
         throw "owner-approved workload exception is restricted to quiet_window_merge"
     }
-    $policyWindow = Get-WeatherHeavyWorkloadPolicyWindow `
+    $now = Get-Date
+    $ownerShortTask = Resolve-WeatherOwnerApprovedShortTask `
+        -Now $now `
+        -Workload $Workload `
+        -OwnerApprovedShortTask:$OwnerApprovedShortTask `
+        -OwnerApprovalId $OwnerApprovalId `
+        -OwnerApprovalReason $OwnerApprovalReason `
+        -OwnerApprovalMinutes $OwnerApprovalMinutes `
         -AllowStageAWindow:$AllowStageAWindow `
         -OwnerApprovedException $OwnerApprovedException
+    $policyWindow = Get-WeatherHeavyWorkloadPolicyWindow `
+        -Now $now `
+        -Workload $Workload `
+        -AllowStageAWindow:$AllowStageAWindow `
+        -OwnerApprovedException $OwnerApprovedException `
+        -OwnerApprovedShortTask:$OwnerApprovedShortTask `
+        -OwnerApprovalId $OwnerApprovalId `
+        -OwnerApprovalReason $OwnerApprovalReason `
+        -OwnerApprovalMinutes $OwnerApprovalMinutes
     if ($null -eq $policyWindow) {
         throw (
             "heavy workload '{0}' is outside the 00:30-09:00 window; " +
-            "only the explicit Stage-A lane may acquire the lease at 09:30-11:55"
+            "only the explicit Stage-A lane at 09:30-11:55 or a complete " +
+            "owner-approved short-task grant may acquire the lease"
         ) -f $Workload
     }
 
@@ -81,12 +177,20 @@ function Enter-WeatherHeavyWorkloadLease {
     try {
         $stream.SetLength(0)
         $record = [ordered]@{
-            schema_version = "weather_heavy_workload_lease_v1"
+            schema_version = "weather_heavy_workload_lease_v2"
             workload = $Workload
             pid = $PID
-            acquired_at = (Get-Date).ToUniversalTime().ToString("o")
+            acquired_at = $now.ToUniversalTime().ToString("o")
             policy_window = $policyWindow
             host = $env:COMPUTERNAME
+        }
+        if ($null -ne $ownerShortTask) {
+            $record.owner_approval = [ordered]@{
+                approval_id = $ownerShortTask.ApprovalId
+                reason = $ownerShortTask.Reason
+                max_minutes = $ownerShortTask.MaxMinutes
+                expires_at_utc = $ownerShortTask.ExpiresAtUtc.ToString("o")
+            }
         }
         $encoding = New-Object System.Text.UTF8Encoding($false)
         $writer = New-Object System.IO.StreamWriter($stream, $encoding, 1024, $true)
@@ -96,7 +200,16 @@ function Enter-WeatherHeavyWorkloadLease {
             $stream.Flush()
         }
         finally { $writer.Dispose() }
-        return [PSCustomObject]@{ Path = $path; Workload = $Workload; Stream = $stream }
+        return [PSCustomObject]@{
+            Path = $path
+            Workload = $Workload
+            Stream = $stream
+            PolicyWindow = $policyWindow
+            OwnerApproval = $ownerShortTask
+            ExpiresAtUtc = if ($null -ne $ownerShortTask) {
+                $ownerShortTask.ExpiresAtUtc
+            } else { $null }
+        }
     }
     catch {
         $stream.Dispose()

@@ -36,8 +36,8 @@ a committed timetable.
 | 00:05–00:30 | taker/MM daily roll-over — brief spike |
 | 00:30–09:00 | **the least-contended block, but no longer empty.** Heavy work goes here; disabled-by-default Stage B has one 00:35 trigger and a 09:00 teardown when explicitly enabled, and the quiet merge window (01:00–04:00) sits inside it |
 | 09:30–11:55 | Stage A settlement chain — heavy, scheduled, with an absolute teardown deadline |
-| 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
-| 18:00–00:05 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch |
+| 12:00–18:00 | **PROTECTED graded capture window — no ordinary heavy work; only a current manual owner short-task grant may override** |
+| 18:00–00:05 | **PROTECTED — no ordinary heavy work.** Only a current manual owner short-task grant may override; near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch |
 
 When Stage B is explicitly enabled, its exact 00:35 trigger composes an
 eight-hour child SLA (08:35), the wrapper's 09:00 teardown (8h25m), and the
@@ -195,16 +195,36 @@ useful work before capture is stopped. The independent
 
 ## Rules
 
-1. **Protected window 18:00–00:30**: no ad-hoc analysis jobs, corpus builds,
-   replays, conversions, backfills, or bulk file operations. Near-close tape
-   is the highest-value data this platform collects; the 15-second fast-mode
-   contract has no slack for IO contention.
-2. **Heavy ad-hoc work runs 00:30–09:00**, holds the shared lease from
+1. **Protected window 18:00–00:30 by default**: no ordinary ad-hoc analysis
+   jobs, corpus builds, replays, conversions, backfills, or bulk file
+   operations. Near-close tape is the highest-value data this platform
+   collects; the 15-second fast-mode contract has no slack for IO contention.
+   Only a current explicit repository-owner short-task grant under rule 2 may
+   override this default for its recorded workload and deadline.
+2. **Ordinary heavy ad-hoc work runs 00:30–09:00**, holds the shared lease from
    `scripts/ops/workload_admission.ps1`, and checks first:
    `data\logs\memory_commit_guard_status.json` (commit_percent < 70) and
    ≥ 50 GB disk free. The lease itself rejects acquisition outside that
-   window. Only the settlement Stage-A wrapper can request the explicit
-   09:30–11:55 exception. Bounded test suites additionally kill their complete
+   window by default. For one manual task, the repository owner may explicitly
+   use `-OwnerApprovedShortTask` together with an exact `-OwnerApprovalId`, a
+   single-line `-OwnerApprovalReason`, and `-OwnerApprovalMinutes` from 1 to 30.
+   The lease records the approval and UTC deadline. The grant is workload-scoped,
+   must be released in `finally`, may not be embedded in scheduled or recurring
+   work, and does not waive commit, disk, exclusivity, or task-specific safety
+   checks. Example:
+
+   ```powershell
+   $lease = Enter-WeatherHeavyWorkloadLease `
+       -RepoRoot $repo `
+       -Workload "manual_export" `
+       -OwnerApprovedShortTask `
+       -OwnerApprovalId "owner-20260828-manual-export" `
+       -OwnerApprovalReason "Owner requested one bounded manual export." `
+       -OwnerApprovalMinutes 15
+   ```
+
+   Only the settlement Stage-A wrapper can request the explicit 09:30–11:55
+   scheduled exception. Bounded test suites additionally kill their complete
    Job-owned child tree at 09:00 rather than merely checking the start time.
    One repository-owner exception on 2026-08-23 permits only the exact
    `codex/live-readiness-closure-20260823` lineage rooted at

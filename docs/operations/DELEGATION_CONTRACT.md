@@ -15,7 +15,7 @@ Conventions for naming, ordering and reading the correspondence are in
 
 | Host | Role | Constraint |
 | --- | --- | --- |
-| **Production (16 GB)** | Live capture, settlement, release, git authority, merge timing | Capture is the priority. Heavy work only 00:30–09:00 |
+| **Production (16 GB)** | Live capture, settlement, release, git authority, merge timing | Capture is the priority. Ordinary heavy work only 00:30–09:00; a manual 1–30 minute owner grant may use the audited short-task lease path |
 | **Workstation (32 GB)** | Research, implementation, measurement | Cannot see production `data/`; its mirror is **FROZEN at 2026-08-12 05:03** and is not authoritative |
 
 The production host writes handoffs and verifies handbacks. The workstation implements and measures.

@@ -71,10 +71,12 @@ power-before-interpretation are not negotiable.
 - **Allocate α.** Only the operator does. The ledger stands at **7 of 20 spent, 13 available**.
   **Decision 10 is CLOSED UNUSED / RETIRED and must never be reassigned.**
 - **Live trading or promotion.** Requires an explicit operator request.
-- **Run agent-started or ad-hoc heavy compute outside 00:30–09:00 local.** The sole scheduled
-  exception is the repository-owned Stage-A daily chain, which may run 09:30–11:55 under an
-  absolute child-tree teardown deadline. The 12:00–18:00 graded window and 18:00–00:30 near-close
-  window are protected. See §5.
+- **Run ordinary agent-started or ad-hoc heavy compute outside 00:30–09:00 local.** The repository
+  owner may explicitly grant one manual, workload-scoped short task for 1–30 minutes through the
+  audited `-OwnerApprovedShortTask` lease path; that is not standing or scheduled authority. The
+  sole scheduled exception remains the repository-owned Stage-A daily chain, which may run
+  09:30–11:55 under an absolute child-tree teardown deadline. The 12:00–18:00 graded window and
+  18:00–00:30 near-close window are protected by default. See §5.
 
 Durability findings are acted on when evidence changes; do not repeatedly re-derive or nag about a
 standing condition. A frozen or unverified copy, an unencrypted system disk, or changed power risk

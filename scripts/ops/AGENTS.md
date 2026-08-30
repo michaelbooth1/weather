@@ -116,6 +116,12 @@ Every heavyweight wrapper must hold the shared lease from
 Resource headroom and time-window checks remain mandatory and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
+The repository owner may authorize one manual out-of-window short task only
+through the lease helper's complete `-OwnerApprovedShortTask` parameter set:
+approval ID, reason, and a 1–30 minute duration. The helper records the grant
+and deadline in lease metadata. Do not bake those arguments into a scheduled
+or recurring wrapper, and never use the path without an explicit current owner
+instruction for the named workload.
 
 `install_codex_host_load_hook.ps1` owns the production host's user-layer
 PreToolUse guard. It must never overwrite an existing `~/.codex/hooks.json`,

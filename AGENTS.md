@@ -61,13 +61,19 @@ machine-local state.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
   readiness/release gates.
-- Agent-started or ad-hoc heavy host work is allowed only from 00:30–09:00
-  local and must hold the shared lease from
-  `scripts/ops/workload_admission.ps1`. The repository-owned Stage-A daily
-  chain is the sole scheduled exception: it may run 09:30–11:55 under an
-  absolute child-tree teardown deadline. The 12:00–18:00 graded window and
-  18:00–00:30 near-close window are protected; separate resource checks do
-  not make overlapping heavy jobs safe.
+- Ordinary agent-started or ad-hoc heavy host work is allowed only from
+  00:30–09:00 local and must hold the shared lease from
+  `scripts/ops/workload_admission.ps1`. The repository owner may explicitly
+  grant one manual short task outside that window with the workload-scoped
+  `-OwnerApprovedShortTask` path: it requires an approval ID, a single-line
+  reason, and a 1–30 minute bound, all recorded in lease metadata. Never embed
+  that grant in a scheduled or recurring wrapper, and do not treat it as a
+  general policy disable; resource checks and exclusive lease ownership still
+  apply. The repository-owned Stage-A daily chain remains the sole scheduled
+  exception and may run 09:30–11:55 under an absolute child-tree teardown
+  deadline. The 12:00–18:00 graded window and 18:00–00:30 near-close window
+  remain protected by default; separate resource checks do not make
+  overlapping heavy jobs safe.
 - **Merging code on the production host can restart live capture.** Supervisors
   fingerprint the source files they have imported, so landing a change to a
   loop-imported module triggers a `STALE_CODE` readoption restart. Inside the
