@@ -526,6 +526,10 @@ $pilotStateRoot = Get-VerifiedPilotLocalPath $pilotStateRoot
 $pilotPublicRoot = Join-Path $pilotStateRoot "public"
 $pilotAttemptsParent = Join-Path $pilotStateRoot "attempts" # init-attempt validates it
 $pilotAttemptRoot = Join-Path $pilotAttemptsParent $pilotAttemptId
+# Snapshot CAS leaves can approach the legacy Windows path limit. Keep later
+# stage refreshes in this compact, attempt-bound sibling namespace.
+$pilotStageRefreshBase = Join-Path $pilotStateRoot "r"
+$pilotStageRefreshParent = Join-Path $pilotStageRefreshBase $pilotAttemptId
 $pilotDiscoveryPlan = Join-Path $pilotPublicRoot ($pilotAttemptId + "-discovery.json")
 $pilotIdentitySource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity.json")
 $pilotIdentityReceipt = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity-receipt.json")
@@ -547,8 +551,16 @@ $paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRun
 
 New-Item -ItemType Directory -Path $pilotPublicRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $pilotAttemptsParent -Force | Out-Null
+New-Item -ItemType Directory -Path $pilotStageRefreshBase -Force | Out-Null
 $pilotPublicRoot = Get-VerifiedPilotLocalPath $pilotPublicRoot
 $pilotAttemptsParent = Get-VerifiedPilotLocalPath $pilotAttemptsParent
+$pilotStageRefreshBase = Get-VerifiedPilotLocalPath $pilotStageRefreshBase
+if (Test-Path -LiteralPath $pilotStageRefreshParent) {
+  throw "attempt-bound stage refresh namespace must be new"
+}
+New-Item -ItemType Directory -Path $pilotStageRefreshParent `
+  -ErrorAction Stop | Out-Null
+$pilotStageRefreshParent = Get-VerifiedPilotLocalPath $pilotStageRefreshParent
 if (Test-Path -LiteralPath $pilotSubstrateRoot) {
   throw "candidate substrate namespace must be new"
 }
@@ -1219,7 +1231,11 @@ if (Test-Path -LiteralPath $expectedStage0CandidateInbox) {
 }
 
 $freshStage0Id = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
-$freshStage0Root = Join-Path $pilotSubstrateRoot ("stage0-refresh-" + $freshStage0Id)
+$freshStage0Parent = Join-Path $pilotStageRefreshParent "s0"
+New-Item -ItemType Directory -Path $freshStage0Parent -Force `
+  -ErrorAction Stop | Out-Null
+$freshStage0Parent = Get-VerifiedPilotLocalPath $freshStage0Parent
+$freshStage0Root = Join-Path $freshStage0Parent $freshStage0Id
 $freshStage0EventMetadata = Join-Path $freshStage0Root "location-market-events.json"
 $freshStage0Validation = Join-Path $freshStage0Root "event-metadata-validation.json"
 $freshStage0Observation = Join-Path $freshStage0Root "observation-status.json"
@@ -1424,7 +1440,16 @@ function Invoke-FreshReviewedStage1 {
   }
 
   $freshId = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
-  $freshRoot = Join-Path $pilotSubstrateRoot ($Stage + "-refresh-" + $freshId)
+  $stagePathCode = switch ($Stage) {
+    "stage1_cancel_all" { "s1a" }
+    "stage1_dead_man" { "s1d" }
+    default { throw "unsupported Stage 1 refresh path scope" }
+  }
+  $freshParent = Join-Path $pilotStageRefreshParent $stagePathCode
+  New-Item -ItemType Directory -Path $freshParent -Force `
+    -ErrorAction Stop | Out-Null
+  $freshParent = Get-VerifiedPilotLocalPath $freshParent
+  $freshRoot = Join-Path $freshParent $freshId
   $freshEventMetadata = Join-Path $freshRoot "location-market-events.json"
   $freshValidation = Join-Path $freshRoot "event-metadata-validation.json"
   $freshObservation = Join-Path $freshRoot "observation-status.json"
