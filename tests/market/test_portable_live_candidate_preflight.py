@@ -299,6 +299,127 @@ def test_preflight_rejects_duplicate_economics_condition(tmp_path, monkeypatch):
     assert payload["checks"]["economics_market_exact"] is False
 
 
+def test_preflight_rejects_case_only_duplicate_economics_condition(
+    tmp_path,
+    monkeypatch,
+):
+    inputs = _fixture(tmp_path, monkeypatch)
+    lower_condition = "0x" + "a" * 64
+    upper_condition = "0x" + "A" * 64
+    economics_path = inputs["economics_snapshot_path"]
+    economics = json.loads(economics_path.read_text(encoding="utf-8"))
+    economics["markets"][0]["condition_id"] = lower_condition
+    duplicate = dict(economics["markets"][0])
+    duplicate["condition_id"] = upper_condition
+    economics["markets"].append(duplicate)
+    economics_path.write_text(json.dumps(economics), encoding="utf-8")
+    monkeypatch.setattr(preflight, "_latest_token_rows", lambda _folder: [
+        {
+            "captured_at_utc": "2026-08-27T12:00:00+00:00",
+            "condition_id": lower_condition,
+            "clob_token_id": token,
+            "outcome": outcome,
+            "active": True,
+            "closed": False,
+        }
+        for token, outcome in (("101", "yes"), ("102", "no"))
+    ])
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "BLOCK"
+    assert payload["checks"]["economics_market_exact"] is False
+
+
+def test_preflight_rejects_duplicate_collector_token_pair(tmp_path, monkeypatch):
+    inputs = _fixture(tmp_path, monkeypatch)
+    rows = [
+        {
+            "captured_at_utc": "2026-08-27T12:00:00+00:00",
+            "condition_id": CONDITION,
+            "clob_token_id": token,
+            "outcome": outcome,
+            "active": True,
+            "closed": False,
+        }
+        for token, outcome in (("101", "yes"), ("102", "no"))
+    ]
+    rows.append(dict(rows[0]))
+    monkeypatch.setattr(preflight, "_latest_token_rows", lambda _folder: rows)
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "BLOCK"
+    assert payload["checks"]["economics_condition_matches_tokens"] is False
+    assert payload["checks"]["economics_tokens_match_collector"] is False
+
+
+@pytest.mark.parametrize(
+    ("condition_id", "token_id"),
+    (("", "999"), (CONDITION, "")),
+)
+def test_preflight_rejects_unbound_collector_row(
+    tmp_path,
+    monkeypatch,
+    condition_id,
+    token_id,
+):
+    inputs = _fixture(tmp_path, monkeypatch)
+    rows = [
+        {
+            "captured_at_utc": "2026-08-27T12:00:00+00:00",
+            "condition_id": CONDITION,
+            "clob_token_id": token,
+            "outcome": outcome,
+            "active": True,
+            "closed": False,
+        }
+        for token, outcome in (("101", "yes"), ("102", "no"))
+    ]
+    rows.append({
+        "captured_at_utc": "2026-08-27T12:00:00+00:00",
+        "condition_id": condition_id,
+        "clob_token_id": token_id,
+        "outcome": "yes",
+        "active": True,
+        "closed": False,
+    })
+    monkeypatch.setattr(preflight, "_latest_token_rows", lambda _folder: rows)
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "BLOCK"
+    assert payload["checks"]["economics_condition_matches_tokens"] is False
+    assert payload["checks"]["economics_tokens_match_collector"] is False
+
+
+@pytest.mark.parametrize(
+    "token_ids",
+    (
+        "101",
+        [101, "102"],
+        ["9" * 78, "102"],
+        ["9" * 5000, "102"],
+    ),
+)
+def test_preflight_blocks_malformed_economics_token_ids(
+    tmp_path,
+    monkeypatch,
+    token_ids,
+):
+    inputs = _fixture(tmp_path, monkeypatch)
+    economics_path = inputs["economics_snapshot_path"]
+    economics = json.loads(economics_path.read_text(encoding="utf-8"))
+    economics["markets"][0]["token_ids"] = token_ids
+    economics_path.write_text(json.dumps(economics), encoding="utf-8")
+
+    payload = preflight.build_preflight(**inputs)
+
+    assert payload["status"] == "BLOCK"
+    assert payload["checks"]["economics_market_exact"] is False
+    assert payload["checks"]["economics_tokens_match_collector"] is False
+
+
 def test_preflight_blocks_paper_run_bound_to_another_snapshot_root(
     tmp_path,
     monkeypatch,
