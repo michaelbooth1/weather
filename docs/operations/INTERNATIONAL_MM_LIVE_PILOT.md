@@ -20,7 +20,7 @@ The fixed-scope Stage 0/1 sealer, session runner, process-local pinned SDK
 overlay, and interrupt-cleanup path are integrated production software. The
 portable execution-host extension remains an unmerged candidate, but an
 operator-authorized portable-only exception permits the exact reviewed branch
-`codex/portable-execution-host-clean-20260827` to supply live code for
+`codex/live-gate-provenance-20260831` to supply live code for
 `portable_execution_v1` before master adoption. Read the current exact branch
 tip, exact-head CI/review status, operator authorization, and production master
 baseline from Git and [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated
@@ -51,13 +51,14 @@ recovery, or Scheduler state, and it does not remove any money, SDK,
 credential, identity, geography, account, balance, allowance, zero-state,
 order, cancellation, deadline, cleanup, or attended-confirmation gate.
 
-### Stage-scoped candidate-gate redesign qualification hold
+### Stage-scoped candidate-gate redesign qualification
 
-The stage-scoped replacement is implemented on the current stacked redesign
-branch, but that branch is unqualified and has **no live authority**. Do not
-use it for Stage 0 or Stage 1 until the test, review, publication, exact-head
-CI, synchronized-ref, portable-update, and explicit-authority steps in
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) pass. Code history establishes that the fixed
+The stage-scoped replacement is implemented on the operator-selected portable
+branch. Naming the branch in code is not itself live authority: do not use an
+exact tip for Stage 0 or Stage 1 until the test, review, publication,
+exact-head CI, synchronized-ref, portable-update, and explicit exact-tip owner
+authority steps in [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) pass. Code history
+establishes that the fixed
 `0.05` maximum book spread and `0.20-0.80` midpoint interval were introduced as
 conservative pilot-selection heuristics. No measured optimization, loss model,
 protocol rule, or venue rule established either value. They must not be called
@@ -111,9 +112,9 @@ optimum unless a cited measurement says so:
 
 Do not repair this defect by changing five cents to another guessed number.
 The separate Stage 0 scope and Stage 1 lifecycle-plan gates now implement this
-contract on the unqualified redesign branch. The commands below describe that
-new interface, but remain on HOLD until the branch receives the exact authority
-described above. See
+contract on the selected portable branch. The commands below describe that
+interface, but remain on HOLD for any exact tip that has not passed every
+dynamic qualification and action-time gate described above. See
 [`ESTABLISHED_FINDINGS.md`](ESTABLISHED_FINDINGS.md#8v-the-five-cent-live-candidate-spread-ceiling-is-an-unvalidated-pilot-heuristic).
 
 **Geographic eligibility is an action-time fact, not a repository or timezone
@@ -245,9 +246,9 @@ All must be current for the target date and selected market:
    that means production-adopted master. For the portable profile, only the
    literal remote topic branch, exact tip, host, and principal currently
    authorized in [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) may substitute under
-   the branch/master equality and ancestry contract above. The redesign branch
-   has no such authority while this qualification hold remains. The ordinary
-   maker-run live-readiness, target-date data-layer,
+   the branch/master equality and ancestry contract above. A redesign tip has
+   no such authority unless every dynamic qualification check passes. The
+   ordinary maker-run live-readiness, target-date data-layer,
    production release, full risk, and v0.6 platform gates remain unchanged for
    Stage 2.
 7. A simultaneous one-market paper counterfactual is required before Stage 2
@@ -528,9 +529,9 @@ For both profiles, log in as the Windows user who owns Credential Manager,
 clear pending reboot state, and ensure no other local live stage holds the
 lease. The capture profile must prove `HEAD == master == cached origin/master ==
 live canonical refs/heads/master`. The portable profile must prove
-`HEAD == local codex/portable-execution-host-clean-20260827 == cached
-origin/codex/portable-execution-host-clean-20260827 == live canonical
-refs/heads/codex/portable-execution-host-clean-20260827`; it must separately
+`HEAD == local codex/live-gate-provenance-20260831 == cached
+origin/codex/live-gate-provenance-20260831 == live canonical
+refs/heads/codex/live-gate-provenance-20260831`; it must separately
 prove local master equals cached and live canonical master and is an ancestor
 of that branch tip. It must also match the exact tracked host/principal and the
 operator-recorded reviewed, exact-head CI-green authorization. Do not trade
@@ -983,7 +984,7 @@ canonical Git executable and hash, the canonical HTTPS origin URL with no local
 trust/proxy override, no ambient `WEATHER_MARKET_REGISTRY`, and a bounded live
 query of the profile-authorized ref against that literal canonical URL. The
 capture profile remains master-only. On the pre-adoption exception path, the
-portable profile accepts only `codex/portable-execution-host-clean-20260827`,
+portable profile accepts only `codex/live-gate-provenance-20260831`,
 and only when local `HEAD`, the
 local branch, cached origin branch, and live canonical branch object ID are
 identical; local/cached/live master must also be synchronized and that master

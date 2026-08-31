@@ -10,15 +10,15 @@
 
 | Area | State / next action |
 | --- | --- |
-| Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
+| Production | GitHub merged PR #5 into `master` on Aug 31, adopting the previous portable state and its exact-head repair. The redesigned Stage 0/1 split remains on a topic branch and is not production or capture adoption. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
 | Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
-| Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
-| Verification | The latest Stage 0 reached an authenticated user-stream subscription and then failed in a pre-mutation account/market read check, but v0.2 receipts could not name that check and falsely inferred a mutation merely from context creation. Exact repair commit `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` records truthful phases and mutation boundaries; final state tip `1acf9ebbc4a9576810b99126ea5ab8764f35aa9b` passed exact-head CI, cumulative review, synchronized refs, and portable re-inventory. The stacked redesign now separates Stage 0 structural scope, Stage 1 lifecycle safety, and Stage 2 economics; the focused live-path suite is green. The branch remains unqualified and has no live authority. |
-| Second PC | The clean portable clone, editable checkout, CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, installed audit, clock/proxy/reboot state, and tracked host/principal audit all passed at the preserved exact tip. The development checkout's ambient SDK remains excluded from live use. Any redesign tip requires its own publication, exact-head CI/review, synchronized refs, portable update, and explicit authority before another attempt. |
+| Portable executor | The operator-selected remote branch `codex/live-gate-provenance-20260831` is the sole pre-master candidate for `portable_execution_v1`, superseding the earlier branch exception. Only an exact tip that has a clean local/cached/live equality proof, synchronized ancestral master, exact-head CI/review, clean portable update, explicit owner authority, and the tracked host/principal may act as live code authority. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
+| Verification | The latest Stage 0 reached an authenticated user-stream subscription and then failed in a pre-mutation account/market read check, but v0.2 receipts could not name that check and falsely inferred a mutation merely from context creation. Exact repair commit `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` records truthful phases and mutation boundaries. The redesign separates Stage 0 structural scope, Stage 1 lifecycle safety, and Stage 2 economics; its focused live-path suite and cumulative local review passed. The authority-switch tip still requires publication, exact-head CI/review, ref synchronization, and portable re-inventory before launch. |
+| Second PC | The clean portable clone, editable checkout, CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, installed audit, clock/proxy/reboot state, and tracked host/principal audit all passed at the previous tip. The development checkout's ambient SDK remains excluded from live use. The redesign tip requires a clean portable update and fresh host/principal/network audit before another attempt. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
 | Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets. Prior compare-only receipts proved four exact matches, zero writes, zero mutation, and no retained values, but every spent-attempt receipt is historical only; create a fresh compare-only receipt for the new namespace. Keep the private transfer source locked down until that final comparison is consumed, then use the approved deletion procedure. |
 | Public substrate | Preserve every partial namespace. Fresh August 31 NYC economics `xecon-97f7e8de0d3e7cfb` was accepted with exact file/drift hashes. A fresh paper run and 13-artifact substrate audit passed, but the next selector found no candidate because central books were 0.19/0.25 wide and paper-permitted books lay outside the fixed midpoint interval. That trace exposed an unvalidated five-cent/midpoint heuristic coupled into Stage 0. It is evidence of the coupling, not evidence that wider quoting is safe. Every expiring artifact is historical now. |
-| Live money | Attempts `pilot-20260831T134425424Z` and `pilot-20260831T145154800Z` are spent and must never be retried. The latter passed authenticated user-stream readiness, then failed before pre-mutation geography and before any heartbeat or cancel-all REST call; no order was submitted. Later public preparation accessed no credential and made no exchange mutation. New execution is paused for redesign qualification, not for paper/economics acceptance: Stage 0 uses generated event metadata, an exact current Gamma identity/status rebind, and structural scope; Stage 1 repeats that rebind and adds an exact lifecycle plan. Keep the 10 pUSD request / 100 pUSD wallet cap and every direct identity, geography, account, rule, mutation, cancellation, and cleanup gate. |
+| Live money | Attempts `pilot-20260831T134425424Z` and `pilot-20260831T145154800Z` are spent and must never be retried. The latter passed authenticated user-stream readiness, then failed before pre-mutation geography and before any heartbeat or cancel-all REST call; no order was submitted. Later public preparation accessed no credential and made no exchange mutation. New execution is paused only until exact-tip and host qualification pass, not for paper/economics acceptance: Stage 0 uses generated event metadata, an exact current Gamma identity/status rebind, and structural scope; Stage 1 repeats that rebind and adds an exact lifecycle plan. Keep the 10 pUSD request / 100 pUSD wallet cap and every direct identity, geography, account, rule, mutation, cancellation, and cleanup gate. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -63,19 +63,18 @@
 
 ## Ordered critical path
 
-1. Finish qualification of the implemented split: Stage 0 owns structural scope,
-   Stage 1 direct lifecycle safety, and Stage 2 quote economics. Stage
-   0/1 import no paper/economics, spread/midpoint, reward/rebate, or positive-fee gate.
-2. Complete broader verification, documentation/schema audit, and cumulative review. The focused live-path suite is green, not live authority.
-3. Publish and qualify the exact tip with exact-head CI/review, synchronized refs, clean portable update, and explicit owner authority. Prior artifacts remain historical.
-4. Only then create a new attempt, review all three immutable manifests and
+1. Publish and qualify the branch-authority tip with exact-head CI/review,
+   synchronized refs, clean portable update, and explicit exact-tip owner
+   authority. The locally verified Stage 0 structural, Stage 1 lifecycle-safety,
+   and Stage 2 economics split is not live authority by itself.
+2. Only then create a new attempt, review all three immutable manifests and
    launchers, and create each 300-second plan against its bound event metadata
    plus exact current Gamma identity/status evidence whose normalized contract
    and hashes match the separately staged metadata; consume no more than the
    enforced 40-second preparation margin before composition.
-5. At action time require geography, geoblock, account, balance/allowance,
+3. At action time require geography, geoblock, account, balance/allowance,
    zero-state, current-rule, synchronized-Git, and attended-literal gates.
-6. Stop on ambiguity. PASS requires terminal receipts, cancel-all, and
+4. Stop on ambiguity. PASS requires terminal receipts, cancel-all, and
    authenticated zero-open-order/zero-position reconciliation.
 
 ## Verification boundary

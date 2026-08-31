@@ -77,7 +77,7 @@ FIRST_SESSION_CREDENTIAL_MODE = "verify_existing_exact"
 CREDENTIAL_RECEIPT_MAX_AGE_SECONDS = 2 * 60 * 60
 REMOTE_MASTER_REF = "refs/heads/master"
 PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH = (
-    "codex/portable-execution-host-clean-20260827"
+    "codex/live-gate-provenance-20260831"
 )
 PORTABLE_EXECUTION_AUTHORIZED_TOPIC_REF = (
     f"refs/heads/{PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH}"
