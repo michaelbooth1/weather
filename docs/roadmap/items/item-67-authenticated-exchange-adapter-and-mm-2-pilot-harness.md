@@ -673,10 +673,12 @@ wrapper through a venv `python.exe` redirector, so the base Python process's
 direct parent was the redirector rather than the PowerShell process holding the
 shared lease. The obsolete direct-parent assertion failed before doctor,
 geography, credential resolution, bootstrap, command, or user-stream work.
-No credential value, authenticated exchange request, heartbeat, cancel-all,
-order, position, balance, or other live-account mutation occurred. The attempt,
-its expired candidate, and all three launcher lineages are spent; no live-
-evidence checklist item closed.
+The launcher did not reach credential resolution or authenticated exchange
+logic; its earlier compare-only preparation read four credential values
+transiently and retained none. No authenticated exchange request, heartbeat,
+cancel-all, order, position, balance, or other live-account mutation occurred.
+The attempt, its expired candidate, and all three launcher lineages are spent;
+no live-evidence checklist item closed.
 
 The bounded repair preserves the exact lease-owner requirement while accepting
 only the observed Windows topology: canonical PowerShell directly parenting
