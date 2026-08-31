@@ -16,13 +16,24 @@ $manifestSidecar = "__SESSION_MANIFEST_SIDECAR__"
 $expectedManifestSidecarSha256 = "__SESSION_MANIFEST_SIDECAR_SHA256__"
 $manifestBuildReceipt = "__SESSION_MANIFEST_BUILD_RECEIPT__"
 $expectedManifestBuildReceiptSha256 = "__SESSION_MANIFEST_BUILD_RECEIPT_SHA256__"
+$jobScriptRelative = "scripts/ops/windows_kill_on_close_job.ps1"
+$jobScript = Join-Path $repo $jobScriptRelative
+$expectedJobScriptSha256 = "__SESSION_WINDOWS_JOB_HELPER_SHA256__"
 $venvRoot = Split-Path -Parent (Split-Path -Parent $python)
 $sitePackages = Join-Path $venvRoot "Lib\site-packages"
 
 if ($MyInvocation.UnboundArguments.Count -ne 0) {
     throw "fixed session launcher accepts no arguments"
 }
-foreach ($path in @($python, $runnerSource, $manifest, $manifestSidecar, $manifestBuildReceipt, $candidate)) {
+foreach ($path in @(
+    $python,
+    $runnerSource,
+    $manifest,
+    $manifestSidecar,
+    $manifestBuildReceipt,
+    $candidate,
+    $jobScript
+)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "fixed session launcher dependency is absent"
     }
@@ -42,7 +53,7 @@ function Add-LockedExactFile {
             [IO.FileAccess]::Read,
             [IO.FileShare]::Read
         )
-        if ($null -ne $ExpectedSha256) {
+        if (-not [string]::IsNullOrEmpty($ExpectedSha256)) {
             $hasher = [Security.Cryptography.SHA256]::Create()
             try {
                 $observed = -join ($hasher.ComputeHash($stream) | ForEach-Object { $_.ToString("x2") })
@@ -64,6 +75,7 @@ function Add-LockedExactFile {
 $lockedFiles = [Collections.Generic.List[IDisposable]]::new()
 $priorFixedSessionSrc = $env:WEATHER_FIXED_SESSION_SRC
 $priorFixedSessionSitePackages = $env:WEATHER_FIXED_SESSION_SITE_PACKAGES
+$priorPSModulePath = $env:PSModulePath
 try {
     Add-LockedExactFile -Path $python -ExpectedSha256 $expectedPythonSha256
     Add-LockedExactFile -Path $runnerSource -ExpectedSha256 $expectedRunnerSha256
@@ -82,7 +94,11 @@ try {
             -Path (Join-Path $repo $property.Name) `
             -ExpectedSha256 ([string]$property.Value).ToLowerInvariant()
     }
+    Add-LockedExactFile `
+        -Path $jobScript `
+        -ExpectedSha256 $expectedJobScriptSha256
     foreach ($property in $manifestPayload.source_sha256.psobject.Properties) {
+        if ([string]$property.Name -ieq $jobScriptRelative) { continue }
         Add-LockedExactFile `
             -Path (Join-Path $repo $property.Name) `
             -ExpectedSha256 ([string]$property.Value).ToLowerInvariant()
@@ -102,15 +118,55 @@ try {
     }
     $env:WEATHER_FIXED_SESSION_SRC = Join-Path $repo "src"
     $env:WEATHER_FIXED_SESSION_SITE_PACKAGES = $sitePackages
-    Push-Location -LiteralPath $repo
-    try {
-        & $python -I -S -B -c "import os,runpy,sys;sys.dont_write_bytecode=True;sys.path.insert(0,os.environ['WEATHER_FIXED_SESSION_SRC']);sys.path.append(os.environ['WEATHER_FIXED_SESSION_SITE_PACKAGES']);runpy.run_module('weather.operations.international_live_session_runner',run_name='__main__')" `
-            --session-manifest $manifest `
-            --expected-session-manifest-sha256 $expectedManifestSha256 `
-            --candidate $candidate
-        $exitCode = $LASTEXITCODE
+    $windowsPowerShellModules = Join-Path `
+        ([Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)) `
+        "System32\WindowsPowerShell\v1.0\Modules"
+    if (-not [IO.Directory]::Exists($windowsPowerShellModules) -or
+        (([IO.DirectoryInfo]::new($windowsPowerShellModules)).Attributes -band
+            [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "canonical Windows PowerShell module directory is absent or redirected"
     }
-    finally { Pop-Location }
+    [Environment]::SetEnvironmentVariable(
+        "PSModulePath",
+        $windowsPowerShellModules,
+        "Process"
+    )
+    . $jobScript
+    $job = $null
+    $child = $null
+    $jobTeardownError = $null
+    try {
+        $job = New-WeatherKillOnCloseJob
+        $runnerArguments = ConvertTo-WeatherWindowsArgumentString -Tokens @(
+            "-I",
+            "-S",
+            "-B",
+            "-c",
+            "import os,runpy,sys;sys.dont_write_bytecode=True;sys.path.insert(0,os.environ['WEATHER_FIXED_SESSION_SRC']);sys.path.append(os.environ['WEATHER_FIXED_SESSION_SITE_PACKAGES']);runpy.run_module('weather.operations.international_live_session_runner',run_name='__main__')",
+            "--session-manifest",
+            $manifest,
+            "--expected-session-manifest-sha256",
+            $expectedManifestSha256,
+            "--candidate",
+            $candidate
+        )
+        $child = Start-WeatherInteractiveProcessInJob `
+            -Job $job `
+            -FilePath $python `
+            -ArgumentString $runnerArguments `
+            -WorkingDirectory $repo
+        $child.WaitForExit()
+        $exitCode = [int]$child.ExitCode
+    }
+    finally {
+        if ($null -ne $job) {
+            try { $job.TerminateAndWait(5000) }
+            catch { $jobTeardownError = $_ }
+        }
+        if ($null -ne $child) { $child.Dispose() }
+        if ($null -ne $job) { $job.Dispose() }
+        if ($null -ne $jobTeardownError) { throw $jobTeardownError }
+    }
 }
 finally {
     for ($index = $lockedFiles.Count - 1; $index -ge 0; $index--) {
@@ -126,5 +182,9 @@ finally {
     else {
         $env:WEATHER_FIXED_SESSION_SITE_PACKAGES = $priorFixedSessionSitePackages
     }
+    if ($null -eq $priorPSModulePath) {
+        Remove-Item Env:PSModulePath -ErrorAction SilentlyContinue
+    }
+    else { $env:PSModulePath = $priorPSModulePath }
 }
 exit $exitCode

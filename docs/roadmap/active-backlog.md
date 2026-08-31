@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-28T17:35:30.377330+00:00
+Generated: 2026-08-31T02:29:43.120980+00:00
 Status: `OK`
 
 ## Summary
@@ -27,7 +27,7 @@ Status: `OK`
 | :--- | :--- | :--- | :--- | :--- |
 | 32 | PARTIAL | 2026-06-22 | SIDECAR AUDIT REFRESHED, PRESSURE SOURCE-LAG BLOCKED | [Reanalysis And Synoptic Feature Layer](items/item-32-reanalysis-and-synoptic-feature-layer.md) |
 | 35 | PARTIAL | 2026-06-22 | V0.7 DIAGNOSTICS REFRESHED, TARGET-DAY SIGNAL BLOCKED | [Unified Continuous-Density Model](items/item-35-unified-continuous-density-model.md) |
-| 67 | PARTIAL | 2026-08-27 | PORTABLE EXECUTOR CANDIDATE UNQUALIFIED; LIVE EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | PARTIAL | 2026-08-30 | PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN | [Authenticated Exchange Adapter And MM-2 Pilot Harness](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 134 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY FORECAST PROFILE | [Early-Day Forecast Profile Calibration](items/item-134-early-day-forecast-profile-calibration.md) |
 | 135 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SHADOW-ONLY REGIME WEIGHTS | [Cutoff-Regime Forecast/Observation Weighting](items/item-135-cutoff-regime-forecast-observation-weighting.md) |
 | 136 | PARTIAL | 2026-06-22 | DISPOSITION REFRESHED, SOURCE-STATE THRESHOLDS BLOCKED | [Forecast Source-State Reliability Calibrator](items/item-136-forecast-source-state-reliability-calibrator.md) |

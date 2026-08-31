@@ -30,10 +30,11 @@
 #                     Orphaned bare-script python is logged but not killed
 #                     (detached-by-design launchers exist in this repo).
 #
-# Registered by register_memory_commit_guard.ps1 (every 5 minutes).
+# Registered by register_memory_commit_guard.ps1 (every minute).
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
+    [string]$ExpectedExecutionHostId = "",
     [double]$WarnPercent = 85.0,
     [double]$ActPercent = 92.0,
     [long]$MinKillPrivateBytes = 8GB,
@@ -44,6 +45,42 @@ param(
     [ValidateRange(0, 64)]
     [int]$MaxConcurrentAgentHeavyWorkloads = 1
 )
+
+function Get-MemoryGuardExecutionHostId {
+    $machineGuid = [string](Get-ItemPropertyValue `
+        -LiteralPath "Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Cryptography" `
+        -Name "MachineGuid" `
+        -ErrorAction Stop)
+    $machineGuid = $machineGuid.Trim().ToLowerInvariant()
+    if (-not $machineGuid) {
+        throw "memory guard execution-host identity is unavailable"
+    }
+    $material = "international_live_execution_host_v2`0$machineGuid"
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        return -join ($hasher.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($material)
+        ) | ForEach-Object { $_.ToString("x2") })
+    }
+    finally { $hasher.Dispose() }
+}
+
+# Existing production registrations predate the immutable host binding and
+# retain their protection until the separately authorized registrar is rerun.
+# Every new registration supplies the exact validated capture-host ID.
+if ($ExpectedExecutionHostId) {
+    if ($ExpectedExecutionHostId -cnotmatch '\A[0-9a-f]{64}\z') {
+        throw "memory guard expected execution-host identity is invalid"
+    }
+    $guardExecutionHostId = Get-MemoryGuardExecutionHostId
+    if ($guardExecutionHostId -cne $ExpectedExecutionHostId) {
+        Write-Output (
+            "SKIPPED: memory commit guard is restricted to its registered " +
+            "dedicated capture host"
+        )
+        exit 0
+    }
+}
 
 $logDir = Join-Path $RepoRoot "data\logs"
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force $logDir | Out-Null }

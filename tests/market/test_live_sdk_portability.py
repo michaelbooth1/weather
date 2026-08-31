@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -729,7 +730,13 @@ def test_receipt_refuses_changed_existing_output(
 
 
 def test_host_gate_requires_windows_x64_cpython_311(monkeypatch):
-    monkeypatch.setattr(portability.os, "name", "posix")
+    class NonWindowsOsProxy:
+        name = "posix"
+
+        def __getattr__(self, name):
+            return getattr(os, name)
+
+    monkeypatch.setattr(portability, "os", NonWindowsOsProxy())
     monkeypatch.setattr(portability.platform, "system", lambda: "Linux")
     monkeypatch.setattr(portability.platform, "machine", lambda: "aarch64")
     monkeypatch.setattr(portability.platform, "python_implementation", lambda: "PyPy")

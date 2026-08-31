@@ -8,17 +8,35 @@ Set-StrictMode -Version Latest
 # trigger and no runtime scope, secret, budget, or cap inputs.
 $repo = "__SEAL_PRODUCTION_ROOT__"
 $python = "__SEAL_PRODUCTION_PYTHON__"
+$expectedPythonSha256 = "__SEAL_PRODUCTION_PYTHON_SHA256__"
+$pyvenvConfig = "__SEAL_PRODUCTION_PYVENV_CONFIG__"
+$expectedPyvenvConfigSha256 = "__SEAL_PRODUCTION_PYVENV_CONFIG_SHA256__"
+$runtimePython = "__SEAL_PRODUCTION_RUNTIME_PYTHON__"
+$expectedRuntimePythonSha256 = "__SEAL_PRODUCTION_RUNTIME_PYTHON_SHA256__"
 $wrapper = "__SEAL_WRAPPER_PATH__"
 $expectedWrapperSha256 = "__SEAL_WRAPPER_SHA256__"
 $workload = "__SEAL_WORKLOAD__"
 $executionHostProfile = "__SEAL_EXECUTION_HOST_PROFILE__"
 $expectedExecutionHostId = "__SEAL_EXECUTION_HOST_ID__"
 $expectedLeaseScriptSha256 = "__SEAL_WORKLOAD_ADMISSION_SHA256__"
+$expectedJobScriptSha256 = "__SEAL_WINDOWS_JOB_HELPER_SHA256__"
 $credentialManifest = "__SEAL_CREDENTIAL_MANIFEST_PATH__"
 $expectedCredentialManifestSha256 = "__SEAL_CREDENTIAL_MANIFEST_SHA256__"
 $leaseScript = Join-Path $repo "scripts\ops\workload_admission.ps1"
-$venvRoot = Split-Path -Parent (Split-Path -Parent $python)
-$sitePackages = Join-Path $venvRoot "Lib\site-packages"
+$jobScript = Join-Path $repo "scripts\ops\windows_kill_on_close_job.ps1"
+$windowsPowerShellModules = Join-Path `
+    ([Environment]::GetFolderPath([Environment+SpecialFolder]::Windows)) `
+    "System32\WindowsPowerShell\v1.0\Modules"
+if (-not [IO.Directory]::Exists($windowsPowerShellModules) -or
+    (([IO.DirectoryInfo]::new($windowsPowerShellModules)).Attributes -band
+        [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "canonical Windows PowerShell module directory is absent or redirected"
+}
+[Environment]::SetEnvironmentVariable(
+    "PSModulePath",
+    $windowsPowerShellModules,
+    "Process"
+)
 
 function Get-SealedCredentialEnvironment {
     param(
@@ -159,11 +177,21 @@ function Add-SealedReadLock {
 if ($MyInvocation.UnboundArguments.Count -ne 0) {
     throw "fixed-scope launcher accepts no arguments"
 }
-foreach ($path in @($python, $wrapper, $leaseScript, $credentialManifest)) {
+foreach ($path in @(
+    $python,
+    $pyvenvConfig,
+    $runtimePython,
+    $wrapper,
+    $leaseScript,
+    $jobScript,
+    $credentialManifest
+)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
         throw "fixed-scope launcher dependency is absent"
     }
 }
+$venvRoot = Split-Path -Parent (Split-Path -Parent $python)
+$sitePackages = Join-Path $venvRoot "Lib\site-packages"
 if (-not (Test-Path -LiteralPath $sitePackages -PathType Container) -or
     ((Get-Item -LiteralPath $sitePackages -Force).Attributes -band
         [IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -171,17 +199,26 @@ if (-not (Test-Path -LiteralPath $sitePackages -PathType Container) -or
 }
 $lockedFiles = [Collections.Generic.List[IDisposable]]::new()
 try {
+    Add-SealedReadLock -Path $python -ExpectedSha256 $expectedPythonSha256 -Locks $lockedFiles
+    Add-SealedReadLock -Path $pyvenvConfig -ExpectedSha256 $expectedPyvenvConfigSha256 -Locks $lockedFiles
+    Add-SealedReadLock -Path $runtimePython -ExpectedSha256 $expectedRuntimePythonSha256 -Locks $lockedFiles
     Add-SealedReadLock -Path $wrapper -ExpectedSha256 $expectedWrapperSha256 -Locks $lockedFiles
     Add-SealedReadLock -Path $leaseScript -ExpectedSha256 $expectedLeaseScriptSha256 -Locks $lockedFiles
+    Add-SealedReadLock -Path $jobScript -ExpectedSha256 $expectedJobScriptSha256 -Locks $lockedFiles
     Add-SealedReadLock -Path $credentialManifest -ExpectedSha256 $expectedCredentialManifestSha256 -Locks $lockedFiles
     $sealedCredentialEnvironment = Get-SealedCredentialEnvironment `
         -ManifestPath $credentialManifest `
         -ExpectedSha256 $expectedCredentialManifestSha256
 
     . $leaseScript
+    . $jobScript
     $lease = $null
+    $job = $null
+    $child = $null
     $priorCredentialEnvironment = $null
     $exitCode = 1
+    $teardownTransitionError = $null
+    $jobTeardownError = $null
     try {
         $lease = Enter-WeatherHeavyWorkloadLease `
             -RepoRoot $repo `
@@ -193,18 +230,68 @@ try {
         }
         $priorCredentialEnvironment = Enter-SealedCredentialEnvironment `
             -PublicEnvironment $sealedCredentialEnvironment
-        & $python -I -S -B -c `
-            "import runpy,sys;sys.dont_write_bytecode=True;repo,site,wrapper=sys.argv[1:4];sys.path.insert(0,repo+'\\src');sys.path.append(site);sys.argv=[wrapper];runpy.run_path(wrapper,run_name='__main__')" `
-            $repo $sitePackages $wrapper
-        $exitCode = $LASTEXITCODE
+        $job = New-WeatherKillOnCloseJob
+        $childArguments = ConvertTo-WeatherWindowsArgumentString -Tokens @(
+            "-I",
+            "-S",
+            "-B",
+            "-c",
+            "import runpy,sys;sys.dont_write_bytecode=True;repo,site,wrapper=sys.argv[1:4];sys.path.insert(0,repo+'\\src');sys.path.append(site);sys.argv=[wrapper];runpy.run_path(wrapper,run_name='__main__')",
+            $repo,
+            $sitePackages,
+            $wrapper
+        )
+        $child = Start-WeatherInteractiveProcessInJob `
+            -Job $job `
+            -FilePath $python `
+            -ArgumentString $childArguments `
+            -WorkingDirectory $repo
+        $child.WaitForExit()
+        $exitCode = [int]$child.ExitCode
     }
     finally {
-        if ($null -ne $priorCredentialEnvironment) {
-            Exit-SealedCredentialEnvironment -PriorEnvironment $priorCredentialEnvironment
+        try {
+            if ($null -ne $lease) {
+                try {
+                    Set-WeatherHeavyWorkloadLeaseTeardownPending -Lease $lease |
+                        Out-Null
+                }
+                catch { $teardownTransitionError = $_ }
+            }
+            if ($null -ne $job -and
+                $null -eq $teardownTransitionError) {
+                try { $job.TerminateAndWait(5000) }
+                catch { $jobTeardownError = $_ }
+            }
+            if ($null -ne $child) { $child.Dispose() }
+            if ($null -ne $job) { $job.Dispose() }
         }
-        if ($null -ne $lease) {
-            Exit-WeatherHeavyWorkloadLease -Lease $lease
+        finally {
+            try {
+                if ($null -ne $priorCredentialEnvironment) {
+                    Exit-SealedCredentialEnvironment `
+                        -PriorEnvironment $priorCredentialEnvironment
+                }
+            }
+            finally {
+                if ($null -ne $lease) {
+                    if ($null -ne $teardownTransitionError) {
+                        # The transition helper retained the ACTIVE lease. Job
+                        # disposal supplies kill-on-close containment.
+                    }
+                    elseif ($null -ne $jobTeardownError) {
+                        Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease
+                    }
+                    else {
+                        Exit-WeatherHeavyWorkloadLease -Lease $lease
+                    }
+                }
+            }
         }
+        if ($null -ne $teardownTransitionError) {
+            throw $teardownTransitionError
+        }
+        if ($null -ne $jobTeardownError) { throw $jobTeardownError }
     }
 }
 finally {

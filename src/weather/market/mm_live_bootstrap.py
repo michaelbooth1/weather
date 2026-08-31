@@ -64,6 +64,39 @@ REQUIRED_SOURCE_URLS = {
     "https://docs.polymarket.com/concepts/pusd",
 }
 ATOMIC_COLLATERAL_SCALE = Decimal("1000000")
+STAGE0_BOOTSTRAP_PHASES = frozenset({
+    "collector_entry",
+    "collector_contract",
+    "identity_gate",
+    "budget_adapter_boundary",
+    "secret_hygiene",
+    "user_stream",
+    "signer",
+    "collateral_query",
+    "collateral_response",
+    "balance_backing",
+    "balance_cap",
+    "allowance_backing",
+    "open_orders",
+    "positions",
+    "closed_only",
+    "market_rules",
+    "fee_binding",
+    "signed_order_preview",
+    "heartbeat_contract",
+    "premutation_geography",
+    "heartbeat_first",
+    "heartbeat_cadence",
+    "heartbeat_second",
+    "heartbeat_validation",
+    "cancel_all_recovery",
+    "cancel_all",
+    "post_cancel_open_orders",
+    "user_stream_completion",
+    "payload_finalize",
+    "complete",
+})
+STAGE0_AUTHENTICATED_WRITE_OPERATIONS = frozenset({"heartbeat", "cancel_all"})
 
 
 def _canonical_sha256(payload):
@@ -126,6 +159,8 @@ def collect_platform_bootstrap_payload(
     expected_candidate_fee_rate,
     expected_candidate_neg_risk,
     pre_mutation_attestor,
+    progress_recorder,
+    authenticated_write_recorder,
     now=None,
     utc_clock=None,
     monotonic_clock=None,
@@ -134,12 +169,29 @@ def collect_platform_bootstrap_payload(
 ):
     """Collect the observed, secret-free gate required before the first order."""
 
+    if not callable(progress_recorder):
+        raise RuntimeError("Stage 0 requires the sealed bootstrap progress recorder")
+    if not callable(authenticated_write_recorder):
+        raise RuntimeError("Stage 0 requires the sealed authenticated-write recorder")
+
+    def record_phase(phase):
+        if phase not in STAGE0_BOOTSTRAP_PHASES:
+            raise RuntimeError("Stage 0 bootstrap phase is not allowlisted")
+        progress_recorder(phase)
+
+    def record_authenticated_write(operation):
+        if operation not in STAGE0_AUTHENTICATED_WRITE_OPERATIONS:
+            raise RuntimeError("Stage 0 authenticated-write operation is not allowlisted")
+        authenticated_write_recorder(operation)
+
+    record_phase("identity_gate")
     identity_gate = stage0_client_identity_gate(stage0_identity, now=now)
     if not identity_gate["ok"]:
         raise RuntimeError(
             "Stage 0 client identity is invalid: " + ", ".join(identity_gate["missing"])
         )
     identity = identity_gate["identity"]
+    record_phase("budget_adapter_boundary")
     requested_budget = maybe_float(requested_budget_usdc)
     wallet_cap = identity_gate["pilot_wallet_max_funding_usdc"]
     if (
@@ -155,6 +207,7 @@ def collect_platform_bootstrap_payload(
         identity.get("funder_address") or ""
     ).lower():
         raise RuntimeError("adapter maker does not match the Stage 0 funder")
+    record_phase("secret_hygiene")
     if not isinstance(secret_hygiene, dict) or not all(
         secret_hygiene.get(key) is True
         for key in (
@@ -165,6 +218,7 @@ def collect_platform_bootstrap_payload(
     ):
         raise RuntimeError("Stage 0 secret-hygiene proof is incomplete")
 
+    record_phase("user_stream")
     user_stream_evidence = user_stream.bootstrap_evidence()
     if not all((
         user_stream_evidence.get("account_wide_subscription_sent") is True,
@@ -179,13 +233,16 @@ def collect_platform_bootstrap_payload(
     )):
         raise RuntimeError("Stage 0 user stream has no proven server heartbeat")
 
+    record_phase("signer")
     client = getattr(adapter, "client", None)
     signer_address = str(getattr(client, "signer", "") if client is not None else "").strip()
     if not valid_evm_address(signer_address):
         raise RuntimeError("pinned SDK did not expose a valid signer address")
 
+    record_phase("collateral_query")
     balances = adapter.balances()
     allowances = adapter.allowances()
+    record_phase("collateral_response")
     if not isinstance(balances, dict) or not isinstance(allowances, dict) or not allowances:
         raise RuntimeError("collateral balance/allowance response is incomplete")
     collateral_balance = _atomic_collateral_to_usdc(balances.get("balance"), "balance")
@@ -194,16 +251,21 @@ def collect_platform_bootstrap_payload(
         for value in allowances.values()
     ]
     collateral_allowance = min(collateral_allowances)
+    record_phase("balance_backing")
     if collateral_balance < Decimal(str(requested_budget)):
         raise RuntimeError("collateral balance does not back the requested Stage 0 budget")
+    record_phase("balance_cap")
     if collateral_balance > Decimal(str(wallet_cap)):
         raise RuntimeError("collateral balance exceeds the isolated wallet cap")
+    record_phase("allowance_backing")
     if collateral_allowance < Decimal(str(requested_budget)):
         raise RuntimeError("collateral allowance does not back the requested Stage 0 budget")
 
+    record_phase("open_orders")
     open_orders = adapter.open_orders()
     if open_orders:
         raise RuntimeError("Stage 0 requires zero open orders")
+    record_phase("positions")
     positions = adapter.positions()
     position_evidence = adapter.position_evidence(positions)
     if positions or not exact_current_positions_evidence(
@@ -213,13 +275,16 @@ def collect_platform_bootstrap_payload(
         rows=positions,
     ):
         raise RuntimeError("Stage 0 requires an observed exact-scope zero-position query")
+    record_phase("closed_only")
     closed_only = _closed_only_value(adapter.closed_only_mode())
     if closed_only:
         raise RuntimeError("Stage 0 account is in closed-only mode")
 
+    record_phase("market_rules")
     market_rules = adapter.refresh_market_rules()
     if str(market_rules.get("token_id") or "") != str(adapter.token_id):
         raise RuntimeError("Stage 0 market rules do not match the adapter token")
+    record_phase("fee_binding")
     fee_evidence = adapter.fees()
     try:
         candidate_fee_rate = Decimal(str(expected_candidate_fee_rate))
@@ -248,6 +313,7 @@ def collect_platform_bootstrap_payload(
         )
     fee_rate_bps = float(fee_rate_bps_decimal)
 
+    record_phase("signed_order_preview")
     signed_preview = adapter.preview_signed_order(
         {
             "token_id": str(adapter.token_id),
@@ -278,12 +344,14 @@ def collect_platform_bootstrap_payload(
     )):
         raise RuntimeError("Stage 0 signed-order preview did not prove wallet topology")
 
+    record_phase("heartbeat_contract")
     cadence = float(heartbeat_cadence_seconds)
     if not 0 < cadence <= 5:
         raise RuntimeError("Stage 0 heartbeat cadence must be in (0, 5] seconds")
     if not callable(pre_mutation_attestor):
         raise RuntimeError("Stage 0 requires the sealed pre-mutation attestor")
     boundary_clock = utc_clock or (lambda: datetime.now(timezone.utc))
+    record_phase("premutation_geography")
     geographic_receipt = pre_mutation_attestor()
 
     def require_fresh_mutation_geography():
@@ -307,16 +375,25 @@ def collect_platform_bootstrap_payload(
     }
     clock = monotonic_clock or time.monotonic
     sleep = sleeper or time.sleep
+    heartbeat_attempted = False
     try:
         geographic_receipt = require_fresh_mutation_geography()
+        record_phase("heartbeat_first")
         first_started = clock()
+        record_authenticated_write("heartbeat")
+        heartbeat_attempted = True
         first = adapter.heartbeat()
         first_elapsed = clock() - first_started
+        record_phase("heartbeat_cadence")
         sleep(cadence)
         geographic_receipt = require_fresh_mutation_geography()
+        record_phase("heartbeat_second")
         second_started = clock()
+        record_authenticated_write("heartbeat")
+        heartbeat_attempted = True
         second = adapter.heartbeat()
         second_elapsed = clock() - second_started
+        record_phase("heartbeat_validation")
         if (
             first != {"status": "ok"}
             or second != {"status": "ok"}
@@ -327,17 +404,24 @@ def collect_platform_bootstrap_payload(
         ):
             raise RuntimeError("Stage 0 did not prove two current heartbeat acknowledgments")
     except Exception:
-        try:
-            geographic_receipt = require_fresh_mutation_geography()
-            adapter.cancel_all()
-        except Exception:
-            pass
+        if heartbeat_attempted:
+            try:
+                geographic_receipt = require_fresh_mutation_geography()
+                record_phase("cancel_all_recovery")
+                record_authenticated_write("cancel_all")
+                adapter.cancel_all()
+            except Exception:
+                pass
         raise
 
     geographic_receipt = require_fresh_mutation_geography()
+    record_phase("cancel_all")
+    record_authenticated_write("cancel_all")
     cancel_response = adapter.cancel_all()
+    record_phase("post_cancel_open_orders")
     if adapter.open_orders():
         raise RuntimeError("Stage 0 cancel-all was not followed by zero open orders")
+    record_phase("user_stream_completion")
     user_stream_evidence = user_stream.bootstrap_evidence()
     if not all((
         user_stream_evidence.get("account_wide_subscription_sent") is True,
@@ -351,6 +435,7 @@ def collect_platform_bootstrap_payload(
         len(str(user_stream_evidence.get("journal_sha256") or "")) == 64,
     )):
         raise RuntimeError("Stage 0 user stream stopped before bootstrap completed")
+    record_phase("payload_finalize")
     diagnostics = adapter.diagnostics()
     now_dt = utc_now(now)
     account_snapshot = {
@@ -373,7 +458,7 @@ def collect_platform_bootstrap_payload(
         }),
     }
     account_snapshot["snapshot_sha256"] = account_snapshot_sha256(account_snapshot)
-    return {
+    payload = {
         "schema_version": SCHEMA_VERSION,
         "status": "PASS",
         "verified_at_utc": now_dt.isoformat(),
@@ -444,6 +529,8 @@ def collect_platform_bootstrap_payload(
         "secret_hygiene": dict(secret_hygiene),
         "source_urls": sorted(REQUIRED_SOURCE_URLS),
     }
+    record_phase("complete")
+    return payload
 
 
 def finalize_platform_bootstrap_payload(payload, user_stream, *, now=None):

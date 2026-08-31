@@ -554,7 +554,15 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
 
     def collect(_adapter, stream, *_args, **kwargs):
         seen.update(kwargs)
+        kwargs["progress_recorder"]("premutation_geography")
         geography_receipt = kwargs["pre_mutation_attestor"]()
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("heartbeat_second")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("cancel_all")
+        kwargs["authenticated_write_recorder"]("cancel_all")
+        kwargs["progress_recorder"]("complete")
         return {
             "schema_version": "mm_platform_bootstrap_v0.4",
             "status": "PASS",
@@ -587,6 +595,12 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_receipt["credential_values_read_in_memory"] is True
     assert saved_receipt["exchange_mutation_attempted"] is True
     assert saved_receipt["authenticated_exchange_write_attempted"] is True
+    assert saved_receipt["authenticated_user_stream_subscription_sent"] is True
+    assert saved_receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 1,
+        "heartbeat": 2,
+    }
+    assert saved_receipt["bootstrap_phase"] == "complete"
     assert saved_receipt["order_submit_attempted"] is False
     final_sha256 = hashlib.sha256(live_context.user_stream.journal_path.read_bytes()).hexdigest()
     assert saved_receipt["cleanup"]["user_stream_journal_sha256"] == final_sha256
@@ -626,6 +640,208 @@ def test_retired_stage0_read_only_literal_stops_before_credential_resolution(
     assert not Path(command_args.user_stream_journal).exists()
 
 
+def test_stage0_failure_receipt_names_phase_without_claiming_account_mutation(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def fail_at_balance_backing(*_args, **kwargs):
+        kwargs["progress_recorder"]("balance_backing")
+        raise RuntimeError("RAW-ACCOUNT-DETAIL-MUST-NOT-BE-RETAINED")
+
+    with pytest.raises(RuntimeError, match="RAW-ACCOUNT-DETAIL"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=fail_at_balance_backing,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["status"] == "FAIL"
+    assert receipt["bootstrap_phase"] == "balance_backing"
+    assert receipt["authenticated_user_stream_subscription_sent"] is True
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
+    assert receipt["order_submit_attempted"] is False
+    assert "RAW-ACCOUNT-DETAIL-MUST-NOT-BE-RETAINED" not in raw
+    assert receipt["cleanup"]["ok"] is True
+
+
+def test_stage0_records_actual_mutation_boundary_before_a_failed_write(tmp_path):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def fail_after_heartbeat_boundary(*_args, **kwargs):
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        raise RuntimeError("RAW-HEARTBEAT-FAILURE")
+
+    with pytest.raises(RuntimeError, match="RAW-HEARTBEAT-FAILURE"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=fail_after_heartbeat_boundary,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["bootstrap_phase"] == "heartbeat_first"
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["exchange_mutation_attempted"] is True
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 1,
+    }
+    assert "RAW-HEARTBEAT-FAILURE" not in raw
+
+
+def test_stage0_rejects_a_passing_collector_without_exact_attempt_evidence(tmp_path):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def incomplete_collector(_adapter, stream, *_args, **_kwargs):
+        return {
+            "schema_version": "mm_platform_bootstrap_v0.4",
+            "status": "PASS",
+            "secret_values_redacted": True,
+            "user_stream": stream.bootstrap_evidence(),
+        }
+
+    with pytest.raises(RuntimeError, match="exact mutation lifecycle"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=incomplete_collector,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["status"] == "FAIL"
+    assert receipt["bootstrap_phase"] == "collector_contract"
+    assert receipt["authenticated_user_stream_subscription_sent"] is True
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
+
+
+def test_stage0_rejects_complete_mutation_evidence_without_stream_subscription(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def collector_without_subscription(_adapter, _stream, *_args, **kwargs):
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("heartbeat_second")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("cancel_all")
+        kwargs["authenticated_write_recorder"]("cancel_all")
+        kwargs["progress_recorder"]("complete")
+        return {
+            "schema_version": "mm_platform_bootstrap_v0.4",
+            "status": "PASS",
+            "secret_values_redacted": True,
+        }
+
+    def create_unsubscribed_journal(stream, **_kwargs):
+        stream.journal_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="exact mutation lifecycle"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=create_unsubscribed_journal,
+            bootstrap_collector=collector_without_subscription,
+            bootstrap_finalizer=lambda payload, _stream: payload,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["status"] == "FAIL"
+    assert receipt["bootstrap_phase"] == "collector_contract"
+    assert receipt["authenticated_user_stream_subscription_sent"] is False
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["exchange_mutation_attempted"] is True
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 1,
+        "heartbeat": 2,
+    }
+
+
+@pytest.mark.parametrize("invalid_record", ["phase", "operation"])
+def test_stage0_rejects_unallowlisted_evidence_records_without_mutation(
+    tmp_path,
+    invalid_record,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def invalid_collector(*_args, **kwargs):
+        if invalid_record == "phase":
+            kwargs["progress_recorder"]("raw-sdk-message")
+        else:
+            kwargs["progress_recorder"]("heartbeat_first")
+            kwargs["authenticated_write_recorder"]("post_order")
+
+    with pytest.raises(RuntimeError, match="not allowlisted"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=invalid_collector,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
+    assert "raw-sdk-message" not in json.dumps(receipt, sort_keys=True)
+
+
+def test_stage0_preserves_root_phase_when_recovery_cancel_is_recorded(tmp_path):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def fail_with_recorded_recovery(*_args, **kwargs):
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("cancel_all_recovery")
+        kwargs["authenticated_write_recorder"]("cancel_all")
+        raise RuntimeError("RAW-HEARTBEAT-TRANSPORT-FAILURE")
+
+    with pytest.raises(RuntimeError, match="RAW-HEARTBEAT-TRANSPORT-FAILURE"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=fail_with_recorded_recovery,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["bootstrap_phase"] == "heartbeat_first"
+    assert receipt["bootstrap_recovery_phase"] == "cancel_all_recovery"
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 1,
+        "heartbeat": 1,
+    }
+    assert "RAW-HEARTBEAT-TRANSPORT-FAILURE" not in raw
+
+
 def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
     tmp_path,
 ):
@@ -647,6 +863,14 @@ def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
     receipt = json.loads(raw)
     assert receipt["status"] == "FAIL"
     assert receipt["exception_type"] == "KeyboardInterrupt"
+    assert receipt["bootstrap_phase"] == "collector_entry"
+    assert receipt["authenticated_user_stream_subscription_sent"] is True
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
     assert receipt["cleanup"]["ok"] is True
     assert "RAW-STAGE0-INTERRUPT-TEXT" not in raw
     assert live_context.adapter.cancel_calls == 0
@@ -920,6 +1144,37 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     command_args.dead_man_result = str(dead_result)
     command_args.bundle_out = str(tmp_path / "bundle.json")
     command_args.receipt_out = str(tmp_path / "bundle-receipt.json")
+    production_root = tmp_path / "production"
+    interpreter_redirector = production_root / "venv/Scripts/python.exe"
+    interpreter_redirector.parent.mkdir(parents=True)
+    interpreter_redirector.write_bytes(b"reviewed interpreter redirector")
+    runtime_home = production_root / "runtime"
+    runtime_home.mkdir(parents=True)
+    runtime_process_image = runtime_home / "python.exe"
+    runtime_process_image.write_bytes(b"reviewed runtime process image")
+    pyvenv_config = production_root / "venv/pyvenv.cfg"
+    pyvenv_config.write_text(
+        f"home = {runtime_home}\nexecutable = {runtime_process_image}\n",
+        encoding="utf-8",
+    )
+    interpreter_binding = cli.validate_production_python_runtime_binding(
+        {
+            "interpreter_redirector": str(interpreter_redirector.resolve()),
+            "interpreter_redirector_sha256": hashlib.sha256(
+                interpreter_redirector.read_bytes()
+            ).hexdigest(),
+            "pyvenv_config": str(pyvenv_config.resolve()),
+            "pyvenv_config_sha256": hashlib.sha256(
+                pyvenv_config.read_bytes()
+            ).hexdigest(),
+            "runtime_process_image": str(runtime_process_image.resolve()),
+            "runtime_process_image_sha256": hashlib.sha256(
+                runtime_process_image.read_bytes()
+            ).hexdigest(),
+        },
+        production_root=production_root,
+    )
+
     def add_lineage(mode, result_path):
         stage = "stage1_cancel_all" if mode == "cancel_all" else "stage1_dead_man"
         prefix = "cancel_all" if mode == "cancel_all" else "dead_man"
@@ -997,10 +1252,13 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         seal_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_seal_v0.4",
+                    "schema_version": cli.FIXED_SCOPE_SEAL_SCHEMA_VERSION,
                     "status": "PASS",
                     "stage": stage,
-                    "production": {"commit": command_args.expected_production_tip},
+                    "production": {
+                        "commit": command_args.expected_production_tip,
+                        **interpreter_binding,
+                    },
                     "scope": {
                         "target_date": command_args.target_date,
                         "market_id": "toronto",
@@ -1012,6 +1270,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                         "attempt_root": str(attempt.resolve()),
                         "execution_host_profile": "capture_colocated_v1",
                         "execution_host_id": "f" * 64,
+                        "reviewed_status_flags": [],
                     },
                     "wrapper": {
                         "path": str(wrapper.resolve()),
@@ -1073,7 +1332,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         execution_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "international_live_fixed_scope_execution_v0.6",
+                    "schema_version": cli.FIXED_SCOPE_EXECUTION_SCHEMA_VERSION,
                     "status": "PASS",
                     "stage": stage,
                     "execution_host_profile": "capture_colocated_v1",
@@ -1090,6 +1349,23 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                     "live_mutation_attempted": True,
                     "order_submit_attempted": True,
                     "authenticated_exchange_write_attempted": True,
+                    "host_attestations": [
+                        {
+                            "checked_at_local": "2026-08-23T01:00:00-04:00",
+                            "status_json_sha256": "9" * 64,
+                            "status_flag_sha256": [],
+                            "execution_host_profile": "capture_colocated_v1",
+                            "execution_host_id": "f" * 64,
+                            "lease_process_lineage": {
+                                "status": "PASS",
+                                "relationship": "single_sealed_python_redirector",
+                                "lease_owner_creation_token_sha256": "1" * 64,
+                                "redirector_creation_token_sha256": "2" * 64,
+                                "runtime_creation_token_sha256": "3" * 64,
+                            }
+                        }
+                        for _index in range(3)
+                    ],
                     "wrapper": {
                         "path": str(wrapper.resolve()),
                         "sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
@@ -1213,6 +1489,87 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
 
     add_lineage("cancel_all", cancel_result)
     add_lineage("dead_man", dead_result)
+    cancel_execution = Path(command_args.cancel_all_execution_receipt)
+    cancel_run = Path(command_args.cancel_all_run_receipt)
+    original_execution = cancel_execution.read_bytes()
+    original_run = cancel_run.read_bytes()
+    original_run_sidecar = cancel_run.with_suffix(
+        cancel_run.suffix + ".sha256"
+    ).read_bytes()
+    inconsistent_execution = json.loads(original_execution)
+    inconsistent_execution["host_attestations"][2]["lease_process_lineage"][
+        "runtime_creation_token_sha256"
+    ] = "4" * 64
+    cancel_execution.write_text(json.dumps(inconsistent_execution), encoding="utf-8")
+    rebound_run = json.loads(original_run)
+    rebound_run["child_execution"]["sha256"] = hashlib.sha256(
+        cancel_execution.read_bytes()
+    ).hexdigest()
+    cancel_run.write_text(json.dumps(rebound_run), encoding="utf-8")
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_text(
+        f"{hashlib.sha256(cancel_run.read_bytes()).hexdigest()}  {cancel_run.name}\n",
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeError, match="execution_lease_lineage"):
+        cli._validate_stage1_bundle_lineage(
+            command_args, "cancel_all", cancel_result
+        )
+    cancel_execution.write_bytes(original_execution)
+    cancel_run.write_bytes(original_run)
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_bytes(
+        original_run_sidecar
+    )
+    incomplete_execution = json.loads(original_execution)
+    del incomplete_execution["host_attestations"][1]["status_json_sha256"]
+    cancel_execution.write_text(json.dumps(incomplete_execution), encoding="utf-8")
+    rebound_run = json.loads(original_run)
+    rebound_run["child_execution"]["sha256"] = hashlib.sha256(
+        cancel_execution.read_bytes()
+    ).hexdigest()
+    cancel_run.write_text(json.dumps(rebound_run), encoding="utf-8")
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_text(
+        f"{hashlib.sha256(cancel_run.read_bytes()).hexdigest()}  {cancel_run.name}\n",
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeError, match="execution_lease_lineage"):
+        cli._validate_stage1_bundle_lineage(
+            command_args, "cancel_all", cancel_result
+        )
+    cancel_execution.write_bytes(original_execution)
+    cancel_run.write_bytes(original_run)
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_bytes(
+        original_run_sidecar
+    )
+    cancel_seal = Path(command_args.cancel_all_seal_receipt)
+    original_seal = cancel_seal.read_bytes()
+    unrelated_config = tmp_path / "unrelated-pyvenv.cfg"
+    unrelated_config.write_bytes(pyvenv_config.read_bytes())
+    inconsistent_seal = json.loads(original_seal)
+    inconsistent_seal["production"]["pyvenv_config"] = str(
+        unrelated_config.resolve()
+    )
+    inconsistent_seal["production"]["pyvenv_config_sha256"] = hashlib.sha256(
+        unrelated_config.read_bytes()
+    ).hexdigest()
+    cancel_seal.write_text(json.dumps(inconsistent_seal), encoding="utf-8")
+    rebound_run = json.loads(original_run)
+    rebound_run["seal_receipt"]["sha256"] = hashlib.sha256(
+        cancel_seal.read_bytes()
+    ).hexdigest()
+    cancel_run.write_text(json.dumps(rebound_run), encoding="utf-8")
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_text(
+        f"{hashlib.sha256(cancel_run.read_bytes()).hexdigest()}  {cancel_run.name}\n",
+        encoding="ascii",
+    )
+    with pytest.raises(RuntimeError, match="interpreter_binding"):
+        cli._validate_stage1_bundle_lineage(
+            command_args, "cancel_all", cancel_result
+        )
+    cancel_seal.write_bytes(original_seal)
+    cancel_run.write_bytes(original_run)
+    cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_bytes(
+        original_run_sidecar
+    )
     cancel_command = Path(command_args.cancel_all_command_receipt)
     original_command = cancel_command.read_bytes()
     cancel_command.write_bytes(original_command + b"\n")
@@ -1226,7 +1583,6 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     with pytest.raises(RuntimeError, match="cannot read required JSON"):
         cli._validate_stage1_bundle_lineage(command_args, "dead_man", dead_result)
     command_args.dead_man_execution_receipt = original_dead_execution
-    cancel_run = Path(command_args.cancel_all_run_receipt)
     original_run = cancel_run.read_bytes()
     original_run_sidecar = cancel_run.with_suffix(
         cancel_run.suffix + ".sha256"
@@ -1246,6 +1602,75 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
     cancel_run.with_suffix(cancel_run.suffix + ".sha256").write_bytes(
         original_run_sidecar
     )
+    alternate_root = tmp_path / "alternate-production"
+    alternate_redirector = alternate_root / "venv/Scripts/python.exe"
+    alternate_redirector.parent.mkdir(parents=True)
+    alternate_redirector.write_bytes(b"alternate redirector")
+    alternate_runtime_home = alternate_root / "runtime"
+    alternate_runtime_home.mkdir(parents=True)
+    alternate_runtime = alternate_runtime_home / "python.exe"
+    alternate_runtime.write_bytes(b"alternate runtime")
+    alternate_config = alternate_root / "venv/pyvenv.cfg"
+    alternate_config.write_text(
+        f"home = {alternate_runtime_home}\nexecutable = {alternate_runtime}\n",
+        encoding="utf-8",
+    )
+    alternate_binding = cli.validate_production_python_runtime_binding(
+        {
+            "interpreter_redirector": str(alternate_redirector.resolve()),
+            "interpreter_redirector_sha256": hashlib.sha256(
+                alternate_redirector.read_bytes()
+            ).hexdigest(),
+            "pyvenv_config": str(alternate_config.resolve()),
+            "pyvenv_config_sha256": hashlib.sha256(
+                alternate_config.read_bytes()
+            ).hexdigest(),
+            "runtime_process_image": str(alternate_runtime.resolve()),
+            "runtime_process_image_sha256": hashlib.sha256(
+                alternate_runtime.read_bytes()
+            ).hexdigest(),
+        },
+        production_root=alternate_root,
+    )
+    dead_seal = Path(command_args.dead_man_seal_receipt)
+    dead_run = Path(command_args.dead_man_run_receipt)
+    original_dead_seal = dead_seal.read_bytes()
+    original_dead_run = dead_run.read_bytes()
+    dead_run_sidecar = dead_run.with_suffix(dead_run.suffix + ".sha256")
+    original_dead_run_sidecar = dead_run_sidecar.read_bytes()
+    mismatched_dead_seal = json.loads(original_dead_seal)
+    mismatched_dead_seal["production"].update(alternate_binding)
+    dead_seal.write_text(json.dumps(mismatched_dead_seal), encoding="utf-8")
+    mismatched_dead_run = json.loads(original_dead_run)
+    mismatched_dead_run["seal_receipt"]["sha256"] = hashlib.sha256(
+        dead_seal.read_bytes()
+    ).hexdigest()
+    dead_run.write_text(json.dumps(mismatched_dead_run), encoding="utf-8")
+    dead_run_sidecar.write_text(
+        f"{hashlib.sha256(dead_run.read_bytes()).hexdigest()}  {dead_run.name}\n",
+        encoding="ascii",
+    )
+    successful_bundle_out = command_args.bundle_out
+    successful_receipt_out = command_args.receipt_out
+    command_args.bundle_out = str(tmp_path / "mismatched-bundle.json")
+    command_args.receipt_out = str(tmp_path / "mismatched-bundle-receipt.json")
+    with pytest.raises(RuntimeError, match="market/interpreter lineage"):
+        cli.run_bundle(
+            command_args,
+            bootstrap_loader=lambda *_args, **_kwargs: {
+                "ok": True,
+                "requested_budget_usdc": 10.0,
+                "pilot_wallet_max_funding_usdc": 100.0,
+            },
+            bundle_builder=lambda *_args: pytest.fail(
+                "mismatched interpreter bindings must stop before bundle build"
+            ),
+        )
+    command_args.bundle_out = successful_bundle_out
+    command_args.receipt_out = successful_receipt_out
+    dead_seal.write_bytes(original_dead_seal)
+    dead_run.write_bytes(original_dead_run)
+    dead_run_sidecar.write_bytes(original_dead_run_sidecar)
     seen = {}
 
     def builder(gate, cancel_all, dead_man):

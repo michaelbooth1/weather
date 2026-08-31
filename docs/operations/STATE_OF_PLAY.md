@@ -1,27 +1,24 @@
 # State of play
 
-**Last rewritten: 2026-08-28 America/Toronto.** Read this first; read
-`ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
+**Last rewritten: 2026-08-31 America/Toronto.** Read this first; read `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative
-> evidence, false claims, and durable mechanics in their owning canonical file.
+> **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative evidence, false claims, and durable mechanics in their owning canonical file.
 
-**Objectives:** protect capture/settlement; complete one bounded International
-Stage 0/1 lifecycle test; then measure whether maker economics work after all
-costs. **No market edge is proved.**
+**Objectives:** protect capture/settlement; complete one bounded International Stage 0/1 lifecycle test; then measure maker economics after costs. **No market edge is proved.**
 
 ## Current truth
 
 | Area | State / next action |
 | --- | --- |
-| Production | A fresh canonical remote query on Aug 28 observed `master` at `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`. The production checkout must reprove local/remote equality before qualification or integration. Preserve the two expected fleet-generated location-config modifications there. |
-| Overnight bootstrap | The offline integration runner bootstrap is production-adopted at that tip. Do not reuse or reconstruct the spent historical attempts that preceded it. |
-| Portable executor | `codex/portable-execution-host-clean-20260827` is published from exact production baseline `788ff8e4521e7b5508dbed5aaaa24bb7e9ea000e`; static audit tip `996f16fc68588f8304cf1c22f4734c543ea9e23a` covers code tip `0c0b71e2930fb947dc272753be9353008bef2244`, and [draft PR #3](https://github.com/michaelbooth1/weather/pull/3) tracks the final branch head. The candidate adds explicit profiles, one tracked active host/principal assignment, execution-only status, host-global admission, public SDK transfer, fresh host/principal-bound credential receipts, isolated public-candidate collection, and relocation documentation. PR CI is green at run 534; production qualification, canonical roll verdict, guarded adoption, and the deliberately `UNASSIGNED` host binding remain open. |
-| Verification | The clean-restack, syntax, import/schema, template, identity, security, and runbook audits passed for code tip `0c0b71e2930fb947dc272753be9353008bef2244`, including two independent reviews. Draft-PR CI run 532 at `60a1aed5b090f4579c81ded2cc4373e3e9d6c6f4` reported 40 suite failures; run 533 at `ad111aea4b50d33b0a6db09553695225aa95348a` reduced that to 2 fixture-ordering/environment failures. Run 534 at `378a6ea718a21f5f547cad76c33816b8efd042cd` passed compilation, knowledge contracts, roadmap validation, and the full Ubuntu suite: 4,042 passed, 60 skipped, 860 subtests passed, and one warning. The focused and bounded suites have not run; production-host runtime qualification remains deferred to an admitted 00:30-09:00 serial window. |
-| Second PC | The selected 32 GB Windows PC was inspected on Aug 28. Fixed local media, CPython 3.11.9 x64, machine-wide Git/LFS, canonical HTTPS origin, and all 26 transferred HGB LFS objects pass. Its clean portable clone remains at production `788ff8e...`. Clock service, pending reboot, and automatic proxy discovery fail; the venv, public SDK, assignment, WinCred entries, and live attempt are absent. No credential value or exchange endpoint was accessed. |
+| Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
+| Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
+| Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
+| Verification | The latest Stage 0 reached an authenticated user-stream subscription and then failed in a pre-mutation account/market read check, but v0.2 receipts could not name that check and falsely inferred a mutation merely from context creation. Exact repair commit `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` (tree `8ffec7b716cd45be82d64e27266e3196d459a2bc`) now records allowlisted phases, separates stream subscription from REST writes, records each heartbeat/cancel boundary, preserves recovery lineage, requires exact two-heartbeat/one-cancel evidence for PASS, and validates the copies through Stage 1 lineage. Local verification passes 230 focused tests with 3 expected skips, compileall, docs audit, and diff checks; an independent pre-publication review found no remaining must-fix issue. The final state-only topic tip still requires exact-head CI/review and synchronized refs before attempt generation. |
+| Second PC | The editable checkout contains the repair commit above; synchronizing the clean portable clone to the final published state-only tip is pending. Reprove local/cached/live topic equality, synchronized ancestral master, canonical origin, clean worktree, and exact-head CI/review after publication. Its CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, installed audit, clock/proxy/reboot state, and tracked host/principal audit previously passed and must remain current. The development checkout's ambient SDK remains excluded from live use. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
-| Credentials | No credential value was accessed. The selected PC's four current-user WinCred targets are not provisioned. It needs a fresh host-and-token-principal-bound v0.4 compare-only receipt after enrollment; another host/principal's receipt and attempt artifacts are invalid. |
-| Live money | No exchange endpoint was contacted and no Stage 0/1 session has run. The first session remains attended, International-only, exact 10 pUSD request / 100 pUSD wallet cap, and separately gated at every mutation boundary. |
+| Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets. Prior compare-only receipts proved four exact matches, zero writes, zero mutation, and no retained values, but every spent-attempt receipt is historical only; create a fresh compare-only receipt for the new namespace. Keep the private transfer source locked down until that final comparison is consumed, then use the approved deletion procedure. |
+| Public substrate | Preserve every partial namespace. All substrates and candidates sealed into spent attempts are evidence only. The owner accepted economics snapshot `xecon-9f686625de725e6d` for August 31 and the latest exact NYC 78-79 scope, condition `0x576cca4ddd0ef5e55df4f79484ca88b6f4e1687288e7dabc0b145e7bbfe9e3c5`; use it only if the repository's freshness and exact-binding checks still pass after branch qualification, otherwise regenerate and obtain a new exact acceptance. |
+| Live money | Attempts `pilot-20260831T134425424Z` and `pilot-20260831T145154800Z` are spent and must never be retried. The latter passed authenticated user-stream readiness, then failed before pre-mutation geography and before any heartbeat or cancel-all REST call; no order was submitted. Cleanup proved zero open orders and positions, stopped the stream, and closed the client. Its old receipt could retain only `RuntimeError`, so the precise read/check subgate is unrecoverable; the new phase repair will identify it in a wholly new attempt. Keep the exact 10 pUSD request / 100 pUSD wallet cap and every action-time gate. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -37,16 +34,28 @@ costs. **No market edge is proved.**
   action and is never scheduled automatically.
 - No order from a blocked location and no circumvention. America/Toronto is
   scheduling/target-date configuration, never evidence of physical location.
+  The live protocol asks for no city, state/province, or country; it uses the
+  exact attended eligibility literal and Polymarket's credential-free geoblock.
 - No unattended first live session.
 - `capture_colocated_v1` retains local capture/tape/streak checks and
   `[00:30, 09:00) America/Toronto` containment.
-- `portable_execution_v1` is for a different attended Windows PC. It retains
-  all money, identity, geography, Git, SDK, credential, account, deadline,
-  cancellation, and cleanup gates, but has no local capture/tape/streak or
-  capture-host timetable dependency. It is accepted only for the one tracked
-  active machine/principal, is refused on the dedicated capture host, and
-  cannot authorize another workload. The user-layer Codex hook is not role
-  authority.
+- The separate 32 GB workstation may run implementation, tests, training,
+  replay, and measurement outside the capture timetable/resource admission.
+  Recognized heavy commands use its admission-only wrapper, which requires the
+  assignment's exact host and attending principal. That wrapper and the
+  portable launcher hold one host-global mutex and kill-on-close child-tree
+  Jobs through cleanup. Finish heavy work before sealing to preserve the
+  attempt; an inert seal is not live authority. This grants no production or
+  live authority, and its PASS does not replace production-host qualification.
+- `portable_execution_v1` retains every money, identity, geography, Git, SDK,
+  credential, account, deadline, cancellation, and cleanup gate, but no local
+  capture/tape/streak or capture timetable. It accepts one tracked non-capture
+  host/principal and cannot authorize another workload; the hook is not role authority.
+  Its target may be the candidate-market-local execution date or the immediately
+  following date; its bounded execution and cleanup stay within one local date.
+- Its sole pre-master code exception is the literal remote topic branch named
+  above. No arbitrary branch argument exists; changing that branch requires a
+  new reviewed code and operator decision.
 - Moving the executor again means a new production-tip assignment, clone/venv,
   uniquely named SDK transfer, WinCred setup, fresh compare receipt, host
   audit, public substrate, candidates, and attempt manifests. Never edit an old
@@ -54,44 +63,31 @@ costs. **No market edge is proved.**
 
 ## Ordered critical path
 
-1. Preserve the published clean candidate and correct publication state only
-   with descendant commits; never rewrite its history, publish the polluted
-   source lineage, or treat the public SDK bundle as credential transfer.
-2. On the production host, fetch and independently review the final exact tip.
-   In the next admitted window, run focused tests and the
-   repository-owned bounded suite serially. Any partial, stale, timed-out, or
-   non-contained result is not PASS.
-3. Obtain the canonical roll verdict there, keep exact-tip CI green, complete
-   owner review on draft PR #3 under the operator's explicit Git authority, then use
-   the appropriate guarded integration path. A topic push or CI PASS is not
-   production adoption; Scheduler registration still needs separate explicit authority.
-4. On the chosen second PC, make a clean local clone at the adopted exact tip,
-   create a new 64-bit CPython 3.11 venv, import/audit a uniquely named exact
-   non-secret SDK bundle, report its public host/principal IDs, merge the exact
-   assignment, pull that tip, and pass the offline execution-only host status.
-   Do not copy `data/`, a venv, or an old attempt.
-5. Build a new attempt-local public substrate from metadata, observation,
-   weather/source, CLOB, economics and a strictly passing paper tick; run its
-   no-network local preflight. Provision WinCred under the attending Windows
-   user, then create a new compare-only receipt on that host within two hours.
-   Regenerate identity, candidate, and all three immutable attempts.
-6. At action time, require eligible physical presence/no circumvention,
+1. Publish the repair plus this state update. Require exact local/cached/live
+   equality, master ancestry, green exact-head CI, and independent review on
+   the final topic tip, then fast-forward and re-inventory the portable clone.
+2. Create a wholly new August 31 attempt. Revalidate the accepted NYC scope or
+   select a fresh built-in market inside the unchanged midpoint/spread gates;
+   refresh economics and exact acceptance if any bound input is stale. Run the
+   600-second paper tick and no-network preflight. Never reuse either spent
+   attempt or any launcher, manifest, or candidate sealed beneath one.
+3. Build and review all three new immutable manifests and launchers, then
+   refresh a constrained candidate immediately before each stage.
+4. At action time, require eligible physical presence/no circumvention,
    official geoblock PASS, exact account topology, balance/allowance, zero
    unknown orders and positions, current market rules, clean synchronized Git,
    and every exact attended stage literal.
-7. Stop on any ambiguity. PASS requires terminal receipts plus cancel-all and
+5. Stop on any ambiguity. PASS requires terminal receipts plus cancel-all and
    authenticated zero-open-order/zero-position reconciliation.
 
 ## Verification boundary
 
 A finite audit cannot predict every unknown defect. The durable standard is
 fail-closed identity and path binding, early deterministic checks, immutable
-receipts, bounded execution, and truthful claims. Until focused/bounded tests
-pass and the exact code is production-adopted, the portable executor is a
-reviewed candidate, not a runnable live lane.
+receipts, bounded execution, and truthful claims. The portable lane requires
+the exact profile-authorized Git authority and every action-time gate; a green
+branch alone is never a runnable live session.
 
 ## Update this file when
 
-Rewrite after exact-tip publication/CI, admitted qualification, production
-merge, second-PC provisioning, credential comparison, fresh live-readiness
-PASS, or any Stage 0/1 result.
+Rewrite after publication/CI, admitted qualification, production merge, second-PC provisioning, live-readiness, or any Stage 0/1 result.

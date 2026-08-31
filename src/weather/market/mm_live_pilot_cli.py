@@ -40,6 +40,8 @@ from weather.market.mm_geographic_eligibility import (
     validate_geographic_eligibility_receipt,
 )
 from weather.market.mm_live_bootstrap import (
+    STAGE0_AUTHENTICATED_WRITE_OPERATIONS,
+    STAGE0_BOOTSTRAP_PHASES,
     collect_platform_bootstrap_payload,
     finalize_platform_bootstrap_payload,
     load_platform_bootstrap_gate,
@@ -72,10 +74,21 @@ from weather.market.market_making_preflight import (
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.market.market_config import ensure_date
 from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
+from weather.operations.live_path_security import (
+    LivePathSecurityError,
+    launcher_host_attestations_are_valid,
+    validate_production_python_runtime_binding,
+)
 from weather.schema_registry import schema_version
 
 
 RECEIPT_SCHEMA_VERSION = schema_version("mm_live_pilot_command_receipt")
+FIXED_SCOPE_SEAL_SCHEMA_VERSION = schema_version(
+    "international_live_fixed_scope_seal"
+)
+FIXED_SCOPE_EXECUTION_SCHEMA_VERSION = schema_version(
+    "international_live_fixed_scope_execution"
+)
 MAX_PILOT_BUDGET = MAX_OPERATOR_PILOT_BUDGET_USDC
 BUNDLE_CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_BUILD_BUNDLE"
 IDENTITY_CONFIRMATION = "INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY"
@@ -103,6 +116,13 @@ def _sha256_file(path: str | Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _validated_interpreter_binding(production: dict) -> dict | None:
+    try:
+        return validate_production_python_runtime_binding(production)
+    except LivePathSecurityError:
+        return None
 
 
 def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) -> dict:
@@ -176,6 +196,14 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
     run_child = run.get("child_execution") or {}
     run_topology = run.get("credential_topology") or {}
     seal_production = seal.get("production") or {}
+    interpreter_binding = _validated_interpreter_binding(seal_production)
+    reviewed_status_flags = seal_scope.get("reviewed_status_flags")
+    expected_status_flag_hashes = (
+        [row.get("sha256") for row in reviewed_status_flags]
+        if isinstance(reviewed_status_flags, list)
+        and all(isinstance(row, dict) for row in reviewed_status_flags)
+        else None
+    )
     market = MARKET_REGISTRY.get(str(seal_scope.get("market_id") or ""))
     command_paths = command.get("paths") or {}
     credential_topology = command.get("credential_topology") or {}
@@ -211,10 +239,11 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and _sha256_file(manifest_sidecar) == run_manifest.get("sidecar_sha256")
     )
     checks = {
-        "seal": seal.get("schema_version") == "international_live_fixed_scope_seal_v0.4"
+        "seal": seal.get("schema_version") == FIXED_SCOPE_SEAL_SCHEMA_VERSION
         and seal.get("status") == "PASS"
         and seal.get("stage") == stage_name,
         "production": seal_production.get("commit") == args.expected_production_tip,
+        "interpreter_binding": interpreter_binding is not None,
         "seal_scope": seal_scope.get("target_date") == args.target_date
         and market is not None
         and seal_scope.get("market_timezone") == market.timezone
@@ -268,7 +297,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and command_paths.get("lifecycle_journal")
         == journal_artifact.get("path"),
         "execution": execution.get("schema_version")
-        == "international_live_fixed_scope_execution_v0.6"
+        == FIXED_SCOPE_EXECUTION_SCHEMA_VERSION
         and execution.get("status") == "PASS"
         and execution.get("stage") == stage_name
         and execution.get("target_date") == args.target_date
@@ -284,6 +313,16 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and execution.get("order_submit_attempted") is True
         and execution.get("authenticated_exchange_write_attempted") is True
         and execution.get("exception_type") is None,
+        "execution_lease_lineage": (
+            launcher_host_attestations_are_valid(
+                execution.get("host_attestations"),
+                expected_execution_host_profile=seal_scope.get(
+                    "execution_host_profile"
+                ),
+                expected_execution_host_id=seal_scope.get("execution_host_id"),
+                expected_status_flag_sha256=expected_status_flag_hashes,
+            )
+        ),
         "execution_artifacts": set(artifacts)
         == {
             "doctor_receipt_out",
@@ -391,6 +430,7 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         "journal_sha256": journal_artifact["sha256"],
         "market_id": market.id,
         "market_timezone": market.timezone,
+        "interpreter_binding": interpreter_binding,
     }
 
 
@@ -898,6 +938,30 @@ def run_stage0(
     receipt["exchange_mutation_attempted"] = False
     receipt["order_submit_attempted"] = False
     receipt["authenticated_exchange_write_attempted"] = False
+    receipt["authenticated_user_stream_subscription_sent"] = False
+    receipt["bootstrap_phase"] = None
+    receipt["bootstrap_recovery_phase"] = None
+    receipt["bootstrap_phase_history"] = []
+    receipt["exchange_mutation_attempt_counts"] = {
+        operation: 0
+        for operation in sorted(STAGE0_AUTHENTICATED_WRITE_OPERATIONS)
+    }
+
+    def record_bootstrap_phase(phase):
+        if phase not in STAGE0_BOOTSTRAP_PHASES:
+            raise RuntimeError("Stage 0 bootstrap phase is not allowlisted")
+        receipt["bootstrap_phase_history"].append(phase)
+        if phase == "cancel_all_recovery":
+            receipt["bootstrap_recovery_phase"] = phase
+        else:
+            receipt["bootstrap_phase"] = phase
+
+    def record_authenticated_write(operation):
+        if operation not in STAGE0_AUTHENTICATED_WRITE_OPERATIONS:
+            raise RuntimeError("Stage 0 authenticated-write operation is not allowlisted")
+        receipt["exchange_mutation_attempt_counts"][operation] += 1
+        receipt["exchange_mutation_attempted"] = True
+        receipt["authenticated_exchange_write_attempted"] = True
     receipt["candidate_market_rules"] = {
         "fee_rate": candidate_fee_rate,
         "neg_risk": candidate_neg_risk,
@@ -928,6 +992,11 @@ def run_stage0(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
         )
+        stream_ready = context.user_stream.bootstrap_evidence()
+        receipt["authenticated_user_stream_subscription_sent"] = (
+            stream_ready.get("account_wide_subscription_sent") is True
+        )
+        record_bootstrap_phase("collector_entry")
         payload = bootstrap_collector(
             context.adapter,
             context.user_stream,
@@ -938,9 +1007,33 @@ def run_stage0(
             expected_candidate_fee_rate=candidate_fee_rate,
             expected_candidate_neg_risk=candidate_neg_risk,
             pre_mutation_attestor=pre_mutation_attestor,
+            progress_recorder=record_bootstrap_phase,
+            authenticated_write_recorder=record_authenticated_write,
         )
+        if not (
+            receipt["authenticated_user_stream_subscription_sent"] is True
+            and receipt["bootstrap_phase"] == "complete"
+            and receipt["exchange_mutation_attempt_counts"]
+            == {"cancel_all": 1, "heartbeat": 2}
+        ):
+            record_bootstrap_phase("collector_contract")
+            raise RuntimeError(
+                "Stage 0 bootstrap collector did not prove its exact mutation lifecycle"
+            )
     except BaseException as exc:
         operation_error = exc
+
+    if (
+        context is not None
+        and receipt["authenticated_user_stream_subscription_sent"] is not True
+    ):
+        try:
+            stream_evidence = context.user_stream.bootstrap_evidence()
+            receipt["authenticated_user_stream_subscription_sent"] = (
+                stream_evidence.get("account_wide_subscription_sent") is True
+            )
+        except Exception:
+            receipt["authenticated_user_stream_subscription_sent"] = "UNKNOWN"
 
     cleanup = _cleanup_context(
         context,
@@ -949,9 +1042,6 @@ def run_stage0(
         # redundant authenticated mutation with no current geography receipt.
         cancel_all_required=False,
     )
-    if context is not None:
-        receipt["authenticated_exchange_write_attempted"] = True
-        receipt["exchange_mutation_attempted"] = True
     receipt["cleanup"] = cleanup
     geography_path = paths["geography_premutation_receipt"]
     if geography_path.is_file():
@@ -1216,8 +1306,10 @@ def run_bundle(
             != lineages["dead_man"]["market_id"]
             or lineages["cancel_all"]["market_timezone"]
             != lineages["dead_man"]["market_timezone"]
+            or lineages["cancel_all"]["interpreter_binding"]
+            != lineages["dead_man"]["interpreter_binding"]
         ):
-            raise RuntimeError("Stage 1 bundle market lineage does not match")
+            raise RuntimeError("Stage 1 bundle market/interpreter lineage does not match")
         bundle = bundle_builder(gate, cancel_all_result, dead_man_result)
     except Exception as exc:
         operation_error = exc

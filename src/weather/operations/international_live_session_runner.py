@@ -38,11 +38,14 @@ from weather.operations.live_path_security import (
     PORTABLE_EXECUTION_HOST_PROFILE,
     assert_no_ambient_market_registry_override,
     canonical_windows_powershell,
+    launcher_host_attestations_are_valid,
     SESSION_BOOTSTRAP_PATHS,
     current_execution_host_id,
+    resolve_production_python_runtime_binding,
     validate_contained_regular_file,
     validate_nonreparse_directory,
     validate_private_attempt_root,
+    validate_production_python_runtime_binding,
     validate_regular_nonreparse_file,
 )
 from weather.schema_registry import schema_version
@@ -90,11 +93,13 @@ LauncherRunner = Callable[[Path], subprocess.CompletedProcess[str]]
 def _verify_launch_git_state(
     production: Mapping[str, Any],
     *,
+    execution_host_profile: str,
     git_runner: fixed_sealer.GitRunner,
 ) -> dict[str, Any]:
     try:
         return fixed_sealer._verify_git_state(
             production,
+            execution_host_profile=execution_host_profile,
             git_runner=git_runner,
         )
     except fixed_sealer.SealError as exc:
@@ -437,6 +442,7 @@ def _child_execution_facts(
     *,
     expected_scope: Mapping[str, Any],
     expected_production: Mapping[str, Any],
+    expected_interpreter_binding: Mapping[str, str],
     expected_lineage: Mapping[str, Mapping[str, str]],
     expected_candidate_sha256: str,
     expected_candidate: Mapping[str, Any],
@@ -454,6 +460,10 @@ def _child_execution_facts(
         "live_mutation_attempted": "UNKNOWN",
         "order_submit_attempted": "UNKNOWN",
         "authenticated_exchange_write_attempted": "UNKNOWN",
+        "authenticated_user_stream_subscription_sent": "UNKNOWN",
+        "bootstrap_phase": "UNKNOWN",
+        "bootstrap_recovery_phase": "UNKNOWN",
+        "exchange_mutation_attempt_counts": "UNKNOWN",
         "credential_topology": "UNKNOWN",
         "credential_values_read_in_memory": "UNKNOWN",
     }
@@ -479,6 +489,15 @@ def _child_execution_facts(
         seal, _seal_raw = _read_object(seal_path, "seal receipt")
         seal_scope = seal.get("scope") or {}
         seal_production = seal.get("production") or {}
+        try:
+            seal_interpreter_binding = validate_production_python_runtime_binding(
+                seal_production,
+                production_root=expected_production["root"],
+            )
+        except Exception as exc:
+            raise SessionCompositionError(
+                "seal receipt interpreter binding is invalid"
+            ) from exc
         seal_inputs = {
             row.get("role"): row
             for row in (seal.get("inputs") or [])
@@ -503,6 +522,7 @@ def _child_execution_facts(
                 seal.get("seal_spec") == expected_lineage["seal_spec"],
                 seal_production.get("commit") == expected_production["commit"],
                 seal_production.get("tree") == expected_production["tree"],
+                seal_interpreter_binding == dict(expected_interpreter_binding),
                 seal_scope.get("target_date") == expected_scope["target_date"],
                 str(seal_scope.get("condition_id") or "").lower()
                 == str(expected_scope["condition_id"]).lower(),
@@ -613,7 +633,6 @@ def _child_execution_facts(
             raise SessionCompositionError("wrapper execution facts are malformed")
         if payload["status"] == "PASS":
             attestations = payload.get("host_attestations")
-            expected_attestation_count = 3
             expected_flag_hashes = sorted(
                 row["sha256"] for row in seal_scope.get("reviewed_status_flags") or []
             )
@@ -633,18 +652,15 @@ def _child_execution_facts(
                         )
                     )
                     == 64,
-                    isinstance(attestations, list),
-                    len(attestations or []) == expected_attestation_count,
-                    all(
-                        len(str(row.get("status_json_sha256") or "")) == 64
-                        and sorted(row.get("status_flag_sha256") or [])
-                        == expected_flag_hashes
-                        and row.get("execution_host_profile")
-                        == expected_scope["execution_host_profile"]
-                        and row.get("execution_host_id")
-                        == expected_scope["execution_host_id"]
-                        and bool(row.get("checked_at_local"))
-                        for row in (attestations or [])
+                    launcher_host_attestations_are_valid(
+                        attestations,
+                        expected_execution_host_profile=expected_scope[
+                            "execution_host_profile"
+                        ],
+                        expected_execution_host_id=expected_scope[
+                            "execution_host_id"
+                        ],
+                        expected_status_flag_sha256=expected_flag_hashes,
                     ),
                 )
             ):
@@ -743,6 +759,29 @@ def _child_execution_facts(
                     ),
                     command.get("authenticated_exchange_write_attempted") is True,
                     command.get("order_submit_attempted") is (stage != "stage0"),
+                    (
+                        command.get("authenticated_user_stream_subscription_sent")
+                        is True
+                        and command.get("bootstrap_phase") == "complete"
+                        and command.get("exchange_mutation_attempt_counts")
+                        == {"cancel_all": 1, "heartbeat": 2}
+                        if stage == "stage0"
+                        else True
+                    ),
+                    (
+                        payload.get("authenticated_user_stream_subscription_sent")
+                        is command.get(
+                            "authenticated_user_stream_subscription_sent"
+                        )
+                        and payload.get("bootstrap_phase")
+                        == command.get("bootstrap_phase")
+                        and payload.get("bootstrap_recovery_phase")
+                        == command.get("bootstrap_recovery_phase")
+                        and payload.get("exchange_mutation_attempt_counts")
+                        == command.get("exchange_mutation_attempt_counts")
+                        if stage == "stage0"
+                        else True
+                    ),
                     stage0_mutation_geography_bound,
                     (
                         (command.get("mutation_geographic_eligibility") or {}).get(
@@ -946,6 +985,16 @@ def _child_execution_facts(
             "live_mutation_attempted": mutation,
             "order_submit_attempted": order_submit,
             "authenticated_exchange_write_attempted": authenticated_write,
+            "authenticated_user_stream_subscription_sent": (
+                payload.get("authenticated_user_stream_subscription_sent", "UNKNOWN")
+            ),
+            "bootstrap_phase": payload.get("bootstrap_phase", "UNKNOWN"),
+            "bootstrap_recovery_phase": payload.get(
+                "bootstrap_recovery_phase", "UNKNOWN"
+            ),
+            "exchange_mutation_attempt_counts": payload.get(
+                "exchange_mutation_attempt_counts", "UNKNOWN"
+            ),
             "credential_topology": topology if payload["status"] == "PASS" else "UNKNOWN",
             "credential_values_read_in_memory": credential,
         }
@@ -1113,6 +1162,20 @@ def compose_and_run_live_session(
         or _sha256_file(production_python) != production_python_sha256
     ):
         raise SessionCompositionError("reviewed production interpreter changed")
+    try:
+        expected_interpreter_binding = resolve_production_python_runtime_binding(
+            production_root,
+            interpreter_redirector=production_python,
+        )
+    except Exception as exc:
+        raise SessionCompositionError(
+            "reviewed production interpreter chain is invalid"
+        ) from exc
+    if (
+        expected_interpreter_binding["interpreter_redirector_sha256"]
+        != production_python_sha256
+    ):
+        raise SessionCompositionError("reviewed production interpreter changed")
     bootstrap_hashes = _exact(
         manifest["session_bootstrap_sha256"],
         set(SESSION_BOOTSTRAP_PATHS),
@@ -1242,13 +1305,28 @@ def compose_and_run_live_session(
         if execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
         else ZoneInfo(str(scope["market_timezone"]))
     )
-    if any(
-        value.astimezone(calendar_timezone).date().isoformat()
-        != target_date
-        for value in (current, stop, contained_end)
+    if (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and any(
+            value.astimezone(calendar_timezone).date().isoformat()
+            != target_date
+            for value in (current, stop, contained_end)
+        )
     ):
         raise SessionCompositionError(
             "candidate-derived execution timestamps do not share the target date"
+        )
+    if (
+        execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and not live_time_window.portable_execution_window_is_supported(
+            current,
+            stop,
+            target_date=target_date,
+            market_timezone=calendar_timezone,
+        )
+    ):
+        raise SessionCompositionError(
+            "portable execution requires a current-day or next-day market target"
         )
     if (
         execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
@@ -1383,12 +1461,25 @@ def compose_and_run_live_session(
         else (datetime.now().astimezone() if now is None else current)
     )
     if (
-        launch_now.astimezone(calendar_timezone)
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and launch_now.astimezone(calendar_timezone)
         .date()
         .isoformat()
         != str(scope["target_date"])
     ):
         raise SessionCompositionError("launch boundary no longer matches the target date")
+    if (
+        execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and not live_time_window.portable_execution_window_is_supported(
+            launch_now,
+            stop,
+            target_date=str(scope["target_date"]),
+            market_timezone=calendar_timezone,
+        )
+    ):
+        raise SessionCompositionError(
+            "launch boundary is not current-day or next-day target eligible"
+        )
     if (
         execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
         and not live_time_window.execution_window_is_supported(
@@ -1449,6 +1540,12 @@ def compose_and_run_live_session(
     for relative, expected_hash in manifest["source_sha256"].items():
         protected_expected[(production_root / relative).resolve()] = expected_hash
     protected_expected[production_python] = production_python_sha256
+    protected_expected[
+        Path(expected_interpreter_binding["pyvenv_config"])
+    ] = expected_interpreter_binding["pyvenv_config_sha256"]
+    protected_expected[
+        Path(expected_interpreter_binding["runtime_process_image"])
+    ] = expected_interpreter_binding["runtime_process_image_sha256"]
     for relative, expected_hash in bootstrap_hashes.items():
         protected_expected[(production_root / relative).resolve()] = str(
             expected_hash
@@ -1484,6 +1581,7 @@ def compose_and_run_live_session(
     if boundary_git_runner is not None:
         _verify_launch_git_state(
             manifest["production"],
+            execution_host_profile=execution_host_profile,
             git_runner=boundary_git_runner,
         )
     launcher_timeout_seconds = min(
@@ -1522,6 +1620,7 @@ def compose_and_run_live_session(
         seal_result,
         expected_scope=scope,
         expected_production=manifest["production"],
+        expected_interpreter_binding=expected_interpreter_binding,
         expected_lineage={
             "session_manifest": {
                 "path": str(manifest_path),

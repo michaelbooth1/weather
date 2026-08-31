@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import base64
 import ctypes
+import hashlib
 import json
 import os
 import shutil
 import stat
 import subprocess
+from collections.abc import Mapping, Sequence
+from ctypes import wintypes
+from datetime import datetime
 from pathlib import Path
 
 if os.name == "nt":  # pragma: no cover - exercised by Windows operations tests.
@@ -39,6 +43,12 @@ NETWORK_REDIRECT_ENVIRONMENT_KEYS = frozenset(
     }
 )
 MARKET_REGISTRY_OVERRIDE_ENVIRONMENT_KEY = "WEATHER_MARKET_REGISTRY"
+MAX_PYVENV_CONFIG_BYTES = 16 * 1024
+PYTHON_RUNTIME_BINDING_PAIRS = (
+    ("interpreter_redirector", "interpreter_redirector_sha256"),
+    ("pyvenv_config", "pyvenv_config_sha256"),
+    ("runtime_process_image", "runtime_process_image_sha256"),
+)
 
 
 SESSION_BOOTSTRAP_PATHS = (
@@ -82,6 +92,447 @@ def canonical_windows_powershell() -> Path:
         raise LivePathSecurityError("Windows system directory is unavailable")
     path = Path(buffer.value) / "WindowsPowerShell/v1.0/powershell.exe"
     return validate_regular_nonreparse_file(path)
+
+
+def _same_resolved_path(left: Path, right: Path) -> bool:
+    return os.path.normcase(str(left.resolve())) == os.path.normcase(
+        str(right.resolve())
+    )
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def resolve_production_python_runtime_binding(
+    production_root: str | Path,
+    *,
+    interpreter_redirector: str | Path | None = None,
+) -> dict[str, str]:
+    """Resolve and hash one canonical venv redirector/config/runtime chain."""
+
+    root = validate_nonreparse_directory(production_root)
+    expected_redirector = root / "venv/Scripts/python.exe"
+    redirector = validate_regular_nonreparse_file(
+        interpreter_redirector or expected_redirector
+    )
+    if not _same_resolved_path(redirector, expected_redirector):
+        raise LivePathSecurityError(
+            "production interpreter is not the canonical venv redirector"
+        )
+    config = validate_regular_nonreparse_file(root / "venv/pyvenv.cfg")
+    try:
+        raw = config.read_bytes()
+    except OSError as exc:
+        raise LivePathSecurityError(
+            "production pyvenv configuration is unreadable"
+        ) from exc
+    if not raw or len(raw) > MAX_PYVENV_CONFIG_BYTES:
+        raise LivePathSecurityError(
+            "production pyvenv configuration size is invalid"
+        )
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise LivePathSecurityError(
+            "production pyvenv configuration is not UTF-8"
+        ) from exc
+    required: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        key, separator, value = line.partition("=")
+        normalized_key = key.strip().casefold()
+        if not separator or not normalized_key or not value.strip():
+            raise LivePathSecurityError(
+                "production pyvenv configuration is malformed"
+            )
+        if normalized_key not in {"home", "executable"}:
+            continue
+        if normalized_key in required:
+            raise LivePathSecurityError(
+                "production pyvenv configuration has duplicate identities"
+            )
+        required[normalized_key] = value.strip()
+    if set(required) != {"home", "executable"}:
+        raise LivePathSecurityError(
+            "production pyvenv runtime identity is incomplete"
+        )
+    home_input = Path(required["home"])
+    runtime_input = Path(required["executable"])
+    if not home_input.is_absolute() or not runtime_input.is_absolute():
+        raise LivePathSecurityError(
+            "production pyvenv runtime identity is not absolute"
+        )
+    home = validate_nonreparse_directory(home_input)
+    runtime = validate_regular_nonreparse_file(runtime_input)
+    if not _same_resolved_path(runtime, home / "python.exe"):
+        raise LivePathSecurityError(
+            "production pyvenv runtime identity is inconsistent"
+        )
+    return {
+        "interpreter_redirector": str(redirector),
+        "interpreter_redirector_sha256": _sha256_file(redirector),
+        "pyvenv_config": str(config),
+        "pyvenv_config_sha256": hashlib.sha256(raw).hexdigest(),
+        "runtime_process_image": str(runtime),
+        "runtime_process_image_sha256": _sha256_file(runtime),
+    }
+
+
+def validate_production_python_runtime_binding(
+    binding: object,
+    *,
+    production_root: str | Path | None = None,
+) -> dict[str, str]:
+    """Validate receipt fields as one current canonical Python runtime chain."""
+
+    if not isinstance(binding, Mapping):
+        raise LivePathSecurityError("production interpreter binding is invalid")
+    redirector_input = Path(str(binding.get("interpreter_redirector") or ""))
+    if not redirector_input.is_absolute():
+        raise LivePathSecurityError("production interpreter binding is invalid")
+    if production_root is None:
+        if (
+            redirector_input.parent.name.casefold() != "scripts"
+            or redirector_input.parent.parent.name.casefold() != "venv"
+        ):
+            raise LivePathSecurityError(
+                "production interpreter is not the canonical venv redirector"
+            )
+        production_root = redirector_input.parent.parent.parent
+    current = resolve_production_python_runtime_binding(
+        production_root,
+        interpreter_redirector=redirector_input,
+    )
+    for path_key, hash_key in PYTHON_RUNTIME_BINDING_PAIRS:
+        observed_path_input = Path(str(binding.get(path_key) or ""))
+        observed_hash = str(binding.get(hash_key) or "")
+        if not observed_path_input.is_absolute():
+            raise LivePathSecurityError("production interpreter binding is invalid")
+        observed_path = validate_regular_nonreparse_file(observed_path_input)
+        if (
+            not _same_resolved_path(observed_path, Path(current[path_key]))
+            or observed_hash != current[hash_key]
+        ):
+            raise LivePathSecurityError(
+                "production interpreter binding changed or is inconsistent"
+            )
+    return current
+
+
+def validate_launcher_lease_process_lineage(
+    *,
+    lease_owner_pid: int,
+    lease_path: str | Path,
+    expected_owner_creation_time_token: str,
+    expected_owner_executable: str | Path,
+    expected_pyvenv_config: str | Path,
+    expected_pyvenv_config_sha256: str,
+    expected_redirector_executable: str | Path,
+    expected_redirector_sha256: str,
+    expected_runtime_executable: str | Path,
+    expected_runtime_sha256: str,
+    current_pid_reader=None,
+    parent_pid_reader=None,
+    process_observer=None,
+    lease_active_probe=None,
+) -> dict:
+    """Prove that the live Python process descends from the lease owner.
+
+    A Windows venv ``python.exe`` may be a redirector that starts the real
+    interpreter.  The live wrapper therefore accepts either the lease-owning
+    PowerShell process as its direct parent or exactly one intervening,
+    hash-bound venv redirector.  Arbitrary ancestor depth is deliberately not
+    accepted.
+    """
+
+    try:
+        owner_pid = int(lease_owner_pid)
+        current_pid = int((current_pid_reader or os.getpid)())
+        direct_parent_pid = int((parent_pid_reader or os.getppid)())
+    except (TypeError, ValueError) as exc:
+        raise LivePathSecurityError("live launcher process identity is invalid") from exc
+    if owner_pid <= 0 or current_pid <= 0 or direct_parent_pid <= 0:
+        raise LivePathSecurityError("live launcher process identity is invalid")
+
+    owner_executable = validate_regular_nonreparse_file(expected_owner_executable)
+    pyvenv_config = validate_regular_nonreparse_file(expected_pyvenv_config)
+    redirector_executable = validate_regular_nonreparse_file(
+        expected_redirector_executable
+    )
+    runtime_executable = validate_regular_nonreparse_file(expected_runtime_executable)
+    reviewed_lease_path = validate_regular_nonreparse_file(lease_path)
+    owner_creation_token = str(expected_owner_creation_time_token or "")
+    if not owner_creation_token.startswith("win32-filetime:") or not owner_creation_token[
+        len("win32-filetime:") :
+    ].isdigit():
+        raise LivePathSecurityError("lease owner creation identity is invalid")
+    active_probe = lease_active_probe or _windows_lease_file_is_deny_write_held
+    if active_probe(reviewed_lease_path) is not True:
+        raise LivePathSecurityError("live launcher lease handle is not active")
+    def require_exact_hash(path: Path, expected: object, *, label: str) -> None:
+        expected_hash = str(expected or "").lower()
+        if (
+            len(expected_hash) != 64
+            or any(character not in "0123456789abcdef" for character in expected_hash)
+            or hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash
+        ):
+            raise LivePathSecurityError(f"sealed {label} hash changed")
+
+    require_exact_hash(
+        pyvenv_config,
+        expected_pyvenv_config_sha256,
+        label="live pyvenv configuration",
+    )
+    require_exact_hash(
+        redirector_executable,
+        expected_redirector_sha256,
+        label="live Python redirector",
+    )
+    require_exact_hash(
+        runtime_executable,
+        expected_runtime_sha256,
+        label="live Python runtime",
+    )
+
+    if process_observer is None:
+        from weather.operations.supervisor import observe_process
+
+        process_observer = observe_process
+
+    def require_exact_process(pid: int, executable: Path, *, label: str) -> dict:
+        observed = process_observer(pid)
+        try:
+            observed_pid = int(observed.get("pid"))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise LivePathSecurityError(
+                f"{label} process identity is unavailable"
+            ) from exc
+        if (
+            observed.get("state") != "running"
+            or observed_pid != pid
+            or observed.get("inspectable") is not True
+            or not str(observed.get("creation_time_token") or "")
+            or not str(observed.get("image_path") or "")
+        ):
+            raise LivePathSecurityError(f"{label} process identity is unavailable")
+        observed_executable = validate_regular_nonreparse_file(
+            str(observed["image_path"])
+        )
+        if observed_executable != executable:
+            raise LivePathSecurityError(f"{label} process executable changed")
+        return observed
+
+    owner = require_exact_process(owner_pid, owner_executable, label="lease owner")
+    runtime = require_exact_process(
+        current_pid,
+        runtime_executable,
+        label="live Python runtime",
+    )
+    if str(owner.get("creation_time_token")) != owner_creation_token:
+        raise LivePathSecurityError("lease owner process instance changed")
+    try:
+        observed_runtime_parent = int(runtime.get("parent_pid"))
+    except (TypeError, ValueError) as exc:
+        raise LivePathSecurityError(
+            "live Python runtime parent is unavailable"
+        ) from exc
+    if observed_runtime_parent != direct_parent_pid:
+        raise LivePathSecurityError("live Python runtime parent changed")
+
+    def creation_ticks(observed: dict, *, label: str) -> int:
+        token = str(observed.get("creation_time_token") or "")
+        prefix = "win32-filetime:"
+        if not token.startswith(prefix) or not token[len(prefix) :].isdigit():
+            raise LivePathSecurityError(f"{label} creation identity is invalid")
+        return int(token[len(prefix) :])
+
+    owner_created = creation_ticks(owner, label="lease owner")
+    runtime_created = creation_ticks(runtime, label="live Python runtime")
+    relationship = "direct_lease_owner"
+    redirector = None
+    if direct_parent_pid != owner_pid:
+        redirector = require_exact_process(
+            direct_parent_pid,
+            redirector_executable,
+            label="live Python redirector",
+        )
+        try:
+            redirector_owner_pid = int(redirector.get("parent_pid"))
+        except (TypeError, ValueError) as exc:
+            raise LivePathSecurityError(
+                "live Python redirector parent is unavailable"
+            ) from exc
+        if redirector_owner_pid != owner_pid:
+            raise LivePathSecurityError(
+                "live Python redirector is not a direct child of the lease owner"
+            )
+        redirector_created = creation_ticks(
+            redirector,
+            label="live Python redirector",
+        )
+        if not owner_created < redirector_created < runtime_created:
+            raise LivePathSecurityError("live launcher process creation order changed")
+        relationship = "single_sealed_python_redirector"
+    elif not owner_created < runtime_created:
+        raise LivePathSecurityError("live launcher process creation order changed")
+
+    def creation_token_hash(observed: dict) -> str:
+        return hashlib.sha256(
+            str(observed["creation_time_token"]).encode("utf-8")
+        ).hexdigest()
+
+    return {
+        "status": "PASS",
+        "relationship": relationship,
+        "lease_owner_creation_token_sha256": creation_token_hash(owner),
+        "redirector_creation_token_sha256": (
+            creation_token_hash(redirector) if redirector is not None else None
+        ),
+        "runtime_creation_token_sha256": creation_token_hash(runtime),
+    }
+
+
+def launcher_lease_process_lineage_receipt_is_valid(value: object) -> bool:
+    """Return whether one host attestation contains a complete lineage proof."""
+
+    if not isinstance(value, dict):
+        return False
+
+    def is_sha256(candidate: object) -> bool:
+        return bool(
+            isinstance(candidate, str)
+            and len(candidate) == 64
+            and all(character in "0123456789abcdef" for character in candidate)
+        )
+
+    relationship = value.get("relationship")
+    redirector_token_hash = value.get("redirector_creation_token_sha256")
+    return bool(
+        value.get("status") == "PASS"
+        and relationship in {
+            "direct_lease_owner",
+            "single_sealed_python_redirector",
+        }
+        and is_sha256(value.get("lease_owner_creation_token_sha256"))
+        and is_sha256(value.get("runtime_creation_token_sha256"))
+        and (
+            redirector_token_hash is None
+            if relationship == "direct_lease_owner"
+            else is_sha256(redirector_token_hash)
+        )
+    )
+
+
+def launcher_host_attestations_have_consistent_lease_lineage(
+    attestations: object,
+) -> bool:
+    """Require the same complete launcher lineage proof at all three checks."""
+
+    if not isinstance(attestations, list) or len(attestations) != 3:
+        return False
+    lineage_rows = [
+        row.get("lease_process_lineage") if isinstance(row, dict) else None
+        for row in attestations
+    ]
+    if not all(
+        launcher_lease_process_lineage_receipt_is_valid(row)
+        for row in lineage_rows
+    ):
+        return False
+    first = lineage_rows[0]
+    return all(row == first for row in lineage_rows[1:])
+
+
+def launcher_host_attestations_are_valid(
+    attestations: object,
+    *,
+    expected_execution_host_profile: str,
+    expected_execution_host_id: str,
+    expected_status_flag_sha256: Sequence[str],
+) -> bool:
+    """Validate the complete three-row host-attestation contract."""
+
+    if not launcher_host_attestations_have_consistent_lease_lineage(attestations):
+        return False
+
+    def is_sha256(candidate: object) -> bool:
+        return bool(
+            isinstance(candidate, str)
+            and len(candidate) == 64
+            and all(character in "0123456789abcdef" for character in candidate)
+        )
+
+    if (
+        expected_execution_host_profile not in EXECUTION_HOST_PROFILES
+        or not is_sha256(expected_execution_host_id)
+        or isinstance(expected_status_flag_sha256, (str, bytes))
+        or not isinstance(expected_status_flag_sha256, Sequence)
+        or not all(is_sha256(value) for value in expected_status_flag_sha256)
+    ):
+        return False
+    expected_flags = sorted(expected_status_flag_sha256)
+    for row in attestations:
+        flags = row.get("status_flag_sha256")
+        checked_at = row.get("checked_at_local")
+        if (
+            not is_sha256(row.get("status_json_sha256"))
+            or not isinstance(flags, list)
+            or not all(is_sha256(value) for value in flags)
+            or sorted(flags) != expected_flags
+            or row.get("execution_host_profile")
+            != expected_execution_host_profile
+            or row.get("execution_host_id") != expected_execution_host_id
+            or not isinstance(checked_at, str)
+            or not checked_at
+        ):
+            return False
+        try:
+            timestamp = datetime.fromisoformat(checked_at)
+        except ValueError:
+            return False
+        if timestamp.tzinfo is None:
+            return False
+    return True
+
+
+def _windows_lease_file_is_deny_write_held(path: Path) -> bool:
+    """Return true only for an active deny-write owner of the lease file."""
+
+    if os.name != "nt":
+        return False
+    create_file = ctypes.WinDLL("kernel32", use_last_error=True).CreateFileW
+    create_file.argtypes = (
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    )
+    create_file.restype = wintypes.HANDLE
+    close_handle = ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+    handle = create_file(
+        str(path),
+        0x40000000,  # GENERIC_WRITE
+        0x00000007,  # FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
+        None,
+        3,  # OPEN_EXISTING
+        0x00000080,  # FILE_ATTRIBUTE_NORMAL
+        None,
+    )
+    if handle != ctypes.c_void_p(-1).value:
+        close_handle(handle)
+        return False
+    return ctypes.get_last_error() == 32  # ERROR_SHARING_VIOLATION
 
 
 def canonical_git_executable() -> Path:
@@ -366,7 +817,7 @@ def validate_private_attempt_root(
     script = r"""
 $ErrorActionPreference='Stop'
 $path=$env:WEATHER_ATTEMPT_ROOT
-$acl=Get-Acl -LiteralPath $path
+$acl=[IO.Directory]::GetAccessControl($path)
 $current=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed=@($current,'S-1-5-18','S-1-5-32-544')
 $danger=[Security.AccessControl.FileSystemRights]::Write -bor
