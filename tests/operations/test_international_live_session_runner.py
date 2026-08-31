@@ -154,12 +154,19 @@ class LaunchGitStub:
         raise AssertionError(f"unexpected Git command: {command}")
 
 
-def candidate(now=NOW, *, remaining_seconds=120, economics_acceptance=None):
+def candidate(
+    now=NOW,
+    *,
+    target_date=None,
+    remaining_seconds=120,
+    economics_acceptance=None,
+):
     if economics_acceptance is None:
         raise AssertionError("runner candidate fixture requires economics acceptance")
+    target_date = target_date or now.date().isoformat()
     return build_live_candidate_payload(
         now=now,
-        target_date=now.date().isoformat(),
+        target_date=target_date,
         condition_id=CONDITION,
         token_id=TOKEN,
         remaining_seconds=remaining_seconds,
@@ -180,7 +187,9 @@ def session_fixture(
     remaining_seconds=120,
     now: datetime = NOW,
     execution_host_profile: str = "capture_colocated_v1",
+    target_date: str | None = None,
 ):
+    target_date = target_date or now.date().isoformat()
     attempt = tmp_path / "attempt"
     attempt.mkdir()
     identity = write(
@@ -201,7 +210,7 @@ def session_fixture(
         {"status": "PASS", "rescore_required": False},
     )
     acknowledgment = sealer.economics_acceptance_acknowledgment(
-        now.date().isoformat(),
+        target_date,
         CONDITION,
         TOKEN,
         accepted_snapshot_file_sha256=sha(accepted_economics),
@@ -269,7 +278,7 @@ def session_fixture(
             "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         "scope": {
-            "target_date": now.date().isoformat(),
+            "target_date": target_date,
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -322,6 +331,7 @@ def session_fixture(
         tmp_path / f"fresh-{stage}.json",
         candidate(
             now=now,
+            target_date=target_date,
             remaining_seconds=remaining_seconds,
             economics_acceptance=economics_acceptance,
         ),
@@ -580,11 +590,17 @@ def write_execution(
                 "lifecycle_journal": str(journal.resolve()),
             }
         )
+    seal_spec = json.loads(
+        (attempt / "inputs" / f"{stage}-seal-spec.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    receipt_target_date = seal_spec["scope"]["target_date"]
     command = {
         "schema_version": "mm_live_pilot_command_receipt_v0.2",
         "status": "PASS",
         "command": "stage0" if stage == "stage0" else "stage1",
-        "target_date": NOW.date().isoformat(),
+        "target_date": receipt_target_date,
         "condition_id": CONDITION,
         "token_id": TOKEN,
         "requested_budget_pusd": 10,
@@ -616,11 +632,6 @@ def write_execution(
         "path": str(command_path.resolve()),
         "sha256": sha(command_path),
     }
-    seal_spec = json.loads(
-        (attempt / "inputs" / f"{stage}-seal-spec.json").read_text(
-            encoding="utf-8"
-        )
-    )
     execution_host_profile = seal_spec["scope"]["execution_host_profile"]
     execution_host_id = seal_spec["scope"]["execution_host_id"]
     host_attestations = [
@@ -643,7 +654,7 @@ def write_execution(
             "execution_host_id": execution_host_id,
             "phase": "complete" if status == "PASS" else "stage1_command",
             "production_tip": "a" * 40,
-            "target_date": NOW.date().isoformat(),
+            "target_date": receipt_target_date,
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -748,6 +759,100 @@ def test_portable_execution_host_can_compose_a_daytime_session(tmp_path):
     ).total_seconds() == 240
     assert result["execution_host_profile"] == "portable_execution_v1"
     assert result["status"] == "PASS"
+
+
+def test_portable_execution_host_can_compose_for_next_day_market(tmp_path):
+    stage = "stage0"
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        stage,
+        now=current,
+        target_date=target_date,
+        remaining_seconds=300,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    result = runner.compose_and_run_live_session(
+        manifest,
+        fresh,
+        expected_session_manifest_sha256=sha(manifest),
+        now=current,
+        seal_function=fake_sealer(attempt, stage),
+        launcher_runner=lambda path: (
+            write_execution(attempt, stage, mutation=True)
+            or subprocess.CompletedProcess([str(path)], 0, "", "")
+        ),
+    )
+
+    spec = json.loads((attempt / "inputs/stage0-seal-spec.json").read_text())
+    assert spec["scope"]["target_date"] == target_date
+    assert (
+        datetime.fromisoformat(spec["scope"]["run_not_before_local"]).date()
+        == current.date()
+    )
+    assert result["status"] == "PASS"
+
+
+@pytest.mark.parametrize("target_offset_days", [-1, 2])
+def test_portable_composer_refuses_target_outside_current_or_next_day(
+    tmp_path,
+    target_offset_days,
+):
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    target_date = (current.date() + timedelta(days=target_offset_days)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        "stage0",
+        now=current,
+        target_date=target_date,
+        remaining_seconds=300,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="current-day or next-day market target",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            seal_function=lambda *_args, **_kwargs: pytest.fail("must not seal"),
+            launcher_runner=lambda _path: pytest.fail("must not launch"),
+        )
+
+    assert not (attempt / "inputs/stage0-seal-spec.json").exists()
+
+
+def test_portable_composer_refuses_cleanup_crossing_market_midnight(tmp_path):
+    current = datetime.fromisoformat("2026-08-23T23:55:40-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        "stage0",
+        now=current,
+        target_date=target_date,
+        remaining_seconds=600,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="current-day or next-day market target",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            seal_function=lambda *_args, **_kwargs: pytest.fail("must not seal"),
+            launcher_runner=lambda _path: pytest.fail("must not launch"),
+        )
+
+    assert not (attempt / "inputs/stage0-seal-spec.json").exists()
 
 
 def test_composer_refuses_manifest_bound_to_a_different_execution_host(tmp_path):
@@ -980,6 +1085,34 @@ def test_composer_rechecks_supported_window_at_execution_boundary(tmp_path):
             expected_session_manifest_sha256=sha(manifest),
             now=current,
             clock=lambda: datetime.fromisoformat("2026-08-23T09:00:00-04:00"),
+            seal_function=fake_sealer(attempt, stage),
+            launcher_runner=lambda _path: pytest.fail("launcher must not run"),
+        )
+
+
+def test_portable_composer_rechecks_execution_date_before_launch(tmp_path):
+    stage = "stage0"
+    current = datetime.fromisoformat("2026-08-23T23:55:00-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        stage,
+        now=current,
+        target_date=target_date,
+        remaining_seconds=600,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="launch boundary is not current-day or next-day target eligible",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            clock=lambda: datetime.fromisoformat("2026-08-24T00:00:00-04:00"),
             seal_function=fake_sealer(attempt, stage),
             launcher_runner=lambda _path: pytest.fail("launcher must not run"),
         )

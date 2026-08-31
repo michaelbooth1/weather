@@ -1244,13 +1244,28 @@ def compose_and_run_live_session(
         if execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
         else ZoneInfo(str(scope["market_timezone"]))
     )
-    if any(
-        value.astimezone(calendar_timezone).date().isoformat()
-        != target_date
-        for value in (current, stop, contained_end)
+    if (
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and any(
+            value.astimezone(calendar_timezone).date().isoformat()
+            != target_date
+            for value in (current, stop, contained_end)
+        )
     ):
         raise SessionCompositionError(
             "candidate-derived execution timestamps do not share the target date"
+        )
+    if (
+        execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and not live_time_window.portable_execution_window_is_supported(
+            current,
+            stop,
+            target_date=target_date,
+            market_timezone=calendar_timezone,
+        )
+    ):
+        raise SessionCompositionError(
+            "portable execution requires a current-day or next-day market target"
         )
     if (
         execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
@@ -1385,12 +1400,25 @@ def compose_and_run_live_session(
         else (datetime.now().astimezone() if now is None else current)
     )
     if (
-        launch_now.astimezone(calendar_timezone)
+        execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
+        and launch_now.astimezone(calendar_timezone)
         .date()
         .isoformat()
         != str(scope["target_date"])
     ):
         raise SessionCompositionError("launch boundary no longer matches the target date")
+    if (
+        execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and not live_time_window.portable_execution_window_is_supported(
+            launch_now,
+            stop,
+            target_date=str(scope["target_date"]),
+            market_timezone=calendar_timezone,
+        )
+    ):
+        raise SessionCompositionError(
+            "launch boundary is not current-day or next-day target eligible"
+        )
     if (
         execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
         and not live_time_window.execution_window_is_supported(

@@ -255,26 +255,42 @@ def _assert_window_current() -> None:
         local_contained_end.second,
         local_contained_end.microsecond,
     )
-    dates_match = (
-        local_start.date().isoformat() == SCOPE["target_date"]
-        and local_stop.date().isoformat() == SCOPE["target_date"]
-        and local_contained_end.date().isoformat() == SCOPE["target_date"]
+    execution_date = local_start.date()
+    execution_dates_match = (
+        local_stop.date() == execution_date
+        and local_contained_end.date() == execution_date
+    )
+    capture_target_date_matches = (
+        execution_date.isoformat() == SCOPE["target_date"]
+    )
+    portable_target_date_matches = SCOPE["target_date"] in {
+        execution_date.isoformat(),
+        (execution_date + timedelta(days=1)).isoformat(),
+    }
+    profile_date_matches = (
+        capture_target_date_matches
+        if SCOPE["execution_host_profile"] == CAPTURE_COLOCATED_HOST_PROFILE
+        else portable_target_date_matches
     )
     colocated_window_matches = (
         start_wall >= LIVE_WINDOW_START
         and contained_end_wall <= LIVE_WINDOW_END
     )
-    if not dates_match or (
+    if not execution_dates_match or not profile_date_matches or (
         SCOPE["execution_host_profile"] == CAPTURE_COLOCATED_HOST_PROFILE
         and not colocated_window_matches
     ):
+        if SCOPE["execution_host_profile"] == CAPTURE_COLOCATED_HOST_PROFILE:
+            raise RuntimeError(
+                "fixed execution plus cleanup reserve is outside the supported "
+                "00:30-09:00 America/Toronto live window"
+            )
         raise RuntimeError(
-            "fixed execution plus cleanup reserve is outside the supported "
-            "00:30-09:00 America/Toronto live window"
+            "fixed portable execution requires one local execution date and "
+            "a current-day or next-day market target"
         )
     if not start <= now <= stop or (
-        now.astimezone(calendar_timezone).date().isoformat()
-        != SCOPE["target_date"]
+        now.astimezone(calendar_timezone).date() != execution_date
     ):
         raise RuntimeError("fixed-scope Stage 0 wrapper is outside its exact window")
 

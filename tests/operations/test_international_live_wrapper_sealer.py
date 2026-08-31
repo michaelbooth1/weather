@@ -82,11 +82,13 @@ def write_geography_receipt(path: Path, *, checked: datetime = NOW) -> Path:
 def candidate_payload(
     now: datetime = NOW,
     *,
+    target_date: str | None = None,
     remaining_seconds: int = 120,
 ) -> dict:
+    target_date = target_date or now.date().isoformat()
     return build_live_candidate_payload(
         now=now,
-        target_date=now.date().isoformat(),
+        target_date=target_date,
         condition_id=CONDITION,
         token_id=TOKEN,
         remaining_seconds=remaining_seconds,
@@ -232,11 +234,13 @@ def prepare(
     *,
     stage: str = "stage0",
     candidate: dict | None = None,
+    execution_host_profile: str = "capture_colocated_v1",
 ):
+    fixture_candidate = json.loads(json.dumps(candidate or candidate_payload()))
+    fixture_target_date = str(fixture_candidate["target_date"])
     production = tmp_path / "production"
     attempt = tmp_path / "ops" / "2026-08-23" / "attempt-1"
     attempt.mkdir(parents=True)
-    execution_host_profile = "capture_colocated_v1"
     execution_host_id = sealer.current_execution_host_id()
     python = production / "venv/Scripts/python.exe"
     python.parent.mkdir(parents=True)
@@ -332,7 +336,7 @@ def prepare(
     current_economics = write_json(
         tmp_path / f"{stage}-current-economics.json",
         build_snapshot_payload(
-            target_date=NOW.date().isoformat(),
+            target_date=fixture_target_date,
             verified_at_utc=NOW.astimezone(timezone.utc).isoformat(),
             platform="polymarket_global",
             condition_id=CONDITION,
@@ -352,14 +356,14 @@ def prepare(
         snapshot_path=current_economics,
         accepted_snapshot_path=accepted_economics,
         drift_report_path=economics_drift,
-        target_date=NOW.date().isoformat(),
+        target_date=fixture_target_date,
         now=NOW,
         max_age_hours=2,
         acknowledge_payout_asset_conflict=True,
     )
     accepted_payload = json.loads(accepted_economics.read_text(encoding="utf-8"))
     drift_payload = json.loads(economics_drift.read_text(encoding="utf-8"))
-    plan = json.loads(json.dumps(candidate or candidate_payload()))
+    plan = fixture_candidate
     plan["schema_version"] = sealer.CANDIDATE_SCHEMA_VERSION
     plan["exchange_economics_snapshot_id"] = accepted_payload["snapshot_id"]
     plan["exchange_economics_sha256"] = accepted_payload[
@@ -416,7 +420,7 @@ def prepare(
             "schema_version": "mm_live_pilot_command_receipt_v0.2",
             "status": "PASS",
             "command": "stage0",
-            "target_date": NOW.date().isoformat(),
+            "target_date": fixture_target_date,
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -493,7 +497,7 @@ def prepare(
             "stage": "stage0",
             "production": {"commit": COMMIT},
             "scope": {
-                "target_date": NOW.date().isoformat(),
+                "target_date": fixture_target_date,
                 "condition_id": CONDITION,
                 "token_id": TOKEN,
                 "requested_budget_pusd": 10,
@@ -525,7 +529,7 @@ def prepare(
             "execution_host_id": execution_host_id,
             "phase": "complete",
             "production_tip": COMMIT,
-            "target_date": NOW.date().isoformat(),
+            "target_date": fixture_target_date,
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -757,7 +761,7 @@ def prepare(
                     "status": "PASS",
                     "command": "stage1",
                     "cancellation_mode": "cancel_all",
-                    "target_date": NOW.date().isoformat(),
+                    "target_date": fixture_target_date,
                     "condition_id": CONDITION,
                     "token_id": TOKEN,
                     "requested_budget_pusd": 10,
@@ -794,7 +798,7 @@ def prepare(
                     "execution_host_id": execution_host_id,
                     "phase": "complete",
                     "production_tip": COMMIT,
-                    "target_date": NOW.date().isoformat(),
+                    "target_date": fixture_target_date,
                     "condition_id": CONDITION,
                     "token_id": TOKEN,
                     "requested_budget_pusd": 10,
@@ -851,7 +855,7 @@ def prepare(
                     "stage": "stage1_cancel_all",
                     "production": {"commit": COMMIT},
                     "scope": {
-                        "target_date": NOW.date().isoformat(),
+                        "target_date": fixture_target_date,
                         "condition_id": CONDITION,
                         "token_id": TOKEN,
                         "requested_budget_pusd": 10,
@@ -974,7 +978,11 @@ def prepare(
         "prepared_at_local": NOW.isoformat(),
         "production": {
             "root": str(production.resolve()),
-            "branch": "master",
+            "branch": (
+                sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+                if execution_host_profile == "portable_execution_v1"
+                else "master"
+            ),
             "commit": COMMIT,
             "tree": TREE,
             "python": str(python.resolve()),
@@ -983,7 +991,7 @@ def prepare(
             "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         "scope": {
-            "target_date": NOW.date().isoformat(),
+            "target_date": fixture_target_date,
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -991,7 +999,7 @@ def prepare(
             "run_not_after_local": (NOW + timedelta(seconds=60)).isoformat(),
             "attempt_root": str(attempt.resolve()),
             "lease_workload": f"live-test-{stage}-attempt-1",
-            "execution_host_profile": "capture_colocated_v1",
+            "execution_host_profile": execution_host_profile,
             "execution_host_id": sealer.current_execution_host_id(),
             "market_id": "toronto",
             "market_timezone": "America/Toronto",
@@ -1065,6 +1073,36 @@ def test_supported_execution_window_has_exact_toronto_boundaries(
     ) is expected
 
 
+@pytest.mark.parametrize(
+    ("target_date", "expected"),
+    [
+        ("2026-08-23", True),
+        ("2026-08-24", True),
+        ("2026-08-22", False),
+        ("2026-08-25", False),
+    ],
+)
+def test_portable_execution_window_accepts_only_current_or_next_market_date(
+    target_date,
+    expected,
+):
+    assert time_window.portable_execution_window_is_supported(
+        datetime.fromisoformat("2026-08-23T12:00:00-04:00"),
+        datetime.fromisoformat("2026-08-23T12:04:00-04:00"),
+        target_date=target_date,
+        market_timezone="America/Toronto",
+    ) is expected
+
+
+def test_portable_execution_window_refuses_cleanup_crossing_market_midnight():
+    assert not time_window.portable_execution_window_is_supported(
+        datetime.fromisoformat("2026-08-23T23:55:40-04:00"),
+        datetime.fromisoformat("2026-08-23T23:59:40-04:00"),
+        target_date="2026-08-24",
+        market_timezone="America/Toronto",
+    )
+
+
 def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     production, attempt, spec_path, _spec = prepare(tmp_path)
 
@@ -1100,6 +1138,7 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     )[0]
     assert "_assert_window_current()" in host_guard
     assert 'ZoneInfo("America/Toronto")' in wrapper_text
+    assert "portable_target_date_matches" in wrapper_text
     assert wrapper_text.count("load_stage1_candidate_gate(") == 2
     assert "activate_live_sdk_overlay(" in wrapper_text
     main_body = wrapper_text.split("def main()", 1)[1]
@@ -1151,6 +1190,28 @@ def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current
     write_json(spec_path, spec)
 
     with pytest.raises(sealer.SealError, match="00:30-09:00 America/Toronto"):
+        seal(spec_path, production, now=current)
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
+
+
+def test_capture_colocated_seal_still_refuses_next_day_market_target(tmp_path):
+    current = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    production, attempt, spec_path, spec = prepare(
+        tmp_path,
+        candidate=candidate_payload(current, target_date=target_date),
+    )
+    spec["prepared_at_local"] = current.isoformat()
+    spec["scope"].update(
+        target_date=target_date,
+        run_not_before_local=(current - timedelta(seconds=5)).isoformat(),
+        run_not_after_local=(current + timedelta(seconds=60)).isoformat(),
+    )
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="share the target date"):
         seal(spec_path, production, now=current)
 
     for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
@@ -1215,6 +1276,149 @@ def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path)
     )
     assert receipt["production"]["live_remote_branch_equal"] is True
     assert receipt["production"]["live_remote_master_ancestor"] is True
+
+
+def test_portable_execution_host_seals_for_next_day_market(tmp_path):
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    production, attempt, spec_path, spec = prepare(
+        tmp_path,
+        candidate=candidate_payload(
+            current,
+            target_date=target_date,
+            remaining_seconds=600,
+        ),
+    )
+    spec["prepared_at_local"] = current.isoformat()
+    spec["scope"].update(
+        target_date=target_date,
+        run_not_before_local=(current - timedelta(seconds=5)).isoformat(),
+        run_not_after_local=(current + timedelta(seconds=60)).isoformat(),
+        execution_host_profile="portable_execution_v1",
+        execution_host_id=sealer.current_execution_host_id(),
+    )
+    spec["production"]["branch"] = (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
+    credential_receipt = Path(
+        spec["inputs"]["credential_import_receipt"]["path"]
+    )
+    credential_payload = json.loads(credential_receipt.read_text(encoding="utf-8"))
+    credential_payload["prepared_at_utc"] = current.astimezone(
+        timezone.utc
+    ).isoformat()
+    write_json(credential_receipt, credential_payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(
+        credential_receipt
+    )
+    write_json(spec_path, spec)
+
+    result = seal(
+        spec_path,
+        production,
+        GitStub(
+            branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+            master_commit="d" * 40,
+        ),
+        now=current,
+    )
+
+    wrapper_text = Path(result["wrapper"]["path"]).read_text(encoding="utf-8")
+    receipt = json.loads(Path(result["seal_receipt"]["path"]).read_text())
+    assert receipt["scope"]["target_date"] == target_date
+    assert "portable_target_date_matches" in wrapper_text
+    assert target_date in wrapper_text
+
+
+@pytest.mark.parametrize("stage", ["stage1_cancel_all", "stage1_dead_man"])
+def test_portable_stage1_seals_for_next_day_market(tmp_path, stage):
+    target_date = (NOW.date() + timedelta(days=1)).isoformat()
+    production, attempt, spec_path, _spec = prepare(
+        tmp_path,
+        stage=stage,
+        candidate=candidate_payload(
+            NOW,
+            target_date=target_date,
+            remaining_seconds=600,
+        ),
+        execution_host_profile="portable_execution_v1",
+    )
+
+    result = seal(
+        spec_path,
+        production,
+        GitStub(
+            branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+            master_commit="d" * 40,
+        ),
+        now=NOW,
+    )
+
+    wrapper = Path(result["wrapper"]["path"])
+    wrapper_text = wrapper.read_text(encoding="utf-8")
+    ast.parse(wrapper_text)
+    receipt = json.loads(Path(result["seal_receipt"]["path"]).read_text())
+    assert result["stage"] == stage
+    assert receipt["scope"]["target_date"] == target_date
+    assert "portable_target_date_matches" in wrapper_text
+    assert target_date in wrapper_text
+
+
+@pytest.mark.parametrize("target_offset_days", [-1, 2])
+def test_portable_seal_refuses_target_outside_current_or_next_market_day(
+    tmp_path,
+    target_offset_days,
+):
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    target_date = (current.date() + timedelta(days=target_offset_days)).isoformat()
+    production, attempt, spec_path, spec = prepare(
+        tmp_path,
+        candidate=candidate_payload(
+            current,
+            target_date=target_date,
+            remaining_seconds=600,
+        ),
+    )
+    spec["prepared_at_local"] = current.isoformat()
+    spec["scope"].update(
+        target_date=target_date,
+        run_not_before_local=(current - timedelta(seconds=5)).isoformat(),
+        run_not_after_local=(current + timedelta(seconds=60)).isoformat(),
+        execution_host_profile="portable_execution_v1",
+        execution_host_id=sealer.current_execution_host_id(),
+    )
+    spec["production"]["branch"] = (
+        sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH
+    )
+    credential_receipt = Path(
+        spec["inputs"]["credential_import_receipt"]["path"]
+    )
+    credential_payload = json.loads(credential_receipt.read_text(encoding="utf-8"))
+    credential_payload["prepared_at_utc"] = current.astimezone(
+        timezone.utc
+    ).isoformat()
+    write_json(credential_receipt, credential_payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(
+        credential_receipt
+    )
+    write_json(spec_path, spec)
+
+    with pytest.raises(
+        sealer.SealError,
+        match="current-day or next-day market target",
+    ):
+        seal(
+            spec_path,
+            production,
+            GitStub(
+                branch=sealer.PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH,
+                master_commit="d" * 40,
+            ),
+            now=current,
+        )
+
+    for relative in sealer.OUTPUT_LAYOUTS["stage0"].values():
+        assert not (attempt / relative).exists()
 
 
 def test_portable_seal_refuses_an_unlisted_topic_branch(tmp_path):
@@ -1491,6 +1695,7 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     host_guard = text.split("def _assert_host_state()", 1)[1].split("\ndef ", 1)[0]
     assert "_assert_window_current()" in host_guard
     assert 'ZoneInfo("America/Toronto")' in text
+    assert "portable_target_date_matches" in text
     assert "activate_live_sdk_overlay(" in text
     assert text.split("def main()", 1)[1].count("_assert_host_state()") == 2
     assert "pre_submit_attestor=_pre_submit_attestor" in text

@@ -558,9 +558,11 @@ if ($hostStatusExit -ne 0 -or
 After that offline audit, return to the live-pilot runbook. Candidate/economics
 collection, host-local credential comparison, official geographic eligibility,
 account bootstrap, and every attended mutation literal remain action-time
-gates. The portable lane permits a same-target-date session outside the
-capture PC's `[00:30, 09:00)` timetable, but its fixed 240-second execution
-envelope plus cleanup reserve may not cross the target-date boundary. Its
+gates. The portable lane permits a session while the immutable candidate's
+target is the selected market's current or immediately following local date,
+outside the capture PC's `[00:30, 09:00)` timetable. Its fixed 240-second
+execution envelope plus cleanup reserve must remain within one market-local
+execution date. Its
 strict public paper proof uses `--config quote_ttl_seconds=600`, and the
 reviewed launcher requires at least 180 seconds remaining at its boundary.
 The local substrate preflight is valid for at most 600 seconds and its

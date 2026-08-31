@@ -2292,12 +2292,23 @@ def _validate_spec(
         raise SealError("candidate market calendar differs from the reviewed scope")
     if execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE:
         market_timezone = ZoneInfo(candidate["market_timezone"])
-        if any(
-            value.astimezone(market_timezone).date() != target
-            for value in (prepared, start, stop, contained_end)
+        if (
+            prepared.astimezone(market_timezone).date()
+            != start.astimezone(market_timezone).date()
+            or not live_time_window.portable_target_date_is_supported_at(
+                prepared,
+                target_date=target,
+                market_timezone=market_timezone,
+            )
+            or not live_time_window.portable_execution_window_is_supported(
+                start,
+                stop,
+                target_date=target,
+                market_timezone=market_timezone,
+            )
         ):
             raise SealError(
-                "portable execution timestamps do not share the market target date"
+                "portable execution requires a current-day or next-day market target"
             )
     if dict(spec_economics_acceptance) != candidate["economics_acceptance"]:
         raise SealError(

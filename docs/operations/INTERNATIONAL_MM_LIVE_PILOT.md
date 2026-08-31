@@ -196,10 +196,13 @@ All must be current for the target date and selected market:
 8. Select exactly one immutable execution-host profile. For
    `capture_colocated_v1`, the complete candidate-derived execution window
    **plus the fixed 20-second cooperative-cleanup reserve** must remain inside
-   **[00:30, 09:00) America/Toronto**; 08:59:40 is the latest execution cutoff.
-   For `portable_execution_v1`, the same bounded window and cleanup reserve
-   must remain on the target date, but the capture PC's timetable is not a
-   constraint. Both profiles hold the exclusive shared lease. The distinct
+   the target date and **[00:30, 09:00) America/Toronto**; 08:59:40 is the
+   latest execution cutoff. For `portable_execution_v1`, the same bounded
+   window and cleanup reserve must remain within one local execution date in
+   the immutable candidate's market timezone, and the market target date must
+   be that execution date or its immediately following date. The capture PC's
+   timetable is not a portable constraint. Both profiles hold the exclusive
+   shared lease. The distinct
    admission-only workstation wrapper also holds the same host-global mutex,
    so recognized offline heavy work cannot overlap a launched portable stage;
    it is not a third live profile and creates no live evidence. The portable
@@ -402,9 +405,11 @@ and fixed 20-second cleanup reserve inside **[00:30, 09:00)
 America/Toronto**; 08:59:40 is the latest execution cutoff, and no heavy job may
 overlap. After boot and network recovery, prove all capture workers and the
 public execution-tape producer recovered. For `portable_execution_v1`, the
-execution and cleanup tail may run at another time on the target date, but the
-host/principal must match the tracked active assignment and pass its offline
-execution-only status before identity or credential preparation. Recognized
+execution and cleanup tail may run while the target is the selected market's
+current or immediately following local date, but it must remain within one
+market-local execution date. The host/principal must match the tracked active
+assignment and pass its offline execution-only status before identity or
+credential preparation. Recognized
 heavy work on that PC must run through `scripts/ops/workstation_heavy.ps1`.
 The wrapper and portable launcher each own their full child tree in a kill-on-
 close Windows Job and contend for the same host-global mutex. Finish heavy work
@@ -1168,9 +1173,11 @@ the fixed-scope sealer; operators do not hand-author or directly invoke that
 inner surface. The sealer never opens Credential Manager or runs the generated
 launcher. It independently validates the inert SDK overlay helper, candidate
 semantic hash, a paper TTL no greater than 600 seconds, same-target-date
-containment including the shared 20-second cleanup reserve and, for
-`capture_colocated_v1`, complete
-**[00:30, 09:00) America/Toronto** containment,
+containment including the shared 20-second cleanup reserve for
+`capture_colocated_v1`, and current-or-next target-date eligibility with one
+market-local execution date for `portable_execution_v1`,
+including complete **[00:30, 09:00) America/Toronto** containment for the
+colocated profile,
 all public inputs, every imported live-source hash, exact production ancestry,
 and new contained output paths. It creates a fixed no-argument Python wrapper,
 a hash-bound inner PowerShell launcher, an
@@ -1609,9 +1616,11 @@ hash and fixed candidate path to the composer; no scope or ceiling is accepted a
 the live boundary. Before writing candidate/spec/composition/intent artifacts,
 the composer derives a candidate-bounded window of at most 120 seconds for
 `capture_colocated_v1` or 240 seconds for `portable_execution_v1` and
-rejects unless that window plus the full 20-second cleanup tail stays on the
-target date. The colocated profile additionally requires complete
-**[00:30, 09:00) America/Toronto** containment. It repeats the check at the execution
+rejects unless that window plus the full 20-second cleanup tail remains within
+one profile-valid local date. The colocated profile requires the target date
+and complete **[00:30, 09:00) America/Toronto** containment. The portable
+profile requires one candidate-market-local execution date and a target equal
+to that date or its immediately following date. It repeats the check at the execution
 boundary and requires at least 90 seconds for the colocated profile or 180
 seconds for the portable profile still available immediately before launch.
 The manifest builder and fixed-scope sealer repeat the bounded, profile-aware
@@ -1908,11 +1917,12 @@ Cancel all and do not resume on any of the following:
   truth;
 - unknown order, unexpected partial fill, unbacked sell, or risk-cap breach;
 - cancel-all is not followed by zero open orders;
-- the execution cutoff plus its cleanup reserve leaves the target date;
-- under `capture_colocated_v1`, the contained interval leaves **[00:30, 09:00)
-  America/Toronto**, the host enters a protected window, or capture health
-  degrades;
-- under `portable_execution_v1`, the execution-only status, exact host binding,
+- under `capture_colocated_v1`, the contained interval leaves the target date
+  or **[00:30, 09:00) America/Toronto**, the host enters a protected window, or
+  capture health degrades;
+- under `portable_execution_v1`, the contained interval crosses its
+  candidate-market-local execution date, the target is neither that date nor
+  its immediately following date, or execution-only status, exact host binding,
   clock, reboot, capture-host exclusion, or exclusive lease stops passing;
 - official geoblock state is unavailable or blocked, physical eligibility is
   unconfirmed, or endpoint and attended physical-location attestations disagree.
