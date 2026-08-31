@@ -1,7 +1,7 @@
 """Dedicated first-order lifecycle probe for International Polymarket.
 
 This module accepts an already-authenticated, fail-closed adapter plus a passing
-``mm_platform_bootstrap_v0.4`` gate. The bounded operator CLI wires that narrow
+``mm_platform_bootstrap_v0.5`` gate. The bounded operator CLI wires that narrow
 surface to credential references; the ordinary maker runner never calls it.
 """
 
@@ -30,7 +30,7 @@ from weather.market.mm_official_adapter import (
 SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.3"
 JOURNAL_SCHEMA_VERSION = "mm_live_lifecycle_probe_journal_v0.2"
 LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.3"
-BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.4"
+BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.5"
 CONFIRMATION = "INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE"
 CANCELLATION_MODES = {"cancel_all", "dead_man"}
 OFFICIAL_HEARTBEAT_INTERVAL_SECONDS = 5.0
@@ -287,13 +287,13 @@ def _validate_candidate_fee_and_neg_risk(
         raise RuntimeError("Stage 1 candidate/current fee binding is invalid") from exc
     if (
         not candidate_fee_rate.is_finite()
-        or candidate_fee_rate <= 0
+        or candidate_fee_rate < 0
         or not current_fee_rate_bps.is_finite()
-        or current_fee_rate_bps <= 0
+        or current_fee_rate_bps < 0
         or not isinstance(expected_candidate_neg_risk, bool)
         or not isinstance(market_rules.get("neg_risk"), bool)
     ):
-        raise RuntimeError("Stage 1 current market is not exactly fee eligible")
+        raise RuntimeError("Stage 1 current market fee/neg-risk rules are invalid")
     if (
         candidate_fee_rate != current_fee_rate_bps / Decimal("10000")
         or market_rules.get("neg_risk") is not expected_candidate_neg_risk
@@ -1447,9 +1447,9 @@ def build_stage1_lifecycle_bundle(bootstrap_gate, cancel_all_result, dead_man_re
             is True,
             "action_time_market_rules": (
                 candidate_fee_rate.is_finite()
-                and candidate_fee_rate > 0
+                and candidate_fee_rate >= 0
                 and current_fee_rate_bps.is_finite()
-                and current_fee_rate_bps > 0
+                and current_fee_rate_bps >= 0
                 and candidate_fee_rate == current_fee_rate_bps / Decimal("10000")
                 and isinstance(result.get("candidate_neg_risk"), bool)
                 and result.get("candidate_neg_risk")

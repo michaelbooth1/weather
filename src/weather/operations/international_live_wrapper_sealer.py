@@ -19,17 +19,15 @@ from weather.market.mm_geographic_eligibility import (
     GeographicEligibilityError,
     validate_geographic_eligibility_receipt,
 )
-from weather.market.mm_live_candidate_cli import (
-    ECONOMICS_ACCEPTANCE_KEYS,
-    MAX_PAPER_QUOTE_TTL_SECONDS,
-    SCHEMA_VERSION as CANDIDATE_SCHEMA_VERSION,
-    economics_acceptance_acknowledgment,
-    load_stage1_candidate_gate,
-    validate_bound_economics_acceptance_files,
-    validate_candidate_substrate_binding,
-)
 from weather.market.mm_live_lifecycle_probe import (
     verify_stage1_user_stream_journal,
+)
+from weather.market.mm_live_stage0_scope import (
+    load_stage0_scope_gate,
+    validate_bound_stage0_event_metadata,
+)
+from weather.market.mm_live_stage1_lifecycle_plan import (
+    load_stage1_lifecycle_plan_gate,
 )
 from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.operations import international_live_time_window as live_time_window
@@ -71,9 +69,7 @@ RECEIPT_SCHEMA_VERSION = schema_version("international_live_fixed_scope_seal")
 INVENTORY_SCHEMA_VERSION = schema_version("international_live_fixed_scope_inventory")
 EXECUTION_SCHEMA_VERSION = schema_version("international_live_fixed_scope_execution")
 REQUIRED_INTERRUPT_CLEANUP_ANCESTOR = "da32c0895bb5b40c842b35232ff266c7968d4439"
-MAX_CANDIDATE_AGE_SECONDS = 300
 MAX_RUN_WINDOW_SECONDS = 30 * 60
-MAX_STAGE1_ORDER_NOTIONAL_PUSD = Decimal("10")
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
 FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
@@ -119,7 +115,7 @@ LIVE_SOURCE_PATHS = {
     "stage0": (
         "src/weather/market/mm_live_pilot_cli.py",
         "src/weather/market/mm_live_bootstrap.py",
-        "src/weather/market/mm_live_candidate_cli.py",
+        "src/weather/market/mm_live_stage0_scope.py",
         GEOGRAPHIC_ELIGIBILITY_MODULE_PATH,
         "src/weather/market/mm_credentials.py",
         "src/weather/market/mm_official_adapter.py",
@@ -133,7 +129,7 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_live_pilot_cli.py",
         "src/weather/market/mm_live_bootstrap.py",
         "src/weather/market/mm_live_lifecycle_probe.py",
-        "src/weather/market/mm_live_candidate_cli.py",
+        "src/weather/market/mm_live_stage1_lifecycle_plan.py",
         GEOGRAPHIC_ELIGIBILITY_MODULE_PATH,
         "src/weather/market/mm_credentials.py",
         "src/weather/market/mm_official_adapter.py",
@@ -147,7 +143,7 @@ LIVE_SOURCE_PATHS = {
         "src/weather/market/mm_live_pilot_cli.py",
         "src/weather/market/mm_live_bootstrap.py",
         "src/weather/market/mm_live_lifecycle_probe.py",
-        "src/weather/market/mm_live_candidate_cli.py",
+        "src/weather/market/mm_live_stage1_lifecycle_plan.py",
         GEOGRAPHIC_ELIGIBILITY_MODULE_PATH,
         "src/weather/market/mm_credentials.py",
         "src/weather/market/mm_official_adapter.py",
@@ -173,10 +169,7 @@ INPUT_LAYOUTS = {
     "stage0": {
         "identity": "inputs/stage0-identity.json",
         "scope_plan": "inputs/stage0-scope-plan.json",
-        "accepted_economics_snapshot": (
-            "inputs/stage0-accepted-economics-snapshot.json"
-        ),
-        "economics_drift_report": "inputs/stage0-economics-drift-report.json",
+        "event_metadata": "inputs/stage0-location-market-events.json",
         "credential_import_receipt": None,
         "credential_reference_manifest": None,
     },
@@ -189,12 +182,7 @@ INPUT_LAYOUTS = {
         "stage0_run_receipt_sidecar": "session/stage0-run-receipt.json.sha256",
         "stage0_wrapper_execution_receipt": "stage0/wrapper-execution-receipt.json",
         "candidate_plan": "inputs/stage1-cancel-all-candidate.json",
-        "accepted_economics_snapshot": (
-            "inputs/stage1-cancel-all-accepted-economics-snapshot.json"
-        ),
-        "economics_drift_report": (
-            "inputs/stage1-cancel-all-economics-drift-report.json"
-        ),
+        "event_metadata": "inputs/stage1-cancel-all-location-market-events.json",
         "credential_import_receipt": None,
         "credential_reference_manifest": None,
     },
@@ -207,12 +195,7 @@ INPUT_LAYOUTS = {
         "stage0_run_receipt_sidecar": "session/stage0-run-receipt.json.sha256",
         "stage0_wrapper_execution_receipt": "stage0/wrapper-execution-receipt.json",
         "candidate_plan": "inputs/stage1-dead-man-candidate.json",
-        "accepted_economics_snapshot": (
-            "inputs/stage1-dead-man-accepted-economics-snapshot.json"
-        ),
-        "economics_drift_report": (
-            "inputs/stage1-dead-man-economics-drift-report.json"
-        ),
+        "event_metadata": "inputs/stage1-dead-man-location-market-events.json",
         "credential_import_receipt": None,
         "credential_reference_manifest": None,
         "cancel_all_seal_receipt": "seal/stage1-cancel-all-seal-receipt.json",
@@ -864,9 +847,16 @@ def _validate_candidate(
     now: datetime,
     run_stop: datetime,
 ) -> dict[str, Any]:
-    payload, raw = _read_json_object(path, label="candidate plan")
+    """Validate the Stage 1 lifecycle-safety plan at seal time.
+
+    The compatibility role and receipt fields remain named ``candidate``;
+    their content is the stage-scoped lifecycle plan, not the retired
+    economics/paper candidate contract.
+    """
+
+    payload, raw = _read_json_object(path, label="Stage 1 lifecycle plan")
     try:
-        canonical_gate = load_stage1_candidate_gate(
+        canonical_gate = load_stage1_lifecycle_plan_gate(
             path,
             target_date,
             expected_condition_id=condition_id,
@@ -874,185 +864,118 @@ def _validate_candidate(
             now=now,
         )
     except RuntimeError as exc:
-        raise SealError("candidate plan failed the canonical gate") from exc
-    selected = payload.get("selected")
-    if not isinstance(selected, dict):
-        raise SealError("candidate plan has no selected scope")
-    paper = selected.get("paper_quote_proof")
-    intent = selected.get("stage1_intent")
-    policy = payload.get("selection_policy")
-    economics_acceptance = payload.get("economics_acceptance")
-    substrate = payload.get("substrate_preflight")
-    if not isinstance(paper, dict) or not isinstance(intent, dict) or not isinstance(
-        policy, dict
-    ):
-        raise SealError("candidate plan omits paper, intent, or policy evidence")
-    if not isinstance(economics_acceptance, dict):
-        raise SealError("candidate plan omits economics acceptance evidence")
-    expected_scope = policy.get("expected_bootstrap_scope")
-    if not isinstance(expected_scope, dict):
-        raise SealError("candidate plan is not constrained to a bootstrap scope")
-    created = _parse_aware(payload.get("created_at_utc"), label="candidate created_at")
-    expires = _parse_aware(payload.get("expires_at_utc"), label="candidate expires_at")
-    paper_generated = _parse_aware(
-        paper.get("generated_at_utc"), label="paper quote generated_at"
+        raise SealError("Stage 1 lifecycle plan failed the canonical gate") from exc
+    created = _parse_aware(
+        canonical_gate.get("created_at_utc"),
+        label="Stage 1 lifecycle created_at",
     )
-    paper_expires = _parse_aware(
-        paper.get("expires_at_utc"), label="paper quote expires_at"
-    )
-    accepted_at = _parse_aware(
-        economics_acceptance.get("accepted_at_utc"),
-        label="economics accepted_at",
-    )
-    drift_generated = _parse_aware(
-        economics_acceptance.get("drift_generated_at_utc"),
-        label="economics drift generated_at",
-    )
-    paper_ttl = _parse_decimal(
-        paper.get("quote_ttl_seconds"), label="paper quote TTL"
-    )
-    expected_paper_expiry = paper_generated + timedelta(seconds=float(paper_ttl))
-    try:
-        substrate_gate = validate_candidate_substrate_binding(
-            substrate,
-            target_date=target_date,
-            market_id=str(paper.get("market_id") or ""),
-            created_at=payload.get("created_at_utc"),
-            now=now,
-        )
-        substrate_expires = _parse_aware(
-            substrate_gate["expires_at_utc"],
-            label="substrate preflight expires_at",
-        )
-    except RuntimeError as exc:
-        raise SealError("candidate substrate preflight binding failed") from exc
-    expected_effective_expiry = min(
-        created + timedelta(seconds=MAX_CANDIDATE_AGE_SECONDS),
-        paper_expires,
-        substrate_expires,
+    expires = _parse_aware(
+        canonical_gate.get("expires_at_utc"),
+        label="Stage 1 lifecycle expires_at",
     )
     now_utc = now.astimezone(timezone.utc)
     stop_utc = run_stop.astimezone(timezone.utc)
-    economics_id = str(payload.get("exchange_economics_snapshot_id") or "")
-    economics_hash = str(payload.get("exchange_economics_sha256") or "")
-    market_id = str(paper.get("market_id") or "")
+    cleanup_end_utc = stop_utc + timedelta(
+        seconds=live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+    )
+    market_id = str(canonical_gate.get("market_id") or "")
     market = MARKET_REGISTRY.get(market_id)
-    try:
-        required_acceptance = economics_acceptance_acknowledgment(
-            target_date,
-            condition_id,
-            token_id,
-            accepted_snapshot_file_sha256=economics_acceptance.get(
-                "accepted_snapshot_file_sha256"
-            ),
-            drift_report_file_sha256=economics_acceptance.get(
-                "drift_report_file_sha256"
-            ),
-        )
-    except RuntimeError:
-        required_acceptance = ""
     checks = {
-        "schema": payload.get("schema_version") == CANDIDATE_SCHEMA_VERSION,
-        "status": payload.get("status") == "PASS",
-        "semantic_hash": payload.get("plan_sha256")
-        == _canonical_payload_sha256(payload, omit="plan_sha256"),
-        "canonical_gate": (
+        "stable_file_hash": (
             canonical_gate.get("plan_sha256") == _sha256_bytes(raw)
-            and canonical_gate.get("semantic_plan_sha256")
+        ),
+        "stable_semantic_hash": (
+            canonical_gate.get("semantic_plan_sha256")
             == payload.get("plan_sha256")
         ),
-        "substrate_preflight": (
-            substrate_gate.get("accepted_snapshot_file_sha256")
-            == economics_acceptance.get("accepted_snapshot_file_sha256")
-            and substrate_gate.get("economics_drift_report_file_sha256")
-            == economics_acceptance.get("drift_report_file_sha256")
-        ),
-        "non_authorizing": payload.get("selection_is_trading_authorization") is False,
-        "economics_identity": (
-            len(economics_hash) == 32
-            and all(character in "0123456789abcdef" for character in economics_hash)
-            and economics_id == f"xecon-{economics_hash[:16]}"
-        ),
-        "economics_acceptance": (
-            set(economics_acceptance) == ECONOMICS_ACCEPTANCE_KEYS
-            and economics_acceptance.get("accepted_snapshot_id") == economics_id
-            and economics_acceptance.get("accepted_snapshot_sha256")
-            == economics_hash
-            and economics_acceptance.get("drift_status") == "PASS"
-            and economics_acceptance.get("rescore_required") is False
-            and economics_acceptance.get(
-                "operator_acknowledgment_matches_candidate"
-            )
-            is True
-            and bool(required_acceptance)
-            and economics_acceptance.get("required_operator_acknowledgment")
-            == required_acceptance
-            and economics_acceptance.get("operator_acknowledgment")
-            == required_acceptance
-            and accepted_at.astimezone(timezone.utc)
-            <= drift_generated.astimezone(timezone.utc)
-            <= created.astimezone(timezone.utc)
-        ),
-        "target_date": payload.get("target_date") == target_date,
-        "market_identity": (
-            market is not None
-            and str(selected.get("location_id") or "") == market_id
-        ),
-        "scope": str(selected.get("condition_id") or "").lower() == condition_id
-        and str(selected.get("token_id") or "") == token_id,
-        "constrained_scope": str(expected_scope.get("condition_id") or "").lower()
-        == condition_id
-        and str(expected_scope.get("token_id") or "") == token_id,
-        "paper_scope": str(paper.get("condition_id") or "").lower() == condition_id
-        and str(paper.get("token_id") or "") == token_id,
-        "paper_permission": paper.get("quote_permission") is True
-        and paper.get("live_trade_permission") is False,
-        "paper_ttl": (
-            Decimal("0") < paper_ttl <= MAX_PAPER_QUOTE_TTL_SECONDS
-            and (
-                execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
-                or paper_ttl <= Decimal("120")
-            )
-        ),
-        "paper_expiry": paper_expires == expected_paper_expiry,
-        "effective_expiry": expires == expected_effective_expiry,
+        "market_identity": market is not None,
         "created_before_seal": created.astimezone(timezone.utc) <= now_utc,
-        "paper_before_plan": paper_generated.astimezone(timezone.utc)
-        <= created.astimezone(timezone.utc),
         "current": now_utc <= expires.astimezone(timezone.utc),
-        "window_within_ttl": stop_utc <= expires.astimezone(timezone.utc),
-        "intent": intent.get("side") == "BUY"
-        and intent.get("post_only") is True,
+        "execution_and_cleanup_within_ttl": (
+            cleanup_end_utc <= expires.astimezone(timezone.utc)
+        ),
     }
-    price = _parse_decimal(intent.get("price"), label="candidate intent price")
-    size = _parse_decimal(intent.get("size"), label="candidate intent size")
-    notional = _parse_decimal(
-        intent.get("notional_pusd"), label="candidate intent notional"
-    )
-    tick = _parse_decimal(selected.get("tick_size"), label="candidate tick size")
-    minimum = _parse_decimal(
-        selected.get("order_min_size"), label="candidate order minimum"
-    )
-    checks["minimum_tick_intent"] = (
-        Decimal("0") < price < Decimal("1")
-        and price == tick
-        and size == minimum
-        and Decimal("0") < notional <= MAX_STAGE1_ORDER_NOTIONAL_PUSD
-        and notional == price * size
-    )
     missing = sorted(name for name, passed in checks.items() if not passed)
     if missing:
-        raise SealError("candidate plan gate failed: " + ", ".join(missing))
+        raise SealError(
+            "Stage 1 lifecycle plan gate failed: " + ", ".join(missing)
+        )
     return {
         "path": str(path),
         "sha256": _sha256_bytes(raw),
         "semantic_plan_sha256": payload["plan_sha256"],
         "created_at_utc": created.astimezone(timezone.utc).isoformat(),
         "expires_at_utc": expires.astimezone(timezone.utc).isoformat(),
-        "paper_quote_expires_at_utc": paper_expires.astimezone(timezone.utc).isoformat(),
-        "economics_snapshot_id": economics_id,
-        "economics_snapshot_sha256": economics_hash,
-        "economics_acceptance": dict(economics_acceptance),
+        "event_metadata": dict(canonical_gate["event_metadata"]),
+        "remaining_seconds_at_seal": (
+            expires.astimezone(timezone.utc) - now_utc
+        ).total_seconds(),
+        "market_id": market_id,
+        "market_timezone": market.timezone,
+    }
+
+
+def _validate_stage0_scope(
+    path: Path,
+    *,
+    target_date: str,
+    condition_id: str,
+    token_id: str,
+    execution_host_profile: str,
+    now: datetime,
+    run_stop: datetime,
+) -> dict[str, Any]:
+    """Validate Stage 0 identity/rule scope without Stage 1 quote economics."""
+
+    payload, raw = _read_json_object(path, label="Stage 0 scope plan")
+    try:
+        canonical_gate = load_stage0_scope_gate(
+            path,
+            target_date,
+            expected_condition_id=condition_id,
+            expected_token_id=token_id,
+            now=now,
+        )
+    except RuntimeError as exc:
+        raise SealError("Stage 0 scope plan failed the canonical gate") from exc
+    created = _parse_aware(
+        canonical_gate.get("created_at_utc"),
+        label="Stage 0 scope created_at",
+    )
+    expires = _parse_aware(
+        canonical_gate.get("expires_at_utc"),
+        label="Stage 0 scope expires_at",
+    )
+    now_utc = now.astimezone(timezone.utc)
+    stop_utc = run_stop.astimezone(timezone.utc)
+    cleanup_end_utc = stop_utc + timedelta(
+        seconds=live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+    )
+    market_id = str(canonical_gate.get("market_id") or "")
+    market = MARKET_REGISTRY.get(market_id)
+    checks = {
+        "stable_file_hash": canonical_gate.get("plan_sha256") == _sha256_bytes(raw),
+        "stable_semantic_hash": (
+            canonical_gate.get("semantic_plan_sha256")
+            == payload.get("plan_sha256")
+        ),
+        "market_identity": market is not None,
+        "created_before_seal": created.astimezone(timezone.utc) <= now_utc,
+        "current": now_utc <= expires.astimezone(timezone.utc),
+        "execution_and_cleanup_within_ttl": (
+            cleanup_end_utc <= expires.astimezone(timezone.utc)
+        ),
+    }
+    missing = sorted(name for name, passed in checks.items() if not passed)
+    if missing:
+        raise SealError("Stage 0 scope plan gate failed: " + ", ".join(missing))
+    return {
+        "path": str(path),
+        "sha256": _sha256_bytes(raw),
+        "semantic_plan_sha256": canonical_gate["semantic_plan_sha256"],
+        "created_at_utc": created.astimezone(timezone.utc).isoformat(),
+        "expires_at_utc": expires.astimezone(timezone.utc).isoformat(),
+        "event_metadata": dict(canonical_gate["event_metadata"]),
         "remaining_seconds_at_seal": (
             expires.astimezone(timezone.utc) - now_utc
         ).total_seconds(),
@@ -1504,7 +1427,7 @@ def _validate_stage0_lineage(
         == geography_premutation_artifact.get("path"),
         command_geography.get("sha256")
         == geography_premutation_artifact.get("sha256"),
-        bootstrap.get("schema_version") == "mm_platform_bootstrap_v0.4",
+        bootstrap.get("schema_version") == "mm_platform_bootstrap_v0.5",
         bootstrap_geography.get("status") == "PASS",
         bootstrap_geography.get("eligible") is True,
         len(str(bootstrap_geography.get("receipt_payload_sha256") or "")) == 64,
@@ -1822,8 +1745,12 @@ def _validate_cancel_all_predecessor(
         final_stream_evidence.get("sha256")
         == result.get("user_stream_journal_sha256"),
         final_stream_evidence.get("terminal_stream_stopped_verified") is True,
+        type(result.get("user_stream_journal_row_count")) is int,
+        result.get("user_stream_journal_row_count")
+        == final_stream_evidence.get("row_count"),
         type(result.get("user_stream_scoped_order_event_count")) is int,
-        result.get("user_stream_scoped_order_event_count") >= 2,
+        result.get("user_stream_scoped_order_event_count")
+        == final_stream_evidence.get("scoped_order_event_count"),
         result.get("cancel_response_present") is True,
         Path(str(result.get("journal_path") or "")).resolve() == journal_path,
         result.get("journal_sha256") == inputs["cancel_all_lifecycle_journal"][
@@ -2096,32 +2023,27 @@ def _validate_spec(
     portable_assignment_validator=require_current_portable_execution_assignment,
 ) -> dict[str, Any]:
     spec, spec_raw = _read_json_object(spec_path, label="seal spec")
+    stage = str(spec.get("stage"))
+    if stage not in STAGES:
+        raise SealError("seal spec stage is unsupported")
+    expected_spec_keys = {
+        "schema_version",
+        "stage",
+        "prepared_at_local",
+        "production",
+        "scope",
+        "inputs",
+        "reviewed_status_flags",
+        "template_sha256",
+        "source_sha256",
+    }
     _require_exact_keys(
         spec,
-        {
-            "schema_version",
-            "stage",
-            "prepared_at_local",
-            "production",
-            "scope",
-            "inputs",
-            "economics_acceptance",
-            "reviewed_status_flags",
-            "template_sha256",
-            "source_sha256",
-        },
+        expected_spec_keys,
         label="seal spec",
     )
     if spec["schema_version"] != SPEC_SCHEMA_VERSION:
         raise SealError("seal spec schema is unsupported")
-    spec_economics_acceptance = _require_exact_keys(
-        spec["economics_acceptance"],
-        ECONOMICS_ACCEPTANCE_KEYS,
-        label="economics_acceptance",
-    )
-    stage = str(spec["stage"])
-    if stage not in STAGES:
-        raise SealError("seal spec stage is unsupported")
     production = _require_exact_keys(
         spec["production"],
         {
@@ -2399,7 +2321,10 @@ def _validate_spec(
         normalized_sources[relative] = expected
 
     candidate_role = "scope_plan" if stage == "stage0" else "candidate_plan"
-    candidate = _validate_candidate(
+    candidate_validator = (
+        _validate_stage0_scope if stage == "stage0" else _validate_candidate
+    )
+    candidate = candidate_validator(
         Path(normalized_inputs[candidate_role]["path"]),
         target_date=target.isoformat(),
         condition_id=condition,
@@ -2435,22 +2360,16 @@ def _validate_spec(
             raise SealError(
                 "portable execution requires a current-day or next-day market target"
             )
-    if dict(spec_economics_acceptance) != candidate["economics_acceptance"]:
-        raise SealError(
-            "candidate economics acceptance differs from the reviewed seal spec"
-        )
     try:
-        validate_bound_economics_acceptance_files(
-            Path(normalized_inputs["accepted_economics_snapshot"]["path"]),
-            Path(normalized_inputs["economics_drift_report"]["path"]),
-            candidate["economics_acceptance"],
+        validate_bound_stage0_event_metadata(
+            Path(normalized_inputs["event_metadata"]["path"]),
+            candidate["event_metadata"],
             target_date=target.isoformat(),
-            current_snapshot_id=candidate["economics_snapshot_id"],
-            current_snapshot_sha256=candidate["economics_snapshot_sha256"],
+            now=now,
         )
     except RuntimeError as exc:
         raise SealError(
-            "candidate economics acceptance does not match the sealed evidence"
+            "event metadata does not match the sealed stage plan"
         ) from exc
     if stage != "stage0":
         _validate_stage0_receipt(
@@ -2613,6 +2532,8 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
             {
                 "scope_plan_path": inputs["scope_plan"]["path"],
                 "scope_plan_sha256": inputs["scope_plan"]["sha256"],
+                "event_metadata_path": inputs["event_metadata"]["path"],
+                "event_metadata_sha256": inputs["event_metadata"]["sha256"],
                 "geography_premutation_receipt_out": str(
                     outputs["geography_premutation_receipt"]
                 ),
@@ -2648,6 +2569,8 @@ def _runtime_scope(validated: Mapping[str, Any]) -> dict[str, Any]:
                 ]["sha256"],
                 "candidate_plan_path": inputs["candidate_plan"]["path"],
                 "candidate_plan_sha256": inputs["candidate_plan"]["sha256"],
+                "event_metadata_path": inputs["event_metadata"]["path"],
+                "event_metadata_sha256": inputs["event_metadata"]["sha256"],
                 "geography_presubmit_receipt_out": str(
                     outputs["geography_presubmit_receipt"]
                 ),

@@ -25,6 +25,10 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("mm_platform_bootstrap"),
+            "mm_platform_bootstrap_v0.5",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_bootstrap_v0_4_legacy"),
             "mm_platform_bootstrap_v0.4",
         )
         self.assertEqual(
@@ -62,6 +66,22 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("international_live_fixed_scope_seal_v0_5_legacy"),
             "international_live_fixed_scope_seal_v0.5",
+        )
+        self.assertEqual(
+            schema_version("mm_live_stage0_scope_plan"),
+            "mm_live_stage0_scope_plan_v0.1",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_scope_seal_spec"),
+            "international_live_fixed_scope_seal_spec_v0.5",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_session_manifest"),
+            "international_live_fixed_session_manifest_v0.5",
+        )
+        self.assertEqual(
+            schema_version("international_live_session_manifest_build"),
+            "international_live_session_manifest_build_v0.4",
         )
         self.assertEqual(
             schema_version("international_live_fixed_scope_execution"),

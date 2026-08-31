@@ -42,7 +42,7 @@ from weather.market.mm_official_adapter import (
 )
 from weather.market.mm_policy import bool_value, maybe_float, utc_now
 from weather.market.mm_credentials import stage0_client_identity_gate
-SCHEMA_VERSION = "mm_platform_bootstrap_v0.4"
+SCHEMA_VERSION = "mm_platform_bootstrap_v0.5"
 PLATFORM_ID = "polymarket_global"
 API_BASE_URL = "https://polymarket.com"
 CLOB_HOST = "https://clob.polymarket.com"
@@ -60,7 +60,6 @@ REQUIRED_SOURCE_URLS = {
     "https://docs.polymarket.com/trading/orders/overview",
     "https://docs.polymarket.com/trading/fees",
     "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
-    "https://docs.polymarket.com/programs/maker-rebates",
     "https://docs.polymarket.com/concepts/pusd",
 }
 ATOMIC_COLLATERAL_SCALE = Decimal("1000000")
@@ -156,7 +155,6 @@ def collect_platform_bootstrap_payload(
     target_date,
     requested_budget_usdc,
     secret_hygiene,
-    expected_candidate_fee_rate,
     expected_candidate_neg_risk,
     pre_mutation_attestor,
     progress_recorder,
@@ -287,29 +285,25 @@ def collect_platform_bootstrap_payload(
     record_phase("fee_binding")
     fee_evidence = adapter.fees()
     try:
-        candidate_fee_rate = Decimal(str(expected_candidate_fee_rate))
         fee_rate_bps_decimal = Decimal(str(fee_evidence.get("fee_rate_bps")))
         rules_fee_rate_bps = Decimal(str(market_rules.get("fee_rate_bps")))
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise RuntimeError("Stage 0 candidate/current fee binding is invalid") from exc
     if (
-        not candidate_fee_rate.is_finite()
-        or candidate_fee_rate <= 0
-        or not fee_rate_bps_decimal.is_finite()
-        or fee_rate_bps_decimal <= 0
+        not fee_rate_bps_decimal.is_finite()
+        or fee_rate_bps_decimal < 0
         or not rules_fee_rate_bps.is_finite()
         or rules_fee_rate_bps != fee_rate_bps_decimal
         or str(fee_evidence.get("token_id") or "") != str(adapter.token_id)
     ):
-        raise RuntimeError("Stage 0 selected market has no positive fee/rebate eligibility")
+        raise RuntimeError("Stage 0 selected market fee rule is invalid")
     if not isinstance(expected_candidate_neg_risk, bool):
         raise RuntimeError("Stage 0 candidate neg-risk binding is invalid")
     if (
-        candidate_fee_rate != fee_rate_bps_decimal / Decimal("10000")
-        or market_rules.get("neg_risk") is not expected_candidate_neg_risk
+        market_rules.get("neg_risk") is not expected_candidate_neg_risk
     ):
         raise RuntimeError(
-            "Stage 0 current fee/neg-risk rules differ from the sealed candidate"
+            "Stage 0 current neg-risk rule differs from the sealed scope"
         )
     fee_rate_bps = float(fee_rate_bps_decimal)
 
@@ -498,9 +492,8 @@ def collect_platform_bootstrap_payload(
             "condition_id": str(adapter.condition_id).lower(),
             "token_id": str(adapter.token_id),
             "book_verified": True,
-            "fee_eligibility_verified": True,
+            "fee_rule_verified": True,
             "fee_rate_bps": fee_rate_bps,
-            "candidate_fee_rate": float(candidate_fee_rate),
             "candidate_neg_risk": expected_candidate_neg_risk,
             "min_order_size": market_rules.get("min_order_size"),
             "tick_size": market_rules.get("tick_size"),
@@ -694,7 +687,6 @@ def load_platform_bootstrap_gate(
     min_order_size = maybe_float(market.get("min_order_size"))
     tick_size = maybe_float(market.get("tick_size"))
     fee_rate_bps = maybe_float(market.get("fee_rate_bps"))
-    candidate_fee_rate = maybe_float(market.get("candidate_fee_rate"))
     candidate_neg_risk = market.get("candidate_neg_risk")
     token_id = str(market.get("token_id") or "").strip()
     condition_id = str(market.get("condition_id") or "").strip()
@@ -832,16 +824,12 @@ def load_platform_bootstrap_gate(
             expected_token_id is None or token_id == str(expected_token_id)
         ),
         "market_book_verified": bool_value(market.get("book_verified"), False),
-        "market_fee_eligibility_verified": bool_value(
-            market.get("fee_eligibility_verified"),
+        "market_fee_rule_verified": bool_value(
+            market.get("fee_rule_verified"),
             False,
         ),
-        "market_fee_rate_positive": fee_rate_bps is not None and fee_rate_bps > 0,
-        "market_candidate_fee_matches_current": (
-            candidate_fee_rate is not None
-            and candidate_fee_rate > 0
-            and fee_rate_bps is not None
-            and candidate_fee_rate == fee_rate_bps / 10000
+        "market_fee_rate_nonnegative": (
+            fee_rate_bps is not None and fee_rate_bps >= 0
         ),
         "market_min_order_size_valid": min_order_size is not None and min_order_size > 0,
         "market_tick_size_valid": tick_size is not None and 0 < tick_size < 1,
@@ -979,7 +967,6 @@ def load_platform_bootstrap_gate(
         "condition_id": condition_id,
         "token_id": token_id,
         "fee_rate_bps": fee_rate_bps,
-        "candidate_fee_rate": candidate_fee_rate,
         "neg_risk": market.get("neg_risk"),
         "candidate_neg_risk": candidate_neg_risk,
         "mutation_geographic_eligibility": dict(mutation_geography),

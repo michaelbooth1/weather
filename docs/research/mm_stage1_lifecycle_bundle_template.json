@@ -4,7 +4,7 @@
   "created_at_utc": null,
   "platform": "polymarket_global",
   "settlement_unit": "pUSD",
-  "bootstrap_schema_version": "mm_platform_bootstrap_v0.4",
+  "bootstrap_schema_version": "mm_platform_bootstrap_v0.5",
   "bootstrap_sha256": null,
   "condition_id": null,
   "token_id": null,

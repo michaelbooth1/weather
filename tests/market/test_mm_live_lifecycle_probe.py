@@ -91,7 +91,7 @@ def bootstrap_gate():
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.4",
+        "schema_version": "mm_platform_bootstrap_v0.5",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
@@ -124,15 +124,16 @@ def test_tracked_research_templates_expose_the_active_hardening_contracts():
         ).read_text(encoding="utf-8")
     )
 
-    assert bootstrap["schema_version"] == "mm_platform_bootstrap_v0.4"
+    assert bootstrap["schema_version"] == "mm_platform_bootstrap_v0.5"
     assert {
+        "fee_rule_verified",
         "fee_rate_bps",
-        "candidate_fee_rate",
         "neg_risk",
         "candidate_neg_risk",
     }.issubset(bootstrap["market_snapshot"])
+    assert "candidate_fee_rate" not in bootstrap["market_snapshot"]
     assert bundle["schema_version"] == "mm_stage1_lifecycle_bundle_v0.3"
-    assert bundle["bootstrap_schema_version"] == "mm_platform_bootstrap_v0.4"
+    assert bundle["bootstrap_schema_version"] == "mm_platform_bootstrap_v0.5"
     assert "user_stream_journal_evidence" in bundle
     assert {
         "terminal_order_rest_verified",
@@ -147,7 +148,7 @@ def test_tracked_research_templates_expose_the_active_hardening_contracts():
     )
     assert (
         verification["stage1_lifecycle_bundle"]["bootstrap_schema_version"]
-        == "mm_platform_bootstrap_v0.4"
+        == "mm_platform_bootstrap_v0.5"
     )
     assert "user_stream_journal_evidence" in verification["stage1_lifecycle_bundle"]
     assert {
@@ -560,7 +561,7 @@ def test_stage1_refuses_when_fresh_rules_differ_from_sealed_candidate_intent(
 
 def test_stage1_submit_adjacent_fee_or_neg_risk_drift_blocks_before_order(tmp_path):
     cases = (
-        ("zero-fee", {"fee_rate_bps": "0"}, "fee eligible"),
+        ("fee-drift-to-zero", {"fee_rate_bps": "0"}, "fee/neg-risk rules differ"),
         ("neg-risk", {"neg_risk": True}, "fee/neg-risk rules differ"),
     )
     for name, drift, error_match in cases:
@@ -1160,7 +1161,7 @@ def test_stage1_refuses_the_published_v03_bootstrap_contract(tmp_path):
             journal_path=tmp_path / "legacy-bootstrap.jsonl",
         )
 
-    assert BOOTSTRAP_SCHEMA_VERSION == "mm_platform_bootstrap_v0.4"
+    assert BOOTSTRAP_SCHEMA_VERSION == "mm_platform_bootstrap_v0.5"
 
 
 def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(tmp_path):
