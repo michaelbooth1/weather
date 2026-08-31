@@ -16,13 +16,54 @@ WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
 def test_status_paths_are_derived_from_the_invoked_checkout_and_user_profile() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
+    assert '[string]$RepoRoot = ""' in text
+    assert "if ([string]::IsNullOrWhiteSpace($RepoRoot))" in text
     assert (
-        "[string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))"
+        '$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\\.."))'
         in text
     )
     assert "$repo = [IO.Path]::GetFullPath($RepoRoot)" in text
     assert 'Join-Path $env:USERPROFILE "ops\\mirror_status.json"' in text
     assert "C:\\Users\\micha" not in text
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_status_file_invocation_resolves_repo_root_after_parameter_binding(
+    tmp_path: Path,
+) -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    setup_start = text.index("if ([string]::IsNullOrWhiteSpace($RepoRoot))")
+    setup_end = text.index('$py = Join-Path $repo "venv\\Scripts\\python.exe"')
+    setup = text[setup_start:setup_end]
+
+    probe_root = tmp_path / "checkout"
+    probe_dir = probe_root / "scripts" / "ops"
+    probe_dir.mkdir(parents=True)
+    probe = probe_dir / "status-root-probe.ps1"
+    probe.write_text(
+        "[CmdletBinding()]\n"
+        "param([AllowEmptyString()][string]$RepoRoot = \"\")\n"
+        f"{setup}\n"
+        "Write-Output $repo\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(probe),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert Path(result.stdout.strip()).resolve() == probe_root.resolve()
 
 
 def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():

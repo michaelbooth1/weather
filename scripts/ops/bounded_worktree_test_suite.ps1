@@ -402,9 +402,10 @@ if ($worktreeTipQuery.Rows.Count -ne 1 -or $branchTipQuery.Rows.Count -ne 1 -or
     $worktreeTip -ne $ExpectedTip -or $branchTip -ne $ExpectedTip) {
     throw "exact branch/worktree identity does not match ExpectedTip"
 }
-$dirty = @(Invoke-SuiteCheckedLocalGit `
+$dirtyQuery = Invoke-SuiteCheckedLocalGit `
     -Root $WorktreeRoot -Arguments @("status", "--porcelain") `
-    -Label "initial exact worktree status").Rows
+    -Label "initial exact worktree status"
+$dirty = @($dirtyQuery.Rows)
 if ($dirty.Count -ne 0) {
     throw "suite worktree is dirty; exact-tip evidence would be ambiguous"
 }
@@ -575,9 +576,10 @@ try {
         }
     }
     else {
-        $trackedTestFiles = @(Invoke-SuiteCheckedLocalGit `
+        $trackedTestFilesQuery = Invoke-SuiteCheckedLocalGit `
             -Root $WorktreeRoot -Arguments @("ls-files", "--", "tests") `
-            -Label "tracked pytest inventory selection").Rows
+            -Label "tracked pytest inventory selection"
+        $trackedTestFiles = @($trackedTestFilesQuery.Rows)
         $testFiles = @(
             $trackedTestFiles |
                 ForEach-Object { ([string]$_).Replace("\", "/") } |
@@ -697,18 +699,20 @@ try {
     # The worktree, movable branch ref, and tracked test inventory can change
     # while the chunks run. Re-prove all three after the final child exits and
     # before emitting the sole merge-eligible terminal verdict.
-    $finalWorktreeTipRows = @(Invoke-SuiteCheckedLocalGit `
+    $finalWorktreeTipQuery = Invoke-SuiteCheckedLocalGit `
         -Root $WorktreeRoot `
         -Arguments @("rev-parse", "--verify", "--end-of-options", "HEAD^{commit}") `
-        -Label "final exact worktree tip query").Rows
+        -Label "final exact worktree tip query"
+    $finalWorktreeTipRows = @($finalWorktreeTipQuery.Rows)
     if ($finalWorktreeTipRows.Count -ne 1) {
         throw "could not re-resolve the exact worktree tip after the final chunk"
     }
     $finalWorktreeTip = ([string]$finalWorktreeTipRows[0]).Trim().ToLowerInvariant()
-    $finalBranchTipRows = @(Invoke-SuiteCheckedLocalGit `
+    $finalBranchTipQuery = Invoke-SuiteCheckedLocalGit `
         -Root $RepoRoot `
         -Arguments @("rev-parse", "--verify", "--end-of-options", "${BranchRef}^{commit}") `
-        -Label "final exact branch tip query").Rows
+        -Label "final exact branch tip query"
+    $finalBranchTipRows = @($finalBranchTipQuery.Rows)
     if ($finalBranchTipRows.Count -ne 1) {
         throw "could not re-resolve BranchRef after the final chunk"
     }
@@ -716,16 +720,18 @@ try {
     if ($finalWorktreeTip -ne $ExpectedTip -or $finalBranchTip -ne $ExpectedTip) {
         throw "exact branch/worktree identity changed while the suite was running"
     }
-    $finalDirty = @(Invoke-SuiteCheckedLocalGit `
+    $finalDirtyQuery = Invoke-SuiteCheckedLocalGit `
         -Root $WorktreeRoot -Arguments @("status", "--porcelain") `
-        -Label "final exact worktree status").Rows
+        -Label "final exact worktree status"
+    $finalDirty = @($finalDirtyQuery.Rows)
     if ($finalDirty.Count -ne 0) {
         throw "suite worktree changed while the suite was running"
     }
     if (-not $SmokeTest -and -not $IntegrationPreflight) {
-        $finalTrackedRows = @(Invoke-SuiteCheckedLocalGit `
+        $finalTrackedRowsQuery = Invoke-SuiteCheckedLocalGit `
             -Root $WorktreeRoot -Arguments @("ls-files", "--", "tests") `
-            -Label "final tracked pytest inventory").Rows
+            -Label "final tracked pytest inventory"
+        $finalTrackedRows = @($finalTrackedRowsQuery.Rows)
         $finalTestFiles = @(
             $finalTrackedRows |
                 ForEach-Object { ([string]$_).Replace("\", "/") } |

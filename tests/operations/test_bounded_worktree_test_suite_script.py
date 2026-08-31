@@ -64,6 +64,7 @@ def test_bounded_suite_is_fail_closed_and_non_mutating():
     assert "$suiteLogStream.Flush($true)" in text
     assert "Add-Content -LiteralPath $LogPath" not in text
     assert "Invoke-SuiteCheckedLocalGit" in text
+    assert "@(Invoke-SuiteCheckedLocalGit" not in text
     assert "Get-SuiteGitExecutable" in text
     assert "GIT_NO_REPLACE_OBJECTS" in text
     assert "GIT_OPTIONAL_LOCKS" in text
@@ -216,3 +217,79 @@ finally {
     assert payload["line"].endswith("  VERDICT: culture probe")
     assert payload["line"][13:21].count(":") == 2
     assert "." not in payload["line"][13:21]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_bounded_suite_clean_git_status_preserves_empty_rows(tmp_path: Path):
+    clean_repo = tmp_path / "clean-repo"
+    clean_repo.mkdir()
+    subprocess.run(
+        ["git", "init", "--quiet"],
+        cwd=clean_repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    env = os.environ.copy()
+    env["WEATHER_BOUNDED_SUITE_SCRIPT"] = str(SCRIPT)
+    env["WEATHER_BOUNDED_SUITE_CLEAN_REPO"] = str(clean_repo)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_BOUNDED_SUITE_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+foreach ($name in @(
+    'Test-WeatherQualificationSensitiveEnvironmentName',
+    'Test-SuiteGitAmbientEnvironmentName',
+    'Get-SuiteGitExecutable',
+    'Invoke-SuiteCheckedLocalGit'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+$query = Invoke-SuiteCheckedLocalGit `
+    -Root $env:WEATHER_BOUNDED_SUITE_CLEAN_REPO `
+    -Arguments @('status', '--porcelain') `
+    -Label 'clean worktree regression'
+$rows = @($query.Rows)
+[pscustomobject]@{
+    parse_errors = @($errors | ForEach-Object { $_.Message })
+    has_rows_property = $null -ne $query.PSObject.Properties['Rows']
+    row_count = $rows.Count
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload == {
+        "parse_errors": [],
+        "has_rows_property": True,
+        "row_count": 0,
+    }

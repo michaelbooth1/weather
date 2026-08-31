@@ -14,9 +14,19 @@
 [CmdletBinding()]
 param(
     [switch]$Json,
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    [AllowEmptyString()]
+    [string]$RepoRoot = ""
 )
 
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    if ([string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        throw "status.ps1 could not resolve its invoked script directory"
+    }
+    # Windows PowerShell 5.1 does not populate PSScriptRoot while parameter
+    # default expressions are being bound for a -File invocation. Resolve the
+    # checkout only after binding so the scheduled watchdog gets real JSON.
+    $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
+}
 $ErrorActionPreference = "SilentlyContinue"
 $repo = [IO.Path]::GetFullPath($RepoRoot)
 $py = Join-Path $repo "venv\Scripts\python.exe"
