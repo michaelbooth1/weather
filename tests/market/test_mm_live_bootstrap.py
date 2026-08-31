@@ -609,6 +609,7 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         value = 0.0
 
         def __call__(self):
+            boundary_events.append("clock")
             return self.value
 
         def sleep(self, seconds):
@@ -616,10 +617,14 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
 
     clock = Clock()
     user_stream = UserStream(tmp_path / "collector-user-stream.jsonl")
+    bootstrap_phases = []
 
     def attest_at_mutation_boundary():
         boundary_events.append("geography")
         return geographic_receipt()
+
+    def record_authenticated_write(operation):
+        boundary_events.append(f"{operation}_attempt")
 
     payload = collect_platform_bootstrap_payload(
         Adapter(),
@@ -635,6 +640,8 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         expected_candidate_fee_rate=0.05,
         expected_candidate_neg_risk=False,
         pre_mutation_attestor=attest_at_mutation_boundary,
+        progress_recorder=bootstrap_phases.append,
+        authenticated_write_recorder=record_authenticated_write,
         now=NOW,
         utc_clock=lambda: datetime.fromisoformat(NOW),
         monotonic_clock=clock,
@@ -664,12 +671,97 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
     assert boundary_events == [
         "signed_preview",
         "geography",
+        "clock",
+        "heartbeat_attempt",
         "heartbeat",
+        "clock",
+        "clock",
+        "heartbeat_attempt",
         "heartbeat",
+        "clock",
+        "cancel_all_attempt",
         "cancel_all",
     ]
+    assert bootstrap_phases[0] == "identity_gate"
+    assert bootstrap_phases[-1] == "complete"
+    assert "balance_backing" in bootstrap_phases
+    assert "premutation_geography" in bootstrap_phases
     assert geography_validation_count == 4
     assert gate["ok"], gate["missing"]
+
+    boundary_events.clear()
+    failed_clock_stream = UserStream(tmp_path / "failed-clock-user-stream.jsonl")
+
+    def fail_before_first_write():
+        boundary_events.append("clock_failed")
+        raise RuntimeError("clock unavailable")
+
+    with pytest.raises(RuntimeError, match="clock unavailable"):
+        collect_platform_bootstrap_payload(
+            Adapter(),
+            failed_clock_stream,
+            stage0_identity(),
+            target_date=TARGET_DATE,
+            requested_budget_usdc=100,
+            secret_hygiene={
+                "credentials_by_reference_verified": True,
+                "direct_secret_environment_absent_verified": True,
+                "diagnostic_redaction_verified": True,
+            },
+            expected_candidate_fee_rate=0.05,
+            expected_candidate_neg_risk=False,
+            pre_mutation_attestor=attest_at_mutation_boundary,
+            progress_recorder=lambda _phase: None,
+            authenticated_write_recorder=lambda operation: boundary_events.append(
+                f"{operation}_attempt"
+            ),
+            now=NOW,
+            utc_clock=lambda: datetime.fromisoformat(NOW),
+            monotonic_clock=fail_before_first_write,
+            sleeper=lambda _seconds: None,
+        )
+
+    assert boundary_events == [
+        "signed_preview",
+        "geography",
+        "clock_failed",
+    ]
+
+    boundary_events.clear()
+    failed_recorder_stream = UserStream(tmp_path / "failed-recorder-user-stream.jsonl")
+
+    def fail_write_recorder(operation):
+        boundary_events.append(f"{operation}_recorder_failed")
+        raise RuntimeError("write recorder unavailable")
+
+    with pytest.raises(RuntimeError, match="write recorder unavailable"):
+        collect_platform_bootstrap_payload(
+            Adapter(),
+            failed_recorder_stream,
+            stage0_identity(),
+            target_date=TARGET_DATE,
+            requested_budget_usdc=100,
+            secret_hygiene={
+                "credentials_by_reference_verified": True,
+                "direct_secret_environment_absent_verified": True,
+                "diagnostic_redaction_verified": True,
+            },
+            expected_candidate_fee_rate=0.05,
+            expected_candidate_neg_risk=False,
+            pre_mutation_attestor=attest_at_mutation_boundary,
+            progress_recorder=lambda _phase: None,
+            authenticated_write_recorder=fail_write_recorder,
+            now=NOW,
+            utc_clock=lambda: datetime.fromisoformat(NOW),
+            monotonic_clock=lambda: 0.0,
+            sleeper=lambda _seconds: None,
+        )
+
+    assert boundary_events == [
+        "signed_preview",
+        "geography",
+        "heartbeat_recorder_failed",
+    ]
 
 
 def test_bootstrap_gate_rejects_unproved_signed_order_topology(tmp_path):

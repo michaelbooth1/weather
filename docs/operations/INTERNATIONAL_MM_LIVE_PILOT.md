@@ -277,6 +277,21 @@ also true. Calling Stage 0 fully read-only is incorrect.
 - Read the chosen book, market fee eligibility, min order size, tick size, and
   closed-only state immediately before mutation.
 
+The Stage 0 command receipt retains only allowlisted bootstrap phase names,
+never raw SDK exception text or response bodies. It records the authenticated
+account-wide user-stream subscription separately from per-operation heartbeat
+and cancel-all attempt counts. `exchange_mutation_attempted` becomes true only
+at one of those REST mutation call boundaries; a context or authenticated
+WebSocket subscription by itself does not claim that an account mutation was
+attempted. A failed pre-mutation run therefore identifies its last entered
+read/check phase while preserving zero heartbeat, cancel-all, and order counts.
+The command receipt is canonical for these facts and the fixed wrapper copies
+them into its execution receipt. The session runner validates those copies
+against the canonical command receipt and carries them into its child-execution
+facts. This is an additive tightening of command schema v0.2: a historical v0.2
+PASS receipt without the complete phase, user subscription fact, and exact
+`heartbeat=2` / `cancel_all=1` counts is not an eligible Stage 1 predecessor.
+
 ### Stage 1: dead-man and cancel proof
 
 - Start the exchange heartbeat and require acknowledged 5-second cadence.

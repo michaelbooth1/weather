@@ -554,7 +554,15 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
 
     def collect(_adapter, stream, *_args, **kwargs):
         seen.update(kwargs)
+        kwargs["progress_recorder"]("premutation_geography")
         geography_receipt = kwargs["pre_mutation_attestor"]()
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("heartbeat_second")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("cancel_all")
+        kwargs["authenticated_write_recorder"]("cancel_all")
+        kwargs["progress_recorder"]("complete")
         return {
             "schema_version": "mm_platform_bootstrap_v0.4",
             "status": "PASS",
@@ -587,6 +595,12 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_receipt["credential_values_read_in_memory"] is True
     assert saved_receipt["exchange_mutation_attempted"] is True
     assert saved_receipt["authenticated_exchange_write_attempted"] is True
+    assert saved_receipt["authenticated_user_stream_subscription_sent"] is True
+    assert saved_receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 1,
+        "heartbeat": 2,
+    }
+    assert saved_receipt["bootstrap_phase"] == "complete"
     assert saved_receipt["order_submit_attempted"] is False
     final_sha256 = hashlib.sha256(live_context.user_stream.journal_path.read_bytes()).hexdigest()
     assert saved_receipt["cleanup"]["user_stream_journal_sha256"] == final_sha256
@@ -626,6 +640,208 @@ def test_retired_stage0_read_only_literal_stops_before_credential_resolution(
     assert not Path(command_args.user_stream_journal).exists()
 
 
+def test_stage0_failure_receipt_names_phase_without_claiming_account_mutation(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def fail_at_balance_backing(*_args, **kwargs):
+        kwargs["progress_recorder"]("balance_backing")
+        raise RuntimeError("RAW-ACCOUNT-DETAIL-MUST-NOT-BE-RETAINED")
+
+    with pytest.raises(RuntimeError, match="RAW-ACCOUNT-DETAIL"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=fail_at_balance_backing,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["status"] == "FAIL"
+    assert receipt["bootstrap_phase"] == "balance_backing"
+    assert receipt["authenticated_user_stream_subscription_sent"] is True
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
+    assert receipt["order_submit_attempted"] is False
+    assert "RAW-ACCOUNT-DETAIL-MUST-NOT-BE-RETAINED" not in raw
+    assert receipt["cleanup"]["ok"] is True
+
+
+def test_stage0_records_actual_mutation_boundary_before_a_failed_write(tmp_path):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def fail_after_heartbeat_boundary(*_args, **kwargs):
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        raise RuntimeError("RAW-HEARTBEAT-FAILURE")
+
+    with pytest.raises(RuntimeError, match="RAW-HEARTBEAT-FAILURE"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=fail_after_heartbeat_boundary,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["bootstrap_phase"] == "heartbeat_first"
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["exchange_mutation_attempted"] is True
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 1,
+    }
+    assert "RAW-HEARTBEAT-FAILURE" not in raw
+
+
+def test_stage0_rejects_a_passing_collector_without_exact_attempt_evidence(tmp_path):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def incomplete_collector(_adapter, stream, *_args, **_kwargs):
+        return {
+            "schema_version": "mm_platform_bootstrap_v0.4",
+            "status": "PASS",
+            "secret_values_redacted": True,
+            "user_stream": stream.bootstrap_evidence(),
+        }
+
+    with pytest.raises(RuntimeError, match="exact mutation lifecycle"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=incomplete_collector,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["status"] == "FAIL"
+    assert receipt["bootstrap_phase"] == "collector_contract"
+    assert receipt["authenticated_user_stream_subscription_sent"] is True
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
+
+
+def test_stage0_rejects_complete_mutation_evidence_without_stream_subscription(
+    tmp_path,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def collector_without_subscription(_adapter, _stream, *_args, **kwargs):
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("heartbeat_second")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("cancel_all")
+        kwargs["authenticated_write_recorder"]("cancel_all")
+        kwargs["progress_recorder"]("complete")
+        return {
+            "schema_version": "mm_platform_bootstrap_v0.4",
+            "status": "PASS",
+            "secret_values_redacted": True,
+        }
+
+    def create_unsubscribed_journal(stream, **_kwargs):
+        stream.journal_path.write_text("", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="exact mutation lifecycle"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=create_unsubscribed_journal,
+            bootstrap_collector=collector_without_subscription,
+            bootstrap_finalizer=lambda payload, _stream: payload,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["status"] == "FAIL"
+    assert receipt["bootstrap_phase"] == "collector_contract"
+    assert receipt["authenticated_user_stream_subscription_sent"] is False
+    assert receipt["authenticated_exchange_write_attempted"] is True
+    assert receipt["exchange_mutation_attempted"] is True
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 1,
+        "heartbeat": 2,
+    }
+
+
+@pytest.mark.parametrize("invalid_record", ["phase", "operation"])
+def test_stage0_rejects_unallowlisted_evidence_records_without_mutation(
+    tmp_path,
+    invalid_record,
+):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def invalid_collector(*_args, **kwargs):
+        if invalid_record == "phase":
+            kwargs["progress_recorder"]("raw-sdk-message")
+        else:
+            kwargs["progress_recorder"]("heartbeat_first")
+            kwargs["authenticated_write_recorder"]("post_order")
+
+    with pytest.raises(RuntimeError, match="not allowlisted"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=invalid_collector,
+        )
+
+    receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
+    assert "raw-sdk-message" not in json.dumps(receipt, sort_keys=True)
+
+
+def test_stage0_preserves_root_phase_when_recovery_cancel_is_recorded(tmp_path):
+    command_args = args(tmp_path, "stage0")
+    live_context = context(tmp_path)
+
+    def fail_with_recorded_recovery(*_args, **kwargs):
+        kwargs["progress_recorder"]("heartbeat_first")
+        kwargs["authenticated_write_recorder"]("heartbeat")
+        kwargs["progress_recorder"]("cancel_all_recovery")
+        kwargs["authenticated_write_recorder"]("cancel_all")
+        raise RuntimeError("RAW-HEARTBEAT-TRANSPORT-FAILURE")
+
+    with pytest.raises(RuntimeError, match="RAW-HEARTBEAT-TRANSPORT-FAILURE"):
+        cli.run_stage0(
+            command_args,
+            context_builder=lambda *_args, **_kwargs: live_context,
+            stream_waiter=lambda stream, **_kwargs: stream.start(),
+            bootstrap_collector=fail_with_recorded_recovery,
+        )
+
+    raw = Path(command_args.receipt_out).read_text(encoding="utf-8")
+    receipt = json.loads(raw)
+    assert receipt["bootstrap_phase"] == "heartbeat_first"
+    assert receipt["bootstrap_recovery_phase"] == "cancel_all_recovery"
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 1,
+        "heartbeat": 1,
+    }
+    assert "RAW-HEARTBEAT-TRANSPORT-FAILURE" not in raw
+
+
 def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
     tmp_path,
 ):
@@ -647,6 +863,14 @@ def test_stage0_keyboard_interrupt_still_cleans_up_and_writes_redacted_receipt(
     receipt = json.loads(raw)
     assert receipt["status"] == "FAIL"
     assert receipt["exception_type"] == "KeyboardInterrupt"
+    assert receipt["bootstrap_phase"] == "collector_entry"
+    assert receipt["authenticated_user_stream_subscription_sent"] is True
+    assert receipt["authenticated_exchange_write_attempted"] is False
+    assert receipt["exchange_mutation_attempted"] is False
+    assert receipt["exchange_mutation_attempt_counts"] == {
+        "cancel_all": 0,
+        "heartbeat": 0,
+    }
     assert receipt["cleanup"]["ok"] is True
     assert "RAW-STAGE0-INTERRUPT-TEXT" not in raw
     assert live_context.adapter.cancel_calls == 0

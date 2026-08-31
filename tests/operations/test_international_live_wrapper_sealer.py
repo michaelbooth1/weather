@@ -450,6 +450,12 @@ def prepare(
             "exchange_mutation_attempted": True,
             "order_submit_attempted": False,
             "authenticated_exchange_write_attempted": True,
+            "authenticated_user_stream_subscription_sent": True,
+            "bootstrap_phase": "complete",
+            "exchange_mutation_attempt_counts": {
+                "cancel_all": 1,
+                "heartbeat": 2,
+            },
             "credential_topology": {
                 "manifest_wallet_address": "0x" + "2" * 40,
                 "derived_signer_matches_manifest": True,

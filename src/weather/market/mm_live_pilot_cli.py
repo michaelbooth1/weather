@@ -40,6 +40,8 @@ from weather.market.mm_geographic_eligibility import (
     validate_geographic_eligibility_receipt,
 )
 from weather.market.mm_live_bootstrap import (
+    STAGE0_AUTHENTICATED_WRITE_OPERATIONS,
+    STAGE0_BOOTSTRAP_PHASES,
     collect_platform_bootstrap_payload,
     finalize_platform_bootstrap_payload,
     load_platform_bootstrap_gate,
@@ -936,6 +938,30 @@ def run_stage0(
     receipt["exchange_mutation_attempted"] = False
     receipt["order_submit_attempted"] = False
     receipt["authenticated_exchange_write_attempted"] = False
+    receipt["authenticated_user_stream_subscription_sent"] = False
+    receipt["bootstrap_phase"] = None
+    receipt["bootstrap_recovery_phase"] = None
+    receipt["bootstrap_phase_history"] = []
+    receipt["exchange_mutation_attempt_counts"] = {
+        operation: 0
+        for operation in sorted(STAGE0_AUTHENTICATED_WRITE_OPERATIONS)
+    }
+
+    def record_bootstrap_phase(phase):
+        if phase not in STAGE0_BOOTSTRAP_PHASES:
+            raise RuntimeError("Stage 0 bootstrap phase is not allowlisted")
+        receipt["bootstrap_phase_history"].append(phase)
+        if phase == "cancel_all_recovery":
+            receipt["bootstrap_recovery_phase"] = phase
+        else:
+            receipt["bootstrap_phase"] = phase
+
+    def record_authenticated_write(operation):
+        if operation not in STAGE0_AUTHENTICATED_WRITE_OPERATIONS:
+            raise RuntimeError("Stage 0 authenticated-write operation is not allowlisted")
+        receipt["exchange_mutation_attempt_counts"][operation] += 1
+        receipt["exchange_mutation_attempted"] = True
+        receipt["authenticated_exchange_write_attempted"] = True
     receipt["candidate_market_rules"] = {
         "fee_rate": candidate_fee_rate,
         "neg_risk": candidate_neg_risk,
@@ -966,6 +992,11 @@ def run_stage0(
             context.user_stream,
             timeout_seconds=args.user_stream_ready_timeout_seconds,
         )
+        stream_ready = context.user_stream.bootstrap_evidence()
+        receipt["authenticated_user_stream_subscription_sent"] = (
+            stream_ready.get("account_wide_subscription_sent") is True
+        )
+        record_bootstrap_phase("collector_entry")
         payload = bootstrap_collector(
             context.adapter,
             context.user_stream,
@@ -976,9 +1007,33 @@ def run_stage0(
             expected_candidate_fee_rate=candidate_fee_rate,
             expected_candidate_neg_risk=candidate_neg_risk,
             pre_mutation_attestor=pre_mutation_attestor,
+            progress_recorder=record_bootstrap_phase,
+            authenticated_write_recorder=record_authenticated_write,
         )
+        if not (
+            receipt["authenticated_user_stream_subscription_sent"] is True
+            and receipt["bootstrap_phase"] == "complete"
+            and receipt["exchange_mutation_attempt_counts"]
+            == {"cancel_all": 1, "heartbeat": 2}
+        ):
+            record_bootstrap_phase("collector_contract")
+            raise RuntimeError(
+                "Stage 0 bootstrap collector did not prove its exact mutation lifecycle"
+            )
     except BaseException as exc:
         operation_error = exc
+
+    if (
+        context is not None
+        and receipt["authenticated_user_stream_subscription_sent"] is not True
+    ):
+        try:
+            stream_evidence = context.user_stream.bootstrap_evidence()
+            receipt["authenticated_user_stream_subscription_sent"] = (
+                stream_evidence.get("account_wide_subscription_sent") is True
+            )
+        except Exception:
+            receipt["authenticated_user_stream_subscription_sent"] = "UNKNOWN"
 
     cleanup = _cleanup_context(
         context,
@@ -987,9 +1042,6 @@ def run_stage0(
         # redundant authenticated mutation with no current geography receipt.
         cancel_all_required=False,
     )
-    if context is not None:
-        receipt["authenticated_exchange_write_attempted"] = True
-        receipt["exchange_mutation_attempted"] = True
     receipt["cleanup"] = cleanup
     geography_path = paths["geography_premutation_receipt"]
     if geography_path.is_file():

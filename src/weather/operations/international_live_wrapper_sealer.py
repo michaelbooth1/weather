@@ -1530,6 +1530,10 @@ def _validate_stage0_lineage(
         command.get("exchange_mutation_attempted") is True,
         command.get("order_submit_attempted") is False,
         command.get("authenticated_exchange_write_attempted") is True,
+        command.get("authenticated_user_stream_subscription_sent") is True,
+        command.get("bootstrap_phase") == "complete",
+        command.get("exchange_mutation_attempt_counts")
+        == {"cancel_all": 1, "heartbeat": 2},
         topology.get("manifest_wallet_address")
         == str(reference.get("wallet_address") or "").lower(),
         set(topology) == CREDENTIAL_TOPOLOGY_KEYS,

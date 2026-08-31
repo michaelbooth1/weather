@@ -460,6 +460,10 @@ def _child_execution_facts(
         "live_mutation_attempted": "UNKNOWN",
         "order_submit_attempted": "UNKNOWN",
         "authenticated_exchange_write_attempted": "UNKNOWN",
+        "authenticated_user_stream_subscription_sent": "UNKNOWN",
+        "bootstrap_phase": "UNKNOWN",
+        "bootstrap_recovery_phase": "UNKNOWN",
+        "exchange_mutation_attempt_counts": "UNKNOWN",
         "credential_topology": "UNKNOWN",
         "credential_values_read_in_memory": "UNKNOWN",
     }
@@ -755,6 +759,29 @@ def _child_execution_facts(
                     ),
                     command.get("authenticated_exchange_write_attempted") is True,
                     command.get("order_submit_attempted") is (stage != "stage0"),
+                    (
+                        command.get("authenticated_user_stream_subscription_sent")
+                        is True
+                        and command.get("bootstrap_phase") == "complete"
+                        and command.get("exchange_mutation_attempt_counts")
+                        == {"cancel_all": 1, "heartbeat": 2}
+                        if stage == "stage0"
+                        else True
+                    ),
+                    (
+                        payload.get("authenticated_user_stream_subscription_sent")
+                        is command.get(
+                            "authenticated_user_stream_subscription_sent"
+                        )
+                        and payload.get("bootstrap_phase")
+                        == command.get("bootstrap_phase")
+                        and payload.get("bootstrap_recovery_phase")
+                        == command.get("bootstrap_recovery_phase")
+                        and payload.get("exchange_mutation_attempt_counts")
+                        == command.get("exchange_mutation_attempt_counts")
+                        if stage == "stage0"
+                        else True
+                    ),
                     stage0_mutation_geography_bound,
                     (
                         (command.get("mutation_geographic_eligibility") or {}).get(
@@ -958,6 +985,16 @@ def _child_execution_facts(
             "live_mutation_attempted": mutation,
             "order_submit_attempted": order_submit,
             "authenticated_exchange_write_attempted": authenticated_write,
+            "authenticated_user_stream_subscription_sent": (
+                payload.get("authenticated_user_stream_subscription_sent", "UNKNOWN")
+            ),
+            "bootstrap_phase": payload.get("bootstrap_phase", "UNKNOWN"),
+            "bootstrap_recovery_phase": payload.get(
+                "bootstrap_recovery_phase", "UNKNOWN"
+            ),
+            "exchange_mutation_attempt_counts": payload.get(
+                "exchange_mutation_attempt_counts", "UNKNOWN"
+            ),
             "credential_topology": topology if payload["status"] == "PASS" else "UNKNOWN",
             "credential_values_read_in_memory": credential,
         }

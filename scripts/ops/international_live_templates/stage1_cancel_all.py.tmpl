@@ -619,6 +619,10 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             float(stage0.get("requested_budget_pusd"))
             == float(SCOPE["requested_budget_pusd"]),
             (stage0.get("cleanup") or {}).get("ok") is True,
+            stage0.get("authenticated_user_stream_subscription_sent") is True,
+            stage0.get("bootstrap_phase") == "complete",
+            stage0.get("exchange_mutation_attempt_counts")
+            == {"cancel_all": 1, "heartbeat": 2},
             stage0.get("exception_type") is None,
         )
     ):

@@ -631,6 +631,12 @@ def write_execution(
     }
     if stage == "stage0":
         command["exchange_mutation_attempted"] = True
+        command["authenticated_user_stream_subscription_sent"] = True
+        command["bootstrap_phase"] = "complete"
+        command["exchange_mutation_attempt_counts"] = {
+            "cancel_all": 1,
+            "heartbeat": 2,
+        }
         command["mutation_geographic_eligibility"] = {
             "path": artifacts["geography_premutation_receipt_out"]["path"],
             "sha256": artifacts["geography_premutation_receipt_out"]["sha256"],
@@ -689,6 +695,19 @@ def write_execution(
             "live_mutation_attempted": mutation,
             "order_submit_attempted": stage != "stage0" if mutation else False,
             "authenticated_exchange_write_attempted": mutation,
+            **(
+                {
+                    "authenticated_user_stream_subscription_sent": True,
+                    "bootstrap_phase": "complete",
+                    "bootstrap_recovery_phase": None,
+                    "exchange_mutation_attempt_counts": {
+                        "cancel_all": 1,
+                        "heartbeat": 2,
+                    },
+                }
+                if stage == "stage0"
+                else {}
+            ),
             "credential_values_read_in_memory": credential,
             "confirmation_scope_display_sha256": "8" * 64,
             "host_attestations": host_attestations,
@@ -1368,6 +1387,40 @@ def test_runner_rejects_under_validated_pass_execution_receipt(tmp_path, tamper)
 
     receipt = json.loads(
         (attempt / "session/stage1_cancel_all-run-receipt.json").read_text()
+    )
+    assert receipt["status"] == "UNKNOWN"
+    assert receipt["child_execution"]["validation"] == "FAIL"
+
+
+def test_runner_rejects_stage0_execution_copy_that_differs_from_command(tmp_path):
+    stage = "stage0"
+    attempt, manifest, fresh = session_fixture(tmp_path, stage)
+
+    def launch(path):
+        write_execution(attempt, stage, status="PASS", mutation=True, credential=True)
+        execution_path = attempt / sealer.OUTPUT_LAYOUTS[stage][
+            "wrapper_execution_receipt"
+        ]
+        payload = json.loads(execution_path.read_text())
+        payload["exchange_mutation_attempt_counts"] = {
+            "cancel_all": 0,
+            "heartbeat": 2,
+        }
+        execution_path.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess([str(path)], 0, "", "")
+
+    with pytest.raises(runner.SessionCompositionError, match="validated PASS"):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=NOW,
+            seal_function=fake_sealer(attempt, stage),
+            launcher_runner=launch,
+        )
+
+    receipt = json.loads(
+        (attempt / "session/stage0-run-receipt.json").read_text()
     )
     assert receipt["status"] == "UNKNOWN"
     assert receipt["child_execution"]["validation"] == "FAIL"

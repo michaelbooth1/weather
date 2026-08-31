@@ -862,6 +862,29 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
                 if isinstance(command, dict)
                 else "UNKNOWN"
             ),
+            "authenticated_user_stream_subscription_sent": (
+                command.get(
+                    "authenticated_user_stream_subscription_sent",
+                    "UNKNOWN",
+                )
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "bootstrap_phase": (
+                command.get("bootstrap_phase", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "bootstrap_recovery_phase": (
+                command.get("bootstrap_recovery_phase", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
+            "exchange_mutation_attempt_counts": (
+                command.get("exchange_mutation_attempt_counts", "UNKNOWN")
+                if isinstance(command, dict)
+                else "UNKNOWN"
+            ),
             "exception_type": exception_type,
             "artifacts": artifacts,
             "secret_values_redacted": True,
