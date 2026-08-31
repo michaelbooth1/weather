@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFICATION AND LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -691,7 +691,11 @@ changed, stale, reused, extra-hop, uninspectable, or cross-stage-mismatched
 identity fails before credentials.
 
 Local repair verification passed 256 focused tests with 14 expected skips plus
-one direct functional portable-lease test. Remaining work is exact-head branch
-publication, CI, independent exact-tip review, clean synchronization, and a
-wholly new attempt with fresh candidate evidence. The two live-evidence
-checklist bullets remain open.
+one direct functional portable-lease test. The exact repair implementation is
+published at commit `1e60b6b0c184fc88bd5c52913cdf949961d475db`
+(tree `cdae3c2510a695edf9e0812c647305265f51a5e2`); exact-code-head CI run
+`33350227270` passed and an independent exact-commit review reported no
+findings. Any later status-only tip still requires its own exact-head CI,
+review, and synchronized refs. Remaining work is clean re-inventory and a
+wholly new attempt with a fresh credential-comparison receipt and candidate
+evidence. The two live-evidence checklist bullets remain open.
