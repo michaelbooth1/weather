@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-27 - PORTABLE EXECUTOR CANDIDATE UNQUALIFIED; LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFICATION AND LIVE EVIDENCE OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot without weakening the existing paper/risk gates.
@@ -659,3 +659,39 @@ and production adoption; the portable clone still needs the adopted tip, its
 own new venv, and the separately transferred exact non-secret SDK 0.6.0. No
 credential value or exchange endpoint was accessed, and no Scheduler, capture,
 production-state, or live-order mutation occurred.
+
+## 2026-08-30 portable Stage 0 preflight disposition
+
+The selected workstation subsequently completed provisioning, host assignment,
+clock/proxy/reboot checks, credential comparison, SDK import, and an August 31
+San Francisco public substrate with quote permission. The resulting candidate
+was review-only and did not authorize trading.
+
+Attempt `pilot-20260831T002111189Z` invoked its sealed Stage 0 launcher exactly
+once and terminally failed during launcher preflight. Windows executed the
+wrapper through a venv `python.exe` redirector, so the base Python process's
+direct parent was the redirector rather than the PowerShell process holding the
+shared lease. The obsolete direct-parent assertion failed before doctor,
+geography, credential resolution, bootstrap, command, or user-stream work.
+No credential value, authenticated exchange request, heartbeat, cancel-all,
+order, position, balance, or other live-account mutation occurred. The attempt,
+its expired candidate, and all three launcher lineages are spent; no live-
+evidence checklist item closed.
+
+The bounded repair preserves the exact lease-owner requirement while accepting
+only the observed Windows topology: canonical PowerShell directly parenting
+the base runtime or parenting exactly one sealed venv redirector. It upgrades
+the lease to v3 with an owner process-creation token, proves the lease file is
+actively held with write sharing denied, binds and locks the redirector,
+`pyvenv.cfg`, and base Python process image, and requires strict owner-before-
+redirector-before-runtime creation order. Seal v0.6 and execution v0.7 make
+the interpreter binding and three identical host-attestation lineage proofs
+mandatory for every downstream stage and bundle consumer. Any missing,
+changed, stale, reused, extra-hop, uninspectable, or cross-stage-mismatched
+identity fails before credentials.
+
+Local repair verification passed 256 focused tests with 14 expected skips plus
+one direct functional portable-lease test. Remaining work is exact-head branch
+publication, CI, independent exact-tip review, clean synchronization, and a
+wholly new attempt with fresh candidate evidence. The two live-evidence
+checklist bullets remain open.

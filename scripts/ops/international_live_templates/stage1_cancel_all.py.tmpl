@@ -24,6 +24,11 @@ from zoneinfo import ZoneInfo
 TEMPLATE_SEALED = False
 PRODUCTION = Path("__SEAL_PRODUCTION_ROOT__")
 PRODUCTION_PYTHON = Path("__SEAL_PRODUCTION_PYTHON__")
+PRODUCTION_PYTHON_SHA256 = "__SEAL_PRODUCTION_PYTHON_SHA256__"
+PRODUCTION_PYVENV_CONFIG = Path("__SEAL_PRODUCTION_PYVENV_CONFIG__")
+PRODUCTION_PYVENV_CONFIG_SHA256 = "__SEAL_PRODUCTION_PYVENV_CONFIG_SHA256__"
+PRODUCTION_RUNTIME_PYTHON = Path("__SEAL_PRODUCTION_RUNTIME_PYTHON__")
+PRODUCTION_RUNTIME_PYTHON_SHA256 = "__SEAL_PRODUCTION_RUNTIME_PYTHON_SHA256__"
 HARDENING_TIP = "__SEAL_HARDENING_ANCESTOR__"
 SCOPE = "__SEAL_SCOPE__"
 SOURCE_SHA256 = "__SEAL_SOURCE_SHA256__"
@@ -522,6 +527,10 @@ def _assert_git_and_sources() -> None:
 
 
 def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
+    from weather.operations.live_path_security import (
+        launcher_host_attestations_are_valid,
+    )
+
     root = Path(str(SCOPE["attempt_root"])).resolve()
     input_names = [
         "identity",
@@ -648,10 +657,22 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
     attestations = execution.get("host_attestations")
     if not all(
         (
-            seal.get("schema_version") == "international_live_fixed_scope_seal_v0.5",
+            seal.get("schema_version") == "international_live_fixed_scope_seal_v0.6",
             seal.get("status") == "PASS",
             seal.get("stage") == "stage0",
             seal_production.get("commit") == SCOPE["expected_production_tip"],
+            Path(str(seal_production.get("interpreter_redirector") or "")).resolve()
+            == PRODUCTION_PYTHON.resolve(),
+            seal_production.get("interpreter_redirector_sha256")
+            == PRODUCTION_PYTHON_SHA256,
+            Path(str(seal_production.get("pyvenv_config") or "")).resolve()
+            == PRODUCTION_PYVENV_CONFIG.resolve(),
+            seal_production.get("pyvenv_config_sha256")
+            == PRODUCTION_PYVENV_CONFIG_SHA256,
+            Path(str(seal_production.get("runtime_process_image") or "")).resolve()
+            == PRODUCTION_RUNTIME_PYTHON.resolve(),
+            seal_production.get("runtime_process_image_sha256")
+            == PRODUCTION_RUNTIME_PYTHON_SHA256,
             seal_scope.get("target_date") == SCOPE["target_date"],
             seal_scope.get("market_id") == SCOPE["market_id"],
             seal_scope.get("market_timezone") == SCOPE["market_timezone"],
@@ -664,7 +685,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             == SCOPE["execution_host_profile"],
             seal_scope.get("execution_host_id") == SCOPE["execution_host_id"],
             execution.get("schema_version")
-            == "international_live_fixed_scope_execution_v0.6",
+            == "international_live_fixed_scope_execution_v0.7",
             execution.get("status") == "PASS",
             execution.get("stage") == "stage0",
             execution.get("phase") == "complete",
@@ -675,17 +696,11 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             execution.get("execution_host_profile")
             == SCOPE["execution_host_profile"],
             execution.get("execution_host_id") == SCOPE["execution_host_id"],
-            isinstance(attestations, list),
-            len(attestations or []) == 3,
-            all(
-                len(str(row.get("status_json_sha256") or "")) == 64
-                and sorted(row.get("status_flag_sha256") or [])
-                == sorted(SCOPE["allowed_status_flag_sha256"])
-                and row.get("execution_host_profile")
-                == SCOPE["execution_host_profile"]
-                and row.get("execution_host_id") == SCOPE["execution_host_id"]
-                and bool(row.get("checked_at_local"))
-                for row in (attestations or [])
+            launcher_host_attestations_are_valid(
+                attestations,
+                expected_execution_host_profile=SCOPE["execution_host_profile"],
+                expected_execution_host_id=SCOPE["execution_host_id"],
+                expected_status_flag_sha256=SCOPE["allowed_status_flag_sha256"],
             ),
             execution.get("production_tip") == SCOPE["expected_production_tip"],
             execution.get("target_date") == SCOPE["target_date"],
@@ -837,6 +852,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             )
         )
         prior_artifacts = prior_execution.get("artifacts") or {}
+        prior_attestations = prior_execution.get("host_attestations")
         prior_geography_precredential = (
             prior_artifacts.get("geography_precredential_receipt_out") or {}
         )
@@ -889,10 +905,26 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
         if not all(
             (
                 prior_seal.get("schema_version")
-                == "international_live_fixed_scope_seal_v0.5",
+                == "international_live_fixed_scope_seal_v0.6",
                 prior_seal.get("status") == "PASS",
                 prior_seal.get("stage") == "stage1_cancel_all",
                 prior_production.get("commit") == SCOPE["expected_production_tip"],
+                Path(
+                    str(prior_production.get("interpreter_redirector") or "")
+                ).resolve()
+                == PRODUCTION_PYTHON.resolve(),
+                prior_production.get("interpreter_redirector_sha256")
+                == PRODUCTION_PYTHON_SHA256,
+                Path(str(prior_production.get("pyvenv_config") or "")).resolve()
+                == PRODUCTION_PYVENV_CONFIG.resolve(),
+                prior_production.get("pyvenv_config_sha256")
+                == PRODUCTION_PYVENV_CONFIG_SHA256,
+                Path(
+                    str(prior_production.get("runtime_process_image") or "")
+                ).resolve()
+                == PRODUCTION_RUNTIME_PYTHON.resolve(),
+                prior_production.get("runtime_process_image_sha256")
+                == PRODUCTION_RUNTIME_PYTHON_SHA256,
                 prior_scope.get("target_date") == SCOPE["target_date"],
                 prior_scope.get("market_id") == SCOPE["market_id"],
                 prior_scope.get("market_timezone") == SCOPE["market_timezone"],
@@ -939,7 +971,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 ).resolve(),
                 prior_lineage_ok,
                 prior_execution.get("schema_version")
-                == "international_live_fixed_scope_execution_v0.6",
+                == "international_live_fixed_scope_execution_v0.7",
                 prior_execution.get("status") == "PASS",
                 prior_execution.get("phase") == "complete",
                 prior_execution.get("stage") == "stage1_cancel_all",
@@ -958,6 +990,17 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 prior_execution.get("order_submit_attempted") is True,
                 prior_execution.get("authenticated_exchange_write_attempted") is True,
                 prior_execution.get("credential_values_read_in_memory") is True,
+                launcher_host_attestations_are_valid(
+                    prior_attestations,
+                    expected_execution_host_profile=SCOPE[
+                        "execution_host_profile"
+                    ],
+                    expected_execution_host_id=SCOPE["execution_host_id"],
+                    expected_status_flag_sha256=[
+                        row["sha256"]
+                        for row in prior_scope.get("reviewed_status_flags") or []
+                    ],
+                ),
                 set(prior_artifacts)
                 == {
                     "doctor_receipt_out",
@@ -1110,7 +1153,11 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
 
 def _assert_host_state() -> None:
     _assert_window_current()
-    from weather.operations.live_path_security import canonical_windows_powershell
+    from weather.operations.live_path_security import (
+        LivePathSecurityError,
+        canonical_windows_powershell,
+        validate_launcher_lease_process_lineage,
+    )
 
     powershell = canonical_windows_powershell()
     portable = (
@@ -1206,10 +1253,16 @@ def _assert_host_state() -> None:
         owner = json.loads(lock_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError("fixed-scope launcher lease record is unavailable") from exc
+    try:
+        owner_pid = int(owner.get("pid"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("fixed-scope launcher lease owner is invalid") from exc
     if not (
-        owner.get("schema_version") == "weather_heavy_workload_lease_v2"
+        owner.get("schema_version") == "weather_heavy_workload_lease_v3"
         and owner.get("workload") == SCOPE["expected_lease_workload"]
-        and int(owner.get("pid")) == os.getppid()
+        and str(owner.get("owner_process_creation_time_token") or "").startswith(
+            "win32-filetime:"
+        )
         and owner.get("execution_host_profile")
         == SCOPE["execution_host_profile"]
         and owner.get("execution_host_id") == SCOPE["execution_host_id"]
@@ -1220,6 +1273,25 @@ def _assert_host_state() -> None:
         )
     ):
         raise RuntimeError("fixed-scope wrapper does not own the shared launcher lease")
+    try:
+        lease_process_lineage = validate_launcher_lease_process_lineage(
+            lease_owner_pid=owner_pid,
+            lease_path=lock_path,
+            expected_owner_creation_time_token=owner[
+                "owner_process_creation_time_token"
+            ],
+            expected_owner_executable=powershell,
+            expected_pyvenv_config=PRODUCTION_PYVENV_CONFIG,
+            expected_pyvenv_config_sha256=PRODUCTION_PYVENV_CONFIG_SHA256,
+            expected_redirector_executable=PRODUCTION_PYTHON,
+            expected_redirector_sha256=PRODUCTION_PYTHON_SHA256,
+            expected_runtime_executable=PRODUCTION_RUNTIME_PYTHON,
+            expected_runtime_sha256=PRODUCTION_RUNTIME_PYTHON_SHA256,
+        )
+    except LivePathSecurityError as exc:
+        raise RuntimeError(
+            "fixed-scope wrapper does not own the shared launcher lease"
+        ) from exc
     HOST_ATTESTATIONS.append(
         {
             "checked_at_local": datetime.now().astimezone().isoformat(),
@@ -1229,6 +1301,7 @@ def _assert_host_state() -> None:
             "status_flag_sha256": observed_flag_hashes,
             "execution_host_profile": SCOPE["execution_host_profile"],
             "execution_host_id": SCOPE["execution_host_id"],
+            "lease_process_lineage": lease_process_lineage,
         }
     )
 
@@ -1327,7 +1400,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.6",
+            "schema_version": "international_live_fixed_scope_execution_v0.7",
             "stage": STAGE_NAME,
             "execution_host_profile": SCOPE["execution_host_profile"],
             "execution_host_id": SCOPE["execution_host_id"],

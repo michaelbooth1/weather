@@ -233,6 +233,15 @@ def session_fixture(
     production_python = tmp_path / "production/venv/Scripts/python.exe"
     production_python.parent.mkdir(parents=True, exist_ok=True)
     production_python.write_bytes(b"reviewed python")
+    runtime_home = tmp_path / "production/runtime"
+    runtime_home.mkdir(parents=True, exist_ok=True)
+    runtime_python = runtime_home / "python.exe"
+    runtime_python.write_bytes(b"reviewed runtime python")
+    pyvenv_config = tmp_path / "production/venv/pyvenv.cfg"
+    pyvenv_config.write_text(
+        f"home = {runtime_home}\nexecutable = {runtime_python}\n",
+        encoding="utf-8",
+    )
     bootstrap_hashes = {}
     for relative in runner.SESSION_BOOTSTRAP_PATHS:
         source = tmp_path / "production" / relative
@@ -349,11 +358,15 @@ def fake_sealer(attempt: Path, stage: str):
         wrapper.write_text("# sealed wrapper\n", encoding="utf-8")
         launcher.write_text("# sealed launcher\n", encoding="utf-8")
         seal_path = attempt / sealer.OUTPUT_LAYOUTS[stage]["seal_receipt"]
+        interpreter_binding = runner.resolve_production_python_runtime_binding(
+            spec["production"]["root"],
+            interpreter_redirector=spec["production"]["python"],
+        )
         seal_payload = {
             "schema_version": sealer.RECEIPT_SCHEMA_VERSION,
             "status": "PASS",
             "stage": stage,
-            "production": spec["production"],
+            "production": {**spec["production"], **interpreter_binding},
             "scope": {
                 **spec["scope"],
                 "cancellation_mode": (
@@ -641,6 +654,13 @@ def write_execution(
             "status_flag_sha256": [],
             "execution_host_profile": execution_host_profile,
             "execution_host_id": execution_host_id,
+            "lease_process_lineage": {
+                "status": "PASS",
+                "relationship": "single_sealed_python_redirector",
+                "lease_owner_creation_token_sha256": "1" * 64,
+                "redirector_creation_token_sha256": "2" * 64,
+                "runtime_creation_token_sha256": "3" * 64,
+            },
         }
         for _index in range(3)
     ]
@@ -1297,7 +1317,15 @@ def test_runner_emits_terminal_unknown_on_keyboard_interrupt(tmp_path):
 
 @pytest.mark.parametrize(
     "tamper",
-    ["missing_artifact", "phase", "credential", "mutation", "scope"],
+    [
+        "missing_artifact",
+        "phase",
+        "credential",
+        "mutation",
+        "scope",
+        "lease_lineage",
+        "attestation_shape",
+    ],
 )
 def test_runner_rejects_under_validated_pass_execution_receipt(tmp_path, tamper):
     stage = "stage1_cancel_all"
@@ -1317,8 +1345,14 @@ def test_runner_rejects_under_validated_pass_execution_receipt(tmp_path, tamper)
             payload["credential_values_read_in_memory"] = "UNKNOWN"
         elif tamper == "mutation":
             payload["live_mutation_attempted"] = False
-        else:
+        elif tamper == "scope":
             payload["production_tip"] = "b" * 40
+        elif tamper == "lease_lineage":
+            payload["host_attestations"][2]["lease_process_lineage"][
+                "runtime_creation_token_sha256"
+            ] = "4" * 64
+        else:
+            del payload["host_attestations"][1]["status_json_sha256"]
         execution_path.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess([str(path)], 0, "", "")
 
@@ -1334,6 +1368,46 @@ def test_runner_rejects_under_validated_pass_execution_receipt(tmp_path, tamper)
 
     receipt = json.loads(
         (attempt / "session/stage1_cancel_all-run-receipt.json").read_text()
+    )
+    assert receipt["status"] == "UNKNOWN"
+    assert receipt["child_execution"]["validation"] == "FAIL"
+
+
+def test_runner_rejects_seal_without_exact_interpreter_binding(tmp_path):
+    stage = "stage0"
+    attempt, manifest, fresh = session_fixture(tmp_path, stage)
+    base_sealer = fake_sealer(attempt, stage)
+
+    def invalid_binding_sealer(spec_path, **kwargs):
+        result = base_sealer(spec_path, **kwargs)
+        seal_path = Path(result["seal_receipt"]["path"])
+        payload = json.loads(seal_path.read_text(encoding="utf-8"))
+        payload["production"]["runtime_process_image_sha256"] = "0" * 64
+        seal_path.write_text(json.dumps(payload), encoding="utf-8")
+        seal_sha256 = sha(seal_path)
+        result["seal_receipt"]["sha256"] = seal_sha256
+        sidecar = Path(result["seal_receipt_sidecar"])
+        sidecar.write_text(
+            f"{seal_sha256}  {seal_path.name}\n",
+            encoding="ascii",
+        )
+        return result
+
+    with pytest.raises(runner.SessionCompositionError, match="validated PASS"):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=NOW,
+            seal_function=invalid_binding_sealer,
+            launcher_runner=lambda path: (
+                write_execution(attempt, stage, mutation=True)
+                or subprocess.CompletedProcess([str(path)], 0, "", "")
+            ),
+        )
+
+    receipt = json.loads(
+        (attempt / "session/stage0-run-receipt.json").read_text()
     )
     assert receipt["status"] == "UNKNOWN"
     assert receipt["child_execution"]["validation"] == "FAIL"

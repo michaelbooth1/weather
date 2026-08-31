@@ -1499,11 +1499,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "international_live_fixed_scope_seal",
-        "international_live_fixed_scope_seal_v0.5",
+        "international_live_fixed_scope_seal_v0.6",
         "weather.operations.international_live_wrapper_sealer",
         "active",
-        "Immutable secret-free seal receipt binding one generated wrapper and launcher to an exact execution host, profile-authorized remote Git ref, source, SDK, credential-reference, predecessor, scope, TTL, output, and hardening evidence.",
-        supersedes=("international_live_fixed_scope_seal_v0.4",),
+        "Immutable secret-free seal receipt binding one generated wrapper and launcher to an exact execution host, profile-authorized remote Git ref, redirector/config/runtime-process-image chain, source, SDK, credential-reference, predecessor, scope, TTL, output, and hardening evidence.",
+        supersedes=("international_live_fixed_scope_seal_v0.5",),
+    ),
+    SchemaSpec(
+        "international_live_fixed_scope_seal_v0_5_legacy",
+        "international_live_fixed_scope_seal_v0.5",
+        "weather.operations.international_live_wrapper_sealer",
+        "legacy",
+        "Fixed-scope seal receipt before the redirector, pyvenv configuration, and base runtime process image were independently hash-bound.",
     ),
     SchemaSpec(
         "international_live_fixed_scope_seal_v0_4_legacy",
@@ -1528,11 +1535,18 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "international_live_fixed_scope_execution",
-        "international_live_fixed_scope_execution_v0.6",
+        "international_live_fixed_scope_execution_v0.7",
         "weather.operations.international_live_wrapper_sealer",
         "active",
-        "Secret-free terminal wrapper receipt with exact execution-host evidence, separate order-submit and authenticated-write facts, and content-bound precredential and submit-adjacent geographic eligibility evidence.",
-        supersedes=("international_live_fixed_scope_execution_v0.5",),
+        "Secret-free terminal wrapper receipt with exact execution-host and launcher-process-lineage evidence, separate order-submit and authenticated-write facts, and content-bound precredential and submit-adjacent geographic eligibility evidence.",
+        supersedes=("international_live_fixed_scope_execution_v0.6",),
+    ),
+    SchemaSpec(
+        "international_live_fixed_scope_execution_v0_6_legacy",
+        "international_live_fixed_scope_execution_v0.6",
+        "weather.operations.international_live_wrapper_sealer",
+        "legacy",
+        "Terminal execution receipt before every host attestation carried a consistent active-lease and launcher-process-lineage proof.",
     ),
     SchemaSpec(
         "international_live_fixed_scope_execution_v0_5_legacy",

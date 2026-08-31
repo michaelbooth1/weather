@@ -55,6 +55,24 @@ class TestSchemaRegistry(unittest.TestCase):
             schema_version("mm_stage1_lifecycle_bundle_v0_2_legacy"),
             "mm_stage1_lifecycle_bundle_v0.2",
         )
+        self.assertEqual(
+            schema_version("international_live_fixed_scope_seal"),
+            "international_live_fixed_scope_seal_v0.6",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_scope_seal_v0_5_legacy"),
+            "international_live_fixed_scope_seal_v0.5",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_scope_execution"),
+            "international_live_fixed_scope_execution_v0.7",
+        )
+        self.assertEqual(
+            schema_version(
+                "international_live_fixed_scope_execution_v0_6_legacy"
+            ),
+            "international_live_fixed_scope_execution_v0.6",
+        )
 
     def test_registry_lookup_returns_public_versions(self):
         self.assertEqual(

@@ -24,6 +24,11 @@ from zoneinfo import ZoneInfo
 TEMPLATE_SEALED = False
 PRODUCTION = Path("__SEAL_PRODUCTION_ROOT__")
 PRODUCTION_PYTHON = Path("__SEAL_PRODUCTION_PYTHON__")
+PRODUCTION_PYTHON_SHA256 = "__SEAL_PRODUCTION_PYTHON_SHA256__"
+PRODUCTION_PYVENV_CONFIG = Path("__SEAL_PRODUCTION_PYVENV_CONFIG__")
+PRODUCTION_PYVENV_CONFIG_SHA256 = "__SEAL_PRODUCTION_PYVENV_CONFIG_SHA256__"
+PRODUCTION_RUNTIME_PYTHON = Path("__SEAL_PRODUCTION_RUNTIME_PYTHON__")
+PRODUCTION_RUNTIME_PYTHON_SHA256 = "__SEAL_PRODUCTION_RUNTIME_PYTHON_SHA256__"
 HARDENING_TIP = "__SEAL_HARDENING_ANCESTOR__"
 SCOPE = "__SEAL_SCOPE__"
 SOURCE_SHA256 = "__SEAL_SOURCE_SHA256__"
@@ -583,7 +588,11 @@ def _assert_paths(*, doctor_may_exist: bool = False) -> None:
 
 def _assert_host_state() -> None:
     _assert_window_current()
-    from weather.operations.live_path_security import canonical_windows_powershell
+    from weather.operations.live_path_security import (
+        LivePathSecurityError,
+        canonical_windows_powershell,
+        validate_launcher_lease_process_lineage,
+    )
 
     powershell = canonical_windows_powershell()
     portable = (
@@ -679,10 +688,16 @@ def _assert_host_state() -> None:
         owner = json.loads(lock_path.read_text(encoding="utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         raise RuntimeError("fixed-scope launcher lease record is unavailable") from exc
+    try:
+        owner_pid = int(owner.get("pid"))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("fixed-scope launcher lease owner is invalid") from exc
     if not (
-        owner.get("schema_version") == "weather_heavy_workload_lease_v2"
+        owner.get("schema_version") == "weather_heavy_workload_lease_v3"
         and owner.get("workload") == SCOPE["expected_lease_workload"]
-        and int(owner.get("pid")) == os.getppid()
+        and str(owner.get("owner_process_creation_time_token") or "").startswith(
+            "win32-filetime:"
+        )
         and owner.get("execution_host_profile")
         == SCOPE["execution_host_profile"]
         and owner.get("execution_host_id") == SCOPE["execution_host_id"]
@@ -693,6 +708,25 @@ def _assert_host_state() -> None:
         )
     ):
         raise RuntimeError("fixed-scope wrapper does not own the shared launcher lease")
+    try:
+        lease_process_lineage = validate_launcher_lease_process_lineage(
+            lease_owner_pid=owner_pid,
+            lease_path=lock_path,
+            expected_owner_creation_time_token=owner[
+                "owner_process_creation_time_token"
+            ],
+            expected_owner_executable=powershell,
+            expected_pyvenv_config=PRODUCTION_PYVENV_CONFIG,
+            expected_pyvenv_config_sha256=PRODUCTION_PYVENV_CONFIG_SHA256,
+            expected_redirector_executable=PRODUCTION_PYTHON,
+            expected_redirector_sha256=PRODUCTION_PYTHON_SHA256,
+            expected_runtime_executable=PRODUCTION_RUNTIME_PYTHON,
+            expected_runtime_sha256=PRODUCTION_RUNTIME_PYTHON_SHA256,
+        )
+    except LivePathSecurityError as exc:
+        raise RuntimeError(
+            "fixed-scope wrapper does not own the shared launcher lease"
+        ) from exc
     HOST_ATTESTATIONS.append(
         {
             "checked_at_local": datetime.now().astimezone().isoformat(),
@@ -702,6 +736,7 @@ def _assert_host_state() -> None:
             "status_flag_sha256": observed_flag_hashes,
             "execution_host_profile": SCOPE["execution_host_profile"],
             "execution_host_id": SCOPE["execution_host_id"],
+            "lease_process_lineage": lease_process_lineage,
         }
     )
 
@@ -789,7 +824,7 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     _atomic_json(
         path,
         {
-            "schema_version": "international_live_fixed_scope_execution_v0.6",
+            "schema_version": "international_live_fixed_scope_execution_v0.7",
             "stage": "stage0",
             "execution_host_profile": SCOPE["execution_host_profile"],
             "execution_host_id": SCOPE["execution_host_id"],

@@ -31,6 +31,16 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def launcher_lineage_proof() -> dict:
+    return {
+        "status": "PASS",
+        "relationship": "single_sealed_python_redirector",
+        "lease_owner_creation_token_sha256": "1" * 64,
+        "redirector_creation_token_sha256": "2" * 64,
+        "runtime_creation_token_sha256": "3" * 64,
+    }
+
+
 def write_json(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -245,6 +255,17 @@ def prepare(
     python = production / "venv/Scripts/python.exe"
     python.parent.mkdir(parents=True)
     python.write_bytes(b"test interpreter placeholder")
+    runtime_home = tmp_path / "python-runtime"
+    runtime_home.mkdir(parents=True)
+    runtime_python = runtime_home / "python.exe"
+    runtime_python.write_bytes(b"test runtime process image")
+    (production / "venv/pyvenv.cfg").write_text(
+        f"home = {runtime_home.resolve()}\n"
+        "include-system-site-packages = false\n"
+        "version = 3.11.9\n"
+        f"executable = {runtime_python.resolve()}\n",
+        encoding="utf-8",
+    )
 
     repository = Path(sealer.REPO_ROOT)
     template_relatives = {
@@ -495,7 +516,15 @@ def prepare(
             "schema_version": sealer.RECEIPT_SCHEMA_VERSION,
             "status": "PASS",
             "stage": "stage0",
-            "production": {"commit": COMMIT},
+            "production": {
+                "commit": COMMIT,
+                "interpreter_redirector": str(python.resolve()),
+                "interpreter_redirector_sha256": sha256(python),
+                "pyvenv_config": str((production / "venv/pyvenv.cfg").resolve()),
+                "pyvenv_config_sha256": sha256(production / "venv/pyvenv.cfg"),
+                "runtime_process_image": str(runtime_python.resolve()),
+                "runtime_process_image_sha256": sha256(runtime_python),
+            },
             "scope": {
                 "target_date": fixture_target_date,
                 "condition_id": CONDITION,
@@ -545,6 +574,7 @@ def prepare(
                     "status_flag_sha256": [],
                     "execution_host_profile": execution_host_profile,
                     "execution_host_id": execution_host_id,
+                    "lease_process_lineage": launcher_lineage_proof(),
                 }
                 for _index in range(3)
             ],
@@ -807,6 +837,17 @@ def prepare(
                     "order_submit_attempted": True,
                     "authenticated_exchange_write_attempted": True,
                     "credential_values_read_in_memory": True,
+                    "host_attestations": [
+                        {
+                            "checked_at_local": NOW.isoformat(),
+                            "status_json_sha256": "9" * 64,
+                            "status_flag_sha256": [],
+                            "execution_host_profile": execution_host_profile,
+                            "execution_host_id": execution_host_id,
+                            "lease_process_lineage": launcher_lineage_proof(),
+                        }
+                        for _index in range(3)
+                    ],
                     "wrapper": {
                         "path": str(cancel_wrapper.resolve()),
                         "sha256": sha256(cancel_wrapper),
@@ -853,7 +894,19 @@ def prepare(
                     "schema_version": sealer.RECEIPT_SCHEMA_VERSION,
                     "status": "PASS",
                     "stage": "stage1_cancel_all",
-                    "production": {"commit": COMMIT},
+                    "production": {
+                        "commit": COMMIT,
+                        "interpreter_redirector": str(python.resolve()),
+                        "interpreter_redirector_sha256": sha256(python),
+                        "pyvenv_config": str(
+                            (production / "venv/pyvenv.cfg").resolve()
+                        ),
+                        "pyvenv_config_sha256": sha256(
+                            production / "venv/pyvenv.cfg"
+                        ),
+                        "runtime_process_image": str(runtime_python.resolve()),
+                        "runtime_process_image_sha256": sha256(runtime_python),
+                    },
                     "scope": {
                         "target_date": fixture_target_date,
                         "condition_id": CONDITION,
@@ -1044,6 +1097,61 @@ def seal(
     )
 
 
+def test_production_runtime_resolves_from_strict_pyvenv_config(tmp_path):
+    root = tmp_path / "production"
+    redirector = root / "venv/Scripts/python.exe"
+    redirector.parent.mkdir(parents=True)
+    redirector.write_bytes(b"redirector")
+    runtime_home = tmp_path / "runtime"
+    runtime_home.mkdir(parents=True)
+    runtime = runtime_home / "python.exe"
+    runtime.write_bytes(b"runtime")
+    config = root / "venv/pyvenv.cfg"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(
+        f"home = {runtime_home.resolve()}\n"
+        "version = 3.11.9\n"
+        f"executable = {runtime.resolve()}\n",
+        encoding="utf-8",
+    )
+
+    assert sealer._resolve_production_python_runtime(root) == (
+        config.resolve(),
+        runtime.resolve(),
+    )
+
+
+@pytest.mark.parametrize("fault", ["duplicate", "missing", "relative", "mismatch"])
+def test_production_runtime_rejects_ambiguous_pyvenv_config(tmp_path, fault):
+    root = tmp_path / "production"
+    redirector = root / "venv/Scripts/python.exe"
+    redirector.parent.mkdir(parents=True)
+    redirector.write_bytes(b"redirector")
+    runtime_home = tmp_path / "runtime"
+    other_home = tmp_path / "other-runtime"
+    runtime_home.mkdir(parents=True)
+    other_home.mkdir(parents=True)
+    runtime = runtime_home / "python.exe"
+    runtime.write_bytes(b"runtime")
+    other_runtime = other_home / "python.exe"
+    other_runtime.write_bytes(b"other")
+    config = root / "venv/pyvenv.cfg"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    rows = [f"home = {runtime_home.resolve()}"]
+    if fault == "duplicate":
+        rows.append(f"home = {runtime_home.resolve()}")
+    if fault != "missing":
+        rows.append(
+            "executable = relative/python.exe"
+            if fault == "relative"
+            else f"executable = {(other_runtime if fault == 'mismatch' else runtime).resolve()}"
+        )
+    config.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    with pytest.raises(sealer.SealError, match="pyvenv"):
+        sealer._resolve_production_python_runtime(root)
+
+
 @pytest.mark.parametrize(
     ("start", "stop", "expected"),
     [
@@ -1141,6 +1249,12 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "portable_target_date_matches" in wrapper_text
     assert wrapper_text.count("load_stage1_candidate_gate(") == 2
     assert "activate_live_sdk_overlay(" in wrapper_text
+    assert "validate_launcher_lease_process_lineage(" in wrapper_text
+    assert "single_sealed_python_redirector" in (
+        Path(sealer.REPO_ROOT)
+        / "src/weather/operations/live_path_security.py"
+    ).read_text(encoding="utf-8")
+    assert "int(owner.get(\"pid\")) == os.getppid()" not in wrapper_text
     main_body = wrapper_text.split("def main()", 1)[1]
     assert main_body.index("live_cli.run_doctor(") < main_body.index(
         "_prompt_until(expected_confirmation)"
@@ -1152,10 +1266,23 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     launcher_text = launcher.read_text(encoding="utf-8-sig")
     assert "param()" in launcher_text
     assert "$MyInvocation.UnboundArguments.Count -ne 0" in launcher_text
+    assert "$expectedPythonSha256" in launcher_text
+    assert "Add-SealedReadLock -Path $python" in launcher_text
+    assert "Add-SealedReadLock -Path $pyvenvConfig" in launcher_text
+    assert "Add-SealedReadLock -Path $runtimePython" in launcher_text
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["validation"]["candidate_ttl_and_scope"] == "PASS"
     assert receipt["production"]["required_interrupt_cleanup_ancestor"] == (
         sealer.REQUIRED_INTERRUPT_CLEANUP_ANCESTOR
+    )
+    assert receipt["production"]["interpreter_redirector_sha256"] == sha256(
+        production / "venv/Scripts/python.exe"
+    )
+    assert receipt["production"]["pyvenv_config_sha256"] == sha256(
+        production / "venv/pyvenv.cfg"
+    )
+    assert receipt["production"]["runtime_process_image_sha256"] == sha256(
+        production.parent / "python-runtime/python.exe"
     )
     assert receipt["wrapper"]["sha256"] == sha256(wrapper)
     assert receipt["launcher"]["sha256"] == sha256(launcher)
@@ -1697,6 +1824,9 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert 'ZoneInfo("America/Toronto")' in text
     assert "portable_target_date_matches" in text
     assert "activate_live_sdk_overlay(" in text
+    assert "validate_launcher_lease_process_lineage(" in text
+    assert "launcher_host_attestations_are_valid" in text
+    assert "int(owner.get(\"pid\")) == os.getppid()" not in text
     assert text.split("def main()", 1)[1].count("_assert_host_state()") == 2
     assert "pre_submit_attestor=_pre_submit_attestor" in text
     receipt = json.loads(
@@ -1748,6 +1878,64 @@ def test_stage1_dead_man_refuses_failed_cancel_all_predecessor(tmp_path):
         seal(spec_path, production)
 
 
+def test_stage1_dead_man_refuses_changed_cancel_all_interpreter_binding(tmp_path):
+    production, _attempt, spec_path, spec = prepare(
+        tmp_path, stage="stage1_dead_man"
+    )
+    seal_path = Path(spec["inputs"]["cancel_all_seal_receipt"]["path"])
+    predecessor = json.loads(seal_path.read_text(encoding="utf-8"))
+    predecessor["production"]["runtime_process_image_sha256"] = "0" * 64
+    write_json(seal_path, predecessor)
+    spec["inputs"]["cancel_all_seal_receipt"]["sha256"] = sha256(seal_path)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="cancel-all PASS lineage"):
+        seal(spec_path, production)
+
+
+@pytest.mark.parametrize("fault", ["legacy_schema", "incomplete_attestation"])
+def test_stage1_dead_man_refuses_invalid_cancel_all_execution_evidence(
+    tmp_path,
+    fault,
+):
+    production, _attempt, spec_path, spec = prepare(
+        tmp_path, stage="stage1_dead_man"
+    )
+    execution_path = Path(
+        spec["inputs"]["cancel_all_wrapper_execution_receipt"]["path"]
+    )
+    execution = json.loads(execution_path.read_text(encoding="utf-8"))
+    if fault == "legacy_schema":
+        execution["schema_version"] = "international_live_fixed_scope_execution_v0.6"
+    else:
+        del execution["host_attestations"][1]["checked_at_local"]
+    write_json(execution_path, execution)
+    execution_sha256 = sha256(execution_path)
+
+    run_path = Path(spec["inputs"]["cancel_all_run_receipt"]["path"])
+    run = json.loads(run_path.read_text(encoding="utf-8"))
+    run["child_execution"]["sha256"] = execution_sha256
+    write_json(run_path, run)
+    run_sidecar = Path(
+        spec["inputs"]["cancel_all_run_receipt_sidecar"]["path"]
+    )
+    run_sidecar.write_text(
+        f"{sha256(run_path)}  {run_path.name}\n",
+        encoding="ascii",
+    )
+    spec["inputs"]["cancel_all_wrapper_execution_receipt"][
+        "sha256"
+    ] = execution_sha256
+    spec["inputs"]["cancel_all_run_receipt"]["sha256"] = sha256(run_path)
+    spec["inputs"]["cancel_all_run_receipt_sidecar"]["sha256"] = sha256(
+        run_sidecar
+    )
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="cancel-all PASS lineage"):
+        seal(spec_path, production)
+
+
 def test_stage1_seal_refuses_stage0_scope_mismatch(tmp_path):
     production, attempt, spec_path, _spec = prepare(
         tmp_path, stage="stage1_cancel_all"
@@ -1777,6 +1965,21 @@ def test_stage1_seal_refuses_tampered_stage0_run_receipt(tmp_path):
     sidecar.write_text(f"{sha256(run_path)}  {run_path.name}\n", encoding="ascii")
     spec["inputs"]["stage0_run_receipt"]["sha256"] = sha256(run_path)
     spec["inputs"]["stage0_run_receipt_sidecar"]["sha256"] = sha256(sidecar)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="Stage 0.*lineage"):
+        seal(spec_path, production)
+
+
+def test_stage1_seal_refuses_changed_interpreter_binding(tmp_path):
+    production, _attempt, spec_path, spec = prepare(
+        tmp_path, stage="stage1_cancel_all"
+    )
+    stage0_seal_path = Path(spec["inputs"]["stage0_seal_receipt"]["path"])
+    stage0_seal = json.loads(stage0_seal_path.read_text(encoding="utf-8"))
+    stage0_seal["production"]["runtime_process_image_sha256"] = "0" * 64
+    write_json(stage0_seal_path, stage0_seal)
+    spec["inputs"]["stage0_seal_receipt"]["sha256"] = sha256(stage0_seal_path)
     write_json(spec_path, spec)
 
     with pytest.raises(sealer.SealError, match="Stage 0.*lineage"):

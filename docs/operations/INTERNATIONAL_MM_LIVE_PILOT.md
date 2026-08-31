@@ -26,7 +26,9 @@ tip, exact-head CI/review status, operator authorization, and production master
 baseline from Git and [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated
 hash copied here.
 Their integration receipts grant no credential or live-exchange authority, and
-no Stage 0 or Stage 1 session has run.
+no Stage 0 or Stage 1 protocol has passed. Failed precredential launcher
+attempts and their exact disposition are recorded in
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md).
 
 **Stage 0/1 execution is currently HOLD until every action-time gate below
 passes.** The explicit execution-host profile,
@@ -56,6 +58,9 @@ proxy, or similar circumvention. Before any Stage 1 order, obtain a fresh
 official geoblock result and an attended no-circumvention attestation; an
 unblocked egress classification that disagrees with physical location is not
 authority.
+The protocol never solicits, accepts, or stores an operator-supplied city,
+state/province, or country. It uses only the exact attended eligibility and
+no-circumvention literal plus Polymarket's credential-free geoblock response.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -1181,7 +1186,7 @@ colocated profile,
 all public inputs, every imported live-source hash, exact production ancestry,
 and new contained output paths. It creates a fixed no-argument Python wrapper,
 a hash-bound inner PowerShell launcher, an
-`international_live_fixed_scope_seal_v0.5` receipt, and its SHA-256 sidecar.
+`international_live_fixed_scope_seal_v0.6` receipt, and its SHA-256 sidecar.
 Each Stage 1 mode also requires the exact successful predecessor lineage. A
 partial or failed build, seal, or run spends that stage namespace; create a new
 attempt rather than overwriting it.
@@ -1639,6 +1644,20 @@ cooperative cleanup at the sealed execution stop, allows only the same
 sealer-owned 20-second grace already reserved by every window check, and then
 uses kill-on-close containment if required. For the colocated profile the
 reserved end may equal 09:00; it must never exceed it.
+
+The fixed launcher additionally proves the active shared lease is still held
+with write sharing denied and binds the lease record to the canonical
+PowerShell owner's PID and Windows process-creation token. The Python process
+must be either its direct child or the child of exactly one hash-bound venv
+`python.exe` redirector. The sealed venv `pyvenv.cfg` resolves the separately
+hash-bound base Python process image; the launcher locks all three files, and
+the wrapper requires strict owner-before-redirector-before-runtime creation
+order. Every one of the three host attestations must carry the same complete
+lineage proof. A stale/reused PID, permissive or absent lease handle, extra
+process hop, changed config/image/hash, uninspectable process, or cross-stage
+interpreter-binding mismatch fails before credentials. The seal and terminal
+execution receipts carrying this mandatory evidence are v0.6 and v0.7,
+respectively; earlier receipt versions cannot authorize a new attempt.
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
 request, 100 pUSD wallet cap, execution cutoff, cleanup reserve, and contained

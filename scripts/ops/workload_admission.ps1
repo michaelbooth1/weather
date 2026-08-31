@@ -1649,10 +1649,22 @@ function Enter-WeatherHeavyWorkloadLease {
 
     try {
         $stream.SetLength(0)
+        $ownerProcessStartUtc = Get-WeatherProcessCreationIdentity -ProcessId $PID
+        if ([string]::IsNullOrWhiteSpace($ownerProcessStartUtc)) {
+            throw "current workload-owner process creation identity is unavailable"
+        }
+        $ownerProcessCreationTimeToken = "win32-filetime:{0}" -f (
+            [DateTime]::Parse(
+                $ownerProcessStartUtc,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::RoundtripKind
+            ).ToFileTimeUtc()
+        )
         $record = [ordered]@{
-            schema_version = "weather_heavy_workload_lease_v2"
+            schema_version = "weather_heavy_workload_lease_v3"
             workload = $Workload
             pid = $PID
+            owner_process_creation_time_token = $ownerProcessCreationTimeToken
             acquired_at = (Get-Date).ToUniversalTime().ToString("o")
             policy_window = $policyWindow
             host = [Environment]::MachineName

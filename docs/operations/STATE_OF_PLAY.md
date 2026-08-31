@@ -13,12 +13,12 @@
 | Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
 | Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
 | Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
-| Verification | Paper and no-network preparation exposed two deterministic defects: the run orchestrator rejected its documented 600-second proof TTL, then candidate preflight assumed one economics row per event although temperature events have one row per binary condition. Set-based repair `4e87112a9d0cd528fafcbc108346b29f4356e3d9` plus independently re-reviewed fail-closed row-shape/cardinality hardening `045a9e6d991db487f9feb9302e3450a864095aa9` are included in topic tip `65926ba1d97265ffba9638a405924c2b634bf832`; exact-head [CI](https://github.com/michaelbooth1/weather/actions/runs/33341934428) is green. Local verification passed 73 focused tests plus compile, and the real 11-condition/22-token evidence conforms exactly. |
-| Second PC | The clean portable clone was synchronized through code-bearing topic tip `65926ba1d97265ffba9638a405924c2b634bf832`; local/cached/live topic agreed, local/cached/live master agreed at `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac`, master was an ancestor, origin was canonical, and the worktree was clean. Every later documentation-only topic tip still needs exact-head green CI and a clone fast-forward plus repeated inventory before live use. Its CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, fresh installed audit, clock/proxy/reboot state, and exact assigned host/principal audit all pass. The development checkout's ambient SDK remains excluded from live use. |
+| Verification | August 30 preparation repairs for the 600-second proof TTL and multi-condition economics rows are already in the authorized topic branch. The first August 31 Stage 0 launch then exposed a third deterministic defect before any prompt: Windows ran the sealed wrapper as `PowerShell lease owner -> venv python.exe redirector -> base python.exe`, while the wrapper required the lease owner to be the base process's direct parent. The bounded repair accepts only a direct owner or exactly one sealed redirector, proves an actively deny-write-held v3 lease and owner creation token, locks and hashes the redirector, `pyvenv.cfg`, and base process image, requires strict process-creation order, and carries one consistent lineage proof through every downstream receipt. Local verification currently passes 256 focused tests with 14 expected skips plus the real v3 portable-lease functional test. Publication, exact-head CI, and independent exact-tip review remain required before another attempt. |
+| Second PC | Before this repair, local/cached/live topic agreed at `f27347b4c5bd33991ff7ff860cce16e724ec402e`; local/cached/live master agreed at `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac`, master was an ancestor, origin was canonical, and the worktree was clean. The repair worktree is intentionally dirty until its reviewed commit is published. Its CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, installed audit, clock/proxy/reboot state, and exact assigned host/principal audit pass. The development checkout's ambient SDK remains excluded from live use. |
 | Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
 | Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets. Current attempt `pilot-20260830T233709864Z` produced a fresh v0.4 compare-only PASS for this exact host/principal: four exact matches, zero writes, zero mutation, no retained values. Keep the private transfer source locked down until a final comparison is consumed, then use the approved deletion procedure. |
-| Public substrate | Preserve every partial namespace. Attempt `pilot-20260830T233709864Z` passed initialization, public identity, credential comparison, metadata, observation dry-run, weather/source capture, CLOB capture, and exact economics acceptance for snapshot `xecon-9b1b7201e5871a5b` / SHA-256 `e52fb0fbeed3e8d658e51fa9eae763dc2e287340aa00f3f46f7998710e965aa6`, including the acknowledged pUSD/USDC documentation conflict. Toronto then produced zero paper quote-permission rows because every YES book was one-sided; all-market scans at 23:40Z and 23:55Z also found no candidate inside the fixed midpoint and spread gates. Preserve that August 30 evidence, but it does not block a fresh August 31 portable candidate. Do not weaken selection gates or reuse the failed Toronto substrate. Later Stage refreshes use compact attempt-bound sibling roots below the legacy path budget. |
-| Live money | Public unauthenticated metadata/weather endpoints were contacted; no credentialed exchange call, authenticated write, order, cancellation, or Stage 0/1 session occurred. The first session remains attended, International-only, exact 10 pUSD request / 100 pUSD wallet cap, and separately gated at every mutation boundary. |
+| Public substrate | Preserve every partial namespace. August 30 Toronto evidence remains a valid failed selection with no safe candidate. A fresh August 31 San Francisco 64-65 F substrate at `C:\w31\pilot-20260831T002111189Z-stage0-s6` passed its 600-second paper tick and no-network preflight. Its exact candidate selected the accepted `xecon-aa45dfe56150f577` economics scope and had SHA-256 `f67b7cea285f32b6b62f6d4b4c43cd1a5af5134679405fa07d549ed0dfb08a2e`; it is now expired and bound to a spent attempt, so it is evidence only and must never be reused. |
+| Live money | Attempt `pilot-20260831T002111189Z` was invoked exactly once and terminally failed during fixed-launcher preflight on the parent-process assertion. It produced no doctor, geography, credential-resolution, bootstrap, command, or user-stream artifact. Therefore no credential value was read, no authenticated exchange contact or write occurred, and no heartbeat, cancellation, order, position, or balance mutation occurred. The attempt and all three launchers are spent. A new attended International-only attempt must retain the exact 10 pUSD request / 100 pUSD wallet cap and every action-time gate. |
 
 ## Closed decisions -- do not relitigate without new evidence
 
@@ -34,6 +34,8 @@
   action and is never scheduled automatically.
 - No order from a blocked location and no circumvention. America/Toronto is
   scheduling/target-date configuration, never evidence of physical location.
+  The live protocol asks for no city, state/province, or country; it uses the
+  exact attended eligibility literal and Polymarket's credential-free geoblock.
 - No unattended first live session.
 - `capture_colocated_v1` retains local capture/tape/streak checks and
   `[00:30, 09:00) America/Toronto` containment.
@@ -61,16 +63,18 @@
 
 ## Ordered critical path
 
-1. Publish and exact-head verify the portable current-or-next target-date
-   implementation, then synchronize and re-inventory the clean portable clone.
-2. Build a fresh August 31 public substrate and select only a built-in market
-   inside the fixed midpoint and spread gates. Collect a new date-bound
-   economics snapshot and stop for its exact informed acceptance. Run the
-   600-second paper tick and no-network preflight, then stop for the exact
-   candidate/date/hash-bound acknowledgment emitted by the review-only selector.
-3. Build and review all three immutable manifests and launchers, then refresh a
-   constrained candidate immediately before each stage. Never reuse the failed
-   long-path namespace or an expired artifact.
+1. Commit and publish the bounded launcher-lineage repair, obtain exact-head
+   green CI and substantive independent exact-tip review, then synchronize and
+   re-inventory the clean portable clone. Do not reuse any artifact sealed from
+   the predecessor tip.
+2. Create a wholly new August 31 attempt and fresh public substrate. Select
+   only a built-in market inside the unchanged midpoint/spread gates, refresh
+   date-bound economics if required, run the 600-second paper tick and
+   no-network preflight, and obtain the exact new candidate/date/hash-bound
+   acknowledgment. The expired `s6` candidate and spent
+   `pilot-20260831T002111189Z` namespace are never retry inputs.
+3. Build and review all three new immutable manifests and launchers, then
+   refresh a constrained candidate immediately before each stage.
 4. At action time, require eligible physical presence/no circumvention,
    official geoblock PASS, exact account topology, balance/allowance, zero
    unknown orders and positions, current market rules, clean synchronized Git,

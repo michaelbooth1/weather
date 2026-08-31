@@ -233,7 +233,8 @@ def test_portable_profile_is_exactly_host_bound_and_live_workload_scoped() -> No
     assert "portable execution-host identity does not match the sealed host binding" in text
     assert "portable execution-host admission cannot combine with Stage-A" in text
     assert '"Global\\WeatherProjectHeavyWorkloadV1"' in text
-    assert 'schema_version = "weather_heavy_workload_lease_v2"' in text
+    assert 'schema_version = "weather_heavy_workload_lease_v3"' in text
+    assert "owner_process_creation_time_token" in text
     assert "[Threading.Mutex]::new" in text
     assert "AbandonedMutexException" in text
     assert "[Environment]::MachineName" in text
@@ -907,6 +908,13 @@ $lease = Enter-WeatherHeavyWorkloadLease `
 if ($null -eq $lease) { throw 'portable lease was unexpectedly busy' }
 try {
     $owner = Get-Content -LiteralPath $lease.Path -Raw | ConvertFrom-Json
+    $self = [Diagnostics.Process]::GetCurrentProcess()
+    try {
+        $expectedCreationToken = "win32-filetime:{0}" -f (
+            $self.StartTime.ToUniversalTime().ToFileTimeUtc()
+        )
+    }
+    finally { $self.Dispose() }
     $wrongHostRejected = $false
     try {
         Enter-WeatherHeavyWorkloadLease `
@@ -947,6 +955,11 @@ try {
     catch { $ownerExceptionRejected = $true }
     [pscustomobject]@{
         acquired = $true
+        schema = [string]$owner.schema_version
+        creation_token_matches = (
+            [string]$owner.owner_process_creation_time_token -ceq
+            $expectedCreationToken
+        )
         policy_window = [string]$owner.policy_window
         profile = [string]$owner.execution_host_profile
         identity_matches = [string]$owner.execution_host_id -ceq $hostId
@@ -971,7 +984,8 @@ finally {
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == (
-        '{"acquired":true,"policy_window":"portable_execution",'
+        '{"acquired":true,"schema":"weather_heavy_workload_lease_v3",'
+        '"creation_token_matches":true,"policy_window":"portable_execution",'
         '"profile":"portable_execution_v1","identity_matches":true,'
         '"wrong_host_rejected":true,"wrong_workload_rejected":true,'
         '"stage_a_rejected":true,"owner_exception_rejected":true}'

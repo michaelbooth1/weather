@@ -52,9 +52,12 @@ from weather.operations.live_path_security import (
     canonical_git_executable,
     canonical_windows_powershell,
     current_execution_host_id,
+    launcher_host_attestations_are_valid,
     repository_python_source_paths,
+    resolve_production_python_runtime_binding,
     validate_nonreparse_directory,
     validate_private_attempt_root,
+    validate_production_python_runtime_binding,
     validate_regular_nonreparse_file,
 )
 from weather.execution_host import (
@@ -403,6 +406,50 @@ def _same_path(left: Path, right: Path) -> bool:
     return os.path.normcase(str(left.resolve())) == os.path.normcase(
         str(right.resolve())
     )
+
+
+def _resolve_production_python_runtime(
+    production_root: Path,
+) -> tuple[Path, Path]:
+    """Resolve the exact base process image from the reviewed venv config."""
+    try:
+        binding = resolve_production_python_runtime_binding(production_root)
+    except Exception as exc:
+        raise SealError(str(exc)) from exc
+    return Path(binding["pyvenv_config"]), Path(binding["runtime_process_image"])
+
+
+INTERPRETER_BINDING_KEYS = (
+    "interpreter_redirector",
+    "interpreter_redirector_sha256",
+    "pyvenv_config",
+    "pyvenv_config_sha256",
+    "runtime_process_image",
+    "runtime_process_image_sha256",
+)
+
+
+def _production_interpreter_binding_matches(
+    observed: Mapping[str, Any],
+    expected: Mapping[str, str],
+) -> bool:
+    try:
+        validated = validate_production_python_runtime_binding(observed)
+    except Exception:
+        return False
+    for key in INTERPRETER_BINDING_KEYS:
+        observed_value = validated.get(key)
+        expected_value = expected.get(key)
+        if key.endswith("_sha256"):
+            if observed_value != expected_value:
+                return False
+        else:
+            try:
+                if not _same_path(Path(str(observed_value or "")), Path(expected_value)):
+                    return False
+            except (OSError, ValueError):
+                return False
+    return True
 
 
 def _is_within(root: Path, path: Path) -> bool:
@@ -1303,6 +1350,7 @@ def _validate_stage0_lineage(
     execution_host_id: str,
     market_id: str,
     market_timezone: str,
+    interpreter_binding: Mapping[str, str],
 ) -> None:
     seal, _raw = _read_json_object(
         Path(inputs["stage0_seal_receipt"]["path"]),
@@ -1390,6 +1438,10 @@ def _validate_stage0_lineage(
         seal.get("status") == "PASS",
         seal.get("stage") == "stage0",
         seal_production.get("commit") == production_tip,
+        _production_interpreter_binding_matches(
+            seal_production,
+            interpreter_binding,
+        ),
         seal_scope.get("target_date") == target_date,
         Path(str(seal_scope.get("attempt_root") or "")).resolve() == attempt_root,
         str(seal_scope.get("condition_id") or "").lower() == condition_id,
@@ -1413,15 +1465,11 @@ def _validate_stage0_lineage(
         execution.get("authenticated_exchange_write_attempted") is True,
         execution.get("execution_host_profile") == execution_host_profile,
         execution.get("execution_host_id") == execution_host_id,
-        isinstance(attestations, list),
-        len(attestations or []) == 3,
-        all(
-            len(str(row.get("status_json_sha256") or "")) == 64
-            and sorted(row.get("status_flag_sha256") or []) == expected_flag_hashes
-            and row.get("execution_host_profile") == execution_host_profile
-            and row.get("execution_host_id") == execution_host_id
-            and bool(row.get("checked_at_local"))
-            for row in (attestations or [])
+        launcher_host_attestations_are_valid(
+            attestations,
+            expected_execution_host_profile=execution_host_profile,
+            expected_execution_host_id=execution_host_id,
+            expected_status_flag_sha256=expected_flag_hashes,
         ),
         execution.get("production_tip") == production_tip,
         execution.get("target_date") == target_date,
@@ -1529,6 +1577,7 @@ def _validate_cancel_all_predecessor(
     execution_host_id: str,
     market_id: str,
     market_timezone: str,
+    interpreter_binding: Mapping[str, str],
 ) -> None:
     payloads = {}
     for role in (
@@ -1580,6 +1629,10 @@ def _validate_cancel_all_predecessor(
     command_artifact = artifacts.get("command_receipt_out") or {}
     journal_artifact = artifacts.get("lifecycle_journal_out") or {}
     stream_artifact = artifacts.get("user_stream_journal_out") or {}
+    attestations = execution.get("host_attestations")
+    expected_flag_hashes = sorted(
+        row["sha256"] for row in seal_scope.get("reviewed_status_flags") or []
+    )
     try:
         final_stream_evidence = verify_stage1_user_stream_journal(
             Path(str(stream_artifact.get("path") or "")),
@@ -1602,6 +1655,10 @@ def _validate_cancel_all_predecessor(
         seal.get("status") == "PASS",
         seal.get("stage") == "stage1_cancel_all",
         seal_production.get("commit") == production_tip,
+        _production_interpreter_binding_matches(
+            seal_production,
+            interpreter_binding,
+        ),
         seal_scope.get("target_date") == target_date,
         Path(str(seal_scope.get("attempt_root") or "")).resolve() == attempt_root,
         str(seal_scope.get("condition_id") or "").lower() == condition_id,
@@ -1646,6 +1703,12 @@ def _validate_cancel_all_predecessor(
         execution.get("order_submit_attempted") is True,
         execution.get("authenticated_exchange_write_attempted") is True,
         execution.get("credential_values_read_in_memory") is True,
+        launcher_host_attestations_are_valid(
+            attestations,
+            expected_execution_host_profile=execution_host_profile,
+            expected_execution_host_id=execution_host_id,
+            expected_status_flag_sha256=expected_flag_hashes,
+        ),
         execution.get("production_tip") == production_tip,
         execution.get("target_date") == target_date,
         str(execution.get("condition_id") or "").lower() == condition_id,
@@ -1849,6 +1912,11 @@ def _render_python_wrapper(
     *,
     production_root: Path,
     production_python: Path,
+    production_python_sha256: str,
+    production_pyvenv_config: Path,
+    production_pyvenv_config_sha256: str,
+    production_runtime_python: Path,
+    production_runtime_python_sha256: str,
     scope: Mapping[str, Any],
     source_sha256: Mapping[str, str],
     stage: str,
@@ -1863,6 +1931,31 @@ def _render_python_wrapper(
         rendered,
         '"__SEAL_PRODUCTION_PYTHON__"',
         repr(str(production_python)),
+    )
+    rendered = _replace_once(
+        rendered,
+        '"__SEAL_PRODUCTION_PYTHON_SHA256__"',
+        repr(production_python_sha256),
+    )
+    rendered = _replace_once(
+        rendered,
+        '"__SEAL_PRODUCTION_PYVENV_CONFIG__"',
+        repr(str(production_pyvenv_config)),
+    )
+    rendered = _replace_once(
+        rendered,
+        '"__SEAL_PRODUCTION_PYVENV_CONFIG_SHA256__"',
+        repr(production_pyvenv_config_sha256),
+    )
+    rendered = _replace_once(
+        rendered,
+        '"__SEAL_PRODUCTION_RUNTIME_PYTHON__"',
+        repr(str(production_runtime_python)),
+    )
+    rendered = _replace_once(
+        rendered,
+        '"__SEAL_PRODUCTION_RUNTIME_PYTHON_SHA256__"',
+        repr(production_runtime_python_sha256),
     )
     rendered = _replace_once(
         rendered,
@@ -1924,6 +2017,11 @@ def _render_launcher(
     *,
     production_root: Path,
     production_python: Path,
+    production_python_sha256: str,
+    production_pyvenv_config: Path,
+    production_pyvenv_config_sha256: str,
+    production_runtime_python: Path,
+    production_runtime_python_sha256: str,
     wrapper_path: Path,
     wrapper_sha256: str,
     workload: str,
@@ -1937,6 +2035,15 @@ def _render_launcher(
     values = {
         '"__SEAL_PRODUCTION_ROOT__"': str(production_root),
         '"__SEAL_PRODUCTION_PYTHON__"': str(production_python),
+        '"__SEAL_PRODUCTION_PYTHON_SHA256__"': production_python_sha256,
+        '"__SEAL_PRODUCTION_PYVENV_CONFIG__"': str(production_pyvenv_config),
+        '"__SEAL_PRODUCTION_PYVENV_CONFIG_SHA256__"': (
+            production_pyvenv_config_sha256
+        ),
+        '"__SEAL_PRODUCTION_RUNTIME_PYTHON__"': str(production_runtime_python),
+        '"__SEAL_PRODUCTION_RUNTIME_PYTHON_SHA256__"': (
+            production_runtime_python_sha256
+        ),
         '"__SEAL_WRAPPER_PATH__"': str(wrapper_path),
         '"__SEAL_WRAPPER_SHA256__"': wrapper_sha256,
         '"__SEAL_WORKLOAD__"': workload,
@@ -2036,6 +2143,20 @@ def _validate_spec(
     expected_python = (root / "venv/Scripts/python.exe").resolve()
     if not _same_path(python, expected_python) or not python.is_file():
         raise SealError("production interpreter is absent or not the canonical venv")
+    try:
+        interpreter_binding = resolve_production_python_runtime_binding(
+            root,
+            interpreter_redirector=python,
+        )
+    except Exception as exc:
+        raise SealError(str(exc)) from exc
+    python_sha256 = interpreter_binding["interpreter_redirector_sha256"]
+    pyvenv_config = Path(interpreter_binding["pyvenv_config"])
+    pyvenv_config_sha256 = interpreter_binding["pyvenv_config_sha256"]
+    runtime_process_image = Path(interpreter_binding["runtime_process_image"])
+    runtime_process_image_sha256 = interpreter_binding[
+        "runtime_process_image_sha256"
+    ]
     git_input = Path(str(production["git_executable"] or ""))
     if not git_input.is_absolute():
         raise SealError("production.git_executable must be absolute")
@@ -2349,6 +2470,7 @@ def _validate_spec(
             execution_host_id=execution_host_id,
             market_id=candidate["market_id"],
             market_timezone=candidate["market_timezone"],
+            interpreter_binding=interpreter_binding,
         )
         if stage == "stage1_dead_man":
             _validate_cancel_all_predecessor(
@@ -2365,6 +2487,7 @@ def _validate_spec(
                 execution_host_id=execution_host_id,
                 market_id=candidate["market_id"],
                 market_timezone=candidate["market_timezone"],
+                interpreter_binding=interpreter_binding,
             )
 
     return {
@@ -2378,6 +2501,11 @@ def _validate_spec(
             "commit": _require_git_oid(production["commit"], label="production.commit"),
             "tree": _require_git_oid(production["tree"], label="production.tree"),
             "python": str(python),
+            "python_sha256": python_sha256,
+            "pyvenv_config": str(pyvenv_config),
+            "pyvenv_config_sha256": pyvenv_config_sha256,
+            "runtime_process_image": str(runtime_process_image),
+            "runtime_process_image_sha256": runtime_process_image_sha256,
             "git_executable": str(git_executable),
             "git_executable_sha256": git_sha256,
             "canonical_origin_url": CANONICAL_ORIGIN_URL,
@@ -2617,10 +2745,29 @@ def seal_fixed_scope(
     )
     _validate_unsealed_template(python_template)
     runtime_scope = _runtime_scope(validated)
+    production_python = Path(validated["production"]["python"])
+    production_python_sha256 = validated["production"]["python_sha256"]
+    production_pyvenv_config = Path(
+        validated["production"]["pyvenv_config"]
+    )
+    production_pyvenv_config_sha256 = validated["production"][
+        "pyvenv_config_sha256"
+    ]
+    production_runtime_python = Path(
+        validated["production"]["runtime_process_image"]
+    )
+    production_runtime_python_sha256 = validated["production"][
+        "runtime_process_image_sha256"
+    ]
     wrapper_text = _render_python_wrapper(
         python_template,
         production_root=production_root,
-        production_python=Path(validated["production"]["python"]),
+        production_python=production_python,
+        production_python_sha256=production_python_sha256,
+        production_pyvenv_config=production_pyvenv_config,
+        production_pyvenv_config_sha256=production_pyvenv_config_sha256,
+        production_runtime_python=production_runtime_python,
+        production_runtime_python_sha256=production_runtime_python_sha256,
         scope=runtime_scope,
         source_sha256=validated["source_sha256"],
         stage=validated["stage"],
@@ -2630,7 +2777,12 @@ def seal_fixed_scope(
     launcher_text = _render_launcher(
         launcher_template,
         production_root=production_root,
-        production_python=Path(validated["production"]["python"]),
+        production_python=production_python,
+        production_python_sha256=production_python_sha256,
+        production_pyvenv_config=production_pyvenv_config,
+        production_pyvenv_config_sha256=production_pyvenv_config_sha256,
+        production_runtime_python=production_runtime_python,
+        production_runtime_python_sha256=production_runtime_python_sha256,
         wrapper_path=validated["outputs"]["python_wrapper"],
         wrapper_sha256=wrapper_sha256,
         workload=validated["scope"]["lease_workload"],
@@ -2717,7 +2869,12 @@ def seal_fixed_scope(
             "live_remote_master_ancestor": seal_git_facts[
                 "live_remote_master_ancestor"
             ],
-            "interpreter": validated["production"]["python"],
+            "interpreter_redirector": str(production_python),
+            "interpreter_redirector_sha256": production_python_sha256,
+            "pyvenv_config": str(production_pyvenv_config),
+            "pyvenv_config_sha256": production_pyvenv_config_sha256,
+            "runtime_process_image": str(production_runtime_python),
+            "runtime_process_image_sha256": production_runtime_python_sha256,
             "git_executable": validated["production"]["git_executable"],
             "git_executable_sha256": validated["production"][
                 "git_executable_sha256"
@@ -2781,6 +2938,18 @@ def seal_fixed_scope(
     ).encode("ascii")
 
     _recheck_before_write(validated, git_runner=git_runner)
+    if _sha256_file(production_python) != production_python_sha256:
+        raise SealError("production Python redirector changed before seal publication")
+    if (
+        _sha256_file(production_pyvenv_config)
+        != production_pyvenv_config_sha256
+    ):
+        raise SealError("production pyvenv config changed before seal publication")
+    if (
+        _sha256_file(production_runtime_python)
+        != production_runtime_python_sha256
+    ):
+        raise SealError("production Python process image changed before seal publication")
     if attempt_root_validator(
         Path(validated["scope"]["attempt_root"])
     ).get("status") != "PASS":
