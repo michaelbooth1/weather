@@ -98,7 +98,46 @@ SOURCE_FIELD_SPECS = {
         "unit": "mm",
     },
 }
-DEFAULT_SOURCE_FIELDS = tuple(SOURCE_FIELD_SPECS)
+
+# Direct probes and a complete 12-market staged corpus established that these
+# fields are available from the free Previous Runs endpoint with genuine
+# issue-time provenance.  The remaining schema-known fields are deliberately
+# excluded below: asking the corpus gate to require them made the honest PIT
+# lane impossible to satisfy and encouraged substitution from the stitched
+# settled archive.
+FREE_PIT_SOURCE_FIELDS = (
+    "temperature_2m",
+    "cloud_cover",
+    "shortwave_radiation",
+    "wind_speed_10m",
+    "cape",
+    "direct_radiation",
+    "diffuse_radiation",
+    "wind_gusts_10m",
+    "precipitation_probability",
+    "precipitation",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
+)
+UNAVAILABLE_PIT_SOURCE_FIELDS = {
+    "cloud_cover_low": "free Previous Runs responses are all-null",
+    "cloud_cover_mid": "free Previous Runs responses are all-null",
+    "cloud_cover_high": "free Previous Runs responses are all-null",
+    "visibility": "free Previous Runs responses are all-null",
+    "soil_temperature_0cm": "free Previous Runs responses are all-null",
+    "soil_moisture_0_to_1cm": "free Previous Runs responses are all-null",
+    "temperature_925hPa": "free Previous Runs endpoint rejects this field",
+    "temperature_850hPa": "free Previous Runs endpoint rejects this field",
+    "geopotential_height_500hPa": "free Previous Runs endpoint rejects this field",
+}
+DEFAULT_SOURCE_FIELDS = FREE_PIT_SOURCE_FIELDS
+
+if set(FREE_PIT_SOURCE_FIELDS) & set(UNAVAILABLE_PIT_SOURCE_FIELDS):
+    raise RuntimeError("PIT source-field availability contract overlaps")
+if set(FREE_PIT_SOURCE_FIELDS) | set(UNAVAILABLE_PIT_SOURCE_FIELDS) != set(
+    SOURCE_FIELD_SPECS
+):
+    raise RuntimeError("PIT source-field availability contract is incomplete")
 
 
 PROFILE_FEATURE_SOURCE_FIELDS = {
@@ -115,10 +154,6 @@ PROFILE_FEATURE_SOURCE_FIELDS = {
     "forecast_next_3h_solar_mean": ("shortwave_radiation",),
     "forecast_total_cloud_mean": ("cloud_cover",),
     "forecast_total_cloud_max": ("cloud_cover",),
-    "forecast_low_cloud_mean": ("cloud_cover_low",),
-    "forecast_low_cloud_max": ("cloud_cover_low",),
-    "forecast_mid_cloud_mean": ("cloud_cover_mid",),
-    "forecast_high_cloud_mean": ("cloud_cover_high",),
     "forecast_cloud_trend_3h": ("cloud_cover",),
     "forecast_remaining_direct_radiation_sum": ("direct_radiation",),
     "forecast_remaining_diffuse_radiation_sum": ("diffuse_radiation",),
@@ -140,29 +175,49 @@ PROFILE_FEATURE_SOURCE_FIELDS = {
     "forecast_remaining_cape_mean": ("cape",),
     "forecast_next_3h_cape_max": ("cape",),
     "forecast_cape_trend_3h": ("cape",),
-    "forecast_temperature_925hpa_mean": ("temperature_925hPa",),
-    "forecast_temperature_850hpa_mean": ("temperature_850hPa",),
-    "forecast_surface_to_925_lapse_proxy": (
-        "temperature_2m",
-        "temperature_925hPa",
-    ),
-    "forecast_925_to_850_lapse_proxy": (
-        "temperature_925hPa",
-        "temperature_850hPa",
-    ),
-    "forecast_geopotential_height_500hpa_mean": (
-        "geopotential_height_500hPa",
-    ),
     "forecast_wind_gust_max": ("wind_gusts_10m",),
-    "forecast_visibility_min": ("visibility",),
-    "forecast_soil_temperature_0cm_mean": ("soil_temperature_0cm",),
-    "forecast_soil_moisture_0_to_1cm_mean": ("soil_moisture_0_to_1cm",),
     "forecast_vapour_pressure_deficit_mean": ("vapour_pressure_deficit",),
     "forecast_et0_fao_evapotranspiration_sum": (
         "et0_fao_evapotranspiration",
     ),
 }
 EXCLUDED_PROFILE_FEATURES = {
+    "forecast_low_cloud_mean": (
+        "cloud_cover_low is unavailable from the free PIT endpoint"
+    ),
+    "forecast_low_cloud_max": (
+        "cloud_cover_low is unavailable from the free PIT endpoint"
+    ),
+    "forecast_mid_cloud_mean": (
+        "cloud_cover_mid is unavailable from the free PIT endpoint"
+    ),
+    "forecast_high_cloud_mean": (
+        "cloud_cover_high is unavailable from the free PIT endpoint"
+    ),
+    "forecast_temperature_925hpa_mean": (
+        "temperature_925hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_temperature_850hpa_mean": (
+        "temperature_850hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_surface_to_925_lapse_proxy": (
+        "temperature_925hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_925_to_850_lapse_proxy": (
+        "pressure-level temperatures are unavailable from the free PIT endpoint"
+    ),
+    "forecast_geopotential_height_500hpa_mean": (
+        "geopotential_height_500hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_visibility_min": (
+        "visibility is unavailable from the free PIT endpoint"
+    ),
+    "forecast_soil_temperature_0cm_mean": (
+        "soil_temperature_0cm is unavailable from the free PIT endpoint"
+    ),
+    "forecast_soil_moisture_0_to_1cm_mean": (
+        "soil_moisture_0_to_1cm is unavailable from the free PIT endpoint"
+    ),
     "forecast_remaining_aerosol_optical_depth_mean": "air-quality history is not in this endpoint contract",
     "forecast_next_3h_aerosol_optical_depth_mean": "air-quality history is not in this endpoint contract",
     "forecast_remaining_pm2_5_mean": "air-quality history is not in this endpoint contract",

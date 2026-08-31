@@ -9,10 +9,12 @@ from weather.calibration.forecast_training_contract import (
 from weather.sources.forecast_training_corpus import (
     CorpusVerificationError,
     DEFAULT_SOURCE_FIELDS,
+    FREE_PIT_SOURCE_FIELDS,
     PITForecastTrainingCorpus,
     MaterializationBlocked,
     PlanValidationError,
     StagingValidationError,
+    UNAVAILABLE_PIT_SOURCE_FIELDS,
     assert_training_only_publish_root,
     build_plan,
     materialize_corpus,
@@ -21,6 +23,36 @@ from weather.sources.forecast_training_corpus import (
     verify_corpus_manifest,
     write_immutable_plan,
 )
+
+
+def test_default_source_fields_are_the_proven_free_pit_surface():
+    assert DEFAULT_SOURCE_FIELDS == FREE_PIT_SOURCE_FIELDS
+    assert FREE_PIT_SOURCE_FIELDS == (
+        "temperature_2m",
+        "cloud_cover",
+        "shortwave_radiation",
+        "wind_speed_10m",
+        "cape",
+        "direct_radiation",
+        "diffuse_radiation",
+        "wind_gusts_10m",
+        "precipitation_probability",
+        "precipitation",
+        "vapour_pressure_deficit",
+        "et0_fao_evapotranspiration",
+    )
+    assert set(FREE_PIT_SOURCE_FIELDS).isdisjoint(UNAVAILABLE_PIT_SOURCE_FIELDS)
+    assert set(UNAVAILABLE_PIT_SOURCE_FIELDS) == {
+        "cloud_cover_low",
+        "cloud_cover_mid",
+        "cloud_cover_high",
+        "visibility",
+        "soil_temperature_0cm",
+        "soil_moisture_0_to_1cm",
+        "temperature_925hPa",
+        "temperature_850hPa",
+        "geopotential_height_500hPa",
+    }
 
 
 def _plan(tmp_path, *, markets=("toronto",), year=2021, target_year=2026, cutoffs=(10,)):
@@ -84,6 +116,7 @@ def test_plan_is_immutable_network_free_and_excludes_target_year(tmp_path):
     plan, path = _plan(tmp_path)
 
     assert plan["mode"] == "dry_run_no_network"
+    assert plan["schema_version"] == "pit_forecast_corpus_plan_v2"
     assert plan["network_authorized"] is False
     assert plan["provider_probe_authorized"] is False
     assert plan["years"] == [2021]
@@ -238,6 +271,7 @@ def test_complete_corpus_is_atomic_content_addressed_and_explicit(tmp_path):
     assert receipt["http_headers"] == {"etag": "fixture"}
     manifest_path = materialize_corpus(path, staging, publish)
     manifest = verify_corpus_manifest(manifest_path)
+    assert manifest["schema_version"] == "pit_forecast_corpus_manifest_v2"
     assert manifest_path.parent.name == manifest["corpus_id"]
     assert manifest["coverage"]["status"] == "complete"
     assert manifest["active_archive_pinned"] is True
@@ -251,6 +285,7 @@ def test_complete_corpus_is_atomic_content_addressed_and_explicit(tmp_path):
         required_cutoff_hours=[10],
     )
     assert preflight["status"] == "PASS"
+    assert preflight["schema_version"] == "pit_forecast_training_preflight_v2"
     assert preflight["compatibility_fallback_allowed"] is False
     assert preflight["manifest_file_sha256"]
     assert preflight["selection_row_count"] == 1

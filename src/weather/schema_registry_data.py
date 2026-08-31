@@ -2359,19 +2359,26 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("replay_inputs", "toronto_replay_inputs_v0.1", "weather.collection.snapshot_tracker", "active"),
     SchemaSpec(
         "weather_model_replay_identity",
-        "weather_model_replay_identity_v0.2",
+        "weather_model_replay_identity_v0.3",
         "weather.model.model_identity",
         "active",
-        "Process-bound model replay identity: import-time code_hash, in-memory loaded_code_hash, observed disk drift.",
-        supersedes=("weather_model_replay_identity_v0.1",),
+        "Process-bound replay identity over path-normalized loaded code, nested behavior constants, and loaded artifact state.",
+        supersedes=("weather_model_replay_identity_v0.2",),
         migration_notes=(
-            "v0.1 fingerprinted code from disk at capture time, so the recorded identity described the "
-            "filesystem rather than the running process; -09-75a/-09-76a measured the consequence (114/358 "
-            "snapshots reproduced their own recorded output; 0/63 identities rebuildable from Git). v0.2 "
-            "snapshots code_hash at import, adds loaded_code_hash over in-memory code objects, and reports "
-            "code_disk_drift without hashing it. v0.1 identity hashes are not comparable to v0.2 and must "
-            "not be pooled with them."
+            "v0.2 hashed raw marshalled code objects, whose recursive co_filename fields made identical "
+            "loaded behavior differ across worktree paths. It omitted nested module constants and kept "
+            "capture-time disk artifact_hash inside identity_hash. v0.3 normalizes code filenames, binds "
+            "function defaults/closures and canonical nested constants, and hashes the estimator and "
+            "postprocessor state held by the model. Disk code/artifact hashes remain diagnostics and do "
+            "not relabel an unchanged process. v0.1/v0.2 identities are not comparable to v0.3."
         ),
+    ),
+    SchemaSpec(
+        "weather_model_replay_identity_v0_2_legacy",
+        "weather_model_replay_identity_v0.2",
+        "weather.model.model_identity",
+        "legacy",
+        "Incomplete process identity with path-bearing raw code marshal and disk-at-capture artifact binding.",
     ),
     SchemaSpec(
         "weather_model_replay_identity_legacy",

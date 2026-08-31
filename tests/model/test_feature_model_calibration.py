@@ -1,7 +1,12 @@
+import hashlib
 import os
+import pickle
 import sys
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -22,6 +27,24 @@ class DummyImputer:
 
 
 class TestFeatureModelServingCalibration(unittest.TestCase):
+    def test_hgb_loader_retains_the_exact_successfully_loaded_bytes(self):
+        payload = {"12": {"model": "test-estimator", "feature_names": ["high_so_far"]}}
+        raw = pickle.dumps(payload)
+        model = TorontoHighTempModel()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "feature-model.pkl"
+            path.write_bytes(raw)
+            with mock.patch(
+                "weather.model.model_features.resolve_artifact_path", return_value=path
+            ):
+                loaded = model._read_feature_model_hgb()
+
+        self.assertEqual(loaded, payload)
+        self.assertEqual(
+            model._loaded_artifact_source_hashes["feature_hgb"],
+            {"sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)},
+        )
+
     def test_hgb_bundle_temperature_is_applied_at_serving(self):
         model = TorontoHighTempModel()
         model.extract_live_features = lambda sources, cutoff_hour, now=None: {

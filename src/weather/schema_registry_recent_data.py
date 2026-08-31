@@ -58,10 +58,24 @@ RECENT_REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "pit_forecast_corpus_plan",
-        "pit_forecast_corpus_plan_v1",
+        "pit_forecast_corpus_plan_v2",
         "weather.sources.forecast_training_corpus",
         "active",
-        "Immutable, network-free request plan for the training-only point-in-time forecast corpus.",
+        "Immutable, network-free request plan for the proved twelve-field free point-in-time forecast surface.",
+        supersedes=("pit_forecast_corpus_plan_v1",),
+        migration_notes=(
+            "v1 required nine fields that the free Previous Runs endpoint returns all-null or rejects. "
+            "v2 retains those schema-known fields as explicit unavailable dispositions and requests only "
+            "the twelve fields proved complete with issue-time provenance. Existing v1 plans remain immutable "
+            "historical evidence and cannot satisfy a v2 preflight."
+        ),
+    ),
+    SchemaSpec(
+        "pit_forecast_corpus_plan_v1_legacy",
+        "pit_forecast_corpus_plan_v1",
+        "weather.sources.forecast_training_corpus",
+        "legacy",
+        "Historical plan that required the unsatisfiable 21-field free-PIT surface.",
     ),
     SchemaSpec(
         "pit_forecast_staged_response",
@@ -93,17 +107,40 @@ RECENT_REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "pit_forecast_corpus_manifest",
-        "pit_forecast_corpus_manifest_v1",
+        "pit_forecast_corpus_manifest_v2",
         "weather.sources.forecast_training_corpus",
         "active",
-        "Content-addressed immutable manifest for a complete training-only PIT forecast corpus.",
+        "Content-addressed immutable manifest for the complete proved twelve-field training-only PIT corpus.",
+        supersedes=("pit_forecast_corpus_manifest_v1",),
+        migration_notes=(
+            "v2 binds the v2 plan's twelve available fields and explicit unavailable-feature dispositions; "
+            "v1 manifests remain immutable and are not upgraded in place."
+        ),
+    ),
+    SchemaSpec(
+        "pit_forecast_corpus_manifest_v1_legacy",
+        "pit_forecast_corpus_manifest_v1",
+        "weather.sources.forecast_training_corpus",
+        "legacy",
+        "Historical manifest bound to a v1 21-field corpus plan.",
     ),
     SchemaSpec(
         "pit_forecast_training_preflight",
-        "pit_forecast_training_preflight_v1",
+        "pit_forecast_training_preflight_v2",
         "weather.calibration.forecast_training_contract",
         "active",
-        "Self-hashed fail-closed preflight binding a retrain to an explicit PIT forecast corpus.",
+        "Self-hashed fail-closed preflight binding a retrain to an explicit v2 free-PIT forecast corpus.",
+        supersedes=("pit_forecast_training_preflight_v1",),
+        migration_notes=(
+            "v2 refuses a v1 manifest so the unavailable nine-field contract cannot be silently reinterpreted."
+        ),
+    ),
+    SchemaSpec(
+        "pit_forecast_training_preflight_v1_legacy",
+        "pit_forecast_training_preflight_v1",
+        "weather.calibration.forecast_training_contract",
+        "legacy",
+        "Historical preflight for v1 manifests; it cannot qualify the v2 twelve-field contract.",
     ),
     SchemaSpec(
         "maker_scoring_input_binding",

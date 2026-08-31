@@ -4,21 +4,21 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-08-31T02:29:43.120980+00:00
+Generated: 2026-08-31T22:15:48.280322+00:00
 Status: `OK`
 
 ## Summary
 
 | Metric | Value |
 | :--- | :--- |
-| Items | 323 |
-| Active items | 34 |
+| Items | 324 |
+| Active items | 35 |
 | OPEN | 4 |
-| PARTIAL | 30 |
+| PARTIAL | 31 |
 | COMPLETE | 289 |
-| ROADMAP rows | 323 |
-| ROADMAP primary rows | 323 |
-| Metadata manifest rows | 323 |
+| ROADMAP rows | 324 |
+| ROADMAP primary rows | 324 |
+| Metadata manifest rows | 324 |
 | Lint errors | 0 |
 
 ## Active Items
@@ -59,6 +59,7 @@ Status: `OK`
 | 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
+| 330 | PARTIAL | 2026-08-31 | IDENTITY V0.3 RESTACKED; FREE-PIT CONTRACT AND WORKSTATION QUALIFICATION OPEN | [Model Bill Of Materials, Loaded Identity, And PIT Challenger](items/item-330-model-bom-loaded-identity-and-pit-challenger.md) |
 
 ## Lint Issues
 

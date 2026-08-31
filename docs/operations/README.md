@@ -43,6 +43,7 @@ distillation and should be read before model, measurement, or research work.
 | --- | --- |
 | [STATE_OF_PLAY.md](STATE_OF_PLAY.md) | *What is happening right now?* — **read first** |
 | [Established Findings](ESTABLISHED_FINDINGS.md) | *What do we know?* — every measured result and interval |
+| [Weather Model System](MODEL_SYSTEM.md) | *How is a served model built, trained, identified, and evaluated?* |
 | [Retracted Claims And False Leads](RETRACTED_AND_FALSE_LEADS.md) | *What is false?* — withdrawn claims, and alarms that look real and are not |
 | [How We Get Things Wrong](HOW_WE_GET_THINGS_WRONG.md) | *What SHAPE do our mistakes take?* — five recurring patterns; read before designing a gate or trusting a green signal |
 | [Open Backlog](OPEN_BACKLOG.md) | *What is known-broken and unassigned?* — ranked, hand-kept |
