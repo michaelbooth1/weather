@@ -16,10 +16,11 @@ The claim boundary and frozen economics decision rule are preregistered in
 
 ## Current production disposition
 
-The fixed-scope Stage 0/1 sealer, session runner, process-local pinned SDK
-overlay, and interrupt-cleanup path are integrated production software. The
-portable execution-host extension remains an unmerged candidate, but an
-operator-authorized portable-only exception permits the exact reviewed branch
+The portable execution-host extension, fixed-scope Stage 0/1 sealer, session
+runner, process-local pinned SDK overlay, and interrupt-cleanup path are
+integrated production software. The stage-scoped gate redesign remains an
+unmerged candidate, and an operator-authorized portable-only exception permits
+the exact reviewed branch
 `codex/live-gate-provenance-20260831` to supply live code for
 `portable_execution_v1` before master adoption. Read the current exact branch
 tip, exact-head CI/review status, operator authorization, and production master
