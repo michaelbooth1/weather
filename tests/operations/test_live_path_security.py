@@ -506,9 +506,11 @@ try {
         $ownerToken = "win32-filetime:{0}" -f $self.StartTime.ToUniversalTime().ToFileTimeUtc()
     }
     finally { $self.Dispose() }
-    $code = 'import sys;from pathlib import Path;sys.path.insert(0,str(Path(sys.argv[1])/"src"));sys.path.append(sys.argv[2]);from weather.operations.live_path_security import validate_launcher_lease_process_lineage;r=validate_launcher_lease_process_lineage(lease_owner_pid=int(sys.argv[3]),lease_path=sys.argv[4],expected_owner_creation_time_token=sys.argv[5],expected_owner_executable=sys.argv[6],expected_pyvenv_config=sys.argv[7],expected_pyvenv_config_sha256=sys.argv[8],expected_redirector_executable=sys.argv[9],expected_redirector_sha256=sys.argv[10],expected_runtime_executable=sys.argv[11],expected_runtime_sha256=sys.argv[12]);raise SystemExit(0 if r["relationship"]=="single_sealed_python_redirector" else 9)'
+    $env:PYTHONPATH = @((Join-Path $Repo "src"), $SitePackages) -join `
+        [IO.Path]::PathSeparator
+    $code = 'import sys;from weather.operations.live_path_security import validate_launcher_lease_process_lineage;r=validate_launcher_lease_process_lineage(lease_owner_pid=int(sys.argv[3]),lease_path=sys.argv[4],expected_owner_creation_time_token=sys.argv[5],expected_owner_executable=sys.argv[6],expected_pyvenv_config=sys.argv[7],expected_pyvenv_config_sha256=sys.argv[8],expected_redirector_executable=sys.argv[9],expected_redirector_sha256=sys.argv[10],expected_runtime_executable=sys.argv[11],expected_runtime_sha256=sys.argv[12]);raise SystemExit(0 if r["relationship"]=="single_sealed_python_redirector" else 9)'
     $arguments = ConvertTo-WeatherWindowsArgumentString -Tokens @(
-        "-I", "-S", "-B", "-c", $code, $Repo, $SitePackages,
+        "-P", "-S", "-B", "-c", $code, $Repo, $SitePackages,
         [string]$PID, $leasePath, $ownerToken, $owner,
         $PyvenvConfig, $PyvenvConfigHash, $Python, $ExpectedHash,
         $RuntimePython, $RuntimeHash
