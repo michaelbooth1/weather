@@ -103,13 +103,50 @@ objects is also insufficient unless path-bearing fields such as
 normalized loaded code, nested behavior constants, loaded artifact state, and
 runtime dependency versions; import-time and current-disk hashes are diagnostic
 only. Historical v0.1/v0.2 identities are not comparable to v0.3. Never merge
-the superseded v0.2 implementation as built. Roadmap item 330 owns adoption and
-the remaining model bill of materials.
+the superseded v0.2 implementation as built. Roadmap item 330 owns current-tip
+qualification, production review, and guarded adoption of loaded-process
+identity v0.3 and the generated model-BOM contract.
 
 Historical served replay is impossible when the exact served bytes and inputs
 were not retained. In that case, label evidence honestly as a paired comparison
 inside one rebuilt environment; do not relabel it as reproduction of historical
 production output.
+
+### Generated release bill of materials
+
+Current-schema candidate freezes generate a
+`weather_model_bill_of_materials_v0.1` contract. It is a machine-verified
+serving-graph inventory, not a prose component list and not one invented global
+execution order. It records named semantic nodes and typed dependency edges,
+plus exact runtime-owned order for the `toronto_base_distribution` and
+`pooled_band_live_variant` lanes. Each node binds its stage ID, owner module,
+role, input/output semantics, native-unit and effective-cutoff obligations,
+owner-source and loaded-module evidence, and applicable artifact and
+training-lineage identities. The BOM separately binds release runtime and
+dependency identity. Serialized pooled/HGB estimators and JSON coefficient
+models additionally bind their exact stored feature order, fitted dimension,
+stable structural attributes, and any feature use exposed by fitted trees,
+coefficients, or importances. When learned use is not exposed, the BOM says so;
+it does not infer use from a feature name.
+
+The feature-extraction context explicitly includes `open_meteo_global_models`.
+The later distribution context explicitly omits it. Both source sets are
+separate named, hashed nodes; an undocumented collapse or source-set drift
+makes the BOM incomplete. Candidate-relative content-bound paths are required,
+and absolute/global artifact paths cannot yield an authoritative BOM.
+
+Freezing a production-capable candidate requires the current semantic schema
+and an exact `COMPLETE` BOM. Immutable-release verification revalidates the BOM
+against manifest runtime identity and exact repository source bytes before
+model-pickle deserialization. Serving then rechecks the pooled estimator and
+each release-bound HGB or coefficient model as it is materialized. The
+explicitly reviewed serving-identity bootstrap remains the sole non-production
+loader exception and is research-only/non-capital; other legacy or generic
+releases are integrity-audit-only and never production authority.
+Research-unbound output and a research child whose evidence has not been rebound
+carry a sorted `INCOMPLETE` disposition with no authoritative identity. A
+retrain regenerates the child BOM and cannot inherit the parent's artifact or
+fit identity.
 
 ## Training Lanes
 
@@ -205,9 +242,13 @@ For every candidate:
 
 The shortest credible path is:
 
-1. qualify the twelve-field PIT corpus contract and its provider-response export;
-2. run the supported base retrain as a correctness and seasonal-baseline test;
-3. build a generated model bill of materials and adopt loaded-process identity;
+1. qualify loaded-process identity v0.3, the twelve-field PIT contract, and the
+   generated model-BOM foundation through the full workstation suite, exact CI,
+   production review, and guarded adoption;
+2. implement and verify a production-host collector that consumes the immutable
+   v2 plan, then export, transfer, and build the complete content-addressed
+   non-secret corpus without a workstation provider call;
+3. run the supported base retrain as a correctness and seasonal-baseline test;
 4. qualify the full candidate and its inherited stages on the same untouched
    PIT surface, retiring stages that do not pay their way;
 5. fit the simple new-information challenger using the staged Previous Runs

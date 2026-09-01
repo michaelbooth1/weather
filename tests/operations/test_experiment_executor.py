@@ -735,7 +735,7 @@ def test_initial_serving_fingerprint_failure_blocks_before_claim(
     assert not any(candidate_root.iterdir())
     claim_root = candidate_root.parent / ".executor_claims"
     assert not claim_root.exists() or not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / "artifacts" / "candidates" / ".executor_runs"
     assert not scratch_root.exists()
 
 
@@ -758,7 +758,7 @@ def test_claim_write_failure_removes_partial_claim_and_empty_run_root(
     claim_root = candidate_root.parent / ".executor_claims"
     assert claim_root.is_dir()
     assert not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / "artifacts" / "candidates" / ".executor_runs"
     assert scratch_root.is_dir()
     assert not any(scratch_root.iterdir())
 
@@ -785,7 +785,7 @@ def test_terminal_write_interruption_releases_claim_and_preserves_scratch(
     claim_root = candidate_root.parent / ".executor_claims"
     assert claim_root.is_dir()
     assert not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / "artifacts" / "candidates" / ".executor_runs"
     assert scratch_root.is_dir()
     assert any(scratch_root.iterdir())
     assert not any(candidate_root.iterdir())

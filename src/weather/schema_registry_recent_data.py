@@ -782,10 +782,21 @@ RECENT_REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "release_semantic_contract",
-        "release_semantic_contract_v0.1",
+        "release_semantic_contract_v0.2",
         "weather.release_contract",
         "active",
-        "Immutable semantic inventory for model, calibration, routing, feature, settlement, and configuration inputs.",
+        "Immutable semantic inventory requiring a deterministic model bill of materials for new release authority.",
+        supersedes=("release_semantic_contract_v0.1",),
+        migration_notes=(
+            "v0.1 releases remain readable immutable evidence but cannot acquire new production serving authority without a v0.2 complete model BOM."
+        ),
+    ),
+    SchemaSpec(
+        "release_semantic_contract_v0_1_legacy",
+        "release_semantic_contract_v0.1",
+        "weather.release_contract",
+        "legacy",
+        "Historical semantic release inventory without a model bill of materials.",
     ),
     SchemaSpec(
         "candidate_input_leakage_audit",
@@ -849,6 +860,34 @@ RECENT_REGISTERED_SCHEMAS = (
         "weather.operations.release_candidate_contract",
         "active",
         "Complete release-bound per-market base-model and calibration serving graph.",
+    ),
+    SchemaSpec(
+        "model_bill_of_materials",
+        "weather_model_bill_of_materials_v0.1",
+        "weather.model.model_bom",
+        "active",
+        "Deterministic release-bound model, feature-order, estimator-structure, runtime, corpus, fit, constant, and forecast-context identity.",
+    ),
+    SchemaSpec(
+        "model_artifact_fit_receipt",
+        "model_artifact_fit_receipt_v0.1",
+        "weather.operations.release_candidate_contract",
+        "active",
+        "Artifact-specific training receipt binding fitted output bytes to an exact point-in-time partition.",
+    ),
+    SchemaSpec(
+        "verified_bundle_sidecar_projection",
+        "verified_bundle_sidecar_projection_v1",
+        "weather.operations.release_candidate_contract",
+        "active",
+        "Deterministic lineage contract for serving sidecars projected from a verified pooled model bundle.",
+    ),
+    SchemaSpec(
+        "verified_family_manifest_projection",
+        "verified_family_manifest_projection_v1",
+        "weather.operations.release_candidate_contract",
+        "active",
+        "Deterministic lineage contract for release roles projected from a verified family-secondary manifest.",
     ),
     SchemaSpec(
         "verified_release_pickle_binding",

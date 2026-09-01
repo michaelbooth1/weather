@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import weather.operations.release_promotion as release_promotion
+import weather.release_artifacts as release_artifacts
 from weather.artifacts import ReleaseArtifactVerificationError, resolve_verified_active_release
 from weather.operations.release_lifecycle import (
     MARKET_DAY_BOUNDARY_SCHEMA_VERSION,
@@ -30,10 +32,97 @@ from weather.operations.release_lifecycle import (
 )
 from weather.operations.release_lifecycle_cli import main as release_cli_main
 from weather.operations.release_manifest import canonical_payload_sha256
+from weather.release_contract import MODEL_BOM_SCHEMA_VERSION
 
 
 NOW = datetime(2026, 7, 11, 15, 0, tzinfo=timezone.utc)
 COMMIT = "a" * 40
+
+
+def _model_bom_with_source_rows(rows: list[dict]) -> dict:
+    return {
+        "evidence": {
+            "code_constants": {
+                "binding": {"source_files": rows},
+            }
+        }
+    }
+
+
+def test_model_bom_source_rows_bind_exact_repository_bytes(tmp_path: Path):
+    source = tmp_path / "src" / "weather" / "model" / "sample_owner.py"
+    source.parent.mkdir(parents=True)
+    source_bytes = b"OWNER_CONSTANT = 7\n"
+    source.write_bytes(source_bytes)
+    bom = _model_bom_with_source_rows(
+        [
+            {
+                "module": "weather.model.sample_owner",
+                "status": "COMPLETE",
+                "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                "bytes": len(source_bytes),
+            }
+        ]
+    )
+
+    release_artifacts._verify_model_bom_source_files(bom, repo_root=tmp_path)
+
+    bom["evidence"]["code_constants"]["binding"]["source_files"][0][
+        "sha256"
+    ] = "0" * 64
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="repository source hash mismatch",
+    ):
+        release_artifacts._verify_model_bom_source_files(bom, repo_root=tmp_path)
+
+
+def test_model_bom_source_rows_reject_redirected_paths(tmp_path: Path):
+    source = tmp_path / "src" / "weather" / "model" / "redirected_owner.py"
+    source.parent.mkdir(parents=True)
+    target = tmp_path / "outside.py"
+    source_bytes = b"OWNER_CONSTANT = 9\n"
+    target.write_bytes(source_bytes)
+    try:
+        source.symlink_to(target)
+    except (NotImplementedError, OSError):
+        pytest.skip("test host cannot create a file symlink")
+    bom = _model_bom_with_source_rows(
+        [
+            {
+                "module": "weather.model.redirected_owner",
+                "status": "COMPLETE",
+                "sha256": hashlib.sha256(source_bytes).hexdigest(),
+                "bytes": len(source_bytes),
+            }
+        ]
+    )
+
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="redirected or invalid",
+    ):
+        release_artifacts._verify_model_bom_source_files(bom, repo_root=tmp_path)
+
+
+def test_model_bom_source_rows_reject_module_path_escape(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    bom = _model_bom_with_source_rows(
+        [
+            {
+                "module": "weather.model...outside",
+                "status": "COMPLETE",
+                "sha256": "0" * 64,
+                "bytes": 0,
+            }
+        ]
+    )
+
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="source module name is invalid",
+    ):
+        release_artifacts._verify_model_bom_source_files(bom, repo_root=tmp_path)
 
 
 def code_identity(*, dirty: bool = False) -> dict:
@@ -188,6 +277,20 @@ def test_create_release_inventories_every_file_and_never_overwrites(tmp_path: Pa
     )
     assert verified["status"] == "PASS"
     assert verified["file_count"] == 4
+    assert verified["production_authority"] is False
+    assert verified["verification_scope"] == "integrity_audit_only"
+    assert verified["model_bill_of_materials_disposition"] == {
+        "schema_version": MODEL_BOM_SCHEMA_VERSION,
+        "status": "INCOMPLETE",
+        "missing_entries": [
+            "model_bill_of_materials",
+            "semantic_serving_contract",
+        ],
+        "authoritative_identity_sha256": None,
+        "disposition_only": True,
+        "authoritative_for_production": False,
+        "reason": "release has no semantic serving contract; integrity audit only",
+    }
     with pytest.raises(ReleaseLifecycleError, match="already exists"):
         build_release(tmp_path, "r1")
     assert (release_dir / RELEASE_MANIFEST_NAME).exists()
@@ -354,6 +457,8 @@ def test_atomic_promotion_active_resolution_and_one_command_rollback(tmp_path: P
         },
     )
     assert neutral["status"] == "PASS"
+    assert neutral["production_authority"] is False
+    assert neutral["verification_scope"] == "integrity_audit_only"
     assert neutral["release_id"] == "r1"
     assert neutral["manifest_sha256"] == r1["manifest_sha256"]
     assert neutral["pointer_sha256"] == first["pointer_sha256"]

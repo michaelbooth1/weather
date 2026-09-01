@@ -47,6 +47,7 @@ from weather.model.model_sources import SourceFetchMixin
 from weather.model.model_climatology import ClimatologyMixin
 from weather.model.model_distribution import DistributionMixin
 from weather.model.model_features import FeatureModelMixin
+from weather.model.model_identity import LOADED_SOURCE_BINDING_MARKER
 from weather.model.model_presentation import PresentationMixin
 from weather.model.calibration_runtime import (
     load_afternoon_residual_centering,
@@ -194,6 +195,26 @@ class TorontoHighTempModel(
             )
         self._bound_base_model_components = components
         self._bound_base_model_shared_components = shared
+        feature_component = (
+            self.serving_bundle.base_model_graph.get("markets", {})
+            .get(self.market_id, {})
+            .get("components", {})
+            .get("feature_hgb", {})
+        )
+        feature_role = str(feature_component.get("role") or "")
+        feature_sha256 = self.serving_bundle.artifact_hashes.get(feature_role)
+        if not feature_role or not feature_sha256:
+            raise ReleaseServingBindingError(
+                f"active release lacks the loaded HGB source binding for {self.market_id!r}"
+            )
+        self._loaded_artifact_source_hashes = {
+            "feature_hgb": {
+                "sha256": str(feature_sha256),
+                "size": None,
+                "binding": LOADED_SOURCE_BINDING_MARKER,
+                "object_id": id(components["feature_hgb"]),
+            }
+        }
         self._feature_model_hgb = components["feature_hgb"]
         self._feature_model_coefs = components["feature_lr_coefficients"]
         self._late_day_model_coefs = components["late_day_lr_coefficients"]

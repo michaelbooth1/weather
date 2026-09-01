@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import math
 import os
@@ -15,27 +16,64 @@ from pathlib import Path
 from typing import Any
 
 from weather.model.feature_safety import audit_recursive_model_inputs
+from weather.model.model_bom import (
+    MODEL_BOM_COMPLETE,
+    ModelBomError,
+    build_model_bill_of_materials,
+    canonical_payload_sha256 as bom_payload_sha256,
+    coefficient_model_mapping,
+    required_training_roles,
+    stable_release_runtime_identity,
+    verify_model_bill_of_materials,
+)
+from weather.model.model_bom_contracts import (
+    RUNTIME_LANE_CONTRACTS,
+    SERVING_STAGE_CONTRACTS,
+)
+from weather.model.model_contracts import FORECAST_CONTEXT_SOURCE_ROLES
+from weather.model.model_identity import (
+    IDENTITY_SCHEMA_VERSION as MODEL_IDENTITY_SCHEMA_VERSION,
+    loaded_module_fingerprints,
+    runtime_dependency_identity,
+)
 from weather.point_in_time_contract import (
     ContractViolation as PointInTimeContractViolation,
     verify_embedded_point_in_time_training_evidence,
     verify_point_in_time_selection_binding,
     verify_production_point_in_time_artifacts,
 )
-from weather.release_artifacts import ReleaseArtifactVerificationError, sha256_file, strict_json_loads
+from weather.release_artifacts import (
+    ReleaseArtifactVerificationError,
+    capture_runtime_versions,
+    sha256_file,
+    strict_json_loads,
+)
 from weather.release_contract import (
     BASE_MODEL_MARKET_COMPONENT_KINDS,
     BASE_MODEL_SERVING_GRAPH_SCHEMA_VERSION,
     BASE_MODEL_SHARED_COMPONENT_ROLES,
     CANDIDATE_LEAKAGE_AUDIT_SCHEMA_VERSION,
     CANDIDATE_MODES,
+    MODEL_BOM_ROLE_KINDS,
     PRODUCTION_CANDIDATE_MODE,
     PRODUCTION_POINT_IN_TIME_ROLE_KINDS,
     RESEARCH_ONLY_CANDIDATE_MODE,
     SEMANTIC_CONTRACT_SCHEMA_VERSION,
     SEMANTIC_SERVING_ROLE_KINDS,
 )
+from weather.runtime_identity import get_runtime_identity
 from weather.schema_registry import schema_version
 
+
+MODEL_ARTIFACT_FIT_RECEIPT_SCHEMA_VERSION = schema_version(
+    "model_artifact_fit_receipt"
+)
+VERIFIED_BUNDLE_SIDECAR_PROJECTION_VERSION = schema_version(
+    "verified_bundle_sidecar_projection"
+)
+VERIFIED_FAMILY_MANIFEST_PROJECTION_VERSION = schema_version(
+    "verified_family_manifest_projection"
+)
 
 SEMANTIC_PATHS = {
     "model_variant_registry": "contract/model_variant_registry.json",
@@ -44,6 +82,7 @@ SEMANTIC_PATHS = {
     "markets_config": "contract/markets.json",
     "market_route_table": "contract/market_route_table.json",
     "base_model_serving_graph": "contract/base_model_serving_graph.json",
+    "model_bill_of_materials": "contract/model_bill_of_materials.json",
     "pooled_feature_schema": "contract/pooled_feature_schema.json",
     "pooled_imputer_metadata": "contract/pooled_imputer_metadata.json",
     "pooled_calibrator_metadata": "contract/pooled_calibrator_metadata.json",
@@ -75,6 +114,7 @@ INTERNALLY_HASHED_ROLES = {
     "settlement_rules",
     "training_evaluation_corpus",
     "candidate_input_leakage_audit",
+    "model_bill_of_materials",
 }
 
 
@@ -289,7 +329,9 @@ def _base_model_source_components(repo_root: Path, market_id: str) -> dict[str, 
     }
 
 
-def _pickle_feature_contract(path: Path, *, expected_sha256: str, label: str) -> dict[str, Any]:
+def _pickle_feature_contract(
+    path: Path, *, expected_sha256: str, label: str
+) -> tuple[dict[str, Any], Mapping[str, Any]]:
     try:
         with path.open("rb") as handle:
             payload = pickle.load(handle)  # noqa: S301 - copied, hash-verified repository artifact
@@ -307,11 +349,16 @@ def _pickle_feature_contract(path: Path, *, expected_sha256: str, label: str) ->
     )
     if not feature_names:
         raise CandidateContractError(f"{label} contains no feature-name contract")
-    return {
-        "model_input_fields": feature_names,
-        "feature_names_sha256": hashlib.sha256("\n".join(feature_names).encode("utf-8")).hexdigest(),
-        "feature_count": len(feature_names),
-    }
+    return (
+        {
+            "model_input_fields": feature_names,
+            "feature_names_sha256": hashlib.sha256(
+                "\n".join(feature_names).encode("utf-8")
+            ).hexdigest(),
+            "feature_count": len(feature_names),
+        },
+        payload,
+    )
 
 
 def _family_secondary_output_role(entry: Mapping[str, Any]) -> str:
@@ -338,6 +385,7 @@ def _freeze_base_model_serving_graph(
     role_paths: dict[str, str] = {}
     role_kinds: dict[str, str] = {}
     audit_payloads: dict[str, Any] = {}
+    model_nodes: dict[str, Mapping[str, Any]] = {}
     markets: dict[str, Any] = {}
     for market_id in sorted({str(value) for value in market_ids if str(value)}):
         components: dict[str, Any] = {}
@@ -351,11 +399,13 @@ def _freeze_base_model_serving_graph(
                 artifact_sha = sha256_file(destination)
             else:
                 artifact_sha = _copy_file_exclusive(source, destination, label=role)
-                audit_payloads[role] = _pickle_feature_contract(
+                pickle_contract, pickle_payload = _pickle_feature_contract(
                     destination,
                     expected_sha256=artifact_sha,
                     label=role,
                 )
+                audit_payloads[role] = pickle_contract
+                model_nodes[role] = pickle_payload
             role_paths[role] = relative
             role_kinds[role] = kind
             components[component] = {
@@ -507,6 +557,7 @@ def _freeze_base_model_serving_graph(
         "role_paths": role_paths,
         "role_kinds": role_kinds,
         "audit_payloads": audit_payloads,
+        "model_nodes": model_nodes,
     }
 
 
@@ -607,6 +658,377 @@ def _bundle_sidecars(bundle: Mapping[str, Any], bundle_sha256: str) -> dict[str,
         "pooled_postprocessor_metadata": postprocessor,
     }
 
+
+def _bom_complete_evidence(payload: Mapping[str, Any]) -> dict[str, Any]:
+    safe = _json_safe(payload)
+    return {
+        "status": MODEL_BOM_COMPLETE,
+        "identity_sha256": bom_payload_sha256(safe),
+        "binding": safe,
+    }
+
+
+def _bom_evidence(
+    payload: Mapping[str, Any], *, missing_entries: Sequence[str]
+) -> dict[str, Any]:
+    evidence = _bom_complete_evidence(payload)
+    normalized_missing = sorted(set(str(value) for value in missing_entries))
+    if normalized_missing:
+        evidence["status"] = "INCOMPLETE"
+        evidence["missing_entries"] = normalized_missing
+    return evidence
+
+
+def _finalize_bom_lineage(payload: Mapping[str, Any]) -> dict[str, Any]:
+    safe = _json_safe(payload)
+    safe["identity_sha256"] = bom_payload_sha256(safe)
+    return safe
+
+
+def _verified_model_bom_training_receipts(
+    artifact_registry: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    raw_receipts = artifact_registry.get("model_bom_training_receipts") or {}
+    if not isinstance(raw_receipts, Mapping):
+        raise CandidateContractError(
+            "artifact registry model-BOM training receipts must be a mapping"
+        )
+    receipts: dict[str, dict[str, Any]] = {}
+    for raw_role, raw in sorted(raw_receipts.items(), key=lambda item: str(item[0])):
+        role = str(raw_role)
+        if not isinstance(raw, Mapping) or role in receipts:
+            raise CandidateContractError(
+                f"model-BOM training receipt is malformed or duplicated: {role!r}"
+            )
+        receipt = _json_safe(raw)
+        receipt_sha = str(receipt.get("receipt_sha256") or "")
+        expected_sha = bom_payload_sha256(
+            receipt,
+            omit=("receipt_sha256",),
+        )
+        if (
+            receipt.get("schema_version") != MODEL_ARTIFACT_FIT_RECEIPT_SCHEMA_VERSION
+            or receipt.get("artifact_role") != role
+            or not _SHA256_RE.fullmatch(receipt_sha)
+            or receipt_sha != expected_sha
+            or not _SHA256_RE.fullmatch(
+                str(receipt.get("output_content_sha256") or "")
+            )
+            or not _SHA256_RE.fullmatch(
+                str(receipt.get("partition_sha256") or "")
+            )
+            or not isinstance(receipt.get("row_count"), int)
+            or receipt.get("row_count") <= 0
+        ):
+            raise CandidateContractError(
+                f"model-BOM training receipt is invalid: {role!r}"
+            )
+        receipts[role] = receipt
+    return receipts
+
+
+def _build_candidate_model_bom(
+    *,
+    artifact_rows: Mapping[str, Mapping[str, Any]],
+    bundle: Mapping[str, Any],
+    base_graph_info: Mapping[str, Any],
+    base_graph: Mapping[str, Any],
+    corpus: Mapping[str, Any],
+    artifact_registry: Mapping[str, Any],
+    repo_root: Path,
+) -> dict[str, Any]:
+    runtime_versions = capture_runtime_versions(repo_root)
+    final_refit = ((corpus.get("corpus_lineage") or {}).get("final_refit") or {})
+    embedded = (
+        verify_embedded_point_in_time_training_evidence(bundle)
+        if isinstance(bundle.get("point_in_time_training"), Mapping)
+        else {}
+    )
+    final_receipt = embedded.get("final_fit_receipt") or {}
+
+    code_constants = base_graph.get("code_constant_components") or {}
+    source_modules = tuple(
+        sorted(
+            {str(row["owner_module"]) for row in SERVING_STAGE_CONTRACTS}
+            | {str(row["runtime_owner"]) for row in RUNTIME_LANE_CONTRACTS}
+            | {
+                "weather.market.market_config",
+                "weather.model.model_constants",
+                "weather.model.model_contracts",
+            }
+        )
+    )
+    source_files: list[dict[str, Any]] = []
+    for module_name in source_modules:
+        module = importlib.import_module(module_name)
+        expected = repo_root.joinpath("src", *module_name.split(".")).with_suffix(".py")
+        actual_value = getattr(module, "__file__", None)
+        actual = Path(str(actual_value or ""))
+        if (
+            not actual_value
+            or not expected.is_file()
+            or expected.is_symlink()
+            or not actual.is_file()
+            or actual.is_symlink()
+            or actual.resolve() != expected.resolve()
+        ):
+            raise CandidateContractError(
+                "model BOM owner module is not loaded from the exact candidate "
+                f"repository source: {module_name}"
+            )
+        source_files.append(
+            {
+                "module": module_name,
+                "status": MODEL_BOM_COMPLETE,
+                "sha256": sha256_file(expected),
+                "bytes": expected.stat().st_size,
+            }
+        )
+
+    loaded_modules = loaded_module_fingerprints(source_modules)
+    compact_loaded = [
+        {
+            "module": str(row.get("module") or ""),
+            "status": str(row.get("status") or ""),
+            "sha256": str(row.get("sha256") or ""),
+        }
+        for row in loaded_modules
+    ]
+    code_binding = {
+        "identity_schema_version": MODEL_IDENTITY_SCHEMA_VERSION,
+        "components": code_constants,
+        "behavior_constants_sha256": bom_payload_sha256(code_constants),
+        "source_files": source_files,
+        "source_file_count": len(source_files),
+        "source_fingerprint": bom_payload_sha256({"source_files": source_files}),
+        "loaded_modules": loaded_modules,
+        "loaded_code_hash": bom_payload_sha256(
+            {"loaded_modules": compact_loaded}
+        ),
+        "binding_policy": "exact_repo_source_and_loaded_process_required",
+    }
+    code_identity = _bom_complete_evidence(code_binding)
+
+    runtime_missing = [
+        f"direct_dependencies.{name}.version"
+        for name, row in sorted(
+            (runtime_versions.get("direct_dependencies") or {}).items()
+        )
+        if not isinstance(row, Mapping) or not row.get("version")
+    ]
+    runtime_binding = {
+        "release_runtime_versions": runtime_versions,
+        "release_runtime_identity": stable_release_runtime_identity(
+            get_runtime_identity(repo_root)
+        ),
+        "model_runtime_dependency_identity": runtime_dependency_identity(),
+    }
+    runtime_evidence = _bom_evidence(
+        runtime_binding,
+        missing_entries=runtime_missing,
+    )
+
+    model_nodes = {
+        "pooled_band_model": bundle.get("models") or {},
+        **dict(base_graph_info.get("model_nodes") or {}),
+    }
+    for role, payload in sorted((base_graph_info.get("audit_payloads") or {}).items()):
+        if str(role).endswith(
+            (".feature_lr_coefficients", ".late_day_lr_coefficients")
+        ):
+            model_nodes[str(role)] = coefficient_model_mapping(payload)
+
+    required_lineage = required_training_roles(artifact_rows)
+    fit_receipts = _verified_model_bom_training_receipts(artifact_registry)
+    pooled_role = "pooled_band_model"
+    pooled_artifact = artifact_rows.get(pooled_role) or {}
+    corpus_artifact = artifact_rows.get("training_evaluation_corpus") or {}
+    if embedded:
+        direct = _finalize_bom_lineage(
+            {
+                "status": MODEL_BOM_COMPLETE,
+                "disposition": "direct_fit_output",
+                "artifact_role": pooled_role,
+                "artifact_sha256": pooled_artifact.get("sha256"),
+                "corpus_binding": {
+                    "artifact_role": "training_evaluation_corpus",
+                    "artifact_sha256": corpus_artifact.get("sha256"),
+                    "partition": "final_refit",
+                    "partition_sha256": final_refit.get("sha256"),
+                    "row_count": final_refit.get("row_count"),
+                },
+                "fit_binding": {
+                    "evidence_sha256": embedded.get("evidence_sha256"),
+                    "receipt_schema_version": final_receipt.get("schema_version"),
+                    "receipt_sha256": final_receipt.get("receipt_sha256"),
+                    "output_binding_kind": "artifact_content_sha256",
+                    "output_content_sha256": pooled_artifact.get("sha256"),
+                    "model_payload_sha256": final_receipt.get(
+                        "model_payload_sha256"
+                    ),
+                    "partition_sha256": final_refit.get("sha256"),
+                    "row_count": final_refit.get("row_count"),
+                },
+                "missing_entries": [],
+            }
+        )
+    else:
+        direct = _finalize_bom_lineage(
+            {
+                "status": "INCOMPLETE",
+                "disposition": "missing",
+                "artifact_role": pooled_role,
+                "artifact_sha256": pooled_artifact.get("sha256"),
+                "missing_entries": ["candidate_bound_evidence"],
+            }
+        )
+    lineage: dict[str, dict[str, Any]] = {}
+    if pooled_role in required_lineage:
+        lineage[pooled_role] = direct
+
+    pooled_derivatives = {
+        "pooled_feature_schema",
+        "pooled_imputer_metadata",
+        "pooled_calibrator_metadata",
+        "pooled_postprocessor_metadata",
+    }
+    family_derivative_prefix = "family_secondary_output."
+    for role in sorted(required_lineage):
+        if role == pooled_role:
+            continue
+        artifact = artifact_rows.get(role) or {}
+        if role in pooled_derivatives and direct["status"] == MODEL_BOM_COMPLETE:
+            derivation = {
+                "artifact_role": role,
+                "artifact_sha256": artifact.get("sha256"),
+                "parent_artifact_role": pooled_role,
+                "parent_artifact_sha256": pooled_artifact.get("sha256"),
+                "derivation_contract": VERIFIED_BUNDLE_SIDECAR_PROJECTION_VERSION,
+            }
+            lineage[role] = _finalize_bom_lineage(
+                {
+                    "status": MODEL_BOM_COMPLETE,
+                    "disposition": "deterministic_derivative",
+                    "artifact_role": role,
+                    "artifact_sha256": artifact.get("sha256"),
+                    "parent_binding": {
+                        "artifact_role": pooled_role,
+                        "artifact_sha256": pooled_artifact.get("sha256"),
+                        "lineage_identity_sha256": direct[
+                            "identity_sha256"
+                        ],
+                    },
+                    "derivation_sha256": bom_payload_sha256(derivation),
+                    "missing_entries": [],
+                }
+            )
+        elif role.startswith(family_derivative_prefix) and isinstance(
+            lineage.get("family_secondary_calibration"), Mapping
+        ) and lineage["family_secondary_calibration"].get("status") == MODEL_BOM_COMPLETE:
+            parent = lineage["family_secondary_calibration"]
+            derivation = {
+                "artifact_role": role,
+                "artifact_sha256": artifact.get("sha256"),
+                "parent_artifact_role": "family_secondary_calibration",
+                "parent_artifact_sha256": parent.get("artifact_sha256"),
+                "derivation_contract": VERIFIED_FAMILY_MANIFEST_PROJECTION_VERSION,
+            }
+            lineage[role] = _finalize_bom_lineage(
+                {
+                    "status": MODEL_BOM_COMPLETE,
+                    "disposition": "deterministic_derivative",
+                    "artifact_role": role,
+                    "artifact_sha256": artifact.get("sha256"),
+                    "parent_binding": {
+                        "artifact_role": "family_secondary_calibration",
+                        "artifact_sha256": parent.get("artifact_sha256"),
+                        "lineage_identity_sha256": parent.get("identity_sha256"),
+                    },
+                    "derivation_sha256": bom_payload_sha256(derivation),
+                    "missing_entries": [],
+                }
+            )
+        elif role in fit_receipts:
+            receipt = fit_receipts[role]
+            if (
+                receipt.get("output_content_sha256") != artifact.get("sha256")
+                or receipt.get("partition_sha256") != final_refit.get("sha256")
+                or receipt.get("row_count") != final_refit.get("row_count")
+            ):
+                raise CandidateContractError(
+                    f"model-BOM training receipt does not bind candidate state: {role!r}"
+                )
+            lineage[role] = _finalize_bom_lineage(
+                {
+                    "status": MODEL_BOM_COMPLETE,
+                    "disposition": "direct_fit_output",
+                    "artifact_role": role,
+                    "artifact_sha256": artifact.get("sha256"),
+                    "corpus_binding": {
+                        "artifact_role": "training_evaluation_corpus",
+                        "artifact_sha256": corpus_artifact.get("sha256"),
+                        "partition": "final_refit",
+                        "partition_sha256": final_refit.get("sha256"),
+                        "row_count": final_refit.get("row_count"),
+                    },
+                    "fit_binding": {
+                        "evidence_sha256": receipt.get("evidence_sha256"),
+                        "receipt_schema_version": receipt.get("schema_version"),
+                        "receipt_sha256": receipt.get("receipt_sha256"),
+                        "output_binding_kind": "artifact_content_sha256",
+                        "output_content_sha256": artifact.get("sha256"),
+                        "partition_sha256": final_refit.get("sha256"),
+                        "row_count": final_refit.get("row_count"),
+                    },
+                    "missing_entries": [],
+                }
+            )
+        else:
+            lineage[role] = _finalize_bom_lineage(
+                {
+                    "status": "INCOMPLETE",
+                    "disposition": "missing",
+                    "artifact_role": role,
+                    "artifact_sha256": artifact.get("sha256"),
+                    "missing_entries": ["candidate_bound_evidence"],
+                }
+            )
+
+    forecast_contexts = {
+        name: _bom_complete_evidence(
+            {
+                "implementation": (
+                    "weather.model.model_features:"
+                    "FeatureModelMixin.forecast_ensemble_for_context"
+                    if name == "feature_extraction_forecast_ensemble"
+                    else (
+                        "weather.model.model_distribution:"
+                        "DistributionMixin._estimate_distribution"
+                    )
+                ),
+                "runtime_contract_owner": "weather.model.model_contracts",
+                "runtime_contract_symbol": "FORECAST_CONTEXT_SOURCE_ROLES",
+                "source_roles": list(FORECAST_CONTEXT_SOURCE_ROLES[name]),
+                "input_semantic_contract": (
+                    "cutoff-safe forecast payloads selected by runtime context"
+                ),
+                "output_semantic_contract": (
+                    "forecast summary for the named runtime context"
+                ),
+                "native_unit_obligation": "market native settlement unit",
+                "cutoff_obligation": "effective cutoff only",
+            }
+        )
+        for name in sorted(FORECAST_CONTEXT_SOURCE_ROLES)
+    }
+    return build_model_bill_of_materials(
+        artifacts=artifact_rows,
+        model_nodes=model_nodes,
+        code_constants=code_identity,
+        runtime_dependencies=runtime_evidence,
+        training_lineage=lineage,
+        forecast_contexts=forecast_contexts,
+    )
 
 def _route_table(
     *,
@@ -1167,6 +1589,7 @@ def _verify_base_model_graph(
         set(required_role_kinds)
         - set(SEMANTIC_SERVING_ROLE_KINDS)
         - set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS)
+        - set(MODEL_BOM_ROLE_KINDS)
     )
     if dynamic_roles != expected_dynamic_roles:
         raise CandidateContractError("base model dynamic role inventory is incomplete")
@@ -1249,6 +1672,33 @@ def verify_candidate_semantic_contract(candidate_dir: str | Path) -> dict[str, A
             sidecar = _read_json(path, label=role)
             _verify_payload_hash(sidecar, label=role)
             sidecars[role] = sidecar
+    model_bom = sidecars.get("model_bill_of_materials")
+    if not isinstance(model_bom, Mapping):
+        raise CandidateContractError("candidate model bill of materials is missing")
+    bom_artifacts = model_bom.get("artifacts")
+    expected_bom_roles = set(artifacts) - {
+        "candidate_input_leakage_audit",
+        "model_bill_of_materials",
+    }
+    if (
+        not isinstance(bom_artifacts, Mapping)
+        or set(bom_artifacts) != expected_bom_roles
+    ):
+        raise CandidateContractError(
+            "candidate model BOM artifact inventory is incomplete or ambiguous"
+        )
+    try:
+        verify_model_bill_of_materials(
+            model_bom,
+            expected_artifacts={
+                role: artifacts[role] for role in sorted(expected_bom_roles)
+            },
+            production_required=production_capable is True,
+        )
+    except ModelBomError as exc:
+        raise CandidateContractError(
+            f"candidate model bill of materials failed verification: {exc}"
+        ) from exc
     _verify_component_sidecars(sidecars)
     _verify_base_model_graph(
         graph=sidecars["base_model_serving_graph"],
@@ -1431,6 +1881,7 @@ def freeze_candidate_semantic_contract(
     point_in_time_artifacts: Mapping[str, str | Path] | None = None,
     research_corpus_lineage: Mapping[str, Any] | None = None,
     research_corpus_lineage_provenance: Mapping[str, Any] | None = None,
+    code_repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Freeze configs/sidecars, persist leakage evidence, and verify exact PASS."""
 
@@ -1645,7 +2096,6 @@ def freeze_candidate_semantic_contract(
         "base_model_serving_graph": base_graph,
         **base_graph_info["audit_payloads"],
     }
-    scan = audit_recursive_model_inputs(audit_payloads)
     input_roles = {
         "pooled_band_model": model_path,
         "family_secondary_calibration": Path(family_secondary_path).resolve(),
@@ -1661,6 +2111,45 @@ def freeze_candidate_semantic_contract(
         },
         **frozen_point_in_time_paths,
     }
+    pre_bom_role_kinds = {
+        **SEMANTIC_SERVING_ROLE_KINDS,
+        **base_graph_info["role_kinds"],
+        **(
+            PRODUCTION_POINT_IN_TIME_ROLE_KINDS
+            if mode == PRODUCTION_CANDIDATE_MODE
+            else {}
+        ),
+    }
+    bom_artifact_rows = {}
+    for role, path in sorted(input_roles.items()):
+        if path.is_symlink() or not path.exists() or not path.is_file():
+            raise CandidateContractError(
+                f"semantic contract input is missing or invalid: {role}: {path}"
+            )
+        bom_artifact_rows[role] = {
+            "path": path.relative_to(root).as_posix(),
+            "kind": pre_bom_role_kinds[role],
+            "sha256": sha256_file(path),
+            "bytes": path.stat().st_size,
+        }
+    model_bom = _build_candidate_model_bom(
+        artifact_rows=bom_artifact_rows,
+        bundle=bundle,
+        base_graph_info=base_graph_info,
+        base_graph=base_graph,
+        corpus=corpus,
+        artifact_registry=artifact_registry,
+        repo_root=Path(code_repo_root or repo_root).resolve(),
+    )
+    if mode == PRODUCTION_CANDIDATE_MODE and model_bom["status"] != MODEL_BOM_COMPLETE:
+        raise CandidateContractError(
+            "production candidate model BOM is incomplete: "
+            + ", ".join(model_bom["missing_entries"])
+        )
+    bom_path = root / SEMANTIC_PATHS["model_bill_of_materials"]
+    _write_json_exclusive(bom_path, model_bom)
+    input_roles["model_bill_of_materials"] = bom_path
+    scan = audit_recursive_model_inputs(audit_payloads)
     input_hashes = []
     for role, path in sorted(input_roles.items()):
         if path.is_symlink() or not path.exists() or not path.is_file():
@@ -1706,6 +2195,7 @@ def freeze_candidate_semantic_contract(
         "pooled_band_model": model_path.relative_to(root).as_posix(),
         "family_secondary_calibration": Path(family_secondary_path).resolve().relative_to(root).as_posix(),
         "artifact_registry": Path(artifact_registry_path).resolve().relative_to(root).as_posix(),
+        "model_bill_of_materials": SEMANTIC_PATHS["model_bill_of_materials"],
         **{
             role: SEMANTIC_PATHS[role]
             for role in SEMANTIC_SERVING_ROLE_KINDS
@@ -1726,6 +2216,7 @@ def freeze_candidate_semantic_contract(
     }
     required_role_kinds = {
         **SEMANTIC_SERVING_ROLE_KINDS,
+        **MODEL_BOM_ROLE_KINDS,
         **base_graph_info["role_kinds"],
         **(
             PRODUCTION_POINT_IN_TIME_ROLE_KINDS

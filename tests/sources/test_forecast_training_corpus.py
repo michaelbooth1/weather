@@ -1,3 +1,4 @@
+import hashlib
 import json
 from datetime import date
 
@@ -20,9 +21,31 @@ from weather.sources.forecast_training_corpus import (
     materialize_corpus,
     resume_ledger,
     stage_response,
+    verify_plan,
     verify_corpus_manifest,
     write_immutable_plan,
 )
+
+
+def _payload_hash(payload):
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _self_hash(payload, field):
+    body = dict(payload)
+    body.pop(field, None)
+    return _payload_hash(body)
+
+
+def _file_sha256(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def test_default_source_fields_are_the_proven_free_pit_surface():
@@ -124,6 +147,10 @@ def test_plan_is_immutable_network_free_and_excludes_target_year(tmp_path):
     assert plan["target_year_excluded"] is True
     assert plan["source_fields"] == list(DEFAULT_SOURCE_FIELDS)
     assert all(request["year"] != 2026 for request in plan["requests"])
+    for request in plan["requests"]:
+        requested_fields = [row["source_field"] for row in request["variables"]]
+        assert requested_fields == list(DEFAULT_SOURCE_FIELDS)
+        assert set(requested_fields).isdisjoint(UNAVAILABLE_PIT_SOURCE_FIELDS)
 
     changed = dict(plan)
     changed["planned_at_utc"] = "2026-01-02T00:00:00+00:00"
@@ -141,6 +168,19 @@ def test_plan_is_immutable_network_free_and_excludes_target_year(tmp_path):
     )
     with pytest.raises(PlanValidationError, match="different content"):
         write_immutable_plan(path, other)
+
+
+def test_rehashed_legacy_plan_schema_is_rejected(tmp_path):
+    plan, _ = _plan(tmp_path)
+    legacy = dict(plan)
+    legacy["schema_version"] = "pit_forecast_corpus_plan_v1"
+    legacy["plan_sha256"] = _self_hash(legacy, "plan_sha256")
+
+    with pytest.raises(
+        PlanValidationError,
+        match="unsupported PIT forecast plan schema",
+    ):
+        verify_plan(legacy)
 
 
 def test_zero_rows_are_failed_and_never_resume_as_complete(tmp_path):
@@ -308,6 +348,83 @@ def test_complete_corpus_is_atomic_content_addressed_and_explicit(tmp_path):
 
     with pytest.raises(MaterializationBlocked, match="overwrite refused"):
         materialize_corpus(path, staging, publish)
+
+
+def test_rehashed_legacy_manifest_schema_is_rejected(tmp_path):
+    plan, path = _plan(tmp_path)
+    staging = tmp_path / "staging"
+    _stage_valid(path, staging, plan["requests"][0])
+    manifest_path = materialize_corpus(path, staging, tmp_path / "training")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = "pit_forecast_corpus_manifest_v1"
+    manifest["manifest_sha256"] = _self_hash(manifest, "manifest_sha256")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        CorpusVerificationError,
+        match="unsupported PIT forecast corpus manifest schema",
+    ):
+        verify_corpus_manifest(manifest_path)
+
+
+def test_rehashed_manifest_semantics_must_still_equal_the_plan(tmp_path):
+    plan, path = _plan(tmp_path)
+    staging = tmp_path / "staging"
+    _stage_valid(path, staging, plan["requests"][0])
+    manifest_path = materialize_corpus(path, staging, tmp_path / "training")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source_fields"] = manifest["source_fields"][:-1]
+    manifest["manifest_sha256"] = _self_hash(manifest, "manifest_sha256")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(
+        CorpusVerificationError,
+        match="source_fields differs from the plan",
+    ):
+        verify_corpus_manifest(manifest_path)
+
+
+@pytest.mark.parametrize(
+    "issue_kind",
+    ["empty", "stitched", "stitched_continuous_archive"],
+)
+def test_rehashed_daily_issue_evidence_cannot_pass_preflight(tmp_path, issue_kind):
+    plan, path = _plan(tmp_path)
+    staging = tmp_path / "staging"
+    _stage_valid(path, staging, plan["requests"][0])
+    manifest_path = materialize_corpus(path, staging, tmp_path / "training")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    daily_path = manifest_path.parent / "forecast_daily.jsonl"
+    row = json.loads(daily_path.read_text(encoding="utf-8").strip())
+    row["issue_evidence_kind"] = issue_kind
+    row["derived_row_sha256"] = _self_hash(row, "derived_row_sha256")
+    daily_path.write_text(
+        json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    manifest["files"]["forecast_daily.jsonl"] = {
+        "sha256": _file_sha256(daily_path),
+        "byte_count": daily_path.stat().st_size,
+    }
+    identity = {
+        "plan_sha256": manifest["plan_sha256"],
+        "files": manifest["files"],
+        "hourly_rows": manifest["row_counts"]["hourly"],
+        "daily_rows": manifest["row_counts"]["daily"],
+        "coverage_rows": manifest["row_counts"]["coverage"],
+    }
+    manifest["corpus_id"] = _payload_hash(identity)
+    manifest["manifest_sha256"] = _self_hash(manifest, "manifest_sha256")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert verify_corpus_manifest(manifest_path)["corpus_id"] == manifest["corpus_id"]
+    with pytest.raises(CorpusVerificationError, match="accepted issue evidence"):
+        preflight_pit_forecast_training_corpus(
+            manifest_path,
+            required_market_ids=["toronto"],
+            required_years=[2021],
+            required_cutoff_hours=[10],
+        )
 
 
 def test_reader_preserves_fahrenheit_native_values_and_exposes_celsius(tmp_path):

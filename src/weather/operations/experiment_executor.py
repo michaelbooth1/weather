@@ -1755,8 +1755,16 @@ def _execute_one_impl(
         [root / "artifacts" / "releases" / release_id],
         repo_root=root,
     )
+    # Keep the same-volume staging root shallow.  The verified candidate path is
+    # reproduced below ``workspace`` so the former candidate-local scratch root
+    # duplicated that path and pushed the atomic result tempfile beyond legacy
+    # Windows MAX_PATH even for short repository roots.  ``artifacts/candidates``
+    # is already the ignored mutable candidate store, and the UUID keeps runs
+    # isolated across candidates while preserving the atomic directory rename.
     run_root = (
-        experiments_root
+        root
+        / "artifacts"
+        / "candidates"
         / ".executor_runs"
         / f"{manifest['manifest_sha256'][:16]}-{uuid.uuid4().hex}"
     )

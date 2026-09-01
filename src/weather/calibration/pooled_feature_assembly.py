@@ -89,7 +89,10 @@ from weather.calibration.forecast_training_contract import (
     FORECAST_RELATIVE_MARINE_FIELDS,
     preflight_pit_forecast_training_corpus,
 )
-from weather.sources.forecast_training_corpus import PITForecastTrainingCorpus
+from weather.sources.forecast_training_corpus import (
+    EXCLUDED_PROFILE_FEATURES,
+    PITForecastTrainingCorpus,
+)
 from weather.sources.forecast_training_variants import ForecastTrainingVariantResolver
 from weather.units import round_half_up
 
@@ -153,7 +156,7 @@ DENSITY_SHAPE_TUNING_CANDIDATES = (
     },
 )
 FORECAST_PROFILE_ALLOWED_BASE_COLUMNS = {
-    *FORECAST_FEATURE_COLUMNS,
+    *(set(FORECAST_FEATURE_COLUMNS) - set(EXCLUDED_PROFILE_FEATURES)),
     "latitude",
     "longitude",
     "coastal",

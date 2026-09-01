@@ -25,6 +25,7 @@ from weather.point_in_time_contract import (
     verify_point_in_time_selection_binding,
     verify_production_point_in_time_artifacts,
 )
+from weather.paths import REPO_ROOT
 from weather.release_artifacts import load_active_release_pointer, verify_release
 from weather.release_contract import SEMANTIC_SERVING_ROLE_KINDS
 from weather.release_contract import (
@@ -87,6 +88,10 @@ def _write_base_model_fixture(repo: Path, market_id: str = "nyc") -> dict[str, P
             {
                 "12": {
                     "feature_names": ["forecast_high", "high_so_far"],
+                    "model": {
+                        "n_features_in_": 2,
+                        "feature_names_in_": ["forecast_high", "high_so_far"],
+                    },
                     "fixture_component": "feature_hgb",
                 }
             },
@@ -94,6 +99,20 @@ def _write_base_model_fixture(repo: Path, market_id: str = "nyc") -> dict[str, P
         )
     for component, path in paths.items():
         if component == "feature_hgb":
+            continue
+        if component in {"feature_lr_coefficients", "late_day_lr_coefficients"}:
+            _write_json(
+                path,
+                {
+                    "fixture_component": component,
+                    "12": {
+                        "feature_names": ["forecast_high", "high_so_far"],
+                        "coef": [1.0, 0.0],
+                        "classes": [0, 1],
+                        "fixture_component": component,
+                    }
+                },
+            )
             continue
         _write_json(
             path,
@@ -161,6 +180,13 @@ def _fixture(tmp_path: Path, *, leaking_registry: bool = False) -> dict:
             "8": {
                 "feature_schema_version": "toronto_feature_store_v1.6",
                 "feature_names": ["forecast_high", "band_mid_minus_forecast"],
+                "model": {
+                    "n_features_in_": 2,
+                    "feature_names_in_": [
+                        "forecast_high",
+                        "band_mid_minus_forecast",
+                    ],
+                },
                 "imputer": {"statistics": [80.0, 0.0]},
                 "temperature": 1.0,
             }
@@ -232,6 +258,7 @@ def _freeze(
         family_unit="F",
         candidate_mode=candidate_mode,
         point_in_time_artifacts=point_in_time_artifacts,
+        code_repo_root=REPO_ROOT,
     )
 
 
@@ -772,6 +799,66 @@ def _production_evidence(
     _write_json(paths["family"], family_payload)
     calibration_sha = pit_sha256_file(paths["family"])
 
+    receipt_paths = {
+        "base_model.nyc.feature_hgb": paths["base_artifacts"]["feature_hgb"],
+        "base_model.nyc.feature_lr_coefficients": paths["base_artifacts"][
+            "feature_lr_coefficients"
+        ],
+        "base_model.nyc.late_day_lr_coefficients": paths["base_artifacts"][
+            "late_day_lr_coefficients"
+        ],
+        "base_model.nyc.calibrated_weights": paths["base_artifacts"][
+            "calibrated_weights"
+        ],
+        "base_model.nyc.probability_calibration": paths["base_artifacts"][
+            "probability_calibration"
+        ],
+        "base_model.nyc.forecast_error_model": paths["base_artifacts"][
+            "forecast_error_model"
+        ],
+        "base_model.nyc.settlement_lag_model": paths["base_artifacts"][
+            "settlement_lag_model"
+        ],
+        "base_model.shared.afternoon_residual_centering": paths[
+            "base_artifacts"
+        ]["afternoon_residual_centering"],
+        "family_secondary_calibration": paths["family"],
+    }
+    training_receipts = {}
+    for role, artifact_path in sorted(receipt_paths.items()):
+        if artifact_path.suffix.casefold() == ".json" and role != "family_secondary_calibration":
+            canonical_candidate_bytes = (
+                json.dumps(
+                    json.loads(artifact_path.read_text(encoding="utf-8")),
+                    indent=2,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+            output_sha256 = hashlib.sha256(canonical_candidate_bytes).hexdigest()
+        else:
+            output_sha256 = pit_sha256_file(artifact_path)
+        receipt = {
+            "schema_version": "model_artifact_fit_receipt_v0.1",
+            "artifact_role": role,
+            "output_content_sha256": output_sha256,
+            "partition_sha256": "3" * 64,
+            "row_count": 30,
+            "evidence_sha256": embedded_training_evidence["evidence_sha256"],
+        }
+        receipt["receipt_sha256"] = sha256_text(canonical_json(receipt))
+        training_receipts[role] = receipt
+    _write_json(
+        paths["registry"],
+        {
+            "schema_version": "artifact_registry_v0.1",
+            "artifacts": [],
+            "model_bom_training_receipts": training_receipts,
+        },
+    )
+
     routing_binding = _fixture_selection_binding(
         stage="routing",
         preselection_hash=preselection_hash,
@@ -1024,9 +1111,24 @@ def test_candidate_contract_freezes_all_roles_and_release_reverifies_internal_ha
 
     assert frozen["status"] == "PASS"
     assert frozen["audit"]["status"] == "PASS"
+    model_bom = json.loads(
+        (
+            paths["candidate"] / SEMANTIC_PATHS["model_bill_of_materials"]
+        ).read_text(encoding="utf-8")
+    )
+    assert model_bom["status"] == "INCOMPLETE"
+    assert model_bom["authoritative_identity_sha256"] is None
+    assert any(
+        entry.startswith("training_lineage.base_model.nyc.feature_hgb")
+        for entry in model_bom["missing_entries"]
+    )
+    assert model_bom["model_nodes"]["base_model.nyc.feature_hgb"]["models"][
+        "12"
+    ]["feature_names"] == ["forecast_high", "high_so_far"]
     declared_roles = {row["role"] for row in frozen["declarations"]}
     assert set(SEMANTIC_SERVING_ROLE_KINDS) <= declared_roles
     assert declared_roles - set(SEMANTIC_SERVING_ROLE_KINDS) == {
+        "model_bill_of_materials",
         "base_model.nyc.feature_hgb",
         "base_model.nyc.feature_lr_coefficients",
         "base_model.nyc.late_day_lr_coefficients",
@@ -1043,22 +1145,19 @@ def test_candidate_contract_freezes_all_roles_and_release_reverifies_internal_ha
         route=frozen["route"],
         expected_live_runtimes=["snapshot_loop"],
         releases_root=tmp_path / "releases",
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         code_identity={
             "git_commit": "a" * 40,
             "git_branch": "main",
             "git_dirty": False,
             "dirty_fingerprint": None,
         },
-        runtime_versions={
-            "python": "3.13.0",
-            "implementation": "CPython",
-            "platform": "test",
-            "direct_dependencies": {
-                "scikit-learn": {"version": "1.7.0", "declared": "scikit-learn"}
-            },
-        },
-        runtime_identity={"source_fingerprint": "source", "git_commit": "a" * 40},
+        runtime_versions=model_bom["evidence"]["runtime_dependencies"]["binding"][
+            "release_runtime_versions"
+        ],
+        runtime_identity=model_bom["evidence"]["runtime_dependencies"]["binding"][
+            "release_runtime_identity"
+        ],
     )
     verified = verify_release(result["release_dir"], check_runtime=False)
 
@@ -1066,6 +1165,7 @@ def test_candidate_contract_freezes_all_roles_and_release_reverifies_internal_ha
     assert verified["semantic_contract"]["status"] == "PASS"
     assert verified["semantic_contract"]["candidate_mode"] == "research_only"
     assert verified["semantic_contract"]["production_capable"] is False
+    assert verified["semantic_contract"]["model_bill_of_materials_verified"] is True
     assert verified["semantic_contract"]["role_count"] == len(frozen["declarations"])
     with pytest.raises(ReleaseLifecycleError, match="research-only release"):
         promote_release(
@@ -1074,19 +1174,13 @@ def test_candidate_contract_freezes_all_roles_and_release_reverifies_internal_ha
             market_day_boundary={},
             releases_root=tmp_path / "releases",
             pointer_path=tmp_path / "releases" / "current_release.json",
-            repo_root=paths["repo"],
-            current_runtime_versions={
-                "python": "3.13.0",
-                "implementation": "CPython",
-                "platform": "test",
-                "direct_dependencies": {
-                    "scikit-learn": {"version": "1.7.0", "declared": "scikit-learn"}
-                },
-            },
-            current_runtime_identity={
-                "source_fingerprint": "source",
-                "git_commit": "a" * 40,
-            },
+            repo_root=REPO_ROOT,
+            current_runtime_versions=model_bom["evidence"]["runtime_dependencies"][
+                "binding"
+            ]["release_runtime_versions"],
+            current_runtime_identity=model_bom["evidence"]["runtime_dependencies"][
+                "binding"
+            ]["release_runtime_identity"],
             current_code_identity={
                 "git_commit": "a" * 40,
                 "git_branch": "main",
@@ -1126,23 +1220,14 @@ def test_candidate_contract_freezes_all_roles_and_release_reverifies_internal_ha
         market_day_boundary=market_day_boundary,
         releases_root=tmp_path / "releases",
         pointer_path=tmp_path / "releases" / "current_release.json",
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         now=promotion_now,
-        current_runtime_versions={
-            "python": "3.13.0",
-            "implementation": "CPython",
-            "platform": "test",
-            "direct_dependencies": {
-                "scikit-learn": {
-                    "version": "1.7.0",
-                    "declared": "scikit-learn",
-                }
-            },
-        },
-        current_runtime_identity={
-            "source_fingerprint": "source",
-            "git_commit": "a" * 40,
-        },
+        current_runtime_versions=model_bom["evidence"]["runtime_dependencies"][
+            "binding"
+        ]["release_runtime_versions"],
+        current_runtime_identity=model_bom["evidence"]["runtime_dependencies"][
+            "binding"
+        ]["release_runtime_identity"],
         current_code_identity={
             "git_commit": "a" * 40,
             "git_branch": "main",
@@ -1288,22 +1373,27 @@ def test_production_candidate_freezes_and_release_reverifies_point_in_time_graph
         route=frozen["route"],
         expected_live_runtimes=["snapshot_loop"],
         releases_root=tmp_path / "releases",
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         code_identity={
             "git_commit": "a" * 40,
             "git_branch": "main",
             "git_dirty": False,
             "dirty_fingerprint": None,
         },
-        runtime_versions={
-            "python": "3.13.0",
-            "implementation": "CPython",
-            "platform": "test",
-            "direct_dependencies": {
-                "scikit-learn": {"version": "1.7.0", "declared": "scikit-learn"}
-            },
-        },
-        runtime_identity={"source_fingerprint": "source", "git_commit": "a" * 40},
+        runtime_versions=json.loads(
+            (
+                paths["candidate"] / SEMANTIC_PATHS["model_bill_of_materials"]
+            ).read_text(encoding="utf-8")
+        )["evidence"]["runtime_dependencies"]["binding"][
+            "release_runtime_versions"
+        ],
+        runtime_identity=json.loads(
+            (
+                paths["candidate"] / SEMANTIC_PATHS["model_bill_of_materials"]
+            ).read_text(encoding="utf-8")
+        )["evidence"]["runtime_dependencies"]["binding"][
+            "release_runtime_identity"
+        ],
     )
 
     verified = verify_release(result["release_dir"], check_runtime=False)

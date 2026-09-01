@@ -1416,6 +1416,8 @@ def verify_corpus_manifest(manifest_path):
         raise CorpusVerificationError("corpus manifest self-hash mismatch")
     if manifest.get("corpus_role") != "training_only":
         raise CorpusVerificationError("corpus role is not training_only")
+    if manifest.get("active_archive_pinned") is not True:
+        raise CorpusVerificationError("active forecast archive is not pinned")
     if manifest.get("target_year_excluded") is not True:
         raise CorpusVerificationError("target-year exclusion is not asserted")
     if int(manifest.get("target_year") or 0) in [int(year) for year in manifest.get("years") or []]:
@@ -1447,8 +1449,29 @@ def verify_corpus_manifest(manifest_path):
     plan = load_plan(manifest_path.parent / "plan.json")
     if plan["plan_sha256"] != manifest.get("plan_sha256"):
         raise CorpusVerificationError("published plan does not match corpus manifest")
-    if plan["consumer_dispositions"] != manifest.get("consumer_dispositions"):
-        raise CorpusVerificationError("manifest consumer dispositions differ from the plan")
+    for field in (
+        "target_year",
+        "years",
+        "market_ids",
+        "cutoff_hours_local",
+        "source_fields",
+        "issue_contract",
+        "normalizer_version",
+        "consumer_dispositions",
+    ):
+        if manifest.get(field) != plan.get(field):
+            raise CorpusVerificationError(f"manifest {field} differs from the plan")
+    if manifest.get("target_year_excluded") != plan.get("target_year_excluded"):
+        raise CorpusVerificationError("manifest target-year exclusion differs from the plan")
+    publication = manifest.get("publication") or {}
+    plan_publication = plan.get("publication_contract") or {}
+    for field in ("content_addressed", "atomic", "in_place_overwrite_allowed"):
+        if publication.get(field) != plan_publication.get(field):
+            raise CorpusVerificationError(f"manifest publication {field} differs from the plan")
+    if manifest.get("daily_path_discoverable") != plan_publication.get(
+        "active_archive_discoverable"
+    ):
+        raise CorpusVerificationError("manifest archive discoverability differs from the plan")
     try:
         exclusions = json.loads(
             (manifest_path.parent / "exclusions.json").read_text(encoding="utf-8")
@@ -1461,6 +1484,14 @@ def verify_corpus_manifest(manifest_path):
     if any(int(row_counts.get(kind) or 0) <= 0 for kind in ("hourly", "daily", "coverage")):
         raise CorpusVerificationError("corpus row counts must all be positive")
     coverage = manifest.get("coverage") or {}
+    plan_summary = plan.get("summary") or {}
+    for field in (
+        "expected_market_dates",
+        "expected_market_date_cutoffs",
+        "expected_field_date_cutoff_cells",
+    ):
+        if int(coverage.get(field) or -1) != int(plan_summary.get(field) or -2):
+            raise CorpusVerificationError(f"manifest coverage {field} differs from the plan")
     if int(coverage.get("coverage_rows") or 0) != int(row_counts["coverage"]):
         raise CorpusVerificationError("coverage receipt row count differs from manifest")
     if int(coverage.get("expected_market_date_cutoffs") or 0) != int(row_counts["daily"]):

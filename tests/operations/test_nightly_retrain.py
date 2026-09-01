@@ -30,6 +30,8 @@ from weather.operations.nightly_retrain import (  # noqa: E402
 from weather.operations.point_in_time_staging_receipt import (
     write_staging_receipt,
 )
+from weather.paths import REPO_ROOT
+from weather.release_artifacts import verify_release
 from tests.operations.test_experiment_contract import materialized_manifest
 from weather.operations.release_candidate_contract import verify_candidate_semantic_contract
 from weather.reporting.validation.point_in_time_evaluation import (
@@ -60,14 +62,16 @@ from weather.reporting.promotion.promotion_corpus import (
 )
 
 
-def _write_base_model_fixture(root: Path, market_id: str = "nyc") -> None:
+def _base_model_fixture_paths(
+    root: Path,
+    market_id: str = "nyc",
+) -> dict[str, Path]:
     suffix = "" if market_id == "toronto" else f"_{market_id}"
     artifacts = root / "artifacts"
-    hgb = artifacts / "models" / "hgb" / f"feature_model_hgb{suffix}.pkl"
-    hgb.parent.mkdir(parents=True, exist_ok=True)
-    with hgb.open("wb") as handle:
-        pickle.dump({"12": {"feature_names": ["forecast_high", "high_so_far"]}}, handle)
-    json_paths = {
+    return {
+        "feature_hgb": (
+            artifacts / "models" / "hgb" / f"feature_model_hgb{suffix}.pkl"
+        ),
         "feature_lr_coefficients": (
             artifacts / "models" / "coefs" / f"feature_model_coefs{suffix}.json"
         ),
@@ -88,12 +92,133 @@ def _write_base_model_fixture(root: Path, market_id: str = "nyc") -> None:
             artifacts / "misc" / "afternoon_residual_centering.json"
         ),
     }
-    for component, path in json_paths.items():
+
+
+def _write_base_model_fixture(root: Path, market_id: str = "nyc") -> None:
+    paths = _base_model_fixture_paths(root, market_id)
+    paths["feature_hgb"].parent.mkdir(parents=True, exist_ok=True)
+    feature_names = ["forecast_high", "high_so_far"]
+    with paths["feature_hgb"].open("wb") as handle:
+        pickle.dump(
+            {
+                "12": {
+                    "feature_names": feature_names,
+                    "model": {
+                        "n_features_in_": len(feature_names),
+                        "feature_names_in_": feature_names,
+                    },
+                    "fixture_component": "feature_hgb",
+                }
+            },
+            handle,
+        )
+    for component, path in paths.items():
+        if component == "feature_hgb":
+            continue
         path.parent.mkdir(parents=True, exist_ok=True)
+        if component in {"feature_lr_coefficients", "late_day_lr_coefficients"}:
+            payload = {
+                "fixture_component": component,
+                "12": {
+                    "feature_names": feature_names,
+                    "coef": [1.0, 0.0],
+                    "classes": [0, 1],
+                    "fixture_component": component,
+                },
+            }
+        else:
+            payload = {
+                "schema_version": f"{component}_fixture_v0.1",
+                "fixture_component": component,
+                "market_id": (
+                    market_id
+                    if component != "afternoon_residual_centering"
+                    else "shared"
+                ),
+            }
         path.write_text(
-            json.dumps({"fixture_component": component, "market_id": market_id}),
+            json.dumps(payload),
             encoding="utf-8",
         )
+
+
+def _write_production_training_receipt_registry(
+    *,
+    root: Path,
+    registry_path: Path,
+    family_secondary_path: Path,
+    pooled_band_path: Path,
+) -> None:
+    base_paths = _base_model_fixture_paths(root)
+    receipt_paths = {
+        "base_model.nyc.feature_hgb": base_paths["feature_hgb"],
+        "base_model.nyc.feature_lr_coefficients": base_paths[
+            "feature_lr_coefficients"
+        ],
+        "base_model.nyc.late_day_lr_coefficients": base_paths[
+            "late_day_lr_coefficients"
+        ],
+        "base_model.nyc.calibrated_weights": base_paths["calibrated_weights"],
+        "base_model.nyc.probability_calibration": base_paths[
+            "probability_calibration"
+        ],
+        "base_model.nyc.forecast_error_model": base_paths[
+            "forecast_error_model"
+        ],
+        "base_model.nyc.settlement_lag_model": base_paths[
+            "settlement_lag_model"
+        ],
+        "base_model.shared.afternoon_residual_centering": base_paths[
+            "afternoon_residual_centering"
+        ],
+        "family_secondary_calibration": family_secondary_path,
+    }
+    with pooled_band_path.open("rb") as handle:
+        pooled_band = pickle.load(handle)
+    final_refit = pooled_band["corpus_lineage"]["final_refit"]
+    training_evidence_sha256 = pooled_band["point_in_time_training"][
+        "evidence_sha256"
+    ]
+    receipts = {}
+    for role, artifact_path in sorted(receipt_paths.items()):
+        if (
+            artifact_path.suffix.casefold() == ".json"
+            and role != "family_secondary_calibration"
+        ):
+            canonical_candidate_bytes = (
+                json.dumps(
+                    json.loads(artifact_path.read_text(encoding="utf-8")),
+                    indent=2,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                )
+                + "\n"
+            ).encode("utf-8")
+            output_sha256 = hashlib.sha256(canonical_candidate_bytes).hexdigest()
+        else:
+            output_sha256 = point_in_time_sha256_file(artifact_path)
+        receipt = {
+            "schema_version": "model_artifact_fit_receipt_v0.1",
+            "artifact_role": role,
+            "output_content_sha256": output_sha256,
+            "partition_sha256": final_refit["sha256"],
+            "row_count": final_refit["row_count"],
+            "evidence_sha256": training_evidence_sha256,
+        }
+        receipt["receipt_sha256"] = sha256_text(canonical_json(receipt))
+        receipts[role] = receipt
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "artifact_registry_v0.1",
+                "artifacts": [],
+                "model_bom_training_receipts": receipts,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _args(tmp, *extra):
@@ -901,15 +1026,14 @@ class TestNightlyRetrain(unittest.TestCase):
         self.assertEqual(manifest["release_id"], "test-nightly")
         self.assertEqual(manifest["state"], "IMMUTABLE_CANDIDATE")
         self.assertEqual(manifest["code"]["git_dirty"], False)
-        self.assertEqual(manifest["artifacts"]["file_count"], 26)
-        self.assertEqual(
-            {
-                row["role"]: row["kind"]
-                for row in manifest["artifacts"]["inventory"]
-                if row["declared"]
-            }["semantic_serving_contract"],
-            "contract",
-        )
+        self.assertEqual(manifest["artifacts"]["file_count"], 27)
+        declared_roles = {
+            row["role"]: row["kind"]
+            for row in manifest["artifacts"]["inventory"]
+            if row["declared"]
+        }
+        self.assertEqual(declared_roles["semantic_serving_contract"], "contract")
+        self.assertEqual(declared_roles["model_bill_of_materials"], "contract")
         self.assertFalse(pointer_exists)
         self.assertIn("MANUAL_POINTER_ONLY", report)
 
@@ -1136,6 +1260,14 @@ class TestNightlyRetrain(unittest.TestCase):
                     with artifact_path.open("wb") as handle:
                         pickle.dump(artifact, handle)
                     return {"returncode": 0, "stdout": "trained", "stderr": ""}
+                if "weather.artifacts" in command and "registry" in command:
+                    _write_production_training_receipt_registry(
+                        root=root,
+                        registry_path=Path(command[command.index("--out") + 1]),
+                        family_secondary_path=Path(args.family_secondary_out),
+                        pooled_band_path=Path(args.pooled_band_artifact),
+                    )
+                    return {"returncode": 0, "stdout": "registered", "stderr": ""}
                 return _materializing_runner(command, **kwargs)
 
             def computed_candidate_day(_args, _manifest, folder, _artifact, **_kwargs):
@@ -1166,9 +1298,16 @@ class TestNightlyRetrain(unittest.TestCase):
                     "replay_results": {"corpus_warnings": []},
                 }
 
+            def verify_fixture_release(release_dir, **kwargs):
+                kwargs["repo_root"] = REPO_ROOT
+                return verify_release(release_dir, **kwargs)
+
             with patch(
                 "weather.calibration.pooled_candidate_replay._compute_pooled_candidate_day",
                 side_effect=computed_candidate_day,
+            ), patch(
+                "weather.operations.release_bootstrap.verify_release",
+                side_effect=verify_fixture_release,
             ):
                 payload, _status, _report = run_nightly_retrain(
                     args,

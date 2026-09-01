@@ -16,6 +16,7 @@ from weather.experiment_contract import finalize_self_hash, verify_self_hash
 from weather.io import write_json_atomic
 from weather.market.market_config import config_for_date
 from weather.model.model_contracts import DistributionResult
+from weather.paths import REPO_ROOT
 from weather.release_artifacts import (
     ReleaseArtifactVerificationError,
     canonical_payload_sha256,
@@ -421,7 +422,7 @@ def test_honest_generation_is_self_hashed_and_comparator_passes_then_blocks_tamp
         tmp_path / "release-fixture",
         functional=True,
     )
-    bundle = _load(pointer, releases, paths["repo"])
+    bundle = _load(pointer, releases, REPO_ROOT)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     target_date = now.date()
     source_paths, expected_metadata = _write_honest_market_day(
@@ -443,7 +444,7 @@ def test_honest_generation_is_self_hashed_and_comparator_passes_then_blocks_tamp
         replay_out=replay_out,
         pointer_path=pointer,
         releases_root=releases,
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         check_runtime=False,
         now=now,
         model_factory=CapturedReplayModel,
@@ -662,7 +663,7 @@ def test_generator_does_not_publish_pair_that_exact_persisted_comparator_blocks(
         tmp_path / "release-fixture",
         functional=True,
     )
-    bundle = _load(pointer, releases, paths["repo"])
+    bundle = _load(pointer, releases, REPO_ROOT)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     source_paths, _expected_metadata = _write_honest_market_day(
         tmp_path / "snapshots",
@@ -691,7 +692,7 @@ def test_generator_does_not_publish_pair_that_exact_persisted_comparator_blocks(
             replay_out=replay_out,
             pointer_path=pointer,
             releases_root=releases,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
             now=now,
             model_factory=CapturedReplayModel,
@@ -712,7 +713,7 @@ def test_authenticated_generation_time_is_primary_freshness_and_must_match(
         tmp_path / "release-fixture",
         functional=True,
     )
-    bundle = _load(pointer, releases, paths["repo"])
+    bundle = _load(pointer, releases, REPO_ROOT)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     source_paths, _expected_metadata = _write_honest_market_day(
         tmp_path / "snapshots",
@@ -732,7 +733,7 @@ def test_authenticated_generation_time_is_primary_freshness_and_must_match(
         replay_out=replay_out,
         pointer_path=pointer,
         releases_root=releases,
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         check_runtime=False,
         now=now,
         model_factory=CapturedReplayModel,
@@ -798,7 +799,7 @@ def test_output_paths_cannot_alias_custom_active_pointer(tmp_path):
         tmp_path / "release-fixture",
         functional=True,
     )
-    bundle = _load(pointer, releases, paths["repo"])
+    bundle = _load(pointer, releases, REPO_ROOT)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     source_paths, _expected_metadata = _write_honest_market_day(
         tmp_path / "snapshots",
@@ -821,7 +822,7 @@ def test_output_paths_cannot_alias_custom_active_pointer(tmp_path):
             replay_out=tmp_path / "evidence" / "replay.json",
             pointer_path=custom_pointer,
             releases_root=releases,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
             now=now,
             bundle_loader=lambda **_kwargs: bundle,
@@ -844,7 +845,7 @@ def test_output_paths_cannot_alias_custom_active_pointer(tmp_path):
             replay_out=tmp_path / "evidence" / "replay.json",
             pointer_path=custom_pointer,
             releases_root=releases,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
             now=now,
             bundle_loader=lambda **_kwargs: bundle,

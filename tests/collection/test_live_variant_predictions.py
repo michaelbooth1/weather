@@ -11,6 +11,7 @@ from weather.collection.live_variant_predictions import (
     SCHEMA_VERSION,
     active_live_variants,
     build_live_variant_prediction_rows,
+    trace_pooled_band_binary_probabilities,
 )
 from weather.collection.collection_health import variant_prediction_tape_health
 from weather.collection.snapshot_tracker import SnapshotStore
@@ -20,6 +21,7 @@ from weather.release_contract import (
     PRODUCTION_RELEASE_KIND,
 )
 from weather.release_serving import STATUS_BLOCKED, STATUS_BOUND, VerifiedServingBundle
+from weather.model.model_contracts import POOLED_BAND_STAGE_ORDER
 from weather.reporting.candidate_lifecycle.variant_registry import SCHEMA_VERSION as REGISTRY_SCHEMA_VERSION
 
 
@@ -269,7 +271,7 @@ class TestLiveVariantPredictions(unittest.TestCase):
 
     def test_pooled_candidate_runtime_scores_live_feature_vector_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
-            artifact = _write_pickle(Path(tmp) / "pooled.pkl", {
+            artifact_payload = {
                 "prediction_mode": "band_binary",
                 "models": {
                     "12": {
@@ -283,7 +285,8 @@ class TestLiveVariantPredictions(unittest.TestCase):
                     "partition_normalization_enabled": False,
                     "current_blend_enabled": False,
                 },
-            })
+            }
+            artifact = _write_pickle(Path(tmp) / "pooled.pkl", artifact_payload)
             registry_path = _registry(Path(tmp) / "registry.json", [
                 {
                     "variant_id": "pooled-v",
@@ -306,11 +309,19 @@ class TestLiveVariantPredictions(unittest.TestCase):
             }
 
             rows = _build_rows(registry_path, model=model)
+            trace = trace_pooled_band_binary_probabilities(
+                artifact_payload,
+                model["feature_vector"],
+                _band_rows(),
+                {"market_id": "toronto", "model": model},
+            )
 
         self.assertEqual(rows[0]["prediction_status"], "predicted")
         self.assertIsNone(rows[0]["failure_reason"])
         self.assertEqual(rows[0]["live_runtime"], "pooled_candidate_replay")
         self.assertAlmostEqual(rows[0]["variant_probability"], 0.73)
+        self.assertEqual(tuple(trace["stage_order"]), POOLED_BAND_STAGE_ORDER)
+        self.assertEqual(tuple(trace["stages"]), POOLED_BAND_STAGE_ORDER)
 
     def test_density_runtime_matches_native_unit_partition_for_toronto_and_atlanta(self):
         fixtures = [

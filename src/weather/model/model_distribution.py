@@ -23,7 +23,10 @@ from weather.model.calibration_runtime import (
     apply_afternoon_residual_centering,
     apply_exact_distribution_calibration,
 )
-from weather.model.model_contracts import DistributionResult
+from weather.model.model_contracts import (
+    BASE_DISTRIBUTION_STAGE_ORDER,
+    DistributionResult,
+)
 from weather.model.feature_store import current_max_trust_features
 
 from weather.model.model_distribution_constants import (
@@ -95,6 +98,7 @@ class DistributionPipelineState:
     schema_version: str = COMPONENT_SCHEMA_VERSION
     components: dict = field(default_factory=dict)
     metadata: dict = field(default_factory=dict)
+    serving_stage_order: list = field(default_factory=list)
 
     def snapshot(self, name, distribution):
         self.components[name] = dict(distribution or {})
@@ -106,10 +110,32 @@ class DistributionPipelineState:
     def update_metadata(self, **metadata):
         self.metadata.update(metadata)
 
+    def advance_serving_stage(self, stage_id):
+        index = len(self.serving_stage_order)
+        expected = (
+            BASE_DISTRIBUTION_STAGE_ORDER[index]
+            if index < len(BASE_DISTRIBUTION_STAGE_ORDER)
+            else None
+        )
+        if stage_id != expected:
+            raise RuntimeError(
+                "base distribution serving-stage order drift: "
+                f"expected={expected!r}, actual={stage_id!r}"
+            )
+        self.serving_stage_order.append(stage_id)
+
+    def require_complete_serving_order(self):
+        if tuple(self.serving_stage_order) != BASE_DISTRIBUTION_STAGE_ORDER:
+            raise RuntimeError(
+                "base distribution serving-stage trace is incomplete: "
+                f"{self.serving_stage_order!r}"
+            )
+
     def payload(self):
         return {
             "schema_version": self.schema_version,
             **self.metadata,
+            "serving_stage_order": list(self.serving_stage_order),
             "components": self.components,
         }
 
@@ -221,13 +247,17 @@ class DistributionMixin(DistributionSignalMixin):
             current_max=trusted_current_max,
             sources=sources,
         )
-        forecast_ensemble = self.forecast_ensemble_metrics(
-            open_meteo,
-            weather_forecast,
-            eccc_city,
-            nws_hourly=nws_hourly,
-            global_ensemble=global_ensemble,
+        forecast_ensemble = self.forecast_ensemble_for_context(
+            sources,
+            "distribution_stage_forecast_context",
             observed_floor_native=guidance_floor,
+            source_payloads={
+                "open_meteo": open_meteo,
+                "weather_forecast": weather_forecast,
+                "eccc_citypage": eccc_city,
+                "nws_hourly": nws_hourly,
+                "global_ensemble": global_ensemble,
+            },
         )
         guidance_states = self.guidance_physical_states(
             sources,
@@ -382,6 +412,7 @@ class DistributionMixin(DistributionSignalMixin):
                 "forecast_cap",
             )
         )
+        pipeline.advance_serving_stage("base_estimator_and_prior_blend")
         (
             scores,
             intraday,
@@ -408,6 +439,7 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
 
+        pipeline.advance_serving_stage("bucket_transition")
         scores, bucket_transition = self.distribution_bucket_transition_stage(
             scores,
             sources,
@@ -434,12 +466,15 @@ class DistributionMixin(DistributionSignalMixin):
             observed_bucket=observed_bucket,
             forecast_context=forecast_ensemble,
         )
+        pipeline.advance_serving_stage("live_signal_adjustment")
         scores = self.distribution_apply_live_signals_stage(
             scores,
             live_signals,
             pipeline,
         )
+        pipeline.advance_serving_stage("observed_hard_floor")
         scores = self.distribution_hard_floor_stage(scores, hard_floor_bucket)
+        pipeline.advance_serving_stage("intraday_tail_adjustment")
         scores = self.distribution_intraday_tail_stage(
             scores,
             intraday=intraday,
@@ -451,6 +486,7 @@ class DistributionMixin(DistributionSignalMixin):
             global_ensemble_max=global_ensemble_signal,
             eccc_forecast_high=eccc_forecast_signal,
         )
+        pipeline.advance_serving_stage("plausible_upper_cap")
         scores = self.distribution_plausible_cap_stage(
             scores,
             observed_bucket=observed_bucket,
@@ -461,6 +497,7 @@ class DistributionMixin(DistributionSignalMixin):
             eccc_forecast_high=eccc_forecast_signal,
             using_calibrated_empirical=using_calibrated_empirical,
         )
+        pipeline.advance_serving_stage("forecast_shape")
         scores = self.distribution_forecast_shape_stage(
             scores,
             forecast_values=forecast_values,
@@ -472,6 +509,7 @@ class DistributionMixin(DistributionSignalMixin):
             using_calibrated_empirical=using_calibrated_empirical,
             pipeline=pipeline,
         )
+        pipeline.advance_serving_stage("ramp_warm_tail_dampening")
         scores, ramp_warm_tail_context = self.distribution_ramp_warm_tail_dampening_stage(
             scores,
             hour=now.hour,
@@ -481,6 +519,7 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
         calibration_context["ramp_warm_tail_dampening"] = ramp_warm_tail_context
+        pipeline.advance_serving_stage("afternoon_residual_centering")
         scores, afternoon_centering_context = self.distribution_afternoon_residual_centering_stage(
             scores,
             hour=now.hour,
@@ -489,11 +528,13 @@ class DistributionMixin(DistributionSignalMixin):
         )
         calibration_context["afternoon_residual_centering"] = afternoon_centering_context
         current_max_boundary_reference = self.normalize_scores(scores)
+        pipeline.advance_serving_stage("validated_current_max_floor")
         scores = self.distribution_validated_current_max_floor_stage(
             scores,
             validated_current_max_floor,
             pipeline,
         )
+        pipeline.advance_serving_stage("observation_support_floor")
         scores = self.distribution_observed_floor_stage(
             scores,
             eccc_max=eccc_max,
@@ -505,6 +546,7 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
 
+        pipeline.advance_serving_stage("late_day_continuation")
         scores, late_day_continuation = self.distribution_late_day_continuation_stage(
             scores,
             sources=sources,
@@ -515,6 +557,7 @@ class DistributionMixin(DistributionSignalMixin):
             observed_support_bucket=observed_support_bucket,
             pipeline=pipeline,
         )
+        pipeline.advance_serving_stage("late_day_lockin")
         scores, lockin_strength, high_has_stood_context = self.distribution_late_day_lockin_stage(
             scores,
             history=history,
@@ -531,12 +574,14 @@ class DistributionMixin(DistributionSignalMixin):
             pipeline=pipeline,
         )
 
+        pipeline.advance_serving_stage("pre_calibration_normalization")
         scores = self.normalize_scores(scores)
         pipeline.snapshot("pre_calibration_model", scores)
         # Taper the overconfidence-calibration toward identity as the day locks
         # in: once it is past peak and falling, the concentration is earned, so
         # softening it back toward uniform only re-inflates buckets the high can
         # no longer reach. resolution_weight == the late-day lock-in strength.
+        pipeline.advance_serving_stage("exact_distribution_calibration")
         calibrated_scores = apply_exact_distribution_calibration(
             scores,
             getattr(self, "probability_calibration", None),
@@ -545,6 +590,7 @@ class DistributionMixin(DistributionSignalMixin):
             cutoff_hour=cutoff_hour,
         )
         pipeline.snapshot("overconfidence_calibration", calibrated_scores)
+        pipeline.advance_serving_stage("current_max_boundary_guard")
         calibrated_scores, current_max_boundary = self.apply_current_max_boundary_overlock_guard(
             calibrated_scores,
             current_max_boundary,
@@ -583,6 +629,7 @@ class DistributionMixin(DistributionSignalMixin):
             observed_support_bucket=observed_support_bucket,
             current_max_boundary=deepcopy(current_max_boundary),
         )
+        pipeline.require_complete_serving_order()
         component_payload = pipeline.payload()
         result = DistributionResult(
             distribution=calibrated_scores,

@@ -57,6 +57,9 @@ PASS does not replace any explicitly required production-host qualification.
 
 An attended PowerShell operator can build the bounded argument contract like
 this (use `compileall` or an allowlisted `weather_heavy` module as appropriate).
+The allowlist includes the deterministic `agent_docs_audit` and
+`roadmap_backlog` maintenance modules so their repository-wide checks can use
+the same contained workstation lease as the rest of a qualification mission.
 This variable-based form is for a person at an interactive shell, not for a
 Codex tool call:
 

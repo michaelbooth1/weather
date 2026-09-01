@@ -1,3 +1,4 @@
+import hashlib
 import json
 import pickle
 from dataclasses import replace
@@ -7,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.operations.test_release_candidate_contract import (
+    SEMANTIC_PATHS,
     _fixture,
     _freeze,
     _production_evidence,
@@ -14,17 +16,24 @@ from tests.operations.test_release_candidate_contract import (
 from weather.collection.live_variant_predictions import build_live_variant_prediction_rows
 from weather.collection.snapshot_store import _assert_snapshot_model_serving_binding
 from weather.operations.release_manifest import create_release
+from weather.paths import REPO_ROOT
+from weather.model.model_bom import MODEL_BOM_INCOMPLETE, MODEL_BOM_SCHEMA_VERSION
 from weather.model.toronto_model import TorontoHighTempModel
 from weather.release_artifacts import (
     ACTIVE_POINTER_SCHEMA_VERSION,
     ReleaseArtifactVerificationError,
+    canonical_payload_sha256,
+    capture_runtime_versions,
     pointer_content_sha256,
 )
 from weather.release_contract import (
+    LEGACY_SEMANTIC_CONTRACT_SCHEMA_VERSION,
+    MODEL_BOM_ROLE_KINDS,
     PRODUCTION_CANDIDATE_MODE,
     RESEARCH_ONLY_CANDIDATE_MODE,
     SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND,
 )
+from weather.runtime_identity import get_runtime_identity
 from weather.operations.release_promotion import resolve_active_release
 from weather.release_serving import (
     STATUS_BLOCKED,
@@ -55,6 +64,8 @@ class IdentityImputer:
 
 class ConstantClassifier:
     classes_ = [0, 1]
+    n_features_in_ = 2
+    feature_names_in_ = ["forecast_high", "band_mid_minus_forecast"]
 
     def predict_proba(self, rows):
         return [[0.23, 0.77] for _ in range(len(rows))]
@@ -69,18 +80,33 @@ class FakeClient:
 
 
 def _runtime_versions():
-    return {
-        "python": "3.13.0",
-        "implementation": "CPython",
-        "platform": "test",
-        "direct_dependencies": {
-            "scikit-learn": {"version": "1.7.0", "declared": "scikit-learn"}
-        },
-    }
+    return capture_runtime_versions(REPO_ROOT)
 
 
 def _runtime_identity():
-    return {"source_fingerprint": "source", "git_commit": "a" * 40}
+    identity = get_runtime_identity(REPO_ROOT)
+    identity["git_commit"] = "a" * 40
+    identity["git_branch"] = "main"
+    return identity
+
+
+def _write_hashed_payload(path: Path, payload: dict) -> None:
+    payload["payload_sha256"] = canonical_payload_sha256(
+        payload,
+        omit=("payload_sha256",),
+    )
+    path.write_text(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _artifact_binding(path: Path) -> dict[str, int | str]:
+    raw = path.read_bytes()
+    return {
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "bytes": len(raw),
+    }
 
 
 def _functionalize(paths: dict) -> None:
@@ -146,6 +172,7 @@ def _active_fixture(
     candidate_mode: str = PRODUCTION_CANDIDATE_MODE,
     release_kind: str | None = None,
     release_kind_provenance: dict | None = None,
+    mutate_candidate=None,
 ):
     paths = _fixture(tmp_path)
     if functional:
@@ -159,6 +186,14 @@ def _active_fixture(
             else None
         ),
     )
+    model_bom = json.loads(
+        (
+            paths["candidate"] / SEMANTIC_PATHS["model_bill_of_materials"]
+        ).read_text(encoding="utf-8")
+    )
+    bom_runtime = model_bom["evidence"]["runtime_dependencies"]["binding"]
+    if mutate_candidate:
+        mutate_candidate(paths, frozen)
     declarations = list(frozen["declarations"])
     if mutate_declarations:
         declarations = mutate_declarations(declarations)
@@ -170,15 +205,15 @@ def _active_fixture(
         route=manifest_route or frozen["route"],
         expected_live_runtimes=["snapshot_loop"],
         releases_root=releases,
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         code_identity={
             "git_commit": "a" * 40,
             "git_branch": "main",
             "git_dirty": False,
             "dirty_fingerprint": None,
         },
-        runtime_versions=_runtime_versions(),
-        runtime_identity=_runtime_identity(),
+        runtime_versions=bom_runtime["release_runtime_versions"],
+        runtime_identity=bom_runtime["release_runtime_identity"],
     )
     pointer = releases / "current_release.json"
     _write_pointer(
@@ -210,10 +245,11 @@ def _bootstrap_provenance() -> dict:
 
 
 def _load(pointer: Path, releases: Path, repo: Path):
+    del repo
     return load_verified_active_serving_bundle(
         pointer_path=pointer,
         releases_root=releases,
-        repo_root=repo,
+        repo_root=REPO_ROOT,
         check_runtime=False,
     )
 
@@ -229,6 +265,7 @@ def test_verified_loader_binds_exact_manifest_roles_before_deserialization(tmp_p
     assert bundle.release_kind == "production"
     assert bundle.candidate_mode == PRODUCTION_CANDIDATE_MODE
     assert bundle.production_capable is True
+    assert bundle.model_bill_of_materials["status"] == "COMPLETE"
     assert bundle.route["markets"]["nyc"]["candidate_variant_id"] == "r1.pooled_band"
     assert bundle.model_variant_registry["variants"][0]["variant_id"] == "candidate"
     assert Path(bundle.artifact_paths["pooled_band_model"]).is_relative_to(releases / "r1")
@@ -257,6 +294,88 @@ def test_verified_loader_binds_exact_manifest_roles_before_deserialization(tmp_p
     }
 
 
+def test_production_release_verification_rejects_legacy_contract_without_bom(
+    tmp_path: Path,
+):
+    bom_role = next(iter(MODEL_BOM_ROLE_KINDS))
+
+    def downgrade_contract(paths, _frozen):
+        contract_path = (
+            paths["candidate"] / SEMANTIC_PATHS["semantic_serving_contract"]
+        )
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        contract["schema_version"] = LEGACY_SEMANTIC_CONTRACT_SCHEMA_VERSION
+        contract["required_role_kinds"].pop(bom_role)
+        contract["artifacts"].pop(bom_role)
+        _write_hashed_payload(contract_path, contract)
+
+    paths, _frozen, _result, releases, pointer = _active_fixture(
+        tmp_path,
+        mutate_candidate=downgrade_contract,
+        mutate_declarations=lambda rows: [
+            row for row in rows if row["role"] != bom_role
+        ],
+    )
+
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="production-capable release requires.*model bill of materials",
+    ):
+        _load(pointer, releases, paths["repo"])
+
+
+def test_production_release_verification_rejects_self_consistent_partial_bom(
+    tmp_path: Path,
+):
+    bom_role = next(iter(MODEL_BOM_ROLE_KINDS))
+    omitted_role = "base_model.nyc.calibrated_weights"
+
+    def remove_one_bound_artifact(paths, _frozen):
+        candidate = paths["candidate"]
+        bom_path = candidate / SEMANTIC_PATHS[bom_role]
+        bom = json.loads(bom_path.read_text(encoding="utf-8"))
+        bom["artifacts"].pop(omitted_role)
+        diagnostic_sha = canonical_payload_sha256(
+            bom,
+            omit=(
+                "authoritative_identity_sha256",
+                "diagnostic_sha256",
+                "payload_sha256",
+            ),
+        )
+        bom["diagnostic_sha256"] = diagnostic_sha
+        bom["authoritative_identity_sha256"] = diagnostic_sha
+        _write_hashed_payload(bom_path, bom)
+
+        audit_role = "candidate_input_leakage_audit"
+        audit_path = candidate / SEMANTIC_PATHS[audit_role]
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+        for row in audit["input_hashes"]:
+            if row.get("role") == bom_role:
+                row.update(_artifact_binding(bom_path))
+                break
+        else:  # pragma: no cover - fixture contract
+            raise AssertionError("fixture audit has no model BOM binding")
+        _write_hashed_payload(audit_path, audit)
+
+        contract_path = candidate / SEMANTIC_PATHS["semantic_serving_contract"]
+        contract = json.loads(contract_path.read_text(encoding="utf-8"))
+        contract["artifacts"][bom_role].update(_artifact_binding(bom_path))
+        contract["artifacts"][audit_role].update(_artifact_binding(audit_path))
+        _write_hashed_payload(contract_path, contract)
+
+    paths, _frozen, _result, releases, pointer = _active_fixture(
+        tmp_path,
+        mutate_candidate=remove_one_bound_artifact,
+    )
+
+    with pytest.raises(
+        ReleaseArtifactVerificationError,
+        match="artifact inventory is incomplete or ambiguous",
+    ):
+        _load(pointer, releases, paths["repo"])
+
+
 def test_inactive_shadow_loader_binds_release_without_pointer_authority(
     tmp_path: Path,
 ):
@@ -271,7 +390,7 @@ def test_inactive_shadow_loader_binds_release_without_pointer_authority(
             release_dir,
             expected_manifest_sha256=result["manifest_sha256"],
             active_pointer_path=pointer,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
 
@@ -280,7 +399,7 @@ def test_inactive_shadow_loader_binds_release_without_pointer_authority(
         release_dir,
         expected_manifest_sha256=result["manifest_sha256"],
         active_pointer_path=pointer,
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         check_runtime=False,
     )
 
@@ -324,7 +443,7 @@ def test_research_release_without_valid_bootstrap_provenance_is_rejected(
         resolve_active_release(
             pointer_path=pointer,
             releases_root=releases,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             current_runtime_versions=_runtime_versions(),
             current_runtime_identity=_runtime_identity(),
         )
@@ -368,7 +487,7 @@ def test_reviewed_bootstrap_research_release_binds_as_non_production(
     active = resolve_active_release(
         pointer_path=pointer,
         releases_root=releases,
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         current_runtime_versions=_runtime_versions(),
         current_runtime_identity=_runtime_identity(),
     )
@@ -408,7 +527,7 @@ def test_production_release_cannot_be_mislabeled_as_bootstrap(tmp_path: Path):
         resolve_active_release(
             pointer_path=pointer,
             releases_root=releases,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             current_runtime_versions=_runtime_versions(),
             current_runtime_identity=_runtime_identity(),
         )
@@ -510,7 +629,7 @@ def test_process_binding_requires_restart_after_pointer_change(tmp_path: Path):
     first = get_process_active_serving_bundle(
         pointer_path=pointer,
         releases_root=releases,
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         check_runtime=False,
     )
     _write_pointer(
@@ -522,7 +641,7 @@ def test_process_binding_requires_restart_after_pointer_change(tmp_path: Path):
     second = get_process_active_serving_bundle(
         pointer_path=pointer,
         releases_root=releases,
-        repo_root=paths["repo"],
+        repo_root=REPO_ROOT,
         check_runtime=False,
     )
     clear_process_serving_bundle_cache()
@@ -543,6 +662,17 @@ def test_no_pointer_is_explicit_non_countable_research_state(tmp_path: Path):
     assert bundle.status == STATUS_RESEARCH_UNBOUND
     assert serving_bundle_lineage(bundle)["release_id"] == ""
     assert "non-countable" in bundle.reason
+    disposition = bundle.model_bill_of_materials
+    assert disposition["schema_version"] == MODEL_BOM_SCHEMA_VERSION
+    assert disposition["status"] == MODEL_BOM_INCOMPLETE
+    assert disposition["authoritative_identity_sha256"] is None
+    assert disposition["disposition_only"] is True
+    assert disposition["authoritative_for_production"] is False
+    assert tuple(disposition["missing_entries"]) == tuple(
+        sorted(disposition["missing_entries"])
+    )
+    assert "release.active_pointer" in disposition["missing_entries"]
+    assert "serving_graph" in disposition["missing_entries"]
 
 
 def test_release_bound_live_variant_ignores_malicious_legacy_registry_path(tmp_path: Path):

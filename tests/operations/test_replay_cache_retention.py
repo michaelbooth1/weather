@@ -12,6 +12,7 @@ from weather.backtesting import replay_cache
 from weather.io import sha256_file
 from weather.operations import replay_cache_retention
 from weather.operations import replay_cache_retention_serving
+from weather.paths import REPO_ROOT
 from weather.calibration.pooled_feature_model import SOURCE_RELIABILITY_COLUMNS
 from weather.reporting.promotion.promotion_corpus import (
     _record_hashes,
@@ -401,7 +402,7 @@ def test_serving_rebuild_context_pins_and_reloads_exact_release_graph(
         return load_verified_active_serving_bundle(
             pointer_path=pointer_path,
             releases_root=releases_root,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
 

@@ -36,9 +36,12 @@ The active analog archive remains pinned. Forecast-relative marine fields,
 forecast-error secondary artifacts, late-day continuation, and analog distance
 are explicitly excluded from this first corpus. Every pooled forecast-profile
 column is either mapped to a source field or named in the exclusions receipt.
-The research workstation does not call the provider. Production collects
-request-bound raw responses in an admitted window and transfers only the
-content-addressed non-secret corpus bundle.
+The research workstation does not call the provider. The production host is
+the authorized location for a future separately reviewed collector, but no
+repository-owned collector currently consumes the immutable v2 plan. Transfer
+can begin only after that collector has populated complete request-bound staging
+and the network-free materializer has produced a content-addressed non-secret
+corpus bundle.
 
 ## Dry-run planning
 

@@ -29,6 +29,7 @@ from weather.model.current_blend import (
     blend_with_current,
     source_freshness_state_from_diagnostics,
 )
+from weather.model.model_contracts import POOLED_BAND_STAGE_ORDER
 
 
 SCHEMA_VERSION = schema_version("live_variant_predictions")
@@ -899,13 +900,7 @@ def trace_pooled_band_binary_probabilities(
         )
     return {
         "probabilities": final_probabilities,
-        "stage_order": [
-            "candidate_raw",
-            "candidate_postprocessed",
-            "candidate_preblend",
-            "candidate_current_blend",
-            "candidate_final",
-        ],
+        "stage_order": list(POOLED_BAND_STAGE_ORDER),
         "stages": {
             "candidate_raw": raw_probabilities,
             "candidate_postprocessed": postprocessed_probabilities,

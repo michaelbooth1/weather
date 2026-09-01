@@ -11,6 +11,7 @@ from unittest import mock
 import numpy as np
 
 from weather.calibration.feature_probability_calibration import temperature_scale_distribution
+from weather.model.model_identity import LOADED_SOURCE_BINDING_MARKER
 from weather.model.toronto_model import TorontoHighTempModel
 
 
@@ -42,7 +43,12 @@ class TestFeatureModelServingCalibration(unittest.TestCase):
         self.assertEqual(loaded, payload)
         self.assertEqual(
             model._loaded_artifact_source_hashes["feature_hgb"],
-            {"sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)},
+            {
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "size": len(raw),
+                "binding": LOADED_SOURCE_BINDING_MARKER,
+                "object_id": id(loaded),
+            },
         )
 
     def test_hgb_bundle_temperature_is_applied_at_serving(self):

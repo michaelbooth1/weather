@@ -10,7 +10,11 @@ from weather.model.model_distribution import (
     DistributionPipelineState,
     EMPIRICAL_FORECAST_SHAPE_ALLOWED_MARKETS,
 )
-from weather.model.model_contracts import DistributionResult
+from weather.model.model_contracts import (
+    BASE_DISTRIBUTION_STAGE_ORDER,
+    FORECAST_CONTEXT_SOURCE_ROLES,
+    DistributionResult,
+)
 
 
 def _wu_row(time, temp, dew=10.0, hum=60.0, press=1015.0,
@@ -391,6 +395,51 @@ class TestEstimateDistribution(unittest.TestCase):
         self.assertEqual(payload["components"]["final_model"], dist)
         self.assertIn("climatology_prior", payload["components"])
         self.assertIn("post_live_signals", payload["components"])
+        self.assertEqual(
+            tuple(payload["serving_stage_order"]),
+            BASE_DISTRIBUTION_STAGE_ORDER,
+        )
+        self.assertEqual(
+            tuple(self.model._last_distribution_pipeline_state.serving_stage_order),
+            BASE_DISTRIBUTION_STAGE_ORDER,
+        )
+
+    def test_distribution_forecast_context_uses_its_exact_runtime_source_roles(self):
+        rows = [_wu_row("07:00", 14.0), _wu_row("12:00", 21.0), _wu_row("14:00", 22.0)]
+        sources = _sources(rows, 22.0)
+        sources.update({
+            "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 24.0}},
+            "open_meteo_global_models": {
+                "ok": True,
+                "data": {"rows": [], "day_max_c": 34.0, "day_max_native": 34.0},
+            },
+        })
+        now = datetime(2026, 5, 29, 14, 0, tzinfo=TORONTO_TZ)
+
+        with patch.object(
+            self.model,
+            "forecast_ensemble_for_context",
+            wraps=self.model.forecast_ensemble_for_context,
+        ) as context_ensemble:
+            result = self.model.estimate_distribution_result(sources, now=now)
+
+        distribution_calls = [
+            call
+            for call in context_ensemble.call_args_list
+            if call.args[1] == "distribution_stage_forecast_context"
+        ]
+        self.assertEqual(len(distribution_calls), 1)
+        args, kwargs = distribution_calls[0]
+        expected_roles = FORECAST_CONTEXT_SOURCE_ROLES[
+            "distribution_stage_forecast_context"
+        ]
+        self.assertEqual(args[1], "distribution_stage_forecast_context")
+        self.assertEqual(tuple(kwargs["source_payloads"]), expected_roles)
+        self.assertNotIn("open_meteo_global_models", expected_roles)
+        self.assertNotIn(
+            "open_meteo_global_models",
+            result.calibration_context["forecast_source_values"],
+        )
 
 
 class TestDistributionHelpers(unittest.TestCase):

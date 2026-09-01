@@ -32,7 +32,9 @@ from weather.sources.marine_context import derive_marine_context_features
 from weather.sources.mrms_precip import derive_mrms_precip_features
 from weather.sources.nbm_probabilistic_tmax import exceedance_probability_from_percentiles
 from weather.model.calibration_runtime import temperature_scale_distribution
+from weather.model.model_contracts import FORECAST_CONTEXT_SOURCE_ROLES
 from weather.model.model_constants import _UNLOADED
+from weather.model.model_identity import LOADED_SOURCE_BINDING_MARKER
 from weather.release_serving import ReleaseServingBindingError
 
 logger = logging.getLogger(__name__)
@@ -75,6 +77,8 @@ class FeatureModelMixin:
                     sources["feature_hgb"] = {
                         "sha256": hashlib.sha256(raw).hexdigest(),
                         "size": len(raw),
+                        "binding": LOADED_SOURCE_BINDING_MARKER,
+                        "object_id": id(payload),
                     }
                 except Exception:  # identity metadata must never block serving
                     logger.debug("Unable to retain loaded HGBC source identity", exc_info=True)
@@ -482,6 +486,35 @@ class FeatureModelMixin:
             "forecast_impossible_features": sorted(set(impossible_features)),
             "guidance_physical_floor": observed_floor_native,
         }
+
+    def forecast_ensemble_for_context(
+        self,
+        sources,
+        context_name,
+        *,
+        observed_floor_native=None,
+        source_payloads=None,
+    ):
+        """Select exactly the runtime-owned source set for one forecast context."""
+
+        try:
+            roles = FORECAST_CONTEXT_SOURCE_ROLES[str(context_name)]
+        except KeyError as exc:
+            raise ValueError(f"unknown forecast ensemble context: {context_name!r}") from exc
+        supplied = dict(source_payloads or {})
+        payloads = {
+            role: supplied[role] if role in supplied else self.source_data(sources, role)
+            for role in roles
+        }
+        return self.forecast_ensemble_metrics(
+            payloads["open_meteo"],
+            payloads["weather_forecast"],
+            payloads["eccc_citypage"],
+            nws_hourly=payloads.get("nws_hourly"),
+            global_ensemble=payloads.get("global_ensemble"),
+            open_meteo_global_models=payloads.get("open_meteo_global_models"),
+            observed_floor_native=observed_floor_native,
+        )
 
     def us_guidance_features(
         self,
@@ -1064,14 +1097,18 @@ class FeatureModelMixin:
             live_reading=live_reading,
             sources=sources,
         )
-        forecast_ensemble = self.forecast_ensemble_metrics(
-            open_meteo,
-            weather_forecast,
-            eccc_city,
-            nws_hourly=nws_hourly,
-            global_ensemble=global_ensemble,
-            open_meteo_global_models=open_meteo_global_models,
+        forecast_ensemble = self.forecast_ensemble_for_context(
+            sources,
+            "feature_extraction_forecast_ensemble",
             observed_floor_native=guidance_floor,
+            source_payloads={
+                "open_meteo": open_meteo,
+                "weather_forecast": weather_forecast,
+                "eccc_citypage": eccc_city,
+                "nws_hourly": nws_hourly,
+                "global_ensemble": global_ensemble,
+                "open_meteo_global_models": open_meteo_global_models,
+            },
         )
         forecast_high = forecast_ensemble["forecast_high"]
         forecast_gap = (

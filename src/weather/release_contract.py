@@ -8,8 +8,10 @@ from weather.schema_registry import schema_version
 
 
 SEMANTIC_CONTRACT_SCHEMA_VERSION = schema_version("release_semantic_contract")
+LEGACY_SEMANTIC_CONTRACT_SCHEMA_VERSION = "release_semantic_contract_v0.1"
 CANDIDATE_LEAKAGE_AUDIT_SCHEMA_VERSION = schema_version("candidate_input_leakage_audit")
 BASE_MODEL_SERVING_GRAPH_SCHEMA_VERSION = schema_version("base_model_serving_graph")
+MODEL_BOM_SCHEMA_VERSION = schema_version("model_bill_of_materials")
 
 BASE_MODEL_MARKET_COMPONENT_KINDS = {
     "feature_hgb": "model",
@@ -115,6 +117,12 @@ SEMANTIC_SERVING_ROLE_KINDS = {
     "candidate_input_leakage_audit": "audit",
     "semantic_serving_contract": "contract",
 }
+
+# Historical v0.1 manifests without a BOM remain auditable as legacy research
+# evidence.  Current v0.2 production authority requires the role, and every
+# manifest that declares it is held to the complete pre-load and post-load
+# contract without reinterpreting old immutable releases.
+MODEL_BOM_ROLE_KINDS = {"model_bill_of_materials": "contract"}
 
 SERVING_ARTIFACT_KINDS = frozenset(
     {

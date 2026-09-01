@@ -56,6 +56,24 @@ def test_profile_dispositions_never_require_an_unavailable_pit_field():
         assert "unavailable from the free PIT endpoint" in excluded[feature]
 
 
+def test_forecast_profile_training_matrix_cannot_select_excluded_fields():
+    profile = CONSUMER_DISPOSITIONS["pooled_forecast_profiles"]
+    included = list(profile["included_feature_columns"])
+    excluded = list(profile["excluded_feature_columns"])
+    columns = ["forecast_high", "forecast_gap", *included, *excluded, "market_id_nyc"]
+
+    selected = assembly.feature_names_for_subset(
+        columns,
+        assembly.FEATURE_SUBSET_FORECAST_PROFILE,
+    )
+
+    assert set(included) <= set(selected)
+    assert set(excluded).isdisjoint(selected)
+    assert "forecast_high" in selected
+    assert "forecast_gap" in selected
+    assert "market_id_nyc" in selected
+
+
 def test_family_dataset_preflights_and_passes_explicit_market_readers():
     specs = [SimpleNamespace(id="alpha"), SimpleNamespace(id="beta")]
 

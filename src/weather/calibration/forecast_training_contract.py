@@ -14,9 +14,12 @@ from weather.schema_registry import schema_version
 from weather.sources.forecast_training_corpus import (
     ACTIVE_FORECAST_ARCHIVE_ROOT,
     CONSUMER_DISPOSITIONS,
+    COVERAGE_SCHEMA_VERSION,
     EXCLUDED_PROFILE_FEATURES,
     PITForecastTrainingCorpus,
     PROFILE_FEATURE_SOURCE_FIELDS,
+    REJECTED_ISSUE_EVIDENCE_KINDS,
+    ROW_SCHEMA_VERSION,
     CorpusVerificationError,
     assert_training_only_publish_root,
     load_plan,
@@ -145,6 +148,19 @@ def preflight_pit_forecast_training_corpus(
     plan = load_plan(manifest_path.parent / "plan.json")
     if plan["plan_sha256"] != manifest["plan_sha256"]:
         raise CorpusVerificationError("published plan does not match corpus manifest")
+    request_hashes = {
+        (str(request["market_id"]), int(request["year"])): request["request_hash"]
+        for request in plan["requests"]
+    }
+
+    def expected_request_hash(row, key):
+        try:
+            request_key = (str(row["market_id"]), int(str(row["target_date"])[:4]))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CorpusVerificationError(f"invalid row request identity: {key}") from exc
+        expected = request_hashes.get(request_key)
+        if not expected or row.get("request_hash") != expected:
+            raise CorpusVerificationError(f"row request identity differs from the plan: {key}")
 
     expected_target_year = int(target_year or manifest["target_year"])
     if int(manifest["target_year"]) != expected_target_year:
@@ -191,11 +207,18 @@ def preflight_pit_forecast_training_corpus(
                 "coverage_row_sha256",
             ):
                 raise CorpusVerificationError(f"coverage row hash mismatch: {key}")
+            if row.get("schema_version") != COVERAGE_SCHEMA_VERSION:
+                raise CorpusVerificationError(f"coverage row schema is unsupported: {key}")
+            expected_request_hash(row, key)
             if int(str(row["target_date"])[:4]) == expected_target_year:
                 raise CorpusVerificationError("target-year coverage row entered training corpus")
             if int(row.get("year") or 0) != int(str(row["target_date"])[:4]):
                 raise CorpusVerificationError(f"coverage year differs from target date: {key}")
-            if row.get("issue_contract") != plan["issue_contract"]["kind"]:
+            issue_kind = row.get("issue_contract")
+            if (
+                issue_kind in REJECTED_ISSUE_EVIDENCE_KINDS
+                or issue_kind != plan["issue_contract"]["kind"]
+            ):
                 raise CorpusVerificationError(f"coverage issue contract drifted: {key}")
             if row.get("status") != "complete":
                 raise CorpusVerificationError(f"non-complete coverage row: {key}")
@@ -237,11 +260,18 @@ def preflight_pit_forecast_training_corpus(
                 "derived_row_sha256",
             ):
                 raise CorpusVerificationError(f"daily derived-row hash mismatch: {key}")
+            if row.get("schema_version") != ROW_SCHEMA_VERSION:
+                raise CorpusVerificationError(f"daily row schema is unsupported: {key}")
+            expected_request_hash(row, key)
             if key not in coverage_keys:
                 raise CorpusVerificationError(f"daily row lacks coverage decision: {key}")
             if int(str(row["target_date"])[:4]) == expected_target_year:
                 raise CorpusVerificationError("target-year daily row entered training corpus")
-            if row.get("issue_evidence_kind") in {None, "", "stitched_continuous_archive"}:
+            issue_kind = row.get("issue_evidence_kind")
+            if (
+                issue_kind in REJECTED_ISSUE_EVIDENCE_KINDS
+                or issue_kind != plan["issue_contract"]["kind"]
+            ):
                 raise CorpusVerificationError(f"daily row lacks accepted issue evidence: {key}")
             issue_time = row.get("issue_time_utc")
             available_at = row.get("available_at_utc")
@@ -254,11 +284,21 @@ def preflight_pit_forecast_training_corpus(
             if issue_dt > as_of_dt or available_dt > as_of_dt:
                 raise CorpusVerificationError(f"daily row contains forecast lookahead: {key}")
             coverage = coverage_by_key[key]
-            for field in ("feature_as_of_utc", "issue_time_utc", "available_at_utc"):
+            for field in (
+                "feature_as_of_utc",
+                "issue_time_utc",
+                "available_at_utc",
+                "request_hash",
+                "raw_response_sha256",
+            ):
                 if row.get(field) != coverage.get(field):
                     raise CorpusVerificationError(
                         f"daily and coverage PIT timestamps differ for {key}: {field}"
                     )
+            if issue_kind != coverage.get("issue_contract"):
+                raise CorpusVerificationError(
+                    f"daily and coverage issue evidence differ for {key}"
+                )
     daily_keys = set(daily_by_key)
     if daily_keys != coverage_keys:
         raise CorpusVerificationError("daily and coverage key matrices differ")
@@ -323,6 +363,9 @@ def preflight_pit_forecast_training_corpus(
                 "derived_row_sha256",
             ):
                 raise CorpusVerificationError(f"hourly derived-row hash mismatch: {key}")
+            if row.get("schema_version") != ROW_SCHEMA_VERSION:
+                raise CorpusVerificationError(f"hourly row schema is unsupported: {key}")
+            expected_request_hash(row, key)
             valid_time = row.get("valid_time_utc")
             if not valid_time or valid_time in profile_times[key]:
                 raise CorpusVerificationError(f"duplicate or empty hourly valid time: {key}")
@@ -333,8 +376,32 @@ def preflight_pit_forecast_training_corpus(
                 expected_cutoffs
             ):
                 raise CorpusVerificationError(f"hourly cutoff safety matrix mismatch: {key}")
-            if row.get("issue_evidence_kind") != plan["issue_contract"]["kind"]:
+            issue_kind = row.get("issue_evidence_kind")
+            if (
+                issue_kind in REJECTED_ISSUE_EVIDENCE_KINDS
+                or issue_kind != plan["issue_contract"]["kind"]
+            ):
                 raise CorpusVerificationError(f"hourly issue contract drifted: {key}")
+            for cutoff_hour in expected_cutoffs:
+                coverage = coverage_by_key.get((key[0], key[1], cutoff_hour))
+                if coverage is None:
+                    raise CorpusVerificationError(
+                        f"hourly row lacks coverage decision: {key}, {cutoff_hour}"
+                    )
+                for field in (
+                    "issue_time_utc",
+                    "available_at_utc",
+                    "request_hash",
+                    "raw_response_sha256",
+                ):
+                    if row.get(field) != coverage.get(field):
+                        raise CorpusVerificationError(
+                            f"hourly and coverage PIT evidence differ for {key}: {field}"
+                        )
+                if issue_kind != coverage.get("issue_contract"):
+                    raise CorpusVerificationError(
+                        f"hourly and coverage issue evidence differ for {key}"
+                    )
     incomplete_profiles = sorted(
         key for key in expected_profile_dates if len(profile_times.get(key) or ()) != 24
     )

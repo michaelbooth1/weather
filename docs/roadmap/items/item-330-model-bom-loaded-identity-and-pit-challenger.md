@@ -1,4 +1,4 @@
-# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-08-31 - IDENTITY V0.3 RESTACKED; FREE-PIT CONTRACT AND WORKSTATION QUALIFICATION OPEN]
+# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-08-31 - FOUNDATION WORKSTATION-QUALIFIED; PRODUCTION REVIEW AND V2 COLLECTOR/CORPUS OPEN]
 
 Goal: make the served model graph reproducible from the bytes actually loaded
 by a process, establish the supported base retrain as a correctness baseline,
@@ -26,17 +26,35 @@ reopen their completed mechanisms or grant trading permission.
 
 ## Phase A — Generated model bill of materials
 
-- [ ] Add a deterministic, release-aware model BOM that enumerates every
-  serving stage in execution order, its owner/producer, feature contract,
+- [x] Add a deterministic, release-aware model BOM that enumerates the served
+  graph as named semantic nodes and typed dependency edges, with exact execution
+  order for each runtime-owned lane, plus owner/producer, feature contract,
   artifact or constant binding, training corpus/receipt where applicable, and
   dependency/runtime identity.
-- [ ] Distinguish the feature-extraction forecast ensemble from the
+- [x] Distinguish the feature-extraction forecast ensemble from the
   distribution-stage forecast context and fail if an undocumented semantic
   difference appears.
-- [ ] Record the stored estimator feature order and structural use summary so a
+- [x] Record the stored estimator feature order and structural use summary so a
   newer extractor schema cannot be mistaken for adoption by an older model.
-- [ ] Make the release verifier reject missing, ambiguous, global-fallback, or
+- [x] Make the release verifier reject missing, ambiguous, global-fallback, or
   non-content-bound BOM entries for production candidates.
+
+Implementation evidence: the workstation Phase-A descendant adds the
+`weather.model.model_bom` builder/verifier, the narrow
+`weather.model.model_bom_contracts` semantic catalog, a graph of named nodes and
+typed edges, and two exact runtime-owned lane orders. It binds
+candidate-relative artifacts, owner source and loaded-module identity, behavior
+constants, release runtime/dependencies, artifact-specific training lineage,
+stored feature order, structural-use summaries for pooled/HGB/JSON coefficient
+models, and two source-set-verified forecast contexts. Candidate and
+immutable-release verification reject partial, extra, legacy-production,
+absolute-path, or self-rehashed stage/evidence substitutions. Loaded serving
+rechecks estimator and coefficient structure after deserialization.
+Research-unbound and unrebound research-child states are explicit `INCOMPLETE`
+records without an authoritative identity. The implementation passed this
+mission's current-tip full workstation qualification and remains pending
+production review; no candidate was fitted, frozen, promoted, or activated by
+this Phase-A work.
 
 ## Phase B — Loaded-process identity repair
 
@@ -79,11 +97,21 @@ review, and a guarded quiet-window adoption decision.
   surface and exclude profile features that require an unavailable field.
 - [x] Preserve the prohibition on stitched settled data as a substitute for
   missing issue-time evidence.
-- [ ] Re-run focused corpus/contract/base-retrain tests on the workstation and
-  build one complete multi-year staged response set before claiming the formal
-  corpus is materializable.
+- [x] Re-run focused corpus/contract/base-retrain tests on the workstation.
+- [ ] Build one complete multi-year staged v2 response set before claiming the
+  formal corpus is materializable.
 - [ ] Verify the production-host collector/export path can supply request-bound
   raw responses without the workstation calling a provider.
+
+Workstation P2 audit disposition: **NO-GO — no repository-owned collector
+consumes the immutable v2 plan.** `weather.sources.forecast_training_corpus`
+intentionally has no HTTP client and exposes only CLI `plan`, `resume-status`,
+and `materialize`; `stage_response` has no non-test caller. The existing
+`forecast_history` network path does not consume plan request hashes or emit the
+required request-bound raw-byte/issue-evidence receipts. Smallest follow-up
+owner: a separate `weather.sources.forecast_training_corpus_collector` module
+plus focused source tests, leaving the corpus module network-free;
+export/transfer follows only after complete hash-verified materialization.
 
 ## Phase C — Correctness baseline and matched-stack qualification
 
