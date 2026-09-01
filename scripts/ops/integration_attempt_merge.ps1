@@ -279,6 +279,9 @@ function Get-WeatherIntegrationRecoverableActiveMarker {
     $markerRaw = Read-WeatherIntegrationSharedText -Path $markerPath
     try { $marker = $markerRaw | ConvertFrom-Json }
     catch { throw "Active quiet-merge marker JSON is unreadable after child failure." }
+    if ([string]$marker.operation_mode -ceq "production_baseline_reconciliation_v0.1") {
+        throw "Production-baseline reconciliation markers are one-shot and cannot enter generic integration-attempt recovery."
+    }
     Assert-WeatherIntegrationBooleanProperties `
         -Object $marker `
         -Names @("execution_tape_readoption_expected") `

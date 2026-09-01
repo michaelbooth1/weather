@@ -64,6 +64,28 @@ These instructions apply to `scripts/ops/`.
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight
   integrations share one pending closeout due by 09:00.
+- Its one-time `production_baseline_reconciliation_v0.1` mode is not a generic
+  integration attempt or resume path. It is bound to the exact reviewed
+  `3361520f... -> c932b54f...` incident, an isolated source tip/tree/self hash,
+  the 01:00-04:00 window, raw snapshots of exactly two generated configs, and
+  at most one already-provisioned `WeatherOneShotPush` invocation. Precommit
+  markers must keep the fail-closed published-target sentinel; only the proved
+  `[config child, published target]` merge may atomically expose the real first
+  parent to adopted boot recovery. Never route this marker through generic
+  attempt reconciliation or add a hard-reset fallback. Its on-demand task start
+  is not bounded by the task XML `ExecutionTimeLimit`: persist an absolute
+  15-minute deadline before start, reserve at least one minute before 04:00,
+  stop only the cached exact task object with at most one retry, and require
+  stable terminal readback. Stop exhaustion cannot PASS. No concurrent manual
+  `WeatherOneShotPush` caller is allowed across the final
+  Ready/start boundary. Exact first merge `M` does not contain this topic's
+  status guard: adopted `T` and its scheduled health watchdog can still publish
+  the generic retry instruction after the sole invocation is spent. This mode
+  has no production handoff until a new review resolves that contradiction
+  without changing the exact-tree or no-Scheduler-mutation contracts. Its
+  current deadline loop also cannot bound a hung synchronous ScheduledTasks
+  cmdlet; production adoption requires killable, time-bounded RPC helpers with
+  child-side exact-task revalidation and pre-mutation journaling.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.

@@ -25,6 +25,168 @@ def test_status_paths_are_derived_from_the_invoked_checkout_and_user_profile() -
     assert "C:\\Users\\micha" not in text
 
 
+def test_unpushed_guidance_is_guarded_by_quiet_reconciliation_evidence() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+
+    evidence_scan = text.index("function Get-WeatherQuietPushGuidanceState")
+    incident_gate = text.index(
+        "if ([bool]$quietPushGuidance.IncidentBoundReconciliation)",
+        evidence_scan,
+    )
+    ambiguous_gate = text.index(
+        "elseif ([bool]$quietPushGuidance.EvidenceAmbiguous)", incident_gate
+    )
+    ordinary_guidance = text.index(
+        '$warns.Add("$unpushed commit(s) unpushed (run WeatherOneShotPush)")',
+        ambiguous_gate,
+    )
+
+    assert evidence_scan < incident_gate < ambiguous_gate < ordinary_guidance
+    assert text.count("unpushed (run WeatherOneShotPush)") == 1
+    assert "WeatherOneShotPush must not be invoked again" in text[
+        incident_gate:ambiguous_gate
+    ]
+    assert "WeatherOneShotPush is forbidden pending reviewed reconciliation" in text[
+        ambiguous_gate:ordinary_guidance
+    ]
+    assert 'Schema = "quiet_window_merge_in_progress_v0.1"' in text
+    assert 'Schema = "quiet_window_merge_report_v0.2"' in text
+    assert 'operationMode -ceq "production_baseline_reconciliation_v0.1"' in text
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_quiet_push_guidance_classifies_special_and_malformed_evidence(
+    tmp_path: Path,
+) -> None:
+    normal_marker = tmp_path / "normal-marker.json"
+    normal_report = tmp_path / "normal-report.json"
+    special_marker = tmp_path / "special-marker.json"
+    malformed_report = tmp_path / "malformed-report.json"
+    unknown_report = tmp_path / "unknown-report.json"
+    normal_marker.write_text(
+        json.dumps(
+            {
+                "schema": "quiet_window_merge_in_progress_v0.1",
+                "updated_at": "2026-09-01T01:30:00-04:00",
+                "phase": "prepared",
+                "expected_tip": "0" * 40,
+                "expected_baseline": "1" * 40,
+            }
+        ),
+        encoding="utf-8",
+    )
+    normal_report.write_text(
+        json.dumps(
+            {
+                "schema": "quiet_window_merge_report_v0.2",
+                "ts": "2026-09-01T01:31:00-04:00",
+                "stage": "dry_run",
+                "branch": "origin/example",
+                "expected_tip": "0" * 40,
+                "expected_baseline": "1" * 40,
+            }
+        ),
+        encoding="utf-8",
+    )
+    special_marker.write_text(
+        json.dumps(
+            {
+                "schema": "quiet_window_merge_in_progress_v0.1",
+                "updated_at": "2026-09-01T01:32:00-04:00",
+                "phase": "documented_unpublished",
+                "expected_tip": "0" * 40,
+                "expected_baseline": "1" * 40,
+                "operation_mode": "production_baseline_reconciliation_v0.1",
+            }
+        ),
+        encoding="utf-8",
+    )
+    malformed_report.write_text("{", encoding="utf-8")
+    unknown_report.write_text(
+        json.dumps(
+            {
+                "schema": "quiet_window_merge_report_v0.2",
+                "ts": "2026-09-01T01:33:00-04:00",
+                "stage": "merged_unpushed",
+                "branch": "origin/example",
+                "expected_tip": "0" * 40,
+                "expected_baseline": "1" * 40,
+                "operation_mode": "future_incident_mode",
+            }
+        ),
+        encoding="utf-8",
+    )
+    env = {
+        **os.environ,
+        "WEATHER_STATUS_SCRIPT": str(SCRIPT),
+        "WEATHER_MISSING_MARKER": str(tmp_path / "missing-marker.json"),
+        "WEATHER_NORMAL_MARKER": str(normal_marker),
+        "WEATHER_NORMAL_REPORT": str(normal_report),
+        "WEATHER_SPECIAL_MARKER": str(special_marker),
+        "WEATHER_MALFORMED_REPORT": str(malformed_report),
+        "WEATHER_UNKNOWN_REPORT": str(unknown_report),
+    }
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile(
+    $env:WEATHER_STATUS_SCRIPT,
+    [ref]$tokens,
+    [ref]$errors
+)
+if (@($errors).Count -ne 0) { throw 'status script did not parse' }
+$functionAst = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq 'Get-WeatherQuietPushGuidanceState'
+}, $true)) | Select-Object -First 1
+if ($null -eq $functionAst) { throw 'missing quiet push guidance function' }
+Invoke-Expression $functionAst.Extent.Text
+$ordinary = Get-WeatherQuietPushGuidanceState `
+    -ActiveMarkerPath $env:WEATHER_NORMAL_MARKER `
+    -LastReportPath $env:WEATHER_NORMAL_REPORT
+$special = Get-WeatherQuietPushGuidanceState `
+    -ActiveMarkerPath $env:WEATHER_SPECIAL_MARKER `
+    -LastReportPath $env:WEATHER_NORMAL_REPORT
+$malformed = Get-WeatherQuietPushGuidanceState `
+    -ActiveMarkerPath $env:WEATHER_MISSING_MARKER `
+    -LastReportPath $env:WEATHER_MALFORMED_REPORT
+$unknown = Get-WeatherQuietPushGuidanceState `
+    -ActiveMarkerPath $env:WEATHER_MISSING_MARKER `
+    -LastReportPath $env:WEATHER_UNKNOWN_REPORT
+[pscustomobject]@{
+    ordinary_incident = [bool]$ordinary.IncidentBoundReconciliation
+    ordinary_ambiguous = [bool]$ordinary.EvidenceAmbiguous
+    special_incident = [bool]$special.IncidentBoundReconciliation
+    special_ambiguous = [bool]$special.EvidenceAmbiguous
+    malformed_incident = [bool]$malformed.IncidentBoundReconciliation
+    malformed_ambiguous = [bool]$malformed.EvidenceAmbiguous
+    unknown_incident = [bool]$unknown.IncidentBoundReconciliation
+    unknown_ambiguous = [bool]$unknown.EvidenceAmbiguous
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "ordinary_incident": False,
+        "ordinary_ambiguous": False,
+        "special_incident": True,
+        "special_ambiguous": False,
+        "malformed_incident": False,
+        "malformed_ambiguous": True,
+        "unknown_incident": False,
+        "unknown_ambiguous": True,
+    }
+
+
 def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

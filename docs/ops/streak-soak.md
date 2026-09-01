@@ -322,6 +322,114 @@ check immediately before starting the push. At the same boundary it re-proves ch
 snapshot, all three capture workers, and any required execution-tape writer. A failed boundary
 proof leaves the commit and marker unpublished for reviewed recovery.
 
+### One-time split-baseline reconciliation
+
+The ordinary path above still requires `master == origin/master`. A separate,
+incident-bound switch exists only for the reviewed production split
+`3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac ->
+c932b54f8747df5cdefc4cc42f8454b6797f09ae`:
+
+```powershell
+& <isolated-source>\scripts\ops\quiet_window_merge.ps1 `
+  -ProductionBaselineReconciliation `
+  -Branch origin/master `
+  -ExpectedTip c932b54f8747df5cdefc4cc42f8454b6797f09ae `
+  -ExpectedBaseline 3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac `
+  -ExpectedLocalBaseline 3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac `
+  -ExpectedPublishedTarget c932b54f8747df5cdefc4cc42f8454b6797f09ae `
+  -ExpectedSourceTip <reviewed-implementation-commit> `
+  -ExpectedSourceTree <reviewed-implementation-tree> `
+  -ExpectedSelfSha256 <materialized-entry-script-sha256> `
+  -RepoRoot <production-repository>
+```
+
+This is a template, not standing run authority. Use only the exact immutable
+values in the current reviewed handoff, only during 01:00-04:00, and never with
+`-Force`, an owner-exception token, or an integration-attempt report. A dry run
+performs the synthetic commit/merge only in a temporary shared clone and does
+not write production reports, snapshots, markers, Git state, documentation, or
+Scheduler state. It runs before lease acquisition so the persistent lease
+diagnostic file also remains byte-for-byte untouched. Its production/source
+status probes use `git --no-optional-locks`, and the execution test includes
+both index files in the before/after byte inventory.
+
+The real mode requires exactly the two unstaged generated-config modifications,
+proves the tracked blobs match at both endpoints, and stores content-addressed
+raw byte snapshots before its first marker or Git mutation. It invokes
+`roll_verdict.ps1` with the old local SHA as explicit `-Base` and the published
+SHA as explicit `-Branch`; every nonzero, missing, stale, or incomplete verdict
+is sensitive, and the operation remains quiet-window-only in all cases. It
+validates the isolated source tip/tree/self bytes, canonical no-rewrite origin,
+adopted recovery/dependency hashes, exact singleton zero-trigger push task, and
+three-worker plus conditional execution-tape recovery before and immediately
+before publication. A read-only canonical `ls-remote` must still report the
+exact published target before mutation and immediately before task start; the
+cached remote-tracking ref alone is insufficient.
+
+Adopted boot recovery remains byte-for-byte unchanged. Every reconciliation
+precommit marker uses a `reconciliation_*` phase with
+`baseline_commit=expected_baseline=3361520...` and the deliberately rejected
+`pre_merge_commit=c932b54f...` sentinel. Thus boot can refuse or attempt
+`merge --abort`, but its marker-derived `reset --hard` predicates are false.
+Only after the temporary config commit `C`, recovery-proved merge `M`, ordered
+parents `[C,c932b54f...]`, target-equivalent non-config tree, and exact raw
+config bytes are all proved does one atomic marker replacement expose `C` in
+the existing `merge_committed_unpublished` phase. Every later replacement must
+remain a complete boot-valid postcommit marker.
+
+Before `WeatherOneShotPush` starts, the mode atomically records
+`push_invocation_attempted=true`; failure or missing acknowledgement spends the
+single authorized invocation and preserves `M` plus its marker. Generic
+integration-attempt merge, resume, close, and ordinary instructions to retry a
+`merged_unpushed` push do **not** apply to this operation mode. Do not rerun,
+delete, or hand-edit its marker. Publication PASS requires the canonical remote
+query and local refs to prove `HEAD == master == origin/master == M`.
+Every special unpublished report uses the distinct
+`reconciliation_merged_unpublished` stage. This matters during first adoption:
+`M` is deliberately the frozen published target plus two configs, not this
+implementation topic's tree, so the adopted `T` status script must never match
+its ordinary report-specific `merged_unpushed` branch. That distinction does
+not make the current first run safe: adopted `T` also emits an unconditional
+ahead-of-origin warning to run the task. The scheduled health watchdog invokes
+that exact production status script and copies its warnings into host-health
+state and `MORNING_BRIEFING.md`, so an unsuccessful or uncertain sole attempt
+can automatically publish a forbidden retry instruction. The topic's status
+guard correctly fails closed, but exact `M` does not contain it. This is a
+NO-GO until a newly reviewed solution removes that automated instruction while
+preserving the exact-tree and no-Scheduler-mutation contracts. Do not treat the
+command shape above as a runnable handoff.
+
+The task XML's `PT15M` setting is an identity check, not runtime containment:
+Microsoft documents that [`ExecutionTimeLimit` is bypassed for an on-demand
+start](https://learn.microsoft.com/en-us/windows/win32/api/taskschd/nf-taskschd-itasksettings-put_executiontimelimit).
+Accordingly, both the initial no-mutation preflight and the immediate pre-start
+gate require a full 15-minute run budget plus a one-minute stop/terminal reserve
+strictly before 04:00. The attempted marker records the issue time and absolute
+containment deadline before `Start-ScheduledTask`. At that deadline the wrapper
+uses the cached, exactly validated task object with
+[`Stop-ScheduledTask -InputObject`](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/stop-scheduledtask),
+even when Scheduler still reports `Ready` or a supplementary marker readback
+fails; it retries once while inside the window, then journals stop exhaustion
+and polls read-only. It retains the workload lease until repeated exact `Ready`
+plus stable runtime-info proof. Stop exhaustion or a terminal proof at or after
+04:00 can never PASS. This remains implementation evidence, not an absolute
+wall-clock proof: the ScheduledTasks Start, Stop, Get, Info, and Export cmdlets
+still run synchronously in the parent and can hang across either deadline. A
+safe successor must move each Scheduler RPC into a killable bounded helper,
+revalidate the exact singleton in that child, journal before mutation, and
+treat every timed-out Start as a spent ambiguous dispatch. That missing seam is
+a separate NO-GO. Canonical remote
+acknowledgement also runs in an owned 30-second process timeout.
+
+This binding assumes the reviewed production command is the exclusive active
+operator of the zero-trigger `WeatherOneShotPush` task. No person or automation
+may invoke it concurrently across the final Ready/recheck/start boundary. A
+competing manual start violates the handoff contract and makes the incident
+NO-GO; `IgnoreNew` and Task Scheduler do not expose a per-start instance ID that
+could repair that race after the fact. The containment stop changes no task
+definition, principal, action, trigger, enabled state, or credentials; it is
+limited to the lifecycle of this one already-attempted invocation.
+
 After capture recovery and before publication, the wrapper also records the
 exact local merge commit through `weather.operations.documentation_transaction
 begin`. It binds the resulting pending-state SHA256 and content-addressed snapshot
@@ -392,7 +500,8 @@ Two behaviours that are easy to get wrong, both found by testing it before its f
   complete stream, so every mutating/fetch Git call temporarily scopes native stderr to Continue
   and still checks the actual process exit code.
 
-`stage: merged_unpushed` means the credential-bearing `WeatherOneShotPush` task did not acknowledge
+For ordinary synchronized integrations only, `stage: merged_unpushed` means the
+credential-bearing `WeatherOneShotPush` task did not acknowledge
 the merge within its bounded wait. The merge and recovery proof succeeded, but publication did
 not; the quiet wrapper never attempts an interactive or S4U `git push` itself. This terminal
 retains the `documented_unpublished` active marker. First compare the marker's exact merge
@@ -403,7 +512,9 @@ credential-bearing `WeatherOneShotPush` task, require `origin/master` to acknowl
 commit, and then use the same reconciler. If the remote moved anywhere else, do not push or
 reset; preserve the marker and resolve the divergence explicitly. `rollback_recovery_failed`
 also retains its marker until boot or a reviewed recovery proves the exact rollback target and
-affected producers healthy.
+affected producers healthy. The incident-bound production-baseline
+reconciliation explicitly forbids this retry: its attempted marker spends the
+only authorized task invocation.
 
 After the final guarded merge is pushed, the next bounded morning closeout must
 complete the documentation transaction in `docs/documentation-maintenance.md`:

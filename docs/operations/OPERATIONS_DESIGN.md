@@ -479,6 +479,42 @@ merge task action cannot make an active attempt disappear from health reporting.
 A fresh `merged_unpushed` commit is a FLAG requiring reviewed publication or
 recovery, not a passive warning.
 
+The one-time `production_baseline_reconciliation_v0.1` topology is deliberately
+outside that generic attempt state machine. It starts from the exact accepted
+local baseline while the published target is already ahead, creates a
+config-only child `C`, and stages the published target so the only acceptable
+commit is `M` with ordered parents `[C,T]`. Until `M`, raw-config, and affected-
+producer recovery are all proved, the marker retains `T` as an adopted-boot
+refusal sentinel rather than a reset target. The single atomic postcommit
+cutover replaces it with `C` and a complete existing boot-recognized phase.
+Generic attempt merge/reconcile/close consumers reject this operation mode.
+Its push-attempt bit is durable before the sole pre-provisioned task invocation,
+so task failure or missing acknowledgement is a terminal reviewed handoff, not
+permission to retry. Because Windows bypasses a registered task's
+`ExecutionTimeLimit` for on-demand starts, the incident mode owns a separate
+15-minute deadline, a one-minute pre-04:00 stop/terminal reserve, and stable
+`Ready`/runtime readback. It stops only the cached exact singleton object,
+permits one bounded retry, records stop exhaustion and any window breach, and
+can publish no PASS after either. The current candidate does not yet make that
+deadline an absolute wall-clock bound: ScheduledTasks Start/Stop/readback
+cmdlets run synchronously in the parent and can themselves hang. Production
+adoption additionally requires killable, time-bounded Scheduler RPC helpers
+whose child revalidates the exact singleton and whose pre-call receipt makes a
+timed-out Start unambiguously spent. This depends on an explicit exclusive-operator invariant: no other
+caller may race the zero-trigger task between the final Ready proof and the sole
+start.
+The first `M` intentionally contains no implementation-topic files, so its
+special unpublished report stage is `reconciliation_merged_unpublished`, never
+the adopted status script's report-specific `merged_unpushed` literal. That is
+not sufficient for first adoption: adopted `T` separately emits an
+unconditional ahead-of-origin warning to run `WeatherOneShotPush`, and the
+scheduled health watchdog republishes that warning. Exact `M=T+two configs`
+cannot contain the topic-side fail-closed status guard. Therefore this topology
+has no production handoff until a new review removes the automated retry
+instruction without weakening the exact-tree or no-Scheduler-mutation
+contracts; topic-side status and generic-consumer rejection are later defense
+in depth only.
+
 One-date settlement recovery uses the same containment and lock contracts but
 adds an inclusive execution boundary:
 `daily_refresh run --resume-from-step public_wu_settlement_restore

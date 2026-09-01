@@ -1650,12 +1650,97 @@ if (Test-Path $settleRoot) {
 }
 
 # ---- git / push ----
+# Publication guidance is action-bearing.  Inspect the reconciliation marker and
+# last report before offering the ordinary push command so a spent incident-bound
+# invocation can never be presented as a harmless retry.  Missing operation_mode is
+# valid for historical ordinary quiet-merge evidence; malformed or unknown evidence
+# is not sufficient authority to recommend a credential-bearing push.
+function Get-WeatherQuietPushGuidanceState {
+    param(
+        [Parameter(Mandatory = $true)][string]$ActiveMarkerPath,
+        [Parameter(Mandatory = $true)][string]$LastReportPath
+    )
+
+    $incidentBound = $false
+    $evidenceAmbiguous = $false
+    $specifications = @(
+        [pscustomobject]@{
+            Path = $ActiveMarkerPath
+            Schema = "quiet_window_merge_in_progress_v0.1"
+        },
+        [pscustomobject]@{
+            Path = $LastReportPath
+            Schema = "quiet_window_merge_report_v0.2"
+        }
+    )
+    foreach ($specification in $specifications) {
+        try {
+            if (-not (Test-Path -LiteralPath $specification.Path -ErrorAction Stop)) {
+                continue
+            }
+            if (-not (Test-Path -LiteralPath $specification.Path -PathType Leaf -ErrorAction Stop)) {
+                throw "quiet-window evidence path is not a file"
+            }
+            $raw = [IO.File]::ReadAllText(
+                [IO.Path]::GetFullPath([string]$specification.Path),
+                [Text.Encoding]::UTF8
+            )
+            if ([string]::IsNullOrWhiteSpace($raw)) {
+                throw "quiet-window evidence is empty"
+            }
+            $evidence = $raw | ConvertFrom-Json -ErrorAction Stop
+            $schemaProperty = $evidence.PSObject.Properties["schema"]
+            if ($null -eq $schemaProperty -or
+                [string]$schemaProperty.Value -cne [string]$specification.Schema) {
+                throw "quiet-window evidence schema is invalid"
+            }
+            $modeProperty = $evidence.PSObject.Properties["operation_mode"]
+            if ($null -eq $modeProperty) {
+                continue
+            }
+            if ($null -eq $modeProperty.Value -or $modeProperty.Value -isnot [string]) {
+                throw "quiet-window operation mode is invalid"
+            }
+            $operationMode = [string]$modeProperty.Value
+            if ($operationMode -ceq "production_baseline_reconciliation_v0.1") {
+                $incidentBound = $true
+            }
+            elseif (-not [string]::IsNullOrWhiteSpace($operationMode)) {
+                # A future nonstandard operation must define its own retry policy.
+                $evidenceAmbiguous = $true
+            }
+        }
+        catch {
+            $evidenceAmbiguous = $true
+        }
+    }
+    return [pscustomobject]@{
+        IncidentBoundReconciliation = $incidentBound
+        EvidenceAmbiguous = $evidenceAmbiguous
+    }
+}
+
+$quietMarkerPath = Join-Path $repo "data\alerts\quiet_window_merge_in_progress.json"
+$qwf = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
+$quietPushGuidance = Get-WeatherQuietPushGuidanceState `
+    -ActiveMarkerPath $quietMarkerPath `
+    -LastReportPath $qwf
 $unpushed = & git -C $repo rev-list --count origin/master..master 2>$null
 if (-not $unpushed) { $unpushed = "?" }
 $dirty = @(& git -C $repo status --porcelain 2>$null)
 $dirtyCount = ($dirty | Where-Object { $_ }).Count
 $lastCommit = & git -C $repo log -1 --format="%h %s" 2>$null
-if (($unpushed -ne "?") -and ([int]$unpushed -gt 0)) { $warns.Add("$unpushed commit(s) unpushed (run WeatherOneShotPush)") }
+if (($unpushed -ne "?") -and ([int]$unpushed -gt 0)) {
+    if ([bool]$quietPushGuidance.IncidentBoundReconciliation) {
+        $flags.Add("$unpushed commit(s) unpushed under incident-bound production reconciliation; WeatherOneShotPush must not be invoked again without reviewed recovery authority")
+    }
+    elseif ([bool]$quietPushGuidance.EvidenceAmbiguous) {
+        $flags.Add("$unpushed commit(s) unpushed but quiet-window publication evidence is unreadable or unsupported; WeatherOneShotPush is forbidden pending reviewed reconciliation")
+    }
+    else {
+        $warns.Add("$unpushed commit(s) unpushed (run WeatherOneShotPush)")
+    }
+}
 
 # ---- scheduled tasks (classify against what is EXPECTED) ----
 function Test-WeatherOneShotTrigger {
@@ -2824,7 +2909,6 @@ elseif ([string]$documentationTransaction.state -eq "PENDING") {
 
 # ---- active/last guarded quiet-window merge ----
 # Merges happen at 01:30 while I am not watching; the outcome must be waiting in the morning.
-$quietMarkerPath = Join-Path $repo "data\alerts\quiet_window_merge_in_progress.json"
 if (Test-Path -LiteralPath $quietMarkerPath -PathType Leaf) {
     try {
         $quietMarker = Get-Content -LiteralPath $quietMarkerPath -Raw | ConvertFrom-Json
@@ -2836,7 +2920,10 @@ if (Test-Path -LiteralPath $quietMarkerPath -PathType Leaf) {
         }
         $quietMarkerAgeMinutes = ((Get-Date) - [datetime]$quietMarker.updated_at).TotalMinutes
         $quietMarkerDetail = "quiet-window merge marker remains at phase $($quietMarker.phase) for $([math]::Round($quietMarkerAgeMinutes, 1)) minutes (tip $($quietMarker.expected_tip))"
-        if ($quietMarkerAgeMinutes -gt 30) {
+        if ([string]$quietMarker.operation_mode -ceq "production_baseline_reconciliation_v0.1") {
+            $flags.Add("INCIDENT-BOUND PRODUCTION RECONCILIATION $quietMarkerDetail - do not rerun WeatherOneShotPush, delete, or hand-edit this marker; obtain reviewed one-time reconciliation")
+        }
+        elseif ($quietMarkerAgeMinutes -gt 30) {
             $flags.Add("STALE $quietMarkerDetail - run boot/merge recovery before closure or another merge")
         }
         else {
@@ -2848,14 +2935,17 @@ if (Test-Path -LiteralPath $quietMarkerPath -PathType Leaf) {
     }
 }
 $qw = $null
-$qwf = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 if (Test-Path $qwf) {
     try {
         $qw = Get-Content $qwf -Raw | ConvertFrom-Json
         $qwAgeH = ((Get-Date) - [datetime]$qw.ts).TotalHours
         # A rollback means capture did not survive the code roll -- streak-critical, and the
         # branch still needs a human decision. Never let that scroll past in a log file.
-        if ($qw.stage -eq "rollback_recovery_failed" -and $qwAgeH -lt 36) {
+        if ([string]$qw.operation_mode -ceq "production_baseline_reconciliation_v0.1" -and
+            $qwAgeH -lt 36 -and [string]$qw.stage -ne "pushed") {
+            $flags.Add("incident-bound production reconciliation requires reviewed recovery ($($qw.stage): $($qw.detail)); its sole WeatherOneShotPush invocation may be spent - do not retry, delete, or hand-edit evidence")
+        }
+        elseif ($qw.stage -eq "rollback_recovery_failed" -and $qwAgeH -lt 36) {
             $flags.Add("quiet-window merge rollback recovery is UNPROVEN ($($qw.detail)) - protect capture and reconcile before another merge")
         }
         elseif ($qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {

@@ -264,6 +264,9 @@ $activeMarkerPath = Join-Path $repoRoot "data\alerts\quiet_window_merge_in_progr
 $activeMarker = $null
 if (Test-Path -LiteralPath $activeMarkerPath -PathType Leaf) {
     $activeMarker = Read-WeatherIntegrationSharedJson -Path $activeMarkerPath
+    if ([string]$activeMarker.operation_mode -ceq "production_baseline_reconciliation_v0.1") {
+        throw "Production-baseline reconciliation markers cannot be closed or retried as generic integration attempts."
+    }
     if ([string]$activeMarker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
         [string]$activeMarker.branch -ne [string]$manifest.branch_ref -or
         [string]$activeMarker.expected_tip -ne [string]$manifest.expected_tip -or
