@@ -434,3 +434,49 @@ The spent `WeatherSettlementBackfill20260830_0901a` task was disabled after
 exact action, trigger, last-result, and `REFUSED` receipt readback. Its task and
 receipt remain intact as evidence; it was not deleted or retried after the
 window.
+
+## 2026-09-01 workstation verification and repair
+
+The source branch was fetched at exact handoff tip
+`c49ade8338d123ea77c707e63a1943e3d2398c2b`; implementation commit
+`3e9b2c08c0f85468d1d5956cfd3bdcd0c7e3e2d3` and tree
+`d2d83251cd97a6f2f06997552f86e5954f77e82d` are its ancestors. Line-by-line
+workstation review found that the source ratchets did not yet prove the
+Scheduler lifecycle and that several fail-closed edges were incomplete. The
+registrar now serializes same-date creation, treats queued and other ambiguous
+states as active, proves rollback through disabled readback, and verifies the
+root task path, principal identity, trigger type, enabled state, settings, and
+exact action. The successor now binds attempt-scoped atomic receipts to the
+date, attempt, and primary task; refuses a never-run primary that is still due;
+requires run-correlated fresh evidence; and accepts `SETTLED` only when every
+required all-market field proves the exact unique denominator with no missing
+or unsettled market. The watchdog rejects structurally invalid JSON even when
+it parses and retains the nested status exit code in its blind alert.
+
+Deterministic Windows PowerShell mocks now exercise pair creation, second-task
+registration rollback, readback rollback, ambiguous active history, inert
+history, same-date concurrency refusal, settled skip, running/stale/still-due
+refusal, exact one-call retry success and failure, invalid all-market proof,
+and watchdog blindness without calling the real Task Scheduler. Registry
+coverage executes `python -m weather.operations.settlement_backfill_registry`
+in a subprocess, requires the module to come from the tested checkout, and
+requires the exact unique 12-market built-in fleet.
+
+The admitted workstation evidence is green: the mocked Scheduler file passed
+10 tests; the focused operations and roadmap scope passed 1,425 tests with 17
+skips and 77 subtests; compileall returned zero; agent-doc audit passed 18
+agent files and 828 Markdown files; roadmap lint/check matched its generated
+report; and the complete repository suite passed 4,235 tests with 22 skips,
+13 warnings, and 862 subtests. Every pytest and compileall command ran through
+`scripts/ops/workstation_heavy.ps1`. No real task was registered, started,
+stopped, disabled, or deleted, and no provider, exchange, credential, live,
+promotion, release, production-data, or production-master surface was used.
+
+The canonical roll command was also executed and failed closed with exit 1:
+`UNDECIDABLE: no live closure evidence`. All four locally retained closure
+snapshots were dormant by roughly 486 to 865 hours, so the command emitted no
+per-file rows and no roll-free verdict. A production-side rerun with fresh live
+closure evidence remains required before adoption. This workstation proof
+does not authorize adoption or registration; the only production follow-up is
+the handoff's reviewed adoption decision and, during a future admitted
+00:30-09:00 window, a fresh pair for an actually open date.
