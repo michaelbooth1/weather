@@ -105,6 +105,11 @@ feature record to carry the same corpus ID, request/raw hashes, native forecast
 value, and issue/availability/as-of timestamps. A missing, corrupt, incomplete,
 or differently bound corpus blocks the complete fleet.
 
+The default PIT plan uses only the twelve free Previous Runs fields established
+as available with issue-time provenance. The other nine schema-known fields
+remain explicit exclusions. Do not source them from the stitched archive or
+describe their absence as a provider failure that can be waived.
+
 The plan owns the first-retrain population: years 2021-2025, the target
 month/day plus or minus seven days, cutoff hours 07-20, and all 12 built-in
 markets. It intersects that window with the versioned, code-owned, reason-bearing

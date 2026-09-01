@@ -22,6 +22,10 @@ retraining. It is not a serving fallback and is never discovered through
   date must have exactly 24 local hourly rows, all contracted fields, valid
   units, accepted issue evidence, and both `issue_time_utc` and
   `available_at_utc` at or before every feature cutoff.
+- The v2 plan/manifest/preflight contract requests the twelve fields proved
+  complete on the free Previous Runs surface. Nine additional schema-known
+  fields are retained as explicit unavailable dispositions; a stitched settled
+  value can never satisfy their absence.
 - Target-year rows, empty issue identity, and stitched continuous-archive rows
   fail closed. Partial or zero-row builds never enter a `corpora/` directory.
 - Publication verifies the complete temporary corpus, derives its identity
@@ -32,6 +36,12 @@ The active analog archive remains pinned. Forecast-relative marine fields,
 forecast-error secondary artifacts, late-day continuation, and analog distance
 are explicitly excluded from this first corpus. Every pooled forecast-profile
 column is either mapped to a source field or named in the exclusions receipt.
+The research workstation does not call the provider. The production host is
+the authorized location for a future separately reviewed collector, but no
+repository-owned collector currently consumes the immutable v2 plan. Transfer
+can begin only after that collector has populated complete request-bound staging
+and the network-free materializer has produced a content-addressed non-secret
+corpus bundle.
 
 ## Dry-run planning
 

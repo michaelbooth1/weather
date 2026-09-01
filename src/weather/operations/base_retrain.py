@@ -27,6 +27,7 @@ from weather.calibration.base_model_candidate import (
     read_hash_bound_records,
 )
 from weather.calibration.forecast_training_contract import (
+    PREFLIGHT_SCHEMA_VERSION as PIT_FORECAST_PREFLIGHT_SCHEMA_VERSION,
     pit_selection_binding_sha256,
     preflight_pit_forecast_training_corpus,
 )
@@ -35,6 +36,13 @@ from weather.calibration.feature_training_policy import (
     training_feature_names,
 )
 from weather.market.market_registry import BUILTIN_SPECS, spec_for_id
+from weather.model.model_bom import (
+    MODEL_BOM_INCOMPLETE,
+    build_model_bill_of_materials,
+    canonical_payload_sha256 as bom_payload_sha256,
+    coefficient_model_mapping,
+    required_training_roles,
+)
 from weather.operations.release_candidate_contract import (
     SEMANTIC_PATHS,
     _finalize_payload,
@@ -73,6 +81,7 @@ REGENERATED_ROLES = frozenset(
     {
         "base_model_serving_graph",
         "candidate_input_leakage_audit",
+        "model_bill_of_materials",
         "semantic_serving_contract",
     }
 )
@@ -1098,6 +1107,16 @@ def evaluate_preflight(
             {"code": "WU_FLEET_MISMATCH", "message": "corpus manifest is not exactly the 12 built-in markets"}
         )
     pit_blockers = []
+    if (
+        pit_forecast_preflight.get("schema_version")
+        != PIT_FORECAST_PREFLIGHT_SCHEMA_VERSION
+    ):
+        pit_blockers.append(
+            {
+                "code": "PIT_FORECAST_PREFLIGHT_SCHEMA",
+                "message": "PIT forecast corpus preflight schema is unsupported",
+            }
+        )
     if pit_forecast_preflight.get("status") != "PASS":
         pit_blockers.append(
             {
@@ -1299,7 +1318,11 @@ def _finalize_candidate_contract(
     required_role_kinds = dict(parent["semantic"]["required_role_kinds"])
     artifact_rows = {}
     for role, kind in sorted(required_role_kinds.items()):
-        if role in {"semantic_serving_contract", "candidate_input_leakage_audit"}:
+        if role in {
+            "semantic_serving_contract",
+            "candidate_input_leakage_audit",
+            "model_bill_of_materials",
+        }:
             continue
         relative = (
             role_rows[role]["path"]
@@ -1315,6 +1338,98 @@ def _finalize_candidate_contract(
             "sha256": sha256_file(path),
             "bytes": path.stat().st_size,
         }
+
+    def load_candidate_pickle(role: str) -> Mapping[str, Any]:
+        row = artifact_rows[role]
+        path = candidate_dir / row["path"]
+        try:
+            with path.open("rb") as handle:
+                payload = pickle.load(handle)  # noqa: S301 - candidate hash is rebound below
+        except Exception as exc:  # noqa: BLE001
+            raise BaseRetrainContractError(
+                f"candidate model cannot be deserialized: {role}: {exc}"
+            ) from exc
+        if not isinstance(payload, Mapping) or sha256_file(path) != row["sha256"]:
+            raise BaseRetrainContractError(
+                f"candidate model changed during BOM extraction: {role}"
+            )
+        return payload
+
+    model_nodes: dict[str, Mapping[str, Any]] = {
+        "pooled_band_model": (
+            load_candidate_pickle("pooled_band_model").get("models") or {}
+        )
+    }
+
+    def coefficient_nodes(role: str) -> dict[str, Any]:
+        payload = _read_json(
+            candidate_dir / artifact_rows[role]["path"],
+            label=f"candidate coefficient model {role}",
+        )
+        return coefficient_model_mapping(payload)
+
+    for market_id in EXPECTED_MARKETS:
+        components = graph["markets"][market_id]["components"]
+        hgb_role = str(components["feature_hgb"]["role"])
+        model_nodes[hgb_role] = load_candidate_pickle(hgb_role)
+        for component_name in (
+            "feature_lr_coefficients",
+            "late_day_lr_coefficients",
+        ):
+            role = str(components[component_name]["role"])
+            model_nodes[role] = coefficient_nodes(role)
+
+    def unavailable_evidence(section: str) -> dict[str, Any]:
+        return {
+            "status": MODEL_BOM_INCOMPLETE,
+            "identity_sha256": "",
+            "missing_entries": ["candidate_bound_evidence"],
+            "binding": {
+                "candidate_id": candidate_id,
+                "section": section,
+                "disposition": (
+                    "research child finalizer does not inherit parent evidence; "
+                    "candidate-bound evidence must be supplied by the full retrain lane"
+                ),
+            },
+        }
+
+    unavailable_lineage = {}
+    for role in sorted(required_training_roles(artifact_rows)):
+        lineage = {
+            "status": MODEL_BOM_INCOMPLETE,
+            "disposition": "missing",
+            "artifact_role": role,
+            "artifact_sha256": artifact_rows[role]["sha256"],
+            "missing_entries": ["candidate_bound_evidence"],
+        }
+        lineage["identity_sha256"] = bom_payload_sha256(lineage)
+        unavailable_lineage[role] = lineage
+
+    model_bom = build_model_bill_of_materials(
+        artifacts=artifact_rows,
+        model_nodes=model_nodes,
+        code_constants=unavailable_evidence("code_constants"),
+        runtime_dependencies=unavailable_evidence("runtime_dependencies"),
+        training_lineage=unavailable_lineage,
+        forecast_contexts={
+            "feature_extraction_forecast_ensemble": unavailable_evidence(
+                "feature_extraction_forecast_ensemble"
+            ),
+            "distribution_stage_forecast_context": unavailable_evidence(
+                "distribution_stage_forecast_context"
+            ),
+        },
+    )
+    bom_relative = role_rows["model_bill_of_materials"]["path"]
+    bom_path = candidate_dir / bom_relative
+    _write_json_exclusive(bom_path, model_bom)
+    artifact_rows["model_bill_of_materials"] = {
+        "path": bom_relative,
+        "kind": required_role_kinds["model_bill_of_materials"],
+        "sha256": sha256_file(bom_path),
+        "bytes": bom_path.stat().st_size,
+    }
 
     parent_audit_row = role_rows["candidate_input_leakage_audit"]
     parent_audit = _read_json(

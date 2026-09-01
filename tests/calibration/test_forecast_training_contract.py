@@ -7,7 +7,12 @@ from weather.calibration.forecast_training_contract import (
     validate_consumer_dispositions,
 )
 from weather.model.feature_store import FORECAST_PROFILE_COLUMNS
-from weather.sources.forecast_training_corpus import CONSUMER_DISPOSITIONS
+from weather.sources.forecast_training_corpus import (
+    CONSUMER_DISPOSITIONS,
+    FREE_PIT_SOURCE_FIELDS,
+    PROFILE_FEATURE_SOURCE_FIELDS,
+    UNAVAILABLE_PIT_SOURCE_FIELDS,
+)
 
 
 def test_consumer_dispositions_cover_every_forecast_profile_column():
@@ -21,6 +26,52 @@ def test_consumer_dispositions_cover_every_forecast_profile_column():
     for consumer in REQUIRED_EXCLUDED_CONSUMERS:
         assert CONSUMER_DISPOSITIONS[consumer]["disposition"] == "excluded"
         assert CONSUMER_DISPOSITIONS[consumer]["reason"]
+
+
+def test_profile_dispositions_never_require_an_unavailable_pit_field():
+    included_source_fields = {
+        source_field
+        for source_fields in PROFILE_FEATURE_SOURCE_FIELDS.values()
+        for source_field in source_fields
+    }
+    assert included_source_fields <= set(FREE_PIT_SOURCE_FIELDS)
+    assert included_source_fields.isdisjoint(UNAVAILABLE_PIT_SOURCE_FIELDS)
+
+    profile = CONSUMER_DISPOSITIONS["pooled_forecast_profiles"]
+    excluded = profile["excluded_feature_columns"]
+    for feature in (
+        "forecast_low_cloud_mean",
+        "forecast_low_cloud_max",
+        "forecast_mid_cloud_mean",
+        "forecast_high_cloud_mean",
+        "forecast_temperature_925hpa_mean",
+        "forecast_temperature_850hpa_mean",
+        "forecast_surface_to_925_lapse_proxy",
+        "forecast_925_to_850_lapse_proxy",
+        "forecast_geopotential_height_500hpa_mean",
+        "forecast_visibility_min",
+        "forecast_soil_temperature_0cm_mean",
+        "forecast_soil_moisture_0_to_1cm_mean",
+    ):
+        assert "unavailable from the free PIT endpoint" in excluded[feature]
+
+
+def test_forecast_profile_training_matrix_cannot_select_excluded_fields():
+    profile = CONSUMER_DISPOSITIONS["pooled_forecast_profiles"]
+    included = list(profile["included_feature_columns"])
+    excluded = list(profile["excluded_feature_columns"])
+    columns = ["forecast_high", "forecast_gap", *included, *excluded, "market_id_nyc"]
+
+    selected = assembly.feature_names_for_subset(
+        columns,
+        assembly.FEATURE_SUBSET_FORECAST_PROFILE,
+    )
+
+    assert set(included) <= set(selected)
+    assert set(excluded).isdisjoint(selected)
+    assert "forecast_high" in selected
+    assert "forecast_gap" in selected
+    assert "market_id_nyc" in selected
 
 
 def test_family_dataset_preflights_and_passes_explicit_market_readers():

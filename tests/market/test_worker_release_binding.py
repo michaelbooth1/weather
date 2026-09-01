@@ -27,6 +27,7 @@ from weather.market.worker_release_binding import (
     worker_tape_columns,
     worker_tape_summary_fields,
 )
+from weather.paths import REPO_ROOT
 from weather.release_serving import clear_process_serving_bundle_cache
 from weather.schema_registry import schema_version
 
@@ -159,7 +160,7 @@ def test_taker_and_maker_bind_verified_release_and_stamp_summaries_and_tapes(
             config={"counterfactual_tape_enabled": False},
             active_release_pointer_path=pointer,
             releases_root=releases_root,
-            release_repo_root=paths["repo"],
+            release_repo_root=REPO_ROOT,
             release_check_runtime=False,
         )
         maker = build_maker_run_once(
@@ -176,7 +177,7 @@ def test_taker_and_maker_bind_verified_release_and_stamp_summaries_and_tapes(
             now=NOW,
             active_release_pointer_path=pointer,
             releases_root=releases_root,
-            release_repo_root=paths["repo"],
+            release_repo_root=REPO_ROOT,
             release_check_runtime=False,
         )
     finally:
@@ -255,7 +256,7 @@ def test_sticky_pointer_disappearance_fails_closed(tmp_path: Path) -> None:
         binding = load_worker_release_binding(
             pointer_path=pointer,
             releases_root=releases_root,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
         assert binding.release_bound is True
@@ -265,7 +266,7 @@ def test_sticky_pointer_disappearance_fails_closed(tmp_path: Path) -> None:
             load_worker_release_binding(
                 pointer_path=pointer,
                 releases_root=releases_root,
-                repo_root=paths["repo"],
+                repo_root=REPO_ROOT,
                 check_runtime=False,
             )
     finally:
@@ -279,7 +280,7 @@ def test_wrong_release_no_trade_row_blocks_before_append(tmp_path: Path) -> None
         binding = load_worker_release_binding(
             pointer_path=pointer,
             releases_root=releases_root,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
         columns = worker_tape_columns(ORDER_COLUMNS, binding)
@@ -317,7 +318,7 @@ def test_bound_lineage_reason_mismatch_blocks(tmp_path: Path) -> None:
         binding = load_worker_release_binding(
             pointer_path=pointer,
             releases_root=releases_root,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
         row = {field: binding.lineage.get(field) for field in LINEAGE_FIELDS}
@@ -412,7 +413,7 @@ def test_tampered_snapshot_probability_blocks_against_hashed_capture(
         binding = load_worker_release_binding(
             pointer_path=pointer,
             releases_root=releases_root,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
         with pytest.raises(
@@ -455,7 +456,7 @@ def test_worker_snapshot_binding_rejects_cross_market_event_provenance(
         binding = load_worker_release_binding(
             pointer_path=pointer,
             releases_root=releases_root,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
 
@@ -510,7 +511,7 @@ def test_settled_taker_and_counterfactual_tapes_preserve_bound_lineage(
         binding = load_worker_release_binding(
             pointer_path=pointer,
             releases_root=releases_root,
-            repo_root=paths["repo"],
+            repo_root=REPO_ROOT,
             check_runtime=False,
         )
         lineage = {

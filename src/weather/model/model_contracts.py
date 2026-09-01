@@ -11,6 +11,61 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 
 
+# Runtime-owned serving contracts.  These tuples are consumed by the live
+# implementation as well as the release BOM; they are not documentation-only
+# copies.  Keep them dependency-free so model identity can fingerprint them
+# without importing an operations or calibration package.
+FORECAST_CONTEXT_SOURCE_ROLES = {
+    "feature_extraction_forecast_ensemble": (
+        "open_meteo",
+        "weather_forecast",
+        "eccc_citypage",
+        "nws_hourly",
+        "global_ensemble",
+        "open_meteo_global_models",
+    ),
+    "distribution_stage_forecast_context": (
+        "open_meteo",
+        "weather_forecast",
+        "eccc_citypage",
+        "nws_hourly",
+        "global_ensemble",
+    ),
+}
+
+BASE_DISTRIBUTION_STAGE_ORDER = (
+    "base_estimator_and_prior_blend",
+    "bucket_transition",
+    "live_signal_adjustment",
+    "observed_hard_floor",
+    "intraday_tail_adjustment",
+    "plausible_upper_cap",
+    "forecast_shape",
+    "ramp_warm_tail_dampening",
+    "afternoon_residual_centering",
+    "validated_current_max_floor",
+    "observation_support_floor",
+    "late_day_continuation",
+    "late_day_lockin",
+    "pre_calibration_normalization",
+    "exact_distribution_calibration",
+    "current_max_boundary_guard",
+)
+
+POOLED_BAND_STAGE_ORDER = (
+    "candidate_raw",
+    "candidate_postprocessed",
+    "candidate_preblend",
+    "candidate_current_blend",
+    "candidate_final",
+)
+
+SERVING_LANE_STAGE_ORDERS = {
+    "toronto_base_distribution": BASE_DISTRIBUTION_STAGE_ORDER,
+    "pooled_band_live_variant": POOLED_BAND_STAGE_ORDER,
+}
+
+
 def _copy_dict(value):
     return deepcopy(dict(value or {}))
 

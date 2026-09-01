@@ -2357,7 +2357,36 @@ REGISTERED_SCHEMAS = (
     SchemaSpec("feature_store_legacy_v0_5", "toronto_feature_store_v0.5", "weather.model.feature_store", "legacy"),
     SchemaSpec("replay_inputs_reconstructed", "toronto_replay_inputs_reconstructed_v0.1", "weather.backtesting.replay", "active"),
     SchemaSpec("replay_inputs", "toronto_replay_inputs_v0.1", "weather.collection.snapshot_tracker", "active"),
-    SchemaSpec("weather_model_replay_identity", "weather_model_replay_identity_v0.1", "weather.model.model_identity", "active"),
+    SchemaSpec(
+        "weather_model_replay_identity",
+        "weather_model_replay_identity_v0.3",
+        "weather.model.model_identity",
+        "active",
+        "Process-bound replay identity over path-normalized loaded code, nested behavior constants, and loaded artifact state.",
+        supersedes=("weather_model_replay_identity_v0.2",),
+        migration_notes=(
+            "v0.2 hashed raw marshalled code objects, whose recursive co_filename fields made identical "
+            "loaded behavior differ across worktree paths. It omitted nested module constants and kept "
+            "capture-time disk artifact_hash inside identity_hash. v0.3 normalizes code filenames, binds "
+            "function defaults/closures and canonical nested constants, and hashes the estimator and "
+            "postprocessor state held by the model. Disk code/artifact hashes remain diagnostics and do "
+            "not relabel an unchanged process. v0.1/v0.2 identities are not comparable to v0.3."
+        ),
+    ),
+    SchemaSpec(
+        "weather_model_replay_identity_v0_2_legacy",
+        "weather_model_replay_identity_v0.2",
+        "weather.model.model_identity",
+        "legacy",
+        "Incomplete process identity with path-bearing raw code marshal and disk-at-capture artifact binding.",
+    ),
+    SchemaSpec(
+        "weather_model_replay_identity_legacy",
+        "weather_model_replay_identity_v0.1",
+        "weather.model.model_identity",
+        "legacy",
+        "Disk-at-capture-time model replay identity. Retained to read historical snapshots only.",
+    ),
     SchemaSpec("wu_daily_legacy", "wu_daily_native_v1", "weather.sources.daily_summary", "legacy"),
     SchemaSpec("wu_hourly", "wu_hourly_native_v1", "weather.sources.wu_history", "active"),
     SchemaSpec("wu_max_since_7_validation", "wu_max_since_7_validation_v0.1", "weather.reporting.validation.wu_max_since_7_validation", "active"),

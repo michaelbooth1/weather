@@ -123,6 +123,11 @@ OWNERSHIP_NOTES = {
         "boundary": "Nightly retrain preflights, step planning/execution, experiment queue handling, candidate orchestration, SLA/status reporting, and CLI.",
         "next_split": "Extract SLA/report rendering and parser/status handlers behind the stable nightly command, leaving guarded pipeline orchestration in the owner module.",
     },
+    "src/weather/operations/release_candidate_contract.py": {
+        "owner": "operations",
+        "boundary": "Candidate semantic freezing, release graph assembly, model-BOM evidence binding, leakage audit, and exact contract verification.",
+        "next_split": "Extract model-BOM artifact and training-lineage evidence assembly behind a narrow release-candidate BOM adapter while preserving fail-closed freeze and verification behavior.",
+    },
     "src/weather/operations/experiment_executor.py": {
         "owner": "operations",
         "boundary": "Verified experiment selection, host admission, isolated workspace construction, output validation, resource measurement, and candidate publication.",

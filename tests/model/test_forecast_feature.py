@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 from weather.model.toronto_model import TorontoHighTempModel
+from weather.model.model_contracts import FORECAST_CONTEXT_SOURCE_ROLES
 from weather.model.model_features import (
     build_us_guidance_replay_diagnostics,
     render_us_guidance_replay_diagnostics_markdown,
@@ -554,7 +555,7 @@ TXNP9  86  70| 84  72
     def test_live_features_include_open_meteo_global_model_guidance(self):
         model = TorontoHighTempModel(target_date="2026-05-30")
         rows = [_wu_row("07:00", 20.0), _wu_row("12:00", 24.0)]
-        features = model.extract_live_features({
+        sources = {
             "wu_history": {"ok": True, "data": {"rows": rows}},
             "wu_current": {"ok": True, "data": {"temp_c": 24.0}},
             "open_meteo": {"ok": True, "data": {"rows": [], "day_max_c": 30.0}},
@@ -588,7 +589,21 @@ TXNP9  86  70| 84  72
                     }},
                 ],
             }},
-        }, cutoff_hour=12)
+        }
+        with patch.object(
+            model,
+            "forecast_ensemble_for_context",
+            wraps=model.forecast_ensemble_for_context,
+        ) as context_ensemble:
+            features = model.extract_live_features(sources, cutoff_hour=12)
+
+        args, kwargs = context_ensemble.call_args
+        expected_roles = FORECAST_CONTEXT_SOURCE_ROLES[
+            "feature_extraction_forecast_ensemble"
+        ]
+        self.assertEqual(args[1], "feature_extraction_forecast_ensemble")
+        self.assertEqual(tuple(kwargs["source_payloads"]), expected_roles)
+        self.assertIn("open_meteo_global_models", expected_roles)
 
         self.assertEqual(features["forecast_high"], 30.0)
         self.assertEqual(features["forecast_source_count"], 2)

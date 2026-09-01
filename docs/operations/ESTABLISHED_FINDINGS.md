@@ -2526,6 +2526,81 @@ though CLOB never recovered. The repaired contracts use a one-minute OS
 backstop, a user-layer Codex pre-tool hook, and PID-reuse-resistant boot proof;
 see [the incident trace](codex-host-overload-2026-08-23.md).
 
+## 8v. Core-model structure and lineage audit — 2026-08-15
+
+This was a static production-host audit plus a light deserialization of the
+current Toronto HGB bundle. It did not run a retrain or make a performance
+claim.
+
+**The incumbent's apparent feature breadth is not its learned information
+breadth.** The base artifact stores 29 selected features for each 07:00-20:00
+estimator under feature schema `toronto_feature_store_v0.4`, while the live
+extractor has advanced beyond that schema. Stored-name selection keeps serving
+compatible, but fields outside the stored order are not adopted by that
+artifact. The bundle has no top-level target-date population, corpus/request
+hashes, dependency versions, fit receipt, or training-feature policy.
+
+Tree inspection showed `forecast_disagreement` unused by every hourly HGB.
+`forecast_source_count` appears only at 07:00-09:00, with split threshold 0.5;
+in this artifact it is an availability branch, not a learned measure of
+multi-source consensus strength. Historical record construction also defaulted
+source count to one when a forecast existed and left disagreement missing.
+
+**Serving has two forecast-ensemble contexts.** Live feature extraction passes
+the global-model payload to its ensemble helper, while the later distribution
+context does not. A single build can consequently carry a feature-row forecast
+summary that differs from the later distribution-stage context. This may be
+intentional, but it must be explicit in the model BOM and replay contract.
+
+**The supported first retrain is a correctness baseline, not a new-information
+candidate.** It fixes population, PIT binding, fold-local imputation,
+candidate-only writes, contiguous support, and fleet-atomic construction, but
+freezes the parent's feature order and HGB parameters. It cannot test newly
+available Previous Runs fields. Copied downstream stages require matched
+outer-date attribution rather than inherited credit.
+
+**The v0.2 process-identity implementation was not safe to merge unchanged.**
+It hashed raw marshalled code containing recursive `co_filename` paths, omitted
+behavior-bearing nested containers, and still read artifact identities from
+disk at capture time rather than binding objects actually deserialized by the
+process. Its tests did not exercise those failure modes.
+
+**Disposition:** establish an honest PIT/seasonal correctness control, generate
+a complete model bill of materials, bind loaded code and artifacts, qualify
+inherited stages on identical outer dates, then test one simple regularized
+residual/ordinal challenger using genuinely new issue-qualified information.
+Item 330 owns this bounded program; item 321 remains the release/promotion
+authority.
+
+### FOLLOW-UP 2026-08-15 — process identity v0.3 is built and focused-green, not adopted
+
+The v0.3 successor fixes all three structural defects above. Its authoritative
+`identity_hash` contains path-normalized loaded code, function
+defaults/closures, canonical nested behavior constants, loaded
+estimator/postprocessor state, and the Python/numpy/scipy/scikit-learn runtime
+contract. Import-time code and capture-time artifact file hashes remain visible
+diagnostics but no longer relabel an unchanged process. The serving code graph
+was also corrected: it now binds 24 actual runtime owners instead of retaining
+four unloaded calibration-training modules while omitting distribution signal,
+constant, runtime-calibration, model-construction, unit, and feature-helper
+owners.
+
+The adversarial identity/replay/schema/release surface passed **74 tests**; the
+complete model-owner suite separately passed **417 tests and 666 subtests**.
+The collection-owner suite passed **178 tests and 5 subtests**. On the real
+Toronto HGB graph, the first full process identity took **0.064 s**; the cached
+second call took **0.026 s**. All **24 / 24** serving-code modules were loaded
+and bound. The witness bound the exact SHA-256 of the **27.88 MiB** HGB bytes
+actually deserialized, with no failed component. Two independent loads produced
+the same loaded-artifact identity. These timings are an isolated host check,
+not a long-run capture-cost distribution.
+
+This does not repair historical snapshots and does not make v0.3 production
+state. It was restacked onto current master on 2026-08-31, but that new tip is
+not yet qualified. The branch is roll-sensitive and still needs current-tip
+workstation verification, exact CI, review, and a guarded quiet-window adoption
+decision. V0.1, v0.2, and v0.3 identities must never be pooled.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

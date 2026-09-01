@@ -610,10 +610,12 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
+        "weather.operations.agent_docs_audit",
         "weather.operations.base_retrain",
         "weather.operations.density_live_replay_parity",
         "weather.operations.nightly_retrain",
         "weather.operations.replay_status_backfill",
+        "weather.reporting.roadmap.roadmap_backlog",
         "weather.reporting.scorecards.train_serve_feature_parity"
     )
 }

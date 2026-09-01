@@ -10,12 +10,25 @@ or byte change requires an explicit cache clear/process restart.
 
 from __future__ import annotations
 
+import importlib
 import pickle
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from weather.model.model_bom import (
+    MODEL_BOM_INCOMPLETE,
+    MODEL_BOM_SCHEMA_VERSION,
+    ModelBomError,
+    coefficient_model_mapping,
+    verify_loaded_environment_binding,
+    verify_loaded_model_node,
+)
+from weather.model.model_identity import (
+    loaded_module_fingerprints,
+    runtime_dependency_identity,
+)
 from weather.paths import REPO_ROOT
 from weather.release_artifacts import (
     DEFAULT_ACTIVE_RELEASE_POINTER,
@@ -46,6 +59,36 @@ STATUS_RESEARCH_UNBOUND = "RESEARCH_UNBOUND"
 STATUS_BLOCKED = "BLOCKED"
 STATUS_RESTART_REQUIRED = "RESTART_REQUIRED"
 VERIFIED_PICKLE_BINDING_MARKER = "verified_release_pickle_binding_v0.1"
+
+_UNBOUND_MODEL_BOM_MISSING_ENTRIES = (
+    "artifacts",
+    "evidence.code_constants",
+    "evidence.runtime_dependencies",
+    "forecast_contexts.distribution_stage_forecast_context",
+    "forecast_contexts.feature_extraction_forecast_ensemble",
+    "model_nodes",
+    "release.active_pointer",
+    "serving_graph",
+    "training_lineage",
+)
+
+
+def _incomplete_model_bom_disposition(
+    reason: str = "no verified release-bound model BOM",
+) -> Mapping[str, Any]:
+    """Return an immutable, explicitly non-authoritative BOM disposition."""
+
+    return MappingProxyType(
+        {
+            "schema_version": MODEL_BOM_SCHEMA_VERSION,
+            "status": MODEL_BOM_INCOMPLETE,
+            "missing_entries": _UNBOUND_MODEL_BOM_MISSING_ENTRIES,
+            "authoritative_identity_sha256": None,
+            "disposition_only": True,
+            "authoritative_for_production": False,
+            "reason": reason,
+        }
+    )
 
 # Every historical global-path boundary below is now guarded by the verified
 # bundle in TorontoHighTempModel/FeatureModelMixin.  The inventory remains
@@ -88,6 +131,9 @@ class VerifiedServingBundle:
     artifact_paths: Mapping[str, str] = field(default_factory=dict)
     artifact_hashes: Mapping[str, str] = field(default_factory=dict)
     base_model_graph: Mapping[str, Any] = field(default_factory=dict)
+    model_bill_of_materials: Mapping[str, Any] = field(
+        default_factory=_incomplete_model_bom_disposition
+    )
     base_model_artifacts: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     base_model_shared_artifacts: Mapping[str, Any] = field(default_factory=dict)
     base_model_bound: bool = False
@@ -392,6 +438,20 @@ def materialize_verified_base_model_market(
         expected_sha256=str(descriptor["sha256"]),
         label=role,
     )
+    if (
+        bundle.model_bill_of_materials
+        and bundle.model_bill_of_materials.get("disposition_only") is not True
+    ):
+        try:
+            verify_loaded_model_node(
+                bundle.model_bill_of_materials,
+                node=role,
+                loaded_models=materialized["feature_hgb"],
+            )
+        except ModelBomError as exc:
+            raise ReleaseServingBindingError(
+                f"materialized base HGB disagrees with model BOM: {exc}"
+            ) from exc
     return materialized
 
 
@@ -453,11 +513,68 @@ def _materialize_complete_serving_bundle(
         json_payloads=json_payloads,
         release_dir=release_dir,
     )
+    model_bom = semantic_contract.get("model_bill_of_materials")
+    if isinstance(model_bom, Mapping):
+        try:
+            for market_id, components in sorted(base_model_artifacts.items()):
+                graph_components = base_model_graph["markets"][market_id]["components"]
+                for component_name in (
+                    "feature_lr_coefficients",
+                    "late_day_lr_coefficients",
+                ):
+                    role = str(graph_components[component_name]["role"])
+                    verify_loaded_model_node(
+                        model_bom,
+                        node=role,
+                        loaded_models=coefficient_model_mapping(
+                            components[component_name]
+                        ),
+                    )
+        except ModelBomError as exc:
+            raise ReleaseServingBindingError(
+                f"materialized base coefficient model disagrees with model BOM: {exc}"
+            ) from exc
     model_bundle = _checked_pickle(
         release_dir / str(model_row["path"]),
         expected_sha256=str(model_row["sha256"]),
         label="pooled band model",
     )
+    model_bom_disposition = semantic_contract.get(
+        "model_bill_of_materials_disposition"
+    )
+    if isinstance(model_bom, Mapping):
+        try:
+            verify_loaded_model_node(
+                model_bom,
+                node="pooled_band_model",
+                loaded_models=model_bundle.get("models") or {},
+            )
+        except ModelBomError as exc:
+            raise ReleaseServingBindingError(
+                f"pooled model bundle disagrees with model BOM: {exc}"
+            ) from exc
+    if isinstance(model_bom, Mapping) and model_bom.get("status") == "COMPLETE":
+        try:
+            evidence = model_bom.get("evidence") or {}
+            code = evidence.get("code_constants") or {}
+            code_binding = code.get("binding") or {}
+            expected_loaded = code_binding.get("loaded_modules") or []
+            module_names = [
+                str(row.get("module") or "")
+                for row in expected_loaded
+                if isinstance(row, Mapping) and row.get("module")
+            ]
+            for module_name in module_names:
+                importlib.import_module(module_name)
+            verify_loaded_environment_binding(
+                model_bom,
+                loaded_modules=loaded_module_fingerprints(module_names),
+                runtime_dependency_identity=runtime_dependency_identity(),
+            )
+        except (ImportError, ModelBomError) as exc:
+            raise ReleaseServingBindingError(
+                f"loaded process disagrees with model BOM: {exc}"
+            ) from exc
     return VerifiedServingBundle(
         status=status,
         reason=reason,
@@ -482,6 +599,13 @@ def _materialize_complete_serving_bundle(
             {role: str(row["sha256"]) for role, row in serving_rows.items()}
         ),
         base_model_graph=_deep_freeze(base_model_graph),
+        model_bill_of_materials=(
+            _deep_freeze(model_bom)
+            if isinstance(model_bom, Mapping)
+            else _deep_freeze(model_bom_disposition)
+            if isinstance(model_bom_disposition, Mapping)
+            else _incomplete_model_bom_disposition()
+        ),
         base_model_artifacts=MappingProxyType(
             {
                 market_id: MappingProxyType(dict(components))
@@ -518,6 +642,9 @@ def load_verified_active_serving_bundle(
             status=STATUS_RESEARCH_UNBOUND,
             reason="no active release pointer; diagnostic capture is release-unbound and non-countable",
             pointer_present=False,
+            model_bill_of_materials=_incomplete_model_bom_disposition(
+                "no active release pointer; model lineage is unavailable"
+            ),
         )
     pointer = load_active_release_pointer(pointer_path)
     release_dir = releases_root / str(pointer["active_release_id"])
@@ -535,6 +662,10 @@ def load_verified_active_serving_bundle(
         )
     semantic_contract = verified.get("semantic_contract") or {}
     production_capable = semantic_contract.get("production_capable") is True
+    if production_capable and semantic_contract.get("production_authority") is not True:
+        raise ReleaseServingBindingError(
+            "production release has no complete verified model bill of materials"
+        )
     release_kind = active_release_kind(pointer)
     bootstrap_bound = has_serving_identity_bootstrap_provenance(pointer)
     if release_kind == SERVING_IDENTITY_BOOTSTRAP_RELEASE_KIND and production_capable:
@@ -644,6 +775,10 @@ def load_verified_inactive_serving_bundle(
     ):
         raise ReleaseServingBindingError(
             "inactive shadow loader requires a production-capable release"
+        )
+    if semantic_contract.get("production_authority") is not True:
+        raise ReleaseServingBindingError(
+            "inactive production release has no complete verified model bill of materials"
         )
     manifest = verified["manifest"]
     roles = _inventory_by_role(manifest)

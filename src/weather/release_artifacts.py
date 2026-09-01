@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import json
+import os
 import platform
 import re
 import tomllib
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from weather.io import sha256_file
+from weather.model.model_bom import ModelBomError, verify_model_bill_of_materials
 from weather.paths import ARTIFACTS_ROOT, REPO_ROOT
 from weather.point_in_time_contract import (
     ContractViolation as PointInTimeContractViolation,
@@ -30,9 +32,12 @@ from weather.release_contract import (
     BASE_MODEL_SERVING_GRAPH_SCHEMA_VERSION,
     BASE_MODEL_SHARED_COMPONENT_ROLES,
     CANDIDATE_MODES,
+    LEGACY_SEMANTIC_CONTRACT_SCHEMA_VERSION,
+    MODEL_BOM_SCHEMA_VERSION,
     PRODUCTION_CANDIDATE_MODE,
     PRODUCTION_RELEASE_KIND,
     PRODUCTION_POINT_IN_TIME_ROLE_KINDS,
+    MODEL_BOM_ROLE_KINDS,
     SEMANTIC_CONTRACT_SCHEMA_VERSION,
     SEMANTIC_SERVING_ROLE_KINDS,
     SERVING_ARTIFACT_KINDS,
@@ -51,6 +56,9 @@ DEFAULT_ACTIVE_RELEASE_POINTER = DEFAULT_RELEASES_ROOT / "current_release.json"
 RELEASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 DEPENDENCY_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.-]*)")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+PYTHON_MODULE_RE = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
 ARTIFACT_KINDS = frozenset(
     {
         "model",
@@ -465,6 +473,7 @@ def _verify_base_model_graph_metadata(
         set(required_role_kinds)
         - set(SEMANTIC_SERVING_ROLE_KINDS)
         - set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS)
+        - set(MODEL_BOM_ROLE_KINDS)
     )
     if dynamic_roles != graph_dynamic_roles:
         raise ReleaseArtifactVerificationError(
@@ -528,9 +537,114 @@ def _point_in_time_route_selection(route: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalized_absolute_path(path: Path) -> str:
+    return os.path.normcase(os.path.abspath(str(path)))
+
+
+def _verify_model_bom_source_files(
+    model_bom: Mapping[str, Any],
+    *,
+    repo_root: str | Path,
+) -> None:
+    """Verify BOM source claims against module-derived repository paths.
+
+    The BOM never chooses the file path used for this check.  A module name is
+    mapped to ``repo_root/src/<module>.py`` and the path must resolve to that
+    exact non-redirected location before its bytes and digest are compared.
+    """
+
+    evidence = model_bom.get("evidence")
+    code = evidence.get("code_constants") if isinstance(evidence, Mapping) else None
+    binding = code.get("binding") if isinstance(code, Mapping) else None
+    source_rows = binding.get("source_files") if isinstance(binding, Mapping) else None
+    if not isinstance(source_rows, list):
+        # The model-BOM verifier owns completeness.  An incomplete research BOM
+        # may have no source rows, but any row it does claim is checked below.
+        return
+
+    root = Path(repo_root)
+    source_root = root / "src"
+    try:
+        resolved_root = root.resolve(strict=True)
+        resolved_source_root = source_root.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise ReleaseArtifactVerificationError(
+            f"model BOM repository source root is missing or unreadable: {source_root}: {exc}"
+        ) from exc
+    if (
+        _normalized_absolute_path(root) != _normalized_absolute_path(resolved_root)
+        or _normalized_absolute_path(source_root)
+        != _normalized_absolute_path(resolved_source_root)
+    ):
+        raise ReleaseArtifactVerificationError(
+            "model BOM repository source root is redirected"
+        )
+
+    seen_modules: set[str] = set()
+    for raw in source_rows:
+        if not isinstance(raw, Mapping):
+            raise ReleaseArtifactVerificationError(
+                "model BOM source file inventory contains a non-object row"
+            )
+        module = str(raw.get("module") or "")
+        if not PYTHON_MODULE_RE.fullmatch(module):
+            raise ReleaseArtifactVerificationError(
+                f"model BOM source module name is invalid: {module!r}"
+            )
+        if module in seen_modules:
+            raise ReleaseArtifactVerificationError(
+                f"model BOM source module appears more than once: {module}"
+            )
+        seen_modules.add(module)
+
+        source_path = source_root.joinpath(*module.split(".")).with_suffix(".py")
+        try:
+            resolved_path = source_path.resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ReleaseArtifactVerificationError(
+                f"model BOM repository source file is missing or unreadable: {module}: {exc}"
+            ) from exc
+        if (
+            _normalized_absolute_path(source_path)
+            != _normalized_absolute_path(resolved_path)
+            or not source_path.is_file()
+            or source_path.is_symlink()
+        ):
+            raise ReleaseArtifactVerificationError(
+                f"model BOM repository source file is redirected or invalid: {module}"
+            )
+        try:
+            source_bytes = source_path.read_bytes()
+        except OSError as exc:
+            raise ReleaseArtifactVerificationError(
+                f"model BOM repository source file is unreadable: {module}: {exc}"
+            ) from exc
+        expected_bytes = raw.get("bytes")
+        if not isinstance(expected_bytes, int) or expected_bytes < 0:
+            raise ReleaseArtifactVerificationError(
+                f"model BOM source byte count is invalid: {module}"
+            )
+        if len(source_bytes) != expected_bytes:
+            raise ReleaseArtifactVerificationError(
+                f"model BOM repository source byte count mismatch: {module}"
+            )
+        expected_sha256 = str(raw.get("sha256") or "")
+        if not SHA256_RE.fullmatch(expected_sha256):
+            raise ReleaseArtifactVerificationError(
+                f"model BOM source SHA-256 is invalid: {module}"
+            )
+        if hashlib.sha256(source_bytes).hexdigest() != expected_sha256:
+            raise ReleaseArtifactVerificationError(
+                f"model BOM repository source hash mismatch: {module}"
+            )
+
+
 def _verify_semantic_contract_after_inventory(
     release_dir: Path,
     inventory: Sequence[Mapping[str, Any]],
+    *,
+    manifest: Mapping[str, Any],
+    repo_root: str | Path,
 ) -> dict[str, Any] | None:
     """Verify internal semantic hashes only after the full file set is trusted."""
 
@@ -551,7 +665,11 @@ def _verify_semantic_contract_after_inventory(
         label="semantic serving contract",
     )
     _verify_payload_hash(contract, label="semantic serving contract")
-    if contract.get("schema_version") != SEMANTIC_CONTRACT_SCHEMA_VERSION:
+    semantic_schema = contract.get("schema_version")
+    if semantic_schema not in {
+        SEMANTIC_CONTRACT_SCHEMA_VERSION,
+        LEGACY_SEMANTIC_CONTRACT_SCHEMA_VERSION,
+    }:
         raise ReleaseArtifactVerificationError("semantic serving contract schema is unsupported")
     if contract.get("status") != "PASS" or contract.get("leakage_audit_status") != "PASS":
         raise ReleaseArtifactVerificationError("semantic serving contract is not exact PASS")
@@ -565,12 +683,32 @@ def _verify_semantic_contract_after_inventory(
         raise ReleaseArtifactVerificationError(
             "semantic serving contract production capability is invalid"
         )
+    if (
+        production_capable is True
+        and semantic_schema != SEMANTIC_CONTRACT_SCHEMA_VERSION
+    ):
+        raise ReleaseArtifactVerificationError(
+            "production-capable release requires the current semantic contract "
+            "and a verified model bill of materials"
+        )
     required_role_kinds = contract.get("required_role_kinds")
     if not isinstance(required_role_kinds, Mapping) or any(
         required_role_kinds.get(role) != kind
         for role, kind in SEMANTIC_SERVING_ROLE_KINDS.items()
     ):
         raise ReleaseArtifactVerificationError("semantic serving contract fixed role map is invalid")
+    if semantic_schema == SEMANTIC_CONTRACT_SCHEMA_VERSION:
+        if any(
+            required_role_kinds.get(role) != kind
+            for role, kind in MODEL_BOM_ROLE_KINDS.items()
+        ):
+            raise ReleaseArtifactVerificationError(
+                "current semantic serving contract has no model bill of materials role"
+            )
+    elif set(required_role_kinds) & set(MODEL_BOM_ROLE_KINDS):
+        raise ReleaseArtifactVerificationError(
+            "legacy semantic serving contract cannot declare a model bill of materials"
+        )
     point_in_time_roles = set(required_role_kinds) & set(PRODUCTION_POINT_IN_TIME_ROLE_KINDS)
     if candidate_mode == PRODUCTION_CANDIDATE_MODE:
         if any(
@@ -648,6 +786,85 @@ def _verify_semantic_contract_after_inventory(
                 f"semantic sidecar {role!r} is not bound to the verified model bundle"
             )
         sidecars[role] = payload
+    model_bom = None
+    bom_role = next(iter(MODEL_BOM_ROLE_KINDS))
+    bom_row = by_role.get(bom_role)
+    if bom_row is not None:
+        if bom_row.get("kind") != MODEL_BOM_ROLE_KINDS[bom_role]:
+            raise ReleaseArtifactVerificationError(
+                "model bill of materials role has the wrong artifact kind"
+            )
+        model_bom = _load_verified_json_sidecar(
+            release_dir / str(bom_row["path"]),
+            label="model bill of materials",
+        )
+        bom_artifacts = model_bom.get("artifacts")
+        if not isinstance(bom_artifacts, Mapping):
+            raise ReleaseArtifactVerificationError(
+                "model bill of materials artifact inventory is missing"
+            )
+        expected_bom_roles = (
+            set(artifacts)
+            - set(MODEL_BOM_ROLE_KINDS)
+            - {"candidate_input_leakage_audit"}
+        )
+        actual_bom_roles = set(bom_artifacts)
+        if actual_bom_roles != expected_bom_roles:
+            raise ReleaseArtifactVerificationError(
+                "model bill of materials artifact inventory is incomplete or ambiguous: "
+                f"missing={sorted(expected_bom_roles - actual_bom_roles)}, "
+                f"extra={sorted(actual_bom_roles - expected_bom_roles)}"
+            )
+        try:
+            verify_model_bill_of_materials(
+                model_bom,
+                expected_artifacts={
+                    role: artifacts[role] for role in sorted(bom_artifacts)
+                },
+                production_required=production_capable is True,
+                expected_runtime_versions=manifest["runtime_versions"],
+                expected_runtime_identity=manifest["runtime_identity"],
+            )
+            _verify_model_bom_source_files(model_bom, repo_root=repo_root)
+        except ModelBomError as exc:
+            raise ReleaseArtifactVerificationError(
+                f"model bill of materials verification failed: {exc}"
+            ) from exc
+    if production_capable is True and model_bom is None:
+        raise ReleaseArtifactVerificationError(
+            "production-capable release has no verified model bill of materials"
+        )
+    if model_bom is None:
+        model_bom_disposition = {
+            "schema_version": MODEL_BOM_SCHEMA_VERSION,
+            "status": "INCOMPLETE",
+            "missing_entries": ["model_bill_of_materials"],
+            "authoritative_identity_sha256": None,
+            "disposition_only": True,
+            "authoritative_for_production": False,
+            "reason": "legacy research-only semantic contract has no model BOM",
+        }
+    else:
+        model_bom_status = str(model_bom.get("status") or "INCOMPLETE")
+        model_bom_disposition = {
+            "schema_version": MODEL_BOM_SCHEMA_VERSION,
+            "status": model_bom_status,
+            "missing_entries": sorted(
+                set(str(value) for value in model_bom.get("missing_entries") or [])
+            ),
+            "authoritative_identity_sha256": model_bom.get(
+                "authoritative_identity_sha256"
+            ),
+            "disposition_only": False,
+            "authoritative_for_production": bool(
+                production_capable is True and model_bom_status == "COMPLETE"
+            ),
+            "reason": (
+                "verified production release model BOM"
+                if production_capable is True
+                else "research-only release has no production authority"
+            ),
+        }
     _verify_semantic_component_metadata(sidecars)
     _verify_base_model_graph_metadata(
         graph=sidecars["base_model_serving_graph"],
@@ -778,6 +995,15 @@ def _verify_semantic_contract_after_inventory(
         "candidate_mode": candidate_mode,
         "production_capable": production_capable,
         "point_in_time_qualification": qualification,
+        "model_bill_of_materials": model_bom,
+        "model_bill_of_materials_verified": model_bom is not None,
+        "model_bill_of_materials_disposition": model_bom_disposition,
+        "production_authority": bool(
+            production_capable is True
+            and semantic_schema == SEMANTIC_CONTRACT_SCHEMA_VERSION
+            and model_bom_disposition["authoritative_for_production"] is True
+        ),
+        "semantic_contract_schema_version": semantic_schema,
     }
 
 
@@ -959,7 +1185,12 @@ def verify_release(
         validate_release_id(str(rollback_target))
     _validate_runtime_versions(manifest["runtime_versions"])
     validate_code_runtime_alignment(code, identity)
-    semantic_contract = _verify_semantic_contract_after_inventory(release_dir, inventory)
+    semantic_contract = _verify_semantic_contract_after_inventory(
+        release_dir,
+        inventory,
+        manifest=manifest,
+        repo_root=repo_root,
+    )
 
     if check_runtime:
         current_versions = dict(
@@ -986,6 +1217,26 @@ def verify_release(
                 f"runtime git commit is incompatible with release: "
                 f"expected {expected_commit!r}, found {current_commit!r}"
             )
+    production_authority = bool(
+        semantic_contract is not None
+        and semantic_contract.get("production_authority") is True
+    )
+    model_bom_disposition = (
+        semantic_contract.get("model_bill_of_materials_disposition")
+        if semantic_contract is not None
+        else {
+            "schema_version": MODEL_BOM_SCHEMA_VERSION,
+            "status": "INCOMPLETE",
+            "missing_entries": [
+                "model_bill_of_materials",
+                "semantic_serving_contract",
+            ],
+            "authoritative_identity_sha256": None,
+            "disposition_only": True,
+            "authoritative_for_production": False,
+            "reason": "release has no semantic serving contract; integrity audit only",
+        }
+    )
     return {
         "status": "PASS",
         "release_id": release_id,
@@ -997,6 +1248,11 @@ def verify_release(
         "runtime_checked": bool(check_runtime),
         "semantic_contract_verified": semantic_contract is not None,
         "semantic_contract": semantic_contract,
+        "model_bill_of_materials_disposition": model_bom_disposition,
+        "production_authority": production_authority,
+        "verification_scope": (
+            "production_authority" if production_authority else "integrity_audit_only"
+        ),
         "manifest": manifest,
     }
 
@@ -1274,6 +1530,11 @@ def resolve_verified_active_release(
         "release_kind": release_kind,
         "candidate_mode": (semantic_contract or {}).get("candidate_mode"),
         "production_capable": (semantic_contract or {}).get("production_capable"),
+        "production_authority": verified["production_authority"],
+        "verification_scope": verified["verification_scope"],
+        "model_bill_of_materials_disposition": verified[
+            "model_bill_of_materials_disposition"
+        ],
         "manifest": manifest,
         "runtime_checked": verified["runtime_checked"],
         "served_bindings_verified": bool(require_served_bindings),

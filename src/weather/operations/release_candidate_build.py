@@ -26,6 +26,7 @@ from weather.operations.release_promotion import (
     assert_training_output_path,
     load_active_pointer,
 )
+from weather.paths import REPO_ROOT
 from weather.release_contract import (
     CANDIDATE_MODES,
     PRODUCTION_CANDIDATE_MODE,
@@ -194,7 +195,8 @@ def build_candidate_release(
 
     if candidate_guard.get("status") != "PASS" or not candidate_guard.get("release_eligible"):
         raise ReleaseLifecycleError("candidate output guard is not release-eligible")
-    code = code_identity_provider(repo_root=args.repo_root)
+    code_repo_root = Path(REPO_ROOT).resolve()
+    code = code_identity_provider(repo_root=code_repo_root)
     if code.get("git_dirty") is not False:
         raise ReleaseLifecycleError("nightly release build requires a clean source tree")
     parent_release = _active_parent(args)
@@ -250,6 +252,7 @@ def build_candidate_release(
         family_unit=args.family_unit,
         candidate_mode=candidate_mode,
         point_in_time_artifacts=point_in_time_artifacts,
+        code_repo_root=code_repo_root,
     )
     if semantic.get("status") != "PASS" or (semantic.get("audit") or {}).get("status") != "PASS":
         raise ReleaseLifecycleError("candidate semantic contract is not exact PASS")
@@ -292,7 +295,7 @@ def build_candidate_release(
         route=route,
         expected_live_runtimes=expected_runtimes,
         releases_root=args.releases_root,
-        repo_root=args.repo_root,
+        repo_root=code_repo_root,
         parent_release=parent_release,
         rollback_target=parent_release,
         lineage=lineage,

@@ -10,6 +10,7 @@ import pytest
 from weather.calibration.base_model_candidate import contiguous_serving_support
 from weather.calibration.feature_training_policy import TRAINING_FEATURE_POLICY_ID
 from weather.calibration.forecast_training_contract import (
+    PREFLIGHT_SCHEMA_VERSION as PIT_FORECAST_PREFLIGHT_SCHEMA_VERSION,
     pit_selection_binding_sha256,
 )
 from weather.market.market_registry import BUILTIN_SPECS
@@ -22,6 +23,7 @@ from weather.operations.base_retrain import (
     FIRST_RETRAIN_STATION_DAY_EXCLUSIONS,
     FIRST_RETRAIN_TRAINING_YEARS,
     MARKET_UNITS,
+    REGENERATED_ROLES,
     REPLACED_COMPONENTS,
     _copy_parent_unchanged,
     _finalize_candidate_contract,
@@ -35,6 +37,7 @@ from weather.operations.base_retrain import (
 from weather.operations.release_candidate_contract import (
     freeze_candidate_semantic_contract,
 )
+from weather.paths import REPO_ROOT
 from weather.operations.nightly_retrain import (
     build_parser as build_nightly_parser,
     planned_steps,
@@ -291,6 +294,7 @@ def _pit_preflight(pit_manifest: Path, *, status: str = "PASS") -> dict:
         for cutoff_hour in FIRST_RETRAIN_CUTOFF_HOURS
     ]
     receipt = {
+        "schema_version": PIT_FORECAST_PREFLIGHT_SCHEMA_VERSION,
         "status": status,
         "manifest_path": str(pit_manifest.resolve()),
         "manifest_file_sha256": sha256_file(pit_manifest),
@@ -303,6 +307,28 @@ def _pit_preflight(pit_manifest: Path, *, status: str = "PASS") -> dict:
         receipt["error"] = "synthetic PIT verification failure"
     receipt["preflight_sha256"] = _receipt_hash(receipt)
     return receipt
+
+
+def _evaluate_with_pit_preflight(tmp_path, pit_preflight):
+    manifest = _manifest(
+        forecast_covered=True,
+        parity_equal=True,
+        record_paths=_record_paths(tmp_path),
+    )
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+    plan = _plan(tmp_path / "candidate-r1", path)
+    pit_path = Path(plan["pit_forecast_corpus_manifest"])
+    receipt = pit_preflight(pit_path)
+    return evaluate_preflight(
+        plan=plan,
+        manifest=manifest,
+        manifest_sha256=sha256_file(path),
+        pit_forecast_manifest_sha256=sha256_file(pit_path),
+        pit_forecast_preflight=receipt,
+        parent=_parent(),
+        output_isolation=_isolation_pass(tmp_path / "candidate-r1"),
+    )
 
 
 def _plan(candidate_dir: Path, corpus_manifest: Path) -> dict:
@@ -474,6 +500,24 @@ def test_synthetic_repaired_manifest_clears_all_executable_preflights(tmp_path):
     assert result["status"] == "PASS", result["checks"]
     assert result["fit_authorized"] is True
     assert all(row["status"] == "PASS" for row in result["checks"])
+
+
+def test_rehashed_legacy_pit_preflight_schema_cannot_authorize_fit(tmp_path):
+    def legacy_receipt(pit_path):
+        receipt = _pit_preflight(pit_path)
+        receipt["schema_version"] = "pit_forecast_training_preflight_v1"
+        receipt["preflight_sha256"] = _receipt_hash(receipt)
+        return receipt
+
+    result = _evaluate_with_pit_preflight(tmp_path, legacy_receipt)
+
+    gate = next(row for row in result["checks"] if row["name"] == "pit_forecast_corpus")
+    assert gate["status"] == "BLOCK"
+    assert any(
+        row["code"] == "PIT_FORECAST_PREFLIGHT_SCHEMA"
+        for row in gate["blockers"]
+    )
+    assert result["fit_authorized"] is False
 
 
 def test_preflight_uses_registry_unit_feature_order_for_pressure(tmp_path):
@@ -951,6 +995,7 @@ def _semantic_parent_fixture(tmp_path: Path) -> dict:
             "blocked_markets": [],
         },
         family_unit="F",
+        code_repo_root=REPO_ROOT,
     )
     role_rows = {}
     inventory = []
@@ -1032,10 +1077,21 @@ def test_complete_fleet_rebinds_parent_graph_and_preserves_every_unchanged_hash(
     assert verified["status"] == "PASS"
     assert verified["candidate_mode"] == "research_only"
     for role, row in parent["role_rows"].items():
-        if role in replaced_roles or role in {
-            "base_model_serving_graph",
-            "candidate_input_leakage_audit",
-            "semantic_serving_contract",
-        }:
+        if role in replaced_roles or role in REGENERATED_ROLES:
             continue
         assert sha256_file(child / row["path"]) == row["sha256"], role
+
+    child_bom_path = child / parent["role_rows"]["model_bill_of_materials"][
+        "path"
+    ]
+    child_bom = json.loads(child_bom_path.read_text(encoding="utf-8"))
+    assert child_bom["status"] == "INCOMPLETE"
+    assert child_bom["authoritative_identity_sha256"] is None
+    for market_id in EXPECTED_MARKETS:
+        role = parent["markets"][market_id]["components"]["feature_hgb"]["role"]
+        assert child_bom["artifacts"][role]["sha256"] == sha256_file(
+            child / child_bom["artifacts"][role]["path"]
+        )
+    assert sha256_file(child_bom_path) != parent["role_rows"][
+        "model_bill_of_materials"
+    ]["sha256"]

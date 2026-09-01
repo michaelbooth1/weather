@@ -12,6 +12,7 @@ record that is valuable evidence but not current instruction.
 | Agent rules and task routing | [Root AGENTS.md](../AGENTS.md) | Canonical guide |
 | Durable domain constraints | [Agent context](operations/AGENT_CONTEXT.md) | Canonical guide |
 | **What we have measured about the model** | [Established findings](operations/ESTABLISHED_FINDINGS.md) | Canonical distillation |
+| **How the served model, training lanes, identity, and evaluation fit together** | [Weather model system](operations/MODEL_SYSTEM.md) | Canonical guide |
 | **Claims that were wrong, and traps that look true** | [Retracted claims and false leads](operations/RETRACTED_AND_FALSE_LEADS.md) | Canonical distillation |
 | **Running or receiving a cross-host mission** | [Delegation contract](operations/DELEGATION_CONTRACT.md) | Canonical contract |
 | System boundaries and data flow | [Architecture](architecture.md) | Canonical guide |

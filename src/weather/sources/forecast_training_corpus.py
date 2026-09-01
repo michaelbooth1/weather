@@ -98,7 +98,46 @@ SOURCE_FIELD_SPECS = {
         "unit": "mm",
     },
 }
-DEFAULT_SOURCE_FIELDS = tuple(SOURCE_FIELD_SPECS)
+
+# Direct probes and a complete 12-market staged corpus established that these
+# fields are available from the free Previous Runs endpoint with genuine
+# issue-time provenance.  The remaining schema-known fields are deliberately
+# excluded below: asking the corpus gate to require them made the honest PIT
+# lane impossible to satisfy and encouraged substitution from the stitched
+# settled archive.
+FREE_PIT_SOURCE_FIELDS = (
+    "temperature_2m",
+    "cloud_cover",
+    "shortwave_radiation",
+    "wind_speed_10m",
+    "cape",
+    "direct_radiation",
+    "diffuse_radiation",
+    "wind_gusts_10m",
+    "precipitation_probability",
+    "precipitation",
+    "vapour_pressure_deficit",
+    "et0_fao_evapotranspiration",
+)
+UNAVAILABLE_PIT_SOURCE_FIELDS = {
+    "cloud_cover_low": "free Previous Runs responses are all-null",
+    "cloud_cover_mid": "free Previous Runs responses are all-null",
+    "cloud_cover_high": "free Previous Runs responses are all-null",
+    "visibility": "free Previous Runs responses are all-null",
+    "soil_temperature_0cm": "free Previous Runs responses are all-null",
+    "soil_moisture_0_to_1cm": "free Previous Runs responses are all-null",
+    "temperature_925hPa": "free Previous Runs endpoint rejects this field",
+    "temperature_850hPa": "free Previous Runs endpoint rejects this field",
+    "geopotential_height_500hPa": "free Previous Runs endpoint rejects this field",
+}
+DEFAULT_SOURCE_FIELDS = FREE_PIT_SOURCE_FIELDS
+
+if set(FREE_PIT_SOURCE_FIELDS) & set(UNAVAILABLE_PIT_SOURCE_FIELDS):
+    raise RuntimeError("PIT source-field availability contract overlaps")
+if set(FREE_PIT_SOURCE_FIELDS) | set(UNAVAILABLE_PIT_SOURCE_FIELDS) != set(
+    SOURCE_FIELD_SPECS
+):
+    raise RuntimeError("PIT source-field availability contract is incomplete")
 
 
 PROFILE_FEATURE_SOURCE_FIELDS = {
@@ -115,10 +154,6 @@ PROFILE_FEATURE_SOURCE_FIELDS = {
     "forecast_next_3h_solar_mean": ("shortwave_radiation",),
     "forecast_total_cloud_mean": ("cloud_cover",),
     "forecast_total_cloud_max": ("cloud_cover",),
-    "forecast_low_cloud_mean": ("cloud_cover_low",),
-    "forecast_low_cloud_max": ("cloud_cover_low",),
-    "forecast_mid_cloud_mean": ("cloud_cover_mid",),
-    "forecast_high_cloud_mean": ("cloud_cover_high",),
     "forecast_cloud_trend_3h": ("cloud_cover",),
     "forecast_remaining_direct_radiation_sum": ("direct_radiation",),
     "forecast_remaining_diffuse_radiation_sum": ("diffuse_radiation",),
@@ -140,29 +175,49 @@ PROFILE_FEATURE_SOURCE_FIELDS = {
     "forecast_remaining_cape_mean": ("cape",),
     "forecast_next_3h_cape_max": ("cape",),
     "forecast_cape_trend_3h": ("cape",),
-    "forecast_temperature_925hpa_mean": ("temperature_925hPa",),
-    "forecast_temperature_850hpa_mean": ("temperature_850hPa",),
-    "forecast_surface_to_925_lapse_proxy": (
-        "temperature_2m",
-        "temperature_925hPa",
-    ),
-    "forecast_925_to_850_lapse_proxy": (
-        "temperature_925hPa",
-        "temperature_850hPa",
-    ),
-    "forecast_geopotential_height_500hpa_mean": (
-        "geopotential_height_500hPa",
-    ),
     "forecast_wind_gust_max": ("wind_gusts_10m",),
-    "forecast_visibility_min": ("visibility",),
-    "forecast_soil_temperature_0cm_mean": ("soil_temperature_0cm",),
-    "forecast_soil_moisture_0_to_1cm_mean": ("soil_moisture_0_to_1cm",),
     "forecast_vapour_pressure_deficit_mean": ("vapour_pressure_deficit",),
     "forecast_et0_fao_evapotranspiration_sum": (
         "et0_fao_evapotranspiration",
     ),
 }
 EXCLUDED_PROFILE_FEATURES = {
+    "forecast_low_cloud_mean": (
+        "cloud_cover_low is unavailable from the free PIT endpoint"
+    ),
+    "forecast_low_cloud_max": (
+        "cloud_cover_low is unavailable from the free PIT endpoint"
+    ),
+    "forecast_mid_cloud_mean": (
+        "cloud_cover_mid is unavailable from the free PIT endpoint"
+    ),
+    "forecast_high_cloud_mean": (
+        "cloud_cover_high is unavailable from the free PIT endpoint"
+    ),
+    "forecast_temperature_925hpa_mean": (
+        "temperature_925hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_temperature_850hpa_mean": (
+        "temperature_850hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_surface_to_925_lapse_proxy": (
+        "temperature_925hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_925_to_850_lapse_proxy": (
+        "pressure-level temperatures are unavailable from the free PIT endpoint"
+    ),
+    "forecast_geopotential_height_500hpa_mean": (
+        "geopotential_height_500hPa is unavailable from the free PIT endpoint"
+    ),
+    "forecast_visibility_min": (
+        "visibility is unavailable from the free PIT endpoint"
+    ),
+    "forecast_soil_temperature_0cm_mean": (
+        "soil_temperature_0cm is unavailable from the free PIT endpoint"
+    ),
+    "forecast_soil_moisture_0_to_1cm_mean": (
+        "soil_moisture_0_to_1cm is unavailable from the free PIT endpoint"
+    ),
     "forecast_remaining_aerosol_optical_depth_mean": "air-quality history is not in this endpoint contract",
     "forecast_next_3h_aerosol_optical_depth_mean": "air-quality history is not in this endpoint contract",
     "forecast_remaining_pm2_5_mean": "air-quality history is not in this endpoint contract",
@@ -1361,6 +1416,8 @@ def verify_corpus_manifest(manifest_path):
         raise CorpusVerificationError("corpus manifest self-hash mismatch")
     if manifest.get("corpus_role") != "training_only":
         raise CorpusVerificationError("corpus role is not training_only")
+    if manifest.get("active_archive_pinned") is not True:
+        raise CorpusVerificationError("active forecast archive is not pinned")
     if manifest.get("target_year_excluded") is not True:
         raise CorpusVerificationError("target-year exclusion is not asserted")
     if int(manifest.get("target_year") or 0) in [int(year) for year in manifest.get("years") or []]:
@@ -1392,8 +1449,29 @@ def verify_corpus_manifest(manifest_path):
     plan = load_plan(manifest_path.parent / "plan.json")
     if plan["plan_sha256"] != manifest.get("plan_sha256"):
         raise CorpusVerificationError("published plan does not match corpus manifest")
-    if plan["consumer_dispositions"] != manifest.get("consumer_dispositions"):
-        raise CorpusVerificationError("manifest consumer dispositions differ from the plan")
+    for field in (
+        "target_year",
+        "years",
+        "market_ids",
+        "cutoff_hours_local",
+        "source_fields",
+        "issue_contract",
+        "normalizer_version",
+        "consumer_dispositions",
+    ):
+        if manifest.get(field) != plan.get(field):
+            raise CorpusVerificationError(f"manifest {field} differs from the plan")
+    if manifest.get("target_year_excluded") != plan.get("target_year_excluded"):
+        raise CorpusVerificationError("manifest target-year exclusion differs from the plan")
+    publication = manifest.get("publication") or {}
+    plan_publication = plan.get("publication_contract") or {}
+    for field in ("content_addressed", "atomic", "in_place_overwrite_allowed"):
+        if publication.get(field) != plan_publication.get(field):
+            raise CorpusVerificationError(f"manifest publication {field} differs from the plan")
+    if manifest.get("daily_path_discoverable") != plan_publication.get(
+        "active_archive_discoverable"
+    ):
+        raise CorpusVerificationError("manifest archive discoverability differs from the plan")
     try:
         exclusions = json.loads(
             (manifest_path.parent / "exclusions.json").read_text(encoding="utf-8")
@@ -1406,6 +1484,14 @@ def verify_corpus_manifest(manifest_path):
     if any(int(row_counts.get(kind) or 0) <= 0 for kind in ("hourly", "daily", "coverage")):
         raise CorpusVerificationError("corpus row counts must all be positive")
     coverage = manifest.get("coverage") or {}
+    plan_summary = plan.get("summary") or {}
+    for field in (
+        "expected_market_dates",
+        "expected_market_date_cutoffs",
+        "expected_field_date_cutoff_cells",
+    ):
+        if int(coverage.get(field) or -1) != int(plan_summary.get(field) or -2):
+            raise CorpusVerificationError(f"manifest coverage {field} differs from the plan")
     if int(coverage.get("coverage_rows") or 0) != int(row_counts["coverage"]):
         raise CorpusVerificationError("coverage receipt row count differs from manifest")
     if int(coverage.get("expected_market_date_cutoffs") or 0) != int(row_counts["daily"]):
