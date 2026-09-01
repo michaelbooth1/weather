@@ -20,8 +20,8 @@ weather forecast from independent point-in-time information. **No market edge is
 | Portable executor | PR #5 makes the tracked 32 GB host/principal assignment production Git authority. A live session still requires a clean exact reviewed Git authority, synchronized live refs, exact-head CI/review, current host audit, fresh candidate evidence, and every action-time gate. The production checkout has not adopted PR #5. |
 | Live verification | Two Aug 31 Stage 0 attempts are spent. The latest reached an authenticated user-stream subscription and failed before geography and before any heartbeat or cancel-all REST boundary. Cleanup proved zero open orders and positions. No order was submitted. The phase-recording repair is now in `master`, but a wholly new attempt is required. |
 | Second PC | The 32 GB workstation previously passed its Python 3.11.9, Git/LFS, 26-HGB, SDK 0.6.0, clock/proxy/reboot, credential-comparison, and assigned host/principal checks. Reprove every dynamic condition after synchronizing the clean portable clone to the exact reviewed authority. Development and live checkouts remain separate. |
-| Model foundation | Branch `codex/model-pit-foundation-20260831`, based on `c932b54f`, restacks loaded-process identity v0.3 and narrows the training-only Previous Runs contract to the 12 fields actually proved available on the free PIT endpoint. It adds no candidate, fit, alpha look, release, pointer, or serving change. Current-master focused and broader verification are still required on the workstation. |
-| Model state | No active release store or pointer exists. Tracked base HGBs remain the June incumbent. Production forecast history stops June 23; the 12-field June 3-August 9 corpus remains staged and explicitly not adopted. Calibration, generic reshaping, and input-completeness work are closed as gap-closing directions; new PIT information is the remaining model lever. |
+| Model foundation | Exact workstation tip `6e23e756f8a2c620df4d821411c923a77afb0553` passed P0/P1, including loaded identity v0.3, the 12-field free-PIT contract, deterministic model BOM, focused matrices, compilation, docs/backlog checks, and a fresh full suite: 4,299 passed, 23 skipped, one warning. Production review found no must-fix issue and derived `ROLL-SENSITIVE` across all four live closures. PR/CI, production qualification, merge, and adoption remain open. |
+| Model state | No active release store or pointer exists. Tracked base HGBs remain the June incumbent. Production forecast history stops June 23; the 12-field June 3-August 9 corpus remains staged and explicitly not adopted. P2 returned `NO_GO_NO_V2_COLLECTOR`: `stage_response` has no production caller and CSV projections cannot reconstruct provider bytes or issue receipts. New PIT information remains the model lever, but the bounded production collector and multi-year corpus come first. |
 | Confirmation | No dates are reserved. At the first frozen candidate, declare and size the future confirmation window before reading it; MM scoring stops on those dates unless the operator records a new exemption. |
 
 ## Closed decisions -- do not relitigate without new evidence
@@ -50,16 +50,18 @@ weather forecast from independent point-in-time information. **No market edge is
 1. Preserve current capture. In the next admitted quiet window, resolve the
    post-merge roll-verdict/adoption gap, qualify the exact production target,
    recover all workers, and update canonical integration evidence.
-2. Publish and review `codex/model-pit-foundation-20260831`. On the workstation,
-   run focused identity/PIT tests, compilation, docs/backlog checks, then the
-   workstation-bounded full suite. Repair with descendant commits only.
+2. Open and review a draft PR for exact foundation tip `6e23e756`; keep CI
+   green. After production has first reconciled local `master` to `c932b54f`,
+   run required production qualification and adopt the roll-sensitive branch
+   only through the guarded quiet-window/capture-recovery path.
 3. Keep the workstation live clone pristine. After exact authority and dynamic
    host checks pass, build a wholly new public substrate, compare-only credential
    receipt, candidate, manifests, and Stage 0/1 attempt. Reuse nothing spent.
-4. In parallel between live attempts, build a content-addressed historical
-   12-field PIT corpus on the production host during an admitted collection
-   window, transfer only the verified non-secret bundle, and fit first a
-   correctness baseline, then one simple regularized new-information challenger.
+4. In parallel between live attempts, implement and qualify a separate bounded
+   production-only v2 raw-response collector. Only after it lands, collect and
+   materialize the 2021-2025 12-field corpus in an admitted production window,
+   transfer the verified non-secret bundle, and fit first a correctness
+   baseline, then one simple regularized new-information challenger.
 5. Freeze no model candidate until the live lifecycle attempt is complete or
    the operator explicitly accepts the confirmation/MM-scoring interaction.
 6. Stop on ambiguity. A model advances only with mass/parity/lineage checks,
