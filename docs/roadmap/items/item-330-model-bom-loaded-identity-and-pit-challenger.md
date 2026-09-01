@@ -1,4 +1,4 @@
-# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-08-31 - FOUNDATION WORKSTATION-QUALIFIED; PRODUCTION REVIEW AND V2 COLLECTOR/CORPUS OPEN]
+# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-08-31 - FOUNDATION WORKSTATION-QUALIFIED; FREE SOURCE P0 NO-GO; PRODUCTION REVIEW AND V2 COLLECTOR/CORPUS OPEN]
 
 Goal: make the served model graph reproducible from the bytes actually loaded
 by a process, establish the supported base retrain as a correctness baseline,
@@ -112,6 +112,16 @@ required request-bound raw-byte/issue-evidence receipts. Smallest follow-up
 owner: a separate `weather.sources.forecast_training_corpus_collector` module
 plus focused source tests, leaving the corpus module network-free;
 export/transfer follows only after complete hash-verified materialization.
+
+Official-source P0 disposition: **NO-GO — no reviewed free source supplies both
+provider-bound historical first-availability evidence and train/serve-equivalent
+coverage for the frozen 12-field hourly contract.** NOAA GFS and ECMWF Open Data
+encode provider cycles, but fail historical availability and field/archive
+parity. Open-Meteo Single Runs fixes explicit run selection, but its GFS archive
+begins only on 2026-04-02 and its documented availability metadata covers only
+the latest run, not historical runs. No collector or provider transport was
+built. The evidence and exact field/timestamp matrices are in
+[`agent-report-2026-09-06-workstation-pit-v2-source-contract.md`](../agent-report-2026-09-06-workstation-pit-v2-source-contract.md).
 
 ## Phase C — Correctness baseline and matched-stack qualification
 

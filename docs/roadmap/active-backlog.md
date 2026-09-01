@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-01T01:37:03.660288+00:00
+Generated: 2026-09-01T15:43:15.897493+00:00
 Status: `OK`
 
 ## Summary
@@ -59,7 +59,7 @@ Status: `OK`
 | 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
-| 330 | PARTIAL | 2026-08-31 | FOUNDATION WORKSTATION-QUALIFIED; PRODUCTION REVIEW AND V2 COLLECTOR/CORPUS OPEN | [Model Bill Of Materials, Loaded Identity, And PIT Challenger](items/item-330-model-bom-loaded-identity-and-pit-challenger.md) |
+| 330 | PARTIAL | 2026-08-31 | FOUNDATION WORKSTATION-QUALIFIED; FREE SOURCE P0 NO-GO; PRODUCTION REVIEW AND V2 COLLECTOR/CORPUS OPEN | [Model Bill Of Materials, Loaded Identity, And PIT Challenger](items/item-330-model-bom-loaded-identity-and-pit-challenger.md) |
 
 ## Lint Issues
 
