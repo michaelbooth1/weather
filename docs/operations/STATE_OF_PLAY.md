@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-08-31 America/Toronto.** Read this first; read `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
+**Last rewritten: 2026-09-01 America/Toronto.** Read this first; read `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative evidence, false claims, and durable mechanics in their owning canonical file.
 
@@ -10,7 +10,7 @@
 
 | Area | State / next action |
 | --- | --- |
-| Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
+| Production | GitHub `master` is `c932b54f8747df5cdefc4cc42f8454b6797f09ae`, the green PR #5 merge that carries mis-targeted PR #4 plus its topic successor. The accepted production checkout remains `master@3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac`, exactly 26 behind/0 ahead, with only the two expected generated location-config modifications. The current guarded merge and immutable-attempt paths intentionally refuse this unequal baseline. A workstation audit found no bootstrap satisfying the simultaneous no-task/no-credential/no-`reset --hard` constraints; do not fast-forward by hand or adopt PR #9/#7. |
 | Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
 | Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
 | Verification | The latest Stage 0 reached an authenticated user-stream subscription and then failed in a pre-mutation account/market read check, but v0.2 receipts could not name that check and falsely inferred a mutation merely from context creation. Exact repair commit `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` (tree `8ffec7b716cd45be82d64e27266e3196d459a2bc`) now records allowlisted phases, separates stream subscription from REST writes, records each heartbeat/cancel boundary, preserves recovery lineage, requires exact two-heartbeat/one-cancel evidence for PASS, and validates the copies through Stage 1 lineage. Local verification passes 230 focused tests with 3 expected skips, compileall, docs audit, and diff checks; an independent pre-publication review found no remaining must-fix issue. The final state-only topic tip still requires exact-head CI/review and synchronized refs before attempt generation. |
@@ -63,21 +63,24 @@
 
 ## Ordered critical path
 
-1. Publish the repair plus this state update. Require exact local/cached/live
-   equality, master ancestry, green exact-head CI, and independent review on
-   the final topic tip, then fast-forward and re-inventory the portable clone.
-2. Create a wholly new August 31 attempt. Revalidate the accepted NYC scope or
+1. Keep production unchanged. Resolve the baseline-reconciliation NO-GO with
+   explicit new owner authority for one reviewed bootstrap path; then require
+   exact local/cached/live equality and worker recovery before PR #9 or PR #7.
+2. After baseline equality is restored, publish and qualify the portable repair.
+   Require master ancestry, green exact-head CI, independent review, and exact
+   local/cached/live topic equality before re-inventorying the portable clone.
+3. Create a wholly new August 31 attempt. Revalidate the accepted NYC scope or
    select a fresh built-in market inside the unchanged midpoint/spread gates;
    refresh economics and exact acceptance if any bound input is stale. Run the
    600-second paper tick and no-network preflight. Never reuse either spent
    attempt or any launcher, manifest, or candidate sealed beneath one.
-3. Build and review all three new immutable manifests and launchers, then
+4. Build and review all three new immutable manifests and launchers, then
    refresh a constrained candidate immediately before each stage.
-4. At action time, require eligible physical presence/no circumvention,
+5. At action time, require eligible physical presence/no circumvention,
    official geoblock PASS, exact account topology, balance/allowance, zero
    unknown orders and positions, current market rules, clean synchronized Git,
    and every exact attended stage literal.
-5. Stop on any ambiguity. PASS requires terminal receipts plus cancel-all and
+6. Stop on any ambiguity. PASS requires terminal receipts plus cancel-all and
    authenticated zero-open-order/zero-position reconciliation.
 
 ## Verification boundary

@@ -2526,6 +2526,35 @@ though CLOB never recovered. The repaired contracts use a one-minute OS
 backstop, a user-layer Codex pre-tool hook, and PID-reuse-resistant boot proof;
 see [the incident trace](codex-host-overload-2026-08-23.md).
 
+## 8v. Guarded integration has no authorized bootstrap for a behind production master
+
+**Workstation audit completed 2026-09-01 from exact Git/GitHub and repository
+control-flow evidence.** GitHub `master` at `c932b54f8747df5cdefc4cc42f8454b6797f09ae`
+strictly descends the accepted production checkout
+`3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` by 26 commits. The published delta
+does not change either tracked generated location-config blob. Nevertheless,
+the canonical quiet merge and immutable-attempt creator intentionally require
+local `master == origin/master` and refuse before hashing or journaling the
+production working bytes.
+
+A plain fast-forward is not a substitute: it does not stage the target, classify
+the exact old-to-origin delta against live closures, prove capture recovery, or
+close every interruption boundary. A staged fast-forward can avoid a push, but
+the currently adopted boot script retains `reset --hard` fallbacks during the
+first-use interval; adopting repaired boot bytes first requires prohibited
+Scheduler rebinding. A synthetic guarded merge instead requires the real
+credential-bearing one-shot push task. Under a mission that forbids both
+dependencies, the truthful verdict is **NO-GO** and the equality refusal must
+not be weakened. See
+[the exact audit](../roadmap/agent-report-2026-09-07-workstation-production-baseline-reconciliation.md).
+
+One additional trap is durable: `roll_verdict.ps1` changes its default base to
+`origin/master` when local `master` is strictly behind. A future authorized
+baseline repair must explicitly classify `-Base <old-local-sha> -Branch
+<exact-origin-sha>`; otherwise it excludes the very catch-up delta being
+adopted. Missing, stale, or unreadable live closure evidence remains
+roll-sensitive.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion
