@@ -399,3 +399,38 @@ The canonical projection and raw-tape tiering tasks also produced durable
 without reaching a hard stop. August 17 settlement recovery remains open; no
 ordinary chain result or successful tiering receipt substitutes for the
 required bounded 12-market backfill proof.
+
+## 2026-09-01 one-date retry reliability repair
+
+The August 30 one-date attempt ran at 00:35 on September 1 and failed before
+the recovery chain. Its immutable receipt is `REFUSED`; stderr proves the
+inline `python -c` market-registry program reached Python only as the token
+`import`, which raised `SyntaxError`. Task Scheduler recorded result 2. A
+configured Scheduler restart did not create a second run, so neither inline
+program text nor `RestartOnFailure` is a reliable unattended retry contract
+for this path.
+
+The prepared repair moves authoritative fleet discovery behind the canonical
+`weather.operations.settlement_backfill_registry` module and rejects any
+module path outside the current checkout. A new registrar creates one exact
+primary plus one separate receipt-driven successor, refuses a second pair for
+the same target date while either task is running or still due, keeps both
+triggers inside 00:30-09:00 with at least 30 minutes between them, omits late
+catch-up and Scheduler retries, and attests the registered actions, principal,
+triggers, and settings. Inert historical tasks remain evidence and do not
+freeze a later reviewed attempt. The successor
+skips an already settled date, refuses running, mis-bound, missing,
+unattributable, or ambiguous primary evidence, and can invoke the bounded
+wrapper only once. It requires a final all-market `SETTLED` receipt rather
+than treating an exit code as success.
+
+PowerShell AST parsing and diff checks pass on the production host. No
+post-09:00 backfill or test suite was started. Workstation focused/full-suite
+verification and a future admitted one-date production receipt remain
+required; this repair does not close the representative Stage-A soak or the
+August 17 settlement proof above.
+
+The spent `WeatherSettlementBackfill20260830_0901a` task was disabled after
+exact action, trigger, last-result, and `REFUSED` receipt readback. Its task and
+receipt remain intact as evidence; it was not deleted or retried after the
+window.

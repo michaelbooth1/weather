@@ -35,13 +35,15 @@ $HEARTBEAT_HOURS = 6
 # ---- gather (delegate all interpretation of "is this normal" to status.ps1) ----
 $statusScript = Join-Path $repo "scripts\ops\status.ps1"
 $psExe = Join-Path $PSHOME "powershell.exe"
-$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -Json 2>$null
+$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+    -File $statusScript -Json -RepoRoot $repo 2>$null
+$statusExitCode = $LASTEXITCODE
 $status = $null
 try { $status = ($raw | Out-String) | ConvertFrom-Json } catch {}
 if ($null -eq $status) {
     # The digest itself failing is a real fault: we are now blind.
     $status = [PSCustomObject]@{
-        verdict = "ATTENTION"; flags = @("status.ps1 did not return parseable JSON - host digest is BLIND")
+        verdict = "ATTENTION"; flags = @("status.ps1 did not return parseable JSON (exit $statusExitCode) - host digest is BLIND")
         warns   = @(); streak = $null
     }
 }

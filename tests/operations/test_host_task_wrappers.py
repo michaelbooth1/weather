@@ -40,6 +40,16 @@ def test_location_refresh_revalidates_target_date_before_success() -> None:
     assert "--no-live-fetch" not in text
 
 
+def test_health_watchdog_binds_nested_status_to_repository_root() -> None:
+    text = (ROOT / "scripts" / "ops" / "health_watchdog.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "-File $statusScript -Json -RepoRoot $repo" in text
+    assert "$statusExitCode = $LASTEXITCODE" in text
+    assert "parseable JSON (exit $statusExitCode)" in text
+
+
 def test_execution_tape_registrar_is_public_only_and_low_priority() -> None:
     text = (ROOT / "scripts" / "ops" / "register_execution_tape_supervisor.ps1").read_text(
         encoding="utf-8-sig"

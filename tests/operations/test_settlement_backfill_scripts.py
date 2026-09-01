@@ -17,8 +17,10 @@ def test_settlement_backfill_uses_exact_terminal_step_and_no_bare_lock_guard():
     assert "if (Test-Path $lock)" not in text
     assert "$source -ne 'daily_summary'" in text
     assert "authoritative daily_summary settlement" in text
-    assert "weather.market.market_registry" in text
-    assert "m.all_specs()" in text
+    assert "weather.operations.settlement_backfill_registry" in text
+    assert "-ArgumentList @('-m', 'weather.operations.settlement_backfill_registry')" in text
+    assert "-ArgumentList @('-c', $registryCode)" not in text
+    assert "settlement_backfill_market_registry_discovery" in text
     assert "observedModule -eq $expectedModule" in text
     assert "foreach ($marketId in $expectedMarketIds)" in text
     assert "expected_market_ids" in text
@@ -35,6 +37,38 @@ def test_authoritative_market_registry_ids_are_nonempty_unique_and_path_safe():
     assert ids
     assert len(ids) == len(set(ids))
     assert all(value and value.replace("-", "").isalnum() for value in ids)
+
+
+def test_settlement_retry_is_one_shot_receipt_gated_and_exactly_bound():
+    text = _script("settlement_backfill_retry_one.ps1")
+
+    assert "SKIPPED_ALREADY_SETTLED" in text
+    assert "REFUSED_PRIMARY_RUNNING" in text
+    assert "primary receipt predates this task attempt" in text
+    assert "@('REFUSED', 'CHAIN_FAILED', 'SILENT_NOOP', 'PARTIAL')" in text
+    assert "ConvertTo-ScheduledTaskArgumentString" in text
+    assert "-cne $expectedPrimaryArguments" in text
+    assert "settlement_backfill_one.ps1" in text
+    assert "[string]$finalReceipt.state -ceq 'SETTLED'" in text
+    assert "while (" not in text
+
+
+def test_settlement_attempt_registrar_uses_separate_bounded_retry_task():
+    text = _script("register_settlement_backfill_attempt.ps1")
+
+    assert "WeatherSettlementBackfill${dateToken}_$AttemptId" in text
+    assert "WeatherSettlementBackfillRetry${dateToken}_$AttemptId" in text
+    assert "refusing an overlapping task pair for target date" in text
+    assert "$info.NextRunTime -gt $now" in text
+    assert "retry must be at least 30 minutes after the primary" in text
+    assert "trigger must be inside 00:30-09:00" in text
+    assert "-LogonType S4U -RunLevel Limited" in text
+    assert "-MultipleInstances IgnoreNew -WakeToRun" in text
+    assert "-not [bool]$task.Settings.StartWhenAvailable" in text
+    assert "[int]$task.Settings.RestartCount -eq 0" in text
+    assert "Disable-ScheduledTask -TaskName $primaryTaskName" in text
+    assert "retry_loop = $false" in text
+    assert "RestartOnFailure" not in text
 
 
 def test_chain_recovery_repairs_locks_canonically_and_validates_bounded_receipt():

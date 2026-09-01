@@ -94,9 +94,8 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     }
     exit 2
 }
-$registryCode = "import json,weather.market.market_registry as m;print(json.dumps({'schema_version':'settlement_backfill_market_registry_discovery_v0.1','module_file':m.__file__,'market_ids':sorted(s.id for s in m.all_specs())}))"
 $registryProcess = Start-Process -FilePath $python `
-    -ArgumentList @('-c', $registryCode) `
+    -ArgumentList @('-m', 'weather.operations.settlement_backfill_registry') `
     -WorkingDirectory $RepoRoot `
     -NoNewWindow -PassThru -Wait `
     -RedirectStandardOutput $registryOut `
@@ -120,7 +119,7 @@ try {
     )
     $uniqueMarketIds = @($expectedMarketIds | Sort-Object -Unique)
     $registryValid = (
-        $registry.schema_version -eq 'settlement_backfill_market_registry_discovery_v0.1' -and
+        $registry.contract -eq 'settlement_backfill_market_registry_discovery' -and
         $observedModule -eq $expectedModule -and
         $expectedMarketIds.Count -gt 0 -and
         $uniqueMarketIds.Count -eq $expectedMarketIds.Count -and
