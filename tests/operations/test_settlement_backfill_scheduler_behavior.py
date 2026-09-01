@@ -78,7 +78,8 @@ if (Test-Path -LiteralPath $counterPath -PathType Leaf) {
 $mode = [string]$env:WEATHER_FAKE_BACKFILL_MODE
 $state = if ($mode -eq 'failure') { 'PARTIAL' } else { 'SETTLED' }
 $settled = if ($mode -eq 'invalid_settled') { 1 } elseif ($mode -eq 'failure') { 1 } else { 2 }
-$unsettled = if ($settled -eq 2) { @() } else { @('beta') }
+$unsettled = @()
+if ($settled -ne 2) { $unsettled = @('beta') }
 $receipt = [ordered]@{
     schema_version = 'settlement_backfill_receipt_v0.2'
     target_date = $TargetDate
@@ -228,7 +229,7 @@ function Invoke-Registrar(
     }
     catch { $failed = $true }
     if ($failed -ne $ExpectFailure) {
-        throw "unexpected registrar failure state for $AttemptId: $failed"
+        throw "unexpected registrar failure state for ${AttemptId}: $failed"
     }
 }
 
@@ -388,6 +389,7 @@ function Get-ScheduledTaskInfo {
     -PrimaryTaskName 'WeatherSettlementBackfill20260830_testcase' `
     -AttemptId 'testcase' `
     -RepoRoot $root
+exit $LASTEXITCODE
 """
     return _run_powershell(
         harness,
@@ -570,7 +572,10 @@ def test_health_watchdog_uses_bound_root_and_preserves_blind_contract(
     repo = tmp_path / "watchdog-repo"
     _write_fake_status(repo, payload=payload, exit_code=child_exit)
     result = _run_powershell(
-        "& $env:WEATHER_TEST_WATCHDOG -RepoRoot $env:WEATHER_TEST_REPO",
+        (
+            "& $env:WEATHER_TEST_WATCHDOG -RepoRoot $env:WEATHER_TEST_REPO; "
+            "exit $LASTEXITCODE"
+        ),
         cwd=repo,
         extra_env={
             "WEATHER_TEST_WATCHDOG": str(WATCHDOG),
