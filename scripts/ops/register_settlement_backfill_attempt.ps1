@@ -28,6 +28,17 @@ $contractScript = (Resolve-Path -LiteralPath (
 ) -ErrorAction Stop).Path
 . $contractScript
 
+$parsedTargetDate = [datetime]::MinValue
+if (-not [datetime]::TryParseExact(
+    $TargetDate,
+    'yyyy-MM-dd',
+    [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::None,
+    [ref]$parsedTargetDate
+)) {
+    throw 'TargetDate must be a real calendar date in yyyy-MM-dd form'
+}
+
 function Parse-LocalTime([string]$Value, [string]$Label) {
     $parsed = [datetime]::MinValue
     $ok = [datetime]::TryParseExact(
@@ -49,6 +60,9 @@ if ($primaryAt -le (Get-Date) -or $retryAt -le $primaryAt) {
 if (($retryAt - $primaryAt).TotalMinutes -lt 30) {
     throw 'retry must be at least 30 minutes after the primary'
 }
+if ($retryAt.Date -ne $primaryAt.Date) {
+    throw 'primary and retry triggers must share one local heavy-work window'
+}
 foreach ($row in @(
     @{ Label = 'primary'; Value = $primaryAt },
     @{ Label = 'retry'; Value = $retryAt }
@@ -62,6 +76,25 @@ foreach ($row in @(
 $dateToken = $TargetDate.Replace('-', '')
 $primaryTaskName = "WeatherSettlementBackfill${dateToken}_$AttemptId"
 $retryTaskName = "WeatherSettlementBackfillRetry${dateToken}_$AttemptId"
+$registrationLogRoot = Join-Path $RepoRoot 'data\logs'
+if (-not (Test-Path -LiteralPath $registrationLogRoot -PathType Container)) {
+    New-Item -ItemType Directory -Path $registrationLogRoot -Force | Out-Null
+}
+$registrationLockPath = Join-Path $registrationLogRoot `
+    "settlement_backfill_registration_$dateToken.lock"
+try {
+    $registrationLock = [IO.File]::Open(
+        $registrationLockPath,
+        [IO.FileMode]::OpenOrCreate,
+        [IO.FileAccess]::ReadWrite,
+        [IO.FileShare]::None
+    )
+}
+catch [IO.IOException] {
+    throw "another registrar owns target date $TargetDate"
+}
+
+function Invoke-SettlementBackfillRegistration {
 $sameDateTasks = @(
     Get-ScheduledTask -ErrorAction Stop |
         Where-Object {
@@ -74,7 +107,9 @@ $sameDateTasks = @(
 $now = Get-Date
 $conflictingTasks = @(
     $sameDateTasks | Where-Object {
-        if ([string]$_.State -eq 'Running') { return $true }
+        $state = [string]$_.State
+        if ($state -ieq 'Disabled') { return $false }
+        if ($state -ine 'Ready') { return $true }
         $info = $_ | Get-ScheduledTaskInfo
         return $info.NextRunTime -gt $now
     }
@@ -94,6 +129,8 @@ $primaryTokens = @(
     '-File', $primaryScript,
     '-TargetDate', $TargetDate,
     '-Refetch',
+    '-AttemptId', $AttemptId,
+    '-PrimaryTaskName', $primaryTaskName,
     '-RepoRoot', $RepoRoot
 )
 $retryTokens = @(
@@ -101,6 +138,7 @@ $retryTokens = @(
     '-File', $retryScript,
     '-TargetDate', $TargetDate,
     '-PrimaryTaskName', $primaryTaskName,
+    '-AttemptId', $AttemptId,
     '-RepoRoot', $RepoRoot
 )
 $primaryArguments = ConvertTo-ScheduledTaskArgumentString -Tokens $primaryTokens
@@ -118,6 +156,15 @@ $retryAction = New-ScheduledTaskAction `
 $primaryTrigger = New-ScheduledTaskTrigger -Once -At $primaryAt
 $retryTrigger = New-ScheduledTaskTrigger -Once -At $retryAt
 
+function Disable-AndAssertTask {
+    param([string]$TaskName)
+    Disable-ScheduledTask -TaskName $TaskName -ErrorAction Stop | Out-Null
+    $disabled = @(Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop)
+    if ($disabled.Count -ne 1 -or [string]$disabled[0].State -ine 'Disabled') {
+        throw "task rollback did not prove Disabled: $TaskName"
+    }
+}
+
 Register-ScheduledTask -TaskName $primaryTaskName -Action $primaryAction `
     -Trigger $primaryTrigger -Settings $settings -Principal $principal `
     -Description "One-date bounded settlement backfill for $TargetDate; no late catch-up." |
@@ -129,9 +176,12 @@ try {
         Out-Null
 }
 catch {
-    Disable-ScheduledTask -TaskName $primaryTaskName -ErrorAction SilentlyContinue |
-        Out-Null
-    throw
+    $registrationFailure = $_.Exception.Message
+    try { Disable-AndAssertTask -TaskName $primaryTaskName }
+    catch {
+        throw "retry registration failed ($registrationFailure); primary rollback failed: $($_.Exception.Message)"
+    }
+    throw "retry registration failed; primary disabled and verified: $registrationFailure"
 }
 
 function Assert-TaskBinding {
@@ -145,6 +195,8 @@ function Assert-TaskBinding {
     $triggers = @($task.Triggers)
     $valid = (
         [string]$task.State -ceq 'Ready' -and
+        [string]$task.TaskPath -ceq '\' -and
+        [string]$task.Principal.UserId -ieq $env:USERNAME -and
         [string]$task.Principal.LogonType -ceq 'S4U' -and
         [string]$task.Principal.RunLevel -ceq 'Limited' -and
         $actions.Count -eq 1 -and
@@ -152,7 +204,11 @@ function Assert-TaskBinding {
         [string]$actions[0].Arguments -ceq $ExpectedArguments -and
         [IO.Path]::GetFullPath([string]$actions[0].WorkingDirectory) -ieq $RepoRoot -and
         $triggers.Count -eq 1 -and
+        [string]$triggers[0].CimClass.CimClassName -ceq 'MSFT_TaskTimeTrigger' -and
+        [bool]$triggers[0].Enabled -and
         [datetime]$triggers[0].StartBoundary -eq $ExpectedAt -and
+        [string]$triggers[0].Repetition.Interval -ceq '' -and
+        [string]$triggers[0].Repetition.Duration -ceq '' -and
         -not [bool]$task.Settings.StartWhenAvailable -and
         [bool]$task.Settings.WakeToRun -and
         [string]$task.Settings.ExecutionTimeLimit -ceq 'PT8H30M' -and
@@ -167,19 +223,35 @@ try {
     Assert-TaskBinding $retryTaskName $retryArguments $retryAt
 }
 catch {
-    Disable-ScheduledTask -TaskName $primaryTaskName -ErrorAction SilentlyContinue |
-        Out-Null
-    Disable-ScheduledTask -TaskName $retryTaskName -ErrorAction SilentlyContinue |
-        Out-Null
-    throw
+    $readbackFailure = $_.Exception.Message
+    $rollbackFailures = New-Object System.Collections.Generic.List[string]
+    foreach ($taskName in @($primaryTaskName, $retryTaskName)) {
+        try { Disable-AndAssertTask -TaskName $taskName }
+        catch { $rollbackFailures.Add($_.Exception.Message) }
+    }
+    if ($rollbackFailures.Count -gt 0) {
+        throw "task readback failed ($readbackFailure); rollback failed: $($rollbackFailures -join '; ')"
+    }
+    throw "task readback failed; both tasks disabled and verified: $readbackFailure"
 }
 
 [pscustomobject]@{
     target_date = $TargetDate
+    attempt_id = $AttemptId
     primary_task = $primaryTaskName
+    primary_receipt = "settlement_backfill_${TargetDate}_$AttemptId.json"
     primary_at_local = $primaryAt.ToString('s')
     retry_task = $retryTaskName
+    retry_receipt = "settlement_backfill_retry_${TargetDate}_$AttemptId.json"
     retry_at_local = $retryAt.ToString('s')
     start_when_available = $false
     retry_loop = $false
 } | ConvertTo-Json -Depth 4
+}
+
+try {
+    Invoke-SettlementBackfillRegistration
+}
+finally {
+    $registrationLock.Dispose()
+}

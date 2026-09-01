@@ -48,8 +48,13 @@ def test_settlement_retry_is_one_shot_receipt_gated_and_exactly_bound():
     assert "@('REFUSED', 'CHAIN_FAILED', 'SILENT_NOOP', 'PARTIAL')" in text
     assert "ConvertTo-ScheduledTaskArgumentString" in text
     assert "-cne $expectedPrimaryArguments" in text
+    assert "primary receipt is not bound to this exact task attempt" in text
+    assert "Test-AllMarketSettledReceipt" in text
+    assert "Test-ReceiptStartedAfter" in text
+    assert "primary task is still due" in text
+    assert "settlement_backfill_${TargetDate}_$AttemptId.json" in text
     assert "settlement_backfill_one.ps1" in text
-    assert "[string]$finalReceipt.state -ceq 'SETTLED'" in text
+    assert "Move-Item -LiteralPath $temporaryReceiptPath" in text
     assert "while (" not in text
 
 
@@ -59,6 +64,10 @@ def test_settlement_attempt_registrar_uses_separate_bounded_retry_task():
     assert "WeatherSettlementBackfill${dateToken}_$AttemptId" in text
     assert "WeatherSettlementBackfillRetry${dateToken}_$AttemptId" in text
     assert "refusing an overlapping task pair for target date" in text
+    assert "another registrar owns target date" in text
+    assert "[IO.FileShare]::None" in text
+    assert "if ($state -ine 'Ready') { return $true }" in text
+    assert "if ($state -ieq 'Disabled') { return $false }" in text
     assert "$info.NextRunTime -gt $now" in text
     assert "retry must be at least 30 minutes after the primary" in text
     assert "trigger must be inside 00:30-09:00" in text
@@ -66,7 +75,9 @@ def test_settlement_attempt_registrar_uses_separate_bounded_retry_task():
     assert "-MultipleInstances IgnoreNew -WakeToRun" in text
     assert "-not [bool]$task.Settings.StartWhenAvailable" in text
     assert "[int]$task.Settings.RestartCount -eq 0" in text
-    assert "Disable-ScheduledTask -TaskName $primaryTaskName" in text
+    assert "Disable-AndAssertTask" in text
+    assert "both tasks disabled and verified" in text
+    assert "[string]$task.Principal.UserId -ieq $env:USERNAME" in text
     assert "retry_loop = $false" in text
     assert "RestartOnFailure" not in text
 

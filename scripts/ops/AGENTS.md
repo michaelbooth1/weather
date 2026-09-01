@@ -159,8 +159,12 @@ file existence or PID alone. Register a dated attempt through
 separate receipt-driven successor at least 30 minutes later, both inside
 00:30-09:00 with no late catch-up. Do not use Task Scheduler restart settings
 or an internal retry loop for this path. The successor skips a `SETTLED`
-receipt, refuses ambiguous or unattributable primary evidence, and otherwise
-invokes the canonical wrapper once. Tiering wrappers must assign children to a
+receipt only when it is fresh, attempt-bound, and proves the complete fleet;
+it refuses ambiguous, still-due, stale, or unattributable primary evidence and
+otherwise invokes the canonical wrapper once. Registration holds a target-date
+mutex, and rollback must re-read every affected task as Disabled. Attempt
+receipts are distinct and atomic so inert historical evidence cannot be
+mistaken for a new run. Tiering wrappers must assign children to a
 kill-on-close Job, retain an absolute runtime bound, write latest status
 atomically, and append history; a busy-lease skip is not reclaim evidence.
 The repository-owned tiering registrars bind projection/raw work to 05:00/06:00,

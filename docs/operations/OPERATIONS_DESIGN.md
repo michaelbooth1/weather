@@ -497,12 +497,18 @@ one-date recovery is registered by
 `scripts/ops/register_settlement_backfill_attempt.ps1` as exactly two distinct
 S4U/Limited tasks: a primary and one receipt-driven successor at least 30
 minutes later, both inside 00:30-09:00, with `StartWhenAvailable=false`, no
-Scheduler restart count, and exact post-registration readback. The successor
-never loops: it skips an already `SETTLED` date, refuses a running or
-mis-bound primary and stale/ambiguous receipt evidence, or invokes the
-canonical wrapper once and requires a new `SETTLED` receipt. Only one task
-pair may be active for a target date; inert historical tasks remain available
-as evidence and do not freeze a later reviewed attempt.
+Scheduler restart count, and exact post-registration readback. Registration
+holds a target-date file mutex across conflict discovery, both writes, and
+readback; impossible calendar dates and a concurrent registrar fail before a
+Scheduler write. A failed second registration must disable and re-read the
+primary, while any readback mismatch must disable and re-read both tasks. The
+successor never loops: it skips only an attempt-bound, fresh, complete
+all-market `SETTLED` receipt; refuses a running, still-due, mis-bound, or
+ambiguous primary and stale/unattributable evidence; or invokes the canonical
+wrapper once and requires a newly written complete receipt. Primary and retry
+receipts are attempt-scoped and published atomically. Only one task pair may
+be active for a target date; disabled or expired one-shot tasks remain
+evidence and do not freeze a later reviewed attempt.
 
 Daily-refresh and long-job lock payloads bind PID plus OS process creation
 identity and image. Exact creation-token mismatch proves PID reuse; unreadable
