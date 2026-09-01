@@ -20,10 +20,12 @@
 # records CRITICAL and emits a heartbeat so silence is distinguishable from a dead watchdog.
 # Pure host tooling; imports nothing from a capture loop -> roll-free.
 [CmdletBinding()]
-param()
+param(
+    [string]$RepoRoot = "C:\Users\micha\Desktop\github\weather"
+)
 
 $ErrorActionPreference = "SilentlyContinue"
-$repo = "C:\Users\micha\Desktop\github\weather"
+$repo = (Resolve-Path -LiteralPath $RepoRoot -ErrorAction Stop).Path
 $alertDir = Join-Path $repo "data\alerts"
 if (-not (Test-Path $alertDir)) { New-Item -ItemType Directory -Path $alertDir -Force | Out-Null }
 $log = Join-Path $alertDir "host_health_alerts.jsonl"
@@ -35,13 +37,22 @@ $HEARTBEAT_HOURS = 6
 # ---- gather (delegate all interpretation of "is this normal" to status.ps1) ----
 $statusScript = Join-Path $repo "scripts\ops\status.ps1"
 $psExe = Join-Path $PSHOME "powershell.exe"
-$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -Json 2>$null
+$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+    -File $statusScript -Json -RepoRoot $repo 2>$null
+$statusExitCode = $LASTEXITCODE
 $status = $null
 try { $status = ($raw | Out-String) | ConvertFrom-Json } catch {}
-if ($null -eq $status) {
+$statusValid = (
+    $null -ne $status -and
+    $null -ne $status.PSObject.Properties['verdict'] -and
+    [string]$status.verdict -cin @('OK', 'ATTENTION') -and
+    $null -ne $status.PSObject.Properties['flags'] -and
+    $null -ne $status.PSObject.Properties['warns']
+)
+if (-not $statusValid) {
     # The digest itself failing is a real fault: we are now blind.
     $status = [PSCustomObject]@{
-        verdict = "ATTENTION"; flags = @("status.ps1 did not return parseable JSON - host digest is BLIND")
+        verdict = "ATTENTION"; flags = @("status.ps1 did not return parseable JSON (exit $statusExitCode) - host digest is BLIND")
         warns   = @(); streak = $null
     }
 }

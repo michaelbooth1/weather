@@ -37,6 +37,10 @@
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^\d{4}-\d{2}-\d{2}$')][string]$TargetDate,
     [switch]$Refetch,
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$')]
+    [string]$AttemptId,
+    [ValidatePattern('^WeatherSettlementBackfill\d{8}_[A-Za-z0-9][A-Za-z0-9_-]{0,31}$')]
+    [string]$PrimaryTaskName,
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 )
 
@@ -55,24 +59,54 @@ $validTarget = [datetime]::TryParseExact(
 if (-not $validTarget) {
     throw "TargetDate must be a real calendar date in yyyy-MM-dd form"
 }
+$hasAttemptId = -not [string]::IsNullOrWhiteSpace($AttemptId)
+$hasPrimaryTaskName = -not [string]::IsNullOrWhiteSpace($PrimaryTaskName)
+if ($hasAttemptId -ne $hasPrimaryTaskName) {
+    throw "AttemptId and PrimaryTaskName must be supplied together"
+}
+if ($hasAttemptId) {
+    $dateToken = $TargetDate.Replace('-', '')
+    $expectedPrimaryTaskName = "WeatherSettlementBackfill${dateToken}_$AttemptId"
+    if ($PrimaryTaskName -cne $expectedPrimaryTaskName) {
+        throw "PrimaryTaskName does not match TargetDate and AttemptId"
+    }
+}
 
-$stamp = "$(Get-Date -Format 'yyyyMMddTHHmmssfff')-$PID"
+$attemptStartedAt = Get-Date
+$stamp = "$($attemptStartedAt.ToString('yyyyMMddTHHmmssfff'))-$PID"
 $logDir = Join-Path $RepoRoot 'data\alerts'
 if (-not (Test-Path $logDir)) { New-Item -ItemType Directory -Force -Path $logDir | Out-Null }
-$resultPath = Join-Path $logDir "settlement_backfill_$TargetDate.json"
+$attemptSuffix = if ($hasAttemptId) { "_$AttemptId" } else { "" }
+$resultPath = Join-Path $logDir "settlement_backfill_$TargetDate$attemptSuffix.json"
 $registryOut = Join-Path $logDir "settlement_backfill_market_registry_$TargetDate-$stamp.json"
 $registryErr = Join-Path $logDir "settlement_backfill_market_registry_$TargetDate-$stamp.err"
 
 function Emit($state, $detail, $extra) {
     $payload = [ordered]@{
+        schema_version = 'settlement_backfill_receipt_v0.2'
         target_date = $TargetDate
+        attempt_id = if ($hasAttemptId) { $AttemptId } else { $null }
+        primary_task_name = if ($hasPrimaryTaskName) { $PrimaryTaskName } else { $null }
+        attempt_started_at_local = $attemptStartedAt.ToString('o')
         state       = $state
         detail      = $detail
         refetch     = [bool]$Refetch
-        at_local    = (Get-Date).ToString('s')
+        at_local    = (Get-Date).ToString('o')
     }
     if ($extra) { foreach ($k in $extra.Keys) { $payload[$k] = $extra[$k] } }
-    $payload | ConvertTo-Json -Depth 6 | Out-File -FilePath $resultPath -Encoding utf8
+    $temporaryResultPath = "{0}.{1}.{2}.tmp" -f `
+        $resultPath, $PID, ([guid]::NewGuid().ToString('N'))
+    try {
+        $payload | ConvertTo-Json -Depth 6 | Out-File `
+            -LiteralPath $temporaryResultPath -Encoding utf8
+        Move-Item -LiteralPath $temporaryResultPath `
+            -Destination $resultPath -Force -ErrorAction Stop
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryResultPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryResultPath -Force -ErrorAction SilentlyContinue
+        }
+    }
     "[$state] $TargetDate - $detail"
 }
 
@@ -94,9 +128,8 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     }
     exit 2
 }
-$registryCode = "import json,weather.market.market_registry as m;print(json.dumps({'schema_version':'settlement_backfill_market_registry_discovery_v0.1','module_file':m.__file__,'market_ids':sorted(s.id for s in m.all_specs())}))"
 $registryProcess = Start-Process -FilePath $python `
-    -ArgumentList @('-c', $registryCode) `
+    -ArgumentList @('-m', 'weather.operations.settlement_backfill_registry') `
     -WorkingDirectory $RepoRoot `
     -NoNewWindow -PassThru -Wait `
     -RedirectStandardOutput $registryOut `
@@ -120,7 +153,7 @@ try {
     )
     $uniqueMarketIds = @($expectedMarketIds | Sort-Object -Unique)
     $registryValid = (
-        $registry.schema_version -eq 'settlement_backfill_market_registry_discovery_v0.1' -and
+        $registry.contract -eq 'settlement_backfill_market_registry_discovery' -and
         $observedModule -eq $expectedModule -and
         $expectedMarketIds.Count -gt 0 -and
         $uniqueMarketIds.Count -eq $expectedMarketIds.Count -and

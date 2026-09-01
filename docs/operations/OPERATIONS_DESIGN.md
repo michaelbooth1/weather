@@ -489,6 +489,27 @@ run readiness, publish stage manifests, trigger Stage B, update the daily
 progress ledger, or continue into scoring/tiering work. The wrapper verifies
 real finite settlement values in every market ledger after the child exits.
 
+The wrapper discovers that all-market denominator through
+`python -m weather.operations.settlement_backfill_registry`; passing registry
+source through inline `python -c` task arguments is prohibited because Windows
+argument serialization can truncate it before Python starts. Scheduled
+one-date recovery is registered by
+`scripts/ops/register_settlement_backfill_attempt.ps1` as exactly two distinct
+S4U/Limited tasks: a primary and one receipt-driven successor at least 30
+minutes later, both inside 00:30-09:00, with `StartWhenAvailable=false`, no
+Scheduler restart count, and exact post-registration readback. Registration
+holds a target-date file mutex across conflict discovery, both writes, and
+readback; impossible calendar dates and a concurrent registrar fail before a
+Scheduler write. A failed second registration must disable and re-read the
+primary, while any readback mismatch must disable and re-read both tasks. The
+successor never loops: it skips only an attempt-bound, fresh, complete
+all-market `SETTLED` receipt; refuses a running, still-due, mis-bound, or
+ambiguous primary and stale/unattributable evidence; or invokes the canonical
+wrapper once and requires a newly written complete receipt. Primary and retry
+receipts are attempt-scoped and published atomically. Only one task pair may
+be active for a target date; disabled or expired one-shot tasks remain
+evidence and do not freeze a later reviewed attempt.
+
 Daily-refresh and long-job lock payloads bind PID plus OS process creation
 identity and image. Exact creation-token mismatch proves PID reuse; unreadable
 identity fails closed. Legacy PID-only locks are considered stale only when
@@ -527,6 +548,13 @@ their latest status atomically, and append every outcome to JSONL history.
 `SKIPPED_WORKLOAD_LEASE_BUSY` remains a safe non-run, not successful reclaim;
 `status.ps1` reads the durable status and surfaces the skip beside disk slope
 even when Task Scheduler reports zero.
+
+`health_watchdog.ps1` invokes that digest in a separate PowerShell process and
+must pass the canonical repository root explicitly; nested `-File` invocation
+cannot rely on the caller's `$PSScriptRoot`. It captures the child's exit code
+before parsing JSON. An absent or invalid digest remains an explicit `BLIND`
+alert, while a valid nonzero attention verdict remains parseable evidence for
+the latest health state and morning briefing.
 
 Before the settled-day analysis barrier, the read-only
 `observed_floor_safety_monitor` joins captured `observed_floor_bucket` values
