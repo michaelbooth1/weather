@@ -622,14 +622,6 @@ function Get-WeatherWorkstationOfflineModule {
 }
 
 
-function Get-WeatherWorkstationResearchCollectionModule {
-    [CmdletBinding()]
-    param()
-
-    "weather.sources.previous_runs_research_collection"
-}
-
-
 function Get-WeatherCommandLineWord {
     [CmdletBinding()]
     param([AllowEmptyString()][string]$CommandLine)
@@ -783,6 +775,14 @@ function Test-WeatherWorkstationOfflineModuleCommandLine {
     $module = Get-WeatherPythonModuleFromCommandLine -CommandLine $CommandLine
     $offlineModules = @(Get-WeatherWorkstationOfflineModule)
     return $offlineModules -ccontains $module
+}
+
+
+function Get-WeatherWorkstationResearchCollectionModule {
+    [CmdletBinding()]
+    param()
+
+    "weather.sources.previous_runs_research_collection"
 }
 
 
