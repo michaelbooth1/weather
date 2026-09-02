@@ -1,0 +1,539 @@
+{
+  "schema_version": "maker_economics_production_export_spec_v1",
+  "mission_id": "workstation-maker-economics-reduction-2026-09-92a",
+  "disposition": "NEEDS_EXACT_PRODUCTION_EXPORT",
+  "purpose": "Produce the smallest offline-verifiable evidence bundle capable of measuring maker execution economics without reconstructing fills, books, fees, rebates, inventory, or settlements.",
+  "current_mission_authority": {
+    "production_access": false,
+    "provider_or_exchange_access": false,
+    "credential_access": false,
+    "production_reducer_execution": false,
+    "note": "This file is a command and output contract for a separately authorized production-side read-only export. It is not authority to run it."
+  },
+  "source_scope": {
+    "platform": "polymarket_global",
+    "start_target_date_inclusive": "2026-08-13",
+    "end_target_date_inclusive": "2026-09-15",
+    "as_of_utc_exclusive": "2026-09-16T00:00:00Z",
+    "range_reason": "The first complete target date after the frozen mirror's 2026-08-12 05:03 cutoff through the report cutoff. Partial 2026-08-12 evidence is excluded.",
+    "market_scope": "Every International weather market with a maker quote opportunity or authenticated maker order lifecycle in the date range; do not add markets merely because book snapshots exist.",
+    "provenance_boundary": {
+      "boundary_target_date": "2026-07-31",
+      "required_row_field": "provenance_regime",
+      "allowed_values": [
+        "pre_2026_07_31",
+        "post_2026_07_31"
+      ],
+      "pooling_allowed": false,
+      "expected_value_for_requested_range": "post_2026_07_31"
+    }
+  },
+  "source_path_patterns": [
+    {
+      "family": "maker_run",
+      "pattern": "<production_repo>/data/mm_runs/<target_date>/<run_id>/{run_config.json,quote_intents_long.csv,order_lifecycle.jsonl,fills_long.csv,exchange_economics_snapshot.json,exchange_reconciliation.json,run_summary.json}",
+      "required": true
+    },
+    {
+      "family": "portable_live_attempt",
+      "pattern": "<private_attempt_root>/{inputs,seal,session,stage0,stage1-cancel-all,stage1-dead-man}/**/*.{json,jsonl,sha256}",
+      "required_when_referenced_by_a_run": true
+    },
+    {
+      "family": "public_execution_tape",
+      "pattern": "<production_repo>/data/snapshots/<event_slug>/execution_tape/{seeds,trades,dedupe,gaps}-*.jsonl",
+      "required": true
+    },
+    {
+      "family": "public_execution_status",
+      "pattern": "<production_repo>/data/snapshots/<event_slug>/execution_tape_status.json",
+      "required": true
+    },
+    {
+      "family": "clob_identity_and_books",
+      "pattern": "<production_repo>/data/snapshots/<event_slug>/{clob_tokens.jsonl,order_books.jsonl,event_day_manifest.json}",
+      "required": true
+    },
+    {
+      "family": "settlement",
+      "pattern": "<production_repo>/data/settlements/<market_id>/ledger.jsonl",
+      "required": true
+    },
+    {
+      "family": "settlement_source_audit",
+      "pattern": "<production_repo>/data/backtest/settlement_source_revision_audit.json",
+      "required": true
+    }
+  ],
+  "input_binding_contract": {
+    "one_record_per_opened_source_file": true,
+    "required_fields": [
+      "source_family",
+      "source_root_id",
+      "relative_path",
+      "byte_count",
+      "sha256",
+      "schema_version_or_exact_header",
+      "market_id",
+      "target_date",
+      "event_slug",
+      "condition_id",
+      "clob_token_ids",
+      "provenance_regime",
+      "first_source_timestamp_utc",
+      "last_source_timestamp_utc",
+      "row_count",
+      "selection_reason"
+    ],
+    "path_rules": [
+      "Resolve every root and file before reading and reject reparse points or escapes.",
+      "Record paths relative to a separately hashed source-root identity; never export a usable credential path.",
+      "Open source files read-only and never create a cache, lock, sidecar, or temporary file below a source root.",
+      "Hash complete source-file bytes before admitting any extracted record.",
+      "Reject a source file if its bytes, size, schema, or path identity changes during the pass."
+    ],
+    "record_binding_rules": [
+      "Every extracted record carries source_file_sha256, source_row_ordinal, source_byte_offset, source_byte_count, and source_record_sha256.",
+      "JSONL source_record_sha256 is over the exact source line bytes excluding the line terminator; CSV source_record_sha256 is over the exact RFC-4180 logical record bytes.",
+      "Every derived row lists all source_record_sha256 values in role order and carries a canonical derivation_sha256.",
+      "Token id, condition id, event slug, market id, target date, outcome label, and band must agree across every joined record. Any mismatch excludes the entire lifecycle.",
+      "Input revisions remain visible. Exactly one terminal revision may be selected by documented source authority; no last-row-wins inference is allowed."
+    ]
+  },
+  "evidence_classes": {
+    "quote_opportunity": "A distinct, source-bound maker decision at a captured book state. It is not a fill or independent market-day support.",
+    "simulated_fill": "A paper or queue-model result. Retain for comparison only; never include in authenticated fill rate, realized P&L, or settlement P&L.",
+    "observed_public_trade": "A public CLOB execution observation. It may provide a non-reconstructed price path but cannot prove our fill, queue position, fee, rebate, inventory, or P&L.",
+    "authenticated_fill": "A confirmed own-account trade bound to an exact maker address, condition, token, exchange order id, trade id, transaction hash, liquidity role, price, size, fee rate, status, user-stream row, and REST trade reconciliation.",
+    "settlement": "One authority-selected WU settlement per market and target date with its revision/source audit binding."
+  },
+  "output": {
+    "total_max_bytes": 67108864,
+    "max_file_count": 128,
+    "serialization": {
+      "tabular": "UTF-8 JSONL, one canonical JSON object per LF-terminated line, keys sorted lexicographically, no NaN or Infinity",
+      "objects": "Exact source bytes for selected raw evidence or canonical UTF-8 JSON with sorted keys and one trailing LF",
+      "timestamps": "RFC 3339 UTC with Z and at least millisecond precision when the source supplies it",
+      "numbers": "Decimal strings in native units; no binary-float rendering in evidence rows"
+    },
+    "content_addressed_layout": {
+      "root": "maker-economics-export-v1",
+      "object_pattern": "objects/sha256/<first_two_hex>/<sha256>",
+      "manifest_pattern": "manifests/<manifest_sha256>.json",
+      "receipt_pattern": "receipts/<manifest_sha256>.json",
+      "rule": "The manifest maps logical artifact names to object SHA-256 and byte count. Object names equal their complete-byte SHA-256. Publication stages in a sibling directory, fsyncs files and directories, atomically renames once, and refuses any existing destination or hash collision."
+    }
+  },
+  "artifact_families": [
+    {
+      "logical_name": "source-file-manifest.jsonl",
+      "schema": "maker_economics_source_file_v1",
+      "evidence_requirement": "reduced_manifest_of_complete_source_hashes",
+      "max_bytes": 2097152,
+      "required_fields": [
+        "source_family",
+        "source_root_id",
+        "relative_path",
+        "byte_count",
+        "sha256",
+        "schema_version_or_exact_header",
+        "market_id",
+        "target_date",
+        "event_slug",
+        "condition_id",
+        "clob_token_ids",
+        "provenance_regime",
+        "first_source_timestamp_utc",
+        "last_source_timestamp_utc",
+        "row_count",
+        "selection_reason"
+      ]
+    },
+    {
+      "logical_name": "attempt-lineage.jsonl",
+      "schema": "maker_economics_attempt_lineage_v1",
+      "evidence_requirement": "reduced_with_exact_receipt_hashes",
+      "max_bytes": 2097152,
+      "required_fields": [
+        "attempt_id",
+        "run_id",
+        "stage",
+        "platform",
+        "market_id",
+        "target_date",
+        "event_slug",
+        "condition_id",
+        "clob_token_ids",
+        "git_tip",
+        "git_tree",
+        "candidate_identity_sha256",
+        "session_manifest_sha256",
+        "seal_receipt_sha256",
+        "run_receipt_sha256",
+        "wrapper_execution_receipt_sha256",
+        "command_receipt_sha256",
+        "result_sha256",
+        "order_submit_attempted",
+        "terminal_status",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "quote-opportunities.jsonl",
+      "schema": "maker_economics_quote_opportunity_v1",
+      "evidence_requirement": "reduced",
+      "max_bytes": 12582912,
+      "unique_key": [
+        "run_id",
+        "market_id",
+        "target_date",
+        "clob_token_id",
+        "side",
+        "decision_time_utc",
+        "snapshot_id",
+        "proposed_quote_price",
+        "proposed_quote_size"
+      ],
+      "required_fields": [
+        "opportunity_id",
+        "run_id",
+        "market_id",
+        "target_date",
+        "local_hour",
+        "event_slug",
+        "condition_id",
+        "clob_token_id",
+        "outcome_label",
+        "band_lower_native",
+        "band_upper_native",
+        "side",
+        "decision_time_utc",
+        "snapshot_id",
+        "best_bid",
+        "best_ask",
+        "midpoint",
+        "spread",
+        "proposed_quote_price",
+        "proposed_quote_size",
+        "distance_from_midpoint",
+        "distance_from_model_centre",
+        "spread_bucket",
+        "quote_distance_bucket",
+        "book_age_milliseconds",
+        "book_continuity_pass",
+        "quote_permission",
+        "evidence_class",
+        "source_record_sha256s",
+        "derivation_sha256",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "authenticated-fills.jsonl",
+      "schema": "maker_economics_authenticated_fill_v1",
+      "evidence_requirement": "selected_raw_rows_plus_reduced_reconciliation",
+      "max_bytes": 8388608,
+      "unique_key": [
+        "maker_address",
+        "condition_id",
+        "clob_token_id",
+        "exchange_order_id",
+        "trade_id",
+        "transaction_hash"
+      ],
+      "required_fields": [
+        "fill_id",
+        "attempt_id",
+        "run_id",
+        "market_id",
+        "target_date",
+        "event_slug",
+        "condition_id",
+        "clob_token_id",
+        "outcome_label",
+        "side",
+        "maker_address",
+        "exchange_order_id",
+        "trade_id",
+        "transaction_hash",
+        "liquidity_role",
+        "official_trade_status",
+        "fill_time_utc",
+        "fill_price",
+        "fill_size",
+        "fee_rate_bps",
+        "actual_fee_usdc",
+        "user_stream_source_record_sha256",
+        "rest_trade_source_record_sha256",
+        "rest_order_source_record_sha256",
+        "reconciliation_sha256",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "selected-raw-account-records.jsonl",
+      "schema": "maker_economics_selected_raw_account_record_v1",
+      "evidence_requirement": "raw_selected_records",
+      "max_bytes": 4194304,
+      "required_fields": [
+        "record_role",
+        "source_file_sha256",
+        "source_row_ordinal",
+        "source_byte_offset",
+        "source_byte_count",
+        "source_record_sha256",
+        "exact_source_record_utf8"
+      ],
+      "forbidden_content": [
+        "private keys",
+        "seed phrases",
+        "API secrets",
+        "authorization headers",
+        "credential file paths"
+      ]
+    },
+    {
+      "logical_name": "markout-checkpoints.jsonl",
+      "schema": "maker_economics_markout_checkpoint_v1",
+      "evidence_requirement": "reduced_from_continuous_exact_public_tapes",
+      "max_bytes": 12582912,
+      "required_fields": [
+        "fill_id",
+        "market_id",
+        "target_date",
+        "clob_token_id",
+        "side",
+        "fill_time_utc",
+        "fill_price",
+        "mid_at_fill",
+        "mid_1m",
+        "mid_5m",
+        "mid_15m",
+        "checkpoint_1m_time_utc",
+        "checkpoint_5m_time_utc",
+        "checkpoint_15m_time_utc",
+        "realized_spread_1m",
+        "markout_1m",
+        "markout_5m",
+        "markout_15m",
+        "coverage_interval_id",
+        "book_source_record_sha256s",
+        "trade_tape_source_record_sha256s",
+        "derivation_sha256",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "coverage-and-gaps.jsonl",
+      "schema": "maker_economics_coverage_interval_v1",
+      "evidence_requirement": "reduced_with_raw_gap_record_bindings",
+      "max_bytes": 4194304,
+      "required_fields": [
+        "coverage_interval_id",
+        "market_id",
+        "target_date",
+        "event_slug",
+        "condition_id",
+        "clob_token_id",
+        "interval_start_utc",
+        "interval_end_utc",
+        "seconds_connected",
+        "seconds_dark",
+        "gap_count",
+        "open_gap_count",
+        "parse_rejection_count",
+        "identity_integrity",
+        "price_path_evidence_usable",
+        "status_source_sha256",
+        "gap_source_record_sha256s",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "financial-reconciliation.jsonl",
+      "schema": "maker_economics_financial_reconciliation_v1",
+      "evidence_requirement": "reduced_plus_selected_raw_response_records",
+      "max_bytes": 4194304,
+      "required_fields": [
+        "attempt_id",
+        "market_id",
+        "target_date",
+        "maker_address",
+        "condition_id",
+        "starting_cash_usdc",
+        "ending_cash_usdc",
+        "starting_inventory_by_token",
+        "ending_inventory_by_token",
+        "actual_fees_usdc",
+        "proved_primary_liquidity_incentives_usdc",
+        "proved_maker_rebates_usdc",
+        "redemption_cashflow_usdc",
+        "position_evidence_sha256",
+        "fee_evidence_sha256",
+        "rebate_response_sha256",
+        "balance_evidence_sha256",
+        "complete",
+        "blockers",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "accepted-economics-snapshots.jsonl",
+      "schema": "maker_economics_accepted_snapshot_copy_v1",
+      "evidence_requirement": "exact_raw_snapshot_bytes_embedded_by_content_hash",
+      "max_bytes": 2097152,
+      "required_fields": [
+        "attempt_id",
+        "run_id",
+        "market_id",
+        "target_date",
+        "snapshot_id",
+        "snapshot_hash",
+        "source_proof_hash",
+        "source_file_sha256",
+        "accepted_baseline_file_sha256",
+        "drift_report_file_sha256",
+        "gate_status",
+        "gate_missing",
+        "raw_snapshot_object_sha256",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "settlements.jsonl",
+      "schema": "maker_economics_settlement_v1",
+      "evidence_requirement": "authority_selected_reduced_row_plus_exact_source_record",
+      "max_bytes": 2097152,
+      "unique_key": [
+        "market_id",
+        "target_date"
+      ],
+      "required_fields": [
+        "market_id",
+        "target_date",
+        "native_unit",
+        "wu_daily_summary_value",
+        "settlement_value_by_clob_token",
+        "authority_status",
+        "revision_count",
+        "selected_revision_identity",
+        "selected_source_record_sha256",
+        "ledger_file_sha256",
+        "settlement_source_audit_sha256",
+        "provenance_regime"
+      ]
+    },
+    {
+      "logical_name": "market-day-countability.jsonl",
+      "schema": "maker_economics_market_day_countability_v1",
+      "evidence_requirement": "reduced",
+      "max_bytes": 2097152,
+      "unique_key": [
+        "market_id",
+        "target_date"
+      ],
+      "required_fields": [
+        "market_id",
+        "target_date",
+        "distinct_quote_opportunities",
+        "distinct_authenticated_fills",
+        "distinct_simulated_fills",
+        "distinct_public_trade_observations",
+        "book_coverage_complete",
+        "execution_gap_free_for_selected_windows",
+        "token_event_identity_complete",
+        "economics_complete",
+        "settlement_complete",
+        "countable",
+        "exclusion_reasons",
+        "provenance_regime"
+      ]
+    }
+  ],
+  "inclusion_rules": [
+    "Select only polymarket_global rows inside the exact target-date and as-of bounds.",
+    "A quote opportunity requires an exact quote-intent row, exact event/token identity, and a fresh two-sided book state captured no more than 1000 milliseconds before the decision.",
+    "An authenticated fill requires confirmed agreement between the final user-stream journal, exact REST order response, and exact REST account-trade response; public trades and simulations never substitute.",
+    "A markout requires uninterrupted public tape and complete two-sided books from the fill through the checkpoint. Select the first complete midpoint at or after exactly 1, 5, or 15 minutes, no more than 1000 milliseconds late.",
+    "A settlement requires the authority-selected WU daily-summary revision, source audit PASS, native-unit match, and exact market/date/token mapping.",
+    "Each market and target date contributes once to support regardless of snapshots, retries, runs, ledger revisions, orders, or fills.",
+    "Preserve every admitted quote opportunity and lifecycle row; aggregation happens only after the compact export verifies."
+  ],
+  "exclusion_and_stop_rules": [
+    "Exclude all Polymarket US compatibility rows.",
+    "Exclude every reconstructed, backfilled, simulated, inferred, or time-interpolated execution or book row from realized economics.",
+    "Exclude a lifecycle on any source hash, schema, identity, timestamp, unit, revision-authority, or containment mismatch.",
+    "Exclude a lifecycle if any selected markout window intersects an open or closed capture gap, parse rejection, stale book, missing side, token remap, or event revision.",
+    "Exclude authenticated-fill metrics when a confirmed own-account trade set is not complete and hash-bound.",
+    "Primary-liquidity incentives, maker rebates, and rewards equal decimal zero unless exact accepted and reconciled evidence proves a nonzero realized amount. Estimates never count.",
+    "Do not substitute configured fee rates for actual fee reconciliation. Missing actual fees make after-cost accounting incomplete.",
+    "Do not publish a partial bundle. Any required missing family, total-size overflow, or non-deterministic rerun ends with NEEDS_EXACT_PRODUCTION_EXPORT and no final destination."
+  ],
+  "derived_economics_contract": {
+    "side_sign": {
+      "BUY": "1",
+      "SELL": "-1"
+    },
+    "realized_spread_1m_per_share": "side_sign * (mid_1m - fill_price)",
+    "markout_horizon_per_share": "side_sign * (mid_horizon - fill_price)",
+    "settlement_markout_per_share": "side_sign * (settlement_value - fill_price)",
+    "gross_spread_usdc": "filled_quantity * side_sign * (mid_at_fill - fill_price)",
+    "adverse_selection_loss_usdc": "filled_quantity * side_sign * (mid_at_fill - mid_15m)",
+    "inventory_pnl_usdc": "settled cashflow plus ending marked inventory minus starting cash and starting marked inventory, excluding fees and proved incentives",
+    "net_pnl_usdc": "gross trading cashflow + settlement/redemption cashflow + proved incentives + proved maker rebates - actual fees",
+    "precision": "Compute with decimal arithmetic in native units and USDC; retain unrounded components and round presentation only."
+  },
+  "production_side_read_only_reducer_command_design": {
+    "implementation_status": "DESIGN_ONLY_REQUIRES_SEPARATE_REVIEW_AND_AUTHORIZATION",
+    "module_contract": "weather.market.maker_economics_export",
+    "command_tokens": [
+      ".\\venv\\Scripts\\python.exe",
+      "-m",
+      "weather.market.maker_economics_export",
+      "reduce",
+      "--spec",
+      "<repo>/docs/roadmap/maker-economics-production-export-spec-2026-09-92a.json",
+      "--production-root",
+      "<exact_production_repo_root>",
+      "--private-attempt-index",
+      "<read_only_attempt_roots_manifest.json>",
+      "--start-target-date",
+      "2026-08-13",
+      "--end-target-date",
+      "2026-09-15",
+      "--as-of-utc",
+      "2026-09-16T00:00:00Z",
+      "--destination-parent",
+      "<new_empty_fixed_volume_export_parent>",
+      "--max-bytes",
+      "67108864",
+      "--max-memory-mib",
+      "256",
+      "--offline",
+      "--read-only-source",
+      "--fail-on-gap",
+      "--fail-on-reconstruction"
+    ],
+    "required_behavior": [
+      "Run locally on production under a separately reviewed read-only mission; do not use Scheduler.",
+      "Open only explicitly indexed source roots and never follow reparse points.",
+      "Use bounded streaming reads, external partitions under the new destination staging root, and at most 256 MiB resident working memory.",
+      "Sort and join by canonical identity keys, never by filesystem enumeration order.",
+      "Create no source-side files and perform no network, credential, provider, exchange, model, release, promotion, or trade action.",
+      "Run twice against unchanged source identities and require byte-identical object and manifest hashes before publication."
+    ]
+  },
+  "workstation_verification_rules": [
+    "Receive only the content-addressed export directory, never copied production paths or credentials.",
+    "Require an ordinary fixed-volume directory with no reparse points and no object outside the export root.",
+    "Require total bytes <= 67108864 and file count <= 128 before parsing.",
+    "Verify every object path, byte count, SHA-256, manifest hash, producer receipt hash, schema, row count, and source-record binding.",
+    "Require the producer receipt to bind the exact source Git tip/tree, reducer code hash, spec file hash, source-root identities, command tokens, date bounds, as-of timestamp, and two deterministic pass hashes.",
+    "Require sorted unique quote-opportunity and authenticated-fill keys; reject duplicate terminal revisions and conflicting lifecycle identities.",
+    "Require all requested markout windows to be gap-free and book-fresh; never interpolate or reconstruct.",
+    "Require one countability row per market x target date and compute support only from countable rows.",
+    "Recompute all decimal economics, fee reconciliation, zero-default incentives, market-day counts, and source-to-derived hashes.",
+    "Keep pre- and post-2026-07-31 regimes in separate output partitions and separate crossed target-date x market bootstrap calculations.",
+    "Only after all verification passes may a workstation mission compute economics or return MAKER_ECONOMICS_MEASURED."
+  ]
+}
