@@ -482,8 +482,10 @@ recovery, not a passive warning.
 The one-time `production_baseline_reconciliation_v0.1` topology is deliberately
 outside that generic attempt state machine. It starts from the exact accepted
 local baseline while the published target is already ahead, creates a
-config-only child `C`, and stages the published target so the only acceptable
-commit is `M` with ordered parents `[C,T]`. Until `M`, raw-config, and affected-
+config-only child `C`, and stages the frozen reviewed safety tip `S`, a strict
+descendant of published target `T`, so the only acceptable commit is `M` with
+ordered parents `[C,S]`. `M` must equal `S` plus only the two captured generated
+config contents. Until `M`, raw-config, and affected-
 producer recovery are all proved, the marker retains `T` as an adopted-boot
 refusal sentinel rather than a reset target. The single atomic postcommit
 cutover replaces it with `C` and a complete existing boot-recognized phase.
@@ -492,28 +494,63 @@ Its push-attempt bit is durable before the sole pre-provisioned task invocation,
 so task failure or missing acknowledgement is a terminal reviewed handoff, not
 permission to retry. Because Windows bypasses a registered task's
 `ExecutionTimeLimit` for on-demand starts, the incident mode owns a separate
-15-minute deadline, a one-minute pre-04:00 stop/terminal reserve, and stable
-`Ready`/runtime readback. It stops only the cached exact singleton object,
-permits one bounded retry, records stop exhaustion and any window breach, and
-can publish no PASS after either. The current candidate does not yet make that
-deadline an absolute wall-clock bound: ScheduledTasks Start/Stop/readback
-cmdlets run synchronously in the parent and can themselves hang. Production
-adoption additionally requires killable, time-bounded Scheduler RPC helpers
-whose child revalidates the exact singleton and whose pre-call receipt makes a
-timed-out Start unambiguously spent. This depends on an explicit exclusive-operator invariant: no other
+15-minute deadline inside 04:00 and stable `Ready`/runtime readback. Every
+reconciliation ScheduledTasks read, export, Start, and Stop is isolated in a
+strict-request child owned by the parent's kill-on-close Job. Immediately before
+every RPC launch, the parent re-hashes the helper against its exact `S`-pinned
+dependency SHA-256. The request deadline is eight seconds before the applicable
+PT15M/04:00 boundary: five seconds, clamped to the remaining time, are reserved
+for `TerminateAndWait` proof and a further three seconds remain for bounded
+result parsing. The child re-resolves and fully attests the exact task twice,
+uses only the final `InputObject` for mutation, and emits bounded structured
+evidence which the parent independently validates. The exact Start request is
+journaled before launch. Immediately before Scheduler mutation the helper
+atomically creates a fixed durable one-use claim for Start, or for the exact Stop
+ordinal, and never deletes it. Creation and durable flush are followed by one
+immediate nonblocking deadline recheck before the direct `InputObject` mutation;
+if the claim consumes the remaining budget, authority is spent/unknown and no
+Scheduler dispatch occurs. A claim collision, or any cmdlet throw once a
+durable claim exists, is authority-claimed with dispatch unknown and spent,
+never a false no-dispatch. Thus a replay or lost result cannot reacquire the same
+authority. Any failed, lost, or timed-out Start response spends the sole
+authority and cannot PASS or write a published marker even if exact publication
+is later observed.
+Before the first Stop claim, every post-Start Scheduler read identity is bounded
+to `pushContainmentStopAt`, preserving the complete 30-second mutation reserve;
+a slow or hung read is killed before that edge. If a Stop identity or its budget
+cannot be created, Stop authority is exhausted locally without recording a
+false attempt or dispatch. No post-boundary marker is written, and the lease
+plus read-only drain remains until exact terminal proof or the absolute report
+boundary. Successful Stops remain capped at two;
+any lost, timed-out, or uncertain Stop is terminal non-PASS and cannot be
+retried. Stop exhaustion and any window breach are recorded and can never
+publish PASS. This depends on an explicit exclusive-operator invariant: no other
 caller may race the zero-trigger task between the final Ready proof and the sole
-start.
-The first `M` intentionally contains no implementation-topic files, so its
-special unpublished report stage is `reconciliation_merged_unpublished`, never
-the adopted status script's report-specific `merged_unpushed` literal. That is
-not sufficient for first adoption: adopted `T` separately emits an
-unconditional ahead-of-origin warning to run `WeatherOneShotPush`, and the
-scheduled health watchdog republishes that warning. Exact `M=T+two configs`
-cannot contain the topic-side fail-closed status guard. Therefore this topology
-has no production handoff until a new review removes the automated retry
-instruction without weakening the exact-tree or no-Scheduler-mutation
-contracts; topic-side status and generic-consumer rejection are later defense
-in depth only.
+  start. The prepublication capture/documentation Python commands and canonical
+  live-Git queries use the same kill-on-close ownership with absolute child
+  deadlines. The writer rechecks 01:00-04:00 at every risky mutating stage,
+  refuses a settle interval that cannot finish in-window, caps rollback recovery
+  at 04:00, and re-proves live origin plus local refs after the final Start
+  journal. No post-boundary marker replacement is attempted; the earlier
+  attempted marker remains the conservative durable authority.
+The special unpublished report stage remains
+`reconciliation_merged_unpublished`, never generic `merged_unpushed`. Because
+`M` adopts `S`, the production status/watchdog immediately understands the
+incident marker. Exact complete evidence produces one of three states:
+guarded-before-dispatch (manual invocation forbidden), attempted-unacknowledged
+(publication pending/uncertain and retry forbidden), or exact acknowledged
+(warning suppressed). Any incomplete, stale, malformed, unreadable/lookup-failed,
+unrelated, or mismatched marker is `incident_evidence_invalid`: preserve the marker and bound
+evidence, obtain reviewed recovery authority, and never manually invoke or
+retry `WeatherOneShotPush`. Invalid evidence uses cached `origin/master`, not an
+unfetched live SHA, for the unpushed count; an unreadable comparison produces a
+neutral warning rather than a false zero. The classifier independently reproves topology, raw
+snapshots, roll evidence, documentation, dependency hashes, task-RPC chronology,
+clean worktree, immutable canonical-origin configuration, cached master, and a
+  bounded live canonical master query. Before decoding, it rejects duplicate or
+  case-colliding JSON keys at every nesting depth in the marker and every bound
+  artifact. Relabeling populated reconciliation evidence as ordinary is invalid
+  and cannot restore generic push guidance.
 
 One-date settlement recovery uses the same containment and lock contracts but
 adds an inclusive execution boundary:

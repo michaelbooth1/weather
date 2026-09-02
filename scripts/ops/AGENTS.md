@@ -70,22 +70,48 @@ These instructions apply to `scripts/ops/`.
   the 01:00-04:00 window, raw snapshots of exactly two generated configs, and
   at most one already-provisioned `WeatherOneShotPush` invocation. Precommit
   markers must keep the fail-closed published-target sentinel; only the proved
-  `[config child, published target]` merge may atomically expose the real first
-  parent to adopted boot recovery. Never route this marker through generic
-  attempt reconciliation or add a hard-reset fallback. Its on-demand task start
-  is not bounded by the task XML `ExecutionTimeLimit`: persist an absolute
-  15-minute deadline before start, reserve at least one minute before 04:00,
-  stop only the cached exact task object with at most one retry, and require
-  stable terminal readback. Stop exhaustion cannot PASS. No concurrent manual
-  `WeatherOneShotPush` caller is allowed across the final
-  Ready/start boundary. Exact first merge `M` does not contain this topic's
-  status guard: adopted `T` and its scheduled health watchdog can still publish
-  the generic retry instruction after the sole invocation is spent. This mode
-  has no production handoff until a new review resolves that contradiction
-  without changing the exact-tree or no-Scheduler-mutation contracts. Its
-  current deadline loop also cannot bound a hung synchronous ScheduledTasks
-  cmdlet; production adoption requires killable, time-bounded RPC helpers with
-  child-side exact-task revalidation and pre-mutation journaling.
+  merge `M=[C,S]` may atomically expose real `C`, where `S` is the frozen
+  reviewed safety tip and a strict descendant of published target `T`. `M` must
+  equal `S` plus only the two captured config contents. Never route this marker
+  through generic attempt reconciliation or add a hard-reset fallback.
+  Reconciliation may access ScheduledTasks only through
+  `production_baseline_scheduler_rpc.ps1`, launched inside the repository's
+  kill-on-close Job. Immediately before every RPC launch, the parent re-hashes
+  the helper against its exact `S`-pinned dependency SHA-256. The helper request
+  deadline is eight seconds before the applicable PT15M/04:00 boundary, leaving
+  five clamped seconds for `TerminateAndWait` proof and a further three seconds
+  for bounded result parsing. The child re-resolves and fully attests the exact
+  task twice, rechecks the bound marker, and mutation uses only the final
+  `InputObject`; the parent independently validates bounded structured output.
+  Journal the exact Start request before launch. Immediately before mutation
+  the helper atomically creates a fixed one-use Start claim (or one claim for
+  each of the two Stop ordinals); claims are never removed automatically. Claim
+  creation and durable flush are followed by one immediate nonblocking deadline
+  recheck before the direct `InputObject` mutation. If the flush consumed the
+  request budget, the claim is spent/unknown and Scheduler is not called.
+  A claim collision, or any cmdlet throw once a durable claim exists, is
+  authority-claimed with dispatch unknown and spent, never a false no-dispatch.
+  Any missing, failed, lost, or timed-out Start response likewise spends the
+  sole authority, cannot PASS even if publication later appears exact, and is
+  never retried. Before the first Stop claim, every post-Start Scheduler
+  read identity is bounded to `pushContainmentStopAt`, preserving the complete
+  30-second mutation reserve; a slow or hung read is killed before that edge.
+  If a Stop identity or its budget cannot be created, exhaust Stop authority
+  locally without recording a false attempt or dispatch. Write no post-boundary
+  marker, and retain the lease plus read-only drain until exact terminal proof
+  or the absolute report boundary. Successful Stop requests remain capped at
+  two; any missing/lost/timed-out Stop response is terminal non-PASS and is not
+  retried. Reconciliation Python and canonical remote-Git
+  probes also run as deadline-clamped Job children, and every mutating stage
+  rechecks the fixed quiet-window boundary. No concurrent manual
+  `WeatherOneShotPush` caller is allowed across the final Ready/start boundary.
+  The adopted `S` status/watchdog classify exact guarded, attempted, and
+  acknowledged markers and never turn this incident into generic push/retry
+  guidance. An unreadable or lookup-failed active marker is invalid evidence,
+  never absence. Invalid incident evidence counts unpushed state only from cached
+  `origin/master`; an unreadable comparison emits a neutral warning instead of
+  silently becoming zero. A production command still requires the exact fully verified
+  reviewed handoff; a green branch alone is not run authority.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.

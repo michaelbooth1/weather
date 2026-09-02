@@ -17,9 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BOOT_SCRIPT = REPO_ROOT / "scripts" / "ops" / "boot_recovery.ps1"
 ADOPTED_PRODUCTION_COMMIT = "3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac"
 PUBLISHED_TARGET = "c932b54f8747df5cdefc4cc42f8454b6797f09ae"
+REVIEWED_REPAIR_PARENT = "a24cf0f41bf0b321c5c813820594c56198a58d1a"
 EXPECTED_BOOT_SHA256 = "253ab48e38a24af8cf8c8a5fde33f223b6e298b7acf91bbc56ad4c4a0ea8dc4a"
 EXPECTED_BOOT_BLOB = "8465de619d7c88fded5144d8903595fb4f8cc93a"
-RECONCILIATION_BRANCH = "origin/master"
+SYNTHETIC_SAFETY_REF = "origin/codex/synthetic-repair-3-safety"
 CONFIG_PATHS = (
     "config/locations.json",
     "config/location_market_events.json",
@@ -132,6 +133,8 @@ def _marker(
     updated_at: str = "2026-09-01T05:20:00Z",
     merge_commit: str | None = None,
     capture_recovery_proved: bool = False,
+    staged_safety_capture_recovery_proved: bool = False,
+    pre_push_capture_recovery_proved: bool = False,
     documentation_transaction_recorded: bool = False,
     documentation_transaction_pending_sha256: str | None = None,
     documentation_transaction_snapshot_path: str | None = None,
@@ -151,15 +154,25 @@ def _marker(
     push_containment_breached: bool = False,
     publication_acknowledged: bool = False,
 ) -> dict[str, Any]:
+    safety_tip = _rev_parse(repo, SYNTHETIC_SAFETY_REF)
+    safety_tree = _rev_parse(repo, f"{safety_tip}^{{tree}}")
+    config_hashes = _marker_hashes(repo)
+    snapshot_relative = (
+        "data/alerts/production_baseline_reconciliation/"
+        "synthetic-replay-snapshot/manifest.json"
+    )
+    snapshot_sha256 = hashlib.sha256(
+        (repo / snapshot_relative).read_bytes()
+    ).hexdigest()
     return {
         "schema": "quiet_window_merge_in_progress_v0.1",
         "updated_at": updated_at,
         "repo_root": str(repo.resolve()),
         "phase": phase,
-        "branch": RECONCILIATION_BRANCH,
-        "expected_tip": PUBLISHED_TARGET,
+        "branch": safety_tip,
+        "expected_tip": safety_tip,
         "expected_baseline": ADOPTED_PRODUCTION_COMMIT,
-        "resolved_branch_tip": PUBLISHED_TARGET,
+        "resolved_branch_tip": safety_tip,
         "baseline_commit": ADOPTED_PRODUCTION_COMMIT,
         "pre_merge_commit": pre_merge_commit,
         "merge_commit": merge_commit,
@@ -192,15 +205,36 @@ def _marker(
         "push_containment_breached": push_containment_breached,
         "publication_acknowledged": publication_acknowledged,
         "auto_refreshed_paths": list(CONFIG_PATHS),
-        "auto_refreshed_sha256": _marker_hashes(repo),
+        "auto_refreshed_sha256": config_hashes,
         # Additive reconciliation evidence. The existing v0.1 identity fields stay
         # schema-compatible with the adopted boot consumer. Until M is proved,
         # pre_merge_commit deliberately remains the rejected target sentinel.
         "operation_mode": "production_baseline_reconciliation_v0.1",
         "reconciliation_local_baseline": ADOPTED_PRODUCTION_COMMIT,
         "reconciliation_published_target": PUBLISHED_TARGET,
+        "reconciliation_source_tip": safety_tip,
+        "reconciliation_source_tree": safety_tree,
+        "reconciliation_safety_tip": safety_tip,
+        "reconciliation_safety_tree": safety_tree,
+        "reconciliation_snapshot_manifest_path": snapshot_relative,
+        "reconciliation_snapshot_manifest_sha256": snapshot_sha256,
         "reconciliation_actual_pre_merge_commit": actual_pre_merge_commit,
         "reconciliation_boot_guard_commit": PUBLISHED_TARGET,
+        "reconciliation_config_content_sha256": config_hashes,
+        "reconciliation_staged_safety_capture_recovery_proved": (
+            staged_safety_capture_recovery_proved
+        ),
+        "reconciliation_staged_safety_capture_recovery_at": (
+            "2026-09-01T05:19:00Z"
+            if staged_safety_capture_recovery_proved
+            else None
+        ),
+        "reconciliation_pre_push_capture_recovery_proved": (
+            pre_push_capture_recovery_proved
+        ),
+        "reconciliation_pre_push_capture_recovery_at": (
+            "2026-09-01T05:19:30Z" if pre_push_capture_recovery_proved else None
+        ),
     }
 
 
@@ -219,6 +253,7 @@ def _write_precommit_marker(
         pre_merge_commit=PUBLISHED_TARGET,
         actual_pre_merge_commit=actual_pre_merge_commit,
         capture_recovery_proved=capture_recovery_proved,
+        staged_safety_capture_recovery_proved=capture_recovery_proved,
     )
     assert payload["baseline_commit"] == ADOPTED_PRODUCTION_COMMIT
     assert payload["expected_baseline"] == ADOPTED_PRODUCTION_COMMIT
@@ -231,7 +266,12 @@ def _write_precommit_marker(
 
 
 def _clone_at_local_baseline(tmp_path: Path) -> Path:
-    repo = tmp_path / "synthetic-production"
+    # Keep the disposable checkout directly under pytest's per-run directory.
+    # The production-compatible documentation snapshot uses a content hash in
+    # both its filename and its atomic temporary filename; nesting the checkout
+    # below pytest's descriptive per-test directory can push that legitimate
+    # path past the Win32 MAX_PATH boundary before os.replace runs.
+    repo = tmp_path.parent / f"r{uuid4().hex[:12]}"
     _git(
         REPO_ROOT,
         "clone",
@@ -250,8 +290,56 @@ def _clone_at_local_baseline(tmp_path: Path) -> Path:
         _git(repo, "config", key, value)
     _git(repo, "checkout", "--force", "-B", "master", ADOPTED_PRODUCTION_COMMIT)
     _git(repo, "update-ref", "refs/remotes/origin/master", PUBLISHED_TARGET)
+    safety_tree = _rev_parse(repo, f"{REVIEWED_REPAIR_PARENT}^{{tree}}")
+    safety_env = os.environ.copy()
+    safety_env.update(
+        {
+            "GIT_AUTHOR_DATE": "2026-09-01T05:18:00Z",
+            "GIT_COMMITTER_DATE": "2026-09-01T05:18:00Z",
+        }
+    )
+    safety_tip = _git(
+        repo,
+        "commit-tree",
+        safety_tree,
+        "-p",
+        REVIEWED_REPAIR_PARENT,
+        "-m",
+        "test: synthetic reviewed Repair 3 safety tip",
+        env=safety_env,
+    ).stdout.strip().lower()
+    _git(
+        repo,
+        "update-ref",
+        "refs/remotes/origin/codex/synthetic-repair-3-safety",
+        safety_tip,
+    )
     assert _rev_parse(repo, "HEAD") == ADOPTED_PRODUCTION_COMMIT
     assert _rev_parse(repo, "origin/master") == PUBLISHED_TARGET
+    assert _rev_parse(repo, SYNTHETIC_SAFETY_REF) == safety_tip
+    assert safety_tip != PUBLISHED_TARGET
+    assert (
+        _git(
+            repo,
+            "merge-base",
+            "--is-ancestor",
+            PUBLISHED_TARGET,
+            safety_tip,
+            check=False,
+        ).returncode
+        == 0
+    )
+    assert (
+        _git(
+            repo,
+            "merge-base",
+            "--is-ancestor",
+            REVIEWED_REPAIR_PARENT,
+            safety_tip,
+            check=False,
+        ).returncode
+        == 0
+    )
     return repo
 
 
@@ -264,6 +352,8 @@ def _write_raw_config(repo: Path) -> None:
 
 def _write_pre_marker_snapshot(repo: Path) -> dict[Path, bytes]:
     """Model the durable raw snapshot that exists before the first marker."""
+    safety_tip = _rev_parse(repo, SYNTHETIC_SAFETY_REF)
+    safety_tree = _rev_parse(repo, f"{safety_tip}^{{tree}}")
     snapshot_root = (
         repo
         / "data"
@@ -273,6 +363,7 @@ def _write_pre_marker_snapshot(repo: Path) -> dict[Path, bytes]:
     )
     evidence: dict[Path, bytes] = {}
     config_entries: dict[str, dict[str, Any]] = {}
+    config_content_sha256: dict[str, str] = {}
     for relative, raw_bytes in RAW_CONFIG_BYTES.items():
         destination = snapshot_root / "raw" / Path(relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -283,6 +374,7 @@ def _write_pre_marker_snapshot(repo: Path) -> dict[Path, bytes]:
             "sha256": hashlib.sha256(raw_bytes).hexdigest(),
             "length": len(raw_bytes),
         }
+        config_content_sha256[relative] = hashlib.sha256(raw_bytes).hexdigest()
 
     transcript_path = snapshot_root / "roll-verdict-output.txt"
     transcript_bytes = (
@@ -298,10 +390,15 @@ def _write_pre_marker_snapshot(repo: Path) -> dict[Path, bytes]:
             "created_at": "2026-09-01T05:19:00Z",
             "local_baseline": ADOPTED_PRODUCTION_COMMIT,
             "published_target": PUBLISHED_TARGET,
+            "source_tip": safety_tip,
+            "source_tree": safety_tree,
+            "safety_tip": safety_tip,
+            "safety_tree": safety_tree,
             "config": config_entries,
+            "reconciliation_config_content_sha256": config_content_sha256,
             "roll_verdict": {
                 "explicit_base": ADOPTED_PRODUCTION_COMMIT,
-                "explicit_branch": PUBLISHED_TARGET,
+                "explicit_branch": safety_tip,
                 "exit_code": 0,
                 "readable": True,
                 "transcript_path": transcript_path.relative_to(repo).as_posix(),
@@ -318,6 +415,7 @@ def _write_documentation_snapshot(
     repo: Path,
     merge_commit: str,
 ) -> tuple[str, str, dict[Path, bytes]]:
+    safety_tip = _rev_parse(repo, SYNTHETIC_SAFETY_REF)
     payload = {
         "schema_version": "documentation_transaction_pending_v0.1",
         "status": "PENDING",
@@ -325,8 +423,8 @@ def _write_documentation_snapshot(
         "integrations": [
             {
                 "integration_tip": merge_commit,
-                "branch": RECONCILIATION_BRANCH,
-                "expected_tip": PUBLISHED_TARGET,
+                "branch": safety_tip,
+                "expected_tip": safety_tip,
             }
         ],
     }
@@ -383,15 +481,17 @@ def _commit_raw_config(repo: Path) -> str:
     return config_commit
 
 
-def _begin_target_merge(repo: Path) -> None:
-    _git(repo, "merge", "--no-commit", "--no-ff", PUBLISHED_TARGET)
+def _begin_safety_merge(repo: Path) -> None:
+    safety_tip = _rev_parse(repo, SYNTHETIC_SAFETY_REF)
+    _git(repo, "merge", "--no-commit", "--no-ff", safety_tip)
     merge_head = Path(_git(repo, "rev-parse", "--git-path", "MERGE_HEAD").stdout.strip())
     if not merge_head.is_absolute():
         merge_head = repo / merge_head
-    assert merge_head.read_text(encoding="ascii").strip().lower() == PUBLISHED_TARGET
+    assert merge_head.read_text(encoding="ascii").strip().lower() == safety_tip
 
 
-def _commit_target_merge(repo: Path, config_commit: str) -> str:
+def _commit_safety_merge(repo: Path, config_commit: str) -> str:
+    safety_tip = _rev_parse(repo, SYNTHETIC_SAFETY_REF)
     commit_env = os.environ.copy()
     commit_env.update(
         {
@@ -409,7 +509,10 @@ def _commit_target_merge(repo: Path, config_commit: str) -> str:
     )
     merge_commit = _rev_parse(repo, "HEAD")
     parents = _git(repo, "rev-list", "--parents", "-n", "1", merge_commit).stdout.split()
-    assert parents == [merge_commit, config_commit, PUBLISHED_TARGET]
+    assert parents == [merge_commit, config_commit, safety_tip]
+    assert set(
+        _git(repo, "diff", "--name-only", safety_tip, merge_commit).stdout.splitlines()
+    ) == set(CONFIG_PATHS)
     return merge_commit
 
 
@@ -450,7 +553,7 @@ def _build_synthetic_state(tmp_path: Path, boundary: str) -> SyntheticState:
             dict(evidence_bytes),
         )
 
-    _begin_target_merge(repo)
+    _begin_safety_merge(repo)
     marker_bytes = _write_precommit_marker(
         repo,
         phase="reconciliation_merge_uncommitted",
@@ -472,7 +575,7 @@ def _build_synthetic_state(tmp_path: Path, boundary: str) -> SyntheticState:
         actual_pre_merge_commit=config_commit,
         capture_recovery_proved=True,
     )
-    merge_commit = _commit_target_merge(repo, config_commit)
+    merge_commit = _commit_safety_merge(repo, config_commit)
     if boundary == "merge_commit_before_postcommit_marker":
         return SyntheticState(
             repo,
@@ -483,7 +586,7 @@ def _build_synthetic_state(tmp_path: Path, boundary: str) -> SyntheticState:
             dict(evidence_bytes),
         )
 
-    # This is the one permitted semantic switch: only after exact [C, T] is
+    # This is the one permitted semantic switch: only after exact [C, S] is
     # proved do the canonical boot-consumed fields atomically expose C and M.
     canonical = _marker(
         repo,
@@ -492,12 +595,13 @@ def _build_synthetic_state(tmp_path: Path, boundary: str) -> SyntheticState:
         actual_pre_merge_commit=config_commit,
         merge_commit=merge_commit,
         capture_recovery_proved=True,
+        staged_safety_capture_recovery_proved=True,
     )
     assert _rev_parse(repo, "HEAD") == merge_commit
     assert _git(repo, "rev-list", "--parents", "-n", "1", merge_commit).stdout.split() == [
         merge_commit,
         config_commit,
-        PUBLISHED_TARGET,
+        _rev_parse(repo, SYNTHETIC_SAFETY_REF),
     ]
     marker_bytes = _atomic_write_json(marker_path, canonical)
     if boundary == "complete_postcommit_marker":
@@ -580,6 +684,8 @@ def _build_synthetic_state(tmp_path: Path, boundary: str) -> SyntheticState:
         ),
         merge_commit=merge_commit,
         capture_recovery_proved=True,
+        staged_safety_capture_recovery_proved=True,
+        pre_push_capture_recovery_proved=push_attempted,
         documentation_transaction_recorded=True,
         documentation_transaction_pending_sha256=pending_sha256,
         documentation_transaction_snapshot_path=snapshot_relative,
@@ -588,7 +694,7 @@ def _build_synthetic_state(tmp_path: Path, boundary: str) -> SyntheticState:
             "2026-09-01T04:30:00.0000000Z" if push_attempted else None
         ),
         push_observed_last_run_time=(
-            "2026-09-01T05:00:01.0000000Z"
+            "2026-09-01T05:20:01.0000000Z"
             if push_terminal_proved or push_stop_attempted
             else None
         ),
@@ -608,15 +714,15 @@ def _build_synthetic_state(tmp_path: Path, boundary: str) -> SyntheticState:
         push_stop_count=push_stop_count,
         push_stop_exhausted=push_stop_exhausted,
         push_start_issued_at=(
-            "2026-09-01T05:00:00.0000000Z" if push_attempted else None
+            "2026-09-01T05:20:00.0000000Z" if push_attempted else None
         ),
         push_containment_deadline=(
-            "2026-09-01T05:15:00.0000000Z" if push_attempted else None
+            "2026-09-01T05:35:00.0000000Z" if push_attempted else None
         ),
         push_terminal_proved_at=(
             "2026-09-01T08:00:01.0000000Z"
             if push_containment_breached
-            else "2026-09-01T05:02:00.0000000Z"
+            else "2026-09-01T05:22:00.0000000Z"
             if push_terminal_proved
             else None
         ),
@@ -820,6 +926,17 @@ def test_target_sentinel_is_rejected_by_the_adopted_premerge_predicate() -> None
 
     assert ancestry.returncode == 0
     assert PUBLISHED_TARGET != ADOPTED_PRODUCTION_COMMIT
+    assert (
+        _git(
+            REPO_ROOT,
+            "merge-base",
+            "--is-ancestor",
+            PUBLISHED_TARGET,
+            REVIEWED_REPAIR_PARENT,
+            check=False,
+        ).returncode
+        == 0
+    )
     assert target_parents[:2] == [PUBLISHED_TARGET, ADOPTED_PRODUCTION_COMMIT]
     assert len(target_parents) == 3  # T is a merge, not a one-parent config child.
     assert changed - set(CONFIG_PATHS)  # T also changes non-allowlisted paths.
@@ -855,6 +972,33 @@ def test_adopted_boot_replay_never_reaches_hard_reset(
     boundary: str,
 ) -> None:
     state = _build_synthetic_state(tmp_path, boundary)
+    safety_tip = _rev_parse(state.repo, SYNTHETIC_SAFETY_REF)
+    assert safety_tip != PUBLISHED_TARGET
+    assert (
+        _git(
+            state.repo,
+            "merge-base",
+            "--is-ancestor",
+            PUBLISHED_TARGET,
+            safety_tip,
+            check=False,
+        ).returncode
+        == 0
+    )
+    snapshot_manifest_path = next(
+        path
+        for path in state.evidence_bytes
+        if path.name == "manifest.json"
+        and "production_baseline_reconciliation" in path.parts
+    )
+    snapshot_manifest = json.loads(state.evidence_bytes[snapshot_manifest_path])
+    assert snapshot_manifest["published_target"] == PUBLISHED_TARGET
+    assert snapshot_manifest["source_tip"] == safety_tip
+    assert snapshot_manifest["safety_tip"] == safety_tip
+    assert snapshot_manifest["roll_verdict"]["explicit_branch"] == safety_tip
+    assert set(snapshot_manifest["reconciliation_config_content_sha256"]) == set(
+        CONFIG_PATHS
+    )
     if state.marker_bytes is not None:
         marker_payload = json.loads(state.marker_bytes)
         assert {
@@ -866,6 +1010,45 @@ def test_adopted_boot_replay_never_reaches_hard_reset(
             "push_terminal_proved_at",
             "push_containment_breached",
         } <= marker_payload.keys()
+        assert marker_payload["branch"] == safety_tip
+        assert marker_payload["expected_tip"] == safety_tip
+        assert marker_payload["resolved_branch_tip"] == safety_tip
+        assert marker_payload["reconciliation_source_tip"] == safety_tip
+        assert marker_payload["reconciliation_safety_tip"] == safety_tip
+        assert marker_payload["reconciliation_published_target"] == PUBLISHED_TARGET
+        assert marker_payload["reconciliation_boot_guard_commit"] == PUBLISHED_TARGET
+        assert marker_payload["reconciliation_snapshot_manifest_sha256"] == (
+            hashlib.sha256(state.evidence_bytes[snapshot_manifest_path]).hexdigest()
+        )
+        assert marker_payload["auto_refreshed_paths"] == list(CONFIG_PATHS)
+        assert set(marker_payload["auto_refreshed_sha256"]) == set(CONFIG_PATHS)
+        assert set(marker_payload["reconciliation_config_content_sha256"]) == set(
+            CONFIG_PATHS
+        )
+        assert marker_payload["reconciliation_config_content_sha256"] == (
+            marker_payload["auto_refreshed_sha256"]
+        )
+        staged_safety_proved = boundary not in {
+            "marker_before_config_commit",
+            "after_config_commit",
+            "merge_head_abort_success",
+            "merge_head_abort_failure",
+        }
+        assert marker_payload[
+            "reconciliation_staged_safety_capture_recovery_proved"
+        ] is staged_safety_proved
+        pre_push_proved = boundary in {
+            "push_attempted_unpublished",
+            "containment_stop_attempted_unpublished",
+            "containment_stop_exhausted_unpublished",
+            "terminal_containment_breached_unpublished",
+            "terminal_unpublished_marker",
+            "origin_ack_before_published_marker",
+            "complete_published_marker",
+        }
+        assert marker_payload[
+            "reconciliation_pre_push_capture_recovery_proved"
+        ] is pre_push_proved
         if boundary == "terminal_containment_breached_unpublished":
             assert marker_payload["push_stop_attempted"] is True
             assert marker_payload["push_stop_count"] == 2
@@ -990,7 +1173,20 @@ def test_adopted_boot_replay_never_reaches_hard_reset(
             "-n",
             "1",
             state.merge_commit,
-        ).stdout.split() == [state.merge_commit, state.config_commit, PUBLISHED_TARGET]
+        ).stdout.split() == [
+            state.merge_commit,
+            state.config_commit,
+            safety_tip,
+        ]
+        assert set(
+            _git(
+                state.repo,
+                "diff",
+                "--name-only",
+                safety_tip,
+                state.merge_commit,
+            ).stdout.splitlines()
+        ) == set(CONFIG_PATHS)
 
     if state.config_commit is not None:
         for relative, raw_bytes in RAW_CONFIG_BYTES.items():

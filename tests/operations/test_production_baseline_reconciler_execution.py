@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 import shutil
 import subprocess
@@ -15,11 +16,14 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "ops" / "quiet_window_merge.ps1"
+SCHEDULER_HELPER = (
+    REPO_ROOT / "scripts" / "ops" / "production_baseline_scheduler_rpc.ps1"
+)
 LOCAL_BASELINE = "3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac"
 PUBLISHED_TARGET = "c932b54f8747df5cdefc4cc42f8454b6797f09ae"
-REVIEWED_PARENT = "d2ab532a5bebd0868754322c5b34f72ebff8293b"
+REVIEWED_PARENT = "a24cf0f41bf0b321c5c813820594c56198a58d1a"
 SOURCE_BRANCH = (
-    "codex/workstation-production-baseline-synthetic-reconcile-2026-09-84a"
+    "codex/workstation-production-baseline-self-adopting-reconcile-2026-09-85a"
 )
 CONFIG_PATHS = (
     "config/location_market_events.json",
@@ -54,6 +58,7 @@ class Harness:
     script: Path
     fake_python: Path
     fake_roll_verdict: Path
+    scheduler_wrapper: Path
     wrapper: Path
     published_target: str
     conflict_target: str
@@ -246,6 +251,7 @@ def _write_fake_python(root: Path) -> Path:
 import hashlib
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import sys
 
@@ -264,6 +270,14 @@ if Path.cwd().resolve() != Path(os.environ["RECON_TEST_REPO"]).resolve():
 module = args[args.index("-m") + 1] if "-m" in args else ""
 if module == "weather.operations.capture_recovery_check":
     call = bump(Path(os.environ["RECON_TEST_CAPTURE_COUNT"]))
+    advance_at = int(os.environ.get("RECON_TEST_CAPTURE_ADVANCE_AT", "0"))
+    if advance_at and call == advance_at:
+        clock = Path(os.environ["RECON_TEST_CLOCK"])
+        observed = datetime.fromisoformat(clock.read_text(encoding="ascii"))
+        clock.write_text(
+            observed.replace(hour=4, minute=0, second=0, microsecond=0).isoformat(),
+            encoding="ascii",
+        )
     fail_at = int(os.environ.get("RECON_TEST_CAPTURE_FAIL_AT", "0"))
     ok = not fail_at or call != fail_at
     workers = [
@@ -368,7 +382,12 @@ if ($mode -cne "missing_json") {
     if ($LASTEXITCODE -ne 0 -or $baseSha.Count -ne 1) {
         throw "fake roll_verdict could not resolve the exact base"
     }
-    $generatedAt = (Get-Date).ToUniversalTime()
+    $generatedAt = if (Test-Path -LiteralPath $env:RECON_TEST_CLOCK) {
+        ([datetime][IO.File]::ReadAllText($env:RECON_TEST_CLOCK)).ToUniversalTime()
+    }
+    else {
+        (Get-Date).ToUniversalTime()
+    }
     if ($mode -ceq "stale_closure") {
         $generatedAt = $generatedAt.AddMinutes(-10)
     }
@@ -405,12 +424,268 @@ exit $exitCode
     return script
 
 
+def _write_scheduler_wrapper(root: Path) -> Path:
+    wrapper = root / "fake_scheduler_rpc.ps1"
+    wrapper.write_text(
+        r'''[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)][string]$Operation,
+    [Parameter(Mandatory = $true)][string]$RequestBase64,
+    [Parameter(Mandatory = $true)][string]$ResultPath
+)
+$ErrorActionPreference = "Stop"
+
+function Get-TestLogicalNow {
+    if (Test-Path -LiteralPath $env:RECON_TEST_CLOCK) {
+        return [datetime][IO.File]::ReadAllText($env:RECON_TEST_CLOCK)
+    }
+    return [datetime]$env:RECON_TEST_NOW
+}
+
+function Test-ReconciliationDispatched {
+    return Test-Path -LiteralPath $env:RECON_TEST_DISPATCH_AT -PathType Leaf
+}
+
+function global:Get-ScheduledTask {
+    param([string]$TaskName, [string]$TaskPath, $ErrorAction)
+    if ($Operation -ceq "ReadPushSnapshot" -and
+        $env:RECON_TEST_TASK_MODE -ceq "read_hang_at_stop_reserve" -and
+        (Test-ReconciliationDispatched) -and
+        -not (Test-Path -LiteralPath $env:RECON_TEST_TASK_STOPPED -PathType Leaf)) {
+        $dispatchAt = [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)
+        # With the Stop-reserve clamp this helper is killed after two seconds,
+        # before it can publish the synthetic late clock.  Without the clamp
+        # it survives the ordinary 15-second read allowance, advances beyond
+        # the reserve, and consumes the remaining Stop identity budget.
+        [Threading.Thread]::Sleep(4000)
+        [IO.File]::WriteAllText(
+            $env:RECON_TEST_CLOCK,
+            $dispatchAt.AddMinutes(14).AddSeconds(57).ToString("o")
+        )
+        [Threading.Thread]::Sleep(60000)
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "read_returns_spawn_child" -and
+        -not (Test-Path -LiteralPath $env:RECON_TEST_SPAWNED_PID)) {
+        $child = Start-Process `
+            -FilePath (Join-Path $PSHOME "powershell.exe") `
+            -ArgumentList @(
+                "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 60"
+            ) -WindowStyle Hidden -PassThru
+        [IO.File]::WriteAllText($env:RECON_TEST_SPAWNED_PID, [string]$child.Id)
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "read_hang_spawn_child") {
+        $child = Start-Process `
+            -FilePath (Join-Path $PSHOME "powershell.exe") `
+            -ArgumentList @(
+                "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 60"
+            ) -WindowStyle Hidden -PassThru
+        [IO.File]::WriteAllText($env:RECON_TEST_SPAWNED_PID, [string]$child.Id)
+        [Threading.Thread]::Sleep(60000)
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "read_hang") {
+        [Threading.Thread]::Sleep(60000)
+    }
+    if ($TaskName -ceq "WeatherExecutionTapeSupervisor") {
+        return [PSCustomObject]@{
+            TaskName = "WeatherExecutionTapeSupervisor"
+            TaskPath = "\"
+            State = "Disabled"
+        }
+    }
+    if ($TaskName -cne "WeatherOneShotPush") { return @() }
+    if ($env:RECON_TEST_TASK_MODE -ceq "absent") { return @() }
+
+    $count = if (Test-Path -LiteralPath $env:RECON_TEST_TASK_READ_COUNT) {
+        [int][IO.File]::ReadAllText($env:RECON_TEST_TASK_READ_COUNT)
+    }
+    else { 0 }
+    $count++
+    [IO.File]::WriteAllText($env:RECON_TEST_TASK_READ_COUNT, [string]$count)
+
+    $markerPath = Join-Path $env:RECON_TEST_REPO "data\alerts\quiet_window_merge_in_progress.json"
+    $attempted = $false
+    $documented = $false
+    if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+        try {
+            $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+            $attempted = $marker.push_invocation_attempted -eq $true
+            $documented = [string]$marker.phase -ceq "documented_unpublished"
+        }
+        catch {}
+    }
+    if ($env:RECON_TEST_PREPUSH_DRIFT -eq "1" -and $attempted -and
+        -not (Test-Path -LiteralPath $env:RECON_TEST_PREPUSH_DRIFT_EVENT)) {
+        $driftPath = Join-Path $env:RECON_TEST_REPO "config\locations.json"
+        [IO.File]::AppendAllText($driftPath, " `r`n")
+        [IO.File]::WriteAllText($env:RECON_TEST_PREPUSH_DRIFT_EVENT, "drifted")
+    }
+    $mismatch = $env:RECON_TEST_TASK_MODE -ceq "mismatch_after_two" -and $documented
+    $dispatched = Test-ReconciliationDispatched
+    $stopped = Test-Path -LiteralPath $env:RECON_TEST_TASK_STOPPED -PathType Leaf
+    $now = Get-TestLogicalNow
+    $dispatchAt = if ($dispatched) {
+        [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)
+    }
+    else { $null }
+    $state = if ($stopped) { "Ready" }
+    elseif ($env:RECON_TEST_TASK_MODE -ceq "running" -and -not $dispatched) {
+        "Running"
+    }
+    elseif ($env:RECON_TEST_TASK_MODE -ceq "queued_after_start" -and $dispatched) {
+        "Queued"
+    }
+    elseif ($env:RECON_TEST_TASK_MODE -in @(
+        "hang_after_start", "hang_coarse", "read_hang_at_stop_reserve",
+        "stop_noop", "stop_timeout"
+    ) -and $dispatched) { "Running" }
+    elseif ($env:RECON_TEST_TASK_MODE -ceq "delayed_start" -and $dispatched) {
+        $elapsed = ($now - $dispatchAt).TotalSeconds
+        if ($elapsed -lt 30) { "Ready" }
+        elseif ($elapsed -lt 50) { "Running" }
+        else { "Ready" }
+    }
+    else { "Ready" }
+    $action = [PSCustomObject]@{
+        Execute = "cmd.exe"
+        Arguments = "/c git -C $env:RECON_TEST_REPO push origin master > C:\Users\micha\ops\logs\push-oneshot.log 2>&1"
+        WorkingDirectory = $env:RECON_TEST_REPO
+    }
+    $task = [PSCustomObject]@{
+        TaskName = "WeatherOneShotPush"
+        TaskPath = "\"
+        State = $state
+        Settings = [PSCustomObject]@{
+            Enabled = $env:RECON_TEST_TASK_MODE -cne "disabled"
+            MultipleInstances = "IgnoreNew"
+            ExecutionTimeLimit = "PT15M"
+            StartWhenAvailable = $mismatch
+        }
+        Principal = [PSCustomObject]@{
+            UserId = "micha"
+            LogonType = "Interactive"
+            RunLevel = "Limited"
+        }
+        Actions = @($action)
+        Triggers = @()
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "ambiguous") { return @($task, $task) }
+    return $task
+}
+
+function global:Export-ScheduledTask {
+    param($InputObject, $ErrorAction)
+    return $env:RECON_TEST_TASK_XML
+}
+
+function global:Get-ScheduledTaskInfo {
+    param($InputObject, $ErrorAction)
+    if ($env:RECON_TEST_TASK_MODE -ceq "readback_failure" -and
+        (Test-ReconciliationDispatched)) {
+        throw "injected post-start task readback failure"
+    }
+    $dispatched = Test-ReconciliationDispatched
+    $stopped = Test-Path -LiteralPath $env:RECON_TEST_TASK_STOPPED -PathType Leaf
+    $dispatchAt = if ($dispatched) {
+        [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)
+    }
+    else { [datetime]"2026-08-31T01:30:00" }
+    $now = Get-TestLogicalNow
+    $lastRun = if ($dispatched -and
+        $env:RECON_TEST_TASK_MODE -notin @("hang_coarse", "queued_after_start") -and
+        ($env:RECON_TEST_TASK_MODE -cne "delayed_start" -or
+            ($now - $dispatchAt).TotalSeconds -ge 50)) {
+        $dispatchAt.AddSeconds(1)
+    }
+    else { [datetime]"2026-08-31T01:30:00" }
+    $lastResult = if ($stopped) { [long]3221225786 }
+    elseif ($dispatched -and
+        $env:RECON_TEST_TASK_MODE -in @("start_fail", "push_failure")) { [long]1 }
+    else { [long]0 }
+    return [PSCustomObject]@{
+        LastRunTime = $lastRun
+        LastTaskResult = $lastResult
+    }
+}
+
+function global:Start-ScheduledTask {
+    param($InputObject, $ErrorAction)
+    [IO.File]::AppendAllText(
+        $env:RECON_TEST_START_LOG,
+        ("WeatherOneShotPush" + [Environment]::NewLine)
+    )
+    if ($env:RECON_TEST_TASK_MODE -ceq "start_fail_before_dispatch") {
+        $now = Get-TestLogicalNow
+        [IO.File]::WriteAllText(
+            $env:RECON_TEST_CLOCK,
+            $now.AddMinutes(14).AddSeconds(30).ToString("o")
+        )
+        throw "injected task-start failure before dispatch"
+    }
+    $dispatchAt = Get-TestLogicalNow
+    [IO.File]::WriteAllText($env:RECON_TEST_DISPATCH_AT, $dispatchAt.ToString("o"))
+    if ($env:RECON_TEST_TASK_MODE -ceq "read_hang_at_stop_reserve") {
+        [IO.File]::WriteAllText(
+            $env:RECON_TEST_CLOCK,
+            $dispatchAt.AddMinutes(14).AddSeconds(20).ToString("o")
+        )
+    }
+    if ($env:RECON_TEST_TASK_MODE -in @(
+        "hang_after_start", "hang_coarse", "queued_after_start", "stop_noop",
+        "stop_timeout", "readback_failure"
+    )) {
+        [IO.File]::WriteAllText(
+            $env:RECON_TEST_CLOCK,
+            $dispatchAt.AddMinutes(14).AddSeconds(30).ToString("o")
+        )
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "start_fail") {
+        throw "injected task-start failure after dispatch"
+    }
+    if ($env:RECON_TEST_TASK_MODE -in @(
+        "no_ack", "push_failure", "hang_after_start", "hang_coarse",
+        "stop_noop", "stop_timeout", "readback_failure", "queued_after_start",
+        "delayed_start", "read_hang_at_stop_reserve"
+    )) { return }
+    & $env:RECON_TEST_REAL_GIT -C $env:RECON_TEST_REPO push origin master
+    if ($LASTEXITCODE -ne 0) { throw "fake one-shot push failed" }
+    if ($env:RECON_TEST_TASK_MODE -ceq "start_success_claimed_error") {
+        throw "injected claimed Start failure after successful push"
+    }
+    if ($env:RECON_TEST_TASK_MODE -ceq "start_success_lost_response") {
+        [Threading.Thread]::Sleep(60000)
+    }
+}
+
+function global:Stop-ScheduledTask {
+    param($InputObject, $ErrorAction)
+    [IO.File]::AppendAllText(
+        $env:RECON_TEST_STOP_LOG,
+        ("WeatherOneShotPush" + [Environment]::NewLine)
+    )
+    if ($env:RECON_TEST_TASK_MODE -ceq "stop_timeout") {
+        [Threading.Thread]::Sleep(60000)
+    }
+    if ($env:RECON_TEST_TASK_MODE -ne "stop_noop") {
+        [IO.File]::WriteAllText($env:RECON_TEST_TASK_STOPPED, "stopped")
+    }
+}
+
+& $env:RECON_TEST_REAL_SCHEDULER_HELPER `
+    -Operation $Operation -RequestBase64 $RequestBase64 -ResultPath $ResultPath
+exit $LASTEXITCODE
+''',
+        encoding="utf-8",
+    )
+    return wrapper
+
+
 def _adapt_script(
     source: str,
     *,
     origin: Path,
     fake_python: Path,
     fake_roll_verdict: Path,
+    scheduler_wrapper: Path,
     published_target: str,
     published_tree: str,
 ) -> str:
@@ -424,8 +699,9 @@ def _adapt_script(
             f"$reconciliationCanonicalOrigin = '{canonical_origin}'"
         ),
         REVIEWED_TASK_XML_SHA256: mock_task_sha,
-        "$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value": (
-            "$currentSid = $expectedPushSid"
+        '$expectedPushSid = "S-1-5-21-1525964525-1566663060-3901869365-1001"': (
+            "$expectedPushSid = "
+            "[Security.Principal.WindowsIdentity]::GetCurrent().User.Value"
         ),
     }
     if published_target != PUBLISHED_TARGET:
@@ -446,6 +722,31 @@ def _adapt_script(
         verdict_needle,
         f"$verdictScript = '{fake_verdict_path}'",
         1,
+    )
+
+    owned_child_needle = "$reconciliationOwnedChildInitialized = $true"
+    assert adapted.count(owned_child_needle) == 1
+    scheduler_wrapper_path = str(scheduler_wrapper.resolve()).replace("'", "''")
+    adapted = adapted.replace(
+        owned_child_needle,
+        owned_child_needle
+        + f"\n        $reconciliationSchedulerRpcScript = '{scheduler_wrapper_path}'"
+        + "\n        $reconciliationSchedulerRpcSha256 = "
+        + "(Get-FileHash -LiteralPath $reconciliationSchedulerRpcScript "
+        + "-Algorithm SHA256).Hash.ToLowerInvariant()",
+        1,
+    )
+    adapted = adapted.replace(
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 15",
+        "-LogicalBoundary $logicalBoundary -MaximumSeconds 3",
+    )
+    adapted = adapted.replace(
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20",
+        "-LogicalBoundary $pushContainmentDeadline -MaximumSeconds 10",
+    )
+    adapted = adapted.replace(
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 20",
+        "-LogicalBoundary $LogicalBoundary -MaximumSeconds 3",
     )
 
     classification_needle = (
@@ -520,6 +821,36 @@ function Exit-WeatherHeavyWorkloadLease {
             throw "injected marker replacement failure for $Phase occurrence $markerFailureCount"
         }
     }
+    if ([int]$env:RECON_TEST_JOURNAL_DELAY_MS -gt 0 -and
+        $Phase -ceq "documented_unpublished" -and
+        $pushStartRpcRequestId -and -not $pushStartRpcRequestSha256) {
+        [Threading.Thread]::Sleep([int]$env:RECON_TEST_JOURNAL_DELAY_MS)
+        $delayedLogicalNow = Get-Date
+        [IO.File]::WriteAllText(
+            $env:RECON_TEST_CLOCK,
+            $delayedLogicalNow.AddMinutes(14).AddSeconds(30).ToString("o")
+        )
+    }
+    if ($env:RECON_TEST_JOURNAL_REMOTE_DRIFT -eq "1" -and
+        $Phase -ceq "documented_unpublished" -and
+        $pushStartRpcRequestId -and -not $pushStartRpcRequestSha256 -and
+        -not (Test-Path -LiteralPath $env:RECON_TEST_REMOTE_DRIFT_EVENT)) {
+        & $env:RECON_TEST_REAL_GIT `
+            ("--git-dir={0}" -f $env:RECON_TEST_ORIGIN) update-ref refs/heads/master `
+            $env:RECON_TEST_EXPECTED_LOCAL
+        if ($LASTEXITCODE -ne 0) { throw "injected remote drift failed" }
+        [IO.File]::WriteAllText($env:RECON_TEST_REMOTE_DRIFT_EVENT, "drifted")
+    }
+    if ($env:RECON_TEST_JOURNAL_HELPER_DRIFT -eq "1" -and
+        $Phase -ceq "documented_unpublished" -and
+        $pushStartRpcRequestId -and -not $pushStartRpcRequestSha256 -and
+        -not (Test-Path -LiteralPath $env:RECON_TEST_HELPER_DRIFT_EVENT)) {
+        [IO.File]::AppendAllText(
+            $reconciliationSchedulerRpcScript,
+            "`r`n# injected post-bind helper drift`r`n"
+        )
+        [IO.File]::WriteAllText($env:RECON_TEST_HELPER_DRIFT_EVENT, "drifted")
+    }
     $parent = Split-Path -Parent $activeMarkerPath'''
     adapted = adapted.replace(marker_needle, marker_injection, 1)
 
@@ -552,9 +883,16 @@ $global:reconciliationTaskDispatchAt = $null
 $global:reconciliationTaskPushed = $false
 $global:reconciliationTaskStopped = $false
 $global:reconciliationNow = [datetime]$env:RECON_TEST_NOW
+[IO.File]::WriteAllText($env:RECON_TEST_CLOCK, $global:reconciliationNow.ToString("o"))
 
 function global:Get-Date {
     param([string]$Format)
+    if (Test-Path -LiteralPath $env:RECON_TEST_CLOCK) {
+        $sharedNow = [datetime][IO.File]::ReadAllText($env:RECON_TEST_CLOCK)
+        if ($sharedNow -gt $global:reconciliationNow) {
+            $global:reconciliationNow = $sharedNow
+        }
+    }
     $value = $global:reconciliationNow
     if ($PSBoundParameters.ContainsKey("Format")) { return $value.ToString($Format) }
     return $value
@@ -569,6 +907,7 @@ function global:Start-Sleep {
     else {
         $global:reconciliationNow = $global:reconciliationNow.AddSeconds($Seconds)
     }
+    [IO.File]::WriteAllText($env:RECON_TEST_CLOCK, $global:reconciliationNow.ToString("o"))
     [IO.File]::AppendAllText(
         $env:RECON_TEST_SLEEP_LOG,
         ("{0:o}`t{1:o}`t{2}" -f $before, $global:reconciliationNow,
@@ -576,14 +915,22 @@ function global:Start-Sleep {
             [Environment]::NewLine
     )
     if ($env:RECON_TEST_TASK_MODE -in @("stop_noop", "readback_failure") -and
-        $before -ge $before.Date.AddHours(4) -and
         (Test-Path -LiteralPath $env:RECON_TEST_STOP_EXHAUSTED_EVENT)) {
-        [Threading.Thread]::Sleep(60000)
+        $dispatchAt = if (Test-Path -LiteralPath $env:RECON_TEST_DISPATCH_AT) {
+            [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)
+        }
+        else { $before }
+        $global:reconciliationNow = $dispatchAt.AddMinutes(15)
+        [IO.File]::WriteAllText(
+            $env:RECON_TEST_CLOCK,
+            $global:reconciliationNow.ToString("o")
+        )
     }
     if ($env:RECON_TEST_TASK_MODE -ceq "delayed_start" -and
-        $global:reconciliationTaskStarted -and
+        (Test-Path -LiteralPath $env:RECON_TEST_DISPATCH_AT) -and
         -not $global:reconciliationTaskPushed -and
-        ($global:reconciliationNow - $global:reconciliationTaskDispatchAt).TotalSeconds -ge 50) {
+        ($global:reconciliationNow -
+            [datetime][IO.File]::ReadAllText($env:RECON_TEST_DISPATCH_AT)).TotalSeconds -ge 50) {
         & $env:RECON_TEST_REAL_GIT -C $env:RECON_TEST_REPO push origin master
         if ($LASTEXITCODE -ne 0) { throw "delayed fake one-shot push failed" }
         $global:reconciliationTaskPushed = $true
@@ -592,17 +939,24 @@ function global:Start-Sleep {
 
 function global:git {
     param([Parameter(ValueFromRemainingArguments = $true)][object[]]$GitArguments)
-    $tokens = @($GitArguments | ForEach-Object { [string]$_ })
+    $tokens = @(
+        foreach ($argument in $GitArguments) {
+            if ($argument -is [array]) {
+                foreach ($nested in $argument) { [string]$nested }
+            }
+            else { [string]$argument }
+        }
+    )
     [IO.File]::AppendAllText(
         $env:RECON_TEST_GIT_LOG,
         (($tokens -join "`t") + [Environment]::NewLine)
     )
     $specialMerge = $env:RECON_TEST_GIT_MODE -ceq "merge_conflict" -and
         $tokens -contains "--no-commit" -and $tokens -contains "--no-ff" -and
-        $tokens -contains $env:RECON_TEST_PUBLISHED_TARGET
+        $tokens -contains $env:RECON_TEST_EXPECTED_SOURCE_TIP
     if ($specialMerge) {
         $conflictTokens = @($tokens | ForEach-Object {
-            if ($_ -ceq $env:RECON_TEST_PUBLISHED_TARGET) {
+            if ($_ -ceq $env:RECON_TEST_EXPECTED_SOURCE_TIP) {
                 $env:RECON_TEST_CONFLICT_TARGET
             }
             else { $_ }
@@ -773,7 +1127,7 @@ function global:Stop-ScheduledTask {
 }
 
 $params = @{
-    Branch = "origin/master"
+    Branch = $env:RECON_TEST_EXPECTED_SOURCE_TIP
     ExpectedTip = $env:RECON_TEST_EXPECTED_TIP
     ExpectedBaseline = $env:RECON_TEST_EXPECTED_BASELINE
     ExpectedLocalBaseline = $env:RECON_TEST_EXPECTED_LOCAL
@@ -802,9 +1156,12 @@ def _build_harness(
     *,
     unrelated_target: bool = False,
     changed_target_config: bool = False,
+    source_base: str = REVIEWED_PARENT,
 ) -> Harness:
     assert REAL_GIT is not None
-    root = tmp_path / "reconciler-execution"
+    # Keep the disposable checkout short enough for Windows PowerShell 5.1's
+    # legacy MAX_PATH-sensitive byte APIs used by the production snapshotter.
+    root = tmp_path / "r"
     root.mkdir()
     origin = root / "origin.git"
     _git(REPO_ROOT, "clone", "--bare", "--shared", str(REPO_ROOT), str(origin))
@@ -839,6 +1196,7 @@ def _build_harness(
 
     fake_python = _write_fake_python(root)
     fake_roll_verdict = _write_fake_roll_verdict(root)
+    scheduler_wrapper = _write_scheduler_wrapper(root)
     source = root / "source"
     _git(
         root,
@@ -849,7 +1207,7 @@ def _build_harness(
         str(source),
     )
     _configure_repo(source)
-    _git(source, "checkout", "--force", "-B", SOURCE_BRANCH, REVIEWED_PARENT)
+    _git(source, "checkout", "--force", "-B", SOURCE_BRANCH, source_base)
     _git(source, "remote", "set-url", "origin", str(origin.resolve()))
     source_script = source / "scripts" / "ops" / "quiet_window_merge.ps1"
     adapted = _adapt_script(
@@ -857,11 +1215,39 @@ def _build_harness(
         origin=origin,
         fake_python=fake_python,
         fake_roll_verdict=fake_roll_verdict,
+        scheduler_wrapper=scheduler_wrapper,
         published_target=published_target,
         published_tree=published_tree,
     )
     source_script.write_text(adapted, encoding="utf-8", newline="")
-    _git(source, "add", "--", "scripts/ops/quiet_window_merge.ps1")
+    source_scheduler_helper = (
+        source / "scripts" / "ops" / "production_baseline_scheduler_rpc.ps1"
+    )
+    source_scheduler_helper.parent.mkdir(parents=True, exist_ok=True)
+    adapted_helper = SCHEDULER_HELPER.read_text(encoding="utf-8")
+    adapted_helper = adapted_helper.replace(
+        REVIEWED_TASK_XML_SHA256,
+        hashlib.sha256(MOCK_TASK_XML.encode()).hexdigest(),
+    )
+    expected_sid = (
+        '$script:ExpectedPushSid = '
+        '"S-1-5-21-1525964525-1566663060-3901869365-1001"'
+    )
+    assert adapted_helper.count(expected_sid) == 1
+    adapted_helper = adapted_helper.replace(
+        expected_sid,
+        "$script:ExpectedPushSid = "
+        "[Security.Principal.WindowsIdentity]::GetCurrent().User.Value",
+        1,
+    )
+    source_scheduler_helper.write_text(adapted_helper, encoding="utf-8", newline="")
+    _git(
+        source,
+        "add",
+        "--",
+        "scripts/ops/quiet_window_merge.ps1",
+        "scripts/ops/production_baseline_scheduler_rpc.ps1",
+    )
     commit_env = {
         "GIT_AUTHOR_DATE": "2026-09-01T05:10:00Z",
         "GIT_COMMITTER_DATE": "2026-09-01T05:10:00Z",
@@ -875,6 +1261,15 @@ def _build_harness(
         env=commit_env,
     )
     assert not _git(source, "status", "--porcelain=v1").stdout.strip()
+    source_tip = _rev(source, "HEAD")
+    _git(
+        production,
+        "fetch",
+        "--no-write-fetch-head",
+        str(source.resolve()),
+        source_tip,
+    )
+    assert _rev(production, f"{source_tip}^{{commit}}") == source_tip
 
     wrapper = _write_wrapper(root)
     return Harness(
@@ -885,10 +1280,11 @@ def _build_harness(
         script=source_script,
         fake_python=fake_python,
         fake_roll_verdict=fake_roll_verdict,
+        scheduler_wrapper=scheduler_wrapper,
         wrapper=wrapper,
         published_target=published_target,
         conflict_target=conflict_target,
-        source_tip=_rev(source, "HEAD"),
+        source_tip=source_tip,
         source_tree=_rev(source, "HEAD^{tree}"),
         source_sha256=hashlib.sha256(source_script.read_bytes()).hexdigest(),
         start_log=root / "task-start.log",
@@ -922,6 +1318,7 @@ def _invoke(
     task_mode: str = "good",
     git_mode: str = "good",
     capture_fail_at: int = 0,
+    capture_advance_at: int = 0,
     docs_fail: bool = False,
     roll_mode: str = "good",
     prepush_drift: bool = False,
@@ -929,6 +1326,9 @@ def _invoke(
     fail_marker_occurrence: int = 1,
     fail_after_replace_phase: str = "",
     fail_after_replace_occurrence: int = 1,
+    journal_delay_ms: int = 0,
+    journal_remote_drift: bool = False,
+    journal_helper_drift: bool = False,
     now: str = "2026-09-01T01:30:00",
     timeout: float = 60,
 ) -> subprocess.CompletedProcess[str]:
@@ -940,11 +1340,12 @@ def _invoke(
             "RECON_TEST_SCRIPT": str(harness.script.resolve()),
             "RECON_TEST_REPO": str(harness.production.resolve()),
             "RECON_TEST_REAL_GIT": REAL_GIT,
+            "RECON_TEST_ORIGIN": str(harness.origin.resolve()),
             "RECON_TEST_GIT_LOG": str(harness.git_log),
             "RECON_TEST_GIT_MODE": git_mode,
             "RECON_TEST_PUBLISHED_TARGET": harness.published_target,
             "RECON_TEST_CONFLICT_TARGET": harness.conflict_target,
-            "RECON_TEST_EXPECTED_TIP": expected_tip or harness.published_target,
+            "RECON_TEST_EXPECTED_TIP": expected_tip or harness.source_tip,
             "RECON_TEST_EXPECTED_BASELINE": expected_baseline,
             "RECON_TEST_EXPECTED_LOCAL": expected_local,
             "RECON_TEST_EXPECTED_PUBLISHED": (
@@ -963,15 +1364,29 @@ def _invoke(
             "RECON_TEST_DRY_RUN": "1" if dry_run else "0",
             "RECON_TEST_TASK_MODE": task_mode,
             "RECON_TEST_TASK_XML": MOCK_TASK_XML,
+            "RECON_TEST_REAL_SCHEDULER_HELPER": str(
+                harness.source
+                / "scripts"
+                / "ops"
+                / "production_baseline_scheduler_rpc.ps1"
+            ),
             "RECON_TEST_START_LOG": str(harness.start_log),
             "RECON_TEST_STOP_LOG": str(harness.stop_log),
+            "RECON_TEST_TASK_STOPPED": str(harness.root / "task-stopped.txt"),
+            "RECON_TEST_DISPATCH_AT": str(harness.root / "dispatch-at.txt"),
+            "RECON_TEST_CLOCK": str(harness.root / "logical-clock.txt"),
+            "RECON_TEST_PREPUSH_DRIFT_EVENT": str(
+                harness.root / "prepush-drift.txt"
+            ),
+            "RECON_TEST_SPAWNED_PID": str(harness.root / "spawned-pid.txt"),
             "RECON_TEST_TASK_READ_COUNT": str(harness.task_read_count),
             "RECON_TEST_CAPTURE_COUNT": str(harness.capture_count),
             "RECON_TEST_CAPTURE_FAIL_AT": str(capture_fail_at),
+            "RECON_TEST_CAPTURE_ADVANCE_AT": str(capture_advance_at),
             "RECON_TEST_DOCS_FAIL": "1" if docs_fail else "0",
             "RECON_TEST_ROLL_MODE": roll_mode,
             "RECON_TEST_EXPECTED_ROLL_BASE": LOCAL_BASELINE,
-            "RECON_TEST_EXPECTED_ROLL_BRANCH": harness.published_target,
+            "RECON_TEST_EXPECTED_ROLL_BRANCH": harness.source_tip,
             "RECON_TEST_ROLL_INVOCATION_LOG": str(harness.roll_invocation_log),
             "RECON_TEST_ROLL_CLASSIFICATION_LOG": str(
                 harness.roll_classification_log
@@ -986,6 +1401,19 @@ def _invoke(
                 fail_after_replace_occurrence
             ),
             "RECON_TEST_POST_REPLACE_COUNT": str(harness.post_replace_count),
+            "RECON_TEST_JOURNAL_DELAY_MS": str(journal_delay_ms),
+            "RECON_TEST_JOURNAL_REMOTE_DRIFT": (
+                "1" if journal_remote_drift else "0"
+            ),
+            "RECON_TEST_JOURNAL_HELPER_DRIFT": (
+                "1" if journal_helper_drift else "0"
+            ),
+            "RECON_TEST_HELPER_DRIFT_EVENT": str(
+                harness.root / "helper-drift.txt"
+            ),
+            "RECON_TEST_REMOTE_DRIFT_EVENT": str(
+                harness.root / "remote-drift.txt"
+            ),
             "RECON_TEST_LEASE_LOG": str(harness.lease_log),
             "RECON_TEST_SLEEP_LOG": str(harness.sleep_log),
             "RECON_TEST_STOP_EXHAUSTED_EVENT": str(
@@ -1170,7 +1598,7 @@ def test_reconciliation_dry_run_does_not_mutate_production_or_scheduler(
     assert _start_lines(harness) == []
     invocation = _roll_invocations(harness)
     assert len(invocation) == 1
-    assert invocation[0][:3] == ("good", LOCAL_BASELINE, PUBLISHED_TARGET)
+    assert invocation[0][:3] == ("good", LOCAL_BASELINE, harness.source_tip)
     assert _roll_classifications(harness) == [
         {"exit_code": 0, "readable": True, "roll_free": True}
     ]
@@ -1219,7 +1647,7 @@ def test_roll_verdict_faults_remain_sensitive_and_dry_run_is_read_only(
     assert not harness.lease_log.exists()
     invocation = _roll_invocations(harness)
     assert len(invocation) == 1
-    assert invocation[0][:3] == (roll_mode, LOCAL_BASELINE, PUBLISHED_TARGET)
+    assert invocation[0][:3] == (roll_mode, LOCAL_BASELINE, harness.source_tip)
     assert _roll_classifications(harness) == [
         {
             "exit_code": expected_exit,
@@ -1252,7 +1680,7 @@ def test_reconciliation_success_builds_exact_c_m_and_publishes_once(
     assert len(parents) == 3
     assert parents[0] == merge_commit
     config_commit = parents[1]
-    assert parents[2] == harness.published_target
+    assert parents[2] == harness.source_tip
     assert _git(
         harness.production, "rev-list", "--parents", "-n", "1", config_commit
     ).stdout.split() == [config_commit, LOCAL_BASELINE]
@@ -1261,7 +1689,7 @@ def test_reconciliation_success_builds_exact_c_m_and_publishes_once(
             harness.production,
             "diff",
             "--name-only",
-            harness.published_target,
+            harness.source_tip,
             merge_commit,
         ).stdout.splitlines()
     ) == set(CONFIG_PATHS)
@@ -1294,6 +1722,13 @@ def test_reconciliation_success_builds_exact_c_m_and_publishes_once(
     assert report["push_runtime_state"] == "Ready"
     assert report["push_last_task_result"] == 0
     assert report["push_containment_breached"] is False
+    assert report["reconciliation_safety_tip"] == harness.source_tip
+    assert report["reconciliation_safety_tree"] == harness.source_tree
+    assert report["reconciliation_staged_safety_capture_recovery_proved"] is True
+    assert report["reconciliation_pre_push_capture_recovery_proved"] is True
+    assert report["push_start_rpc_request_id"]
+    assert report["push_start_rpc_request_sha256"]
+    assert report["push_start_rpc_timed_out"] is False
     assert report["publication_acknowledged"] is True
     for relative, expected in RAW_CONFIG_BYTES.items():
         snapshot_relative = report["reconciliation_snapshot_paths"][relative][
@@ -1316,6 +1751,82 @@ def test_late_start_budget_refuses_before_any_production_mutation(
     assert "publication time budget is already impossible before mutation" in result.stdout
     _assert_no_git_config_or_scheduler_mutation(before, _production_state(harness))
     assert not harness.lease_log.exists()
+    _assert_no_hard_reset(harness)
+
+
+@WINDOWS_EXECUTION
+def test_midflight_quiet_window_crossing_rolls_back_before_merge_commit(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(harness, capture_advance_at=2)
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert _rev(harness.production, "HEAD") == LOCAL_BASELINE
+    assert _rev(harness.production, "master") == LOCAL_BASELINE
+    assert _rev(harness.origin, "refs/heads/master") == harness.published_target
+    assert _start_lines(harness) == []
+    assert "01:00-04:00 quiet-window boundary is closed" in result.stdout
+    _assert_no_hard_reset(harness)
+
+
+@WINDOWS_EXECUTION
+def test_start_identity_deadline_is_not_extended_by_marker_journaling(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(harness, journal_delay_ms=11000, timeout=90)
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert _start_lines(harness) == []
+    assert _rev(harness.origin, "refs/heads/master") == harness.published_target
+    marker = _marker(harness)
+    assert marker["push_invocation_attempted"] is True
+    assert marker["publication_acknowledged"] is False
+    assert "absolute deadline closed before child launch" in result.stdout
+    _assert_no_hard_reset(harness)
+
+
+@WINDOWS_EXECUTION
+def test_remote_drift_after_start_journal_is_rejected_before_helper_launch(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(harness, journal_remote_drift=True)
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert _start_lines(harness) == []
+    assert _rev(harness.origin, "refs/heads/master") == LOCAL_BASELINE
+    marker = _marker(harness)
+    assert marker["push_invocation_attempted"] is True
+    assert marker["publication_acknowledged"] is False
+    assert "canonical remote master is not the exact frozen published target" in result.stdout
+    _assert_no_hard_reset(harness)
+
+
+@WINDOWS_EXECUTION
+def test_scheduler_helper_drift_after_start_journal_spends_without_dispatch(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(harness, journal_helper_drift=True, timeout=90)
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert _start_lines(harness) == []
+    assert _stop_lines(harness) == []
+    assert _rev(harness.origin, "refs/heads/master") == harness.published_target
+    marker = _marker(harness)
+    assert marker["push_invocation_attempted"] is True
+    assert marker["publication_acknowledged"] is False
+    assert "Scheduler RPC helper changed after its safety-tip proof" in result.stdout
     _assert_no_hard_reset(harness)
 
 
@@ -1349,10 +1860,58 @@ def test_on_demand_task_is_stopped_and_terminally_proved_at_its_deadline(
 
 
 @WINDOWS_EXECUTION
+def test_post_start_hung_read_cannot_consume_the_containment_stop_reserve(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(
+        harness,
+        task_mode="read_hang_at_stop_reserve",
+        timeout=60,
+    )
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode != 0, diagnostic
+    assert _start_lines(harness) == ["WeatherOneShotPush"]
+    assert _stop_lines(harness) == ["WeatherOneShotPush"]
+    assert (
+        harness.production
+        / "data"
+        / "alerts"
+        / "production_baseline_scheduler_rpc_stop_1_authority.claim.json"
+    ).is_file()
+    assert _rev(harness.origin, "refs/heads/master") == harness.published_target
+    marker = _marker(harness)
+    assert marker["phase"] == "documented_unpublished"
+    assert marker["push_invocation_attempted"] is True
+    assert marker["push_stop_attempted"] is True
+    assert marker["push_stop_count"] == 1
+    assert marker["push_terminal_proved"] is True
+    assert marker["push_runtime_state"] == "Ready"
+    assert marker["push_containment_breached"] is False
+    assert marker["publication_acknowledged"] is False
+    assert datetime.fromisoformat(marker["push_terminal_proved_at"]) < (
+        datetime.fromisoformat(marker["push_containment_deadline"])
+    )
+    assert datetime.fromisoformat(marker["updated_at"]) < datetime.fromisoformat(
+        marker["push_containment_deadline"]
+    )
+    assert harness.lease_log.read_text(encoding="utf-8-sig").splitlines() == [
+        "enter",
+        "exit",
+    ]
+    assert "no Scheduler RPC budget remains" not in result.stdout
+    _assert_no_hard_reset(harness)
+
+
+@WINDOWS_EXECUTION
 @pytest.mark.parametrize(
     ("task_mode", "run_observed"),
     (
-        ("queued_after_start", True),
+        # The Stop-reserve clamp intentionally prevents another read at the
+        # boundary, so Queued is never observed by the parent before Stop.
+        ("queued_after_start", False),
         ("start_fail_before_dispatch", False),
     ),
 )
@@ -1389,14 +1948,15 @@ def test_persistent_stop_failure_keeps_lease_and_never_reports_terminal(
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    with pytest.raises(subprocess.TimeoutExpired):
-        _invoke(harness, task_mode="stop_noop", timeout=10)
+    result = _invoke(harness, task_mode="stop_noop")
 
+    assert result.returncode != 0
     assert _start_lines(harness) == ["WeatherOneShotPush"]
     assert _stop_lines(harness) == ["WeatherOneShotPush"] * 2
     assert _rev(harness.origin, "refs/heads/master") == harness.published_target
     assert harness.lease_log.read_text(encoding="utf-8-sig").splitlines() == [
-        "enter"
+        "enter",
+        "exit",
     ]
     marker = _marker(harness)
     assert marker["push_invocation_attempted"] is True
@@ -1404,38 +1964,184 @@ def test_persistent_stop_failure_keeps_lease_and_never_reports_terminal(
     assert marker["push_stop_count"] == 2
     assert marker["push_stop_exhausted"] is True
     assert marker["push_terminal_proved"] is False
-    assert any(record[0].startswith("2026-09-01T04:00:00") for record in _sleep_records(harness))
+    # The last authoritative marker is deliberately journaled before the hard
+    # boundary.  Once PT15M/04:00 is reached the reconciler exits without
+    # starting another marker reproof/replacement, so the durable conservative
+    # signal is exhausted Stop authority plus absent terminal proof.
+    assert marker["push_containment_breached"] is False
+    assert datetime.fromisoformat(marker["updated_at"]) < datetime.fromisoformat(
+        marker["push_containment_deadline"]
+    )
+    report = json.loads(
+        (
+            harness.production / "data" / "alerts" / "quiet_window_merge_last.json"
+        ).read_text(encoding="utf-8-sig")
+    )
+    assert report["stage"] == "publication_state_uncertain"
+    assert report["push_stop_exhausted"] is True
+    assert report["push_terminal_proved"] is False
+    assert report["push_containment_breached"] is True
+    assert report["ts"] == report["push_containment_deadline"]
     _assert_no_hard_reset(harness)
 
 
 @WINDOWS_EXECUTION
-def test_post_start_readback_failure_uses_bounded_post_window_polling(
+def test_post_start_readback_failure_is_bounded_by_pt15m(
     tmp_path: Path,
 ) -> None:
     harness = _build_harness(tmp_path)
 
-    with pytest.raises(subprocess.TimeoutExpired):
-        _invoke(harness, task_mode="readback_failure", timeout=10)
+    result = _invoke(harness, task_mode="readback_failure")
 
+    assert result.returncode != 0
     assert _start_lines(harness) == ["WeatherOneShotPush"]
-    assert _stop_lines(harness) == ["WeatherOneShotPush"] * 2
+    assert _stop_lines(harness) == []
     assert _rev(harness.origin, "refs/heads/master") == harness.published_target
     assert harness.lease_log.read_text(encoding="utf-8-sig").splitlines() == [
-        "enter"
+        "enter",
+        "exit",
     ]
     marker = _marker(harness)
     assert marker["push_invocation_attempted"] is True
-    assert marker["push_stop_count"] == 2
+    assert marker["push_stop_count"] == 1
     assert marker["push_stop_exhausted"] is True
     assert marker["push_terminal_proved"] is False
-    post_window_sleeps = [
+    terminal_sleeps = [
         record
         for record in _sleep_records(harness)
-        if record[0].startswith("2026-09-01T04:00:00")
+        if record[1].startswith("2026-09-01T01:45:00")
     ]
-    assert post_window_sleeps
-    assert all(record[2] == 2000 for record in post_window_sleeps)
+    assert terminal_sleeps
     _assert_no_hard_reset(harness)
+
+
+@WINDOWS_EXECUTION
+@pytest.mark.parametrize("task_mode", ("read_hang", "read_hang_spawn_child"))
+def test_scheduler_read_hang_and_descendants_are_killed_before_preflight_returns(
+    tmp_path: Path,
+    task_mode: str,
+) -> None:
+    harness = _build_harness(tmp_path)
+    before = _production_state(harness)
+
+    result = _invoke(harness, task_mode=task_mode, timeout=20)
+
+    assert result.returncode != 0
+    _assert_no_git_config_or_scheduler_mutation(before, _production_state(harness))
+    assert _start_lines(harness) == []
+    if task_mode == "read_hang_spawn_child":
+        pid_path = harness.root / "spawned-pid.txt"
+        assert pid_path.is_file()
+        pid = int(pid_path.read_text(encoding="utf-8-sig"))
+        probe = _run(
+            [
+                WINDOWS_POWERSHELL,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 1 }}",
+            ],
+            cwd=harness.root,
+            check=False,
+        )
+        assert probe.returncode == 0
+
+
+@WINDOWS_EXECUTION
+def test_normal_helper_exit_still_kills_its_surviving_descendant(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(
+        harness,
+        dry_run=True,
+        task_mode="read_returns_spawn_child",
+        timeout=60,
+    )
+
+    diagnostic = f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    assert result.returncode == 0, diagnostic
+    pid_path = harness.root / "spawned-pid.txt"
+    assert pid_path.is_file()
+    pid = int(pid_path.read_text(encoding="utf-8-sig"))
+    probe = _run(
+        [
+            WINDOWS_POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ exit 1 }}",
+        ],
+        cwd=harness.root,
+        check=False,
+    )
+    assert probe.returncode == 0
+
+
+@WINDOWS_EXECUTION
+def test_successful_start_with_lost_response_is_spent_and_never_passes(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    # The helper's injected RPC deadline remains ten seconds; this outer
+    # allowance also covers the independent post-timeout task/ref/remote
+    # attestations, each of which now runs in its own kill-on-close child.
+    result = _invoke(harness, task_mode="start_success_lost_response", timeout=60)
+
+    assert result.returncode != 0
+    assert _start_lines(harness) == ["WeatherOneShotPush"]
+    assert _rev(harness.origin, "refs/heads/master") == _rev(
+        harness.production, "HEAD"
+    )
+    marker = _marker(harness)
+    assert marker["push_invocation_attempted"] is True
+    assert marker["push_start_rpc_timed_out"] is True
+    assert marker["publication_acknowledged"] is False
+    assert marker["phase"] == "documented_unpublished"
+
+
+@WINDOWS_EXECUTION
+def test_successful_start_with_claimed_error_is_spent_and_never_passes(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(harness, task_mode="start_success_claimed_error", timeout=60)
+
+    assert result.returncode != 0
+    assert _start_lines(harness) == ["WeatherOneShotPush"]
+    assert _rev(harness.origin, "refs/heads/master") == _rev(
+        harness.production, "HEAD"
+    )
+    marker = _marker(harness)
+    assert marker["push_invocation_attempted"] is True
+    assert marker["push_start_rpc_timed_out"] is False
+    assert marker["publication_acknowledged"] is False
+    assert marker["phase"] == "documented_unpublished"
+
+
+@WINDOWS_EXECUTION
+def test_stop_timeout_is_terminal_non_pass_and_is_not_retried(
+    tmp_path: Path,
+) -> None:
+    harness = _build_harness(tmp_path)
+
+    result = _invoke(harness, task_mode="stop_timeout", timeout=60)
+
+    assert result.returncode != 0
+    assert _start_lines(harness) == ["WeatherOneShotPush"]
+    assert _stop_lines(harness) == ["WeatherOneShotPush"]
+    marker = _marker(harness)
+    assert marker["push_stop_count"] == 1
+    assert marker["push_stop_exhausted"] is True
+    assert marker["push_stop_rpc_timed_out"] is True
+    assert marker["publication_acknowledged"] is False
+    assert harness.lease_log.read_text(encoding="utf-8-sig").splitlines() == [
+        "enter",
+        "exit",
+    ]
 
 
 @WINDOWS_EXECUTION
@@ -1449,6 +2155,9 @@ def test_post_start_readback_failure_uses_bounded_post_window_polling(
         "moved_cached_target",
         "wrong_source_tip",
         "wrong_source_tree",
+        "source_equals_published",
+        "source_not_descending_published",
+        "reviewed_parent_absent",
         "wrong_source_sha",
         "wrong_origin",
         "moved_remote",
@@ -1465,6 +2174,13 @@ def test_reconciliation_adversarial_preflight_refuses_before_git_mutation(
         tmp_path,
         unrelated_target=variation == "nonancestor",
         changed_target_config=variation == "config_blob",
+        source_base=(
+            PUBLISHED_TARGET
+            if variation == "reviewed_parent_absent"
+            else LOCAL_BASELINE
+            if variation == "source_not_descending_published"
+            else REVIEWED_PARENT
+        ),
     )
     invoke: dict[str, Any] = {}
     if variation == "wrong_local":
@@ -1495,6 +2211,12 @@ def test_reconciliation_adversarial_preflight_refuses_before_git_mutation(
         invoke["expected_source_tip"] = "2" * 40
     elif variation == "wrong_source_tree":
         invoke["expected_source_tree"] = "3" * 40
+    elif variation == "source_equals_published":
+        invoke["expected_tip"] = harness.published_target
+        invoke["expected_source_tip"] = harness.published_target
+        invoke["expected_source_tree"] = _rev(
+            harness.production, f"{harness.published_target}^{{tree}}"
+        )
     elif variation == "wrong_source_sha":
         invoke["expected_self_sha256"] = "4" * 64
     elif variation == "wrong_origin":
@@ -1577,12 +2299,16 @@ def test_reconciliation_refuses_unsafe_one_shot_task_states_before_mutation(
     (
         ("merge_conflict", True, None, None),
         ("capture", True, None, None),
+        ("prepush_capture", False, "documented_unpublished", True),
         ("documentation", False, "merge_committed_unpublished", False),
         ("task_mismatch", False, "documented_unpublished", False),
         ("start_failure", False, "documented_unpublished", True),
         ("push_failure", False, "documented_unpublished", True),
         ("no_ack", False, "documented_unpublished", True),
-        ("prepush_drift", False, "documented_unpublished", False),
+        # The attempt journal is deliberately armed before the final drift
+        # revalidation; failure after that durable cutover spends authority
+        # even though the Start helper is never launched.
+        ("prepush_drift", False, "documented_unpublished", True),
     ),
 )
 def test_reconciliation_failure_injections_preserve_safe_state(
@@ -1598,6 +2324,8 @@ def test_reconciliation_failure_injections_preserve_safe_state(
         invoke["git_mode"] = "merge_conflict"
     elif failure == "capture":
         invoke["capture_fail_at"] = 2
+    elif failure == "prepush_capture":
+        invoke["capture_fail_at"] = 4
     elif failure == "documentation":
         invoke["docs_fail"] = True
     elif failure == "task_mismatch":
@@ -1633,7 +2361,7 @@ def test_reconciliation_failure_injections_preserve_safe_state(
             harness.production, "rev-list", "--parents", "-n", "1", merge_commit
         ).stdout.split()
         assert len(parents) == 3
-        assert parents[2] == harness.published_target
+        assert parents[2] == harness.source_tip
         marker = _marker(harness)
         assert marker["phase"] == phase
         assert marker["pre_merge_commit"] == parents[1]
@@ -1734,7 +2462,7 @@ def test_reconciliation_failure_injections_preserve_safe_state(
         ),
         (
             "documented_unpublished",
-            4,
+            5,
             "documented_unpublished",
             False,
             True,

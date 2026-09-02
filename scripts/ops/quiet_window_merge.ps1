@@ -91,6 +91,10 @@ $baselineCommit = $null
 $preMerge = $null
 $rollbackContentSha256 = [ordered]@{}
 $captureRecoveryProved = $false
+$reconciliationStagedSafetyCaptureRecoveryProved = $false
+$reconciliationStagedSafetyCaptureRecoveryAt = $null
+$reconciliationPrePushCaptureRecoveryProved = $false
+$reconciliationPrePushCaptureRecoveryAt = $null
 $executionTapeRecoveryRequired = $false
 $executionTapeReadoptionExpected = $false
 $executionTapeRolledButInactiveSkipped = $false
@@ -109,6 +113,8 @@ $reconciliationModeName = if ($productionBaselineReconciliationMode) {
 else { "ordinary_synchronized_merge_v0.1" }
 $reconciliationActualPreMerge = $null
 $reconciliationBootGuardCommit = $null
+$reconciliationSafetyTip = $null
+$reconciliationSafetyTree = $null
 $reconciliationSnapshotRoot = $null
 $reconciliationSnapshotManifestPath = $null
 $reconciliationSnapshotManifestSha256 = $null
@@ -139,8 +145,26 @@ $oneShotPushStopCount = 0
 $oneShotPushStopExhausted = $false
 $oneShotPushStartIssuedAt = $null
 $oneShotPushContainmentDeadline = $null
+$pushContainmentDeadline = $null
+$pushContainmentStopAt = $null
 $oneShotPushTerminalProvedAt = $null
 $oneShotPushContainmentBreached = $false
+$pushStartRpcRequestId = $null
+$pushStartRpcRequestSha256 = $null
+$pushStartRpcDeadlineUtc = $null
+$pushStartRpcTimedOut = $false
+$pushStartError = $null
+$pushStopRpcRequestId = $null
+$pushStopRpcRequestSha256 = $null
+$pushStopRpcDeadlineUtc = $null
+$pushStopRpcTimedOut = $false
+$reconciliationOwnedChildInitialized = $false
+$reconciliationOwnedChildJobScript = $null
+$reconciliationSchedulerRpcScript = $null
+$reconciliationSchedulerRpcSha256 = $null
+$reconciliationPowerShellExecutable = $null
+$reconciliationChildTerminationMilliseconds = 5000
+$reconciliationChildBoundaryReserveSeconds = 8
 $reconciliationCommitInvocationStarted = $false
 $reconciliationRollbackStarted = $false
 if ($productionBaselineReconciliationMode) {
@@ -171,6 +195,8 @@ function Save-Report($ok, $stage, $detail) {
         pre_merge_commit = $preMerge
         reconciliation_actual_pre_merge_commit = $reconciliationActualPreMerge
         reconciliation_boot_guard_commit = $reconciliationBootGuardCommit
+        reconciliation_safety_tip = $reconciliationSafetyTip
+        reconciliation_safety_tree = $reconciliationSafetyTree
         reconciliation_source_root = $reconciliationSourceRoot
         reconciliation_source_tree = $reconciliationSourceTree
         reconciliation_entry_sha256 = $ExpectedSelfSha256
@@ -185,8 +211,13 @@ function Save-Report($ok, $stage, $detail) {
         roll_verdict_json_sha256 = $rollVerdictJsonSha256
         roll_verdict_transcript_sha256 = $reconciliationRollVerdictTranscriptSha256
         rollback_content_sha256 = $rollbackContentSha256
+        reconciliation_config_content_sha256 = $rollbackContentSha256
         merge_commit = $mergeCommit
         capture_recovery_proved = $captureRecoveryProved
+        reconciliation_staged_safety_capture_recovery_proved = $reconciliationStagedSafetyCaptureRecoveryProved
+        reconciliation_staged_safety_capture_recovery_at = $reconciliationStagedSafetyCaptureRecoveryAt
+        reconciliation_pre_push_capture_recovery_proved = $reconciliationPrePushCaptureRecoveryProved
+        reconciliation_pre_push_capture_recovery_at = $reconciliationPrePushCaptureRecoveryAt
         execution_tape_recovery_required = $executionTapeRecoveryRequired
         execution_tape_readoption_expected = $executionTapeReadoptionExpected
         execution_tape_rolled_but_inactive_skipped = $executionTapeRolledButInactiveSkipped
@@ -209,6 +240,14 @@ function Save-Report($ok, $stage, $detail) {
         push_containment_deadline = $oneShotPushContainmentDeadline
         push_terminal_proved_at = $oneShotPushTerminalProvedAt
         push_containment_breached = $oneShotPushContainmentBreached
+        push_start_rpc_request_id = $pushStartRpcRequestId
+        push_start_rpc_request_sha256 = $pushStartRpcRequestSha256
+        push_start_rpc_deadline_utc = $pushStartRpcDeadlineUtc
+        push_start_rpc_timed_out = $pushStartRpcTimedOut
+        push_stop_rpc_request_id = $pushStopRpcRequestId
+        push_stop_rpc_request_sha256 = $pushStopRpcRequestSha256
+        push_stop_rpc_deadline_utc = $pushStopRpcDeadlineUtc
+        push_stop_rpc_timed_out = $pushStopRpcTimedOut
         publication_acknowledged = $publicationAcknowledged
         stage = $stage; detail = $detail; log = @($log)
     }
@@ -361,6 +400,8 @@ function Write-QuietMergeMarker {
         pre_merge_commit = $markerPreMerge
         reconciliation_actual_pre_merge_commit = $reconciliationActualPreMerge
         reconciliation_boot_guard_commit = $reconciliationBootGuardCommit
+        reconciliation_safety_tip = $reconciliationSafetyTip
+        reconciliation_safety_tree = $reconciliationSafetyTree
         reconciliation_local_baseline = $ExpectedLocalBaseline
         reconciliation_published_target = $ExpectedPublishedTarget
         reconciliation_source_tip = $ExpectedSourceTip
@@ -377,6 +418,10 @@ function Write-QuietMergeMarker {
         roll_verdict_transcript_sha256 = $reconciliationRollVerdictTranscriptSha256
         merge_commit = $mergeCommit
         capture_recovery_proved = $captureRecoveryProved
+        reconciliation_staged_safety_capture_recovery_proved = $reconciliationStagedSafetyCaptureRecoveryProved
+        reconciliation_staged_safety_capture_recovery_at = $reconciliationStagedSafetyCaptureRecoveryAt
+        reconciliation_pre_push_capture_recovery_proved = $reconciliationPrePushCaptureRecoveryProved
+        reconciliation_pre_push_capture_recovery_at = $reconciliationPrePushCaptureRecoveryAt
         execution_tape_recovery_required = $executionTapeRecoveryRequired
         execution_tape_readoption_expected = $executionTapeReadoptionExpected
         execution_tape_rolled_but_inactive_skipped = $executionTapeRolledButInactiveSkipped
@@ -399,12 +444,21 @@ function Write-QuietMergeMarker {
         push_containment_deadline = $oneShotPushContainmentDeadline
         push_terminal_proved_at = $oneShotPushTerminalProvedAt
         push_containment_breached = $oneShotPushContainmentBreached
+        push_start_rpc_request_id = $pushStartRpcRequestId
+        push_start_rpc_request_sha256 = $pushStartRpcRequestSha256
+        push_start_rpc_deadline_utc = $pushStartRpcDeadlineUtc
+        push_start_rpc_timed_out = $pushStartRpcTimedOut
+        push_stop_rpc_request_id = $pushStopRpcRequestId
+        push_stop_rpc_request_sha256 = $pushStopRpcRequestSha256
+        push_stop_rpc_deadline_utc = $pushStopRpcDeadlineUtc
+        push_stop_rpc_timed_out = $pushStopRpcTimedOut
         publication_acknowledged = $publicationAcknowledged
         auto_refreshed_paths = @(
             "config/locations.json",
             "config/location_market_events.json"
         )
         auto_refreshed_sha256 = $rollbackContentSha256
+        reconciliation_config_content_sha256 = $rollbackContentSha256
     }
     if ($productionBaselineReconciliationMode) {
         if ($reconciliationPostCommitMarkerArmed) {
@@ -421,14 +475,35 @@ function Write-QuietMergeMarker {
             "documented_unpublished",
             "published"
         )
+        $configHashMapValid = $true
+        $configHashMap = $marker.reconciliation_config_content_sha256
+        if ($null -eq $configHashMap -or
+            @($configHashMap.Keys).Count -ne $reconciliationExpectedConfigBlobs.Count) {
+            $configHashMapValid = $false
+        }
+        foreach ($relativePath in $reconciliationExpectedConfigBlobs.Keys) {
+            if ($null -eq $configHashMap -or -not $configHashMap.Contains($relativePath)) {
+                $configHashMapValid = $false
+                continue
+            }
+            $contentSha256 = [string]$configHashMap[$relativePath]
+            if ($contentSha256 -notmatch '^[0-9a-f]{64}$' -or
+                $contentSha256 -cne [string]$rollbackContentSha256[$relativePath]) {
+                $configHashMapValid = $false
+            }
+        }
         $commonIdentityValid = (
             [string]$marker.operation_mode -ceq "production_baseline_reconciliation_v0.1" -and
             [string]$marker.baseline_commit -ceq $ExpectedLocalBaseline -and
             [string]$marker.expected_baseline -ceq $ExpectedLocalBaseline -and
-            [string]$marker.expected_tip -ceq $ExpectedPublishedTarget -and
-            [string]$marker.resolved_branch_tip -ceq $ExpectedPublishedTarget -and
+            [string]$marker.expected_tip -ceq $ExpectedSourceTip -and
+            [string]$marker.resolved_branch_tip -ceq $ExpectedSourceTip -and
             [string]$marker.reconciliation_boot_guard_commit -ceq $ExpectedPublishedTarget -and
-            [string]$marker.reconciliation_snapshot_manifest_sha256 -match '^[0-9a-f]{64}$'
+            [string]$marker.reconciliation_source_tip -ceq $ExpectedSourceTip -and
+            [string]$marker.reconciliation_safety_tip -ceq $ExpectedSourceTip -and
+            [string]$marker.reconciliation_safety_tree -ceq $ExpectedSourceTree -and
+            [string]$marker.reconciliation_snapshot_manifest_sha256 -match '^[0-9a-f]{64}$' -and
+            $configHashMapValid
         )
         $preCommitIdentityValid = (
             $allowedPreCommitPhases -contains $Phase -and
@@ -444,6 +519,9 @@ function Write-QuietMergeMarker {
             [string]$marker.pre_merge_commit -ceq $reconciliationActualPreMerge -and
             [string]$marker.merge_commit -match '^[0-9a-f]{40}$' -and
             $marker.capture_recovery_proved -eq $true -and
+            $marker.reconciliation_staged_safety_capture_recovery_proved -eq $true -and
+            [datetimeoffset]::Parse([string]$marker.reconciliation_staged_safety_capture_recovery_at) -le
+                [datetimeoffset]::Parse([string]$marker.updated_at) -and
             ($marker.execution_tape_recovery_required -ne $true -or
                 $marker.execution_tape_recovery_proved -eq $true)
         )
@@ -475,6 +553,8 @@ function Write-QuietMergeMarker {
                     [datetimeoffset]::Parse([string]$marker.push_start_issued_at) -lt
                         [datetimeoffset]::Parse([string]$marker.push_containment_deadline) -and
                     [datetimeoffset]::Parse([string]$marker.push_terminal_proved_at) -lt
+                        [datetimeoffset]::Parse([string]$marker.push_containment_deadline) -and
+                    [datetimeoffset]::Parse([string]$marker.push_terminal_proved_at) -lt
                         [datetimeoffset]::Parse([string]$marker.push_containment_deadline).Date.AddHours(4) -and
                     $marker.push_containment_breached -ne $true
             }
@@ -483,6 +563,16 @@ function Write-QuietMergeMarker {
         else { $true }
         $publicationIdentityValid = if ($Phase -eq "published") {
             $marker.push_invocation_attempted -eq $true -and
+                $marker.reconciliation_pre_push_capture_recovery_proved -eq $true -and
+                [datetimeoffset]::Parse([string]$marker.reconciliation_pre_push_capture_recovery_at) -le
+                    [datetimeoffset]::Parse([string]$marker.push_start_issued_at) -and
+                [string]$marker.push_start_rpc_request_id -match '^[0-9a-f]{32}$' -and
+                [string]$marker.push_start_rpc_request_sha256 -match '^[0-9a-f]{64}$' -and
+                [datetimeoffset]::Parse([string]$marker.push_start_rpc_deadline_utc) -gt
+                    [datetimeoffset]::Parse([string]$marker.push_start_issued_at) -and
+                $marker.push_start_rpc_timed_out -ne $true -and
+                [string]::IsNullOrEmpty([string]$pushStartError) -and
+                $marker.push_stop_rpc_timed_out -ne $true -and
                 $marker.push_terminal_proved -eq $true -and
                 $marker.push_run_observed -eq $true -and
                 $pushRuntimeIdentityValid -and
@@ -565,12 +655,381 @@ function Write-ReconciliationMarker {
     }
 }
 
+function Get-ReconciliationSha256Hex {
+    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        return ([BitConverter]::ToString($sha.ComputeHash($Bytes)) -replace '-', '').ToLowerInvariant()
+    }
+    finally { $sha.Dispose() }
+}
+
+function Assert-ReconciliationSchedulerRpcBytes {
+    $expected = [string]$reconciliationSchedulerRpcSha256
+    if ($expected -notmatch '^[0-9a-f]{64}$' -or
+        -not (Test-Path -LiteralPath $reconciliationSchedulerRpcScript -PathType Leaf)) {
+        throw "Scheduler RPC helper does not have a frozen safety-tip identity"
+    }
+    $actual = (
+        Get-FileHash -LiteralPath $reconciliationSchedulerRpcScript `
+            -Algorithm SHA256 -ErrorAction Stop
+    ).Hash.ToLowerInvariant()
+    if ($actual -cne $expected) {
+        throw "Scheduler RPC helper changed after its safety-tip proof"
+    }
+}
+
+function Invoke-ReconciliationOwnedProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string[]]$Tokens,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 1200)][int]$TimeoutSeconds,
+        [Parameter(Mandatory = $true)][datetimeoffset]$DeadlineUtc,
+        [Parameter(Mandatory = $true)][string]$Label
+    )
+
+    if (-not $reconciliationOwnedChildInitialized) {
+        throw "kill-on-close child runtime is not initialized"
+    }
+    $job = $null
+    $process = $null
+    $completed = $false
+    $exitCode = $null
+    $cleanupError = $null
+    $cleanupDeadlineUtc = $DeadlineUtc.AddMilliseconds(
+        $reconciliationChildTerminationMilliseconds
+    )
+    try {
+        $remainingBeforeLaunch = [int64][Math]::Floor(
+            ($DeadlineUtc - [datetimeoffset]::UtcNow).TotalMilliseconds
+        )
+        if ($remainingBeforeLaunch -le 0) {
+            throw [TimeoutException]::new("$Label absolute deadline closed before child launch")
+        }
+        $job = New-WeatherKillOnCloseJob
+        $argumentString = ConvertTo-WeatherWindowsArgumentString -Tokens $Tokens
+        $process = Start-WeatherProcessInJob `
+            -Job $job -FilePath $FilePath -ArgumentString $argumentString `
+            -WorkingDirectory $repo
+        # Recompute immediately before the blocking wait. Marker journaling or
+        # process creation may have consumed part of the original relative
+        # budget; neither can extend the immutable UTC request boundary.
+        $remainingAtWait = [int64][Math]::Floor(
+            ($DeadlineUtc - [datetimeoffset]::UtcNow).TotalMilliseconds
+        )
+        $waitMilliseconds = [int][Math]::Min(
+            [int64]$TimeoutSeconds * 1000,
+            [Math]::Max([int64]0, $remainingAtWait)
+        )
+        if ($waitMilliseconds -gt 0) {
+            $completed = $process.WaitForExit($waitMilliseconds)
+        }
+        if ($completed) { $exitCode = [int]$process.ExitCode }
+    }
+    finally {
+        if ($null -ne $job) {
+            try {
+                # Always close the complete helper tree, even after the root
+                # exits normally. A helper-created descendant is never allowed
+                # to outlive the owning RPC boundary. Clamp proof time to the
+                # separate cleanup deadline; the identity factory leaves a
+                # further margin before PT15M/04:00 for bounded result parsing.
+                $remainingCleanupMilliseconds = [int64][Math]::Floor(
+                    ($cleanupDeadlineUtc - [datetimeoffset]::UtcNow).TotalMilliseconds
+                )
+                $cleanupWaitMilliseconds = [int][Math]::Min(
+                    [int64]$reconciliationChildTerminationMilliseconds,
+                    [Math]::Max([int64]0, $remainingCleanupMilliseconds)
+                )
+                $job.TerminateAndWait($cleanupWaitMilliseconds)
+                if ([datetimeoffset]::UtcNow -gt $cleanupDeadlineUtc) {
+                    throw [TimeoutException]::new(
+                        "$Label child-tree proof crossed its cleanup deadline"
+                    )
+                }
+            }
+            catch { $cleanupError = $_.Exception.Message }
+            finally { $job.Dispose() }
+        }
+        if ($null -ne $process) { $process.Dispose() }
+    }
+    if ($cleanupError) {
+        throw "$Label child-tree termination could not be proved: $cleanupError"
+    }
+    if (-not $completed) {
+        throw [TimeoutException]::new("$Label reached its absolute UTC/wall-clock deadline; helper tree terminated")
+    }
+    return [PSCustomObject]@{ exit_code = $exitCode }
+}
+
+function New-ReconciliationSchedulerRpcIdentity {
+    param(
+        [Parameter(Mandatory = $true)][datetime]$LogicalBoundary,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 300)][int]$MaximumSeconds
+    )
+
+    $logicalNow = Get-Date
+    # Five seconds are available for TerminateAndWait proof and a further
+    # three seconds remain for bounded result parsing before the logical
+    # containment boundary. The helper receives the shorter request deadline.
+    $remaining = [int][Math]::Floor(($LogicalBoundary - $logicalNow).TotalSeconds) -
+        $reconciliationChildBoundaryReserveSeconds
+    $allowed = [Math]::Min($MaximumSeconds, $remaining)
+    if ($allowed -lt 1) {
+        throw "no Scheduler RPC budget remains before the absolute containment boundary"
+    }
+    $deadline = [datetimeoffset]::UtcNow.AddSeconds($allowed)
+    return [PSCustomObject]@{
+        request_id = [guid]::NewGuid().ToString("N")
+        deadline = $deadline
+        deadline_utc = $deadline.UtcDateTime.ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'",
+            [Globalization.CultureInfo]::InvariantCulture
+        )
+        timeout_seconds = [int]$allowed
+    }
+}
+
+function Invoke-ReconciliationSchedulerRpc {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("ReadExecutionTapeTask", "ReadPushSnapshot", "StartPush", "StopPush")]
+        [string]$Operation,
+        [Parameter(Mandatory = $true)][object]$Identity,
+        [string]$MarkerSha256 = "",
+        [ValidateRange(0, 2)][int]$StopOrdinal = 0
+    )
+
+    $payload = [ordered]@{
+        schema = "production_baseline_scheduler_rpc_request_v0.1"
+        request_id = [string]$Identity.request_id
+        operation = $Operation
+        deadline_utc = [string]$Identity.deadline_utc
+        repo_root = $repo
+    }
+    if ($Operation -ne "ReadExecutionTapeTask") {
+        $payload.task_xml_sha256 = "8dc106989f176abfd1a21be0951cdfa325ffb5d5400e20e39c6978a10785dd05"
+    }
+    if ($Operation -in @("StartPush", "StopPush")) {
+        if ($MarkerSha256 -notmatch '^[0-9a-f]{64}$') {
+            throw "$Operation requires the exact active-marker SHA256"
+        }
+        $payload.marker_path = $activeMarkerPath
+        $payload.marker_sha256 = $MarkerSha256
+    }
+    if ($Operation -eq "StopPush") {
+        if ($StopOrdinal -notin @(1, 2)) { throw "StopPush requires ordinal one or two" }
+        $payload.stop_ordinal = $StopOrdinal
+    }
+    $requestJson = $payload | ConvertTo-Json -Depth 5 -Compress
+    $requestBytes = (New-Object System.Text.UTF8Encoding($false, $true)).GetBytes($requestJson)
+    $requestBase64 = [Convert]::ToBase64String($requestBytes)
+    $requestSha256 = Get-ReconciliationSha256Hex -Bytes $requestBytes
+    if ($Operation -eq "StartPush") { $script:pushStartRpcRequestSha256 = $requestSha256 }
+    if ($Operation -eq "StopPush") { $script:pushStopRpcRequestSha256 = $requestSha256 }
+
+    $resultPath = Join-Path ([IO.Path]::GetFullPath([IO.Path]::GetTempPath())) (
+        "weather-production-baseline-scheduler-rpc-{0}.json" -f [guid]::NewGuid().ToString("N")
+    )
+    try {
+        Assert-ReconciliationSchedulerRpcBytes
+        $processResult = Invoke-ReconciliationOwnedProcess `
+            -FilePath $reconciliationPowerShellExecutable `
+            -Tokens @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-File", $reconciliationSchedulerRpcScript,
+                "-Operation", $Operation,
+                "-RequestBase64", $requestBase64,
+                "-ResultPath", $resultPath
+            ) `
+            -TimeoutSeconds ([int]$Identity.timeout_seconds) `
+            -DeadlineUtc ([datetimeoffset]$Identity.deadline) `
+            -Label "Scheduler RPC $Operation"
+        if (-not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
+            throw "Scheduler RPC $Operation returned without an exclusive result"
+        }
+        $resultItem = Get-Item -LiteralPath $resultPath -ErrorAction Stop
+        if ($resultItem.Length -le 0 -or $resultItem.Length -gt 131072) {
+            throw "Scheduler RPC $Operation result is outside the fixed byte bound"
+        }
+        $resultBytes = [IO.File]::ReadAllBytes($resultPath)
+        $resultRaw = (New-Object System.Text.UTF8Encoding($false, $true)).GetString($resultBytes)
+        $result = $resultRaw | ConvertFrom-Json -ErrorAction Stop
+        if ([string]$result.schema -cne "production_baseline_scheduler_rpc_result_v0.1" -or
+            [string]$result.request_id -cne [string]$Identity.request_id -or
+            [string]$result.operation -cne $Operation -or
+            [int]$processResult.exit_code -ne 0 -or $result.ok -ne $true) {
+            $boundedError = [string]$result.error_message
+            if ($boundedError.Length -gt 512) { $boundedError = $boundedError.Substring(0, 512) }
+            throw "Scheduler RPC $Operation failed closed: $boundedError"
+        }
+        $completedAt = [datetimeoffset]::Parse([string]$result.completed_at_utc)
+        if ($completedAt -gt [datetimeoffset]$Identity.deadline) {
+            throw "Scheduler RPC $Operation completed after its request deadline"
+        }
+        $result | Add-Member -NotePropertyName request_sha256 -NotePropertyValue $requestSha256
+        return $result
+    }
+    finally {
+        Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Get-ReconciliationSchedulerReadIdentity {
+    $now = Get-Date
+    $logicalBoundary = $now.Date.AddHours(4)
+    if ($null -ne $pushContainmentDeadline -and
+        [datetime]$pushContainmentDeadline -lt $logicalBoundary) {
+        $logicalBoundary = [datetime]$pushContainmentDeadline
+    }
+    if ($null -ne $pushContainmentStopAt -and
+        $oneShotPushStopCount -eq 0 -and
+        [datetime]$pushContainmentStopAt -lt $logicalBoundary) {
+        # Before the first containment claim, every Scheduler read must leave
+        # the complete Stop reserve untouched.  At/after the reserve edge the
+        # identity calculation fails closed, and the drain catch below claims
+        # Stop instead of launching another potentially hung read helper.
+        $logicalBoundary = [datetime]$pushContainmentStopAt
+    }
+    return New-ReconciliationSchedulerRpcIdentity `
+        -LogicalBoundary $logicalBoundary -MaximumSeconds 15
+}
+
+function Assert-ReconciliationPushSnapshot {
+    param(
+        [Parameter(Mandatory = $true)][object]$Snapshot,
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("Ready", "Running", "Queued")][string[]]$AllowedStates
+    )
+
+    $required = @(
+        "schema", "request_id", "operation", "ok", "completed_at_utc",
+        "task_name", "task_path", "match_count", "state", "task_xml_base64",
+        "task_xml_sha256", "enabled", "principal_user_id",
+        "principal_logon_type", "principal_run_level", "action_execute",
+        "action_arguments", "action_working_directory", "trigger_count",
+        "multiple_instances", "execution_time_limit", "start_when_available",
+        "last_run_time", "last_task_result", "request_sha256"
+    )
+    $actual = @($Snapshot.PSObject.Properties.Name)
+    if (@($required | Where-Object { $actual -cnotcontains $_ }).Count -ne 0 -or
+        @($actual | Where-Object { $required -cnotcontains $_ }).Count -ne 0) {
+        throw "WeatherOneShotPush structured snapshot has an unexpected shape"
+    }
+    try { $taskXmlBytes = [Convert]::FromBase64String([string]$Snapshot.task_xml_base64) }
+    catch { throw "WeatherOneShotPush XML evidence is not base64" }
+    if ($taskXmlBytes.Length -le 0 -or $taskXmlBytes.Length -gt 65536 -or
+        (Get-ReconciliationSha256Hex -Bytes $taskXmlBytes) -cne
+            "8dc106989f176abfd1a21be0951cdfa325ffb5d5400e20e39c6978a10785dd05" -or
+        [string]$Snapshot.task_xml_sha256 -cne
+            "8dc106989f176abfd1a21be0951cdfa325ffb5d5400e20e39c6978a10785dd05") {
+        throw "WeatherOneShotPush XML evidence does not match the reviewed definition"
+    }
+    $expectedWorkingDirectory = [IO.Path]::GetFullPath($repo).TrimEnd('\')
+    $actualWorkingDirectory = try {
+        [IO.Path]::GetFullPath([string]$Snapshot.action_working_directory).TrimEnd('\')
+    }
+    catch { "" }
+    $expectedArguments = "/c git -C $repo push origin master > C:\Users\micha\ops\logs\push-oneshot.log 2>&1"
+    $expectedPushSid = "S-1-5-21-1525964525-1566663060-3901869365-1001"
+    $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try { $currentSid = [string]$currentIdentity.User.Value }
+    finally { $currentIdentity.Dispose() }
+    if ([string]$Snapshot.operation -cne "ReadPushSnapshot" -or
+        [int]$Snapshot.match_count -ne 1 -or
+        [string]$Snapshot.task_name -cne "WeatherOneShotPush" -or
+        [string]$Snapshot.task_path -cne "\" -or
+        $AllowedStates -cnotcontains [string]$Snapshot.state -or
+        $Snapshot.enabled -ne $true -or
+        [string]$Snapshot.principal_user_id -ine "micha" -or
+        $currentSid -cne $expectedPushSid -or
+        [string]$Snapshot.principal_logon_type -cne "Interactive" -or
+        [string]$Snapshot.principal_run_level -cne "Limited" -or
+        [string]$Snapshot.action_execute -ine "cmd.exe" -or
+        [string]$Snapshot.action_arguments -ine $expectedArguments -or
+        $actualWorkingDirectory -ine $expectedWorkingDirectory -or
+        [int]$Snapshot.trigger_count -ne 0 -or
+        [string]$Snapshot.multiple_instances -cne "IgnoreNew" -or
+        [string]$Snapshot.execution_time_limit -cne "PT15M" -or
+        $Snapshot.start_when_available -ne $false) {
+        throw "WeatherOneShotPush structured snapshot failed independent parent validation"
+    }
+    try {
+        $Snapshot | Add-Member -NotePropertyName parsed_last_run_time `
+            -NotePropertyValue ([datetime]$Snapshot.last_run_time)
+        $Snapshot | Add-Member -NotePropertyName parsed_last_task_result `
+            -NotePropertyValue ([long]$Snapshot.last_task_result)
+    }
+    catch { throw "WeatherOneShotPush runtime evidence is malformed" }
+    return $Snapshot
+}
+
+function Get-ReconciliationPushSnapshot {
+    param(
+        [ValidateSet("Ready", "Running", "Queued")]
+        [string[]]$AllowedStates = @("Ready", "Running", "Queued")
+    )
+
+    $identity = Get-ReconciliationSchedulerReadIdentity
+    $snapshot = Invoke-ReconciliationSchedulerRpc `
+        -Operation "ReadPushSnapshot" -Identity $identity
+    return Assert-ReconciliationPushSnapshot -Snapshot $snapshot -AllowedStates $AllowedStates
+}
+
 function Test-ExecutionTapeActive {
-    # Mirror roll_verdict.ps1's activation contract without changing task
-    # state. A disabled optional task is skipped only when no detached writer
-    # remains active; this must never enable an intentionally held producer.
-    $task = Get-ScheduledTask -TaskName "WeatherExecutionTapeSupervisor" -ErrorAction SilentlyContinue
-    if ($task -and [string]$task.State -ne "Disabled") { return $true }
+    if (-not $productionBaselineReconciliationMode) {
+        # Preserve the ordinary synchronized-merge contract exactly. Its
+        # Scheduler access is outside the incident-bound reconciliation path
+        # and therefore does not depend on the safety-tip child runtime.
+        $task = Get-ScheduledTask `
+            -TaskName "WeatherExecutionTapeSupervisor" `
+            -ErrorAction SilentlyContinue
+        if ($task -and [string]$task.State -ne "Disabled") { return $true }
+        $statusPath = Join-Path $repo "data\snapshots\execution_tape_status.json"
+        $writerLockPath = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
+        if (Test-Path -LiteralPath $writerLockPath -PathType Leaf) { return $true }
+        if (Test-Path -LiteralPath $statusPath -PathType Leaf) {
+            try {
+                $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
+                if ([string]$status.state -eq "STOPPED" -or [int]$status.pid -le 0) {
+                    return $false
+                }
+                return $null -ne (
+                    Get-Process -Id ([int]$status.pid) -ErrorAction SilentlyContinue
+                )
+            }
+            catch { return $false }
+        }
+        return $false
+    }
+
+    # The Scheduler read is killable and bounded. Any unavailable or malformed
+    # read is treated as active so incomplete evidence can never skip a required
+    # execution-tape recovery proof.
+    try {
+        $identity = Get-ReconciliationSchedulerReadIdentity
+        $task = Invoke-ReconciliationSchedulerRpc `
+            -Operation "ReadExecutionTapeTask" -Identity $identity
+        $required = @(
+            "schema", "request_id", "operation", "ok", "completed_at_utc",
+            "task_name", "task_path", "match_count", "state", "request_sha256"
+        )
+        $actual = @($task.PSObject.Properties.Name)
+        if (@($required | Where-Object { $actual -cnotcontains $_ }).Count -ne 0 -or
+            @($actual | Where-Object { $required -cnotcontains $_ }).Count -ne 0 -or
+            [string]$task.operation -cne "ReadExecutionTapeTask" -or
+            [int]$task.match_count -ne 1 -or
+            [string]$task.task_name -cne "WeatherExecutionTapeSupervisor" -or
+            [string]$task.task_path -cne "\") {
+            throw "execution-tape task evidence failed independent validation"
+        }
+        if ([string]$task.state -cne "Disabled") { return $true }
+    }
+    catch {
+        Note "execution-tape task read failed closed as active: $($_.Exception.Message)"
+        return $true
+    }
     $statusPath = Join-Path $repo "data\snapshots\execution_tape_status.json"
     $writerLockPath = Join-Path $repo "data\snapshots\.execution_tape_status.json.writer.lock"
     if (Test-Path -LiteralPath $writerLockPath -PathType Leaf) { return $true }
@@ -580,9 +1039,6 @@ function Test-ExecutionTapeActive {
             if ([string]$status.state -eq "STOPPED" -or [int]$status.pid -le 0) {
                 return $false
             }
-            # A retained CONNECTED status is not a live writer. With the task
-            # disabled and no lock, require the recorded PID to still exist
-            # before treating the optional producer as rollable.
             return $null -ne (Get-Process -Id ([int]$status.pid) -ErrorAction SilentlyContinue)
         }
         catch { return $false }
@@ -598,102 +1054,100 @@ function Assert-OneShotPushTask {
         [switch]$PassThru
     )
 
-    # Publication is deliberately delegated to the one interactive task whose
-    # account can reach Windows Credential Manager. Prove that dependency before
-    # any ref or working-tree mutation; discovering a disabled, S4U, renamed, or
-    # command-drifted task after the recovery-proved commit would strand master
-    # locally ahead of origin by design.
-    try {
-        $pushTasks = @(Get-ScheduledTask -TaskName "WeatherOneShotPush" -ErrorAction Stop)
-    }
-    catch {
-        throw "WeatherOneShotPush is unavailable: $($_.Exception.Message)"
-    }
-    if ($pushTasks.Count -ne 1) {
-        throw "WeatherOneShotPush must resolve to exactly one scheduled task; found $($pushTasks.Count)"
-    }
-    $pushTask = $pushTasks[0]
-    $expectedPushTaskXmlSha256 = "8dc106989f176abfd1a21be0951cdfa325ffb5d5400e20e39c6978a10785dd05"
-    try {
-        $pushTaskXml = [string](Export-ScheduledTask -TaskName "WeatherOneShotPush" -TaskPath "\" -ErrorAction Stop)
-        $pushTaskSha = [Security.Cryptography.SHA256]::Create()
+    if (-not $productionBaselineReconciliationMode) {
+        # Keep the ordinary path's established direct task attestation and
+        # return shape. Only the one-time reconciliation mode is required to
+        # cross the killable child-RPC seam.
         try {
-            $actualPushTaskXmlSha256 = ([BitConverter]::ToString(
-                    $pushTaskSha.ComputeHash([Text.Encoding]::UTF8.GetBytes($pushTaskXml))
-                ) -replace '-', '').ToLowerInvariant()
+            $pushTasks = @(
+                Get-ScheduledTask -TaskName "WeatherOneShotPush" -ErrorAction Stop
+            )
         }
-        finally { $pushTaskSha.Dispose() }
+        catch {
+            throw "WeatherOneShotPush is unavailable: $($_.Exception.Message)"
+        }
+        if ($pushTasks.Count -ne 1) {
+            throw "WeatherOneShotPush must resolve to exactly one scheduled task; found $($pushTasks.Count)"
+        }
+        $pushTask = $pushTasks[0]
+        $expectedPushTaskXmlSha256 =
+            "8dc106989f176abfd1a21be0951cdfa325ffb5d5400e20e39c6978a10785dd05"
+        try {
+            $pushTaskXml = [string](Export-ScheduledTask `
+                    -TaskName "WeatherOneShotPush" -TaskPath "\" -ErrorAction Stop)
+            $pushTaskSha = [Security.Cryptography.SHA256]::Create()
+            try {
+                $actualPushTaskXmlSha256 = ([BitConverter]::ToString(
+                        $pushTaskSha.ComputeHash([Text.Encoding]::UTF8.GetBytes($pushTaskXml))
+                    ) -replace '-', '').ToLowerInvariant()
+            }
+            finally { $pushTaskSha.Dispose() }
+        }
+        catch {
+            throw "WeatherOneShotPush definition could not be hash-verified: $($_.Exception.Message)"
+        }
+        if ($actualPushTaskXmlSha256 -ne $expectedPushTaskXmlSha256) {
+            throw "WeatherOneShotPush task XML changed from the reviewed trigger/settings/action contract"
+        }
+        $pushActions = @($pushTask.Actions)
+        $pushTriggers = @($pushTask.Triggers)
+        $expectedPushSid = "S-1-5-21-1525964525-1566663060-3901869365-1001"
+        $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $expectedWorkingDirectory = [IO.Path]::GetFullPath($repo).TrimEnd('\')
+        $actualWorkingDirectory = try {
+            [IO.Path]::GetFullPath([string]$pushActions[0].WorkingDirectory).TrimEnd('\')
+        }
+        catch { "" }
+        $expectedPushArguments =
+            '/c git -C c:\Users\micha\Desktop\github\weather push origin master > C:\Users\micha\ops\logs\push-oneshot.log 2>&1'
+        $pushTaskBound = (
+            [string]$pushTask.TaskPath -ceq "\" -and
+            $AllowedStates -ccontains [string]$pushTask.State -and
+            $pushTask.Settings.Enabled -eq $true -and
+            [string]$pushTask.Principal.UserId -ieq "micha" -and
+            $currentSid -ceq $expectedPushSid -and
+            [string]$pushTask.Principal.LogonType -ceq "Interactive" -and
+            [string]$pushTask.Principal.RunLevel -ceq "Limited" -and
+            $pushTriggers.Count -eq 0 -and
+            [string]$pushTask.Settings.MultipleInstances -ceq "IgnoreNew" -and
+            [string]$pushTask.Settings.ExecutionTimeLimit -ceq "PT15M" -and
+            $pushTask.Settings.StartWhenAvailable -eq $false -and
+            $pushActions.Count -eq 1 -and
+            [string]$pushActions[0].Execute -ieq "cmd.exe" -and
+            [string]$pushActions[0].Arguments -ieq $expectedPushArguments -and
+            $actualWorkingDirectory -ieq $expectedWorkingDirectory
+        )
+        if (-not $pushTaskBound) {
+            throw "WeatherOneShotPush is not exactly bound to the enabled current-user Interactive/Limited git-push contract"
+        }
+        if (-not $Quiet) { Note "WeatherOneShotPush exact publication binding passed" }
+        if ($PassThru) { return $pushTask }
+        return
     }
-    catch {
-        throw "WeatherOneShotPush definition could not be hash-verified: $($_.Exception.Message)"
-    }
-    if ($actualPushTaskXmlSha256 -ne $expectedPushTaskXmlSha256) {
-        throw "WeatherOneShotPush task XML changed from the reviewed trigger/settings/action contract"
-    }
-    $pushActions = @($pushTask.Actions)
-    $pushTriggers = @($pushTask.Triggers)
-    $expectedPushSid = "S-1-5-21-1525964525-1566663060-3901869365-1001"
-    $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    $expectedWorkingDirectory = [IO.Path]::GetFullPath($repo).TrimEnd('\')
-    $actualWorkingDirectory = try {
-        [IO.Path]::GetFullPath([string]$pushActions[0].WorkingDirectory).TrimEnd('\')
-    }
-    catch { "" }
-    $expectedPushArguments = '/c git -C c:\Users\micha\Desktop\github\weather push origin master > C:\Users\micha\ops\logs\push-oneshot.log 2>&1'
-    $pushTaskBound = (
-        [string]$pushTask.TaskPath -ceq "\" -and
-        $AllowedStates -ccontains [string]$pushTask.State -and
-        $pushTask.Settings.Enabled -eq $true -and
-        [string]$pushTask.Principal.UserId -ieq "micha" -and
-        $currentSid -ceq $expectedPushSid -and
-        [string]$pushTask.Principal.LogonType -ceq "Interactive" -and
-        [string]$pushTask.Principal.RunLevel -ceq "Limited" -and
-        $pushTriggers.Count -eq 0 -and
-        [string]$pushTask.Settings.MultipleInstances -ceq "IgnoreNew" -and
-        [string]$pushTask.Settings.ExecutionTimeLimit -ceq "PT15M" -and
-        $pushTask.Settings.StartWhenAvailable -eq $false -and
-        $pushActions.Count -eq 1 -and
-        [string]$pushActions[0].Execute -ieq "cmd.exe" -and
-        [string]$pushActions[0].Arguments -ieq $expectedPushArguments -and
-        $actualWorkingDirectory -ieq $expectedWorkingDirectory
-    )
-    if (-not $pushTaskBound) {
-        throw "WeatherOneShotPush is not exactly bound to the enabled current-user Interactive/Limited git-push contract"
-    }
-    if (-not $Quiet) { Note "WeatherOneShotPush exact publication binding passed" }
-    if ($PassThru) { return $pushTask }
+
+    $snapshot = Get-ReconciliationPushSnapshot -AllowedStates $AllowedStates
+    if (-not $Quiet) { Note "WeatherOneShotPush exact bounded publication binding passed" }
+    if ($PassThru) { return $snapshot }
 }
 
 function Get-ReconciliationOneShotPushTaskInfo {
-    try {
-        $taskInfoRows = @(Get-ScheduledTaskInfo `
-            -TaskName "WeatherOneShotPush" -TaskPath "\" -ErrorAction Stop)
-    }
-    catch {
-        throw "WeatherOneShotPush runtime info is unavailable: $($_.Exception.Message)"
-    }
-    if ($taskInfoRows.Count -ne 1) {
-        throw "WeatherOneShotPush runtime info must resolve exactly once"
-    }
-    $taskInfo = $taskInfoRows[0]
-    try {
-        $lastRunTime = [datetime]$taskInfo.LastRunTime
-        $lastTaskResult = [long]$taskInfo.LastTaskResult
-    }
-    catch { throw "WeatherOneShotPush runtime info is malformed" }
+    $snapshot = Get-ReconciliationPushSnapshot
     return [PSCustomObject]@{
-        last_run_time = $lastRunTime
-        last_task_result = $lastTaskResult
+        last_run_time = [datetime]$snapshot.parsed_last_run_time
+        last_task_result = [long]$snapshot.parsed_last_task_result
     }
 }
 
 function Get-ReconciliationOneShotPushState {
-    $task = Assert-OneShotPushTask `
-        -AllowedStates @("Ready", "Running", "Queued") -Quiet -PassThru
-    return $task
+    return Get-ReconciliationPushSnapshot
 }
 
 function Get-ReconciliationPublicationAck {
+    param([Parameter(Mandatory = $true)][datetime]$Boundary)
+
+    if ((Get-Date) -ge $Boundary) {
+        throw "absolute publication boundary closed before acknowledgement"
+    }
     $previousPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
@@ -703,7 +1157,7 @@ function Get-ReconciliationPublicationAck {
             $remoteResult = Invoke-ReconciliationBoundedGit -Arguments @(
                 "ls-remote", "--exit-code", "--refs",
                 $reconciliationCanonicalOrigin, "refs/heads/master"
-            )
+            ) -LogicalBoundary $Boundary
             $remoteRows = @($remoteResult.stdout)
             $remoteExit = [int]$remoteResult.exit_code
         }
@@ -714,6 +1168,9 @@ function Get-ReconciliationPublicationAck {
         }
     }
     finally { $ErrorActionPreference = $previousPreference }
+    if ((Get-Date) -ge $Boundary) {
+        throw "absolute publication boundary closed during acknowledgement"
+    }
     $remoteParts = if ($remoteRows.Count -eq 1) {
         @(([string]$remoteRows[0]).Trim() -split '\s+')
     }
@@ -743,30 +1200,72 @@ function Get-ReconciliationPublicationAck {
     }
 }
 
+function Assert-ReconciliationMutationResult {
+    param(
+        [Parameter(Mandatory = $true)][object]$Result,
+        [Parameter(Mandatory = $true)][ValidateSet("StartPush", "StopPush")][string]$Operation,
+        [ValidateRange(0, 2)][int]$StopOrdinal = 0
+    )
+
+    if ([string]$Result.operation -cne $Operation -or
+        [string]$Result.task_name -cne "WeatherOneShotPush" -or
+        [string]$Result.task_path -cne "\" -or
+        [string]$Result.task_xml_sha256 -cne
+            "8dc106989f176abfd1a21be0951cdfa325ffb5d5400e20e39c6978a10785dd05" -or
+        $Result.mutation_authority_claimed -ne $true -or
+        $Result.mutation_dispatched -ne $true -or
+        [string]$Result.pre_state -notin @("Ready", "Running", "Queued") -or
+        [string]$Result.request_sha256 -notmatch '^[0-9a-f]{64}$') {
+        throw "$Operation result failed independent parent validation"
+    }
+    if ($Operation -eq "StopPush" -and [int]$Result.stop_ordinal -ne $StopOrdinal) {
+        throw "StopPush result ordinal does not match the journaled request"
+    }
+    try {
+        $null = [datetime]$Result.pre_last_run_time
+        $null = [long]$Result.pre_last_task_result
+    }
+    catch { throw "$Operation pre-mutation runtime evidence is malformed" }
+}
+
 function Invoke-ReconciliationOneShotPushTask {
+    param(
+        [Parameter(Mandatory = $true)][object]$Identity,
+        [Parameter(Mandatory = $true)][string]$MarkerSha256
+    )
+
     if ($oneShotPushStartCount -ne 0) {
         throw "WeatherOneShotPush has already been invoked by this process"
     }
     $script:oneShotPushStartCount++
-    $startTaskCommand = Get-Command -Name "Start-ScheduledTask" -ErrorAction Stop
-    & $startTaskCommand -TaskName WeatherOneShotPush -ErrorAction Stop
+    $result = Invoke-ReconciliationSchedulerRpc `
+        -Operation "StartPush" -Identity $Identity -MarkerSha256 $MarkerSha256
+    Assert-ReconciliationMutationResult -Result $result -Operation "StartPush"
 }
 
 function Invoke-ReconciliationOneShotPushStop {
-    param([Parameter(Mandatory = $true)][object]$Task)
+    param(
+        [Parameter(Mandatory = $true)][object]$Identity,
+        [Parameter(Mandatory = $true)][string]$MarkerSha256,
+        [Parameter(Mandatory = $true)][ValidateRange(1, 2)][int]$StopOrdinal
+    )
 
     if (-not $publicationInvoked -or $oneShotPushStartCount -ne 1 -or
         -not $oneShotPushStopAttempted -or $oneShotPushStopCount -lt 1) {
         throw "WeatherOneShotPush containment stop is not bound to the sole attempted invocation"
     }
-    $stopTaskCommand = Get-Command -Name "Stop-ScheduledTask" -ErrorAction Stop
-    & $stopTaskCommand -InputObject $Task -ErrorAction Stop
+    $result = Invoke-ReconciliationSchedulerRpc `
+        -Operation "StopPush" -Identity $Identity -MarkerSha256 $MarkerSha256 `
+        -StopOrdinal $StopOrdinal
+    Assert-ReconciliationMutationResult `
+        -Result $result -Operation "StopPush" -StopOrdinal $StopOrdinal
 }
 
 function Request-ReconciliationOneShotPushContainment {
-    param([Parameter(Mandatory = $true)][object]$Task)
+    param([Parameter(Mandatory = $true)][datetime]$LogicalBoundary)
 
-    if ($oneShotPushStopCount -ge $reconciliationPushStopAttemptLimit) {
+    if ($oneShotPushStopExhausted -or
+        $oneShotPushStopCount -ge $reconciliationPushStopAttemptLimit) {
         if (-not $oneShotPushStopExhausted) {
             $script:oneShotPushStopExhausted = $true
             try { Write-ReconciliationMarker -Phase "documented_unpublished" }
@@ -778,21 +1277,46 @@ function Request-ReconciliationOneShotPushContainment {
         return
     }
 
-    # The pre-start attempted marker is the durable authority boundary. This
-    # supplementary journal is best effort: a disk/readback fault must never
-    # disable the protective stop for the already-started on-demand task.
+    try {
+        $stopIdentity = New-ReconciliationSchedulerRpcIdentity `
+            -LogicalBoundary $LogicalBoundary -MaximumSeconds 20
+    }
+    catch {
+        # No mutation claim exists yet, so do not misreport a Stop attempt or
+        # write a post-boundary marker.  Exhaust the authority locally and keep
+        # the lease/drain alive until exact terminal proof or the absolute
+        # report-only boundary path records conservative containment evidence.
+        $script:oneShotPushStopExhausted = $true
+        Note "WeatherOneShotPush containment Stop identity/budget was unavailable; no Stop helper was launched and the lease remains held until terminal proof or the absolute boundary: $($_.Exception.Message)"
+        return
+    }
     $script:oneShotPushStopAttempted = $true
     $script:oneShotPushStopCount++
-    try { Write-ReconciliationMarker -Phase "documented_unpublished" }
+    $script:pushStopRpcRequestId = [string]$stopIdentity.request_id
+    $script:pushStopRpcDeadlineUtc = [string]$stopIdentity.deadline_utc
+    try {
+        Write-ReconciliationMarker -Phase "documented_unpublished"
+        $stopMarkerSha256 = $reconciliationMarkerSha256
+    }
     catch {
-        Note "containment-attempt marker update failed; attempted marker and task stop remain authoritative: $($_.Exception.Message)"
+        $script:oneShotPushStopExhausted = $true
+        Note "containment-attempt marker update failed; no Stop helper was launched: $($_.Exception.Message)"
+        return
     }
     try {
-        Invoke-ReconciliationOneShotPushStop -Task $Task
-        Note "WeatherOneShotPush reached its containment deadline; exact cached singleton task stop requested (attempt $oneShotPushStopCount)"
+        Invoke-ReconciliationOneShotPushStop `
+            -Identity $stopIdentity -MarkerSha256 $stopMarkerSha256 `
+            -StopOrdinal $oneShotPushStopCount
+        Note "WeatherOneShotPush reached its containment deadline; exact singleton task stop requested through the bounded helper (attempt $oneShotPushStopCount)"
     }
     catch {
-        Note "WeatherOneShotPush containment stop attempt $oneShotPushStopCount failed; retaining lease and retrying inside the quiet window: $($_.Exception.Message)"
+        if ($_.Exception -is [TimeoutException]) { $script:pushStopRpcTimedOut = $true }
+        # A thrown/lost Stop response is itself ambiguous. Never retry a
+        # mutating RPC; retain terminal non-PASS evidence instead.
+        $script:oneShotPushStopExhausted = $true
+        try { Write-ReconciliationMarker -Phase "documented_unpublished" }
+        catch { Note "ambiguous Stop marker update also failed: $($_.Exception.Message)" }
+        Note "WeatherOneShotPush containment Stop became uncertain; no further Scheduler mutation is allowed: $($_.Exception.Message)"
     }
 }
 
@@ -828,7 +1352,7 @@ $ExpectedSourceTree = $ExpectedSourceTree.Trim().ToLowerInvariant()
 
 $reconciliationLocalBaseline = "3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac"
 $reconciliationPublishedTarget = "c932b54f8747df5cdefc4cc42f8454b6797f09ae"
-$reconciliationReviewedParent = "d2ab532a5bebd0868754322c5b34f72ebff8293b"
+$reconciliationReviewedParent = "a24cf0f41bf0b321c5c813820594c56198a58d1a"
 $reconciliationLocalTree = "5281cd8ebff233e576a0b21d138a892c8c6c956c"
 $reconciliationPublishedTree = "6df5bac16d8c780c35b4601941eaca1137ea7070"
 $reconciliationCanonicalOrigin = "https://github.com/michaelbooth1/weather.git"
@@ -866,6 +1390,24 @@ function Assert-ReconciliationPublicationTimeBudget {
     return $windowEnd
 }
 
+function Assert-ReconciliationQuietWindowOpen {
+    param(
+        [Parameter(Mandatory = $true)][string]$Stage,
+        [switch]$RequirePublicationBudget
+    )
+
+    $now = Get-Date
+    $windowStart = $now.Date.AddHours(1)
+    $windowEnd = $now.Date.AddHours(4)
+    if ($now -lt $windowStart -or $now -ge $windowEnd) {
+        throw "01:00-04:00 quiet-window boundary is closed at $Stage"
+    }
+    if ($RequirePublicationBudget) {
+        $null = Assert-ReconciliationPublicationTimeBudget -Now $now
+    }
+    return $windowEnd
+}
+
 function Start-ReconciliationBoundedPollSleep {
     param(
         [Parameter(Mandatory = $true)][datetime]$Boundary,
@@ -879,12 +1421,32 @@ function Start-ReconciliationBoundedPollSleep {
     if ($milliseconds -gt 0) { Start-Sleep -Milliseconds $milliseconds }
 }
 
+function Stop-ReconciliationAtAbsolutePublicationBoundary {
+    $script:oneShotPushContainmentBreached = $true
+    # Never begin another marker reproof/replacement after the hard boundary.
+    # The earlier attempted marker already spends Start authority and is the
+    # conservative durable truth if terminal acknowledgement cannot finish.
+    Stop-Reconciliation `
+        -Detail "PT15M/04:00 absolute publication boundary reached without exact terminal acknowledgement; invocation spent and publication state unknown" `
+        -Stage "publication_state_uncertain" -ExitCode 3 -Ok $true
+}
+
 function Invoke-ReconciliationBoundedGit {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
-        [ValidateRange(1, 120)][int]$TimeoutSeconds = 30
+        [ValidateRange(1, 120)][int]$TimeoutSeconds = 30,
+        [datetime]$LogicalBoundary = [datetime]::MinValue
     )
 
+    if (-not $reconciliationOwnedChildInitialized) {
+        throw "kill-on-close child runtime is not initialized for bounded Git"
+    }
+    if ($LogicalBoundary -eq [datetime]::MinValue) {
+        $logicalNow = Get-Date
+        $LogicalBoundary = $logicalNow.Date.AddHours(4)
+    }
+    $identity = New-ReconciliationSchedulerRpcIdentity `
+        -LogicalBoundary $LogicalBoundary -MaximumSeconds $TimeoutSeconds
     $gitCommands = @(Get-Command -Name "git.exe" -CommandType Application -ErrorAction SilentlyContinue)
     if ($gitCommands.Count -eq 0) {
         $gitCommands = @(Get-Command -Name "git" -CommandType Application -ErrorAction Stop)
@@ -892,31 +1454,64 @@ function Invoke-ReconciliationBoundedGit {
     $gitExecutable = [string]$gitCommands[0].Source
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
     $token = [guid]::NewGuid().ToString("N")
-    $stdoutPath = Join-Path $tempRoot "weather-reconciliation-git-$token.out"
-    $stderrPath = Join-Path $tempRoot "weather-reconciliation-git-$token.err"
-    $process = $null
+    $resultPath = Join-Path $tempRoot "weather-reconciliation-git-$token.json"
+    $request = [ordered]@{
+        schema = "production_baseline_bounded_git_request_v0.1"
+        git = $gitExecutable
+        arguments = @($Arguments)
+    } | ConvertTo-Json -Depth 4 -Compress
+    $requestBase64 = [Convert]::ToBase64String(
+        (New-Object Text.UTF8Encoding($false, $true)).GetBytes($request)
+    )
+    $resultPathBase64 = [Convert]::ToBase64String(
+        (New-Object Text.UTF8Encoding($false, $true)).GetBytes($resultPath)
+    )
+    # The child receives only canonical base64 literals embedded in an encoded
+    # script. It writes bounded structured output because the suspended-before-
+    # assignment Job launcher deliberately does not inherit redirect handles.
+    $childCommand = @"
+`$ErrorActionPreference = 'Stop'
+`$utf8 = New-Object Text.UTF8Encoding(`$false, `$true)
+`$request = `$utf8.GetString([Convert]::FromBase64String('$requestBase64')) | ConvertFrom-Json -ErrorAction Stop
+`$resultPath = `$utf8.GetString([Convert]::FromBase64String('$resultPathBase64'))
+`$rows = @(& ([string]`$request.git) @(`$request.arguments) 2>`$null)
+`$gitExit = `$LASTEXITCODE
+`$payload = [ordered]@{ schema = 'production_baseline_bounded_git_result_v0.1'; exit_code = [int]`$gitExit; stdout = @(`$rows | ForEach-Object { [string]`$_ }) } | ConvertTo-Json -Depth 4 -Compress
+`$bytes = `$utf8.GetBytes(`$payload)
+`$stream = [IO.FileStream]::new(`$resultPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+try { `$stream.Write(`$bytes, 0, `$bytes.Length); `$stream.Flush(`$true) } finally { `$stream.Dispose() }
+"@
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
     try {
-        $process = Start-Process -FilePath $gitExecutable `
-            -ArgumentList $Arguments -NoNewWindow -PassThru `
-            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-            try { $process.Kill() } catch {}
-            try { $process.WaitForExit() } catch {}
-            throw "bounded git command timed out after ${TimeoutSeconds}s: $($Arguments -join ' ')"
+        $processResult = Invoke-ReconciliationOwnedProcess `
+            -FilePath $reconciliationPowerShellExecutable `
+            -Tokens @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-EncodedCommand", $encodedCommand
+            ) `
+            -TimeoutSeconds ([int]$identity.timeout_seconds) `
+            -DeadlineUtc ([datetimeoffset]$identity.deadline) `
+            -Label "bounded canonical Git read"
+        if ([int]$processResult.exit_code -ne 0 -or
+            -not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
+            throw "bounded git child returned no exact result"
         }
-        $stdout = if (Test-Path -LiteralPath $stdoutPath) {
-            @([IO.File]::ReadAllLines($stdoutPath, [Text.Encoding]::UTF8))
+        $resultItem = Get-Item -LiteralPath $resultPath -ErrorAction Stop
+        if ($resultItem.Length -le 0 -or $resultItem.Length -gt 131072) {
+            throw "bounded git result is outside the fixed byte bound"
         }
-        else { @() }
+        $result = [IO.File]::ReadAllText($resultPath, [Text.Encoding]::UTF8) |
+            ConvertFrom-Json -ErrorAction Stop
+        if ([string]$result.schema -cne "production_baseline_bounded_git_result_v0.1") {
+            throw "bounded git result schema is invalid"
+        }
         return [PSCustomObject]@{
-            exit_code = [int]$process.ExitCode
-            stdout = $stdout
+            exit_code = [int]$result.exit_code
+            stdout = @($result.stdout | ForEach-Object { [string]$_ })
         }
     }
     finally {
-        if ($process) { $process.Dispose() }
-        Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -992,19 +1587,42 @@ function Assert-ReconciliationSourceWorktree {
     }
     & git -C $sourceRoot merge-base --is-ancestor $reconciliationReviewedParent $sourceHead 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "reconciliation source tip does not descend from the exact reviewed audit parent"
+        throw "reconciliation safety tip does not descend from the exact reviewed parent"
     }
-    $sourceScriptRelative = "scripts/ops/quiet_window_merge.ps1"
-    $sourceScriptBlob = (Get-ReconciliationGitValue -Root $sourceRoot -GitArgs @(
-            "rev-parse", "$sourceHead`:$sourceScriptRelative"
-        )).ToLowerInvariant()
-    $diskScriptBlob = (Get-ReconciliationGitValue -Root $sourceRoot -GitArgs @(
-            "hash-object", "--", $sourceScriptRelative
-        )).ToLowerInvariant()
-    if ($sourceScriptBlob -cne $diskScriptBlob -or
-        (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
-            $ExpectedSelfSha256) {
-        throw "entry script is not the exact tracked, SHA256-pinned source-tip blob"
+    & git -C $sourceRoot merge-base --is-ancestor $reconciliationPublishedTarget $sourceHead 2>$null
+    if ($LASTEXITCODE -ne 0 -or $sourceHead -ceq $reconciliationPublishedTarget -or
+        (Get-ReconciliationGitValue -Root $sourceRoot -GitArgs @(
+                "merge-base", $reconciliationPublishedTarget, $sourceHead
+            )).ToLowerInvariant() -cne $reconciliationPublishedTarget) {
+        throw "reconciliation safety tip is not a strict descendant of the frozen published target"
+    }
+    $sourceSafetyDependencies = @(
+        "scripts/ops/quiet_window_merge.ps1",
+        "scripts/ops/production_baseline_scheduler_rpc.ps1",
+        "scripts/ops/windows_kill_on_close_job.ps1",
+        "scripts/ops/status.ps1",
+        "scripts/ops/health_watchdog.ps1"
+    )
+    foreach ($relativePath in $sourceSafetyDependencies) {
+        $trackedBlob = (Get-ReconciliationGitValue -Root $sourceRoot -GitArgs @(
+                "rev-parse", "$sourceHead`:$relativePath"
+            )).ToLowerInvariant()
+        $diskBlob = (Get-ReconciliationGitValue -Root $sourceRoot -GitArgs @(
+                "hash-object", "--", $relativePath
+            )).ToLowerInvariant()
+        $absolutePath = Join-Path $sourceRoot ($relativePath -replace '/', '\')
+        if ($trackedBlob -cne $diskBlob -or
+            -not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+            throw "safety-tip dependency is not the exact tracked blob: $relativePath"
+        }
+        $dependencySha256 = (
+            Get-FileHash -LiteralPath $absolutePath -Algorithm SHA256 -ErrorAction Stop
+        ).Hash.ToLowerInvariant()
+        $script:reconciliationDependencySha256["$relativePath@safety_tip"] = $dependencySha256
+        if ($relativePath -ceq "scripts/ops/quiet_window_merge.ps1" -and
+            $dependencySha256 -cne $ExpectedSelfSha256) {
+            throw "entry script is not the SHA256-pinned safety-tip blob"
+        }
     }
     return [PSCustomObject]@{ root = $sourceRoot; head = $sourceHead; tree = $sourceTree }
 }
@@ -1047,6 +1665,27 @@ function Assert-ReconciliationProductionIdentity {
         (Get-ReconciliationGitValue -Root $repo -GitArgs @("rev-parse", "$originMaster^{tree}")).ToLowerInvariant() -cne
         $reconciliationPublishedTree) {
         throw "production endpoint tree identity changed"
+    }
+    $productionSafetyTip = (Get-ReconciliationGitValue -Root $repo -GitArgs @(
+            "rev-parse", "$ExpectedSourceTip^{commit}"
+        )).ToLowerInvariant()
+    $productionSafetyTree = (Get-ReconciliationGitValue -Root $repo -GitArgs @(
+            "rev-parse", "$ExpectedSourceTip^{tree}"
+        )).ToLowerInvariant()
+    if ($productionSafetyTip -cne $ExpectedSourceTip -or
+        $productionSafetyTree -cne $ExpectedSourceTree) {
+        throw "production object database does not contain the exact frozen safety tip/tree"
+    }
+    & git -C $repo merge-base --is-ancestor $reconciliationPublishedTarget $ExpectedSourceTip 2>$null
+    if ($LASTEXITCODE -ne 0 -or $ExpectedSourceTip -ceq $reconciliationPublishedTarget -or
+        (Get-ReconciliationGitValue -Root $repo -GitArgs @(
+                "merge-base", $reconciliationPublishedTarget, $ExpectedSourceTip
+            )).ToLowerInvariant() -cne $reconciliationPublishedTarget) {
+        throw "production object database does not prove the frozen safety tip is a strict descendant of T"
+    }
+    & git -C $repo merge-base --is-ancestor $reconciliationReviewedParent $ExpectedSourceTip 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "production object database does not prove the frozen safety tip descends from the reviewed parent"
     }
     & git -C $repo merge-base --is-ancestor $reconciliationLocalBaseline $reconciliationPublishedTarget 2>$null
     if ($LASTEXITCODE -ne 0 -or
@@ -1117,6 +1756,25 @@ function Assert-ReconciliationDependencyBytes {
         }
         $script:reconciliationDependencySha256["$relativePath@$Stage"] = $actual
     }
+    if ($Stage -eq "published_target") {
+        foreach ($relativePath in @(
+                "scripts/ops/quiet_window_merge.ps1",
+                "scripts/ops/production_baseline_scheduler_rpc.ps1",
+                "scripts/ops/windows_kill_on_close_job.ps1",
+                "scripts/ops/status.ps1",
+                "scripts/ops/health_watchdog.ps1"
+            )) {
+            $expectedSafetySha = [string]$reconciliationDependencySha256["$relativePath@safety_tip"]
+            $absolutePath = Join-Path $repo ($relativePath -replace '/', '\')
+            if ($expectedSafetySha -notmatch '^[0-9a-f]{64}$' -or
+                -not (Test-Path -LiteralPath $absolutePath -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $absolutePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $expectedSafetySha) {
+                throw "adopted safety dependency bytes changed: $relativePath"
+            }
+            $script:reconciliationDependencySha256["$relativePath@$Stage"] = $expectedSafetySha
+        }
+    }
 }
 
 function Invoke-ReconciliationRollVerdict {
@@ -1124,17 +1782,26 @@ function Invoke-ReconciliationRollVerdict {
     $verdictJsonPath = Join-Path ([IO.Path]::GetTempPath()) (
         "weather-production-baseline-roll-{0}.json" -f [guid]::NewGuid().ToString("N")
     )
-    $previousPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = "Continue"
-        $output = @(& $verdictScript `
-            -Base $reconciliationLocalBaseline `
-            -Branch $reconciliationPublishedTarget `
-            -JsonOut $verdictJsonPath)
-        $rollVerdictExitCode = $LASTEXITCODE
-        $exitCode = $rollVerdictExitCode
-    }
-    finally { $ErrorActionPreference = $previousPreference }
+    $logicalNow = Get-Date
+    $rollIdentity = New-ReconciliationSchedulerRpcIdentity `
+        -LogicalBoundary $logicalNow.Date.AddHours(4) -MaximumSeconds 120
+    $rollProcess = Invoke-ReconciliationOwnedProcess `
+        -FilePath $reconciliationPowerShellExecutable `
+        -Tokens @(
+            "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", $verdictScript,
+            "-Base", $reconciliationLocalBaseline,
+            "-Branch", $ExpectedSourceTip,
+            "-JsonOut", $verdictJsonPath
+        ) `
+        -TimeoutSeconds ([int]$rollIdentity.timeout_seconds) `
+        -DeadlineUtc ([datetimeoffset]$rollIdentity.deadline) `
+        -Label "canonical roll verdict L-to-S"
+    $rollVerdictExitCode = [int]$rollProcess.exit_code
+    $exitCode = $rollVerdictExitCode
+    $output = @(
+        "kill-on-close roll_verdict completed exit=$exitCode base=$reconciliationLocalBaseline branch=$ExpectedSourceTip"
+    )
 
     $readable = $false
     $payload = $null
@@ -1160,14 +1827,16 @@ function Invoke-ReconciliationRollVerdict {
             $incompleteClosureProblems = @($payload.problems | Where-Object {
                     [string]$_ -match '(?i)(missing closure evidence|unreadable closure evidence|no source_scope_files|stale|dormant|tombstone)'
                 })
+            $observedAt = (Get-Date).ToUniversalTime()
+            $verdictAgeMinutes = ($observedAt - $generatedAt.UtcDateTime).TotalMinutes
             $readable = (
                 $verdictMatchesExit -and
-                [string]$payload.branch -ceq $reconciliationPublishedTarget -and
+                [string]$payload.branch -ceq $ExpectedSourceTip -and
                 [string]$payload.base_ref -ceq $reconciliationLocalBaseline -and
                 [string]$payload.base_sha -ceq $expectedShortBase -and
                 @($payload.closures_used).Count -gt 0 -and
                 $incompleteClosureProblems.Count -eq 0 -and
-                [Math]::Abs(((Get-Date).ToUniversalTime() - $generatedAt.UtcDateTime).TotalMinutes) -le 5
+                $verdictAgeMinutes -ge 0 -and $verdictAgeMinutes -le 5
             )
         }
         catch { $readable = $false }
@@ -1190,13 +1859,63 @@ $reconciliationPythonExitCode = $null
 function Invoke-ReconciliationPython {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
 
-    Push-Location -LiteralPath $repo
+    $logicalNow = Get-Date
+    $identity = New-ReconciliationSchedulerRpcIdentity `
+        -LogicalBoundary $logicalNow.Date.AddHours(4) -MaximumSeconds 120
+    $token = [guid]::NewGuid().ToString("N")
+    $resultPath = Join-Path ([IO.Path]::GetFullPath([IO.Path]::GetTempPath())) (
+        "weather-reconciliation-python-$token.json"
+    )
+    $request = [ordered]@{
+        schema = "production_baseline_bounded_python_request_v0.1"
+        executable = $py
+        arguments = @($Arguments)
+    } | ConvertTo-Json -Depth 4 -Compress
+    $utf8 = New-Object Text.UTF8Encoding($false, $true)
+    $requestBase64 = [Convert]::ToBase64String($utf8.GetBytes($request))
+    $resultPathBase64 = [Convert]::ToBase64String($utf8.GetBytes($resultPath))
+    $childCommand = @"
+`$ErrorActionPreference = 'Continue'
+`$utf8 = New-Object Text.UTF8Encoding(`$false, `$true)
+`$request = `$utf8.GetString([Convert]::FromBase64String('$requestBase64')) | ConvertFrom-Json -ErrorAction Stop
+`$resultPath = `$utf8.GetString([Convert]::FromBase64String('$resultPathBase64'))
+`$rows = @(& ([string]`$request.executable) @(`$request.arguments))
+`$childExit = `$LASTEXITCODE
+`$payload = [ordered]@{ schema = 'production_baseline_bounded_python_result_v0.1'; exit_code = [int]`$childExit; stdout = @(`$rows | ForEach-Object { [string]`$_ }) } | ConvertTo-Json -Depth 4 -Compress
+`$bytes = `$utf8.GetBytes(`$payload)
+`$stream = [IO.FileStream]::new(`$resultPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+try { `$stream.Write(`$bytes, 0, `$bytes.Length); `$stream.Flush(`$true) } finally { `$stream.Dispose() }
+"@
+    $encodedCommand = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($childCommand))
     try {
-        $output = @(& $py @Arguments)
-        $script:reconciliationPythonExitCode = $LASTEXITCODE
-        $output | Write-Output
+        $processResult = Invoke-ReconciliationOwnedProcess `
+            -FilePath $reconciliationPowerShellExecutable `
+            -Tokens @(
+                "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                "-EncodedCommand", $encodedCommand
+            ) `
+            -TimeoutSeconds ([int]$identity.timeout_seconds) `
+            -DeadlineUtc ([datetimeoffset]$identity.deadline) `
+            -Label "bounded reconciliation Python"
+        if ([int]$processResult.exit_code -ne 0 -or
+            -not (Test-Path -LiteralPath $resultPath -PathType Leaf)) {
+            throw "bounded reconciliation Python returned no exact result"
+        }
+        $resultItem = Get-Item -LiteralPath $resultPath -ErrorAction Stop
+        if ($resultItem.Length -le 0 -or $resultItem.Length -gt 1048576) {
+            throw "bounded reconciliation Python result is outside the fixed byte bound"
+        }
+        $result = [IO.File]::ReadAllText($resultPath, [Text.Encoding]::UTF8) |
+            ConvertFrom-Json -ErrorAction Stop
+        if ([string]$result.schema -cne "production_baseline_bounded_python_result_v0.1") {
+            throw "bounded reconciliation Python result schema is invalid"
+        }
+        $script:reconciliationPythonExitCode = [int]$result.exit_code
+        @($result.stdout) | ForEach-Object { [string]$_ } | Write-Output
     }
-    finally { Pop-Location }
+    finally {
+        Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Get-ReconciliationCaptureState {
@@ -1294,6 +2013,7 @@ function New-ReconciliationRawSnapshot {
     if (Test-Path -LiteralPath $snapshotRoot) { throw "snapshot destination already exists" }
     New-Item -ItemType Directory -Path $snapshotRoot -ErrorAction Stop | Out-Null
     $paths = [ordered]@{}
+    $configContentSha256 = [ordered]@{}
     foreach ($relativePath in $reconciliationExpectedConfigBlobs.Keys) {
         $sourcePath = Join-Path $repo ($relativePath -replace '/', '\')
         $snapshotRelative = "raw/$relativePath"
@@ -1307,10 +2027,11 @@ function New-ReconciliationRawSnapshot {
             throw "raw snapshot readback changed bytes for $relativePath"
         }
         $paths[$relativePath] = [ordered]@{
-            snapshot_path = ($snapshotPath.Substring($repo.Length).TrimStart('\') -replace '\', '/')
+            snapshot_path = ($snapshotPath.Substring($repo.Length).TrimStart('\') -replace '\\', '/')
             sha256 = $snapshotHash
             length = [long]$snapshotLength
         }
+        $configContentSha256[$relativePath] = $snapshotHash
     }
     $rollTranscriptPath = Join-Path $snapshotRoot "roll-verdict-output.txt"
     [IO.File]::WriteAllText(
@@ -1327,7 +2048,7 @@ function New-ReconciliationRawSnapshot {
             [string]$RollEvidence.json_sha256) {
             throw "roll-verdict JSON snapshot hash changed"
         }
-        $rollJsonRelative = ($rollJsonPath.Substring($repo.Length).TrimStart('\') -replace '\', '/')
+        $rollJsonRelative = ($rollJsonPath.Substring($repo.Length).TrimStart('\') -replace '\\', '/')
     }
     $manifest = [ordered]@{
         schema = "production_baseline_reconciliation_snapshot_v0.1"
@@ -1336,16 +2057,19 @@ function New-ReconciliationRawSnapshot {
         published_target = $reconciliationPublishedTarget
         source_tip = $ExpectedSourceTip
         source_tree = $ExpectedSourceTree
+        safety_tip = $ExpectedSourceTip
+        safety_tree = $ExpectedSourceTree
         entry_sha256 = $ExpectedSelfSha256
         config = $paths
+        reconciliation_config_content_sha256 = $configContentSha256
         roll_verdict = [ordered]@{
             explicit_base = $reconciliationLocalBaseline
-            explicit_branch = $reconciliationPublishedTarget
+            explicit_branch = $ExpectedSourceTip
             exit_code = [int]$RollEvidence.exit_code
             readable = [bool]$RollEvidence.readable
             json_path = $rollJsonRelative
             json_sha256 = $RollEvidence.json_sha256
-            transcript_path = ($rollTranscriptPath.Substring($repo.Length).TrimStart('\') -replace '\', '/')
+            transcript_path = ($rollTranscriptPath.Substring($repo.Length).TrimStart('\') -replace '\\', '/')
             transcript_sha256 = $rollTranscriptSha
         }
         dependency_sha256 = $reconciliationDependencySha256
@@ -1361,10 +2085,10 @@ function New-ReconciliationRawSnapshot {
     $manifestSha = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
     return [PSCustomObject]@{
         root = $snapshotRoot
-        manifest_path = ($manifestPath.Substring($repo.Length).TrimStart('\') -replace '\', '/')
+        manifest_path = ($manifestPath.Substring($repo.Length).TrimStart('\') -replace '\\', '/')
         manifest_sha256 = $manifestSha
         paths = $paths
-        roll_transcript_path = ($rollTranscriptPath.Substring($repo.Length).TrimStart('\') -replace '\', '/')
+        roll_transcript_path = ($rollTranscriptPath.Substring($repo.Length).TrimStart('\') -replace '\\', '/')
         roll_transcript_sha256 = $rollTranscriptSha
         roll_json_path = $rollJsonRelative
     }
@@ -1386,11 +2110,24 @@ function Assert-ReconciliationSnapshot {
         ([string]$manifest.published_target).ToLowerInvariant() -cne $reconciliationPublishedTarget -or
         ([string]$manifest.source_tip).ToLowerInvariant() -cne $ExpectedSourceTip -or
         ([string]$manifest.source_tree).ToLowerInvariant() -cne $ExpectedSourceTree -or
+        ([string]$manifest.safety_tip).ToLowerInvariant() -cne $ExpectedSourceTip -or
+        ([string]$manifest.safety_tree).ToLowerInvariant() -cne $ExpectedSourceTree -or
         ([string]$manifest.entry_sha256).ToLowerInvariant() -cne $ExpectedSelfSha256 -or
         ([string]$manifest.roll_verdict.explicit_base).ToLowerInvariant() -cne $reconciliationLocalBaseline -or
-        ([string]$manifest.roll_verdict.explicit_branch).ToLowerInvariant() -cne $reconciliationPublishedTarget -or
+        ([string]$manifest.roll_verdict.explicit_branch).ToLowerInvariant() -cne $ExpectedSourceTip -or
         [int]$manifest.roll_verdict.exit_code -ne [int]$rollVerdictExitCode) {
         throw "raw snapshot manifest immutable identities changed"
+    }
+    $manifestConfigHashes = @($manifest.reconciliation_config_content_sha256.PSObject.Properties)
+    if ($manifestConfigHashes.Count -ne $reconciliationExpectedConfigBlobs.Count) {
+        throw "raw snapshot manifest config hash map is incomplete"
+    }
+    foreach ($relativePath in $reconciliationExpectedConfigBlobs.Keys) {
+        $manifestHashProperty = $manifest.reconciliation_config_content_sha256.PSObject.Properties[$relativePath]
+        if ($null -eq $manifestHashProperty -or
+            [string]$manifestHashProperty.Value -cne [string]$rollbackContentSha256[$relativePath]) {
+            throw "raw snapshot manifest config hash changed for $relativePath"
+        }
     }
     $transcriptPath = Join-Path $repo ([string]$manifest.roll_verdict.transcript_path -replace '/', '\')
     if (-not (Test-Path -LiteralPath $transcriptPath -PathType Leaf) -or
@@ -1456,14 +2193,14 @@ function Assert-ReconciliationMergeCommit {
             )) -split '\s+')
     if ($row.Count -ne 3 -or $row[0].ToLowerInvariant() -cne $Commit -or
         $row[1].ToLowerInvariant() -cne $reconciliationActualPreMerge -or
-        $row[2].ToLowerInvariant() -cne $reconciliationPublishedTarget) {
-        throw "synthetic reconciliation merge does not have exact ordered parents [config-child,published-target]"
+        $row[2].ToLowerInvariant() -cne $ExpectedSourceTip) {
+        throw "synthetic reconciliation merge does not have exact ordered parents [config-child,safety-tip]"
     }
     Assert-ReconciliationConfigCommit -Commit $reconciliationActualPreMerge
-    $changes = @(& git -C $repo diff --name-only $reconciliationPublishedTarget $Commit)
+    $changes = @(& git -C $repo diff --name-only $ExpectedSourceTip $Commit)
     if ($LASTEXITCODE -ne 0 -or $changes.Count -ne $reconciliationExpectedConfigBlobs.Count -or
         @($changes | Where-Object { $reconciliationExpectedConfigBlobs.Keys -cnotcontains $_ }).Count -ne 0) {
-        throw "synthetic merge tree differs from the published target outside the two exact configs"
+        throw "synthetic merge tree differs from the safety tip outside the two exact configs"
     }
     foreach ($relativePath in $reconciliationSnapshotPaths.Keys) {
         $mergeBlob = (Get-ReconciliationGitValue -Root $repo -GitArgs @("rev-parse", "$Commit`:$relativePath")).ToLowerInvariant()
@@ -1476,6 +2213,10 @@ function Assert-ReconciliationMergeCommit {
     }
     if (@(Get-ReconciliationStatusRows -Root $repo).Count -ne 0) {
         throw "synthetic merge worktree is not clean"
+    }
+    & git -C $repo merge-base --is-ancestor $reconciliationPublishedTarget $Commit 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "synthetic merge is not a non-force descendant of the frozen published target"
     }
     Assert-ReconciliationSnapshot
 }
@@ -1490,6 +2231,11 @@ function Invoke-ReconciliationDryRun {
         if ($LASTEXITCODE -ne 0) { throw "temporary shared clone failed" }
         & git -C $dryRepo fetch --quiet $repo "+refs/remotes/origin/master:refs/remotes/reconciliation/published"
         if ($LASTEXITCODE -ne 0) { throw "temporary clone could not import the published target ref" }
+        if ((Get-ReconciliationGitValue -Root $dryRepo -GitArgs @(
+                    "rev-parse", "$ExpectedSourceTip^{commit}"
+                )).ToLowerInvariant() -cne $ExpectedSourceTip) {
+            throw "temporary clone could not resolve the frozen safety tip"
+        }
         & git -C $dryRepo checkout --quiet --detach $reconciliationLocalBaseline
         if ($LASTEXITCODE -ne 0) { throw "temporary clone could not check out the local baseline" }
         & git -C $dryRepo config user.name "Weather Reconciliation Dry Run"
@@ -1499,23 +2245,24 @@ function Invoke-ReconciliationDryRun {
             $destinationPath = Join-Path $dryRepo ($relativePath -replace '/', '\')
             [IO.File]::WriteAllBytes($destinationPath, [IO.File]::ReadAllBytes($sourcePath))
         }
-        & git -C $dryRepo add -- @($reconciliationExpectedConfigBlobs.Keys)
+        $dryConfigPaths = @($reconciliationExpectedConfigBlobs.Keys)
+        & git -C $dryRepo add -- $dryConfigPaths
         if ($LASTEXITCODE -ne 0) { throw "temporary config staging failed" }
         & git -C $dryRepo commit --quiet -m "dry-run: preserve exact production config bytes"
         if ($LASTEXITCODE -ne 0) { throw "temporary config commit failed" }
         $dryConfigCommit = (Get-ReconciliationGitValue -Root $dryRepo -GitArgs @("rev-parse", "HEAD^{commit}")).ToLowerInvariant()
-        & git -C $dryRepo merge --quiet --no-ff --no-edit $reconciliationPublishedTarget
+        & git -C $dryRepo merge --quiet --no-ff --no-edit $ExpectedSourceTip
         if ($LASTEXITCODE -ne 0) { throw "temporary synthetic merge failed or conflicted" }
         $dryMerge = (Get-ReconciliationGitValue -Root $dryRepo -GitArgs @("rev-parse", "HEAD^{commit}")).ToLowerInvariant()
         $parents = @((Get-ReconciliationGitValue -Root $dryRepo -GitArgs @(
                     "rev-list", "--parents", "-n", "1", $dryMerge
                 )) -split '\s+')
         if ($parents.Count -ne 3 -or $parents[1].ToLowerInvariant() -cne $dryConfigCommit -or
-            $parents[2].ToLowerInvariant() -cne $reconciliationPublishedTarget) {
-            throw "temporary synthetic merge parents are not [config-child,published-target]"
+            $parents[2].ToLowerInvariant() -cne $ExpectedSourceTip) {
+            throw "temporary synthetic merge parents are not [config-child,safety-tip]"
         }
         $dryConfigChanges = @(& git -C $dryRepo diff --name-only $reconciliationLocalBaseline $dryConfigCommit)
-        $dryTargetChanges = @(& git -C $dryRepo diff --name-only $reconciliationPublishedTarget $dryMerge)
+        $dryTargetChanges = @(& git -C $dryRepo diff --name-only $ExpectedSourceTip $dryMerge)
         if ($dryConfigChanges.Count -ne 2 -or $dryTargetChanges.Count -ne 2 -or
             @($dryConfigChanges | Where-Object { $reconciliationExpectedConfigBlobs.Keys -cnotcontains $_ }).Count -ne 0 -or
             @($dryTargetChanges | Where-Object { $reconciliationExpectedConfigBlobs.Keys -cnotcontains $_ }).Count -ne 0) {
@@ -1530,7 +2277,7 @@ function Invoke-ReconciliationDryRun {
                 throw "temporary synthetic merge changed raw or committed config bytes for $relativePath"
             }
         }
-        Note "DRY RUN PASS: isolated temporary merge proved exact [config-child,published-target] topology and bytes; production Git, configs, evidence, capture, documentation, and Scheduler were not mutated"
+        Note "DRY RUN PASS: isolated temporary merge proved exact [config-child,safety-tip] topology and bytes; production Git, configs, evidence, capture, documentation, and Scheduler were not mutated"
     }
     finally {
         if (Test-Path -LiteralPath $dryRoot) {
@@ -1589,11 +2336,22 @@ function Invoke-ReconciliationRollbackAndProve {
             -Detail "special rollback could not prove exact baseline/raw-byte state: $($_.Exception.Message); original=$Reason" `
             -Stage "rollback_recovery_failed" -ExitCode 4
     }
-    $deadline = (Get-Date).AddSeconds($RollbackRecoverySeconds)
+    $rollbackNow = Get-Date
+    $deadline = $rollbackNow.AddSeconds($RollbackRecoverySeconds)
+    $quietWindowEnd = $rollbackNow.Date.AddHours(4)
+    if ($quietWindowEnd -lt $deadline) { $deadline = $quietWindowEnd }
     do {
         $proof = Test-ReconciliationCaptureProof
         if ($proof.ok) { break }
-        if ((Get-Date) -lt $deadline) { Start-Sleep -Seconds 15 }
+        $sleepNow = Get-Date
+        if ($sleepNow -lt $deadline) {
+            $sleepMilliseconds = [int][Math]::Floor(
+                ([Math]::Min(15, ($deadline - $sleepNow).TotalSeconds)) * 1000
+            )
+            if ($sleepMilliseconds -gt 0) {
+                Start-Sleep -Milliseconds $sleepMilliseconds
+            }
+        }
     } while ((Get-Date) -lt $deadline)
     if (-not $proof.ok) {
         Stop-Reconciliation `
@@ -1624,8 +2382,8 @@ if ($productionBaselineReconciliationMode) {
         $ExpectedSelfSha256 -notmatch '^[0-9a-f]{64}$') {
         Stop-Reconciliation -Detail "special mode requires full hexadecimal L/T/source/self identities"
     }
-    if ($Branch -cne "origin/master" -or
-        $ExpectedTip -cne $reconciliationPublishedTarget -or
+    if ($Branch -cne $ExpectedSourceTip -or
+        $ExpectedTip -cne $ExpectedSourceTip -or
         $ExpectedBaseline -cne $reconciliationLocalBaseline -or
         $ExpectedLocalBaseline -cne $reconciliationLocalBaseline -or
         $ExpectedPublishedTarget -cne $reconciliationPublishedTarget) {
@@ -1634,14 +2392,12 @@ if ($productionBaselineReconciliationMode) {
     if ($Force -or $OwnerApprovedException -or $AttemptReportPath) {
         Stop-Reconciliation -Detail "production-baseline reconciliation forbids Force, owner exceptions, and generic integration-attempt report routing"
     }
+    $reconciliationSafetyTip = $ExpectedSourceTip
+    $reconciliationSafetyTree = $ExpectedSourceTree
     $ExpectedBaseline = $ExpectedLocalBaseline
-    $ExpectedTip = $ExpectedPublishedTarget
-    $h = (Get-Date).Hour + ((Get-Date).Minute / 60.0)
-    if ($productionBaselineReconciliationMode -and -not ($h -ge 1 -and $h -lt 4)) {
-        Stop-Reconciliation -Detail (
-            "special mode is fixed to the 01:00-04:00 quiet window (now {0:N2})" -f $h
-        )
-    }
+    $ExpectedTip = $ExpectedSourceTip
+    try { $null = Assert-ReconciliationQuietWindowOpen -Stage "entry" }
+    catch { Stop-Reconciliation -Detail $_.Exception.Message }
     if (-not $DryRun) {
         try { $null = Assert-ReconciliationPublicationTimeBudget -Now (Get-Date) }
         catch {
@@ -1653,6 +2409,44 @@ if ($productionBaselineReconciliationMode) {
         $sourceIdentity = Assert-ReconciliationSourceWorktree
         $reconciliationSourceRoot = [string]$sourceIdentity.root
         $reconciliationSourceTree = [string]$sourceIdentity.tree
+        $reconciliationOwnedChildJobScript = Join-Path `
+            $reconciliationSourceRoot "scripts\ops\windows_kill_on_close_job.ps1"
+        $reconciliationSchedulerRpcScript = Join-Path `
+            $reconciliationSourceRoot "scripts\ops\production_baseline_scheduler_rpc.ps1"
+        foreach ($binding in @(
+                [PSCustomObject]@{
+                    path = $reconciliationOwnedChildJobScript
+                    key = "scripts/ops/windows_kill_on_close_job.ps1@safety_tip"
+                },
+                [PSCustomObject]@{
+                    path = $reconciliationSchedulerRpcScript
+                    key = "scripts/ops/production_baseline_scheduler_rpc.ps1@safety_tip"
+                }
+            )) {
+            if (-not (Test-Path -LiteralPath $binding.path -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $binding.path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    [string]$reconciliationDependencySha256[[string]$binding.key]) {
+                throw "owned-child dependency changed before binding: $($binding.key)"
+            }
+        }
+        $reconciliationSchedulerRpcSha256 = [string]$reconciliationDependencySha256[
+            "scripts/ops/production_baseline_scheduler_rpc.ps1@safety_tip"
+        ]
+        . $reconciliationOwnedChildJobScript
+        foreach ($commandName in @(
+                "New-WeatherKillOnCloseJob",
+                "Start-WeatherProcessInJob",
+                "ConvertTo-WeatherWindowsArgumentString"
+            )) {
+            if (-not (Get-Command -Name $commandName -CommandType Function -ErrorAction SilentlyContinue)) {
+                throw "owned-child runtime did not define $commandName"
+            }
+        }
+        $reconciliationPowerShellExecutable = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
+        if (-not (Test-Path -LiteralPath $reconciliationPowerShellExecutable -PathType Leaf)) {
+            throw "current PowerShell executable could not be bound"
+        }
+        $reconciliationOwnedChildInitialized = $true
         Assert-ReconciliationProductionIdentity
         Assert-ReconciliationRemotePublishedTarget
         Assert-ReconciliationDependencyBytes -Stage "local_baseline"
@@ -1679,7 +2473,7 @@ if ($productionBaselineReconciliationMode) {
             $rollEvidence = Invoke-ReconciliationRollVerdict
             $rollVerdictExitCode = [int]$rollEvidence.exit_code
             $rollVerdictExplicitBase = $reconciliationLocalBaseline
-            $rollVerdictExplicitBranch = $reconciliationPublishedTarget
+            $rollVerdictExplicitBranch = $ExpectedSourceTip
             $rollVerdictJsonSha256 = [string]$rollEvidence.json_sha256
             $reconciliationRollVerdictReadable = [bool]$rollEvidence.readable
             $executionTapeActive = Test-ExecutionTapeActive
@@ -1717,6 +2511,8 @@ if ($productionBaselineReconciliationMode) {
     }
     try {
         try {
+            $null = Assert-ReconciliationQuietWindowOpen `
+                -Stage "post-lease preflight" -RequirePublicationBudget
             # Recheck every mutable input after acquiring the host-global lease.
             $sourceIdentity = Assert-ReconciliationSourceWorktree
             $reconciliationSourceRoot = [string]$sourceIdentity.root
@@ -1729,10 +2525,10 @@ if ($productionBaselineReconciliationMode) {
             $rollEvidence = Invoke-ReconciliationRollVerdict
             $rollVerdictExitCode = [int]$rollEvidence.exit_code
             $rollVerdictExplicitBase = $reconciliationLocalBaseline
-            $rollVerdictExplicitBranch = $reconciliationPublishedTarget
+            $rollVerdictExplicitBranch = $ExpectedSourceTip
             $rollVerdictJsonSha256 = [string]$rollEvidence.json_sha256
             $reconciliationRollVerdictReadable = [bool]$rollEvidence.readable
-            Note "explicit roll verdict L->T exit=$rollVerdictExitCode readable=$reconciliationRollVerdictReadable; special mode remains quiet-window-only"
+            Note "explicit roll verdict L->S exit=$rollVerdictExitCode readable=$reconciliationRollVerdictReadable; special mode remains quiet-window-only"
 
             $executionTapeActive = Test-ExecutionTapeActive
             $executionTapeReadoptionExpected = $false
@@ -1756,6 +2552,8 @@ if ($productionBaselineReconciliationMode) {
                 $executionTapeSourceBefore = [string]$beforeProof.execution.source
             }
 
+            $null = Assert-ReconciliationQuietWindowOpen `
+                -Stage "raw snapshot" -RequirePublicationBudget
             $rawEvidence = Get-ReconciliationRawConfigEvidence -Root $repo
             $snapshot = New-ReconciliationRawSnapshot -RollEvidence $rollEvidence -RawEvidence $rawEvidence
             $reconciliationSnapshotRoot = [string]$snapshot.root
@@ -1771,15 +2569,19 @@ if ($productionBaselineReconciliationMode) {
             Assert-ReconciliationSnapshot
 
             $baselineCommit = $ExpectedLocalBaseline
-            $resolvedBranchTip = $ExpectedPublishedTarget
-            $mergeTarget = $reconciliationPublishedTarget
+            $resolvedBranchTip = $ExpectedSourceTip
+            $mergeTarget = $ExpectedSourceTip
             $preMerge = $reconciliationLocalBaseline
             $reconciliationActualPreMerge = $reconciliationLocalBaseline
             $reconciliationBootGuardCommit = $reconciliationPublishedTarget
+            $null = Assert-ReconciliationQuietWindowOpen `
+                -Stage "preparing marker" -RequirePublicationBudget
             Write-ReconciliationMarker -Phase "reconciliation_preparing"
             $activeMarkerOwned = $true
 
             $configPaths = @($reconciliationExpectedConfigBlobs.Keys)
+            $null = Assert-ReconciliationQuietWindowOpen `
+                -Stage "config staging" -RequirePublicationBudget
             $configAddExit = Invoke-GitAllowingNativeStderr { & git -C $repo add -- $configPaths }
             if ($configAddExit -ne 0) {
                 Invoke-ReconciliationRollbackAndProve -Reason "staging the exact raw configs failed"
@@ -1788,6 +2590,13 @@ if ($productionBaselineReconciliationMode) {
             if ($LASTEXITCODE -ne 0 -or $stagedPaths.Count -ne 2 -or
                 @($stagedPaths | Where-Object { $configPaths -cnotcontains $_ }).Count -ne 0) {
                 Invoke-ReconciliationRollbackAndProve -Reason "the config index contains anything other than the exact two paths"
+            }
+            try {
+                $null = Assert-ReconciliationQuietWindowOpen `
+                    -Stage "config commit" -RequirePublicationBudget
+            }
+            catch {
+                Invoke-ReconciliationRollbackAndProve -Reason $_.Exception.Message
             }
             $configCommitExit = Invoke-GitAllowingNativeStderr {
                 & git -C $repo commit -m "ops: preserve exact production-generated config baseline" | Out-Null
@@ -1800,6 +2609,8 @@ if ($productionBaselineReconciliationMode) {
             ).ToLowerInvariant()
             $preMerge = $reconciliationActualPreMerge
             try {
+                $null = Assert-ReconciliationQuietWindowOpen `
+                    -Stage "prepared marker" -RequirePublicationBudget
                 Assert-ReconciliationConfigCommit -Commit $reconciliationActualPreMerge
                 Write-ReconciliationMarker -Phase "reconciliation_prepared"
             }
@@ -1810,8 +2621,15 @@ if ($productionBaselineReconciliationMode) {
             # The marker is already durable/read back with the T sentinel before
             # MERGE_HEAD can exist. Every failure before commit uses the special
             # abort+mixed-reset path; no hard-reset fallback is present here.
+            try {
+                $null = Assert-ReconciliationQuietWindowOpen `
+                    -Stage "synthetic merge staging" -RequirePublicationBudget
+            }
+            catch {
+                Invoke-ReconciliationRollbackAndProve -Reason $_.Exception.Message
+            }
             $mergeExit = Invoke-GitAllowingNativeStderr {
-                & git -C $repo merge --no-commit --no-ff $reconciliationPublishedTarget | Out-Null
+                & git -C $repo merge --no-commit --no-ff $ExpectedSourceTip | Out-Null
             }
             if ($mergeExit -ne 0) {
                 Invoke-ReconciliationRollbackAndProve -Reason "synthetic no-commit merge failed or conflicted (git exit $mergeExit)"
@@ -1825,6 +2643,8 @@ if ($productionBaselineReconciliationMode) {
                 Invoke-ReconciliationRollbackAndProve -Reason "staged synthetic merge identity/conflict proof failed"
             }
             try {
+                $null = Assert-ReconciliationQuietWindowOpen `
+                    -Stage "staged synthetic merge marker" -RequirePublicationBudget
                 Assert-ReconciliationDependencyBytes -Stage "published_target"
                 Assert-ReconciliationSnapshot
                 Write-ReconciliationMarker -Phase "reconciliation_merge_uncommitted"
@@ -1834,7 +2654,21 @@ if ($productionBaselineReconciliationMode) {
             }
 
             Note "synthetic target staged but uncommitted; waiting ${SettleSeconds}s for exact affected-producer readoption"
+            $settleStartedAt = Get-Date
+            $settleBoundary = $settleStartedAt.Date.AddHours(4)
+            if ($SettleSeconds -lt 0 -or
+                $settleStartedAt.AddSeconds($SettleSeconds) -ge $settleBoundary) {
+                Invoke-ReconciliationRollbackAndProve `
+                    -Reason "the staged-safety settle interval cannot complete inside 01:00-04:00"
+            }
             Start-Sleep -Seconds $SettleSeconds
+            try {
+                $null = Assert-ReconciliationQuietWindowOpen `
+                    -Stage "post-settle staged-safety proof" -RequirePublicationBudget
+            }
+            catch {
+                Invoke-ReconciliationRollbackAndProve -Reason $_.Exception.Message
+            }
             $afterProof = Test-ReconciliationCaptureProof
             if (-not $afterProof.ok) {
                 Invoke-ReconciliationRollbackAndProve -Reason "capture or required execution-tape recovery failed on staged target"
@@ -1844,8 +2678,12 @@ if ($productionBaselineReconciliationMode) {
                 Invoke-ReconciliationRollbackAndProve -Reason "execution-tape closure rolled but source fingerprint did not change"
             }
             $captureRecoveryProved = $true
+            $reconciliationStagedSafetyCaptureRecoveryProved = $true
+            $reconciliationStagedSafetyCaptureRecoveryAt = (Get-Date).ToString("o")
             if ($executionTapeRecoveryRequired) { $executionTapeRecoveryProved = $true }
             try {
+                $null = Assert-ReconciliationQuietWindowOpen `
+                    -Stage "staged-safety recovered marker" -RequirePublicationBudget
                 Write-ReconciliationMarker -Phase "reconciliation_capture_recovered_uncommitted"
                 Assert-ReconciliationSnapshot
             }
@@ -1856,6 +2694,13 @@ if ($productionBaselineReconciliationMode) {
             # This monotonic boundary is deliberately set before invoking Git.
             # From here on, no automated rollback is allowed: a nonzero commit
             # result can be an already-created M with MERGE_HEAD removed.
+            try {
+                $null = Assert-ReconciliationQuietWindowOpen `
+                    -Stage "synthetic merge commit" -RequirePublicationBudget
+            }
+            catch {
+                Invoke-ReconciliationRollbackAndProve -Reason $_.Exception.Message
+            }
             $reconciliationCommitInvocationStarted = $true
             $mergeCommitExit = Invoke-GitAllowingNativeStderr {
                 & git -C $repo commit -m "Merge published production baseline with preserved generated config" | Out-Null
@@ -1863,6 +2708,12 @@ if ($productionBaselineReconciliationMode) {
             if ($mergeCommitExit -ne 0) {
                 Stop-Reconciliation `
                     -Detail "merge commit invocation returned $mergeCommitExit; sentinel marker and exact Git state preserved for review" `
+                    -Stage "commit_ambiguous" -ExitCode 4
+            }
+            try { $null = Assert-ReconciliationQuietWindowOpen -Stage "post-merge commit" }
+            catch {
+                Stop-Reconciliation `
+                    -Detail "synthetic merge commit crossed the 04:00 boundary; sentinel marker and exact Git state preserved" `
                     -Stage "commit_ambiguous" -ExitCode 4
             }
             $candidateMergeCommit = (
@@ -1912,6 +2763,15 @@ if ($productionBaselineReconciliationMode) {
 
         # Documentation begins only after M and the boot-valid postcommit marker
         # exist. Any ambiguity below preserves both for reviewed reconciliation.
+        try {
+            $null = Assert-ReconciliationQuietWindowOpen `
+                -Stage "documentation transaction" -RequirePublicationBudget
+        }
+        catch {
+            Stop-Reconciliation `
+                -Detail "quiet-window boundary closed before documentation; M and boot-valid marker preserved" `
+                -Stage "reconciliation_merged_unpublished" -ExitCode 3 -Ok $true
+        }
         $documentationArgs = @(
             "-m", "weather.operations.documentation_transaction",
             "--repo-root", $repo,
@@ -1935,6 +2795,8 @@ if ($productionBaselineReconciliationMode) {
                 -Stage "reconciliation_merged_unpublished" -ExitCode 3 -Ok $true
         }
         try {
+            $null = Assert-ReconciliationQuietWindowOpen `
+                -Stage "documentation marker" -RequirePublicationBudget
             $documentationPayload = (($documentationOutput -join "`n") | ConvertFrom-Json)
             $pendingSha256 = ([string]$documentationPayload.pending_sha256).ToLowerInvariant()
             $matchingEntry = @($documentationPayload.integrations | Where-Object {
@@ -1958,7 +2820,7 @@ if ($productionBaselineReconciliationMode) {
                 $snapshotEntries.Count -ne 1 -or
                 (Get-FileHash -LiteralPath $pendingPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pendingSha256 -or
                 (Get-FileHash -LiteralPath $documentationPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $pendingSha256) {
-                throw "documentation pending state/snapshot does not exactly bind M/T"
+                throw "documentation pending state/snapshot does not exactly bind M/S"
             }
             $documentationTransactionPendingSha256 = $pendingSha256
             $documentationTransactionSnapshotPath = $snapshotRelative
@@ -2019,7 +2881,7 @@ if ($productionBaselineReconciliationMode) {
         $pushPreStartAt = Get-Date
         try {
             $quietWindowEnd = Assert-ReconciliationPublicationTimeBudget -Now $pushPreStartAt
-            $pushPreTask = Assert-OneShotPushTask -PassThru
+            $null = Assert-OneShotPushTask -PassThru
             $pushPreInfo = Get-ReconciliationOneShotPushTaskInfo
             $oneShotPushPreLastRunTime = $pushPreInfo.last_run_time.ToString("o")
             # Task readback is an external boundary. Reprove the captured
@@ -2056,7 +2918,7 @@ if ($productionBaselineReconciliationMode) {
                 $documentedMarkerSha256) {
                 throw "push-attempt marker changed during final revalidation"
             }
-            $cachedPushTask = Assert-OneShotPushTask -PassThru
+            $null = Assert-OneShotPushTask -PassThru
             $pushPreStartRecheck = Get-ReconciliationOneShotPushTaskInfo
             if ($pushPreStartRecheck.last_run_time -ne $pushPreInfo.last_run_time -or
                 $pushPreStartRecheck.last_task_result -ne $pushPreInfo.last_task_result) {
@@ -2064,25 +2926,72 @@ if ($productionBaselineReconciliationMode) {
             }
             $lastProof = Test-ReconciliationCaptureProof
             if (-not $lastProof.ok) { throw "recovery failed after push-attempt marker was armed" }
+            $reconciliationPrePushCaptureRecoveryProved = $true
+            $reconciliationPrePushCaptureRecoveryAt = (Get-Date).ToString("o")
             $pushStartIssuedAt = Get-Date
             $quietWindowEnd = Assert-ReconciliationPublicationTimeBudget -Now $pushStartIssuedAt
             $pushContainmentDeadline = $pushStartIssuedAt.Add($reconciliationPushRuntimeLimit)
+            if ($quietWindowEnd -lt $pushContainmentDeadline) {
+                $pushContainmentDeadline = $quietWindowEnd
+            }
+            $pushContainmentStopAt = $pushContainmentDeadline.AddSeconds(-30)
             $oneShotPushStartIssuedAt = $pushStartIssuedAt.ToString("o")
             $oneShotPushContainmentDeadline = $pushContainmentDeadline.ToString("o")
             # Persist the exact on-demand containment clock before Start. The
             # task's XML PT15M limit does not constrain an on-demand invocation.
             Write-ReconciliationMarker -Phase "documented_unpublished"
             $documentedMarkerSha256 = $reconciliationMarkerSha256
-            $cachedPushTask = Assert-OneShotPushTask -PassThru
+            $null = Assert-OneShotPushTask -PassThru
             $pushImmediateInfo = Get-ReconciliationOneShotPushTaskInfo
             if ($pushImmediateInfo.last_run_time -ne $pushPreInfo.last_run_time -or
                 $pushImmediateInfo.last_task_result -ne $pushPreInfo.last_task_result) {
                 throw "WeatherOneShotPush runtime changed at the immediate start boundary"
             }
+            # Reprove the exact non-force publication endpoints after capture
+            # and Scheduler reads, immediately before creating the journaled
+            # Start identity. The helper independently re-attests the task once
+            # more at its own mutation boundary.
+            Assert-ReconciliationCanonicalOrigin -Root $repo
+            Assert-ReconciliationRemotePublishedTarget
+            if ((Get-ReconciliationGitValue -Root $repo -GitArgs @(
+                        "rev-parse", "HEAD^{commit}"
+                    )).ToLowerInvariant() -cne $mergeCommit -or
+                (Get-ReconciliationGitValue -Root $repo -GitArgs @(
+                        "rev-parse", "master^{commit}"
+                    )).ToLowerInvariant() -cne $mergeCommit -or
+                (Get-ReconciliationGitValue -Root $repo -GitArgs @(
+                        "rev-parse", "origin/master^{commit}"
+                    )).ToLowerInvariant() -cne $reconciliationPublishedTarget) {
+                throw "HEAD/master/origin moved at the final Start boundary"
+            }
+            Assert-ReconciliationSnapshot
             $pushImmediateAt = Get-Date
             if ($pushImmediateAt -ge $pushContainmentDeadline -or
                 $pushImmediateAt -ge $quietWindowEnd) {
                 throw "quiet-window containment clock elapsed while arming the task start"
+            }
+            $pushStartIdentity = New-ReconciliationSchedulerRpcIdentity `
+                -LogicalBoundary $pushContainmentDeadline -MaximumSeconds 20
+            $pushStartRpcRequestId = [string]$pushStartIdentity.request_id
+            $pushStartRpcDeadlineUtc = [string]$pushStartIdentity.deadline_utc
+            # This final atomic marker replacement journals the exact helper
+            # identity immediately before its sole Start invocation.
+            Write-ReconciliationMarker -Phase "documented_unpublished"
+            $documentedMarkerSha256 = $reconciliationMarkerSha256
+            Assert-ReconciliationCanonicalOrigin -Root $repo
+            Assert-ReconciliationRemotePublishedTarget
+            if ((Get-ReconciliationGitValue -Root $repo -GitArgs @(
+                        "rev-parse", "HEAD^{commit}"
+                    )).ToLowerInvariant() -cne $mergeCommit -or
+                (Get-ReconciliationGitValue -Root $repo -GitArgs @(
+                        "rev-parse", "master^{commit}"
+                    )).ToLowerInvariant() -cne $mergeCommit -or
+                (Get-ReconciliationGitValue -Root $repo -GitArgs @(
+                        "rev-parse", "origin/master^{commit}"
+                    )).ToLowerInvariant() -cne $reconciliationPublishedTarget -or
+                (Get-FileHash -LiteralPath $activeMarkerPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $documentedMarkerSha256) {
+                throw "journaled Start boundary changed before helper launch"
             }
         }
         catch {
@@ -2093,23 +3002,31 @@ if ($productionBaselineReconciliationMode) {
 
         Note "all reconciliation gates passed; invoking WeatherOneShotPush exactly once for $mergeCommit"
         $pushStartError = $null
-        try { Invoke-ReconciliationOneShotPushTask }
+        try {
+            Invoke-ReconciliationOneShotPushTask `
+                -Identity $pushStartIdentity -MarkerSha256 $documentedMarkerSha256
+        }
         catch {
-            # Start-ScheduledTask is asynchronous and can throw after dispatch.
-            # The attempted marker is already durable, so drain the exact task
-            # to a proved terminal state instead of releasing the lease early.
+            # The bounded helper can lose its response after Scheduler accepts
+            # Start. The attempted marker is already durable, so this authority
+            # is permanently spent and can never be retried.
+            if ($_.Exception -is [TimeoutException]) { $pushStartRpcTimedOut = $true }
             $pushStartError = $_.Exception.Message
-            Note "WeatherOneShotPush start returned an error after invocation began; draining exact runtime state"
+            try { Write-ReconciliationMarker -Phase "documented_unpublished" }
+            catch { Note "ambiguous Start marker update also failed: $($_.Exception.Message)" }
+            Note "WeatherOneShotPush Start became uncertain after the journaled sole attempt; draining without retry"
         }
         $pushRunObserved = $false
         $pushTerminalProved = $false
         $pushReadySignature = $null
         $pushReadyAgreementCount = 0
         $pushDeadlineWarningWritten = $false
-        $pushQuietEndWarningWritten = $false
         $pushTerminalInfo = $null
         while (-not $pushTerminalProved) {
             $pushPollAt = Get-Date
+            if ($pushPollAt -ge $pushContainmentDeadline) {
+                Stop-ReconciliationAtAbsolutePublicationBoundary
+            }
             $pushTask = $null
             $pushState = $null
             $pushInfo = $null
@@ -2117,25 +3034,29 @@ if ($productionBaselineReconciliationMode) {
                 $pushTask = Get-ReconciliationOneShotPushState
                 $pushState = [string]$pushTask.State
                 $pushInfo = Get-ReconciliationOneShotPushTaskInfo
+                $pushPollAt = Get-Date
+                if ($pushPollAt -ge $pushContainmentDeadline) {
+                    Stop-ReconciliationAtAbsolutePublicationBoundary
+                }
             }
             catch {
-                if ($pushPollAt -ge $pushContainmentDeadline -and
-                    $pushPollAt -lt $quietWindowEnd) {
-                    Request-ReconciliationOneShotPushContainment -Task $cachedPushTask
+                $pushPollAt = Get-Date
+                if ($pushPollAt -ge $pushContainmentDeadline) {
+                    Stop-ReconciliationAtAbsolutePublicationBoundary
                 }
-                elseif ($pushPollAt -ge $quietWindowEnd) {
-                    $oneShotPushContainmentBreached = $true
+                if ($pushPollAt -ge $pushContainmentStopAt -and
+                    $pushPollAt -lt $pushContainmentDeadline) {
+                    Request-ReconciliationOneShotPushContainment -LogicalBoundary $pushContainmentDeadline
                 }
                 if (-not $pushDeadlineWarningWritten -and
-                    $pushPollAt -ge $pushContainmentDeadline) {
-                    Note "publication drain reached the PT15M on-demand containment boundary without exact task readback; stopping the cached exact task and retaining the lease"
+                    $pushPollAt -ge $pushContainmentStopAt) {
+                    Note "publication drain reached its pre-PT15M Stop reserve without exact task readback; bounded Stop is attempted at most once"
                     $pushDeadlineWarningWritten = $true
                 }
-                $nextBoundary = if ($pushPollAt -lt $pushContainmentDeadline) {
-                    $pushContainmentDeadline
+                $nextBoundary = if ($pushPollAt -lt $pushContainmentStopAt) {
+                    $pushContainmentStopAt
                 }
-                elseif ($pushPollAt -lt $quietWindowEnd) { $quietWindowEnd }
-                else { $pushPollAt.AddSeconds(2) }
+                else { $pushContainmentDeadline }
                 Start-ReconciliationBoundedPollSleep -Boundary $nextBoundary -MaximumSeconds 2
                 continue
             }
@@ -2148,42 +3069,29 @@ if ($productionBaselineReconciliationMode) {
                 $pushRunObserved = $true
             }
             $containmentRequestedThisPoll = $false
-            if ($pushPollAt -ge $pushContainmentDeadline -and
-                $pushPollAt -lt $quietWindowEnd -and $oneShotPushStopCount -eq 0) {
+            if ($pushPollAt -ge $pushContainmentStopAt -and
+                $pushPollAt -lt $pushContainmentDeadline -and $oneShotPushStopCount -eq 0) {
                 # An asynchronous on-demand dispatch can still look Ready with
                 # unchanged LastRunTime. Stop the cached exact task once at the
                 # boundary even in that state before treating no-run as final.
-                Request-ReconciliationOneShotPushContainment -Task $cachedPushTask
+                Request-ReconciliationOneShotPushContainment -LogicalBoundary $pushContainmentDeadline
                 $containmentRequestedThisPoll = $true
             }
-            if ($pushPollAt -ge $pushContainmentDeadline -and
+            if ($pushPollAt -ge $pushContainmentStopAt -and
                 $pushState -in @("Running", "Queued")) {
-                if ($pushPollAt -lt $quietWindowEnd) {
-                    # Pre-start Ready + unchanged runtime + zero triggers +
-                    # IgnoreNew and the exclusive operator contract bind this
-                    # sole active singleton to the attempted invocation.
-                    if (-not $containmentRequestedThisPoll) {
-                        Request-ReconciliationOneShotPushContainment -Task $cachedPushTask
-                    }
+                # Pre-start Ready + unchanged runtime + zero triggers +
+                # IgnoreNew and the exclusive operator contract bind this sole
+                # active singleton to the attempted invocation.
+                if (-not $containmentRequestedThisPoll) {
+                    Request-ReconciliationOneShotPushContainment -LogicalBoundary $pushContainmentDeadline
                 }
-                else {
-                    $oneShotPushContainmentBreached = $true
-                    if (-not $pushQuietEndWarningWritten) {
-                        Note "WeatherOneShotPush remained active at 04:00 after bounded stop attempts; no further Scheduler/Git mutation is allowed, lease retained until exact terminal readback"
-                        $pushQuietEndWarningWritten = $true
-                    }
-                }
-                $nextBoundary = if ($pushPollAt -lt $quietWindowEnd) {
-                    $quietWindowEnd
-                }
-                else { $pushPollAt.AddSeconds(2) }
+                $nextBoundary = $pushContainmentDeadline
                 Start-ReconciliationBoundedPollSleep -Boundary $nextBoundary -MaximumSeconds 2
                 continue
             }
             $readyCanTerminal = $pushState -ceq "Ready" -and (
                 ($pushRunObserved -and $newLastRun) -or
-                $oneShotPushStopAttempted -or
-                (-not $pushRunObserved -and $pushPollAt -ge $pushContainmentDeadline)
+                $oneShotPushStopAttempted
             )
             if ($readyCanTerminal) {
                 $signature = "{0}|{1}" -f $pushInfo.last_run_time.Ticks,
@@ -2210,7 +3118,7 @@ if ($productionBaselineReconciliationMode) {
                         $oneShotPushLastTaskResult = [long]$pushTerminalCandidate.last_task_result
                         $pushTerminalProvedAt = Get-Date
                         $oneShotPushTerminalProvedAt = $pushTerminalProvedAt.ToString("o")
-                        if ($pushTerminalProvedAt -ge $quietWindowEnd) {
+                        if ($pushTerminalProvedAt -ge $pushContainmentDeadline) {
                             $oneShotPushContainmentBreached = $true
                         }
                         $pushTerminalProved = $true
@@ -2227,20 +3135,26 @@ if ($productionBaselineReconciliationMode) {
                 $pushReadyAgreementCount = 0
             }
             if (-not $pushDeadlineWarningWritten -and
-                $pushPollAt -ge $pushContainmentDeadline) {
-                Note "publication drain reached its PT15M containment boundary; retaining lease and attempted marker until exact terminal proof"
+                $pushPollAt -ge $pushContainmentStopAt) {
+                Note "publication drain reached its pre-PT15M containment reserve; exact terminal proof remains bounded by PT15M"
                 $pushDeadlineWarningWritten = $true
             }
-            $nextBoundary = if ($pushPollAt -lt $pushContainmentDeadline) {
-                $pushContainmentDeadline
+            $nextBoundary = if ($pushPollAt -lt $pushContainmentStopAt) {
+                $pushContainmentStopAt
             }
-            elseif ($pushPollAt -lt $quietWindowEnd) { $quietWindowEnd }
-            else { $pushPollAt.AddSeconds(2) }
+            else { $pushContainmentDeadline }
             Start-ReconciliationBoundedPollSleep -Boundary $nextBoundary -MaximumSeconds 10
         }
         $oneShotPushRunObserved = [bool]$pushRunObserved
         $oneShotPushTerminalProved = $true
-        $publicationAck = Get-ReconciliationPublicationAck
+        try {
+            $publicationAck = Get-ReconciliationPublicationAck `
+                -Boundary $pushContainmentDeadline
+        }
+        catch {
+            Note "terminal publication acknowledgement did not complete inside the absolute boundary: $($_.Exception.Message)"
+            Stop-ReconciliationAtAbsolutePublicationBoundary
+        }
         try {
             # Add the terminal runtime evidence to the still boot-valid,
             # attempted marker before classifying remote publication.
@@ -2253,6 +3167,9 @@ if ($productionBaselineReconciliationMode) {
         }
         if (-not ($pushRunObserved -and
             [long]$oneShotPushLastTaskResult -eq 0 -and
+            -not $pushStartRpcTimedOut -and
+            [string]::IsNullOrEmpty([string]$pushStartError) -and
+            -not $pushStopRpcTimedOut -and
             -not $oneShotPushStopExhausted -and
             -not $oneShotPushContainmentBreached -and
             $publicationAck.local_exact -and $publicationAck.remote_exact)) {
@@ -2294,7 +3211,7 @@ if ($productionBaselineReconciliationMode) {
                 -Stage "published_marker_ambiguous" -ExitCode 3 -Ok $true
         }
         Note "production-baseline reconciliation published exact M=$mergeCommit via the sole authorized task invocation"
-        Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (synthetic [config-child,published-target] via WeatherOneShotPush)"
+        Save-Report -ok $true -stage "pushed" -detail "$mergeCommit (synthetic [config-child,safety-tip] via WeatherOneShotPush)"
         exit 0
     }
     finally { Exit-WeatherHeavyWorkloadLease -Lease $workloadLease }

@@ -332,12 +332,12 @@ c932b54f8747df5cdefc4cc42f8454b6797f09ae`:
 ```powershell
 & <isolated-source>\scripts\ops\quiet_window_merge.ps1 `
   -ProductionBaselineReconciliation `
-  -Branch origin/master `
-  -ExpectedTip c932b54f8747df5cdefc4cc42f8454b6797f09ae `
+  -Branch <exact-reviewed-S-commit> `
+  -ExpectedTip <exact-reviewed-S-commit> `
   -ExpectedBaseline 3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac `
   -ExpectedLocalBaseline 3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac `
   -ExpectedPublishedTarget c932b54f8747df5cdefc4cc42f8454b6797f09ae `
-  -ExpectedSourceTip <reviewed-implementation-commit> `
+  -ExpectedSourceTip <exact-reviewed-S-commit> `
   -ExpectedSourceTree <reviewed-implementation-tree> `
   -ExpectedSelfSha256 <materialized-entry-script-sha256> `
   -RepoRoot <production-repository>
@@ -356,8 +356,8 @@ both index files in the before/after byte inventory.
 The real mode requires exactly the two unstaged generated-config modifications,
 proves the tracked blobs match at both endpoints, and stores content-addressed
 raw byte snapshots before its first marker or Git mutation. It invokes
-`roll_verdict.ps1` with the old local SHA as explicit `-Base` and the published
-SHA as explicit `-Branch`; every nonzero, missing, stale, or incomplete verdict
+`roll_verdict.ps1` with the old local SHA as explicit `-Base` and the frozen
+safety tip `S` as explicit `-Branch`; every nonzero, missing, stale, or incomplete verdict
 is sensitive, and the operation remains quiet-window-only in all cases. It
 validates the isolated source tip/tree/self bytes, canonical no-rewrite origin,
 adopted recovery/dependency hashes, exact singleton zero-trigger push task, and
@@ -372,8 +372,8 @@ precommit marker uses a `reconciliation_*` phase with
 `pre_merge_commit=c932b54f...` sentinel. Thus boot can refuse or attempt
 `merge --abort`, but its marker-derived `reset --hard` predicates are false.
 Only after the temporary config commit `C`, recovery-proved merge `M`, ordered
-parents `[C,c932b54f...]`, target-equivalent non-config tree, and exact raw
-config bytes are all proved does one atomic marker replacement expose `C` in
+parents `[C,S]`, an `S`-equivalent non-config tree, and exact raw config bytes
+are all proved does one atomic marker replacement expose `C` in
 the existing `merge_committed_unpublished` phase. Every later replacement must
 remain a complete boot-valid postcommit marker.
 
@@ -385,41 +385,77 @@ integration-attempt merge, resume, close, and ordinary instructions to retry a
 delete, or hand-edit its marker. Publication PASS requires the canonical remote
 query and local refs to prove `HEAD == master == origin/master == M`.
 Every special unpublished report uses the distinct
-`reconciliation_merged_unpublished` stage. This matters during first adoption:
-`M` is deliberately the frozen published target plus two configs, not this
-implementation topic's tree, so the adopted `T` status script must never match
-its ordinary report-specific `merged_unpushed` branch. That distinction does
-not make the current first run safe: adopted `T` also emits an unconditional
-ahead-of-origin warning to run the task. The scheduled health watchdog invokes
-that exact production status script and copies its warnings into host-health
-state and `MORNING_BRIEFING.md`, so an unsuccessful or uncertain sole attempt
-can automatically publish a forbidden retry instruction. The topic's status
-guard correctly fails closed, but exact `M` does not contain it. This is a
-NO-GO until a newly reviewed solution removes that automated instruction while
-preserving the exact-tree and no-Scheduler-mutation contracts. Do not treat the
-command shape above as a runnable handoff.
+`reconciliation_merged_unpublished` stage. `S` carries the incident-bound
+status/watchdog guard into `M`: a completely validated pre-dispatch marker says
+that guarded reconciliation owns publication and forbids manual invocation; an
+attempted unacknowledged marker says publication is pending/uncertain and
+forbids retry; exact local, cached, and live canonical acknowledgement suppresses
+the warning. Incomplete, stale, malformed, unreadable/lookup-failed, unrelated,
+or mismatched evidence is
+`incident_evidence_invalid`: preserve the active marker and its bound evidence,
+obtain reviewed recovery authority, and never manually invoke or retry
+`WeatherOneShotPush`. Invalid evidence cannot select an unfetched live SHA as
+the unpushed-count base: use cached `origin/master`, and emit a neutral unreadable
+warning rather than silently treating an unreadable comparison as zero. Treat
+only the exact reviewed command and immutable `S`
+identities as a runnable handoff; this template is not authority.
 
 The task XML's `PT15M` setting is an identity check, not runtime containment:
 Microsoft documents that [`ExecutionTimeLimit` is bypassed for an on-demand
 start](https://learn.microsoft.com/en-us/windows/win32/api/taskschd/nf-taskschd-itasksettings-put_executiontimelimit).
 Accordingly, both the initial no-mutation preflight and the immediate pre-start
-gate require a full 15-minute run budget plus a one-minute stop/terminal reserve
-strictly before 04:00. The attempted marker records the issue time and absolute
-containment deadline before `Start-ScheduledTask`. At that deadline the wrapper
-uses the cached, exactly validated task object with
-[`Stop-ScheduledTask -InputObject`](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/stop-scheduledtask),
-even when Scheduler still reports `Ready` or a supplementary marker readback
-fails; it retries once while inside the window, then journals stop exhaustion
-and polls read-only. It retains the workload lease until repeated exact `Ready`
-plus stable runtime-info proof. Stop exhaustion or a terminal proof at or after
-04:00 can never PASS. This remains implementation evidence, not an absolute
-wall-clock proof: the ScheduledTasks Start, Stop, Get, Info, and Export cmdlets
-still run synchronously in the parent and can hang across either deadline. A
-safe successor must move each Scheduler RPC into a killable bounded helper,
-revalidate the exact singleton in that child, journal before mutation, and
-treat every timed-out Start as a spent ambiguous dispatch. That missing seam is
-a separate NO-GO. Canonical remote
-acknowledgement also runs in an owned 30-second process timeout.
+gate require the full task runtime and terminal reserve strictly before 04:00.
+The attempted marker records the exact Start request identity, issue time, and
+absolute containment deadline before the sole Start helper is launched. Every
+reconciliation `Get-ScheduledTask`, `Get-ScheduledTaskInfo`,
+`Export-ScheduledTask`, `Start-ScheduledTask`, and `Stop-ScheduledTask` runs in
+`production_baseline_scheduler_rpc.ps1`, owned by the parent through the
+repository kill-on-close Job. Immediately before every RPC launch, the parent
+re-hashes the helper against its exact `S`-pinned dependency SHA-256. Its request
+deadline is eight seconds before the applicable PT15M/04:00 boundary: five
+seconds, clamped to the remaining time, are reserved for `TerminateAndWait`
+proof and a further three seconds remain for bounded result parsing. Read
+helpers return bounded structured evidence which the parent validates
+independently. Mutating helpers re-resolve and fully attest the exact singleton
+twice, revalidate the hash-bound marker, and use only the final
+[`-InputObject`](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/stop-scheduledtask).
+Immediately before mutation, the helper atomically creates a fixed durable
+one-use claim: one for Start and one for each permitted Stop ordinal. A claim is
+never automatically deleted. After creation and durable flush, one immediate
+nonblocking deadline recheck precedes the direct `InputObject` mutation; a
+deadline crossed by the claim leaves authority spent/unknown and performs no
+Scheduler dispatch. A claim collision, or any cmdlet throw
+once a durable claim exists, is authority-claimed with dispatch unknown and
+spent, never a false no-dispatch. Replay or a lost response therefore cannot
+reuse the authority. The parent recomputes the request's remaining UTC budget
+immediately before every blocking wait; journaling latency never extends the
+helper deadline.
+Any failed, lost, or timed-out Start response permanently spends the invocation
+and cannot PASS or produce a published marker even if exact publication is later
+observed. Every
+post-Start Scheduler read before the first Stop claim receives an identity
+bounded to `pushContainmentStopAt`, preserving the complete 30-second mutation
+reserve; the Job kills a slow or hung read before that edge. If a Stop identity
+or its remaining request budget cannot be created, Stop authority is exhausted
+locally without a false attempt or dispatch. No post-boundary marker is written,
+and the lease plus read-only drain remains until exact terminal proof or the
+absolute report boundary. A successful Stop may be attempted no more than twice
+while bounded; a lost, timed-out, or uncertain Stop is terminal non-PASS and
+cannot be retried. The lease is retained through terminal classification. Stop
+exhaustion, uncertainty, a missed deadline, or terminal proof at/after 04:00
+cannot PASS.
+Canonical remote acknowledgement, capture checks, and documentation commands
+also run in owned deadline-clamped processes. The writer rechecks 01:00-04:00 at
+each mutating boundary, rejects a settle that cannot finish before 04:00, caps
+rollback recovery there, and re-proves live origin plus local refs after the
+final Start journal. Once the boundary closes it performs no new marker
+replacement; the durable attempted marker remains fail-closed authority.
+
+The adopted status parser validates the complete JSON grammar before decoding
+the reconciliation marker, manifest, roll verdict, or documentation snapshot.
+Duplicate and case-colliding keys are invalid at every nesting depth. Merely
+changing `operation_mode` to ordinary cannot downgrade populated incident
+evidence or restore generic `WeatherOneShotPush` guidance.
 
 This binding assumes the reviewed production command is the exclusive active
 operator of the zero-trigger `WeatherOneShotPush` task. No person or automation

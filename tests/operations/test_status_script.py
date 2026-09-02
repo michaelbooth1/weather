@@ -1,16 +1,61 @@
+import copy
+import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
+REPO_ROOT = SCRIPT.parents[2]
+GIT = shutil.which("git.exe") or shutil.which("git")
 WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
-    os.name != "nt",
-    reason="requires Windows PowerShell",
+    os.name != "nt" or GIT is None,
+    reason="requires Windows PowerShell and Git",
 )
+CONFIG_PATHS = (
+    "config/locations.json",
+    "config/location_market_events.json",
+)
+LOCAL_BASELINE = "3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac"
+PUBLISHED_TARGET = "c932b54f8747df5cdefc4cc42f8454b6797f09ae"
+REVIEWED_PARENT = "a24cf0f41bf0b321c5c813820594c56198a58d1a"
+SAFETY_DEPENDENCY_PATHS = (
+    "scripts/ops/quiet_window_merge.ps1",
+    "scripts/ops/production_baseline_scheduler_rpc.ps1",
+    "scripts/ops/windows_kill_on_close_job.ps1",
+    "scripts/ops/status.ps1",
+    "scripts/ops/health_watchdog.ps1",
+)
+LOCAL_BASELINE_DEPENDENCY_SHA256 = {
+    "scripts/ops/boot_recovery.ps1": (
+        "253ab48e38a24af8cf8c8a5fde33f223b6e298b7acf91bbc56ad4c4a0ea8dc4a"
+    ),
+    "scripts/ops/roll_verdict.ps1": (
+        "3fb522a82c5325558a9da9d458c643edf5c0da8d5893e14189979859ed0a4881"
+    ),
+    "scripts/ops/workload_admission.ps1": (
+        "cdeaab38b2b9483cff5936e52411d725b0cffe4373ccebba688797c6e1d3c105"
+    ),
+    "src/weather/operations/capture_recovery_check.py": (
+        "814ec274838e5cb905a0074298f5c4e27aee2d32b0b9cc6fac2ca4def27cc895"
+    ),
+    "src/weather/operations/documentation_transaction.py": (
+        "057def07c4ad8529457a11bba6b1f5afdb19b6f6011ff3dd77905af29bd354d9"
+    ),
+    "src/weather/operations/execution_tape_supervisor.py": (
+        "1f5d8e1130fa2dd4c14d8f8f9dd6c44d9a7c4850f85a5942919d5c6bbfc5763f"
+    ),
+}
+PUBLISHED_TARGET_DEPENDENCY_SHA256 = {
+    **LOCAL_BASELINE_DEPENDENCY_SHA256,
+    "scripts/ops/workload_admission.ps1": (
+        "4117eb901d292952473c57425434593bed414fa2ed2fecee301fe56e8f893306"
+    ),
+}
 
 
 def test_status_paths_are_derived_from_the_invoked_checkout_and_user_profile() -> None:
@@ -25,106 +70,401 @@ def test_status_paths_are_derived_from_the_invoked_checkout_and_user_profile() -
     assert "C:\\Users\\micha" not in text
 
 
-def test_unpushed_guidance_is_guarded_by_quiet_reconciliation_evidence() -> None:
+def test_unpushed_guidance_has_one_affirmative_push_path() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 
-    evidence_scan = text.index("function Get-WeatherQuietPushGuidanceState")
-    incident_gate = text.index(
-        "if ([bool]$quietPushGuidance.IncidentBoundReconciliation)",
-        evidence_scan,
-    )
-    ambiguous_gate = text.index(
-        "elseif ([bool]$quietPushGuidance.EvidenceAmbiguous)", incident_gate
-    )
-    ordinary_guidance = text.index(
-        '$warns.Add("$unpushed commit(s) unpushed (run WeatherOneShotPush)")',
-        ambiguous_gate,
-    )
-
-    assert evidence_scan < incident_gate < ambiguous_gate < ordinary_guidance
+    assert "function Get-WeatherReconciliationPublicationState" in text
+    assert "function Get-WeatherUnpushedPublicationGuidance" in text
     assert text.count("unpushed (run WeatherOneShotPush)") == 1
-    assert "WeatherOneShotPush must not be invoked again" in text[
-        incident_gate:ambiguous_gate
-    ]
-    assert "WeatherOneShotPush is forbidden pending reviewed reconciliation" in text[
-        ambiguous_gate:ordinary_guidance
-    ]
-    assert 'Schema = "quiet_window_merge_in_progress_v0.1"' in text
-    assert 'Schema = "quiet_window_merge_report_v0.2"' in text
-    assert 'operationMode -ceq "production_baseline_reconciliation_v0.1"' in text
+    assert "RECONCILIATION_PUBLICATION_GUARDED_PRE_DISPATCH" in text
+    assert "RECONCILIATION_PUBLICATION_ATTEMPTED_UNACKNOWLEDGED" in text
+    assert "RECONCILIATION_PUBLICATION_EVIDENCE_INVALID" in text
+    assert "manual WeatherOneShotPush invocation is forbidden" in text
+    assert "WeatherOneShotPush retry is forbidden" in text
+    assert "RECONCILIATION_PUBLICATION_RELATED_TASK_STATE" in text
+    assert "No task/integration compatibility branch may turn" in text
+    assert '-CanonicalOrigin "https://github.com/michaelbooth1/weather.git"' in text
+    assert "origin fetch/push identity is not the exact canonical no-rewrite contract" in text
+    assert "readable roll-verdict payload is not the writer-validated L-to-S result" in text
+    assert "documentation transaction snapshot does not exactly bind M/S" in text
+    assert "reconciliation dependency maps do not have the exact writer key sets" in text
+    assert "StatusStrictJsonObjectKeyValidator" in text
+    assert "StringComparer.OrdinalIgnoreCase" in text
+    assert text.count("ConvertFrom-StrictReconciliationJson") == 5
+    assert "$Label JSON is invalid or contains duplicate/case-colliding object keys" in text
+    for strict_label in (
+        "active quiet-window marker",
+        "reconciliation snapshot manifest",
+        "reconciliation roll-verdict snapshot",
+        "reconciliation documentation transaction snapshot",
+    ):
+        assert f'-Label "{strict_label}"' in text
+    assert "ordinary operation mode cannot downgrade populated reconciliation incident evidence" in text
+    assert "old report cannot poison an unrelated later commit" in text
+    assert '"${unpushedBase}..master"' in text
+    assert "live_origin_master = [string]$reconciliationPublication.live_origin_master" in text
+    assert (
+        '$ordinaryReport = [string]$qw.operation_mode -cne\n'
+        '            "production_baseline_reconciliation_v0.1"'
+    ) in text
+    assert (
+        '[string]$reconciliationPublication.classification -ceq "ordinary"'
+        in text
+    )
+    assert "-PublicationClassification ([string]$reconciliationPublication.classification)" in text
+    assert (
+        "obtain review, run WeatherOneShotPush, then reconcile the immutable attempt "
+        "evidence"
+    ) in text
 
 
-@WINDOWS_POWERSHELL_REQUIRED
-def test_quiet_push_guidance_classifies_special_and_malformed_evidence(
-    tmp_path: Path,
-) -> None:
-    normal_marker = tmp_path / "normal-marker.json"
-    normal_report = tmp_path / "normal-report.json"
-    special_marker = tmp_path / "special-marker.json"
-    malformed_report = tmp_path / "malformed-report.json"
-    unknown_report = tmp_path / "unknown-report.json"
-    normal_marker.write_text(
-        json.dumps(
-            {
-                "schema": "quiet_window_merge_in_progress_v0.1",
-                "updated_at": "2026-09-01T01:30:00-04:00",
-                "phase": "prepared",
-                "expected_tip": "0" * 40,
-                "expected_baseline": "1" * 40,
-            }
-        ),
+def test_live_origin_timeout_never_uses_an_unbounded_post_kill_wait() -> None:
+    text = SCRIPT.read_text(encoding="utf-8-sig")
+    start = text.index("function Get-StatusLiveOriginMaster")
+    end = text.index("function Test-ExactConfigPathSet", start)
+    live_origin = text[start:end]
+
+    assert "$process.WaitForExit()" not in live_origin
+    assert live_origin.count("$process.WaitForExit(5000)") == 2
+    assert "$process.WaitForExit(1000)" in live_origin
+    assert "root termination was not observed" in live_origin
+
+
+def _git(repo: Path, *args: str) -> str:
+    assert GIT is not None
+    result = subprocess.run(
+        [GIT, *args],
+        cwd=repo,
+        env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
+        check=False,
+        capture_output=True,
+        text=True,
         encoding="utf-8",
+        errors="replace",
     )
-    normal_report.write_text(
-        json.dumps(
-            {
-                "schema": "quiet_window_merge_report_v0.2",
-                "ts": "2026-09-01T01:31:00-04:00",
-                "stage": "dry_run",
-                "branch": "origin/example",
-                "expected_tip": "0" * 40,
-                "expected_baseline": "1" * 40,
-            }
-        ),
+    if result.returncode != 0:
+        raise AssertionError(
+            f"git {' '.join(args)} failed with {result.returncode}\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+    return result.stdout.strip().lower()
+
+
+def _commit(repo: Path, message: str) -> str:
+    _git(repo, "add", "--all")
+    _git(repo, "commit", "-m", message)
+    return _git(repo, "rev-parse", "head")
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _replace_json_text_once(path: Path, needle: str, replacement: str) -> bytes:
+    raw = path.read_text(encoding="utf-8")
+    assert raw.count(needle) == 1, needle
+    mutated = raw.replace(needle, replacement, 1).encode("utf-8")
+    path.write_bytes(mutated)
+    return mutated
+
+
+def _build_reconciliation_status_fixture(
+    tmp_path: Path, *, safety_base: str = REVIEWED_PARENT
+) -> dict[str, object]:
+    repo = tmp_path / "repo"
+    assert GIT is not None
+    clone = subprocess.run(
+        [
+            GIT,
+            "clone",
+            "--quiet",
+            "--no-checkout",
+            "--shared",
+            str(REPO_ROOT),
+            str(repo),
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "GIT_LFS_SKIP_SMUDGE": "1"},
+        check=False,
+        capture_output=True,
+        text=True,
         encoding="utf-8",
+        errors="replace",
     )
-    special_marker.write_text(
-        json.dumps(
-            {
-                "schema": "quiet_window_merge_in_progress_v0.1",
-                "updated_at": "2026-09-01T01:32:00-04:00",
-                "phase": "documented_unpublished",
-                "expected_tip": "0" * 40,
-                "expected_baseline": "1" * 40,
-                "operation_mode": "production_baseline_reconciliation_v0.1",
-            }
+    assert clone.returncode == 0, clone.stderr
+    _git(repo, "config", "user.name", "Status Test")
+    _git(repo, "config", "user.email", "status-test@invalid.local")
+    local_baseline = _git(repo, "rev-parse", f"{LOCAL_BASELINE}^{{commit}}")
+    published_target = _git(repo, "rev-parse", f"{PUBLISHED_TARGET}^{{commit}}")
+    reviewed_parent = _git(repo, "rev-parse", f"{REVIEWED_PARENT}^{{commit}}")
+    assert local_baseline == LOCAL_BASELINE
+    assert published_target == PUBLISHED_TARGET
+    assert reviewed_parent == REVIEWED_PARENT
+
+    bare_origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "--bare", str(bare_origin))
+    _git(repo, "remote", "set-url", "origin", str(bare_origin))
+    _git(repo, "push", "origin", f"{published_target}:refs/heads/master")
+    _git(repo, "update-ref", "refs/remotes/origin/master", published_target)
+
+    _git(repo, "checkout", "--detach", safety_base)
+    for relative in SAFETY_DEPENDENCY_PATHS:
+        source = REPO_ROOT / relative
+        destination = repo / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    safety_tip = _commit(repo, "S")
+    source_tree = _git(repo, "rev-parse", f"{safety_tip}^{{tree}}")
+
+    _git(repo, "checkout", "-b", "config-child", local_baseline)
+    for relative in CONFIG_PATHS:
+        (repo / relative).write_text(
+            f"production generated {relative}\n", encoding="utf-8"
+        )
+    config_commit = _commit(repo, "C")
+    _git(repo, "merge", "--no-ff", "--no-edit", safety_tip)
+    merge_commit = _git(repo, "rev-parse", "head")
+    _git(repo, "checkout", "-B", "master", merge_commit)
+    _git(repo, "update-ref", "refs/remotes/origin/master", published_target)
+
+    snapshot_root = (
+        repo
+        / "data"
+        / "alerts"
+        / "production_baseline_reconciliation"
+        / ("20260901T012500000-" + "a" * 32)
+    )
+    snapshot_entries: dict[str, dict[str, object]] = {}
+    config_hashes: dict[str, str] = {}
+    for relative in CONFIG_PATHS:
+        live = repo / relative
+        snapshot = snapshot_root / "raw" / relative
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.write_bytes(live.read_bytes())
+        digest = hashlib.sha256(live.read_bytes()).hexdigest()
+        config_hashes[relative] = digest
+        snapshot_entries[relative] = {
+            "snapshot_path": snapshot.relative_to(repo).as_posix(),
+            "sha256": digest,
+            "length": live.stat().st_size,
+        }
+    roll_transcript_path = snapshot_root / "roll-verdict-output.txt"
+    roll_transcript_path.write_text("bounded roll verdict fixture\n", encoding="utf-8")
+    roll_transcript_sha = hashlib.sha256(roll_transcript_path.read_bytes()).hexdigest()
+    roll_json_path = snapshot_root / "roll-verdict.json"
+    _write_json(
+        roll_json_path,
+        {
+            "generated_at": "2026-09-01T01:24:30-04:00",
+            "branch": safety_tip,
+            "verdict": "ROLL-FREE",
+            "base_ref": local_baseline,
+            "base_sha": _git(repo, "rev-parse", "--short", local_baseline),
+            "base_note": None,
+            "closures_used": ["snapshot"],
+            "problems": [],
+            "files": [],
+        },
+    )
+    roll_json_sha = hashlib.sha256(roll_json_path.read_bytes()).hexdigest()
+    safety_dependency_hashes = {
+        f"{relative}@safety_tip": hashlib.sha256(
+            (repo / relative).read_bytes()
+        ).hexdigest()
+        for relative in SAFETY_DEPENDENCY_PATHS
+    }
+    manifest_dependency_hashes = {
+        **{
+            f"{relative}@local_baseline": digest
+            for relative, digest in LOCAL_BASELINE_DEPENDENCY_SHA256.items()
+        },
+        **safety_dependency_hashes,
+    }
+    marker_dependency_hashes = {
+        **manifest_dependency_hashes,
+        **{
+            f"{relative}@published_target": digest
+            for relative, digest in PUBLISHED_TARGET_DEPENDENCY_SHA256.items()
+        },
+        **{
+            f"{relative}@published_target": safety_dependency_hashes[
+                f"{relative}@safety_tip"
+            ]
+            for relative in SAFETY_DEPENDENCY_PATHS
+        },
+    }
+    entry_sha = safety_dependency_hashes[
+        "scripts/ops/quiet_window_merge.ps1@safety_tip"
+    ]
+    manifest = {
+        "schema": "production_baseline_reconciliation_snapshot_v0.1",
+        "created_at": "2026-09-01T01:25:00-04:00",
+        "local_baseline": local_baseline,
+        "published_target": published_target,
+        "source_tip": safety_tip,
+        "source_tree": source_tree,
+        "safety_tip": safety_tip,
+        "safety_tree": source_tree,
+        "entry_sha256": entry_sha,
+        "config": snapshot_entries,
+        "reconciliation_config_content_sha256": config_hashes,
+        "roll_verdict": {
+            "explicit_base": local_baseline,
+            "explicit_branch": safety_tip,
+            "exit_code": 0,
+            "readable": True,
+            "json_path": roll_json_path.relative_to(repo).as_posix(),
+            "json_sha256": roll_json_sha,
+            "transcript_path": roll_transcript_path.relative_to(repo).as_posix(),
+            "transcript_sha256": roll_transcript_sha,
+        },
+        "dependency_sha256": manifest_dependency_hashes,
+    }
+    manifest_path = snapshot_root / "manifest.json"
+    _write_json(manifest_path, manifest)
+    manifest_sha = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    pending_bytes = json.dumps(
+        {
+            "schema_version": "documentation_transaction_pending_v0.1",
+            "status": "PENDING",
+            "created_at_local": "2026-09-01T01:29:15-04:00",
+            "due_at_local": "2026-09-01T09:00:00-04:00",
+            "integrations": [
+                {
+                    "integration_tip": merge_commit,
+                    "branch": safety_tip,
+                    "expected_tip": safety_tip,
+                    # A coarse clock can record documentation and the marker
+                    # at the same instant after staged recovery.
+                    "recorded_at_local": "2026-09-01T01:30:00-04:00",
+                }
+            ],
+            "latest_integration_tip": merge_commit,
+        },
+        indent=2,
+        sort_keys=True,
+    ).encode("utf-8")
+    pending_sha = hashlib.sha256(pending_bytes).hexdigest()
+    pending_path = (
+        repo
+        / "data"
+        / "alerts"
+        / "documentation_transactions"
+        / f"pending-{pending_sha}.json"
+    )
+    pending_path.parent.mkdir(parents=True, exist_ok=True)
+    pending_path.write_bytes(pending_bytes)
+    marker: dict[str, object] = {
+        "schema": "quiet_window_merge_in_progress_v0.1",
+        "updated_at": "2026-09-01T01:30:00-04:00",
+        "repo_root": str(repo.resolve()),
+        "phase": "documented_unpublished",
+        "operation_mode": "production_baseline_reconciliation_v0.1",
+        "branch": safety_tip,
+        "expected_tip": safety_tip,
+        "expected_baseline": local_baseline,
+        "resolved_branch_tip": safety_tip,
+        "baseline_commit": local_baseline,
+        "pre_merge_commit": config_commit,
+        "reconciliation_actual_pre_merge_commit": config_commit,
+        "reconciliation_boot_guard_commit": published_target,
+        "reconciliation_local_baseline": local_baseline,
+        "reconciliation_published_target": published_target,
+        "reconciliation_source_tip": safety_tip,
+        "reconciliation_safety_tip": safety_tip,
+        "reconciliation_source_tree": source_tree,
+        "reconciliation_safety_tree": source_tree,
+        "reconciliation_entry_sha256": entry_sha,
+        "reconciliation_snapshot_manifest_path": manifest_path.relative_to(
+            repo
+        ).as_posix(),
+        "reconciliation_snapshot_manifest_sha256": manifest_sha,
+        "reconciliation_snapshot_paths": snapshot_entries,
+        "reconciliation_dependency_sha256": marker_dependency_hashes,
+        "roll_verdict_exit_code": 0,
+        "roll_verdict_explicit_base": local_baseline,
+        "roll_verdict_explicit_branch": safety_tip,
+        "roll_verdict_json_sha256": roll_json_sha,
+        "roll_verdict_transcript_sha256": roll_transcript_sha,
+        "merge_commit": merge_commit,
+        "capture_recovery_proved": True,
+        "reconciliation_staged_safety_capture_recovery_proved": True,
+        "reconciliation_staged_safety_capture_recovery_at": (
+            "2026-09-01T01:29:00-04:00"
         ),
-        encoding="utf-8",
-    )
-    malformed_report.write_text("{", encoding="utf-8")
-    unknown_report.write_text(
-        json.dumps(
-            {
-                "schema": "quiet_window_merge_report_v0.2",
-                "ts": "2026-09-01T01:33:00-04:00",
-                "stage": "merged_unpushed",
-                "branch": "origin/example",
-                "expected_tip": "0" * 40,
-                "expected_baseline": "1" * 40,
-                "operation_mode": "future_incident_mode",
-            }
+        "reconciliation_pre_push_capture_recovery_proved": False,
+        "reconciliation_pre_push_capture_recovery_at": None,
+        "execution_tape_recovery_required": False,
+        "execution_tape_readoption_expected": False,
+        "execution_tape_rolled_but_inactive_skipped": False,
+        "execution_tape_recovery_proved": False,
+        "execution_tape_source_before": None,
+        "documentation_transaction_recorded": True,
+        "documentation_transaction_pending_sha256": pending_sha,
+        "documentation_transaction_snapshot_path": (
+            f"data/alerts/documentation_transactions/pending-{pending_sha}.json"
         ),
-        encoding="utf-8",
-    )
+        "push_invocation_attempted": False,
+        "push_pre_last_run_time": None,
+        "push_observed_last_run_time": None,
+        "push_last_task_result": None,
+        "push_runtime_state": None,
+        "push_terminal_proved": False,
+        "push_run_observed": False,
+        "push_stop_attempted": False,
+        "push_stop_count": 0,
+        "push_stop_exhausted": False,
+        "push_start_issued_at": None,
+        "push_containment_deadline": None,
+        "push_terminal_proved_at": None,
+        "push_containment_breached": False,
+        "push_start_rpc_request_id": None,
+        "push_start_rpc_request_sha256": None,
+        "push_start_rpc_deadline_utc": None,
+        "push_start_rpc_timed_out": False,
+        "push_stop_rpc_request_id": None,
+        "push_stop_rpc_request_sha256": None,
+        "push_stop_rpc_deadline_utc": None,
+        "push_stop_rpc_timed_out": False,
+        "publication_acknowledged": False,
+        "auto_refreshed_paths": list(CONFIG_PATHS),
+        "auto_refreshed_sha256": config_hashes,
+        "reconciliation_config_content_sha256": config_hashes,
+    }
+    marker_path = repo / "data" / "alerts" / "quiet_window_merge_in_progress.json"
+    _write_json(marker_path, marker)
+    return {
+        "repo": repo,
+        "marker": marker,
+        "marker_path": marker_path,
+        "bare_origin": bare_origin,
+        "manifest": manifest,
+        "manifest_path": manifest_path,
+        "roll_json_path": roll_json_path,
+        "pending_path": pending_path,
+        "local_baseline": local_baseline,
+        "published_target": published_target,
+        "safety_tip": safety_tip,
+        "config_commit": config_commit,
+        "merge_commit": merge_commit,
+    }
+
+
+def _publication_state(
+    fixture: dict[str, object], *, unpushed_count: int | None = 1,
+    marker_lookup_fault: bool = False,
+) -> dict[str, object]:
     env = {
         **os.environ,
         "WEATHER_STATUS_SCRIPT": str(SCRIPT),
-        "WEATHER_MISSING_MARKER": str(tmp_path / "missing-marker.json"),
-        "WEATHER_NORMAL_MARKER": str(normal_marker),
-        "WEATHER_NORMAL_REPORT": str(normal_report),
-        "WEATHER_SPECIAL_MARKER": str(special_marker),
-        "WEATHER_MALFORMED_REPORT": str(malformed_report),
-        "WEATHER_UNKNOWN_REPORT": str(unknown_report),
+        "WEATHER_REPO": str(fixture["repo"]),
+        "WEATHER_MARKER": str(fixture["marker_path"]),
+        "WEATHER_CANONICAL_ORIGIN": str(fixture["bare_origin"]),
+        "WEATHER_UNPUSHED_COUNT": (
+            "__auto__" if unpushed_count is None else str(unpushed_count)
+        ),
+        "WEATHER_MARKER_LOOKUP_FAULT": "1" if marker_lookup_fault else "0",
     }
     script = r"""
 $ErrorActionPreference = 'Stop'
@@ -136,34 +476,63 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile(
     [ref]$errors
 )
 if (@($errors).Count -ne 0) { throw 'status script did not parse' }
-$functionAst = @($ast.FindAll({
-    param($node)
-    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
-        $node.Name -eq 'Get-WeatherQuietPushGuidanceState'
-}, $true)) | Select-Object -First 1
-if ($null -eq $functionAst) { throw 'missing quiet push guidance function' }
-Invoke-Expression $functionAst.Extent.Text
-$ordinary = Get-WeatherQuietPushGuidanceState `
-    -ActiveMarkerPath $env:WEATHER_NORMAL_MARKER `
-    -LastReportPath $env:WEATHER_NORMAL_REPORT
-$special = Get-WeatherQuietPushGuidanceState `
-    -ActiveMarkerPath $env:WEATHER_SPECIAL_MARKER `
-    -LastReportPath $env:WEATHER_NORMAL_REPORT
-$malformed = Get-WeatherQuietPushGuidanceState `
-    -ActiveMarkerPath $env:WEATHER_MISSING_MARKER `
-    -LastReportPath $env:WEATHER_MALFORMED_REPORT
-$unknown = Get-WeatherQuietPushGuidanceState `
-    -ActiveMarkerPath $env:WEATHER_MISSING_MARKER `
-    -LastReportPath $env:WEATHER_UNKNOWN_REPORT
+foreach ($name in @(
+    'Get-WeatherReconciliationPublicationState',
+    'Get-WeatherUnpushedPublicationGuidance',
+    'Get-WeatherUnpushedPublicationSummary'
+)) {
+    $functionAst = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+    }, $true)) | Select-Object -First 1
+    if ($null -eq $functionAst) { throw "missing function $name" }
+    Invoke-Expression $functionAst.Extent.Text
+}
+if ($env:WEATHER_MARKER_LOOKUP_FAULT -ceq '1') {
+    function global:Get-Item {
+        param([string]$LiteralPath, [switch]$Force, $ErrorAction)
+        if ($LiteralPath -ceq $env:WEATHER_MARKER) {
+            throw [System.UnauthorizedAccessException]::new(
+                'injected active-marker lookup denial'
+            )
+        }
+        Microsoft.PowerShell.Management\Get-Item `
+            -LiteralPath $LiteralPath -Force:$Force -ErrorAction $ErrorAction
+    }
+}
+$state = Get-WeatherReconciliationPublicationState `
+    -RepositoryRoot $env:WEATHER_REPO `
+    -ActiveMarkerPath $env:WEATHER_MARKER `
+    -CanonicalOrigin $env:WEATHER_CANONICAL_ORIGIN `
+    -Now ([datetimeoffset]'2026-09-01T01:45:00-04:00')
+$summary = if ($env:WEATHER_UNPUSHED_COUNT -ceq '__auto__') {
+    Get-WeatherUnpushedPublicationSummary `
+        -RepositoryRoot $env:WEATHER_REPO -PublicationState $state
+}
+else {
+    [pscustomobject]@{
+        count = [int]$env:WEATHER_UNPUSHED_COUNT
+        display = [string]$env:WEATHER_UNPUSHED_COUNT
+        readable = $true
+        base = 'injected'
+    }
+}
+$guidance = Get-WeatherUnpushedPublicationGuidance `
+    -UnpushedCount ([int]$summary.count) `
+    -PublicationState $state
 [pscustomobject]@{
-    ordinary_incident = [bool]$ordinary.IncidentBoundReconciliation
-    ordinary_ambiguous = [bool]$ordinary.EvidenceAmbiguous
-    special_incident = [bool]$special.IncidentBoundReconciliation
-    special_ambiguous = [bool]$special.EvidenceAmbiguous
-    malformed_incident = [bool]$malformed.IncidentBoundReconciliation
-    malformed_ambiguous = [bool]$malformed.EvidenceAmbiguous
-    unknown_incident = [bool]$unknown.IncidentBoundReconciliation
-    unknown_ambiguous = [bool]$unknown.EvidenceAmbiguous
+    classification = [string]$state.classification
+    detail = [string]$state.detail
+    merge_commit = [string]$state.merge_commit
+    attempted = [bool]$state.push_invocation_attempted
+    acknowledged = [bool]$state.publication_acknowledged
+    manual_push_allowed = [bool]$state.manual_push_allowed
+    live_origin_master = [string]$state.live_origin_master
+    unpushed_base = [string]$summary.base
+    unpushed_display = [string]$summary.display
+    warning = [string]$guidance.warning
+    flag = [string]$guidance.flag
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
@@ -175,16 +544,653 @@ $unknown = Get-WeatherQuietPushGuidanceState `
     )
 
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == {
-        "ordinary_incident": False,
-        "ordinary_ambiguous": False,
-        "special_incident": True,
-        "special_ambiguous": False,
-        "malformed_incident": False,
-        "malformed_ambiguous": True,
-        "unknown_incident": False,
-        "unknown_ambiguous": True,
-    }
+    return json.loads(result.stdout)
+
+
+def _make_published_marker(marker: dict[str, object]) -> None:
+    marker.update(
+        {
+            "updated_at": "2026-09-01T01:41:00-04:00",
+            "phase": "published",
+            "push_invocation_attempted": True,
+            "publication_acknowledged": True,
+            "reconciliation_pre_push_capture_recovery_proved": True,
+            "reconciliation_pre_push_capture_recovery_at": (
+                "2026-09-01T01:30:30-04:00"
+            ),
+            "push_pre_last_run_time": "2026-09-01T01:00:00-04:00",
+            "push_observed_last_run_time": "2026-09-01T01:36:00-04:00",
+            "push_last_task_result": 0,
+            "push_runtime_state": "Ready",
+            "push_terminal_proved": True,
+            "push_run_observed": True,
+            "push_start_issued_at": "2026-09-01T01:31:00-04:00",
+            "push_containment_deadline": "2026-09-01T01:46:00-04:00",
+            "push_terminal_proved_at": "2026-09-01T01:40:00-04:00",
+            "push_start_rpc_request_id": "a" * 32,
+            "push_start_rpc_request_sha256": "b" * 64,
+            "push_start_rpc_deadline_utc": "2026-09-01T05:31:20Z",
+            "push_start_rpc_timed_out": False,
+        }
+    )
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_valid_reconciliation_marker_has_three_distinct_publication_states(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+    marker_path = fixture["marker_path"]
+    assert isinstance(marker_path, Path)
+    marker = copy.deepcopy(fixture["marker"])
+
+    pre_dispatch = _publication_state(fixture)
+    assert pre_dispatch["classification"] == "guarded_pre_dispatch"
+    assert pre_dispatch["warning"] == "1 commit(s) unpushed"
+    assert "owns publication" in pre_dispatch["flag"]
+    assert "manual WeatherOneShotPush invocation is forbidden" in pre_dispatch["flag"]
+    assert pre_dispatch["manual_push_allowed"] is False
+
+    marker["reconciliation_staged_safety_capture_recovery_at"] = marker["updated_at"]
+    _write_json(marker_path, marker)
+    equal_timestamp = _publication_state(fixture)
+    assert equal_timestamp["classification"] == "guarded_pre_dispatch", equal_timestamp
+
+    marker = copy.deepcopy(fixture["marker"])
+    marker.update(
+        {
+            "phase": "merge_committed_unpublished",
+            "documentation_transaction_recorded": False,
+            "documentation_transaction_pending_sha256": None,
+            "documentation_transaction_snapshot_path": None,
+        }
+    )
+    _write_json(marker_path, marker)
+    merge_committed = _publication_state(fixture)
+    assert merge_committed["classification"] == "guarded_pre_dispatch"
+
+    marker = copy.deepcopy(fixture["marker"])
+
+    marker["push_invocation_attempted"] = True
+    marker["push_pre_last_run_time"] = "2026-09-01T01:00:00-04:00"
+    _write_json(marker_path, marker)
+    attempted = _publication_state(fixture)
+    assert attempted["classification"] == "attempted_unacknowledged"
+    assert attempted["warning"] == "1 commit(s) unpushed"
+    assert "pending or uncertain" in attempted["flag"]
+    assert "retry is forbidden" in attempted["flag"]
+
+    marker.update(
+        {
+            "updated_at": "2026-09-01T01:31:10-04:00",
+            "reconciliation_pre_push_capture_recovery_proved": True,
+            "reconciliation_pre_push_capture_recovery_at": (
+                "2026-09-01T01:30:30-04:00"
+            ),
+            "push_start_issued_at": "2026-09-01T01:31:00-04:00",
+            "push_containment_deadline": "2026-09-01T01:46:00-04:00",
+            "push_start_rpc_request_id": "a" * 32,
+            "push_start_rpc_deadline_utc": "2026-09-01T05:31:20Z",
+        }
+    )
+    _write_json(marker_path, marker)
+    start_pre_call = _publication_state(fixture)
+    assert start_pre_call["classification"] == "attempted_unacknowledged"
+    assert "retry is forbidden" in start_pre_call["flag"]
+
+    marker.update(
+        {
+            "updated_at": "2026-09-01T01:32:00-04:00",
+            "push_start_rpc_request_sha256": "b" * 64,
+            "push_start_rpc_timed_out": True,
+        }
+    )
+    _write_json(marker_path, marker)
+    timed_out = _publication_state(fixture)
+    assert timed_out["classification"] == "attempted_unacknowledged"
+    assert "pending or uncertain" in timed_out["flag"]
+    assert "retry is forbidden" in timed_out["flag"]
+
+    repo = fixture["repo"]
+    assert isinstance(repo, Path)
+    merge_commit = str(fixture["merge_commit"])
+    _git(repo, "push", "origin", f"{merge_commit}:refs/heads/master")
+    _git(repo, "update-ref", "refs/remotes/origin/master", merge_commit)
+    remote_m_before_ack = _publication_state(fixture, unpushed_count=0)
+    assert remote_m_before_ack["classification"] == "attempted_unacknowledged"
+    assert "retry is forbidden" in remote_m_before_ack["flag"]
+    _make_published_marker(marker)
+    _write_json(marker_path, marker)
+    acknowledged = _publication_state(fixture, unpushed_count=0)
+    assert acknowledged["classification"] == "acknowledged"
+    assert acknowledged["warning"] == ""
+    assert acknowledged["flag"] == ""
+    assert acknowledged["acknowledged"] is True
+    assert acknowledged["manual_push_allowed"] is False
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_operation_mode_only_cannot_downgrade_reconciliation_authority(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+    marker_path = fixture["marker_path"]
+    assert isinstance(marker_path, Path)
+    marker = copy.deepcopy(fixture["marker"])
+
+    # This is the exact reviewed marker with one changed field. Status must not
+    # let an attacker regain ordinary manual-push guidance by relabeling it.
+    marker["operation_mode"] = "ordinary_synchronized_merge_v0.1"
+    _write_json(marker_path, marker)
+
+    state = _publication_state(fixture)
+    assert state["classification"] == "incident_evidence_invalid"
+    assert "cannot downgrade populated reconciliation incident evidence" in state[
+        "detail"
+    ]
+    assert "reconciliation_actual_pre_merge_commit" in state["detail"]
+    assert state["warning"] == "1 commit(s) unpushed"
+    assert "EVIDENCE_INVALID" in state["flag"]
+    assert state["manual_push_allowed"] is False
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_active_marker_lookup_error_is_invalid_not_ordinary(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+
+    state = _publication_state(fixture, marker_lookup_fault=True)
+
+    assert state["classification"] == "incident_evidence_invalid"
+    assert "injected active-marker lookup denial" in state["detail"]
+    assert state["warning"] == "1 commit(s) unpushed"
+    assert "EVIDENCE_INVALID" in state["flag"]
+    assert "WeatherOneShotPush invocation is forbidden" in state["flag"]
+    assert "(run WeatherOneShotPush)" not in state["warning"]
+    assert state["manual_push_allowed"] is False
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_genuine_ordinary_writer_shape_remains_ordinary(tmp_path: Path) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+    marker_path = fixture["marker_path"]
+    assert isinstance(marker_path, Path)
+    marker = copy.deepcopy(fixture["marker"])
+    marker["operation_mode"] = "ordinary_synchronized_merge_v0.1"
+
+    # The additive writer emits reconciliation_* compatibility slots for both
+    # modes. Genuine ordinary slots are null/false/empty; the config hash alias
+    # is intentionally populated and therefore cannot itself identify the
+    # one-time incident.
+    for name, value in list(marker.items()):
+        if name.startswith("reconciliation_") and name != (
+            "reconciliation_config_content_sha256"
+        ):
+            if isinstance(value, dict):
+                marker[name] = {}
+            elif isinstance(value, bool):
+                marker[name] = False
+            else:
+                marker[name] = None
+    for name in (
+        "roll_verdict_exit_code",
+        "roll_verdict_explicit_base",
+        "roll_verdict_explicit_branch",
+        "roll_verdict_json_sha256",
+        "roll_verdict_transcript_sha256",
+        "push_start_rpc_request_id",
+        "push_start_rpc_request_sha256",
+        "push_start_rpc_deadline_utc",
+        "push_stop_rpc_request_id",
+        "push_stop_rpc_request_sha256",
+        "push_stop_rpc_deadline_utc",
+        "push_containment_deadline",
+        "push_terminal_proved_at",
+    ):
+        marker[name] = None
+    for name in (
+        "push_start_rpc_timed_out",
+        "push_stop_rpc_timed_out",
+        "push_containment_breached",
+        "push_terminal_proved",
+        "push_run_observed",
+        "push_stop_attempted",
+        "push_stop_exhausted",
+    ):
+        marker[name] = False
+    _write_json(marker_path, marker)
+
+    state = _publication_state(fixture)
+    assert state["classification"] == "ordinary"
+    assert state["warning"] == "1 commit(s) unpushed (run WeatherOneShotPush)"
+    assert state["flag"] == ""
+    assert state["manual_push_allowed"] is True
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize(
+    "case",
+    [
+        "active_marker_case_collision",
+        "manifest_duplicate_nested_key",
+        "roll_case_collision_nested_key",
+        "documentation_duplicate_nested_key",
+    ],
+)
+def test_reconciliation_json_rejects_duplicate_and_case_colliding_keys(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+    marker_path = fixture["marker_path"]
+    manifest_path = fixture["manifest_path"]
+    roll_json_path = fixture["roll_json_path"]
+    pending_path = fixture["pending_path"]
+    assert isinstance(marker_path, Path)
+    assert isinstance(manifest_path, Path)
+    assert isinstance(roll_json_path, Path)
+    assert isinstance(pending_path, Path)
+    marker = copy.deepcopy(fixture["marker"])
+
+    if case == "active_marker_case_collision":
+        needle = (
+            '  "operation_mode": '
+            '"production_baseline_reconciliation_v0.1",'
+        )
+        _replace_json_text_once(
+            marker_path,
+            needle,
+            needle
+            + '\n  "Operation_Mode": "ordinary_synchronized_merge_v0.1",',
+        )
+    elif case == "manifest_duplicate_nested_key":
+        needle = f'    "explicit_base": "{fixture["local_baseline"]}",'
+        manifest_bytes = _replace_json_text_once(
+            manifest_path, needle, needle + "\n" + needle
+        )
+        marker["reconciliation_snapshot_manifest_sha256"] = hashlib.sha256(
+            manifest_bytes
+        ).hexdigest()
+        _write_json(marker_path, marker)
+    elif case == "roll_case_collision_nested_key":
+        roll_bytes = _replace_json_text_once(
+            roll_json_path,
+            '  "files": [],',
+            '  "files": [],\n  "adversarial": {"Key": 1, "key": 2},',
+        )
+        roll_sha = hashlib.sha256(roll_bytes).hexdigest()
+        manifest = copy.deepcopy(fixture["manifest"])
+        manifest["roll_verdict"]["json_sha256"] = roll_sha
+        _write_json(manifest_path, manifest)
+        marker["roll_verdict_json_sha256"] = roll_sha
+        marker["reconciliation_snapshot_manifest_sha256"] = hashlib.sha256(
+            manifest_path.read_bytes()
+        ).hexdigest()
+        _write_json(marker_path, marker)
+    elif case == "documentation_duplicate_nested_key":
+        needle = f'      "branch": "{fixture["safety_tip"]}",'
+        pending_bytes = _replace_json_text_once(
+            pending_path, needle, needle + "\n" + needle
+        )
+        pending_sha = hashlib.sha256(pending_bytes).hexdigest()
+        new_pending_path = pending_path.with_name(f"pending-{pending_sha}.json")
+        new_pending_path.write_bytes(pending_bytes)
+        marker["documentation_transaction_pending_sha256"] = pending_sha
+        marker["documentation_transaction_snapshot_path"] = (
+            f"data/alerts/documentation_transactions/pending-{pending_sha}.json"
+        )
+        _write_json(marker_path, marker)
+    else:  # pragma: no cover - parametrization is exhaustive
+        raise AssertionError(case)
+
+    state = _publication_state(fixture)
+    assert state["classification"] == "incident_evidence_invalid"
+    assert "duplicate/case-colliding object keys" in state["detail"]
+    assert state["warning"] == "1 commit(s) unpushed"
+    assert "EVIDENCE_INVALID" in state["flag"]
+    assert state["manual_push_allowed"] is False
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize(
+    "case",
+    [
+        "malformed",
+        "wrong_merge_sha",
+        "wrong_safety_sha",
+        "wrong_config_hash",
+        "wrong_config_hash_alias",
+        "wrong_safety_tree",
+        "missing_staged_recovery",
+        "future_staged_recovery",
+        "reversed_pre_push_recovery",
+        "future_push_baseline",
+        "wrong_phase",
+        "stale",
+        "incomplete",
+        "wrong_branch",
+        "unreviewed_safety_tip",
+        "snapshot_aliases_live_config",
+        "wrong_dependency_hash",
+        "missing_dependency_stage",
+        "wrong_roll_payload",
+        "wrong_documentation_payload",
+        "dirty_worktree",
+        "noncanonical_origin_url",
+        "origin_pushurl_override",
+        "origin_url_rewrite",
+        "wrong_origin",
+        "published_without_rpc_hash",
+        "published_stop_count_over_limit",
+        "published_pre_last_after_start",
+        "published_with_stale_origin_cache",
+    ],
+)
+def test_invalid_reconciliation_evidence_retains_neutral_unpushed_warning(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(
+        tmp_path,
+        safety_base=(
+            PUBLISHED_TARGET if case == "unreviewed_safety_tip" else REVIEWED_PARENT
+        ),
+    )
+    marker_path = fixture["marker_path"]
+    repo = fixture["repo"]
+    assert isinstance(marker_path, Path)
+    assert isinstance(repo, Path)
+    marker = copy.deepcopy(fixture["marker"])
+    if case == "malformed":
+        marker_path.write_text("{", encoding="utf-8")
+    elif case == "wrong_merge_sha":
+        marker["merge_commit"] = "f" * 40
+        _write_json(marker_path, marker)
+    elif case == "wrong_safety_sha":
+        marker["reconciliation_safety_tip"] = str(fixture["published_target"])
+        _write_json(marker_path, marker)
+    elif case == "wrong_config_hash":
+        hashes = dict(marker["auto_refreshed_sha256"])
+        hashes[CONFIG_PATHS[0]] = "0" * 64
+        marker["auto_refreshed_sha256"] = hashes
+        _write_json(marker_path, marker)
+    elif case == "wrong_config_hash_alias":
+        hashes = dict(marker["reconciliation_config_content_sha256"])
+        hashes[CONFIG_PATHS[0]] = "0" * 64
+        marker["reconciliation_config_content_sha256"] = hashes
+        _write_json(marker_path, marker)
+    elif case == "wrong_safety_tree":
+        marker["reconciliation_safety_tree"] = "0" * 40
+        _write_json(marker_path, marker)
+    elif case == "missing_staged_recovery":
+        marker["reconciliation_staged_safety_capture_recovery_proved"] = False
+        marker["reconciliation_staged_safety_capture_recovery_at"] = None
+        _write_json(marker_path, marker)
+    elif case == "future_staged_recovery":
+        marker["reconciliation_staged_safety_capture_recovery_at"] = (
+            "2026-09-01T01:31:00-04:00"
+        )
+        _write_json(marker_path, marker)
+    elif case == "reversed_pre_push_recovery":
+        marker.update(
+            {
+                "push_invocation_attempted": True,
+                "push_pre_last_run_time": "2026-09-01T01:00:00-04:00",
+                "reconciliation_pre_push_capture_recovery_proved": True,
+                "reconciliation_pre_push_capture_recovery_at": (
+                    "2026-09-01T01:28:00-04:00"
+                ),
+                "push_start_issued_at": "2026-09-01T01:29:30-04:00",
+                "push_containment_deadline": "2026-09-01T01:44:30-04:00",
+            }
+        )
+        _write_json(marker_path, marker)
+    elif case == "future_push_baseline":
+        marker["push_invocation_attempted"] = True
+        marker["push_pre_last_run_time"] = "2026-09-01T01:31:00-04:00"
+        _write_json(marker_path, marker)
+    elif case == "wrong_phase":
+        marker["phase"] = "reconciliation_prepared"
+        _write_json(marker_path, marker)
+    elif case == "stale":
+        marker["updated_at"] = "2026-08-29T01:30:00-04:00"
+        _write_json(marker_path, marker)
+    elif case == "incomplete":
+        marker.pop("reconciliation_safety_tip")
+        _write_json(marker_path, marker)
+    elif case == "wrong_branch":
+        marker["branch"] = str(fixture["published_target"])
+        _write_json(marker_path, marker)
+    elif case == "unreviewed_safety_tip":
+        pass
+    elif case == "snapshot_aliases_live_config":
+        manifest = copy.deepcopy(fixture["manifest"])
+        snapshots = copy.deepcopy(marker["reconciliation_snapshot_paths"])
+        for relative in CONFIG_PATHS:
+            snapshots[relative]["snapshot_path"] = relative
+            manifest["config"][relative]["snapshot_path"] = relative
+        marker["reconciliation_snapshot_paths"] = snapshots
+        manifest_path = fixture["manifest_path"]
+        assert isinstance(manifest_path, Path)
+        _write_json(manifest_path, manifest)
+        marker["reconciliation_snapshot_manifest_sha256"] = hashlib.sha256(
+            manifest_path.read_bytes()
+        ).hexdigest()
+        _write_json(marker_path, marker)
+    elif case == "wrong_dependency_hash":
+        dependencies = dict(marker["reconciliation_dependency_sha256"])
+        dependencies[
+            "scripts/ops/status.ps1@safety_tip"
+        ] = "0" * 64
+        marker["reconciliation_dependency_sha256"] = dependencies
+        _write_json(marker_path, marker)
+    elif case == "missing_dependency_stage":
+        dependencies = dict(marker["reconciliation_dependency_sha256"])
+        dependencies.pop("scripts/ops/boot_recovery.ps1@published_target")
+        marker["reconciliation_dependency_sha256"] = dependencies
+        _write_json(marker_path, marker)
+    elif case == "wrong_roll_payload":
+        roll_json_path = fixture["roll_json_path"]
+        manifest_path = fixture["manifest_path"]
+        assert isinstance(roll_json_path, Path)
+        assert isinstance(manifest_path, Path)
+        roll_payload = json.loads(roll_json_path.read_text(encoding="utf-8"))
+        roll_payload["branch"] = str(fixture["published_target"])
+        _write_json(roll_json_path, roll_payload)
+        roll_sha = hashlib.sha256(roll_json_path.read_bytes()).hexdigest()
+        manifest = copy.deepcopy(fixture["manifest"])
+        manifest["roll_verdict"]["json_sha256"] = roll_sha
+        _write_json(manifest_path, manifest)
+        marker["roll_verdict_json_sha256"] = roll_sha
+        marker["reconciliation_snapshot_manifest_sha256"] = hashlib.sha256(
+            manifest_path.read_bytes()
+        ).hexdigest()
+        _write_json(marker_path, marker)
+    elif case == "wrong_documentation_payload":
+        invalid_pending_bytes = json.dumps(
+            {
+                "schema_version": "documentation_transaction_pending_v0.1",
+                "status": "PENDING",
+                "created_at_local": "2026-09-01T01:29:15-04:00",
+                "due_at_local": "2026-09-01T09:00:00-04:00",
+                "integrations": [],
+                "latest_integration_tip": str(fixture["merge_commit"]),
+            },
+            indent=2,
+            sort_keys=True,
+        ).encode("utf-8")
+        invalid_pending_sha = hashlib.sha256(invalid_pending_bytes).hexdigest()
+        invalid_pending_path = (
+            repo
+            / "data"
+            / "alerts"
+            / "documentation_transactions"
+            / f"pending-{invalid_pending_sha}.json"
+        )
+        invalid_pending_path.write_bytes(invalid_pending_bytes)
+        marker["documentation_transaction_pending_sha256"] = invalid_pending_sha
+        marker["documentation_transaction_snapshot_path"] = (
+            f"data/alerts/documentation_transactions/pending-{invalid_pending_sha}.json"
+        )
+        _write_json(marker_path, marker)
+    elif case == "dirty_worktree":
+        (repo / "unexpected-untracked.txt").write_text("dirty\n", encoding="utf-8")
+    elif case == "noncanonical_origin_url":
+        _git(repo, "remote", "set-url", "origin", str(tmp_path / "other.git"))
+    elif case == "origin_pushurl_override":
+        _git(repo, "config", "remote.origin.pushurl", str(fixture["bare_origin"]))
+    elif case == "origin_url_rewrite":
+        _git(
+            repo,
+            "config",
+            "url.https://mirror.invalid/.insteadOf",
+            "https://unused.invalid/",
+        )
+    elif case == "wrong_origin":
+        bare_origin = fixture["bare_origin"]
+        assert isinstance(bare_origin, Path)
+        _git(
+            bare_origin,
+            "update-ref",
+            "refs/heads/master",
+            str(fixture["local_baseline"]),
+        )
+        _git(
+            repo,
+            "update-ref",
+            "refs/remotes/origin/master",
+            str(fixture["local_baseline"]),
+        )
+    elif case == "published_without_rpc_hash":
+        merge_commit = str(fixture["merge_commit"])
+        _git(repo, "push", "origin", f"{merge_commit}:refs/heads/master")
+        _git(repo, "update-ref", "refs/remotes/origin/master", merge_commit)
+        _make_published_marker(marker)
+        marker["push_start_rpc_request_sha256"] = None
+        _write_json(marker_path, marker)
+    elif case == "published_stop_count_over_limit":
+        merge_commit = str(fixture["merge_commit"])
+        _git(repo, "push", "origin", f"{merge_commit}:refs/heads/master")
+        _git(repo, "update-ref", "refs/remotes/origin/master", merge_commit)
+        _make_published_marker(marker)
+        marker.update(
+            {
+                "push_stop_attempted": True,
+                "push_stop_count": 3,
+                "push_stop_rpc_request_id": "c" * 32,
+                "push_stop_rpc_request_sha256": "d" * 64,
+                "push_stop_rpc_deadline_utc": "2026-09-01T05:31:30Z",
+            }
+        )
+        _write_json(marker_path, marker)
+    elif case == "published_pre_last_after_start":
+        merge_commit = str(fixture["merge_commit"])
+        _git(repo, "push", "origin", f"{merge_commit}:refs/heads/master")
+        _git(repo, "update-ref", "refs/remotes/origin/master", merge_commit)
+        _make_published_marker(marker)
+        marker["push_pre_last_run_time"] = "2026-09-01T01:31:30-04:00"
+        _write_json(marker_path, marker)
+    elif case == "published_with_stale_origin_cache":
+        merge_commit = str(fixture["merge_commit"])
+        _git(repo, "update-ref", "refs/remotes/origin/master", merge_commit)
+        _make_published_marker(marker)
+        _write_json(marker_path, marker)
+    else:  # pragma: no cover - parametrization is exhaustive
+        raise AssertionError(case)
+
+    state = _publication_state(fixture)
+    assert state["classification"] == "incident_evidence_invalid"
+    assert state["warning"] == "1 commit(s) unpushed"
+    assert "EVIDENCE_INVALID" in state["flag"]
+    assert "WeatherOneShotPush invocation is forbidden" in state["flag"]
+    assert "(run WeatherOneShotPush)" not in state["warning"]
+    assert state["manual_push_allowed"] is False
+    if case == "published_with_stale_origin_cache":
+        assert state["live_origin_master"] == str(fixture["published_target"])
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_invalid_marker_uses_cached_origin_when_live_origin_is_unfetched(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+    marker_path = fixture["marker_path"]
+    bare_origin = fixture["bare_origin"]
+    assert isinstance(marker_path, Path)
+    assert isinstance(bare_origin, Path)
+    marker_path.write_text("{", encoding="utf-8")
+
+    writer = tmp_path / "remote-writer"
+    _git(tmp_path, "clone", str(bare_origin), str(writer))
+    _git(writer, "config", "user.name", "Status Remote Writer")
+    _git(writer, "config", "user.email", "status-remote@invalid.local")
+    (writer / "remote-only.txt").write_text("unfetched\n", encoding="utf-8")
+    remote_only = _commit(writer, "remote-only")
+    _git(writer, "push", "origin", "master")
+
+    state = _publication_state(fixture, unpushed_count=None)
+    assert state["classification"] == "incident_evidence_invalid"
+    assert state["live_origin_master"] == remote_only
+    assert state["unpushed_base"] == "origin/master"
+    cached_count = int(state["unpushed_display"])
+    assert cached_count > 0
+    assert state["warning"] == f"{cached_count} commit(s) unpushed"
+    assert "EVIDENCE_INVALID" in state["flag"]
+    assert "WeatherOneShotPush invocation is forbidden" in state["flag"]
+    assert "(run WeatherOneShotPush)" not in state["warning"]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_unreadable_unpushed_state_is_never_silently_coerced_to_zero(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+    marker_path = fixture["marker_path"]
+    repo = fixture["repo"]
+    assert isinstance(marker_path, Path)
+    assert isinstance(repo, Path)
+    marker_path.write_text("{", encoding="utf-8")
+    _git(repo, "update-ref", "-d", "refs/remotes/origin/master")
+
+    state = _publication_state(fixture, unpushed_count=None)
+    assert state["classification"] == "incident_evidence_invalid"
+    assert state["unpushed_display"] == "?"
+    assert state["warning"] == "unpushed commit state unreadable"
+    assert "EVIDENCE_INVALID" in state["flag"]
+    assert "WeatherOneShotPush invocation is forbidden" in state["flag"]
+    assert "(run WeatherOneShotPush)" not in state["warning"]
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+def test_absent_marker_and_old_special_report_do_not_poison_unrelated_commit(
+    tmp_path: Path,
+) -> None:
+    fixture = _build_reconciliation_status_fixture(tmp_path)
+    marker_path = fixture["marker_path"]
+    repo = fixture["repo"]
+    assert isinstance(marker_path, Path)
+    assert isinstance(repo, Path)
+    marker_path.unlink()
+    _write_json(
+        repo / "data" / "alerts" / "quiet_window_merge_last.json",
+        {
+            "schema": "quiet_window_merge_report_v0.2",
+            "operation_mode": "production_baseline_reconciliation_v0.1",
+            "stage": "pushed",
+            "merge_commit": fixture["merge_commit"],
+        },
+    )
+    (repo / "unrelated.txt").write_text("later unrelated change\n", encoding="utf-8")
+    unrelated = _commit(repo, "unrelated")
+    _git(repo, "checkout", "-B", "master", unrelated)
+    _git(repo, "update-ref", "refs/remotes/origin/master", str(fixture["merge_commit"]))
+
+    state = _publication_state(fixture)
+    assert state["classification"] == "ordinary"
+    assert state["warning"] == "1 commit(s) unpushed (run WeatherOneShotPush)"
+    assert state["flag"] == ""
+    assert state["manual_push_allowed"] is True
 
 
 def test_rearmed_one_shot_does_not_reuse_prior_failure_as_current_flag():
@@ -317,6 +1323,7 @@ foreach ($name in @(
 $failed = Get-WeatherIntegrationAttemptState -SuiteReceiptStatus FAIL
 $recovery = Get-WeatherIntegrationAttemptState -DispatchStatus READY_FOR_SUCCESSOR_REVIEW
 $merged = Get-WeatherIntegrationAttemptState -MergeReceiptStatus MERGED_UNVERIFIED
+$mergedUnpushed = Get-WeatherIntegrationAttemptState -MergeReceiptStatus RECOVERED_UNPUSHED
 $reconciled = Get-WeatherIntegrationAttemptState -MergeReceiptStatus MERGED_UNVERIFIED -ReconciliationStatus MERGED_RECONCILED
 $cases = @(
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $failed -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
@@ -331,10 +1338,14 @@ $cases = @(
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false -SuiteRanWithoutReceipt $true
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false -MergeReceiptMissingAfterTrigger $true
     Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State ACTIVE_OR_ARMED -TaskState Ready -EvidenceIsFresh $false -SuiteTriggerMissed $false -SuiteRanWithoutReceipt $true -MergeReceiptMissingAfterTrigger $true
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $mergedUnpushed -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false
+    Get-WeatherIntegrationAttemptAlertDisposition -AttemptId a -State $mergedUnpushed -TaskState Ready -EvidenceIsFresh $true -SuiteTriggerMissed $false -PublicationClassification guarded_pre_dispatch
 )
 [pscustomobject]@{
-    states = @($failed, $recovery, $merged, $reconciled)
+    states = @($failed, $recovery, $merged, $mergedUnpushed, $reconciled)
     severities = @($cases | ForEach-Object { [string]$_.Severity })
+    ordinary_unpushed_detail = [string]$cases[-2].Detail
+    guarded_unpushed_detail = [string]$cases[-1].Detail
 } | ConvertTo-Json -Compress
 """
     result = subprocess.run(
@@ -351,6 +1362,7 @@ $cases = @(
             "FAILED_NEEDS_CLOSE",
             "RECOVERY_READY",
             "MERGED_UNVERIFIED",
+            "MERGED_UNPUSHED",
             "MERGED_RECONCILED",
         ],
         "severities": [
@@ -366,7 +1378,21 @@ $cases = @(
             "FLAG",
             "FLAG",
             "WARN",
+            "FLAG",
+            "FLAG",
         ],
+        "ordinary_unpushed_detail": (
+            "integration attempt a has a recovery-proved local merge not "
+            "acknowledged by origin; obtain review, resume publication, and do not "
+            "retry it"
+        ),
+        "guarded_unpushed_detail": (
+            "RECONCILIATION_PUBLICATION_RELATED_ATTEMPT: integration attempt a "
+            "has a recovery-proved local merge not "
+            "acknowledged by origin; the active reconciliation marker owns "
+            "publication, so preserve exact evidence and do not manually invoke or "
+            "retry WeatherOneShotPush"
+        ),
     }
 
 
