@@ -1,7 +1,7 @@
 # Workstation multiyear NWP residual information test
 
-Date: 2026-09-02  
-Branch: `codex/workstation-multiyear-nwp-residual-2026-09-88a`  
+Date: 2026-09-02
+Branch: `codex/workstation-multiyear-nwp-residual-2026-09-88a`
 Source: `origin/codex/workstation-collect-multiyear-pit-research-2026-09-87a` at `3f3367b29fee69965935170b32f6cc3b45d3e33a` (tree `3b64e4afee3b3abfafb584aac3355adedcc1ed3c`)
 
 ## Verdict
