@@ -207,3 +207,148 @@ All heavy commands ran under `scripts/ops/workstation_heavy.ps1` with the
   files).
 - `git diff --check`: **passed** before the report; repeated in final branch
   verification.
+
+## External-secondary 2026 evaluation amendment
+
+### Disposition and evidence class
+
+**INTEGRITY_FAILURE.** This external-secondary attempt stopped on incomplete WU
+daily-summary outcome coverage before either frozen model was asked to predict.
+It therefore produced no model metrics, bootstrap intervals, achieved power,
+MDE80, per-market or per-month effects, or market-contribution statistic. Those
+quantities are deliberately reported as **not computed**, rather than recovered
+by changing the committed harness or reopening outcomes after the failure.
+
+This section does not change the original **INCONCLUSIVE_UNDERPOWERED** 2025
+primary verdict above. The 2026 outcomes had already been inspected by a
+different model mission, so this attempt was predeclared as external-secondary
+and non-confirmatory. No outcome could have authorized distribution work,
+production retraining, a candidate freeze, release, promotion, serving, alpha
+allocation, or a confirmation window. Because the result is an integrity
+failure, it also does not justify the otherwise maximum-permitted follow-up of
+a prospective point-forecast shadow plan on genuinely new dates.
+
+### Frozen amendment and pre-outcome proof
+
+Task 1 removed only the trailing spaces from report lines 3-4, passed
+`git diff --check`, and was committed as
+`e7e0218ca4a6cab19c247098f95b03a1e02459bc` (tree
+`50fbb0ddf064dc1df21393f5fd5be370795d0393`). The continuation had first
+reproduced the required tip
+`798225bc200d2909fb32175e21d870f86877faef` and tree
+`c9bb99a756bb81d7f3458f0763e63b15ebebb894` exactly.
+
+Before opening any source 2026 outcome value, the no-refit evaluator and the
+immutable amendment were tested, compiled, and committed at
+`663a288dbf04d8fbcabf0501288cfc9af1b8b545` (tree
+`ba8af2c07a11c6cb5901d7f649d1d0329a56a7bf`). The amendment is
+`docs/roadmap/multiyear-nwp-residual-external-amendment-2026-09-88a.json`:
+
+- amendment self-hash:
+  `34be1c1eb27d4a563baef3da00e6c24b9bb3e009f5fc7e41b5329b37f7bfa0e0`;
+- amendment file SHA-256:
+  `866d7537440c6d1921128deff04e04ecc03f9bcc6f0b904b0fa1489e302ac152`;
+- committed blob: `2a33918242021c6b65fa7c1d90c2fff395d24bba`;
+- frozen evaluator SHA-256:
+  `471d8dbd0f0adf97d040ec2351b6ad1b182934dcdc6296ceb8f71a20c69b469f`.
+
+The pre-outcome checks reproduced all frozen identities:
+
+| Bound object | SHA-256 |
+|---|---|
+| Transfer manifest | `1794455e40f967411d05660ff4ac785e1fab48caccb8fbdfb3df7aa31438712a` |
+| Transfer payload inventory | `c2502bd1865eb323a3ee6337c14be9043167382215aa8fb29cb4ea020978545c` |
+| Transfer CSV inventory | `baf1b2fa6310e7bbe7a5429abe8a0c6dc3acbb97d45fa5d788977d068ac0e2cb` |
+| Frozen design file | `0667fdc204360122f44e35f2ef31dad5d6f7f53afd83bfd09ba0f0a50874bc65` |
+| Frozen design self-hash | `bd4bdb2ebcdd67a498e461b455f77bc9ca5a88f73bb19dae389e4bb28e26c0fb` |
+| Original frozen harness | `8b513188aa5a123f29c3225d2a8efa435a56b46a07c1bcc0f8a96e756641e27f` |
+| Frozen training self-hash | `776d14ac8de61e04e8a5066ab4f78464dcc2cd45a046d79e32081dfde825415c` |
+| Temperature residual baseline | `c1ee07eef33016633ebf1ffdf847c7b55d90a2420b198eac7fb07ee88f5c2797` |
+| Eleven-field residual challenger | `0ae3e67cfcda420a9c0103959b2c79cac6438d7fadf162b41f36a47919862ab5` |
+| Baseline feature order | `4e35fe7e2d44d37e22ff02b2b681c2de840a487d1eeddef7cace58b2852bf603` |
+| Challenger feature order | `5839aa7373cdd78d4d54cccfa27d7d8b42ffb8acc5d80e08135561335fa2c3fb` |
+| Combined feature-order binding | `3d2b3fa4a9b58f7881b80609234904f54fd2db05b21c1f96aac10b5389859bbd` |
+| Frozen WU source inventory | `74a291ee764dccc54ca410f3e9d4e271cc7a6a678c7ab351cc6865ad6e270a5d` |
+
+All 28 transferred payloads, including the exact 24 CSVs, rehashed with zero
+failures. They total `171,401,140` bytes and `1,645,056` forecast rows. The
+frozen amendment preserved primary leads 2-7, the leads 1-7 sensitivity,
+native units, WU authority, matched-row and error rules, the 20,000-draw crossed
+date x market bootstrap, seed `8802026`, estimator preprocessing, and zero
+authorized model or probability-model refits.
+
+### Sealed attempt and outcome-support failure
+
+The worktree was clean and the amendment matched its committed blob when the
+single attempt was sealed, before source outcomes were opened. The create-only
+attempt is
+`external-2026/external-evaluation-attempt.json` under the existing ignored
+scratch root. Its self-hash is
+`55d7dfe0dd9fe45ecd0926931dfcca4376765ccec1751c0036053efcafc9d86b`
+and its file SHA-256 is
+`e8a3e19da0798fef56c74bca98c6fec798d3d3f99dd253f0c600532c8cc217d3`.
+It authorizes zero refits, zero 2025 outcome access, and no rerun.
+
+The source reader skipped every non-2026 row before touching any outcome field.
+It admitted 720 source 2026 outcome values, then failed the frozen coverage
+check with the first missing keys Atlanta `2026-06-15` through `2026-06-17`.
+The complete support-only audit is:
+
+| Cohort | Requested dates | Admitted dates | Markets | Expected market-days | Admitted | Absent rows | Below 18 observations |
+|---|---:|---|---:|---:|---:|---:|---:|
+| Pre-boundary `2026-06-03` to `2026-07-30` | 58 | 53: `06-03`-`06-15`, `06-17`, `06-19`-`06-23`, `06-27`-`07-30` | 12 | 696 | 612 | 82 | 2 |
+| Post-boundary directional `2026-07-31` to `2026-08-09` | 10 | 9: `07-31`-`08-07`, `08-09` | 12 | 120 | 108 | 12 | 0 |
+
+The 12 markets were Atlanta, Austin, Chicago, Dallas, Denver, Houston, Los
+Angeles, Miami, NYC, San Francisco, Seattle, and Toronto. WU rows were absent
+for all markets on June 16, June 18, June 24-26, and August 8; June 15 was
+absent except for Toronto, and June 17 was absent except for Chicago. Atlanta
+and Miami on June 6 each had only 15 observations and were rejected by the
+unchanged minimum-18 rule. Thus the pre-boundary cohort had 84 exclusions or
+missing cells and the post-boundary cohort had 12. No row crossed or pooled
+across the `b77cfbed` / `2026-07-31` boundary.
+
+Because the integrity check stopped before prediction, every requested raw
+anchor, baseline, challenger, leads-1-7, improvement, interval, power, MDE,
+per-market, per-month, and maximum-market-contribution result is **not
+computed**. The exact fitted-model refit count is `0`; the probability-model
+refit count is also `0`. No sealed evaluation-record CSV or result JSON exists,
+so deterministic reproduction from sealed records is correctly **not
+applicable / failed closed**, without reopening source outcomes.
+
+### External-secondary immutability and prohibited-actions audit
+
+The post-attempt transfer rehash again matched all 28 payloads and 24 CSVs with
+zero failures, the same `171,401,140` bytes, and the same required manifest
+hash. Both model artifact hashes also matched their pre-attempt values exactly.
+The failed attempt made zero provider calls, refits, probability refits, 2025
+outcome-value accesses, cross-boundary pooled evaluations, market-data reads,
+corpus or mirror writes, production/Scheduler/exchange/credential accesses,
+release/distribution/promotion/candidate/alpha/confirmation/serving actions,
+and branch merges.
+
+### External-secondary verification
+
+All evaluation, test, and compile workloads used
+`scripts/ops/workstation_heavy.ps1` and its `workstation_offline_v1` lease.
+
+- Pre-outcome focused evaluator and original frozen-harness tests: **22 passed**.
+- Final focused evaluator, original frozen-harness, and schema-registry tests:
+  **30 passed**. The first final pass exposed one unregistered source manifest
+  schema literal (`29 passed, 1 failed`); registering that existing external
+  schema contract corrected the audit without changing the frozen evaluator or
+  amendment.
+- Full `compileall -q app src tests`: **passed**.
+- Agent-doc audit: **passed** (18 agent files, 834 Markdown files).
+- Roadmap lint/check: **passed**; generated report matches its sources.
+- Post-attempt transfer/model rehash: **passed**, with zero hash failures.
+- No-refit assertion: **passed at zero**; the outcome coverage gate stopped
+  before prediction and the evaluator source contains no estimator `fit` call.
+- Deterministic sealed-result reproduction: **not applicable / failed closed**
+  because the integrity failure deliberately produced neither prediction
+  records nor a result.
+- `git diff --check`: **passed**.
+- Canonical `roll_verdict.ps1`: **UNDECIDABLE** (exit 1), with no live closure
+  evidence. The four available workstation closure snapshots were dormant
+  (about 515.6-894.3 hours old), so no hand-derived roll classification was
+  substituted.

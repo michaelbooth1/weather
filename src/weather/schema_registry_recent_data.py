@@ -1381,6 +1381,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Exact 28-payload and 24-CSV rehash of the sealed 2026 forecast transfer before and after external-secondary evaluation.",
     ),
     SchemaSpec(
+        "pit_12field_transfer_manifest",
+        "pit_12field_transfer_manifest_v0.1",
+        "weather.calibration.seasonal_challenger",
+        "active",
+        "Transferred twelve-field PIT corpus payload inventory, byte total, shape, and source hash contract.",
+    ),
+    SchemaSpec(
         "multiyear_nwp_residual_external_amendment",
         "multiyear_nwp_residual_external_amendment_v1",
         "weather.calibration.multiyear_nwp_residual_external",
