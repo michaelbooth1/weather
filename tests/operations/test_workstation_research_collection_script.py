@@ -26,6 +26,9 @@ def test_research_collection_wrapper_is_exactly_plan_and_endpoint_bound() -> Non
     assert "Get-FileHash -Algorithm SHA256" in text
     assert "international_live_execution_host.json" in text
     assert "assignment_sha256" in text
+    assert "$outputRoot -isnot [IO.DirectoryInfo]" in text
+    assert "$existingChildren.Count -ne 0" in text
+    assert "exact empty, ACL-verified root" in text
 
 
 def test_research_collection_has_distinct_host_bound_lease_and_containment() -> None:

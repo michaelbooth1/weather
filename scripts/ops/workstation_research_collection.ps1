@@ -181,7 +181,7 @@ $repo = Get-Item -LiteralPath $RepoRoot -Force -ErrorAction Stop
 $wrapperRepo = Get-Item -LiteralPath (Join-Path $PSScriptRoot "..\..") `
     -Force -ErrorAction Stop
 if (
-    -not $repo.PSIsContainer -or
+    $repo -isnot [IO.DirectoryInfo] -or
     ($repo.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
     -not [string]::Equals(
         $repo.FullName,
@@ -196,7 +196,7 @@ $expectedPlan = Join-Path $repo.FullName `
     "docs\roadmap\previous-runs-multiyear-collection-plan-2026-09-87a.json"
 $planItem = Get-Item -LiteralPath $PlanPath -Force -ErrorAction Stop
 if (
-    $planItem.PSIsContainer -or
+    $planItem -isnot [IO.FileInfo] -or
     ($planItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
     -not [string]::Equals(
         $planItem.FullName,
@@ -236,7 +236,7 @@ if ($assignmentHash -cne [string]$plan.execution_contract.assignment_sha256) {
 $python = Get-Item -LiteralPath $PythonPath -Force -ErrorAction Stop
 if (
     -not [IO.Path]::IsPathRooted($PythonPath) -or
-    $python.PSIsContainer -or
+    $python -isnot [IO.FileInfo] -or
     ($python.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
     $python.Name -cnotmatch '(?i)\Apython(?:3(?:\.\d+)?)?\.exe\z'
 ) {
@@ -256,7 +256,7 @@ else {
     $outputRoot = Get-Item -LiteralPath $outputPath -Force -ErrorAction Stop
 }
 if (
-    -not $outputRoot.PSIsContainer -or
+    $outputRoot -isnot [IO.DirectoryInfo] -or
     ($outputRoot.Attributes -band [IO.FileAttributes]::ReparsePoint)
 ) {
     throw "research-collection output root is absent or redirected"
@@ -265,14 +265,23 @@ if (
 if (-not $createdOutputRoot) {
     $retainedPlan = Join-Path $outputRoot.FullName "collection-plan.json"
     if (-not (Test-Path -LiteralPath $retainedPlan -PathType Leaf)) {
-        throw "existing research-collection root lacks its immutable plan"
+        $existingChildren = @(Get-ChildItem -LiteralPath $outputRoot.FullName `
+            -Force -ErrorAction Stop)
+        if ($existingChildren.Count -ne 0) {
+            throw "existing research-collection root lacks its immutable plan"
+        }
+        # A prior wrapper preflight may have atomically created the protected
+        # root before Python launched. Only that exact empty, ACL-verified root
+        # is safe to resume; no retained artifact is removed or overwritten.
     }
-    $expectedHash = (Get-FileHash -Algorithm SHA256 `
-        -LiteralPath $planItem.FullName).Hash
-    $retainedHash = (Get-FileHash -Algorithm SHA256 `
-        -LiteralPath $retainedPlan).Hash
-    if ($expectedHash -cne $retainedHash) {
-        throw "existing research-collection root plan differs byte-for-byte"
+    else {
+        $expectedHash = (Get-FileHash -Algorithm SHA256 `
+            -LiteralPath $planItem.FullName).Hash
+        $retainedHash = (Get-FileHash -Algorithm SHA256 `
+            -LiteralPath $retainedPlan).Hash
+        if ($expectedHash -cne $retainedHash) {
+            throw "existing research-collection root plan differs byte-for-byte"
+        }
     }
 }
 
