@@ -1226,4 +1226,32 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Atomic latest pointer binding the current pending-state hash and documentation tip to an immutable closeout receipt.",
     ),
+    SchemaSpec(
+        "pit_12field_p0_integrity",
+        "pit_12field_p0_integrity_v1",
+        "weather.calibration.seasonal_challenger",
+        "active",
+        "Read-only transfer, manifest, corpus-shape, reparse-point, and deny-write ACL attestation for the sealed twelve-field PIT corpus.",
+    ),
+    SchemaSpec(
+        "seasonal_challenger_12field_design",
+        "seasonal_challenger_12field_v1",
+        "weather.calibration.seasonal_challenger",
+        "active",
+        "Outcome-blind frozen design for the all-leads twelve-field seasonal challenger and its leads-2-7 sensitivity.",
+    ),
+    SchemaSpec(
+        "seasonal_challenger_12field_result",
+        "seasonal_challenger_12field_result_v1",
+        "weather.calibration.seasonal_challenger",
+        "active",
+        "Research-only split-provenance evaluation, crossed date-by-market uncertainty, power, MDE, and terminal decision receipt.",
+    ),
+    SchemaSpec(
+        "seasonal_challenger_result_verification",
+        "seasonal_challenger_result_verification_v1",
+        "weather.calibration.seasonal_challenger",
+        "active",
+        "Independent hash, design-binding, and deterministic-refit verification for a seasonal-challenger result tree.",
+    ),
 )
