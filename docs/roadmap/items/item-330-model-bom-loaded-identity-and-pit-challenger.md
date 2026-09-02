@@ -1,4 +1,4 @@
-# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-08-31 - FOUNDATION WORKSTATION-QUALIFIED; FREE SOURCE P0 NO-GO; PRODUCTION REVIEW AND V2 COLLECTOR/CORPUS OPEN]
+# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-09-02 - FOUNDATION WORKSTATION-QUALIFIED; 12-FIELD SEASONAL CHALLENGER INCONCLUSIVE; PRODUCTION REVIEW OPEN]
 
 Goal: make the served model graph reproducible from the bytes actually loaded
 by a process, establish the supported base retrain as a correctness baseline,
@@ -139,6 +139,20 @@ built. The evidence and exact field/timestamp matrices are in
   removal candidate; safety constraints remain non-raisable.
 
 ## Phase D — Simple new-information challenger
+
+Workstation terminal result (2026-09-02): the exact sealed 12-field corpus
+passed P0, and the outcome-blind all-leads 1-7 design was committed before C
+outcomes were opened. The locked C-pre result is
+**`INCONCLUSIVE_UNDERPOWERED`**: Brier improved slightly, centre SSE worsened,
+all crossed intervals span zero, and the leads-2-7 sensitivity has an adverse
+centre direction. The original decision rule therefore rejects
+`GO_TO_SECOND_RESEARCH_REPLICATION`. C-post was kept separate and is
+three-market directional evidence only. See
+[`agent-report-2026-09-10-workstation-12field-seasonal-challenger.md`](../agent-report-2026-09-10-workstation-12field-seasonal-challenger.md).
+The earlier missing-corpus disposition remains historical evidence in commits
+`e741b599` and `52510fca`; it is superseded rather than erased. Phase D remains
+open because this candidate did not qualify and the broader correctness
+baseline/matched-stack work elsewhere in this item is not complete.
 
 - [ ] Define a regularized market-aware NWP residual or ordinal challenger that
   consumes issue-qualified staged Previous Runs fields unavailable to the
