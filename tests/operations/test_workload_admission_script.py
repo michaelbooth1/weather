@@ -279,6 +279,12 @@ def test_workstation_wrapper_canonicalizes_modules_before_admission() -> None:
     assert "train_serve_feature_parity" not in text
 
 
+def test_calendar_residual_replication_is_an_exact_offline_module() -> None:
+    text = LEASE_SCRIPT.read_text(encoding="utf-8-sig")
+
+    assert text.count('"weather.calibration.calendar_residual_replication"') == 1
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows filesystem ACLs")
 @pytest.mark.parametrize("shell", ("powershell", "pwsh"))
 def test_host_global_state_helpers_round_trip_on_both_powershell_editions(

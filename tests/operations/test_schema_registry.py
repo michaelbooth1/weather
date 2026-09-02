@@ -511,6 +511,30 @@ class TestSchemaRegistry(unittest.TestCase):
             "taker_market_benchmark_scoreboard_v0.1",
         )
         self.assertEqual(schema_version("settled_day_root_cause"), "settled_day_root_cause_v0.1")
+        self.assertEqual(
+            schema_version("calendar_residual_replication_p0"),
+            "calendar_residual_replication_p0_v1",
+        )
+        self.assertEqual(
+            schema_version("calendar_residual_replication_design"),
+            "calendar_residual_replication_design_v1",
+        )
+        self.assertEqual(
+            schema_version("calendar_residual_replication_training"),
+            "calendar_residual_replication_training_v1",
+        )
+        self.assertEqual(
+            schema_version("calendar_residual_replication_terminal_attempt"),
+            "calendar_residual_replication_terminal_attempt_v1",
+        )
+        self.assertEqual(
+            schema_version("calendar_residual_replication_result"),
+            "calendar_residual_replication_result_v1",
+        )
+        self.assertEqual(
+            schema_version("calendar_residual_replication_result_verification"),
+            "calendar_residual_replication_result_verification_v1",
+        )
         self.assertEqual(schema_version("promotion_refresh_lifecycle"), "promotion_refresh_incomplete_v0.1")
         self.assertTrue(validate_schema_version("feature_store_legacy_v1_14", "toronto_feature_store_v1.14"))
         self.assertTrue(validate_schema_version("feature_store_legacy_v1_11", "toronto_feature_store_v1.11"))
