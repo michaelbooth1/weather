@@ -24,6 +24,46 @@ provider, exchange, PR #9, or PR #7 was touched. `WeatherOneShotPush` was not
 invoked. The future command in this report is a handoff template only and was
 not executed.
 
+## PR #10 exact-head CI repair follow-up (2026-09-02)
+
+PR #10 CI at exact report tip
+`1354e063eba13ea0f57bedb591004eb2073b1232` ended with `2 failed, 4173
+passed, 246 skipped, 1 warning, 860 subtests`. Both failures required Git
+objects that the default one-commit `actions/checkout` clone did not contain:
+
+- production baseline `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac`; and
+- published target `c932b54f8747df5cdefc4cc42f8454b6797f09ae`.
+
+The exact CI repair commit is
+`3ff0e69cc3d1f88f39659cb2a72d4a3e3bb6ed31`, tree
+`b4d74884208dfd29cac52dfb7cc9bd36fb0d72f8`, with sole parent
+`1354e063eba13ea0f57bedb591004eb2073b1232`. Its only changed file is
+`.github/workflows/ci.yml`: the existing checkout step now sets
+`fetch-depth: 0` and retains `lfs: false`. No test was skipped, weakened,
+mocked, xfailed, or conditionally bypassed. No reconciliation or production
+code changed. Exact-head GitHub CI remains a separate production-side
+verification gate.
+
+| Repair verification | Result |
+| --- | --- |
+| Two exact CI failures | **PASS**, `2 passed in 0.33s` |
+| Complete affected `test_production_baseline_reconciliation.py` | **PASS**, `17 passed in 61.28s (0:01:01)` |
+| Complete repository pytest, default temp | **DIAGNOSTIC**, `13 failed, 4386 passed, 22 skipped, 13 warnings, 862 subtests passed in 2743.91s (0:45:43)`; all failures were Windows MAX_PATH artifacts in `test_experiment_executor.py` |
+| Complete repository pytest, shorter `C:\tmp` base | **DIAGNOSTIC**, `12 failed, 4387 passed, 22 skipped, 13 warnings, 862 subtests passed in 2651.55s (0:44:11)`; all failures were the same MAX_PATH artifact |
+| Complete path-sensitive executor file with documented extended-prefix temp mode | **PASS**, `24 passed in 3.04s` |
+| `compileall -q app src tests` | **PASS** through `workstation_heavy.ps1` |
+| Agent-document audit | **PASS**, 18 agent files / 830 Markdown files |
+| Roadmap lint/generated-view check | **PASS**, generated report matches sources |
+| Cumulative `git diff --check` | **PASS** |
+
+The two complete-suite invocations were allowed to finish and are reported
+honestly rather than relabelled green. Their only failures reproduced the
+report's pre-existing Windows path-length diagnostic: the longest normal-path
+atomic-write target is exactly 260 characters while this workstation has
+`LongPathsEnabled=0`. The entire affected file passes with the already
+documented extended-prefix mode. This local filesystem diagnostic is separate
+from the Linux exact-head CI failure that the checkout-depth change repairs.
+
 ## Immutable mission and result identity
 
 | Item | Exact value |
