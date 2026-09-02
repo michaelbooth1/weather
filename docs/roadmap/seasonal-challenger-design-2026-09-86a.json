@@ -1,0 +1,589 @@
+{
+  "cohorts": {
+    "C_post": {
+      "report_separately": true,
+      "selection": "promotion_countable latest ledger label; target dates 2026-07-31 through 2026-08-09; target-day snapshots; cutoff hours 07-20; complete band partition with finite incumbent and market probabilities",
+      "source": "frozen workstation mirror only"
+    },
+    "C_pre": {
+      "expected": {
+        "band_rows": 84183,
+        "date_clusters": 27,
+        "market_days": 320,
+        "markets": 12,
+        "snapshots": 7653
+      },
+      "selection": "stratum == out-of-season; target_date <= 2026-07-30; promotion-countable rows only",
+      "source": "retained repaired surface"
+    },
+    "fit_B": {
+      "expected": {
+        "band_rows": 50996,
+        "date_clusters": 23,
+        "market_days": 204,
+        "markets": 12,
+        "snapshots": 4636
+      },
+      "selection": "stratum == in-season; promotion-countable rows only",
+      "source": "retained repaired surface"
+    },
+    "provenance_boundary": {
+      "anchor_commit": "b77cfbed",
+      "date": "2026-07-31",
+      "pooling_permitted": false
+    }
+  },
+  "decision_rule": {
+    "accept": "GO_TO_SECOND_RESEARCH_REPLICATION only when all six commissioned C-pre conditions pass",
+    "conditions": [
+      "centre SSE improvement > 0 and crossed 95% interval excludes zero",
+      "challenger-minus-baseline Brier <= 0 and crossed 95% upper <= +0.002",
+      "lead-2-7 sensitivity centre SSE improvement > 0",
+      "probability mass and captured-input parity pass exactly",
+      "maximum one-market contribution <= 0.35 of total measured centre SSE improvement",
+      "no C outcome, market price, or settlement-derived model input"
+    ],
+    "otherwise": "NO_GO if harm is established; INCONCLUSIVE_UNDERPOWERED when the centre interval crosses zero"
+  },
+  "design_sha256": "11e65dcc4d240e70d15d866013ac27d8c37e6f0e8daaa23831437e293d699816",
+  "design_version": "seasonal_challenger_12field_v1",
+  "evaluation": {
+    "brier": "mean squared probability error over matched band rows",
+    "centre": "probability-weighted native band centre; lte tail=value-1, gte tail=value+1, closed interval midpoint otherwise",
+    "centre_mae": "mean absolute signed centre error by snapshot",
+    "centre_sse": "mean squared signed centre error by snapshot",
+    "market_benchmark_use": "evaluation only, loaded after design freeze",
+    "modal_hit": "fraction of snapshots whose maximum-probability band contains settlement",
+    "severe_tail": "C rows frozen where incumbent squared error exceeds market squared error and abs(incumbent-market)>=0.30",
+    "signed_centre_error": "predicted centre minus settlement bucket"
+  },
+  "forecast_features": {
+    "across_lead_aggregation": "arithmetic mean of each field's daily aggregate",
+    "baseline_fields": [
+      "temperature_2m"
+    ],
+    "challenger_fields": [
+      "temperature_2m",
+      "cloud_cover",
+      "shortwave_radiation",
+      "wind_speed_10m",
+      "cape",
+      "direct_radiation",
+      "diffuse_radiation",
+      "wind_gusts_10m",
+      "precipitation_probability",
+      "precipitation",
+      "vapour_pressure_deficit",
+      "et0_fao_evapotranspiration"
+    ],
+    "daily_aggregation": {
+      "cape": "max",
+      "cloud_cover": "mean",
+      "diffuse_radiation": "sum",
+      "direct_radiation": "sum",
+      "et0_fao_evapotranspiration": "sum",
+      "precipitation": "sum",
+      "precipitation_probability": "max",
+      "shortwave_radiation": "sum",
+      "temperature_2m": "max",
+      "vapour_pressure_deficit": "max",
+      "wind_gusts_10m": "max",
+      "wind_speed_10m": "mean"
+    },
+    "fields_in_order": [
+      "temperature_2m",
+      "cloud_cover",
+      "shortwave_radiation",
+      "wind_speed_10m",
+      "cape",
+      "direct_radiation",
+      "diffuse_radiation",
+      "wind_gusts_10m",
+      "precipitation_probability",
+      "precipitation",
+      "vapour_pressure_deficit",
+      "et0_fao_evapotranspiration"
+    ],
+    "primary_leads": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "provider_availability_limit": "Research evidence only; historical first-availability timestamps are insufficient for production qualification.",
+    "sensitivity_leads": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "valid_local_hours_inclusive": [
+      7,
+      20
+    ]
+  },
+  "inference": {
+    "draws": 20000,
+    "interval": "percentile 95%",
+    "mde_80": "(z_0.975 + z_0.8) * crossed bootstrap standard error",
+    "method": "shared-weight crossed target-date by market pigeonhole bootstrap over fixed matched evaluation effects",
+    "power": "two-sided normal plug-in at alpha 0.05",
+    "seed": 8602026
+  },
+  "input_binding": {
+    "corpus_root": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\pit-12field-20260810",
+    "frozen_mirror_acl": {
+      "owner": "DESKTOP-RFCD2GH\\weathersync",
+      "qualifying_rules": [
+        {
+          "Identity": "DESKTOP-RFCD2GH\\CodexSandboxOffline",
+          "Inherited": false,
+          "Rights": "DeleteSubdirectoriesAndFiles, Write, Delete",
+          "Type": "Deny"
+        }
+      ]
+    },
+    "frozen_mirror_reparse_point": false,
+    "frozen_mirror_root": "C:\\Users\\Michael\\Documents\\github\\weather\\data",
+    "p0_receipt_sha256": "7acc09eb759936f5a6d74e2f28cdbc3c7565864ac241168eb41411e127419fe1",
+    "post_boundary_source_inventory": [
+      {
+        "bytes": 20562772,
+        "relative_path": "settlements/atlanta/ledger.jsonl",
+        "sha256": "e28c03335430d09f521524f9ddf5d21a904b29d3fcc8fcb053b56acb97eb68c9"
+      },
+      {
+        "bytes": 20419421,
+        "relative_path": "settlements/austin/ledger.jsonl",
+        "sha256": "b5f2b4ef917374746476e9aa627f47d7979ba2a5bf905e66373077e0f75a260a"
+      },
+      {
+        "bytes": 20614556,
+        "relative_path": "settlements/chicago/ledger.jsonl",
+        "sha256": "9758b0277a9198bf433fa962493dc7baee105b4f9a6b51d6b288744c154d3bd1"
+      },
+      {
+        "bytes": 20534901,
+        "relative_path": "settlements/dallas/ledger.jsonl",
+        "sha256": "ff0bc976723776ef1bde43ee8fbc00297262f51a4e3c2bf63258825062ce2378"
+      },
+      {
+        "bytes": 20414726,
+        "relative_path": "settlements/denver/ledger.jsonl",
+        "sha256": "8820e0fe9fcee57300e7698706b34e6afa65ddcdfc5af68053dec4247cd9d467"
+      },
+      {
+        "bytes": 20617272,
+        "relative_path": "settlements/houston/ledger.jsonl",
+        "sha256": "0c7c9cc36d7f52f37f229921a87cfd9cf6be58e0ffd1825dbc2e0c4f3544d374"
+      },
+      {
+        "bytes": 20844608,
+        "relative_path": "settlements/los-angeles/ledger.jsonl",
+        "sha256": "3948710c52364d26be2ae749803c9bad465af7702d95354a40104b70b16cd2bb"
+      },
+      {
+        "bytes": 20494032,
+        "relative_path": "settlements/miami/ledger.jsonl",
+        "sha256": "2a1d1763865ff3c0869fe3b8fa1328017082224d2e875c5994a7c72331dade3e"
+      },
+      {
+        "bytes": 20477439,
+        "relative_path": "settlements/nyc/ledger.jsonl",
+        "sha256": "5dd23e2f611f41eb4d87bbf6cc94362433e9e98d8c71bf935e1de77ade783b5e"
+      },
+      {
+        "bytes": 20799311,
+        "relative_path": "settlements/san-francisco/ledger.jsonl",
+        "sha256": "962410099bc200629e73110ebac544abe73f506454fdfa97fadcab76696727a9"
+      },
+      {
+        "bytes": 20524402,
+        "relative_path": "settlements/seattle/ledger.jsonl",
+        "sha256": "93a7c6cd953c2c902b8a678d5d40e813dce2ce2adf6f200911907794bcd3f621"
+      },
+      {
+        "bytes": 23995780,
+        "relative_path": "settlements/toronto/ledger.jsonl",
+        "sha256": "d9bcf4cb73387ab8cd5073afd1852bd094ff24b56cd14d1d5318642fbb0064d3"
+      },
+      {
+        "bytes": 95994227,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-1-2026/replay_inputs.jsonl",
+        "sha256": "d1b1766d75a8e7fc36a3f4bfe50bca6ee28f1903fa4387a5f71359a1ac5c0be1"
+      },
+      {
+        "bytes": 1959613,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-1-2026/snapshots_long.csv",
+        "sha256": "9e91f9056d6b575a4f70f25a387c718c4e628405a8ae5ff60ab77c0a9131faed"
+      },
+      {
+        "bytes": 94405428,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-2-2026/replay_inputs.jsonl",
+        "sha256": "0fd46b2132351cba5894044f1135e69cea6cd808de8c9cdf9739ec4adab71630"
+      },
+      {
+        "bytes": 1945950,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-2-2026/snapshots_long.csv",
+        "sha256": "ce469cfb5ea948a1ae027625456722da9b7de9698a006cafba5b02a9c15cc86e"
+      },
+      {
+        "bytes": 97741402,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-3-2026/replay_inputs.jsonl",
+        "sha256": "7690949e3f210cc1a8edcc0c5575c664f347b07fdc73ae0a7a4a814b26c18e5a"
+      },
+      {
+        "bytes": 2028384,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-3-2026/snapshots_long.csv",
+        "sha256": "1fd1e91ed0884843ebaf31682a346d2173b83fefad04602cdaf4240fe6f6f6ae"
+      },
+      {
+        "bytes": 97564468,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-4-2026/replay_inputs.jsonl",
+        "sha256": "861ba75538c5d1f7893e5d10528861e47a573af47b9cdc8e5fdd011458977eb9"
+      },
+      {
+        "bytes": 2036442,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-4-2026/snapshots_long.csv",
+        "sha256": "97624830d828214f7fa2faf8b8f3e9acbe1a63eaa795b3152e9e5a5498fd325e"
+      },
+      {
+        "bytes": 83472625,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-5-2026/replay_inputs.jsonl",
+        "sha256": "7e134bcf2e13f9fed3f1f69b4ba2f69541960c185281eaa9c00c1f5465c68da1"
+      },
+      {
+        "bytes": 1704659,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-5-2026/snapshots_long.csv",
+        "sha256": "4c28c66ecec6dc442ef4eb87a43a1a31bc67a4b322f3142d2ff3484bab3b1f79"
+      },
+      {
+        "bytes": 96807714,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-6-2026/replay_inputs.jsonl",
+        "sha256": "3c6d02716d9766493d771bfd9db606780a3d9a6f1dbd700f4928d39199fa8b63"
+      },
+      {
+        "bytes": 2012987,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-6-2026/snapshots_long.csv",
+        "sha256": "ca93156ac1879ad94e3fff8604d82bed97ce550a9c4de9e58b58a3861d2f4bf4"
+      },
+      {
+        "bytes": 86451474,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-7-2026/replay_inputs.jsonl",
+        "sha256": "f9d00d7bb6ba231fb0028e06289dbf8c35db11a75e26f6bc7fdab8a811f98114"
+      },
+      {
+        "bytes": 1816425,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-7-2026/snapshots_long.csv",
+        "sha256": "ab7e90c549bb2049c9494f57ed4438a28917071a57770591bf3493385221762e"
+      },
+      {
+        "bytes": 87691382,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-8-2026/replay_inputs.jsonl",
+        "sha256": "a02ab3d662326ed152d95b4dcd020eb8b942c6f94d41b694a9c0365c075efc20"
+      },
+      {
+        "bytes": 1820446,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-8-2026/snapshots_long.csv",
+        "sha256": "b0a38287827f41654520e1bcc95a28ab6a9980390f8255cf255faae5b0c5b60f"
+      },
+      {
+        "bytes": 84750627,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-9-2026/replay_inputs.jsonl",
+        "sha256": "76e8e2cc8da7a4867e23e4adb65337069a83b4030b3b28a6f8ebaddf2fd05086"
+      },
+      {
+        "bytes": 1601536,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-august-9-2026/snapshots_long.csv",
+        "sha256": "e1674530a18ba776381a6d90b7a08832d05eb1ae3628df56e6640d886e563702"
+      },
+      {
+        "bytes": 91829297,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-july-31-2026/replay_inputs.jsonl",
+        "sha256": "2b4d5af427b695bc16024d62d9aba2390b3e9425e0732ee31a12ad4f75fb250d"
+      },
+      {
+        "bytes": 1885475,
+        "relative_path": "snapshots/highest-temperature-in-san-francisco-on-july-31-2026/snapshots_long.csv",
+        "sha256": "1d5df3601b3694f802f24fb1464be9cfe5041ec747995f61c6e1e580d27089ff"
+      },
+      {
+        "bytes": 90275805,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-1-2026/replay_inputs.jsonl",
+        "sha256": "ca3a8fc6cd089f87b7f9ca46c143cba9632bc8165880adfe0f02b1a6de89dbfd"
+      },
+      {
+        "bytes": 2012571,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-1-2026/snapshots_long.csv",
+        "sha256": "a3b831a206e885562bc0a65ec967b4878a103625ea7a8de74c0181ce3e44fde6"
+      },
+      {
+        "bytes": 88576229,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-2-2026/replay_inputs.jsonl",
+        "sha256": "f907a37d9401def106c071ae56247313925b068da7a8313814b37be578998fed"
+      },
+      {
+        "bytes": 1985802,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-2-2026/snapshots_long.csv",
+        "sha256": "cc08e1cd5662cca7b222e36b4fec238f2b7f2a10c6e192cbc25c557230fab0af"
+      },
+      {
+        "bytes": 90211207,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-3-2026/replay_inputs.jsonl",
+        "sha256": "b6de46f90597fec41d893162eceafa6b32e0d40d4cfaf0be8a6fe634ff5a0c6a"
+      },
+      {
+        "bytes": 2020723,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-3-2026/snapshots_long.csv",
+        "sha256": "e5131c6a84d99f39b3c1cf3f9adf9bf4f9c8f4294038f85d429030a22fd9c9fe"
+      },
+      {
+        "bytes": 87075141,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-4-2026/replay_inputs.jsonl",
+        "sha256": "6085f9fff37da4252cfdc42ddc8d214275a4982b8e7138173fa1a5d22d77c980"
+      },
+      {
+        "bytes": 1941854,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-4-2026/snapshots_long.csv",
+        "sha256": "3309f37857a0c8fb2c32015bc1db068d489ac56b3f8a5bdee0c26c8d4fe9ff8e"
+      },
+      {
+        "bytes": 77580347,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-5-2026/replay_inputs.jsonl",
+        "sha256": "91850e3125d69da20ed7c8b073086bf07d2a2a6a92cca57f5c97fe3e8dbfeb1c"
+      },
+      {
+        "bytes": 1703559,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-5-2026/snapshots_long.csv",
+        "sha256": "417dcea5e0faa5ed2961097f272e73060a9b7dfa75bcbfcd224c99a45219a2bc"
+      },
+      {
+        "bytes": 94006891,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-6-2026/replay_inputs.jsonl",
+        "sha256": "e9479377b2fdba75b89cc0a76c40600cd473e64360ce97fac42ca3c5a30dad58"
+      },
+      {
+        "bytes": 2148693,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-6-2026/snapshots_long.csv",
+        "sha256": "d019717fa9eff5b70ab238d7baf0d71022302033cdcc27b166a68a71a6fa2a93"
+      },
+      {
+        "bytes": 82878675,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-7-2026/replay_inputs.jsonl",
+        "sha256": "5246bd534f74e86782343ef12ff17adfa0b723ef787a952ff2303469a2f1b4c6"
+      },
+      {
+        "bytes": 1889595,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-7-2026/snapshots_long.csv",
+        "sha256": "9ff03905010aa4ce6d38974efafa060e9c7c01b1a6e31844663c55a0f54f39b4"
+      },
+      {
+        "bytes": 84866331,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-8-2026/replay_inputs.jsonl",
+        "sha256": "034c3bb89c325350c394a7bb2fc27d227ce672879ba4e1bb25785802625055e9"
+      },
+      {
+        "bytes": 1911865,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-8-2026/snapshots_long.csv",
+        "sha256": "43b4cf7ef5d4cacec1f53ba4c4816a9bac50c655a363a0870d748103ad2b8c15"
+      },
+      {
+        "bytes": 79745432,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-9-2026/replay_inputs.jsonl",
+        "sha256": "a498b08e8614a17f9bccdd224412c6050e7f4d2957f6e32e3478c05a6174c5a0"
+      },
+      {
+        "bytes": 1621031,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-august-9-2026/snapshots_long.csv",
+        "sha256": "65d08af179dade163cc72095e1ddb7685663a2434ac0a5bbea3b6cea271ead55"
+      },
+      {
+        "bytes": 84699300,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-july-31-2026/replay_inputs.jsonl",
+        "sha256": "a058aafcadc6934abd4c74fb2fe0b1389d517d3938d400a205b2b709b51cbbbe"
+      },
+      {
+        "bytes": 1890995,
+        "relative_path": "snapshots/highest-temperature-in-seattle-on-july-31-2026/snapshots_long.csv",
+        "sha256": "d173d63721313be7a76a3e5131b3fe0cc92a5a86fcc4f6bc078c443260111da4"
+      },
+      {
+        "bytes": 28405346,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-1-2026/replay_inputs.jsonl",
+        "sha256": "90d6a7760d4cb3895ea675a0d7ab2738ce6a48817f103023b19c5f4e8cd7a344"
+      },
+      {
+        "bytes": 1929749,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-1-2026/snapshots_long.csv",
+        "sha256": "1ace373280038d3aa9d03f23dce8ca115521cdf0e02cba75394cb8cc985ca190"
+      },
+      {
+        "bytes": 33813995,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-2-2026/replay_inputs.jsonl",
+        "sha256": "da68c7ea073034a9bffaa3133aa9e483a48e58150bb6832e41b0e30195c2013f"
+      },
+      {
+        "bytes": 2123779,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-2-2026/snapshots_long.csv",
+        "sha256": "95298123ae622f37c9f7a32f75f41f0d47a7d8f71ccbd1811a22cb377d4e37bb"
+      },
+      {
+        "bytes": 30036657,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-3-2026/replay_inputs.jsonl",
+        "sha256": "fa85a08f6f2fb955626c2f30a320966e8dba723826209135e2c97d460016f2d5"
+      },
+      {
+        "bytes": 1990061,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-3-2026/snapshots_long.csv",
+        "sha256": "62d6c84d9ba5b8132a7f60a22cc237c1749bd1828e1c134d9b32adeadd678108"
+      },
+      {
+        "bytes": 31769966,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-4-2026/replay_inputs.jsonl",
+        "sha256": "c801e30a888e448ae699d15c4c6d74b9255ae56b4ca71b7e2b200380bf04afe6"
+      },
+      {
+        "bytes": 2180903,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-4-2026/snapshots_long.csv",
+        "sha256": "447b895987b2727d2253f012384bb9228dff0eb0861cae66f702d1a4d141f4f1"
+      },
+      {
+        "bytes": 25192259,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-5-2026/replay_inputs.jsonl",
+        "sha256": "b6c830bc8abdd5a70dcd160d9fbb95cae3f897c67052c61cd4b51f528ffbea5a"
+      },
+      {
+        "bytes": 1721625,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-5-2026/snapshots_long.csv",
+        "sha256": "6615ed5446a508fa75521ea002dcf414a495cf50f10b6471a54d643df19b73c5"
+      },
+      {
+        "bytes": 32296368,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-6-2026/replay_inputs.jsonl",
+        "sha256": "eee3688c0f623969e00199c1c9a7320f1afb28a8feaabd22ee1abd4535d2ec82"
+      },
+      {
+        "bytes": 2184204,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-6-2026/snapshots_long.csv",
+        "sha256": "bc34264fe111204e70714c7a891524ceaad74b89e5755da5ed94e8b9c28f0fa1"
+      },
+      {
+        "bytes": 30030781,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-7-2026/replay_inputs.jsonl",
+        "sha256": "294f8b4685282780c113eaedd5701a0ce3218c823fcb97af0e009e7e0627c29e"
+      },
+      {
+        "bytes": 2056281,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-7-2026/snapshots_long.csv",
+        "sha256": "2a9c3bb33b1a9d897d987b05b06fa6cf9bd5c2c2fcb692c342b6b58de99fdda0"
+      },
+      {
+        "bytes": 33898500,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-8-2026/replay_inputs.jsonl",
+        "sha256": "7d819542395c15ad117d48397dbb7bebe93d0354953c937d737d37c1e2b09917"
+      },
+      {
+        "bytes": 2354477,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-8-2026/snapshots_long.csv",
+        "sha256": "7b8c375fba7de512c8f2c1ead6512e9495b27ce7993fcf77ccffbe3c04eb852c"
+      },
+      {
+        "bytes": 24844983,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-9-2026/replay_inputs.jsonl",
+        "sha256": "dfadcbec14be7ea3fd52c83aec01c2580e291563cc756a2453c3f8dc8d7ce4ef"
+      },
+      {
+        "bytes": 1743416,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-august-9-2026/snapshots_long.csv",
+        "sha256": "c9d1bf6e979ede87681edecb3f0b3af4a0e156180d66f453860cb82eb0b911e2"
+      },
+      {
+        "bytes": 30162233,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-july-31-2026/replay_inputs.jsonl",
+        "sha256": "e692bb62bbfee8d5a8e34d7160c191be42ff288385c764b3107848aa51eeff7f"
+      },
+      {
+        "bytes": 2064950,
+        "relative_path": "snapshots/highest-temperature-in-toronto-on-july-31-2026/snapshots_long.csv",
+        "sha256": "75c399b6c4b6fae4a6181cef911bb0959d88fb46333e9d4874bd8e97291eab3c"
+      }
+    ],
+    "post_boundary_source_inventory_sha256": "23afdee097d00979aaad01ee4da146d5faf6f5711e819cc8e4eed9f3502ad16a",
+    "retained_repaired_surface": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\runs\\gap-remeasure-repaired-2026-09-44a\\band-score-rows.csv",
+    "retained_repaired_surface_sha256": "9a70ac80143a7eea9b14003b2f992413d622b167ce35ea4be54273cfdf3e27ae",
+    "transfer_manifest_sha256": "1794455e40f967411d05660ff4ac785e1fab48caccb8fbdfb3df7aa31438712a"
+  },
+  "model": {
+    "architecture": "repository pooled band HistGradientBoostingClassifier, one model per effective cutoff hour",
+    "common_features_in_order": [
+      "band_value",
+      "band_value_hi",
+      "band_width",
+      "band_mid",
+      "band_mid_minus_forecast",
+      "market_id one-hot",
+      "band_kind one-hot"
+    ],
+    "estimator": {
+      "learning_rate": 0.05,
+      "max_iter": 90,
+      "max_leaf_nodes": 31,
+      "random_state": 42
+    },
+    "forecast_feature_column_order": {
+      "cape": "forecast_next_3h_cape_max",
+      "cloud_cover": "forecast_total_cloud_mean",
+      "diffuse_radiation": "forecast_remaining_diffuse_radiation_sum",
+      "direct_radiation": "forecast_remaining_direct_radiation_sum",
+      "et0_fao_evapotranspiration": "forecast_et0_fao_evapotranspiration_sum",
+      "precipitation": "forecast_remaining_precipitation_sum",
+      "precipitation_probability": "forecast_next_3h_precipitation_probability_max",
+      "shortwave_radiation": "forecast_remaining_solar_sum",
+      "temperature_2m": "forecast_high",
+      "vapour_pressure_deficit": "forecast_vapour_pressure_deficit_mean",
+      "wind_gusts_10m": "forecast_wind_gust_max",
+      "wind_speed_10m": "wind_speed_kmh"
+    },
+    "hyperparameter_search": false,
+    "imputer": {
+      "keep_empty_features": true,
+      "strategy": "median"
+    },
+    "target": "one-hot realized band on B only",
+    "weights": "equal total weight per admitted market-day within cutoff-hour fit"
+  },
+  "probability_pipeline": {
+    "incumbent_zero_support_preserved": true,
+    "normalization_gamma": 1.25,
+    "postprocessing": {
+      "adjacent_calibration_enabled": false,
+      "exact_winner_catchup_enabled": false,
+      "forecast_centering_enabled": false,
+      "late_lockin_enabled": false,
+      "market_bias_calibration_enabled": false,
+      "support_floor_enabled": false
+    },
+    "simplex_tolerance": 1e-12,
+    "temperature": 1.0
+  },
+  "prohibited_actions": [
+    "provider call",
+    "production write",
+    "Scheduler access",
+    "exchange access",
+    "credential access",
+    "release",
+    "pointer",
+    "promotion",
+    "candidate freeze",
+    "confirmation window",
+    "serving change"
+  ],
+  "purpose": "Research-only baseline-versus-twelve-field seasonal challenger.",
+  "status": "FROZEN_BEFORE_C_OUTCOMES"
+}

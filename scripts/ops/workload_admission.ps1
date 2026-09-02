@@ -610,6 +610,7 @@ function Get-WeatherWorkstationOfflineModule {
         "weather.calibration.pooled_candidate_replay",
         "weather.calibration.pooled_candidate_replay_diagnostics",
         "weather.calibration.pooled_candidate_replay_report",
+        "weather.calibration.seasonal_challenger",
         "weather.operations.agent_docs_audit",
         "weather.operations.base_retrain",
         "weather.operations.density_live_replay_parity",
