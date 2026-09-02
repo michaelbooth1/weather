@@ -118,7 +118,7 @@ after this report was written:
 | Agent-document audit through `scripts/ops/workstation_heavy.ps1` | PASS (18 agent files, 832 Markdown files) |
 | Roadmap lint/generated-view check through `scripts/ops/workstation_heavy.ps1` | PASS (`Roadmap backlog: OK`) |
 | `git diff --check` | PASS |
-| Canonical `scripts/ops/roll_verdict.ps1 -Branch ...` | PENDING |
+| Canonical `scripts/ops/roll_verdict.ps1 -Branch ...` | `UNDECIDABLE: no live closure evidence` (expected exit 1 on this workstation; all four required supervisor-status snapshots are absent) |
 
 ## Prohibited-actions audit
 
