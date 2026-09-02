@@ -48,12 +48,12 @@ def test_current_warning_modules_have_complete_ownership_metadata_and_no_orphans
     )
 
     warnings = [row for row in payload["largest_modules"] if row["status"] == "WARN"]
-    # 24 since 2026-08-31; model-BOM release integration moved
-    # weather.operations.release_candidate_contract above the warning threshold.
+    # 26 since 2026-09-02; the frozen multi-year residual evaluator and bounded
+    # Previous Runs research collector moved above the warning threshold.
     # Raising this number is only legitimate alongside a real ownership entry in
     # module-ownership-map.md -- the point of the ratchet is that growth costs
     # documentation, so never bump it to make the suite green.
-    assert payload["warning_count"] == 24
+    assert payload["warning_count"] == 26
     assert len(warnings) == payload["warning_count"]
     assert all(row["owner"] and row["boundary"] and row["next_split"] for row in warnings)
     assert payload["governance_status"] == "PASS"

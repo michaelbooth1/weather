@@ -18,6 +18,11 @@ DEFAULT_REPORT = data_path() / "backtest" / "module_size_audit_report.md"
 DEFAULT_WARNING_LINES = 2_000
 
 OWNERSHIP_NOTES = {
+    "src/weather/calibration/multiyear_nwp_residual.py": {
+        "owner": "calibration",
+        "boundary": "Frozen multi-year residual-design construction, no-refit evaluation, bootstrap evidence, artifact verification, and CLI dispatch.",
+        "next_split": "Extract report/coverage rendering and crossed-bootstrap helpers behind the immutable design and model-hash contract; preserve the no-refit evaluation path.",
+    },
     "src/weather/calibration/pooled_feature_model.py": {
         "owner": "calibration",
         "boundary": "Compatibility facade for pooled feature model implementation slices.",
@@ -243,6 +248,11 @@ OWNERSHIP_NOTES = {
         "boundary": "Point-in-time materialization, validation planning, fold and fit receipts, streaming evaluation, persistence, and CLI.",
         "next_split": "After verifier consolidation, separate materialization, fit receipts, and the streaming evaluator behind stable frozen contracts without adding cross-owner cycles.",
     },
+    "src/weather/sources/previous_runs_research_collection.py": {
+        "owner": "sources",
+        "boundary": "Immutable Previous Runs plan validation, bounded sequential transport, response normalization, resumable evidence, corpus finalization, and verification.",
+        "next_split": "Extract immutable plan builders and contract-specific validators from the shared bounded transport/finalization engine without widening endpoint or wrapper authorization.",
+    },
     "src/weather/calibration/residual_distribution_v1.py": {
         "owner": "calibration",
         "boundary": "ResidualDistributionV1 training, nested and locked evaluation, fit receipts, qualification orchestration, release construction, and CLI.",
@@ -339,7 +349,9 @@ def build_module_size_audit(
         "warning_count": len(over_threshold),
         "governance_status": "PASS" if not governance_errors else "WARN",
         "governance_errors": governance_errors,
-        "largest_modules": sorted(rows, key=lambda row: row["lines"], reverse=True)[:25],
+        "largest_modules": sorted(rows, key=lambda row: row["lines"], reverse=True)[
+            : max(25, len(over_threshold))
+        ],
         "ownership_map": [
             {"path": path, **note}
             for path, note in sorted(OWNERSHIP_NOTES.items())

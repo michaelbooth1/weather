@@ -1,6 +1,6 @@
 # Large Module Ownership Map
 
-Last updated: 2026-08-31
+Last updated: 2026-09-02
 
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 24 modules.
+- Current warning count: 26 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -26,12 +26,15 @@ Current module-size audit status:
   `weather.reporting.hourly.ten_minute_model_performance`,
   `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`,
   `weather.collection.snapshot_tracker`, `weather.market.taker_bot_bakeoff`, and
-  `weather.model.model_features`.
+  `weather.model.model_features`,
+  `weather.calibration.multiyear_nwp_residual`, and
+  `weather.sources.previous_runs_research_collection`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 
 | Module | Owner | Boundary | Status |
 | :--- | :--- | :--- | :--- |
+| `weather.calibration.multiyear_nwp_residual` | Calibration | Frozen multi-year residual-design construction, no-refit evaluation, bootstrap evidence, artifact verification, and CLI dispatch. | Newly WARN on the 2026-09-02 source branch. Extract report/coverage rendering and crossed-bootstrap helpers behind the immutable design and model-hash contract; preserve the no-refit evaluation path. |
 | `weather.calibration.pooled_feature_model` | Calibration | Compatibility facade for pooled feature assembly, density/band training, training orchestration, artifact IO, reporting, and CLI modules. Dynamic source-state features live in `weather.calibration.pooled_feature_source_state`. | Split complete for item 173. |
 | `weather.calibration.pooled_training` | Calibration | Point-in-time pooled training evidence, fit receipts, final refit verification, and density/band model fitting. | WARN in the 2026-07-15 audit. Extract point-in-time receipt construction and verification into a pooled point-in-time contract module while preserving canonical hashes and fitted-bundle behavior. |
 | `weather.calibration.pooled_candidate_replay` | Calibration | Live candidate-replay orchestration, cache and sentinel handling, prediction attachment, result aggregation, variant export, and CLI. Diagnostics, CLOB microstructure shadow helpers, market verdicts, replay gates, and sidecar summaries live in `weather.calibration.pooled_candidate_replay_diagnostics`; Markdown rendering lives in `weather.calibration.pooled_candidate_replay_report`; scoring/variant row logic lives in `weather.calibration.pooled_candidate_scoring`. | WARN in the 2026-07-12 audit. Extract cache, sentinel, and result aggregation into a replay-cache owner that does not import the facade, preserving cache keys and forensic payloads. |
@@ -90,6 +93,7 @@ Current module-size audit status:
 | `weather.reporting.scorecards.live_variant_settlement_scorecard` | Reporting | Settled live-variant probability scoring, captured-input replay parity orchestration, persistence, report rendering, and CLI. | WARN in the 2026-07-12 audit. Move parity normalization, comparison, persistence, and rendering to `weather.reporting.validation.captured_input_replay_parity` while preserving facade exports and byte-identical payloads. |
 | `weather.reporting.serving_gates.production_readiness_gate` | Reporting | Production-readiness child evidence validation, active-release verification, pointer attestation, parent gate composition, and report output. | WARN in the 2026-07-12 audit. Extract the child-evidence validator registry and active-release binding checks; leave first-blocker ordering and parent gate composition in the facade. |
 | `weather.reporting.validation.point_in_time_evaluation` | Reporting | Point-in-time materialization, validation planning, fold and fit receipts, streaming evaluation, persistence, and CLI. | WARN in the 2026-07-12 audit. After verifier consolidation, separate materialization, fit receipts, and the streaming evaluator behind stable frozen contracts without adding cross-owner cycles. |
+| `weather.sources.previous_runs_research_collection` | Sources | Immutable Previous Runs plan validation, bounded sequential transport, response normalization, resumable evidence, corpus finalization, and verification. | Newly WARN after the 2026-09-02 calendar-extension contract. Extract immutable plan builders and contract-specific validators from the shared bounded transport/finalization engine without widening endpoint or wrapper authorization. |
 
 Run the current audit with:
 
