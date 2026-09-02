@@ -69,8 +69,10 @@ EXTENSION_PLAN_FILE_SHA256 = (
 EXTENSION_MANIFEST_SHA256 = (
     "501e5d0e22a0a21c9b0828e28dfa13b9ebc0043ab5c1e9335dda1d619689b448"
 )
-ORIGINAL_RETAINED_FILES = 745
-EXTENSION_RETAINED_FILES = 581
+ORIGINAL_INVENTORY_FILES = 745
+EXTENSION_INVENTORY_FILES = 580
+ORIGINAL_REHASHED_FILES = 745
+EXTENSION_REHASHED_FILES = 581
 
 PRIOR_DESIGN_SHA256 = (
     "bd4bdb2ebcdd67a498e461b455f77bc9ca5a88f73bb19dae389e4bb28e26c0fb"
@@ -347,7 +349,7 @@ def _verify_corpus(
     inventory = verification.get("retained_inventory") or []
     if (
         final.get("corpus_manifest_sha256") != expected["manifest_sha256"]
-        or len(inventory) != expected["retained_files"]
+        or len(inventory) != expected["inventory_files"]
         or final.get("integrity_errors") != []
         or verification.get("raw_projection_plan_receipt_manifest_rehash")
         != "PASS"
@@ -365,7 +367,8 @@ def _verify_corpus(
         "retained_inventory_sha256": verification[
             "retained_inventory_sha256"
         ],
-        "retained_file_count": len(inventory),
+        "retained_inventory_file_count": len(inventory),
+        "commissioned_rehashed_file_count": expected["rehashed_files"],
         "integrity_errors": final["integrity_errors"],
         "rehash": "PASS",
     }
@@ -479,7 +482,8 @@ def verify_p0(
                 "plan_sha256": ORIGINAL_PLAN_SHA256,
                 "plan_file_sha256": ORIGINAL_PLAN_FILE_SHA256,
                 "manifest_sha256": ORIGINAL_MANIFEST_SHA256,
-                "retained_files": ORIGINAL_RETAINED_FILES,
+                "inventory_files": ORIGINAL_INVENTORY_FILES,
+                "rehashed_files": ORIGINAL_REHASHED_FILES,
             },
         ),
         "extension": _verify_corpus(
@@ -490,7 +494,8 @@ def verify_p0(
                 "plan_sha256": EXTENSION_PLAN_SHA256,
                 "plan_file_sha256": EXTENSION_PLAN_FILE_SHA256,
                 "manifest_sha256": EXTENSION_MANIFEST_SHA256,
-                "retained_files": EXTENSION_RETAINED_FILES,
+                "inventory_files": EXTENSION_INVENTORY_FILES,
+                "rehashed_files": EXTENSION_REHASHED_FILES,
             },
         ),
     }

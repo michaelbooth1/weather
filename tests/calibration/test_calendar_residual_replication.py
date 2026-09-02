@@ -111,6 +111,10 @@ def test_frozen_primitives_are_the_prior_residual_contract() -> None:
     assert replication.BOOTSTRAP_SEED == prior.BOOTSTRAP_SEED
     assert replication.BOOTSTRAP_DRAWS == 20_000
     assert replication._new_estimator is prior._new_estimator
+    assert replication.ORIGINAL_INVENTORY_FILES == 745
+    assert replication.ORIGINAL_REHASHED_FILES == 745
+    assert replication.EXTENSION_INVENTORY_FILES == 580
+    assert replication.EXTENSION_REHASHED_FILES == 581
 
 
 def test_feature_slices_cover_exact_dates_once() -> None:
@@ -328,4 +332,3 @@ def test_crossed_bootstrap_is_shared_weight_and_deterministic() -> None:
 
     assert first == second
     assert first["method"].startswith("shared-weight crossed")
-
