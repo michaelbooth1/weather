@@ -10,8 +10,11 @@ workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
 and replay outside this timetable and without the capture-host resource/time
 admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`.
-Its admission-only `workstation_offline_v1` profile and the portable launcher
-are both bound to the assignment's exact non-capture Windows installation and
+The one outcome-blind multi-year Previous Runs provider collection uses the
+narrower `scripts/ops/workstation_research_collection.ps1` and its exact
+immutable request plan. The admission-only `workstation_offline_v1` and
+`workstation_research_collection_v1` profiles and the portable launcher are
+all bound to the assignment's exact non-capture Windows installation and
 attending principal. They hold the same host-global mutex and each owns its
 entire child tree in a kill-on-close Windows Job; wrapped work and a launched
 live stage therefore cannot overlap. Finish heavy work before sealing as an
@@ -24,7 +27,7 @@ teardown it atomically replaces that state with a flushed
 `TEARDOWN_PENDING` record. A proved zero-child teardown deletes and verifies
 the record before releasing the shared lease. If teardown fails, the pending
 record and lease remain fail-closed; every checkout and worktree then blocks
-portable/offline admission. Recovery requires a fresh PowerShell process, a
+portable/offline/research-collection admission. Recovery requires a fresh PowerShell process, a
 different proved Windows boot session, a zero-residual scan while holding the
 global mutex, and the exact confirmation accepted by
 `Clear-WeatherHeavyWorkloadPoison`.
@@ -35,7 +38,7 @@ exact owner process identity is proved gone and a bounded scan proves zero
 residual heavy processes while the mutex is owned. That recovery rejects once
 and requires retrying the exact operation. No marker means ordinary admission
 does not perform the recovery scan. This state machine applies only to the
-portable/offline profiles; capture-colocated admission keeps its existing
+portable/offline/research-collection profiles; capture-colocated admission keeps its existing
 capture-host teardown contract. The workstation allowance comes from the
 machine's non-capture workstation role, not from a live profile.
 
@@ -48,6 +51,15 @@ profile or its evidence; it shares only the mutex through its distinct offline
 profile. The workstation allowance grants no capture,
 production integration, Scheduler, credential, exchange, unattended-trading,
 or live-order authority.
+
+The `workstation_research_collection_v1` exception authorizes only the exact
+hash-bound 2021–2025 plan against
+`https://previous-runs-api.open-meteo.com/v1/forecast`. It rejects the
+dedicated capture host and any other module or query, preserves resumable raw
+and normalized evidence atomically, and applies the terminal
+`CodexSandboxOffline` write/delete denial only after final verification. It
+does not authorize outcomes, market data, 2026 provider collection, model
+work, production contact, credentials, Scheduler changes, or exchange access.
 
 > **For the current governing numbers, read
 > [OPERATING_REFERENCE.md](OPERATING_REFERENCE.md).** It is generated from repository-owned

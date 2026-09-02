@@ -2753,6 +2753,12 @@ EXCLUDED_SCHEMA_LITERALS = (
         "Execution-host role identifier, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
+        "workstation_research_collection_v1",
+        "weather.sources.previous_runs_research_collection",
+        "execution_host_profile",
+        "Bounded workstation collection profile identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "international_live_execution_host_v2",
         "weather.execution_host",
         "execution_host_id_domain",

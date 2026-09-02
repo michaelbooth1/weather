@@ -134,6 +134,15 @@ Wrapped work and a launched live stage are mechanically exclusive through
 cleanup. Finish heavy work before sealing as an operational attempt-
 preservation rule.
 
+The bounded multi-year Previous Runs research collection is a separate exact
+exception. It must use `workstation_research_collection.ps1` and
+`workstation_research_collection_v1`, the checked-in immutable plan, the exact
+provider endpoint, and the same host/principal, mutex, poison-state, and
+kill-on-close contracts. Do not route another network collector or arbitrary
+Python command through that profile. The wrapper creates or resumes only the
+plan-bound external root and applies the explicit `CodexSandboxOffline`
+write/delete denial after terminal corpus verification.
+
 `install_codex_host_load_hook.ps1` owns the host-role user-layer PreToolUse
 guard. It protects the capture host and, on an exact non-capture Windows host,
 denies recognized heavy commands unless they use the canonical workstation

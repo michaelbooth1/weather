@@ -622,6 +622,14 @@ function Get-WeatherWorkstationOfflineModule {
 }
 
 
+function Get-WeatherWorkstationResearchCollectionModule {
+    [CmdletBinding()]
+    param()
+
+    "weather.sources.previous_runs_research_collection"
+}
+
+
 function Get-WeatherCommandLineWord {
     [CmdletBinding()]
     param([AllowEmptyString()][string]$CommandLine)
@@ -778,6 +786,15 @@ function Test-WeatherWorkstationOfflineModuleCommandLine {
 }
 
 
+function Test-WeatherWorkstationResearchCollectionModuleCommandLine {
+    [CmdletBinding()]
+    param([AllowEmptyString()][string]$CommandLine)
+
+    $module = Get-WeatherPythonModuleFromCommandLine -CommandLine $CommandLine
+    return $module -ceq (Get-WeatherWorkstationResearchCollectionModule)
+}
+
+
 function Test-WeatherHeuristicHeavyModuleCommandLine {
     [CmdletBinding()]
     param([AllowEmptyString()][string]$CommandLine)
@@ -830,6 +847,9 @@ function Get-WeatherActiveWorkstationHeavyProcess {
         $isHeuristicHeavyWeatherModule = $isPython -and
             (Test-WeatherHeuristicHeavyModuleCommandLine `
                 -CommandLine $commandLine)
+        $isResearchCollectionModule = $isPython -and
+            (Test-WeatherWorkstationResearchCollectionModuleCommandLine `
+                -CommandLine $commandLine)
         $heavy = $isHeavyEntrypoint -or (
             $isPython -and (
                 -not $commandLine -or
@@ -840,6 +860,7 @@ function Get-WeatherActiveWorkstationHeavyProcess {
                     "cprofile", "profile", "pdb", "trace"
                 ) -ccontains $pythonModule -or
                 $isOfflineWeatherModule -or
+                $isResearchCollectionModule -or
                 $isHeuristicHeavyWeatherModule
             )
         ) -or $isFixedScopeLiveChild
@@ -1080,7 +1101,8 @@ function Get-WeatherHeavyWorkloadPoisonState {
         $marker.execution_host_profile -isnot [string] -or
         $marker.execution_host_profile -cnotin @(
             "portable_execution_v1",
-            "workstation_offline_v1"
+            "workstation_offline_v1",
+            "workstation_research_collection_v1"
         ) -or
         -not $pidIsExactInteger -or
         [long]$marker.pid -le 0 -or
@@ -1322,7 +1344,8 @@ function Enter-WeatherHeavyWorkloadLease {
 
     $poisonSensitiveProfile = $ExecutionHostProfile -cin @(
         "portable_execution_v1",
-        "workstation_offline_v1"
+        "workstation_offline_v1",
+        "workstation_research_collection_v1"
     )
     if ($null -ne $script:WeatherHeavyWorkloadPoisonedLease) {
         throw (
@@ -1417,6 +1440,51 @@ function Enter-WeatherHeavyWorkloadLease {
             throw "workstation-offline admission does not accept a live host binding"
         }
         $policyWindow = "workstation_offline"
+    }
+    elseif ($ExecutionHostProfile -ceq "workstation_research_collection_v1") {
+        $executionPrincipalId = Get-WeatherExecutionPrincipalId
+        $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
+        if ($executionHostId -ceq
+            [string]$assignment.dedicated_capture_execution_host_id) {
+            throw (
+                "workstation research collection is forbidden on the " +
+                "dedicated capture host"
+            )
+        }
+        if (
+            [string]$assignment.assignment_status -cne "ASSIGNED" -or
+            $executionHostId -cne
+                [string]$assignment.active_portable_execution_host_id -or
+            $executionPrincipalId -cne
+                [string]$assignment.active_portable_execution_principal_id
+        ) {
+            throw (
+                "this host and Windows principal are not the assigned " +
+                "non-capture workstation"
+            )
+        }
+        if ($AllowStageAWindow -or $OwnerApprovedException) {
+            throw (
+                "workstation research collection cannot combine with Stage-A " +
+                "or owner-approved exceptions"
+            )
+        }
+        if (
+            $Workload.Length -gt 96 -or
+            $Workload -cnotmatch
+                '\AWorkstationResearchCollection-[0-9a-f]{12}\z'
+        ) {
+            throw (
+                "workstation research collection requires the exact bounded " +
+                "collector workload"
+            )
+        }
+        if ($ExpectedExecutionHostId) {
+            throw (
+                "workstation research collection does not accept a live host binding"
+            )
+        }
+        $policyWindow = "workstation_research_collection"
     }
     elseif ($ExecutionHostProfile -ceq "capture_colocated_v1") {
         if ($Workload -cmatch '\AInternationalLive-') {
@@ -1735,7 +1803,8 @@ function Set-WeatherHeavyWorkloadLeaseTeardownPending {
     }
     if ([string]$Lease.ExecutionHostProfile -cnotin @(
             "portable_execution_v1",
-            "workstation_offline_v1"
+            "workstation_offline_v1",
+            "workstation_research_collection_v1"
         ) -or
         $Lease.PSObject.Properties.Name -notcontains "DurablePoisonPath" -or
         $Lease.PSObject.Properties.Name -notcontains "WorkloadState" -or
@@ -1939,7 +2008,8 @@ function Exit-WeatherHeavyWorkloadLease {
     $poisonSensitiveProfile = $null -ne $Lease -and
         [string]$Lease.ExecutionHostProfile -cin @(
             "portable_execution_v1",
-            "workstation_offline_v1"
+            "workstation_offline_v1",
+            "workstation_research_collection_v1"
         )
     if ($poisonSensitiveProfile) {
         try {

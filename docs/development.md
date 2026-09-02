@@ -55,6 +55,11 @@ production `data/` access, Scheduler or capture mutation, credentials,
 networked collectors, exchange contact, or live orders, and a workstation
 PASS does not replace any explicitly required production-host qualification.
 
+The sole bounded exception here is the hash-bound multi-year Previous Runs
+research collection documented in `HOST_LOAD_POLICY.md`; it uses
+`scripts/ops/workstation_research_collection.ps1`, not the generic heavy-work
+wrapper, and grants no authority to collect any other provider or dataset.
+
 An attended PowerShell operator can build the bounded argument contract like
 this (use `compileall` or an allowlisted `weather_heavy` module as appropriate).
 The allowlist includes the deterministic `agent_docs_audit` and
