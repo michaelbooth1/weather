@@ -24,6 +24,7 @@ jobs:
           # checkout of them is metered against the account's LFS bandwidth
           # quota (1 GB/month included); this workflow alone exhausted it.
           # The test suite stubs these artifacts and does not read their bytes.
+          fetch-depth: 0
           lfs: false
 
       - name: Set up Python
