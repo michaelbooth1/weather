@@ -17,6 +17,7 @@ import pickle
 import re
 import stat
 import subprocess
+import sys
 from collections import Counter, defaultdict
 from datetime import date, datetime
 from pathlib import Path
@@ -1644,7 +1645,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    raw_arguments = list(sys.argv[1:] if argv is None else argv)
+    if raw_arguments and raw_arguments[0] == "multiyear-nwp-residual":
+        from weather.calibration import multiyear_nwp_residual
+
+        return multiyear_nwp_residual.main(raw_arguments[1:])
+    args = build_parser().parse_args(raw_arguments)
     if args.command == "verify-corpus":
         result = verify_corpus(args.corpus_root, args.expected_manifest_sha256)
     elif args.command == "freeze-design":
