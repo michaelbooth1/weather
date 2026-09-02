@@ -289,6 +289,8 @@ Verification commands ran through `scripts/ops/workstation_heavy.ps1`:
 | Agent-document audit | PASS: 18 agent files, 836 Markdown files |
 | Roadmap lint/generated-view check | PASS: generated report matches sources |
 | Complete repository suite | Honest non-PASS: 4,350 passed, 23 skipped, 13 warnings, 866 subtests passed, 12 failed in 645.71 seconds |
+| `git diff --check` | PASS, exit 0 |
+| Canonical roll verdict | `UNDECIDABLE: no live closure evidence`, exit 1 |
 
 All 12 complete-suite failures are the unchanged source-branch failures in
 `tests/operations/test_experiment_executor.py`; each fails when its temporary
@@ -297,6 +299,11 @@ first complete run also found the new module missing from the Codex host-load
 hook allowlist. That mission-caused ratchet was repaired, the expanded focused
 suite passed, and the final complete run contains no failure outside the same
 12-test source baseline.
+
+The roll verdict was obtained from `scripts/ops/roll_verdict.ps1`; no manual
+classification was substituted. This isolated workstation worktree has none of
+the four required live supervisor closure files, so the canonical command
+failed closed as `UNDECIDABLE`.
 
 The run made zero provider calls, 2026 data or outcome reads, January outcome
 value accesses, spent May-August 2025 outcome value accesses or evaluation-row
