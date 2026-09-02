@@ -1,0 +1,231 @@
+{
+  "amendment_sha256": "34be1c1eb27d4a563baef3da00e6c24b9bb3e009f5fc7e41b5329b37f7bfa0e0",
+  "cohorts": {
+    "post_boundary_directional": {
+      "end_date": "2026-08-09",
+      "role": "external_secondary_directional",
+      "start_date": "2026-07-31"
+    },
+    "pre_boundary": {
+      "end_date": "2026-07-30",
+      "role": "external_secondary",
+      "start_date": "2026-06-03"
+    }
+  },
+  "disposition": {
+    "EXTERNAL_DIRECTION_ADVERSE": "both primary cohorts and both cohort-specific all-leads sensitivities have negative MSE improvement points",
+    "EXTERNAL_DIRECTION_CONSISTENT": "both primary cohorts and both cohort-specific all-leads sensitivities have positive MSE improvement points",
+    "EXTERNAL_DIRECTION_MIXED": "the four MSE improvement signs disagree or include zero",
+    "INTEGRITY_FAILURE": "any hash, cohort, outcome, unit, boundary, or no-refit failure"
+  },
+  "evaluator": {
+    "module_sha256": "471d8dbd0f0adf97d040ec2351b6ad1b182934dcdc6296ceb8f71a20c69b469f",
+    "relative_path": "src/weather/calibration/multiyear_nwp_residual_external.py"
+  },
+  "frozen_identity": {
+    "design_file_sha256": "0667fdc204360122f44e35f2ef31dad5d6f7f53afd83bfd09ba0f0a50874bc65",
+    "design_sha256": "bd4bdb2ebcdd67a498e461b455f77bc9ca5a88f73bb19dae389e4bb28e26c0fb",
+    "feature_order_sha256": {
+      "baseline": "4e35fe7e2d44d37e22ff02b2b681c2de840a487d1eeddef7cace58b2852bf603",
+      "challenger": "5839aa7373cdd78d4d54cccfa27d7d8b42ffb8acc5d80e08135561335fa2c3fb",
+      "combined": "3d2b3fa4a9b58f7881b80609234904f54fd2db05b21c1f96aac10b5389859bbd"
+    },
+    "frozen_module_sha256": "8b513188aa5a123f29c3225d2a8efa435a56b46a07c1bcc0f8a96e756641e27f",
+    "identity_sha256": "ecc26640fe561425ee989fa166565ee7c6d5814fb16c34adf41c3be7edbc925f",
+    "model_count": 2,
+    "model_sha256": {
+      "eleven_field_residual_challenger": "0ae3e67cfcda420a9c0103959b2c79cac6438d7fadf162b41f36a47919862ab5",
+      "temperature_residual_baseline": "c1ee07eef33016633ebf1ffdf847c7b55d90a2420b198eac7fb07ee88f5c2797"
+    },
+    "models_refitted": 0,
+    "probability_models_refitted": 0,
+    "source_branch": "codex/workstation-multiyear-nwp-residual-2026-09-88a",
+    "source_tip": "798225bc200d2909fb32175e21d870f86877faef",
+    "source_tree": "c9bb99a756bb81d7f3458f0763e63b15ebebb894",
+    "training_receipt_file_sha256": "5581c517e8a76399e7e0bdbac1c31ec059d67be977a0f7b54057d602018571b8",
+    "training_sha256": "776d14ac8de61e04e8a5066ab4f78464dcc2cd45a046d79e32081dfde825415c"
+  },
+  "input_binding": {
+    "corpus_root": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\pit-12field-20260810",
+    "csv_count": 24,
+    "csv_inventory_sha256": "baf1b2fa6310e7bbe7a5429abe8a0c6dc3acbb97d45fa5d788977d068ac0e2cb",
+    "mirror_root": "C:\\Users\\Michael\\Documents\\github\\weather\\data",
+    "outcome_source_file_inventory": [
+      {
+        "bytes": 888458,
+        "market": "atlanta",
+        "relative_path": "wunderground/katl/daily/daily_summary.csv",
+        "sha256": "1f013bb6cbd6b387184e5c3038f7cdf2f08a66f95342e59be887df6de482f060",
+        "station": "katl"
+      },
+      {
+        "bytes": 868209,
+        "market": "austin",
+        "relative_path": "wunderground/kaus/daily/daily_summary.csv",
+        "sha256": "05852251187f980771f7b08e52e53983314f43f94797677cb7dfc9eafd74be3e",
+        "station": "kaus"
+      },
+      {
+        "bytes": 889680,
+        "market": "chicago",
+        "relative_path": "wunderground/kord/daily/daily_summary.csv",
+        "sha256": "1eff2c8aa1e031298686b054e642dbf1518ed8e3f2efd7f3229f45ee5a5d437e",
+        "station": "kord"
+      },
+      {
+        "bytes": 887289,
+        "market": "dallas",
+        "relative_path": "wunderground/kdal/daily/daily_summary.csv",
+        "sha256": "db631cf6036ede6a64ea18b98c55a1a88dd9e96751c57bf22bccb103d7b31b8b",
+        "station": "kdal"
+      },
+      {
+        "bytes": 874808,
+        "market": "denver",
+        "relative_path": "wunderground/kbkf/daily/daily_summary.csv",
+        "sha256": "52ee59385d6ab5f265394e86acc99d22ec88ae7d92cbca0106e4e5f97cb351b1",
+        "station": "kbkf"
+      },
+      {
+        "bytes": 888882,
+        "market": "houston",
+        "relative_path": "wunderground/khou/daily/daily_summary.csv",
+        "sha256": "2ba8271cd8dc05b962309655ee62a8626bfd14f140867d1bd52de06310ef59fd",
+        "station": "khou"
+      },
+      {
+        "bytes": 876354,
+        "market": "los-angeles",
+        "relative_path": "wunderground/klax/daily/daily_summary.csv",
+        "sha256": "7e05d5d83e5999b975027fba7c86bfe71ba9a2de2829d4b2b0c074952058703f",
+        "station": "klax"
+      },
+      {
+        "bytes": 901582,
+        "market": "miami",
+        "relative_path": "wunderground/kmia/daily/daily_summary.csv",
+        "sha256": "a3d2c6d94462ac73718632def9860bea1ec24884fdc2e27d21681fcd02862440",
+        "station": "kmia"
+      },
+      {
+        "bytes": 893238,
+        "market": "nyc",
+        "relative_path": "wunderground/klga/daily/daily_summary.csv",
+        "sha256": "90e89fb67c48dceffdea43cc7320b35a6f3d163a5f44abc200ae4fcf4f8f4691",
+        "station": "klga"
+      },
+      {
+        "bytes": 876617,
+        "market": "san-francisco",
+        "relative_path": "wunderground/ksfo/daily/daily_summary.csv",
+        "sha256": "5f1560c0a4ac5f236dc9af7e2ed64b6156ebe114bed5e4f5462e9ff0dc472d49",
+        "station": "ksfo"
+      },
+      {
+        "bytes": 878163,
+        "market": "seattle",
+        "relative_path": "wunderground/ksea/daily/daily_summary.csv",
+        "sha256": "c2c5eebc0e8e29f5a4d753d50cd221e57adced8c8bfd5df4ebeb2280086460a7",
+        "station": "ksea"
+      },
+      {
+        "bytes": 2741446,
+        "market": "toronto",
+        "relative_path": "wunderground/cyyz/daily/daily_summary.csv",
+        "sha256": "1ced925a605b6f4e82fa20cbe238b9c91d841a9390da604bc648b630dac920e1",
+        "station": "cyyz"
+      }
+    ],
+    "outcome_source_file_inventory_sha256": "74a291ee764dccc54ca410f3e9d4e271cc7a6a678c7ab351cc6865ad6e270a5d",
+    "payload_count": 28,
+    "payload_inventory_sha256": "c2502bd1865eb323a3ee6337c14be9043167382215aa8fb29cb4ea020978545c",
+    "transfer_manifest_sha256": "1794455e40f967411d05660ff4ac785e1fab48caccb8fbdfb3df7aa31438712a",
+    "transfer_sha256": "baaf46a447744c5acbb68708fcc5c19130f98e564a808e9617f08ae340b512dc"
+  },
+  "methods": {
+    "bootstrap": {
+      "draws": 20000,
+      "interval": "percentile 95%",
+      "method": "shared-weight crossed target-date x market pigeonhole bootstrap",
+      "seed": 8802026
+    },
+    "errors": "forecast minus outcome; improvement is baseline loss minus challenger loss",
+    "features": "exact frozen feature order and preprocessing",
+    "model_refits": 0,
+    "models": "apply the exact two already-fitted estimators; fit is runtime-forbidden",
+    "native_units": {
+      "atlanta": "F",
+      "austin": "F",
+      "chicago": "F",
+      "dallas": "F",
+      "denver": "F",
+      "houston": "F",
+      "los-angeles": "F",
+      "miami": "F",
+      "nyc": "F",
+      "san-francisco": "F",
+      "seattle": "F",
+      "toronto": "C"
+    },
+    "outcome_authority": "configured WU daily-summary native settlement high",
+    "outcome_support": "row_count >= 18; no imputation or market exclusion",
+    "primary_leads": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "probability_model_refits": 0,
+    "sensitivity_leads": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ]
+  },
+  "prepared_inputs": {
+    "artifact_root": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\runs\\multiyear-nwp-residual-09-88a\\training",
+    "design_path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-09-88a\\docs\\roadmap\\multiyear-nwp-residual-design-2026-09-88a.json"
+  },
+  "prepared_on": {
+    "branch": "codex/workstation-multiyear-nwp-residual-2026-09-88a",
+    "commit": "e7e0218ca4a6cab19c247098f95b03a1e02459bc",
+    "tree": "50fbb0ddf064dc1df21393f5fd5be370795d0393"
+  },
+  "prior_inspection": {
+    "2026_outcomes_previously_inspected_by_different_model_mission": true,
+    "can_authorize_distribution": false,
+    "classification": "external-secondary and non-confirmatory"
+  },
+  "prohibited_actions": [
+    "provider contact",
+    "model retraining, recalibration, feature, imputation, market, month, or threshold change",
+    "2025 outcome access",
+    "pooling across the b77cfbed / 2026-07-31 provenance boundary",
+    "market-data access",
+    "corpus or mirror mutation",
+    "production, Scheduler, exchange, or credential access",
+    "release, distribution model, promotion, candidate freeze, alpha, confirmation, or serving action",
+    "branch merge"
+  ],
+  "provenance_boundary": {
+    "anchor": "b77cfbed",
+    "cohorts_must_never_be_pooled": true,
+    "first_post_boundary_date": "2026-07-31"
+  },
+  "purpose": "Predeclared no-refit 2026 external-secondary directional evaluation; not a new candidate, replication, or confirmation.",
+  "schema_version": "multiyear_nwp_residual_external_amendment_v1",
+  "source_model_result": {
+    "branch": "codex/workstation-multiyear-nwp-residual-2026-09-88a",
+    "original_verdict": "INCONCLUSIVE_UNDERPOWERED",
+    "original_verdict_must_remain_unchanged": true,
+    "tip": "798225bc200d2909fb32175e21d870f86877faef",
+    "tree": "c9bb99a756bb81d7f3458f0763e63b15ebebb894"
+  },
+  "status": "IMMUTABLE_BEFORE_2026_OUTCOME_ACCESS"
+}

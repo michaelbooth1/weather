@@ -1646,6 +1646,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     raw_arguments = list(sys.argv[1:] if argv is None else argv)
+    if raw_arguments and raw_arguments[0] == "multiyear-nwp-residual-external":
+        from weather.calibration import multiyear_nwp_residual_external
+
+        return multiyear_nwp_residual_external.main(raw_arguments[1:])
     if raw_arguments and raw_arguments[0] == "multiyear-nwp-residual":
         from weather.calibration import multiyear_nwp_residual
 
