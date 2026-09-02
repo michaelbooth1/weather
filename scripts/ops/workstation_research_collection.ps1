@@ -192,26 +192,45 @@ if (
     throw "research-collection repository root must own this exact wrapper"
 }
 
-$expectedPlan = Join-Path $repo.FullName `
-    "docs\roadmap\previous-runs-multiyear-collection-plan-2026-09-87a.json"
+$authorizedPlans = @(
+    [pscustomobject]@{
+        RelativePath = "docs\roadmap\previous-runs-multiyear-collection-plan-2026-09-87a.json"
+        FileSha256 = "924ddd2f1ca5a85def80dcee1296752df3df167f8a37d9ae7566a8c5f7ec303a"
+        PlanSha256 = "20b45f3c0d98a57170a66a237de865374309da67371805fc15204d00f354b09e"
+    },
+    [pscustomobject]@{
+        RelativePath = "docs\roadmap\previous-runs-calendar-extension-plan-2026-09-89a.json"
+        FileSha256 = "e31e8fcb7d08f4da7c714340e071f2af85ceabb70d22d0d5faf1c60f8f08270c"
+        PlanSha256 = "ee9c39bdadf69a23c3a506bc75cbd3651ecd777318f06a5fd7e457f3c533cf66"
+    }
+)
 $planItem = Get-Item -LiteralPath $PlanPath -Force -ErrorAction Stop
 if (
     $planItem -isnot [IO.FileInfo] -or
-    ($planItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
-    -not [string]::Equals(
-        $planItem.FullName,
-        $expectedPlan,
-        [StringComparison]::OrdinalIgnoreCase
-    )
+    ($planItem.Attributes -band [IO.FileAttributes]::ReparsePoint)
 ) {
     throw "research collection requires the exact tracked immutable plan"
+}
+$authorizedPlan = $null
+foreach ($candidate in $authorizedPlans) {
+    $candidatePath = Join-Path $repo.FullName $candidate.RelativePath
+    if ([string]::Equals(
+        $planItem.FullName,
+        $candidatePath,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        $authorizedPlan = $candidate
+        break
+    }
+}
+if ($null -eq $authorizedPlan) {
+    throw "research collection requires an exact tracked immutable plan"
 }
 $plan = Get-Content -Raw -LiteralPath $planItem.FullName | ConvertFrom-Json
 $planFileHash = (Get-FileHash -Algorithm SHA256 `
     -LiteralPath $planItem.FullName).Hash.ToLowerInvariant()
 if (
-    $planFileHash -cne
-        "924ddd2f1ca5a85def80dcee1296752df3df167f8a37d9ae7566a8c5f7ec303a" -or
+    $planFileHash -cne [string]$authorizedPlan.FileSha256 -or
     [string]$plan.schema_version -cne
         "previous_runs_research_collection_plan_v1" -or
     [string]$plan.status -cne
@@ -220,8 +239,7 @@ if (
         "https://previous-runs-api.open-meteo.com/v1/forecast" -or
     [string]$plan.execution_contract.profile -cne
         "workstation_research_collection_v1" -or
-    [string]$plan.plan_sha256 -cne
-        "20b45f3c0d98a57170a66a237de865374309da67371805fc15204d00f354b09e"
+    [string]$plan.plan_sha256 -cne [string]$authorizedPlan.PlanSha256
 ) {
     throw "research-collection plan contract differs from authorization"
 }

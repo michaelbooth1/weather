@@ -35,6 +35,24 @@ PLAN_SCHEMA_VERSION = "previous_runs_research_collection_plan_v1"
 SOURCE_GIT_TIP = "f2722a4ed6c82557cca10325db82e5c66d03788b"
 SOURCE_GIT_TREE = "11b69220188449a84929d678b4146c161922da78"
 OUTPUT_ROOT = r"C:\Users\Michael\Documents\Codex\inputs\pit-12field-multiyear-2021-2025"
+CALENDAR_EXTENSION_SOURCE_GIT_TIP = (
+    "30386b5f082abbecda99c6357bccde1308771448"
+)
+CALENDAR_EXTENSION_SOURCE_GIT_TREE = (
+    "b373970f5912284d6852c9fbb145952727cdc04e"
+)
+CALENDAR_EXTENSION_SOURCE_BRANCH = (
+    "origin/codex/workstation-multiyear-nwp-residual-2026-09-88a"
+)
+CALENDAR_EXTENSION_OUTPUT_ROOT = (
+    r"C:\Users\Michael\Documents\Codex\inputs\pit-11field-2024-2025-calendar-extension"
+)
+EXISTING_CORPUS_ROOT = (
+    r"C:\Users\Michael\Documents\Codex\inputs\pit-12field-multiyear-2021-2025"
+)
+EXISTING_CORPUS_CANONICAL_MANIFEST_SHA256 = (
+    "d41bd21efb7a62396851fe016a215db1ac8bea7de97f387333902aba7a35bb00"
+)
 ASSIGNMENT_PATH = "config/international_live_execution_host.json"
 ASSIGNMENT_SHA256 = "111367a167628fcd78753f341beac119f81d9b87380989a9299d165daad80a5b"
 WRAPPER_ENVIRONMENT = "WEATHER_RESEARCH_COLLECTION_WRAPPER_ACTIVE"
@@ -61,12 +79,29 @@ FIELDS = (
     "vapour_pressure_deficit",
     "et0_fao_evapotranspiration",
 )
+CALENDAR_EXTENSION_FIELDS = tuple(
+    field for field in FIELDS if field != "precipitation_probability"
+)
 LEADS = tuple(range(1, 8))
 YEARS = tuple(range(2021, 2026))
 SEGMENTS = (
     ("may10-jun30", "05-10", "06-30", 52),
     ("jul01-aug31", "07-01", "08-31", 62),
 )
+CALENDAR_EXTENSION_SEGMENTS = {
+    2024: (
+        ("jan01-feb29", "2024-01-01", "2024-02-29", 60),
+        ("mar01-may09", "2024-03-01", "2024-05-09", 70),
+        ("sep01-oct31", "2024-09-01", "2024-10-31", 61),
+        ("nov01-dec31", "2024-11-01", "2024-12-31", 61),
+    ),
+    2025: (
+        ("jan01-feb28", "2025-01-01", "2025-02-28", 59),
+        ("mar01-may09", "2025-03-01", "2025-05-09", 70),
+        ("sep01-oct31", "2025-09-01", "2025-10-31", 61),
+        ("nov01-dec31", "2025-11-01", "2025-12-31", 61),
+    ),
+}
 CSV_COLUMNS = (
     "market",
     "target_datetime_local",
@@ -184,18 +219,26 @@ def self_hash(payload: dict, field: str) -> str:
     return payload_sha256(body)
 
 
-def _hourly_parameter() -> str:
+def _hourly_parameter_for(fields: tuple[str, ...]) -> str:
     return ",".join(
-        f"{field}_previous_day{lead}" for field in FIELDS for lead in LEADS
+        f"{field}_previous_day{lead}" for field in fields for lead in LEADS
     )
 
 
-def _unit_inventory(spec) -> dict[str, str]:
-    inventory = dict(EXPECTED_UNITS)
+def _hourly_parameter() -> str:
+    return _hourly_parameter_for(FIELDS)
+
+
+def _unit_inventory_for(spec, fields: tuple[str, ...]) -> dict[str, str]:
+    inventory = {field: EXPECTED_UNITS[field] for field in fields}
     inventory["temperature_2m"] = (
         "°F" if spec.om_temperature_unit == "fahrenheit" else "°C"
     )
     return inventory
+
+
+def _unit_inventory(spec) -> dict[str, str]:
+    return _unit_inventory_for(spec, FIELDS)
 
 
 def build_plan(*, planned_at_utc: str) -> dict:
@@ -409,7 +452,276 @@ def build_plan(*, planned_at_utc: str) -> dict:
     return plan
 
 
-def verify_plan(plan: dict) -> None:
+def build_calendar_extension_plan(*, planned_at_utc: str) -> dict:
+    """Build the exact outcome-blind 2024-2025 calendar-extension plan."""
+    planned = datetime.fromisoformat(planned_at_utc.replace("Z", "+00:00"))
+    if planned.tzinfo is None:
+        raise PlanError("planned_at_utc must be timezone-aware")
+    requests = []
+    for spec in BUILTIN_SPECS:
+        for year, segments in CALENDAR_EXTENSION_SEGMENTS.items():
+            for segment_id, start_date, end_date, day_count in segments:
+                parameters = {
+                    "end_date": end_date,
+                    "hourly": _hourly_parameter_for(CALENDAR_EXTENSION_FIELDS),
+                    "latitude": spec.lat,
+                    "longitude": spec.lon,
+                    "start_date": start_date,
+                    "temperature_unit": spec.om_temperature_unit,
+                    "timezone": spec.timezone,
+                    "wind_speed_unit": "kmh",
+                }
+                request = {
+                    "day_count": day_count,
+                    "endpoint": ENDPOINT,
+                    "expected_long_rows_before_missingness": (
+                        day_count
+                        * 24
+                        * len(CALENDAR_EXTENSION_FIELDS)
+                        * len(LEADS)
+                    ),
+                    "expected_units": _unit_inventory_for(
+                        spec, CALENDAR_EXTENSION_FIELDS
+                    ),
+                    "fields": list(CALENDAR_EXTENSION_FIELDS),
+                    "historical_availability": HISTORICAL_AVAILABILITY,
+                    "issue_time_basis": ISSUE_TIME_BASIS,
+                    "leads": list(LEADS),
+                    "market": spec.id,
+                    "native_temperature_unit": spec.display_unit,
+                    "parameters": parameters,
+                    "parameters_sha256": payload_sha256(parameters),
+                    "segment": segment_id,
+                    "source": SOURCE,
+                    "timezone": spec.timezone,
+                    "unit_id": f"{spec.id}--{year}--{segment_id}",
+                    "year": year,
+                }
+                request["request_sha256"] = self_hash(request, "request_sha256")
+                requests.append(request)
+
+    plan = {
+        "schema_version": PLAN_SCHEMA_VERSION,
+        "collection_contract": "2024_2025_calendar_extension_11field_v1",
+        "status": "IMMUTABLE_OUTCOME_BLIND_PLAN_BEFORE_NETWORK_ACCESS",
+        "planned_at_utc": planned.astimezone(timezone.utc).isoformat(),
+        "purpose": (
+            "Collect only the previously uncollected 2024-2025 calendar "
+            "periods for the exact shared eleven-field forecast surface; do "
+            "not access outcomes or fit, score, evaluate, or freeze a model."
+        ),
+        "source_git": {
+            "tip": CALENDAR_EXTENSION_SOURCE_GIT_TIP,
+            "tree": CALENDAR_EXTENSION_SOURCE_GIT_TREE,
+            "branch": CALENDAR_EXTENSION_SOURCE_BRANCH,
+        },
+        "p0_preflight": {
+            "existing_corpus_root": EXISTING_CORPUS_ROOT,
+            "existing_corpus_expected_file_count": 745,
+            "existing_corpus_canonical_manifest_sha256": (
+                EXISTING_CORPUS_CANONICAL_MANIFEST_SHA256
+            ),
+            "existing_corpus_rehash": "PASS",
+            "new_output_root_absent": True,
+            "minimum_free_bytes": 10 * 1024**3,
+            "observed_free_bytes": 273_335_848_960,
+            "provider_requests_before_plan_commit": 0,
+        },
+        "provider_contract": {
+            "endpoint": ENDPOINT,
+            "allowed_hosts": ["previous-runs-api.open-meteo.com"],
+            "authentication": "none",
+            "source": SOURCE,
+            "issue_time_basis": ISSUE_TIME_BASIS,
+            "availability_status": HISTORICAL_AVAILABILITY,
+            "historical_availability": HISTORICAL_AVAILABILITY,
+            "retrieval_time_is_historical_availability": False,
+            "caller_supplied_issue_or_availability_time_allowed": False,
+            "stitched_or_historical_forecast_source_allowed": False,
+        },
+        "scope": {
+            "markets": [spec.id for spec in BUILTIN_SPECS],
+            "years": [2024, 2025],
+            "excluded_spent_window": "May 10 through August 31 inclusive",
+            "segments_by_year": {
+                str(year): [
+                    {
+                        "id": segment[0],
+                        "start_date": segment[1],
+                        "end_date": segment[2],
+                        "day_count": segment[3],
+                    }
+                    for segment in segments
+                ]
+                for year, segments in CALENDAR_EXTENSION_SEGMENTS.items()
+            },
+            "fields": list(CALENDAR_EXTENSION_FIELDS),
+            "leads": list(LEADS),
+            "cadence": "hourly",
+            "normalized_csv_columns": list(CSV_COLUMNS),
+        },
+        "expected_denominator": {
+            "dates_by_year": {"2024": 252, "2025": 251},
+            "target_dates": 503,
+            "markets": len(BUILTIN_SPECS),
+            "market_days": 6_036,
+            "request_units": len(requests),
+            "long_rows_before_missingness": 11_154_528,
+            "missing_cells_must_remain_in_denominator": True,
+        },
+        "existing_corpus_contract": {
+            "root": EXISTING_CORPUS_ROOT,
+            "canonical_manifest_sha256": (
+                EXISTING_CORPUS_CANONICAL_MANIFEST_SHA256
+            ),
+            "read_only": True,
+            "collection_target": False,
+            "spent_window": "May 10 through August 31 inclusive",
+            "may_be_overwritten": False,
+        },
+        "output_contract": {
+            "root": CALENDAR_EXTENSION_OUTPUT_ROOT,
+            "must_be_new": True,
+            "must_be_non_reparse": True,
+            "must_be_outside_frozen_mirror": True,
+            "completed_units_may_be_overwritten": False,
+            "atomic_publication": True,
+            "retain_failed_and_partial_evidence": True,
+            "immutable_plan_and_request_hash_on_every_artifact": True,
+            "post_collection_acl": {
+                "identity": "CodexSandboxOffline",
+                "access_control_type": "Deny",
+                "rights": ["Write", "Delete", "DeleteSubdirectoriesAndFiles"],
+            },
+        },
+        "execution_contract": {
+            "profile": "workstation_research_collection_v1",
+            "assignment_path": ASSIGNMENT_PATH,
+            "assignment_sha256": ASSIGNMENT_SHA256,
+            "bind_tracked_workstation_host_and_attending_principal": True,
+            "refuse_dedicated_capture_host": True,
+            "host_global_mutex": "Global\\WeatherProjectHeavyWorkloadV1",
+            "share_portable_live_poison_state": True,
+            "kill_on_close_child_tree": True,
+            "sequential_requests_only": True,
+            "overall_runtime_seconds": 14_400,
+            "connect_timeout_seconds": 10,
+            "read_timeout_seconds": 120,
+        },
+        "retry_contract": {
+            "maximum_attempts_per_unit": 3,
+            "retryable": ["transport_failure", "HTTP_429", "HTTP_5xx"],
+            "non_retryable": ["HTTP_4xx_except_429", "validation_failure"],
+            "fallback_delays_seconds": [5, 15],
+            "honor_retry_after": True,
+            "retry_after_must_fit_overall_runtime": True,
+            "concurrent_retries": False,
+            "permanent_failure_remains_in_denominator": True,
+        },
+        "resource_contract": {
+            "raw_response_maximum_bytes": MAX_RAW_RESPONSE_BYTES,
+            "response_header_maximum_bytes": MAX_RESPONSE_HEADER_BYTES,
+            "minimum_free_bytes_before_collection": 10 * 1024**3,
+        },
+        "artifact_contract": {
+            "per_unit": [
+                "raw-response.json",
+                "response-headers.json",
+                "normalized.csv",
+                "receipt.json",
+                "resume-state.json",
+            ],
+            "raw_response_sha256_and_bytes": True,
+            "normalized_sha256_rows_and_bytes": True,
+            "field_and_lead_non_null_counts": True,
+            "retrieval_timestamp_is_retrieval_evidence_only": True,
+        },
+        "validation_contract": {
+            "unique_key": [
+                "market",
+                "target_datetime_local",
+                "field",
+                "lead_days",
+            ],
+            "finite_where_present": True,
+            "expected_local_hourly_coverage": True,
+            "exact_field_and_lead_partitions": True,
+            "exact_timezone_unit_request_identity": True,
+            "no_stitched_source": True,
+            "outcome_settlement_or_market_data_access": False,
+            "coverage_matrices": [
+                "year",
+                "market",
+                "segment",
+                "month",
+                "field",
+                "lead",
+            ],
+        },
+        "positive_controls": {
+            "existing_corpus_root": EXISTING_CORPUS_ROOT,
+            "existing_corpus_values_read_only": True,
+            "one_hash_bound_temperature_row_required": True,
+            "request_overlap_with_may10_aug31_allowed": False,
+            "request_year_2026_allowed": False,
+            "verify_2025_features_without_outcomes_or_market_evidence": True,
+            "read_or_modify_2026_inputs_allowed": False,
+        },
+        "disposition_contract": [
+            "COMPLETE_RESEARCH_EXTENSION",
+            "PARTIAL_RESEARCH_EXTENSION_WITH_EXPLICIT_GAPS",
+            "NO_GO_PROVIDER_COVERAGE",
+            "NO_GO_INTEGRITY_FAILURE",
+        ],
+        "prohibited_data_and_actions": [
+            "outcomes",
+            "settlements",
+            "market prices",
+            "market probabilities",
+            "model fitting",
+            "model selection",
+            "model scoring",
+            "model evaluation",
+            "model freeze",
+            "2026 input access",
+            "2026 provider collection",
+            "existing corpus overwrite",
+            "frozen mirror mutation",
+            "production contact",
+            "Scheduler mutation",
+            "credential access",
+            "exchange contact",
+            "release or pointer creation",
+            "promotion",
+            "candidate freeze",
+            "alpha allocation",
+            "confirmation window",
+        ],
+        "next_experiment_preregistered_not_executed": {
+            "training_data": "all available 2024 eleven-field dates",
+            "untouched_evaluation": (
+                "only the new 251 outside-window 2025 dates"
+            ),
+            "spent_2025_may_august_evaluation": "excluded",
+            "model_family": (
+                "same temperature-residual baseline versus eleven-field "
+                "residual challenger"
+            ),
+            "feature_construction": "unchanged",
+            "hyperparameters": "fixed and unchanged",
+            "spent_2025_records_may_be_reused_or_pooled": False,
+            "primary_leads": [2, 3, 4, 5, 6, 7],
+            "sensitivity_leads": [1, 2, 3, 4, 5, 6, 7],
+            "model_fit_or_outcome_access_in_this_mission": False,
+        },
+        "requests": requests,
+    }
+    plan["plan_sha256"] = self_hash(plan, "plan_sha256")
+    verify_plan(plan)
+    return plan
+
+
+def _verify_legacy_plan(plan: dict) -> None:
     if plan.get("schema_version") != PLAN_SCHEMA_VERSION:
         raise PlanError("unexpected plan schema")
     if plan.get("plan_sha256") != self_hash(plan, "plan_sha256"):
@@ -531,6 +843,255 @@ def verify_plan(plan: dict) -> None:
         raise PlanError("expected row denominator drifted")
 
 
+def _verify_calendar_extension_plan(plan: dict) -> None:
+    if plan.get("schema_version") != PLAN_SCHEMA_VERSION:
+        raise PlanError("unexpected plan schema")
+    if plan.get("plan_sha256") != self_hash(plan, "plan_sha256"):
+        raise PlanError("plan hash mismatch")
+    if plan.get("status") != "IMMUTABLE_OUTCOME_BLIND_PLAN_BEFORE_NETWORK_ACCESS":
+        raise PlanError("plan status differs from the pre-network authorization")
+    if plan.get("collection_contract") != (
+        "2024_2025_calendar_extension_11field_v1"
+    ):
+        raise PlanError("calendar-extension contract identifier differs")
+    if plan.get("source_git") != {
+        "tip": CALENDAR_EXTENSION_SOURCE_GIT_TIP,
+        "tree": CALENDAR_EXTENSION_SOURCE_GIT_TREE,
+        "branch": CALENDAR_EXTENSION_SOURCE_BRANCH,
+    }:
+        raise PlanError("calendar-extension source binding differs")
+
+    provider = plan.get("provider_contract") or {}
+    if provider != {
+        "endpoint": ENDPOINT,
+        "allowed_hosts": ["previous-runs-api.open-meteo.com"],
+        "authentication": "none",
+        "source": SOURCE,
+        "issue_time_basis": ISSUE_TIME_BASIS,
+        "availability_status": HISTORICAL_AVAILABILITY,
+        "historical_availability": HISTORICAL_AVAILABILITY,
+        "retrieval_time_is_historical_availability": False,
+        "caller_supplied_issue_or_availability_time_allowed": False,
+        "stitched_or_historical_forecast_source_allowed": False,
+    }:
+        raise PlanError("calendar-extension provider contract differs")
+
+    expected_markets = [spec.id for spec in BUILTIN_SPECS]
+    expected_segments = {
+        str(year): [
+            {
+                "id": segment[0],
+                "start_date": segment[1],
+                "end_date": segment[2],
+                "day_count": segment[3],
+            }
+            for segment in segments
+        ]
+        for year, segments in CALENDAR_EXTENSION_SEGMENTS.items()
+    }
+    scope = plan.get("scope") or {}
+    if (
+        scope.get("markets") != expected_markets
+        or scope.get("years") != [2024, 2025]
+        or scope.get("segments_by_year") != expected_segments
+        or scope.get("fields") != list(CALENDAR_EXTENSION_FIELDS)
+        or scope.get("leads") != list(LEADS)
+        or scope.get("cadence") != "hourly"
+        or scope.get("normalized_csv_columns") != list(CSV_COLUMNS)
+        or scope.get("excluded_spent_window")
+        != "May 10 through August 31 inclusive"
+    ):
+        raise PlanError("calendar-extension scope differs")
+    if (
+        len(CALENDAR_EXTENSION_FIELDS) != 11
+        or "precipitation_probability" in CALENDAR_EXTENSION_FIELDS
+    ):
+        raise PlanError("calendar-extension field surface is not exactly eleven")
+
+    p0 = plan.get("p0_preflight") or {}
+    if (
+        p0.get("existing_corpus_root") != EXISTING_CORPUS_ROOT
+        or p0.get("existing_corpus_expected_file_count") != 745
+        or p0.get("existing_corpus_canonical_manifest_sha256")
+        != EXISTING_CORPUS_CANONICAL_MANIFEST_SHA256
+        or p0.get("existing_corpus_rehash") != "PASS"
+        or p0.get("new_output_root_absent") is not True
+        or int(p0.get("minimum_free_bytes", 0)) != 10 * 1024**3
+        or int(p0.get("observed_free_bytes", 0)) < 10 * 1024**3
+        or p0.get("provider_requests_before_plan_commit") != 0
+    ):
+        raise PlanError("calendar-extension P0 evidence differs")
+
+    existing = plan.get("existing_corpus_contract") or {}
+    if (
+        existing.get("root") != EXISTING_CORPUS_ROOT
+        or existing.get("canonical_manifest_sha256")
+        != EXISTING_CORPUS_CANONICAL_MANIFEST_SHA256
+        or existing.get("read_only") is not True
+        or existing.get("collection_target") is not False
+        or existing.get("may_be_overwritten") is not False
+    ):
+        raise PlanError("existing-corpus protection contract differs")
+    if (plan.get("output_contract") or {}).get("root") != (
+        CALENDAR_EXTENSION_OUTPUT_ROOT
+    ):
+        raise PlanError("calendar-extension output root differs")
+
+    execution = plan.get("execution_contract") or {}
+    if (
+        execution.get("profile") != "workstation_research_collection_v1"
+        or execution.get("assignment_path") != ASSIGNMENT_PATH
+        or execution.get("assignment_sha256") != ASSIGNMENT_SHA256
+        or execution.get("sequential_requests_only") is not True
+        or execution.get("overall_runtime_seconds") != 14_400
+        or execution.get("connect_timeout_seconds") != 10
+        or execution.get("read_timeout_seconds") != 120
+        or execution.get("kill_on_close_child_tree") is not True
+        or execution.get("share_portable_live_poison_state") is not True
+    ):
+        raise PlanError("calendar-extension execution bounds differ")
+    retry = plan.get("retry_contract") or {}
+    if (
+        retry.get("maximum_attempts_per_unit") != 3
+        or retry.get("retryable")
+        != ["transport_failure", "HTTP_429", "HTTP_5xx"]
+        or retry.get("non_retryable")
+        != ["HTTP_4xx_except_429", "validation_failure"]
+        or retry.get("fallback_delays_seconds") != [5, 15]
+        or retry.get("honor_retry_after") is not True
+        or retry.get("concurrent_retries") is not False
+    ):
+        raise PlanError("calendar-extension retry bounds differ")
+    resource = plan.get("resource_contract") or {}
+    if (
+        resource.get("raw_response_maximum_bytes") != MAX_RAW_RESPONSE_BYTES
+        or resource.get("response_header_maximum_bytes")
+        != MAX_RESPONSE_HEADER_BYTES
+        or resource.get("minimum_free_bytes_before_collection") != 10 * 1024**3
+    ):
+        raise PlanError("calendar-extension resource bounds differ")
+
+    expected_denominator = {
+        "dates_by_year": {"2024": 252, "2025": 251},
+        "target_dates": 503,
+        "markets": len(BUILTIN_SPECS),
+        "market_days": 6_036,
+        "request_units": 96,
+        "long_rows_before_missingness": 11_154_528,
+        "missing_cells_must_remain_in_denominator": True,
+    }
+    if plan.get("expected_denominator") != expected_denominator:
+        raise PlanError("calendar-extension denominator differs")
+
+    requests = plan.get("requests") or []
+    if len(requests) != 96:
+        raise PlanError("calendar-extension request denominator is incomplete")
+    specs_by_id = {spec.id: spec for spec in BUILTIN_SPECS}
+    expected_request_keys = {
+        (spec.id, year, segment[0])
+        for spec in BUILTIN_SPECS
+        for year, segments in CALENDAR_EXTENSION_SEGMENTS.items()
+        for segment in segments
+    }
+    observed_keys = set()
+    for request in requests:
+        if request.get("request_sha256") != self_hash(request, "request_sha256"):
+            raise PlanError("calendar-extension request hash mismatch")
+        parameters = request.get("parameters") or {}
+        if request.get("parameters_sha256") != payload_sha256(parameters):
+            raise PlanError("calendar-extension parameter hash mismatch")
+        market = request.get("market")
+        year = request.get("year")
+        segment_id = request.get("segment")
+        key = (market, year, segment_id)
+        if key not in expected_request_keys or key in observed_keys:
+            raise PlanError("calendar-extension request matrix differs")
+        observed_keys.add(key)
+        spec = specs_by_id[str(market)]
+        segment = next(
+            item
+            for item in CALENDAR_EXTENSION_SEGMENTS[int(year)]
+            if item[0] == segment_id
+        )
+        expected_parameters = {
+            "end_date": segment[2],
+            "hourly": _hourly_parameter_for(CALENDAR_EXTENSION_FIELDS),
+            "latitude": spec.lat,
+            "longitude": spec.lon,
+            "start_date": segment[1],
+            "temperature_unit": spec.om_temperature_unit,
+            "timezone": spec.timezone,
+            "wind_speed_unit": "kmh",
+        }
+        start = datetime.fromisoformat(segment[1]).date()
+        end = datetime.fromisoformat(segment[2]).date()
+        if not (end < datetime(int(year), 5, 10).date() or start > datetime(int(year), 8, 31).date()):
+            raise PlanError("calendar-extension request overlaps the spent window")
+        if (
+            request.get("endpoint") != ENDPOINT
+            or request.get("fields") != list(CALENDAR_EXTENSION_FIELDS)
+            or request.get("leads") != list(LEADS)
+            or request.get("year") == 2026
+            or parameters != expected_parameters
+            or request.get("timezone") != spec.timezone
+            or request.get("expected_units")
+            != _unit_inventory_for(spec, CALENDAR_EXTENSION_FIELDS)
+            or request.get("day_count") != segment[3]
+            or request.get("expected_long_rows_before_missingness")
+            != segment[3] * 24 * len(CALENDAR_EXTENSION_FIELDS) * len(LEADS)
+            or request.get("source") != SOURCE
+            or request.get("issue_time_basis") != ISSUE_TIME_BASIS
+            or request.get("historical_availability")
+            != HISTORICAL_AVAILABILITY
+            or request.get("unit_id") != f"{market}--{year}--{segment_id}"
+        ):
+            raise PlanError("calendar-extension request identity differs")
+        if any(
+            forbidden in parameters
+            for forbidden in (
+                "issue_time_utc",
+                "available_at_utc",
+                "cycle",
+                "run_id",
+                "publication_time",
+            )
+        ):
+            raise PlanError("request manufactures historical availability evidence")
+    if observed_keys != expected_request_keys:
+        raise PlanError("calendar-extension request matrix is incomplete")
+    if sum(
+        int(request["expected_long_rows_before_missingness"])
+        for request in requests
+    ) != 11_154_528:
+        raise PlanError("calendar-extension row denominator drifted")
+
+    positive = plan.get("positive_controls") or {}
+    if (
+        positive.get("request_overlap_with_may10_aug31_allowed") is not False
+        or positive.get("request_year_2026_allowed") is not False
+        or positive.get("read_or_modify_2026_inputs_allowed") is not False
+        or positive.get("verify_2025_features_without_outcomes_or_market_evidence")
+        is not True
+    ):
+        raise PlanError("calendar-extension positive controls differ")
+    if plan.get("disposition_contract") != [
+        "COMPLETE_RESEARCH_EXTENSION",
+        "PARTIAL_RESEARCH_EXTENSION_WITH_EXPLICIT_GAPS",
+        "NO_GO_PROVIDER_COVERAGE",
+        "NO_GO_INTEGRITY_FAILURE",
+    ]:
+        raise PlanError("calendar-extension dispositions differ")
+
+
+def verify_plan(plan: dict) -> None:
+    if plan.get("collection_contract") == (
+        "2024_2025_calendar_extension_11field_v1"
+    ):
+        _verify_calendar_extension_plan(plan)
+    else:
+        _verify_legacy_plan(plan)
+
+
 def write_plan(path: str | Path, plan: dict) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -609,7 +1170,10 @@ def load_bound_plan(path: str | Path) -> tuple[dict, bytes]:
     except (TypeError, ValueError) as exc:
         raise PlanError("collection plan is not valid JSON") from exc
     verify_plan(plan)
-    if str((plan.get("output_contract") or {}).get("root")) != OUTPUT_ROOT:
+    if str((plan.get("output_contract") or {}).get("root")) not in {
+        OUTPUT_ROOT,
+        CALENDAR_EXTENSION_OUTPUT_ROOT,
+    }:
         raise PlanError("collection output root differs from the immutable plan")
     if (plan.get("execution_contract") or {}).get("profile") != (
         "workstation_research_collection_v1"
@@ -1489,14 +2053,25 @@ def finalize_collection(
     if sum(row["non_null"] for row in coverage_rows) != non_null_rows:
         integrity_errors.append("coverage matrix non-null denominator drifted")
 
+    is_calendar_extension = plan.get("collection_contract") == (
+        "2024_2025_calendar_extension_11field_v1"
+    )
     if integrity_errors:
         disposition = "NO_GO_INTEGRITY_FAILURE"
     elif completed_count == 0:
         disposition = "NO_GO_PROVIDER_COVERAGE"
     elif completed_count < len(plan["requests"]) or non_null_rows < requested_rows:
-        disposition = "PARTIAL_RESEARCH_CORPUS_WITH_EXPLICIT_GAPS"
+        disposition = (
+            "PARTIAL_RESEARCH_EXTENSION_WITH_EXPLICIT_GAPS"
+            if is_calendar_extension
+            else "PARTIAL_RESEARCH_CORPUS_WITH_EXPLICIT_GAPS"
+        )
     else:
-        disposition = "COMPLETE_RESEARCH_CORPUS"
+        disposition = (
+            "COMPLETE_RESEARCH_EXTENSION"
+            if is_calendar_extension
+            else "COMPLETE_RESEARCH_CORPUS"
+        )
 
     stage = output_root / f".final-{uuid.uuid4().hex}.publishing"
     stage.mkdir()
@@ -1697,6 +2272,9 @@ def build_parser() -> argparse.ArgumentParser:
     plan = subparsers.add_parser("plan")
     plan.add_argument("--out", required=True)
     plan.add_argument("--planned-at-utc", required=True)
+    extension_plan = subparsers.add_parser("plan-calendar-extension")
+    extension_plan.add_argument("--out", required=True)
+    extension_plan.add_argument("--planned-at-utc", required=True)
     collect = subparsers.add_parser(
         "collect",
         help="Run the immutable plan through the dedicated bounded wrapper.",
@@ -1714,6 +2292,23 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "plan":
         plan = build_plan(planned_at_utc=args.planned_at_utc)
+        destination = write_plan(args.out, plan)
+        print(
+            json.dumps(
+                {
+                    "path": str(destination),
+                    "plan_sha256": plan["plan_sha256"],
+                    "request_units": len(plan["requests"]),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    if args.command == "plan-calendar-extension":
+        plan = build_calendar_extension_plan(
+            planned_at_utc=args.planned_at_utc
+        )
         destination = write_plan(args.out, plan)
         print(
             json.dumps(

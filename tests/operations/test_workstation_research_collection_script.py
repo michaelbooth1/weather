@@ -19,6 +19,10 @@ def test_research_collection_wrapper_is_exactly_plan_and_endpoint_bound() -> Non
     assert "previous-runs-multiyear-collection-plan-2026-09-87a.json" in text
     assert "924ddd2f1ca5a85def80dcee1296752df3df167f8a37d9ae7566a8c5f7ec303a" in text
     assert "20b45f3c0d98a57170a66a237de865374309da67371805fc15204d00f354b09e" in text
+    assert "previous-runs-calendar-extension-plan-2026-09-89a.json" in text
+    assert "e31e8fcb7d08f4da7c714340e071f2af85ceabb70d22d0d5faf1c60f8f08270c" in text
+    assert "ee9c39bdadf69a23c3a506bc75cbd3651ecd777318f06a5fd7e457f3c533cf66" in text
+    assert text.count("RelativePath =") == 2
     assert "https://previous-runs-api.open-meteo.com/v1/forecast" in text
     assert '"weather.sources.previous_runs_research_collection"' in text
     assert '"collect"' in text

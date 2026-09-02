@@ -9,23 +9,31 @@ from pathlib import Path
 import pytest
 
 from weather.sources.previous_runs_research_collection import (
+    CALENDAR_EXTENSION_FIELDS,
+    CALENDAR_EXTENSION_OUTPUT_ROOT,
+    CALENDAR_EXTENSION_SOURCE_BRANCH,
+    CALENDAR_EXTENSION_SOURCE_GIT_TIP,
+    CALENDAR_EXTENSION_SOURCE_GIT_TREE,
     CSV_COLUMNS,
     ENDPOINT,
     FIELDS,
     HISTORICAL_AVAILABILITY,
     ISSUE_TIME_BASIS,
     LEADS,
+    PlanError,
     SOURCE,
     RetainedArtifactError,
     CollectionError,
     TransportFailure,
     TransportResponse,
+    build_calendar_extension_plan,
     collect_unit,
     finalize_collection,
     load_bound_plan,
     payload_sha256,
     run_collection,
     self_hash,
+    verify_plan,
     verify_final,
 )
 
@@ -36,6 +44,12 @@ PLAN_PATH = (
     / "docs"
     / "roadmap"
     / "previous-runs-multiyear-collection-plan-2026-09-87a.json"
+)
+CALENDAR_EXTENSION_PLAN_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "roadmap"
+    / "previous-runs-calendar-extension-plan-2026-09-89a.json"
 )
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
 
@@ -165,6 +179,55 @@ def test_frozen_plan_is_exact_outcome_blind_provider_denominator() -> None:
         }
         for request in plan["requests"]
     )
+
+
+def test_calendar_extension_plan_is_exact_and_excludes_spent_window() -> None:
+    plan, plan_bytes = load_bound_plan(CALENDAR_EXTENSION_PLAN_PATH)
+    rebuilt = build_calendar_extension_plan(
+        planned_at_utc=plan["planned_at_utc"]
+    )
+
+    assert rebuilt == plan
+    assert plan_bytes
+    assert plan["source_git"] == {
+        "tip": CALENDAR_EXTENSION_SOURCE_GIT_TIP,
+        "tree": CALENDAR_EXTENSION_SOURCE_GIT_TREE,
+        "branch": CALENDAR_EXTENSION_SOURCE_BRANCH,
+    }
+    assert plan["output_contract"]["root"] == CALENDAR_EXTENSION_OUTPUT_ROOT
+    assert len(plan["scope"]["markets"]) == 12
+    assert plan["scope"]["years"] == [2024, 2025]
+    assert plan["scope"]["fields"] == list(CALENDAR_EXTENSION_FIELDS)
+    assert len(CALENDAR_EXTENSION_FIELDS) == 11
+    assert "precipitation_probability" not in CALENDAR_EXTENSION_FIELDS
+    assert len(plan["requests"]) == 96
+    assert plan["expected_denominator"] == {
+        "dates_by_year": {"2024": 252, "2025": 251},
+        "target_dates": 503,
+        "markets": 12,
+        "market_days": 6036,
+        "request_units": 96,
+        "long_rows_before_missingness": 11_154_528,
+        "missing_cells_must_remain_in_denominator": True,
+    }
+    for request in plan["requests"]:
+        start = datetime.fromisoformat(request["parameters"]["start_date"]).date()
+        end = datetime.fromisoformat(request["parameters"]["end_date"]).date()
+        spent_start = datetime(request["year"], 5, 10).date()
+        spent_end = datetime(request["year"], 8, 31).date()
+        assert end < spent_start or start > spent_end
+        assert request["year"] in (2024, 2025)
+        assert "precipitation_probability" not in request["parameters"]["hourly"]
+
+
+def test_calendar_extension_plan_rejects_holdout_only_field() -> None:
+    plan = build_calendar_extension_plan(
+        planned_at_utc="2026-09-02T12:00:00+00:00"
+    )
+    plan["requests"][0]["fields"].append("precipitation_probability")
+    plan["plan_sha256"] = self_hash(plan, "plan_sha256")
+    with pytest.raises(PlanError, match="calendar-extension request"):
+        verify_plan(plan)
 
 
 def test_direct_provider_collection_is_refused_without_wrapper(tmp_path: Path) -> None:
