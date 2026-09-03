@@ -126,9 +126,10 @@ production integration owner must run the canonical command against the pushed
 branch before considering integration:
 
 ```powershell
-scripts\ops\roll_verdict.ps1 -Branch origin/codex/workstation-experiment-executor-longpath-2026-09-93a
+.\scripts\ops\roll_verdict.ps1 -Branch origin/codex/workstation-experiment-executor-longpath-2026-09-93a
 ```
 
-No production host, production data, Scheduler, provider, exchange,
-credential, live execution, model, corpus, GitHub `master`, merge, pull
-request, release, or runtime adoption action was accessed or performed.
+No production host/data, Scheduler, provider, exchange, credential, live
+execution, model, corpus, merge, pull request, release, or runtime-adoption
+action was accessed or performed. GitHub `master` was not mutated; the only
+remote-master operation was the mission's required read-only origin fetch.
