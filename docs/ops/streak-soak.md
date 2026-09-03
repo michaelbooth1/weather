@@ -414,10 +414,13 @@ repository kill-on-close Job. Immediately before every RPC launch, the parent
 re-hashes the helper against its exact `S`-pinned dependency SHA-256. Its request
 deadline is eight seconds before the applicable PT15M/04:00 boundary: five
 seconds, clamped to the remaining time, are reserved for `TerminateAndWait`
-proof and a further three seconds remain for bounded result parsing. Read
-helpers return bounded structured evidence which the parent validates
-independently. Mutating helpers re-resolve and fully attest the exact singleton
-twice, revalidate the hash-bound marker, and use only the final
+  proof and a further three seconds remain for bounded result parsing. Each
+  helper brackets its structured task read with the same name/path
+  `Export-ScheduledTask` and UTF-8 hash path used by the parent freeze. A null
+  `Triggers` property counts as zero; any real trigger remains a hard failure.
+  Read helpers return bounded structured evidence which the parent validates
+  independently. Mutating helpers re-resolve and fully attest the exact singleton
+  twice, revalidate the hash-bound marker, and use only the final
 [`-InputObject`](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/stop-scheduledtask).
 Immediately before mutation, the helper atomically creates a fixed durable
 one-use claim: one for Start and one for each permitted Stop ordinal. A claim is

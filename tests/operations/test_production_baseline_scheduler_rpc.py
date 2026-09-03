@@ -14,6 +14,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELPER = REPO_ROOT / "scripts" / "ops" / "production_baseline_scheduler_rpc.ps1"
+QUIET_MERGE = REPO_ROOT / "scripts" / "ops" / "quiet_window_merge.ps1"
 POWERSHELL = shutil.which("powershell.exe")
 WINDOWS_POWERSHELL = pytest.mark.skipif(
     os.name != "nt" or POWERSHELL is None,
@@ -21,6 +22,7 @@ WINDOWS_POWERSHELL = pytest.mark.skipif(
 )
 TEST_TASK_XML = "<Task>fixed-scope-scheduler-rpc-test</Task>"
 TEST_TASK_XML_SHA256 = hashlib.sha256(TEST_TASK_XML.encode()).hexdigest()
+INPUT_OBJECT_TASK_XML = "<Task>same-task-input-object-serialization</Task>"
 REQUEST_SCHEMA = "production_baseline_scheduler_rpc_request_v0.1"
 RESULT_SCHEMA = "production_baseline_scheduler_rpc_result_v0.1"
 MUTATION_CLAIM_SCHEMA = "production_baseline_scheduler_rpc_mutation_claim_v0.1"
@@ -170,6 +172,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $global:RpcTestPushTaskReadCount = 0
+$global:RpcTestPushTaskExportCount = 0
 
 function Assert-NoInjectedThrow {
     param([string]$Name)
@@ -187,7 +190,7 @@ function New-FakePushTask {
         Arguments = "/c git -C $repo push origin master > C:\Users\micha\ops\logs\push-oneshot.log 2>&1"
         WorkingDirectory = $repo
     }
-    return [PSCustomObject]@{
+    $task = [PSCustomObject]@{
         TaskName = "WeatherOneShotPush"
         TaskPath = "\"
         State = [string]$env:RPC_TEST_PUSH_STATE
@@ -203,9 +206,19 @@ function New-FakePushTask {
             RunLevel = "Limited"
         }
         Actions = @($action)
-        Triggers = @()
+        Triggers = if ($env:RPC_TEST_NULL_TRIGGERS -eq "1") { $null } else { @() }
         FixtureReadOrdinal = $ReadOrdinal
     }
+    switch ([string]$env:RPC_TEST_TASK_VARIATION) {
+        "action" { $task.Actions[0].Execute = "powershell.exe" }
+        "principal" { $task.Principal.LogonType = "S4U" }
+        "state" { $task.State = "Disabled" }
+        "timing" { $task.Settings.ExecutionTimeLimit = "PT30M" }
+        "working_directory" { $task.Actions[0].WorkingDirectory = "$repo\other" }
+        "task_path" { $task.TaskPath = "\Other\" }
+        "trigger" { $task.Triggers = @([PSCustomObject]@{ Kind = "Time" }) }
+    }
+    return $task
 }
 
 function Get-ScheduledTask {
@@ -221,20 +234,33 @@ function Get-ScheduledTask {
     }
     if ($TaskName -cne "WeatherOneShotPush") { throw "unexpected task name" }
     $global:RpcTestPushTaskReadCount++
-    return New-FakePushTask -ReadOrdinal $global:RpcTestPushTaskReadCount
+    $task = New-FakePushTask -ReadOrdinal $global:RpcTestPushTaskReadCount
+    if ($env:RPC_TEST_TASK_VARIATION -eq "singleton") { return @($task, $task) }
+    return $task
 }
 
 function Export-ScheduledTask {
-    param($InputObject, $ErrorAction)
+    param($InputObject, [string]$TaskName, [string]$TaskPath, $ErrorAction)
     Assert-NoInjectedThrow -Name "Export"
-    if ([string]$InputObject.TaskName -cne "WeatherOneShotPush") {
-        throw "Export did not receive the exact task object"
+    $global:RpcTestPushTaskExportCount++
+    if ($null -ne $InputObject) {
+        if ([string]$InputObject.TaskName -cne "WeatherOneShotPush") {
+            throw "Export did not receive the exact task object"
+        }
+        if ($env:RPC_TEST_CHANGE_ON_FINAL -eq "1" -and
+            [int]$InputObject.FixtureReadOrdinal -ge 2) {
+            return "<Task>changed-between-scheduler-reads</Task>"
+        }
+        return [string]$env:RPC_TEST_INPUT_OBJECT_TASK_XML
+    }
+    if ($TaskName -cne "WeatherOneShotPush" -or $TaskPath -cne "\") {
+        throw "Export did not receive the canonical task name/path"
     }
     if ($env:RPC_TEST_CHANGE_ON_FINAL -eq "1" -and
-        [int]$InputObject.FixtureReadOrdinal -ge 2) {
+        $global:RpcTestPushTaskExportCount -ge 3) {
         return "<Task>changed-between-scheduler-reads</Task>"
     }
-    return [string]$env:RPC_TEST_TASK_XML
+    return [string]$env:RPC_TEST_NAME_PATH_TASK_XML
 }
 
 function Get-ScheduledTaskInfo {
@@ -289,6 +315,10 @@ def _invoke(
     throw: str = "",
     change_on_final: bool = False,
     expire_after_claim: bool = False,
+    null_triggers: bool = False,
+    task_variation: str = "",
+    name_path_task_xml: str = TEST_TASK_XML,
+    input_object_task_xml: str = TEST_TASK_XML,
 ) -> subprocess.CompletedProcess[str]:
     assert POWERSHELL is not None
     adapted, wrapper, mutation_log = mocked_helper
@@ -298,11 +328,14 @@ def _invoke(
             "RPC_TEST_EXPECTED_USER": env.get("USERNAME", "test-user"),
             "RPC_TEST_REPO_ROOT": str(repo_root.resolve()),
             "RPC_TEST_PUSH_STATE": "Ready",
-            "RPC_TEST_TASK_XML": TEST_TASK_XML,
+            "RPC_TEST_NAME_PATH_TASK_XML": name_path_task_xml,
+            "RPC_TEST_INPUT_OBJECT_TASK_XML": input_object_task_xml,
             "RPC_TEST_MUTATION_LOG": str(mutation_log.resolve()),
             "RPC_TEST_THROW": throw,
             "RPC_TEST_CHANGE_ON_FINAL": "1" if change_on_final else "0",
             "RPC_TEST_EXPIRE_AFTER_CLAIM": "1" if expire_after_claim else "0",
+            "RPC_TEST_NULL_TRIGGERS": "1" if null_triggers else "0",
+            "RPC_TEST_TASK_VARIATION": task_variation,
         }
     )
     return subprocess.run(
@@ -338,6 +371,176 @@ def _read_result(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+def test_divergent_serializations_reproduce_old_input_object_hash_rejection() -> None:
+    reviewed_name_path_hash = hashlib.sha256(TEST_TASK_XML.encode()).hexdigest()
+    old_child_input_object_hash = hashlib.sha256(
+        INPUT_OBJECT_TASK_XML.encode()
+    ).hexdigest()
+
+    assert reviewed_name_path_hash == TEST_TASK_XML_SHA256
+    assert old_child_input_object_hash != reviewed_name_path_hash
+
+
+@WINDOWS_POWERSHELL
+def test_name_path_export_is_the_canonical_reviewed_xml_when_serializations_differ(
+    tmp_path: Path,
+    mocked_helper: tuple[Path, Path, Path],
+) -> None:
+    request = _base_request("ReadPushSnapshot", tmp_path, "c" * 32)
+    result_path = tmp_path / "divergent-export-shapes.json"
+
+    completed = _invoke(
+        mocked_helper,
+        tmp_path,
+        "ReadPushSnapshot",
+        _encode_json(request),
+        result_path,
+        name_path_task_xml=TEST_TASK_XML,
+        input_object_task_xml=INPUT_OBJECT_TASK_XML,
+    )
+
+    result = _read_result(result_path)
+    assert completed.returncode == 0, json.dumps(result, sort_keys=True)
+    assert base64.b64decode(result["task_xml_base64"]).decode() == TEST_TASK_XML
+    assert result["task_xml_sha256"] == TEST_TASK_XML_SHA256
+
+
+@WINDOWS_POWERSHELL
+def test_null_triggers_property_is_counted_as_zero(
+    tmp_path: Path,
+    mocked_helper: tuple[Path, Path, Path],
+) -> None:
+    request = _base_request("ReadPushSnapshot", tmp_path, "d" * 32)
+    result_path = tmp_path / "null-triggers.json"
+
+    completed = _invoke(
+        mocked_helper,
+        tmp_path,
+        "ReadPushSnapshot",
+        _encode_json(request),
+        result_path,
+        null_triggers=True,
+    )
+
+    result = _read_result(result_path)
+    assert completed.returncode == 0, json.dumps(result, sort_keys=True)
+    assert result["trigger_count"] == 0
+
+
+@WINDOWS_POWERSHELL
+def test_windows_powershell_null_array_semantics_reproduce_old_trigger_defect() -> None:
+    assert POWERSHELL is not None
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$Task = [PSCustomObject]@{ Triggers = $null }; "
+            '"$(@($Task.Triggers).Count)|'
+            '$( @($Task.Triggers | Where-Object { $null -ne $_ }).Count)"',
+        ],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "1|0"
+
+
+@WINDOWS_POWERSHELL
+@pytest.mark.parametrize(
+    "variation",
+    (
+        "action",
+        "principal",
+        "state",
+        "timing",
+        "working_directory",
+        "task_path",
+        "singleton",
+    ),
+)
+def test_structured_task_identity_mismatches_still_fail_closed(
+    tmp_path: Path,
+    mocked_helper: tuple[Path, Path, Path],
+    variation: str,
+) -> None:
+    request = _base_request("ReadPushSnapshot", tmp_path, "e" * 32)
+    result_path = tmp_path / f"structured-mismatch-{variation}.json"
+
+    completed = _invoke(
+        mocked_helper,
+        tmp_path,
+        "ReadPushSnapshot",
+        _encode_json(request),
+        result_path,
+        task_variation=variation,
+    )
+
+    assert completed.returncode == 2
+    result = _read_result(result_path)
+    assert result["ok"] is False
+    assert result["mutation_authority_claimed"] is False
+    assert result["mutation_dispatched"] is False
+    assert not mocked_helper[2].exists()
+
+
+@WINDOWS_POWERSHELL
+def test_changed_name_path_xml_bytes_fail_closed_with_valid_structured_fields(
+    tmp_path: Path,
+    mocked_helper: tuple[Path, Path, Path],
+) -> None:
+    request = _base_request("ReadPushSnapshot", tmp_path, "f" * 32)
+    result_path = tmp_path / "changed-canonical-xml.json"
+    changed_xml = "<Task>changed-canonical-name-path-bytes</Task>"
+
+    completed = _invoke(
+        mocked_helper,
+        tmp_path,
+        "ReadPushSnapshot",
+        _encode_json(request),
+        result_path,
+        name_path_task_xml=changed_xml,
+        input_object_task_xml=changed_xml,
+    )
+
+    assert completed.returncode == 2
+    result = _read_result(result_path)
+    assert result["ok"] is False
+    assert "task XML changed" in str(result["error_message"])
+    assert result["mutation_authority_claimed"] is False
+    assert result["mutation_dispatched"] is False
+
+
+@WINDOWS_POWERSHELL
+def test_one_actual_trigger_remains_a_hard_failure(
+    tmp_path: Path,
+    mocked_helper: tuple[Path, Path, Path],
+) -> None:
+    request = _base_request("ReadPushSnapshot", tmp_path, "0" * 32)
+    result_path = tmp_path / "one-trigger.json"
+
+    completed = _invoke(
+        mocked_helper,
+        tmp_path,
+        "ReadPushSnapshot",
+        _encode_json(request),
+        result_path,
+        task_variation="trigger",
+    )
+
+    assert completed.returncode == 2
+    result = _read_result(result_path)
+    assert result["ok"] is False
+    assert result["mutation_authority_claimed"] is False
+    assert result["mutation_dispatched"] is False
+
+
 def test_helper_surface_is_fixed_and_contains_no_task_management_verbs() -> None:
     text = HELPER.read_text(encoding="utf-8-sig")
     for operation in (
@@ -366,6 +569,30 @@ def test_helper_surface_is_fixed_and_contains_no_task_management_verbs() -> None
     assert "Stop-ScheduledTask -TaskName" not in text
     assert "[IO.FileMode]::CreateNew" in text
     assert "duplicate JSON property" in text
+
+
+def test_repair_preserves_rpc_containment_evidence_and_one_push_budget() -> None:
+    helper = HELPER.read_text(encoding="utf-8-sig")
+    parent = QUIET_MERGE.read_text(encoding="utf-8-sig")
+
+    assert '$script:RequestSchema = "production_baseline_scheduler_rpc_request_v0.1"' in helper
+    assert '$script:ResultSchema = "production_baseline_scheduler_rpc_result_v0.1"' in helper
+    assert "$stream.Flush($true)" in helper
+    assert helper.count("[IO.FileMode]::CreateNew") == 2
+    assert "request_sha256 = $ValidatedRequest.request_sha256" in helper
+    assert "mutation_authority_claimed = $true" in helper
+    assert "mutation_dispatched = $true" in helper
+
+    assert "$reconciliationChildTerminationMilliseconds = 5000" in parent
+    assert "$reconciliationChildBoundaryReserveSeconds = 8" in parent
+    assert "$process.WaitForExit($waitMilliseconds)" in parent
+    assert "$job.TerminateAndWait($cleanupWaitMilliseconds)" in parent
+    assert "Scheduler RPC $Operation result is outside the fixed byte bound" in parent
+    assert "$result | Add-Member -NotePropertyName request_sha256" in parent
+    assert "$script:oneShotPushStartCount++" in parent
+    assert "$oneShotPushStartCount -ne 0" in parent
+    assert "$reconciliationPushStopAttemptLimit = 2" in parent
+    assert 'Stage "publication_state_uncertain"' in parent
 
 
 def test_mutation_claim_is_the_last_operation_before_scheduler_dispatch() -> None:

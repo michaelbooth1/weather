@@ -501,9 +501,13 @@ every RPC launch, the parent re-hashes the helper against its exact `S`-pinned
 dependency SHA-256. The request deadline is eight seconds before the applicable
 PT15M/04:00 boundary: five seconds, clamped to the remaining time, are reserved
 for `TerminateAndWait` proof and a further three seconds remain for bounded
-result parsing. The child re-resolves and fully attests the exact task twice,
-uses only the final `InputObject` for mutation, and emits bounded structured
-evidence which the parent independently validates. The exact Start request is
+  result parsing. Each child snapshot brackets the structured task read with
+  the same name/path `Export-ScheduledTask` and UTF-8 hash path used by the
+  parent freeze, treating a null `Triggers` property as zero while still
+  rejecting any real trigger. The child re-resolves and fully attests the exact
+  task twice, uses only the final `InputObject` for mutation, and emits bounded
+  structured evidence which the parent independently validates. The exact Start
+  request is
 journaled before launch. Immediately before Scheduler mutation the helper
 atomically creates a fixed durable one-use claim for Start, or for the exact Stop
 ordinal, and never deletes it. Creation and durable flush are followed by one

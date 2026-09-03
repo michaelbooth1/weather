@@ -573,7 +573,7 @@ function global:Get-ScheduledTask {
 }
 
 function global:Export-ScheduledTask {
-    param($InputObject, $ErrorAction)
+    param($InputObject, [string]$TaskName, [string]$TaskPath, $ErrorAction)
     return $env:RECON_TEST_TASK_XML
 }
 

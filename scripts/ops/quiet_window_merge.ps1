@@ -1090,7 +1090,7 @@ function Assert-OneShotPushTask {
             throw "WeatherOneShotPush task XML changed from the reviewed trigger/settings/action contract"
         }
         $pushActions = @($pushTask.Actions)
-        $pushTriggers = @($pushTask.Triggers)
+        $pushTriggers = @($pushTask.Triggers | Where-Object { $null -ne $_ })
         $expectedPushSid = "S-1-5-21-1525964525-1566663060-3901869365-1001"
         $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
         $expectedWorkingDirectory = [IO.Path]::GetFullPath($repo).TrimEnd('\')

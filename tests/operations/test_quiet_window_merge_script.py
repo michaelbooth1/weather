@@ -307,6 +307,9 @@ def test_push_task_is_exactly_bound_before_any_git_mutation() -> None:
     ]
 
     helper_exact_task = _braced_block(scheduler_rpc, "function Get-ExactTask")
+    helper_canonical_xml = _braced_block(
+        scheduler_rpc, "function Get-CanonicalPushTaskXmlEvidence"
+    )
     helper_static_guard = _braced_block(
         scheduler_rpc, "function Get-PushTaskStaticEvidence"
     )
@@ -314,11 +317,13 @@ def test_push_task_is_exactly_bound_before_any_git_mutation() -> None:
         script, "function Assert-ReconciliationPushSnapshot"
     )
     assert "$rows.Count -ne 1" in helper_exact_task
-    assert "Export-ScheduledTask -InputObject $Task" in re.sub(
-        r"\s+", " ", helper_static_guard
-    )
+    canonical_xml_flat = re.sub(r"\s+", " ", helper_canonical_xml)
+    assert "Export-ScheduledTask" in canonical_xml_flat
+    assert "-TaskName $script:PushTaskName" in canonical_xml_flat
+    assert "-TaskPath $script:FixedTaskPath" in canonical_xml_flat
+    assert "Export-ScheduledTask -InputObject" not in helper_canonical_xml
+    assert '$script:ReviewedPushTaskXmlSha256' in helper_canonical_xml
     for exact_evidence in (
-        '$script:ReviewedPushTaskXmlSha256',
         '$script:ExpectedPushSid',
         '$triggers.Count -ne 0',
         '[string]$Task.Settings.MultipleInstances -cne "IgnoreNew"',
@@ -1324,11 +1329,20 @@ def test_one_shot_task_contract_includes_nontriggering_runtime_settings() -> Non
     helper_guard = _braced_block(
         scheduler_rpc, "function Get-PushTaskStaticEvidence"
     )
+    canonical_xml = _braced_block(
+        scheduler_rpc, "function Get-CanonicalPushTaskXmlEvidence"
+    )
+    fully_validated = _braced_block(
+        scheduler_rpc, "function Get-FullyValidatedPushTask"
+    )
     parent_guard = _braced_block(
         script, "function Assert-ReconciliationPushSnapshot"
     )
 
-    assert "$pushTriggers = @($pushTask.Triggers)" in ordinary_guard
+    assert (
+        "$pushTriggers = @($pushTask.Triggers | Where-Object { $null -ne $_ })"
+        in ordinary_guard
+    )
     assert "$pushTriggers.Count -eq 0" in ordinary_guard
     assert '[string]$pushTask.Settings.MultipleInstances -ceq "IgnoreNew"' in (
         ordinary_guard
@@ -1338,7 +1352,10 @@ def test_one_shot_task_contract_includes_nontriggering_runtime_settings() -> Non
     )
     assert "$pushTask.Settings.StartWhenAvailable -eq $false" in ordinary_guard
 
-    assert "$triggers = @($Task.Triggers)" in helper_guard
+    assert (
+        "$triggers = @($Task.Triggers | Where-Object { $null -ne $_ })"
+        in helper_guard
+    )
     assert "$triggers.Count -ne 0" in helper_guard
     assert '[string]$Task.Settings.MultipleInstances -cne "IgnoreNew"' in (
         helper_guard
@@ -1349,6 +1366,19 @@ def test_one_shot_task_contract_includes_nontriggering_runtime_settings() -> Non
     assert '[string]$Snapshot.execution_time_limit -cne "PT15M"' in parent_guard
     assert "$Snapshot.start_when_available -ne $false" in parent_guard
     assert "trigger_count" in parent_guard
+
+    assert "Export-ScheduledTask" in canonical_xml
+    assert "-TaskName $script:PushTaskName" in canonical_xml
+    assert "-TaskPath $script:FixedTaskPath" in canonical_xml
+    assert "-InputObject" not in canonical_xml
+    assert "[Text.Encoding]::UTF8.GetBytes($taskXml)" in canonical_xml
+    assert "CanonicalXmlEvidence" in helper_guard
+    assert "Get-CanonicalPushTaskXmlEvidence" in helper_guard
+    first_export = fully_validated.index("Get-CanonicalPushTaskXmlEvidence")
+    task_read = fully_validated.index("Get-ExactTask")
+    structured_attestation = fully_validated.index("Get-PushTaskStaticEvidence")
+    assert first_export < task_read < structured_attestation
+    assert "changed during structured attestation" in helper_guard
 
     for forbidden_mutation in (
         "Register-ScheduledTask",

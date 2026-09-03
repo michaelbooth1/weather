@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-09-02 America/Toronto.** Read this first; read `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
+**Last rewritten: 2026-09-03 America/Toronto.** Read this first; read `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative evidence, false claims, and durable mechanics in their owning canonical file.
 
@@ -10,12 +10,12 @@
 
 | Area | State / next action |
 | --- | --- |
-| Production | GitHub `master` remains published target `T=c932b54f8747df5cdefc4cc42f8454b6797f09ae`. The accepted production checkout remains local baseline `L=3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac`, with only the two expected generated location-config modifications. Production, its data, Scheduler, credentials, providers, exchanges, and push task were not contacted or mutated by this workstation mission. No reconciliation command has run. |
-| Candidate | Exact reviewed parent `a24cf0f41bf0b321c5c813820594c56198a58d1a` is the base of branch `codex/workstation-production-baseline-self-adopting-reconcile-2026-09-85a`. The reviewed safety-patch implementation tree is complete and will be frozen by the implementation-only commit `S` named in the final handback. `S` must be a strict descendant of `T`. Runtime reconciliation creates config-only `C` with parent `L`, then merge `M` with ordered parents `[C,S]`; `M` must equal `S` plus only the two captured config contents and therefore remains a non-force descendant of `T`. `origin/master` stays exactly `T` until the one authorized publication. |
+| Production | GitHub `master` remains published target `T=c932b54f8747df5cdefc4cc42f8454b6797f09ae`. The accepted production checkout remains local baseline `L=3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac`, with only the two expected generated location-config modifications. Immutable evidence for spent attempt `WeatherProductionBaselineReconcile_20260903_a1` shows it failed closed at `2026-09-03T01:00:05.6156090-04:00` during pre-lease Scheduler snapshot attestation: no merge, push invocation, Stop, capture action, or lingering marker; all three supervisors remained `RUNNING`. This workstation repair did not contact production or Scheduler. |
+| Candidate | PR #10 branch `codex/workstation-production-baseline-self-adopting-reconcile-2026-09-85a` began this repair at exact tip `1cd51d516875e279c674a76bf921e22ddaf30943` / tree `ba23363a956e66c4914ad7bdc4f3766d9e1678b8`. The minimal repair makes parent and child use one name/path `Export-ScheduledTask` plus UTF-8 hash path, brackets the structured object with identical exports, and counts only non-null triggers. Runtime reconciliation still creates config-only `C` with parent `L`, then merge `M` with ordered parents `[C,S]`; `M` must equal repaired safety tip `S` plus only the two captured config contents and remain a non-force descendant of `T`. |
 | Status/watchdog | The candidate's incident-bound status path is fail closed. A fully validated pre-dispatch marker says guarded reconciliation owns publication and manual `WeatherOneShotPush` is forbidden. A durably attempted marker says publication is pending/uncertain and retry is forbidden. Exact local/cached/live acknowledgement of `M` suppresses the warning. An absent incident marker leaves unrelated ordinary unpushed-state handling intact; malformed, unreadable/lookup-failed, stale, incomplete, or mismatched incident evidence is `incident_evidence_invalid`: preserve the marker and bound evidence, obtain reviewed recovery authority, and never invoke or retry. Invalid evidence uses cached `origin/master` for the unpushed count, and an unreadable comparison emits a neutral warning rather than false zero. The health watchdog preserves these meanings and never converts them into push/retry instructions. |
-| Scheduler containment | Reconciliation uses no in-process ScheduledTasks call. Each read, Start, or Stop runs through the exact SHA-pinned safety-tip helper in a kill-on-close Job; the parent re-proves helper bytes per call, independently validates structured evidence, and the helper re-reads and fully attests the exact task immediately before mutation. The marker path is fixed to the canonical active marker. One fixed durable `CreateNew` claim spends Start authority; Stop has one fixed claim per ordinal 1/2. Creation/flush is followed by an immediate deadline recheck; if it consumes the budget, the claim is spent/unknown and Scheduler is not called. Any claimed throw, failed/lost response, timeout, or partial write means dispatch is unknown and authority is spent, never false or retryable; Start uncertainty cannot PASS even if publication later appears exact. |
+| Scheduler containment | Reconciliation uses no in-process ScheduledTasks call. Each read, Start, or Stop runs through the exact SHA-pinned safety-tip helper in a kill-on-close Job; the parent re-proves helper bytes per call and independently validates structured evidence. The helper brackets its exact structured task read with the canonical frozen name/path XML serialization, requires byte/hash stability, treats null `Triggers` as zero, and still rejects every real trigger or identity mismatch. The fixed marker and durable `CreateNew` Start/Stop claims, immediate deadline recheck, unknown/spent semantics, and one-push budget remain unchanged. |
 | Absolute boundary | Every helper request has an immutable UTC deadline inside the earlier of the on-demand PT15M boundary and 04:00. The parent clamps the wait to leave five seconds for complete child-tree termination proof and a further three seconds for result parsing/validation. Normal helper exit also tears down surviving descendants. Start uncertainty is drained without retry; Stop uncertainty is terminal non-PASS and cannot consume another ordinal. |
-| Verification | P0 passed on the assigned 32 GB non-capture workstation and attending principal: canonical hashed host/principal identities match `config/international_live_execution_host.json`, the host is not the dedicated capture host, and no raw MachineGuid or SID was exposed. Final executable gates are green: 70 reconciliation execution/adversarial tests; 74 complete status tests; 291 integrated affected tests; and the uninterrupted repository suite at 4,399 passed, 22 skipped, 13 warnings, plus 862 subtests in 45m50s. Final compileall passed through the workstation wrapper. PowerShell AST parsing, diff checks, the agent-doc audit (18 agent files/830 Markdown files), and roadmap lint/check also passed. Only exact `S`/tree/hash binding, canonical `L -> S` roll evidence, report-only `F`, branch push, and exact remote equality remain before `PASS_WITH_PRODUCTION_HANDOFF`. Production execution remains unauthorized. |
+| Verification | P0 reproduced both defects before repair: the old child rejected the frozen name/path hash when `-InputObject` serialized the same task differently, and Windows PowerShell 5.1 reported old/new null-trigger counts `1|0`. Post-repair gates are green: 87 Scheduler/static tests, 70 complete execution/adversarial tests, and 93 complete reconciliation/status/watchdog tests. The workstation full-suite invocation completed with 4,405 passed, 18 expected skips, 862 passed subtests, and only the 12 documented legacy-MAX_PATH failures in `test_experiment_executor.py`; that complete file passed 24/24 under extended-prefix temp mode. Compileall, changed-script AST parsing, cumulative diff checks, the agent-doc audit (18 agent files/830 Markdown files), and roadmap lint/check pass. Commits, publication, and exact-head CI remain. |
 | Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
 | Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
 | Portable verification | The latest Stage 0 reached an authenticated user-stream subscription and then failed in a pre-mutation account/market read check, but v0.2 receipts could not name that check and falsely inferred a mutation merely from context creation. Exact repair commit `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` (tree `8ffec7b716cd45be82d64e27266e3196d459a2bc`) now records allowlisted phases, separates stream subscription from REST writes, records each heartbeat/cancel boundary, preserves recovery lineage, requires exact two-heartbeat/one-cancel evidence for PASS, and validates the copies through Stage 1 lineage. Local verification passes 230 focused tests with 3 expected skips, compileall, docs audit, and diff checks; an independent pre-publication review found no remaining must-fix issue. The final state-only topic tip still requires exact-head CI/review and synchronized refs before attempt generation. |
@@ -27,11 +27,11 @@
 
 ## Closed decisions -- do not relitigate without new evidence
 
-- The owner authorizes one future 01:00-04:00 invocation of the existing exact `WeatherOneShotPush` definition for this reconciliation only. It grants no workstation execution, credential inspection, Scheduler modification, second Start, force push, or PR #9/#7 adoption.
+- Attempt `20260903_a1` is spent and frozen: never retry, rewrite, delete, or reconstruct it. Any later production action requires the production owner to independently fetch and review the final repair tip, run the canonical roll verdict, and create a wholly new immutable attempt; this workstation mission grants no retry or Scheduler authority.
 - Reconciliation is fixed to exact `L`, `T`, strict `T < S`, config child `C`, and ordered merge `M=[C,S]`. The canonical roll command is `scripts/ops/roll_verdict.ps1 -Base L -Branch S`; no manual classification or substituted ref is valid.
 - Precommit markers retain the rejected `T` boot sentinel. Only after exact `M` is committed may canonical fields expose real `C` and `M`. The adopted `L` boot bytes remain unchanged.
 - Claimed Start or Stop authority is never recovered from a thrown helper, timeout, missing result, or uncertain Scheduler state. Status, watchdog, reports, and operators must preserve unknown/spent semantics.
-- Ordinary synchronized quiet-merge behavior remains separate and unchanged. This one-time lane has no generic resume, hard-reset fallback, force, owner-exception, or integration-attempt routing.
+- Ordinary synchronized quiet-merge behavior remains separate; its directly equivalent null-trigger count is repaired without changing its reviewed task contract. This one-time lane has no generic resume, hard-reset fallback, force, owner-exception, or integration-attempt routing.
 - International Polymarket only; never use Polymarket US for a new probe, credential path, readiness decision, or mutation.
 - The first live test is one bounded plumbing/evidence session: Stage 0 heartbeat/cancel-all plus one smallest-valid post-only BUY for each Stage 1 cancellation mode, at most 10 pUSD each and a non-raisable 100 pUSD wallet cap.
 - Candidate selection is never authorization. A successful no-fill test does not prove edge, profitability, fill quality, rebates, or Stage 2 readiness.
@@ -61,25 +61,17 @@
 
 ## Ordered critical path
 
-1. Preserve the green P0, adversarial/affected, full-suite, compileall,
-   PowerShell, documentation, roadmap, and diff evidence. Do not count the
-   superseded path-length diagnostic runs as gates.
-2. Commit the implementation-only safety tip `S`; prove its exact tip/tree,
-   strict descent from `T` and reviewed parent, clean worktree,
-   entry/dependency hashes, and unchanged PR #9/#7 separation.
-3. Run the canonical final-branch roll verdict exactly from `L` to `S`, without
-   a ref or manual substitution. A nonzero, missing, stale, unreadable,
-   dormant-only, or incomplete classification remains roll-sensitive; it never
-   relaxes the fixed 01:00-04:00 execution window or substitutes for review.
-4. Write the required evidence report last and commit only that report as final
-   tip `F`. Recheck `S`, `F`, their trees and changed files, then push the
-   reviewed branch and verify exact local/cached/live branch equality. Do not
-   create or execute a production mission here.
-5. Only after exact-head CI/review and a complete PASS handoff may an attending
-   operator consider the frozen future 01:00-04:00 production command bound to
-   exact `S`, tree, entry/dependency hashes, `L`, `T`, canonical production
-   root, and the unspent claim paths. Requalify production state at action time;
-   a green branch alone is not authority.
+1. Finish documentation/roadmap audits and cumulative diff checks, then commit
+   the implementation/tests/owning-documentation safety tip `S` separately.
+2. Prove exact `S`, tree, entry/helper hashes, strict descent from `T` and the
+   required starting tip, clean worktree, and unchanged PR #9/#7 separation.
+3. Write and commit only the required report/handback receipt as final tip `F`,
+   push the existing PR #10 branch without rewriting history, and prove exact
+   local/cached/live equality plus exact-head Linux CI.
+4. Do not run a workstation roll verdict as production evidence. The production
+   owner must independently fetch/review exact `F` and `S`, run the canonical
+   production-host roll verdict, and create a new immutable attempt. A green
+   branch is not execution authority.
 6. After baseline equality is restored and independently proved, publish and qualify the portable repair with ancestral master, exact-head CI/review, and synchronized refs before re-inventorying the portable clone.
 7. Create a wholly new live attempt. Revalidate or replace the accepted market/economics inputs, run the bounded paper/no-network gates, build new immutable manifests/launchers, and refresh a constrained candidate immediately before each attended stage.
 8. At action time require eligible physical presence/no circumvention, official geoblock PASS, exact account topology, balance/allowance, zero unknown orders and positions, current rules, clean synchronized Git, and every exact attended literal. Stop on ambiguity; PASS requires terminal receipts plus authenticated cleanup reconciliation.

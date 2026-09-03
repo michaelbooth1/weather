@@ -80,9 +80,12 @@ These instructions apply to `scripts/ops/`.
   the helper against its exact `S`-pinned dependency SHA-256. The helper request
   deadline is eight seconds before the applicable PT15M/04:00 boundary, leaving
   five clamped seconds for `TerminateAndWait` proof and a further three seconds
-  for bounded result parsing. The child re-resolves and fully attests the exact
-  task twice, rechecks the bound marker, and mutation uses only the final
-  `InputObject`; the parent independently validates bounded structured output.
+  for bounded result parsing. The child brackets each structured task read with
+  the same name/path `Export-ScheduledTask` plus UTF-8 hash path used by the
+  parent freeze, counts only non-null triggers, re-resolves and fully attests
+  the exact task twice, rechecks the bound marker, and mutation uses only the
+  final `InputObject`; the parent independently validates bounded structured
+  output.
   Journal the exact Start request before launch. Immediately before mutation
   the helper atomically creates a fixed one-use Start claim (or one claim for
   each of the two Stop ordinals); claims are never removed automatically. Claim

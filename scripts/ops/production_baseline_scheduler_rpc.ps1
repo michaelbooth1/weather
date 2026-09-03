@@ -744,19 +744,18 @@ function Get-ExactTask {
     return $task
 }
 
-function Get-PushTaskStaticEvidence {
-    param(
-        [Parameter(Mandatory = $true)][object]$Task,
-        [Parameter(Mandatory = $true)][string]$RepoRoot,
-        [Parameter(Mandatory = $true)][datetimeoffset]$Deadline,
-        [Parameter(Mandatory = $true)][string[]]$AllowedStates
-    )
+function Get-CanonicalPushTaskXmlEvidence {
+    param([Parameter(Mandatory = $true)][datetimeoffset]$Deadline)
 
     Assert-DeadlineOpen -Deadline $Deadline
-    $taskXml = [string](Export-ScheduledTask -InputObject $Task -ErrorAction Stop)
+    $taskXml = [string](Export-ScheduledTask `
+        -TaskName $script:PushTaskName -TaskPath $script:FixedTaskPath `
+        -ErrorAction Stop)
     Assert-DeadlineOpen -Deadline $Deadline
-    $encoding = New-Object System.Text.UTF8Encoding($false, $true)
-    $taskXmlBytes = $encoding.GetBytes($taskXml)
+    # The reviewed parent freeze used the name/path parameter set and UTF-8
+    # bytes. Keep the child byte path identical; InputObject serialization is
+    # observably different on Windows PowerShell 5.1 for this same task.
+    $taskXmlBytes = [Text.Encoding]::UTF8.GetBytes($taskXml)
     if ($taskXmlBytes.Length -eq 0 -or
         $taskXmlBytes.Length -gt $script:MaximumTaskXmlBytes) {
         throw "task XML byte length is outside the fixed bound"
@@ -765,9 +764,25 @@ function Get-PushTaskStaticEvidence {
     if ($taskXmlSha -cne $script:ReviewedPushTaskXmlSha256) {
         throw "WeatherOneShotPush task XML changed from the reviewed definition"
     }
+    return [PSCustomObject]@{
+        task_xml = $taskXml
+        task_xml_bytes = $taskXmlBytes
+        task_xml_sha256 = $taskXmlSha
+    }
+}
 
+function Get-PushTaskStaticEvidence {
+    param(
+        [Parameter(Mandatory = $true)][object]$Task,
+        [Parameter(Mandatory = $true)][string]$RepoRoot,
+        [Parameter(Mandatory = $true)][datetimeoffset]$Deadline,
+        [Parameter(Mandatory = $true)][string[]]$AllowedStates,
+        [Parameter(Mandatory = $true)][object]$CanonicalXmlEvidence
+    )
+
+    Assert-DeadlineOpen -Deadline $Deadline
     $actions = @($Task.Actions)
-    $triggers = @($Task.Triggers)
+    $triggers = @($Task.Triggers | Where-Object { $null -ne $_ })
     $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
     try { $currentSid = [string]$currentIdentity.User.Value }
     finally { $currentIdentity.Dispose() }
@@ -794,10 +809,20 @@ function Get-PushTaskStaticEvidence {
         $actualWorkingDirectory -ine $RepoRoot) {
         throw "WeatherOneShotPush static task or current-principal binding failed"
     }
+    # Bracket the structured object read with identical canonical exports. This
+    # binds the independently attested fields to one stable logical definition
+    # and fails closed if name/path identity changes during the snapshot.
+    $finalXmlEvidence = Get-CanonicalPushTaskXmlEvidence -Deadline $Deadline
+    if ([string]$CanonicalXmlEvidence.task_xml -cne
+            [string]$finalXmlEvidence.task_xml -or
+        [string]$CanonicalXmlEvidence.task_xml_sha256 -cne
+            [string]$finalXmlEvidence.task_xml_sha256) {
+        throw "WeatherOneShotPush task XML changed during structured attestation"
+    }
     return [PSCustomObject]@{
-        task_xml = $taskXml
-        task_xml_bytes = $taskXmlBytes
-        task_xml_sha256 = $taskXmlSha
+        task_xml = [string]$finalXmlEvidence.task_xml
+        task_xml_bytes = [byte[]]$finalXmlEvidence.task_xml_bytes
+        task_xml_sha256 = [string]$finalXmlEvidence.task_xml_sha256
         action = $actions[0]
         trigger_count = $triggers.Count
     }
@@ -833,11 +858,12 @@ function Get-FullyValidatedPushTask {
         [Parameter(Mandatory = $true)][string[]]$AllowedStates
     )
 
+    $canonicalXml = Get-CanonicalPushTaskXmlEvidence -Deadline $Deadline
     $task = Get-ExactTask `
         -TaskName $script:PushTaskName -Deadline $Deadline
     $static = Get-PushTaskStaticEvidence `
         -Task $task -RepoRoot $RepoRoot -Deadline $Deadline `
-        -AllowedStates $AllowedStates
+        -AllowedStates $AllowedStates -CanonicalXmlEvidence $canonicalXml
     $runtime = Get-PushRuntimeInfo -Task $task -Deadline $Deadline
     return [PSCustomObject]@{
         task = $task
@@ -909,17 +935,12 @@ try {
             }
         }
         "ReadPushSnapshot" {
-            $task = Get-ExactTask `
-                -TaskName $script:PushTaskName -Deadline $validated.deadline
-            $static = Get-PushTaskStaticEvidence `
-                -Task $task -RepoRoot $validated.repo_root `
-                -Deadline $validated.deadline `
+            $snapshot = Get-FullyValidatedPushTask `
+                -RepoRoot $validated.repo_root -Deadline $validated.deadline `
                 -AllowedStates @("Ready", "Running", "Queued")
-            $runtime = Get-PushRuntimeInfo `
-                -Task $task -Deadline $validated.deadline
             New-PushSnapshotResult `
-                -ValidatedRequest $validated -Task $task `
-                -StaticEvidence $static -RuntimeInfo $runtime
+                -ValidatedRequest $validated -Task $snapshot.task `
+                -StaticEvidence $snapshot.static -RuntimeInfo $snapshot.runtime
         }
         "StartPush" {
             Assert-MutationMarker `
