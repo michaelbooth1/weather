@@ -265,6 +265,31 @@ not killed at the end boundary, but a dead, idle, or stale-code worker remains
 stopped after that boundary so non-countable recovery cannot consume restart
 budget or create another run folder. The taker supervisor has no end boundary.
 
+The maker daily roll also exposes a default-off International
+`market_harvest` paper companion. When
+`--enable-market-harvest-companion` is present, the existing worker evaluates
+the paper-only harvest policy from each tick's already-loaded token, book,
+source-status, and exchange-economics objects; it does not start another poller
+or fetch those inputs again. The companion writes beneath the parent run's
+`market_harvest_companion/` directory with separate schema, input hashes,
+paper lifecycle, restart state, and a permanently false live-forward gate.
+The normal model-gated quote tape and promotion inputs do not consume this
+family. Daily refresh discovers only these nested folders for the companion
+portion of `maker_paper_score`, applies the canonical strict public-trade
+scorer, and publishes separately named companion report, simulated-fill, and
+queue artifacts. Public trades, quote opportunities, simulated lifecycle,
+queue estimates, and simulated fills are explicit evidence classes;
+authenticated fills and realized P&L remain zero. Missing or stale books,
+capture gaps, incomplete trade size, token/condition mismatch, and unresolved
+resting evidence block companion countability without changing the ordinary
+model lane.
+
+The PowerShell wrapper and both existing daily-roll registrars expose
+`-EnableMarketHarvestCompanion`. Repository integration does not register or
+modify Task Scheduler. Opt-in host adoption requires re-registering both the
+launcher and ensure-supervisor actions with that switch so recovery cannot
+silently restart the worker without the companion.
+
 ## Daily Refresh Delegated-Child Tasks
 
 `scripts/ops/register_daily_refresh.ps1` registers both daily stages as

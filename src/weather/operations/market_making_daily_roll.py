@@ -218,6 +218,7 @@ def build_market_making_command(
     once=False,
     config_overrides=None,
     evidence_mode=None,
+    market_harvest_companion=False,
 ):
     mode = str(mode)
     if mode not in RUN_MODES:
@@ -241,6 +242,8 @@ def build_market_making_command(
         command.extend(["--runs-root", str(runs_root)])
     if evidence_mode:
         command.extend(["--evidence-mode", str(evidence_mode)])
+    if market_harvest_companion:
+        command.append("--enable-market-harvest-companion")
     for override in config_overrides or []:
         command.extend(["--config", str(override)])
     if once:
@@ -839,6 +842,7 @@ def _base_payload(
     evidence_classification,
     disk_preflight=None,
     now=None,
+    market_harvest_companion=False,
 ):
     generated_at = utc_iso(now)
     return {
@@ -860,6 +864,7 @@ def _base_payload(
         "counts_toward_live_forward_gate": evidence_classification.get("counts_toward_live_forward_gate"),
         "runtime_identity": get_runtime_identity(),
         "disk_capacity_preflight": disk_preflight or {},
+        "market_harvest_companion_enabled": bool(market_harvest_companion),
     }
 
 
@@ -889,6 +894,7 @@ def start_for_date(
     pid_alive=pid_matches_market_making_run,
     launcher=launch_market_making_process,
     force_retire_latest_run=False,
+    market_harvest_companion=False,
     _launch_lock_held=False,
 ):
     if not _launch_lock_held:
@@ -918,6 +924,7 @@ def start_for_date(
                 pid_alive=pid_alive,
                 launcher=launcher,
                 force_retire_latest_run=force_retire_latest_run,
+                market_harvest_companion=market_harvest_companion,
                 _launch_lock_held=True,
             ),
             status_path=status_path,
@@ -943,6 +950,7 @@ def start_for_date(
         once=once,
         config_overrides=config_overrides,
         evidence_mode=evidence_classification.get("evidence_mode"),
+        market_harvest_companion=market_harvest_companion,
     )
     existing = read_json(status_path) or {}
     existing_pid = existing.get("pid")
@@ -974,6 +982,7 @@ def start_for_date(
                 evidence_classification=evidence_classification,
                 disk_preflight=existing.get("disk_capacity_preflight") or {},
                 now=now,
+                market_harvest_companion=market_harvest_companion,
             )
             payload.update(refreshed)
             payload["previous_status_generated_at_utc"] = existing.get("generated_at_utc")
@@ -998,6 +1007,7 @@ def start_for_date(
             evidence_classification=evidence_classification,
             disk_preflight=existing.get("disk_capacity_preflight") or {},
             now=now,
+            market_harvest_companion=market_harvest_companion,
         )
         payload.update({
             "status": "already_running",
@@ -1052,6 +1062,7 @@ def start_for_date(
         evidence_classification=evidence_classification,
         disk_preflight=disk_preflight,
         now=now,
+        market_harvest_companion=market_harvest_companion,
     )
     if forced_run_retirement is not None:
         payload["forced_run_retirement"] = forced_run_retirement
@@ -1170,6 +1181,7 @@ def ensure_for_date(
     start_after_local_time=DEFAULT_START_AFTER_LOCAL_TIME,
     start_no_later_than_local_time=DEFAULT_START_NO_LATER_THAN_LOCAL_TIME,
     current_identity=None,
+    market_harvest_companion=False,
     _launch_lock_held=False,
 ):
     if not _launch_lock_held:
@@ -1201,6 +1213,7 @@ def ensure_for_date(
                 start_after_local_time=start_after_local_time,
                 start_no_later_than_local_time=start_no_later_than_local_time,
                 current_identity=current_identity,
+                market_harvest_companion=market_harvest_companion,
                 _launch_lock_held=True,
             ),
             status_path=status_path,
@@ -1249,6 +1262,7 @@ def ensure_for_date(
             pid_alive=pid_alive,
             launcher=launcher,
             force_retire_latest_run=force_retire_latest_run,
+            market_harvest_companion=market_harvest_companion,
             _launch_lock_held=True,
         )
 
@@ -1407,6 +1421,11 @@ def build_start_parser(parser):
     parser.add_argument("--once", action="store_true", help="Debug mode: start a one-tick run.")
     parser.add_argument("--config", action="append", default=[], help="Policy config override passed to market_making_run.")
     parser.add_argument("--evidence-mode", default=EVIDENCE_MODE_AUTO, choices=sorted(EVIDENCE_MODE_CHOICES))
+    parser.add_argument(
+        "--enable-market-harvest-companion",
+        action="store_true",
+        help="Opt in to the separate International market-harvest paper companion.",
+    )
     parser.add_argument("--min-free-bytes", type=int, default=DEFAULT_MIN_FREE_BYTES)
     parser.add_argument("--max-activity-age-seconds", type=float, default=DEFAULT_MAX_ACTIVITY_AGE_SECONDS)
     parser.add_argument("--startup-grace-seconds", type=float, default=DEFAULT_STARTUP_GRACE_SECONDS)
@@ -1429,6 +1448,7 @@ def cmd_start(args):
         once=args.once,
         config_overrides=args.config,
         evidence_mode=args.evidence_mode,
+        market_harvest_companion=args.enable_market_harvest_companion,
         min_free_bytes=args.min_free_bytes,
         max_activity_age_seconds=args.max_activity_age_seconds,
         startup_grace_seconds=args.startup_grace_seconds,
@@ -1471,6 +1491,7 @@ def cmd_ensure(args):
         once=args.once,
         config_overrides=args.config,
         evidence_mode=args.evidence_mode,
+        market_harvest_companion=args.enable_market_harvest_companion,
         min_free_bytes=args.min_free_bytes,
         max_activity_age_seconds=args.max_activity_age_seconds,
         startup_grace_seconds=args.startup_grace_seconds,

@@ -20,7 +20,8 @@ param(
     [int]$IntervalSeconds = 60,
     [double]$QuoteSize = 20.0,
     [double]$MaxBandNotional = 25.0,
-    [double]$MaxEventNotional = 25.0
+    [double]$MaxEventNotional = 25.0,
+    [switch]$EnableMarketHarvestCompanion
 )
 
 $wrapper = Join-Path $RepoRoot "scripts\ops\market_making_daily_roll_task.ps1"
@@ -29,6 +30,9 @@ if (-not (Test-Path $wrapper)) {
 }
 
 $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$wrapper`" -Verb start -RepoRoot `"$RepoRoot`" -Timezone $Timezone -BudgetUsdc $BudgetUsdc -Mode $Mode -Markets $Markets -IntervalSeconds $IntervalSeconds -QuoteSize $QuoteSize -MaxBandNotional $MaxBandNotional -MaxEventNotional $MaxEventNotional"
+if ($EnableMarketHarvestCompanion) {
+    $arguments += " -EnableMarketHarvestCompanion"
+}
 
 $action = New-ScheduledTaskAction `
     -Execute "powershell.exe" `

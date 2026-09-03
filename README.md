@@ -390,6 +390,8 @@ F-family artifacts. For the local multi-market helper, use
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode paper-live-forward --markets all --once
 # Separately authorized paper-only midpoint-harvest profile; never emits live permission.
 .\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 25 --mode paper-live-forward --permission-profile market_harvest --markets atlanta --once
+# Default-off companion: retain the normal model lane and derive separate paper-harvest evidence from its already-loaded tick.
+.\venv\Scripts\python.exe -m weather.market.market_making_run --date 2026-06-22 --budget-usdc 500 --mode paper-live-forward --markets all --once --enable-market-harvest-companion
 .\venv\Scripts\python.exe -m weather.market.mm_paper
 .\venv\Scripts\python.exe -m weather.market.mm_scoring_projection backfill
 
@@ -418,7 +420,16 @@ The default permission profile remains `model`. The `market_harvest` profile
 is a separate paper-only route built from current event/token/book/features;
 it never reads model probabilities for permission, never changes model
 promotion, assumes zero reward, clamps existing risk ceilings, and hard-fails
-if paired with `live-pilot`.
+if paired with `live-pilot`. The default-off
+`--enable-market-harvest-companion` option instead leaves that ordinary model
+lane intact and writes a nested `market_harvest_companion/` family from the
+same loaded book, token, source, and exchange-economics objects. Companion
+quotes, simulated lifecycle/queue/fills, and public trades remain separate
+evidence classes; they never count as authenticated fills, realized P&L,
+model promotion, or live-forward permission. The daily paper-score step sends
+only those nested folders through the existing strict trade-through, size,
+queue, markout, and native-settlement scorer and publishes separately named
+companion reports.
 
 ## Scheduled Operations
 

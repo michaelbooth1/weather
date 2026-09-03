@@ -14,7 +14,8 @@ param(
     [double]$QuoteSize = 20.0,
     [double]$MaxBandNotional = 25.0,
     [double]$MaxEventNotional = 25.0,
-    [long]$MinFreeBytes = 34359738368
+    [long]$MinFreeBytes = 34359738368,
+    [switch]$EnableMarketHarvestCompanion
 )
 
 $ErrorActionPreference = "Stop"
@@ -39,6 +40,9 @@ $arguments = @(
     "--config", "max_event_notional=$MaxEventNotional",
     "--min-free-bytes", [string]$MinFreeBytes
 )
+if ($EnableMarketHarvestCompanion) {
+    $arguments += "--enable-market-harvest-companion"
+}
 if ($Verb -eq "ensure") {
     $arguments += @(
         "--start-after-local-time", $StartAfterLocalTime,

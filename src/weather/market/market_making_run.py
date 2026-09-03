@@ -110,6 +110,7 @@ from weather.market.market_making_live_pilot import (
     build_market_harvest_policy_config,
     build_run_policy_config,
 )
+from weather.market import market_harvest_companion
 from weather.market.live_forward_gate import build_live_forward_gate
 from weather.market.market_making_model_variants import (
     build_model_variant_quote_rows,
@@ -1293,6 +1294,7 @@ def build_run_once(
     release_repo_root=REPO_ROOT,
     release_check_runtime=True,
     permission_profile="model",
+    enable_market_harvest_companion=False,
 ):
     mode = normalize_mode(mode)
     if permission_profile not in PERMISSION_PROFILES:
@@ -1302,6 +1304,10 @@ def build_run_once(
         )
     if permission_profile == "market_harvest" and mode == "live-pilot":
         raise ValueError("market_harvest permission profile is paper-only")
+    if enable_market_harvest_companion and permission_profile != "model":
+        raise ValueError("market-harvest companion requires the ordinary model permission profile")
+    if enable_market_harvest_companion and mode == "live-pilot":
+        raise ValueError("market-harvest companion is paper-only")
     now = utc_now(now)
     target = ensure_date(target_date)
     release_binding = load_worker_release_binding(
@@ -1362,6 +1368,11 @@ def build_run_once(
         # Re-clamp after dynamic reconciliation so no artifact can raise a
         # harvest risk ceiling that the caller could not raise directly.
         policy_config = build_market_harvest_policy_config(budget_usdc, policy_config)
+    companion_policy_config = (
+        build_market_harvest_policy_config(budget_usdc, policy_config)
+        if enable_market_harvest_companion
+        else None
+    )
 
     promotion_states, promotion_diag = load_promotion_states(promotion_refresh)
     known_edge_records, known_edge_diag = load_known_edge_map(known_edge_map)
@@ -1433,6 +1444,9 @@ def build_run_once(
     model_variant_policy_inputs = []
     preflight_rows = []
     risk_events = []
+    companion_raw_rows = []
+    companion_preflight_rows = []
+    companion_input_bindings = {}
     for spec in specs:
         config = config_for_date(target, spec.id)
         folder = Path(snapshots_root) / config.event_slug
@@ -1455,6 +1469,7 @@ def build_run_once(
         )
         snapshot_id = snapshot_rows[0].get("snapshot_id") if snapshot_rows else None
         book_rows = latest_book_rows(folder)
+        token_rows = read_csv_rows(folder / "clob_tokens.csv")
         clob_feature_rows = latest_clob_feature_rows(
             folder,
             snapshot_id,
@@ -1499,6 +1514,7 @@ def build_run_once(
             release_production_capable=release_binding.bundle.production_capable,
             active_window_start_utc=active_window_start_utc,
             permission_profile=permission_profile,
+            token_rows=token_rows,
         )
         preflight_rows.append(preflight)
         if preflight["status"] != "PASS":
@@ -1537,6 +1553,7 @@ def build_run_once(
                 source_rows=source_rows,
                 current_high_assessment=current_high_assessment,
                 book_audit=preflight.get("book_audit"),
+                token_rows=token_rows,
             )
             if preflight["status"] == "PASS":
                 raw_quote_rows.extend(
@@ -1583,6 +1600,82 @@ def build_run_once(
                 permission_profile=permission_profile,
                 run_mode=mode,
             ))
+
+        if enable_market_harvest_companion:
+            companion_features = clob_feature_rows or market_harvest_clob_feature_rows(
+                book_rows,
+                now=now,
+            )
+            companion_preflight = preflight_market(
+                spec,
+                config,
+                folder,
+                [],
+                source_rows,
+                book_rows,
+                companion_features,
+                promotion,
+                observation,
+                now,
+                mode,
+                companion_policy_config,
+                live_ready=False,
+                live_confirmed=False,
+                pilot=False,
+                data_layer_live_gate=data_layer_live_gate,
+                platform_verification_gate=platform_verification_gate,
+                exchange_economics_gate=exchange_economics_gate,
+                event_metadata_gate=_event_metadata_gate_for_market(event_metadata_state, spec.id),
+                current_high_assessment=current_high_assessment,
+                release_production_capable=False,
+                active_window_start_utc=active_window_start_utc,
+                permission_profile="market_harvest",
+                token_rows=token_rows,
+                book_audit=preflight.get("book_audit"),
+                csv_encoding=preflight.get("csv_encoding"),
+                source_status_degradation=preflight.get("source_status_degradation"),
+            )
+            companion_preflight_rows.append(companion_preflight)
+            companion_inputs = assemble_market_harvest_inputs_for_market(
+                spec.id,
+                folder,
+                book_rows,
+                companion_features,
+                promotion,
+                observation,
+                run_mode=mode,
+                source_rows=source_rows,
+                current_high_assessment=current_high_assessment,
+                book_audit=companion_preflight.get("book_audit"),
+                token_rows=token_rows,
+            )
+            if companion_preflight["status"] == "PASS":
+                companion_raw_rows.extend(
+                    decide_quote(row, config=companion_policy_config, now=now)
+                    for row in companion_inputs
+                )
+            else:
+                details = (
+                    companion_preflight.get("blocking_reasons")
+                    or companion_preflight.get("stale_reasons")
+                    or [companion_preflight["status"]]
+                )
+                companion_raw_rows.extend(
+                    preflight_no_quote(
+                        row,
+                        companion_policy_config,
+                        now,
+                        companion_preflight["reason_kind"],
+                        details,
+                    )
+                    for row in companion_inputs
+                )
+            companion_input_bindings[spec.id] = market_harvest_companion.input_binding(
+                book_rows,
+                token_rows,
+                source_rows,
+                exchange_economics_fields,
+            )
 
     write_json(run_folder / "run_config.json", run_config)
     preflight_status = "PASS"
@@ -1752,6 +1845,30 @@ def build_run_once(
     if not (run_folder / "fills_long.csv").exists():
         write_csv(run_folder / "fills_long.csv", FILL_COLUMNS, [])
     cumulative = cumulative_run_summary(run_folder, fallback_quote_rows=quote_rows, fallback_lifecycle=lifecycle)
+    companion_payload = None
+    if enable_market_harvest_companion:
+        try:
+            companion_payload = market_harvest_companion.write_tick(
+                run_folder,
+                run_id,
+                target.isoformat(),
+                mode,
+                budget_usdc,
+                now,
+                companion_raw_rows,
+                companion_preflight_rows,
+                companion_input_bindings,
+                companion_policy_config,
+                exchange_economics_capture=exchange_economics_capture,
+                append=append,
+            )
+        except Exception as exc:
+            companion_payload = {
+                "status": "ERROR",
+                "error": f"{type(exc).__name__}: {exc}",
+                "counts_toward_live_forward_gate": False,
+                "live_trade_permission_rows": 0,
+            }
     tape_integrity = tape_integrity_summary(quote_path, cumulative.get("row_count", 0), "quote_intents_long")
     report = build_report(
         run_config,
@@ -1900,6 +2017,7 @@ def build_run_once(
             "summary": live_forward_gate_payload.get("summary"),
         },
         "markets": preflight_rows,
+        "market_harvest_companion": companion_payload,
     }
     write_json(run_folder / "run_summary.json", payload)
     return payload
@@ -1922,6 +2040,23 @@ def finalize_scoring_projection(payload):
     payload["scoring_projection"] = receipt
     payload["scoring_projection_manifest_path"] = receipt.get("manifest_path")
     payload["scoring_projection_paths"] = receipt.get("input_paths") or {}
+    companion = payload.get("market_harvest_companion") or {}
+    companion_folder = companion.get("run_folder")
+    if companion_folder and companion.get("status") != "ERROR":
+        try:
+            companion_receipt = {
+                "status": "PASS",
+                **write_run_scoring_projections(companion_folder),
+            }
+        except Exception as exc:
+            companion_receipt = {
+                "status": "ERROR",
+                "run_folder": companion_folder,
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+        companion["scoring_projection"] = companion_receipt
+        companion["scoring_projection_manifest_path"] = companion_receipt.get("manifest_path")
+        write_json(Path(companion_folder) / "run_summary.json", companion)
     write_json(Path(payload["run_folder"]) / "run_summary.json", payload)
     return payload
 
@@ -2002,6 +2137,11 @@ def main(argv=None):
         default="model",
         help="Use model-gated quoting or the separately authorized paper-only market_harvest lane.",
     )
+    parser.add_argument(
+        "--enable-market-harvest-companion",
+        action="store_true",
+        help="Record a separate International paper-only market-harvest companion from each loaded tick.",
+    )
     parser.add_argument("--markets", default="all", help="'all' or comma-separated market ids.")
     parser.add_argument("--runs-root", default=str(DEFAULT_RUNS_ROOT))
     parser.add_argument("--snapshots-root", default=str(DEFAULT_SNAPSHOTS_ROOT))
@@ -2054,6 +2194,7 @@ def main(argv=None):
         "pilot": args.pilot,
         "confirm_live_orders": args.confirm_live_orders,
         "permission_profile": args.permission_profile,
+        "enable_market_harvest_companion": args.enable_market_harvest_companion,
     }
     if mode == "paper-live-forward" and not args.once and args.now is None:
         payload = run_loop(

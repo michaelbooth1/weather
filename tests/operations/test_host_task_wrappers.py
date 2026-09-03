@@ -91,6 +91,8 @@ def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
     assert '"quote_size=$QuoteSize"' in wrapper
     assert '"max_band_notional=$MaxBandNotional"' in wrapper
     assert '"max_event_notional=$MaxEventNotional"' in wrapper
+    assert "[switch]$EnableMarketHarvestCompanion" in wrapper
+    assert '"--enable-market-harvest-companion"' in wrapper
     assert '[string]$StartNoLaterThanLocalTime = "20:00"' in wrapper
     assert '"--start-no-later-than-local-time", $StartNoLaterThanLocalTime' in wrapper
     assert "BelowNormal" in wrapper
@@ -101,6 +103,8 @@ def test_recurring_maker_tasks_share_repo_owned_paper_wrapper() -> None:
         text = (ROOT / "scripts" / "ops" / name).read_text(encoding="utf-8-sig")
         assert "market_making_daily_roll_task.ps1" in text
         assert '"powershell.exe"' in text
+        assert "[switch]$EnableMarketHarvestCompanion" in text
+        assert '" -EnableMarketHarvestCompanion"' in text
         if name == "register_market_making_daily_roll_supervisor.ps1":
             assert '[string]$StartNoLaterThanLocalTime = "20:00"' in text
             assert "-StartNoLaterThanLocalTime $StartNoLaterThanLocalTime" in text
