@@ -1,7 +1,7 @@
 {
   "schema_version": "workstation_handback_v0.1",
   "mission_id": "workstation-production-baseline-reconcile-rpc-repair-2026-09-96a",
-  "verdict": "BLOCKED_GITHUB_AUTHENTICATION",
+  "verdict": "PASS_REPAIRED",
   "branch": "codex/workstation-production-baseline-self-adopting-reconcile-2026-09-85a",
   "source": {
     "tip": "1cd51d516875e279c674a76bf921e22ddaf30943",
@@ -11,11 +11,16 @@
     "tip": "296f8d2dfb7c90beb74767b4e56f695cbc502e0b",
     "tree": "d1f31219d5d2f8b48b7e1174161b67cc7ba14f3b"
   },
+  "superseded_blocker_report": {
+    "tip": "adab3295faa7dd70eb0459fe7578a1435a2c535a",
+    "tree": "cb2b3dc90e1fbaa59dba1fc4490206d0c0dde980",
+    "retained_in_ancestry": true
+  },
   "final": {
     "tip": null,
     "tree": null,
-    "binding_status": "LOCAL_REPORT_COMMIT_SELF_REFERENCE",
-    "binding_rule": "Resolve the branch tip containing this byte-exact receipt; require implementation..tip to contain only the two required handback paths; that resolved commit and its tree are the final identities. Publication is not claimed while verdict is BLOCKED_GITHUB_AUTHENTICATION."
+    "binding_status": "PENDING_EXTERNAL_FINAL_REPORT_PUBLICATION",
+    "binding_rule": "Resolve the commit containing this byte-exact receipt; require implementation..resolved commit to contain only the two required handback paths and require adab3295faa7dd70eb0459fe7578a1435a2c535a as its first parent; that resolved commit and its tree are the final identities. The implementation publication is proved, while the new report-only carrier remains local until the production master publishes its verified final bundle."
   },
   "entry_script": {
     "path": "scripts/ops/quiet_window_merge.ps1",
@@ -32,8 +37,26 @@
     "draft": true,
     "base": "master",
     "head_branch": "codex/workstation-production-baseline-self-adopting-reconcile-2026-09-85a",
-    "remote_head_after_failed_push": "1cd51d516875e279c674a76bf921e22ddaf30943"
+    "remote_head_after_failed_workstation_push": "1cd51d516875e279c674a76bf921e22ddaf30943",
+    "remote_head_verified_p3": "296f8d2dfb7c90beb74767b4e56f695cbc502e0b"
   },
+  "publication_audit": [
+    {
+      "event": "workstation_authentication_blocker",
+      "status": "SUPERSEDED_DIAGNOSTIC",
+      "detail": "HTTPS credential-store/token and existing-key SSH paths were unavailable; no remote update occurred and no credential value was inspected, created, changed, or exposed."
+    },
+    {
+      "event": "external_verified_bundle_publication",
+      "status": "PASS",
+      "detail": "The production master transferred a SHA-256-verified complete bundle over authenticated SSH, passed git bundle verify and git fsck --strict, and ordinary-fast-forwarded the topic branch from a separate temporary bare repository without touching the production checkout or master."
+    },
+    {
+      "event": "attempt_6_optional_cloudflare_mcp_startup",
+      "status": "SUPERSEDED_DIAGNOSTIC",
+      "detail": "An unrelated optional Cloudflare MCP OAuth session failed during Codex startup before repository work. The optional server was disabled for this invocation only; Codex settings were not mutated."
+    }
+  ],
   "implementation_changed_paths": [
     "docs/operations/OPERATIONS_DESIGN.md",
     "docs/operations/STATE_OF_PLAY.md",
@@ -198,17 +221,52 @@
       "name": "existing_ssh_authority_probe",
       "exit_code": 128,
       "counts": "permission denied publickey; remote unchanged"
+    },
+    {
+      "name": "final_workstation_https_publication_retry",
+      "exit_code": 1,
+      "counts": "hung on unavailable authentication, was terminated, and made no remote update; superseded diagnostic"
+    },
+    {
+      "name": "external_complete_bundle_publication",
+      "exit_code": null,
+      "counts": "external PASS: SHA-256 transport, git bundle verify, git fsck --strict, temporary bare repository, ordinary fast-forward; live branch exact implementation tip"
+    },
+    {
+      "name": "attempt_6_optional_cloudflare_mcp_startup",
+      "exit_code": null,
+      "counts": "diagnostic: OAuth startup failure before repository work; optional MCP disabled for this invocation; no settings mutation"
+    },
+    {
+      "name": "p3_local_identity_ancestry_and_credential_free_remote",
+      "exit_code": 0,
+      "counts": "clean exact adab3295faa7dd70eb0459fe7578a1435a2c535a/cb2b3dc90e1fbaa59dba1fc4490206d0c0dde980; implementation ancestor; live remote exact implementation tip"
+    },
+    {
+      "name": "public_actions_api_exact_head",
+      "exit_code": 0,
+      "counts": "run id 33787874477; run number 571; exact implementation head; completed success"
+    },
+    {
+      "name": "p3_receipt_docs_diff_and_path_checks",
+      "exit_code": 0,
+      "counts": "JSON parse/self-hash, report hash, documentation audit, roadmap lint/check, cumulative diff and exact-path checks PASS; no heavy tests rerun"
     }
   ],
   "exact_head_ci": {
-    "url": null,
-    "conclusion": "NOT_RUN_GITHUB_AUTHENTICATION_BLOCKED",
-    "required_after_publication": true
+    "url": "https://github.com/michaelbooth1/weather/actions/runs/33787874477",
+    "id": 33787874477,
+    "run_number": 571,
+    "workflow_id": 311480585,
+    "event": "pull_request",
+    "head_sha": "296f8d2dfb7c90beb74767b4e56f695cbc502e0b",
+    "status": "completed",
+    "conclusion": "success",
+    "verified_for_implementation": true
   },
   "production_owner_next_actions": [
-    "Publish the local append-only implementation and report commits without rewriting history.",
-    "Require exact-head Linux CI success on PR 10.",
-    "Independently fetch and review the final exact tip and implementation tip.",
+    "Publish the new local report/receipt-only commit from the verified final bundle without rewriting history.",
+    "Independently fetch and review the final exact report tip and the already-published implementation tip.",
     "Run the canonical production-host roll verdict; no workstation verdict is countable.",
     "Create a wholly new immutable reconciliation attempt."
   ],
@@ -228,6 +286,9 @@
     "push-task invocation",
     "capture action",
     "credential-value inspection, creation, or modification",
+    "GitHub login during resumed P3",
+    "Git push during resumed P3",
+    "PR mutation during resumed P3",
     "provider or exchange call",
     "live execution",
     "model, corpus, or outcome work",
@@ -238,12 +299,12 @@
   ],
   "report": {
     "path": "docs/roadmap/agent-report-2026-09-05-workstation-production-baseline-reconcile-rpc-repair.md",
-    "sha256": "1d1d694ddc65842aed3515bb190b38cbf6e864f2f1c3ce915c66f9ab0dd014ae"
+    "sha256": "3cb69e8bb93ad49415b63274f866253f6c850a211b7f57beb7a03423629ec807"
   },
   "self_hash_rule": {
     "algorithm": "SHA-256",
     "normalization": "Parse this JSON, replace receipt_self_sha256 with 64 lowercase zero characters, serialize as UTF-8 canonical JSON with keys sorted, ensure_ascii=false, separators comma and colon, and no trailing newline, then hash those bytes.",
     "placeholder": "0000000000000000000000000000000000000000000000000000000000000000"
   },
-  "receipt_self_sha256": "20f4f922e1151e4d3a742da447f51ceafa3fe0d440ff73c45955d6abc854ff59"
+  "receipt_self_sha256": "cd64a592f2630a0564b353ebb406198dab9dcaf4968e22170d00484ddd8b21a5"
 }
