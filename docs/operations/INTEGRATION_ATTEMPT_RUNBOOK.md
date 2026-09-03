@@ -15,6 +15,13 @@ as immutable for the whole night. It does not weaken the exact-tip suite gate,
 the 01:00-04:00 quiet-window gate, capture recovery, documentation transaction,
 or `origin/master` acknowledgement.
 
+This overnight state machine is required for roll-sensitive adoption. It must
+not become a queue for roll-free work. A tip for which the production
+`roll_verdict.ps1` returns exact exit 0 may use the canonical 09:00–18:00
+control-plane lane in `quiet_window_merge.ps1`; the shared lease still makes it
+yield to Stage A. Exit 1, 2, or 3 is not daytime authority. Tests, compileall,
+replays, and training remain heavy work regardless of roll sensitivity.
+
 ## State machine
 
 ```text
@@ -41,6 +48,14 @@ schema registry, module ownership, import architecture, agent-document,
 PowerShell-wrapper, roadmap, and UI-roadmap ratchets first. A preflight failure
 never starts the full suite. A preflight PASS explicitly does not authorize a
 merge.
+
+Run deterministic discovery before the night is armed. Linux CI remains the
+broad suite, while the focused Windows job parses every operations script with
+Windows PowerShell 5.1 and executes the Scheduler/lease/merge wrapper contracts.
+Any branch-specific Scheduler RPC or serialization assumption must have a
+same-principal, no-mutation production probe during the day. The overnight
+attempt should consume frozen PASS evidence and exact hashes, not discover a
+static parser, ancestry, null-shape, or serializer mismatch at 01:00.
 
 ## Repository-owned entry points
 

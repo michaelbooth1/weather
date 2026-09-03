@@ -321,14 +321,22 @@ def test_attempt_report_is_exclusive_atomic_and_written_before_mutable_slots() -
     assert '$stage -eq "rollback_recovery_failed"' not in retirement.group(1)
 
 
-def test_quiet_merge_can_bind_its_own_frozen_bytes_and_serializes_roll_verdict() -> None:
+def test_quiet_merge_serializes_daytime_classification_before_mutation() -> None:
     script = _script_text()
 
     assert '[string]$ExpectedSelfSha256 = ""' in script
     assert "Get-FileHash -LiteralPath $PSCommandPath" in script
     lease = script.index("$workloadLease = Enter-WeatherHeavyWorkloadLease")
     verdict = script.index("& $verdictScript -Branch $verdictRef")
-    assert lease < verdict
+    mutation = script.index('Note "committing $($dirtyTracked.Count)')
+    assert lease < verdict < mutation
+    assert (
+        "-AllowRollFreeControlPlaneWindow:$daytimeControlPlaneCandidate"
+        in script
+    )
+    assert "$daytimeControlPlaneCandidate = $h -ge 9 -and $h -lt 18" in script
+    assert "daytime control-plane classification was not exact ROLL-FREE" in script
+    assert "-not $rollFree -and" in script
 
 
 def test_legacy_callers_bind_observed_synchronized_baseline_before_marker() -> None:

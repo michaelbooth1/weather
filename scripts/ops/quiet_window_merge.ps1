@@ -11,8 +11,9 @@
 # publishing means a bad merge is undone by resetting to the exact pre-merge commit with nothing
 # published and no history to rewrite.
 #
-# Refuses to run outside 01:00-04:00 without -Force: a roll inside the 12:00-18:00 graded
-# window can cost the streak day. See docs/ops/streak-soak.md.
+# Roll-sensitive tips refuse outside 01:00-04:00 without -Force: a roll inside
+# the 12:00-18:00 graded window can cost the streak day. Exact roll-free tips
+# may use the serialized 09:00-18:00 control-plane lane. See docs/ops/streak-soak.md.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
@@ -415,21 +416,24 @@ if ($OwnerApprovedException) {
     Note "one-time repository-owner protected-window exception accepted for exact branch lineage and baseline"
 }
 
-# The broad host windows do not depend on the roll verdict. Refuse them before
-# taking the shared lease, then serialize the verdict and every subsequent Git,
-# recovery, documentation, and publication decision under that one OS handle.
+# A daytime caller may acquire the control-plane lease only long enough to
+# classify the exact tip. The verdict and every later Git/recovery/publication
+# decision stay under that one OS handle, so a concurrent integration cannot
+# move the baseline between classification and mutation. No tracked or runtime
+# mutation occurs before the verdict gate below.
 $h = (Get-Date).Hour + ((Get-Date).Minute / 60.0)
-if (-not $ownerProtectedWindowException -and $h -ge 12 -and $h -lt 18) {
-    Fail "inside the 12:00-18:00 graded capture window - never merge here"
-}
 if (-not $ownerProtectedWindowException -and ($h -ge 18 -or $h -lt 0.5)) {
-    Fail ("inside the 18:00-00:30 protected near-close window (now {0:N2}) - no heavy work here" -f $h)
+    Fail ("inside the 18:00-00:30 protected near-close window (now {0:N2}) - no merge here" -f $h)
 }
+$daytimeControlPlaneCandidate = $h -ge 9 -and $h -lt 18
 $workloadLease = Enter-WeatherHeavyWorkloadLease `
     -RepoRoot $repo `
     -Workload "quiet_window_merge" `
+    -AllowRollFreeControlPlaneWindow:$daytimeControlPlaneCandidate `
     -OwnerApprovedException $OwnerApprovedException
-if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+if ($null -eq $workloadLease) {
+    Fail "another heavyweight host workload owns data/logs/heavy_workload.lock"
+}
 try {
 
 # ---- window guard, proportional to the branch's actual roll verdict ----
@@ -508,6 +512,17 @@ if (-not $rollFree -and -not $Force -and -not ($h -ge 1 -and $h -lt 4)) {
     Fail ("roll-sensitive branch outside the 01:00-04:00 quiet window (now {0:N2}); use -Force only if you are certain a capture roll is safe right now" -f $h)
 }
 if ($rollFree) { Note ("roll-free branch: 01:00-04:00 not required (now {0:N2})" -f $h) }
+
+# Roll-sensitive code keeps the existing quiet/protected windows. The daytime
+# candidate lease becomes integration authority only after exact exit 0.
+if (-not $ownerProtectedWindowException -and -not $rollFree -and
+    $h -ge 12 -and $h -lt 18) {
+    Fail "roll-sensitive branch is inside the 12:00-18:00 graded capture window"
+}
+if ($daytimeControlPlaneCandidate -and -not $rollFree -and
+    -not $ownerProtectedWindowException) {
+    Fail "daytime control-plane classification was not exact ROLL-FREE"
+}
 
 # ---- preconditions ----
 Set-Location $repo

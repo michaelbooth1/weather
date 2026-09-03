@@ -567,6 +567,7 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
     param(
         [datetime]$Now = (Get-Date),
         [switch]$AllowStageAWindow,
+        [switch]$AllowRollFreeControlPlaneWindow,
         [string]$OwnerApprovedException = ""
     )
 
@@ -591,6 +592,13 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
         $localMinute -lt (11 * 60 + 55)
     ) {
         return "stage_a"
+    }
+    if (
+        $AllowRollFreeControlPlaneWindow -and
+        $localMinute -ge (9 * 60) -and
+        $localMinute -lt (18 * 60)
+    ) {
+        return "roll_free_control_plane"
     }
     return $null
 }
@@ -1312,6 +1320,7 @@ function Enter-WeatherHeavyWorkloadLease {
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Workload,
         [switch]$AllowStageAWindow,
+        [switch]$AllowRollFreeControlPlaneWindow,
         [string]$OwnerApprovedException = "",
         [string]$ExecutionHostProfile = "capture_colocated_v1",
         [string]$ExpectedExecutionHostId = ""
@@ -1352,7 +1361,8 @@ function Enter-WeatherHeavyWorkloadLease {
         ) {
             throw "this host and Windows principal are not the active portable executor"
         }
-        if ($AllowStageAWindow -or $OwnerApprovedException) {
+        if ($AllowStageAWindow -or $AllowRollFreeControlPlaneWindow -or
+            $OwnerApprovedException) {
             throw (
                 "portable execution-host admission cannot combine with Stage-A " +
                 "or owner-approved exceptions"
@@ -1397,7 +1407,8 @@ function Enter-WeatherHeavyWorkloadLease {
                 "non-capture workstation"
             )
         }
-        if ($AllowStageAWindow -or $OwnerApprovedException) {
+        if ($AllowStageAWindow -or $AllowRollFreeControlPlaneWindow -or
+            $OwnerApprovedException) {
             throw (
                 "workstation-offline admission cannot combine with Stage-A " +
                 "or owner-approved exceptions"
@@ -1442,13 +1453,23 @@ function Enter-WeatherHeavyWorkloadLease {
         if ($OwnerApprovedException -and $Workload -cne "quiet_window_merge") {
             throw "owner-approved workload exception is restricted to quiet_window_merge"
         }
+        if ($AllowRollFreeControlPlaneWindow -and
+            ($Workload -cne "quiet_window_merge" -or $AllowStageAWindow -or
+             $OwnerApprovedException)) {
+            throw (
+                "roll-free control-plane admission is restricted to the " +
+                "canonical quiet-window merge wrapper"
+            )
+        }
         $policyWindow = Get-WeatherHeavyWorkloadPolicyWindow `
             -AllowStageAWindow:$AllowStageAWindow `
+            -AllowRollFreeControlPlaneWindow:$AllowRollFreeControlPlaneWindow `
             -OwnerApprovedException $OwnerApprovedException
         if ($null -eq $policyWindow) {
             throw (
                 "heavy workload '{0}' is outside the 00:30-09:00 window; " +
-                "only the explicit Stage-A lane may acquire the lease at 09:30-11:55"
+                "only Stage A at 09:30-11:55 or an exact roll-free integration " +
+                "at 09:00-18:00 may acquire an explicit lane"
             ) -f $Workload
         }
     }

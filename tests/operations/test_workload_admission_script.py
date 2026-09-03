@@ -204,7 +204,10 @@ def test_shared_lease_owns_the_heavy_window_and_exact_dated_exceptions() -> None
     assert "$localMinute -ge (9 * 60 + 30)" in text
     assert "$localMinute -lt (11 * 60 + 55)" in text
     assert "AllowStageAWindow" in text
-    assert "only the explicit Stage-A lane" in text
+    assert "only Stage A at 09:30-11:55" in text
+    assert "AllowRollFreeControlPlaneWindow" in text
+    assert 'return "roll_free_control_plane"' in text
+    assert 'Workload -cne "quiet_window_merge"' in text
     assert "OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823" in text
     assert "owner_approved_merge_20260823" in text
     assert 'Workload -cne "quiet_window_merge"' in text
@@ -2412,6 +2415,42 @@ $stageA = Get-WeatherHeavyWorkloadPolicyWindow -Now '2026-08-14T10:00:00' `
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == '{"denied":true,"stage_a":"stage_a"}'
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_policy_admits_only_explicit_roll_free_control_plane_hours() -> None:
+    env = os.environ.copy()
+    env["WEATHER_LEASE_SCRIPT"] = str(LEASE_SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$before = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T08:59:00' `
+    -AllowRollFreeControlPlaneWindow
+$day = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T12:00:00' `
+    -AllowRollFreeControlPlaneWindow
+$after = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T18:00:00' `
+    -AllowRollFreeControlPlaneWindow
+[pscustomobject]@{
+    before = $before
+    day = $day
+    after = $null -eq $after
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        [*POWERSHELL, "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        '{"before":"agent_heavy","day":"roll_free_control_plane","after":true}'
+    )
 
 
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")

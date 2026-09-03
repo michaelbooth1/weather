@@ -77,6 +77,7 @@ infrastructure work remains.
 | 16 | [Background Process Management [COMPLETE]](items/item-16-background-process-management.md) |
 | 17 | [Error Handling And Caching [COMPLETE]](items/item-17-error-handling-and-caching.md) |
 | 329 | [Immutable Overnight Integration Attempt Recovery [COMPLETE 2026-08-22 - EXACT SUITE, REGISTRAR ADOPTION, AND GUARDED LANDING PROVED]](items/item-329-immutable-overnight-integration-attempt-recovery.md) |
+| 331 | [Roll-Free Daytime Control Plane [PARTIAL]](items/item-331-roll-free-daytime-control-plane.md) |
 
 ### Market Expansion
 
