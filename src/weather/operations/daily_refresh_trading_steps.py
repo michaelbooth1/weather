@@ -20,6 +20,7 @@ from weather.backtesting.settlement_ledger import (
     finalize_folders,
 )
 from weather.market import exchange_economics
+from weather.market import market_harvest_companion
 from weather.market import mm_paper
 from weather.market import taker_bot
 from weather.market import taker_edge_permission
@@ -602,6 +603,34 @@ def run_maker_paper_score_step(args):
         "exchange_economics_hash": summary.get("exchange_economics_hash"),
         "blocks_maker_evidence_countability": freshness.get("blocks_maker_evidence_countability"),
     }
+    try:
+        result["market_harvest_companion"] = market_harvest_companion.score_runs(
+            runs_root=runs_root,
+            snapshots_root=getattr(args, "snapshots_root", mm_paper.DEFAULT_SNAPSHOTS_ROOT),
+            backtest_root=backtest_root,
+            latest_n=latest_runs,
+            now=getattr(args, "as_of", None) or utc_iso(),
+            casebook_path=backtest_path(args, "disagreement_casebook.json"),
+            ledger_root=getattr(args, "ledger_root", None),
+            exchange_economics_snapshot_path=(
+                getattr(args, "exchange_economics_snapshot", "")
+                or backtest_path(args, "exchange_economics_snapshot.json")
+            ),
+            exchange_economics_target_date=settled_analysis_target_date(args).isoformat(),
+            exchange_economics_platform=getattr(
+                args,
+                "exchange_economics_platform",
+                exchange_economics.DEFAULT_PLATFORM,
+            ),
+            exchange_economics_required=True,
+        )
+    except Exception as exc:
+        result["market_harvest_companion"] = {
+            "status": "ERROR",
+            "error": f"{type(exc).__name__}: {exc}",
+            "counts_toward_model_promotion": False,
+            "counts_toward_live_forward_gate": False,
+        }
     return result
 
 

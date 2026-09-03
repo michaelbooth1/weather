@@ -2311,6 +2311,147 @@ class TestMarketMakingRun(unittest.TestCase):
                 now=NOW,
             )
 
+    def test_market_harvest_companion_is_separate_default_off_and_duplicate_resistant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(
+                root / "known_edge.json",
+                permission="no_quote",
+                reason="normal_model_lane_stays_blocked",
+            )
+            common = {
+                "mode": "paper-live-forward",
+                "markets": ["atlanta"],
+                "runs_root": root / "mm_runs",
+                "snapshots_root": snapshots_root,
+                "promotion_refresh": promotion,
+                "known_edge_map": known_edge,
+                "observation_status_path": status,
+                "run_id": "companion-separated",
+                "now": NOW,
+                "enable_market_harvest_companion": True,
+            }
+            payload = build_run_once(TARGET_DATE, 25.0, **common)
+            companion = payload["market_harvest_companion"]
+            parent = Path(payload["run_folder"])
+            companion_folder = parent / "market_harvest_companion"
+            rows = read_csv(companion_folder / "quote_intents_long.csv")
+            lifecycle_path = companion_folder / "order_lifecycle.jsonl"
+            lifecycle_before = lifecycle_path.read_text(encoding="utf-8")
+
+            duplicate = build_run_once(
+                TARGET_DATE,
+                25.0,
+                append=True,
+                **common,
+            )["market_harvest_companion"]
+            rows_after = read_csv(companion_folder / "quote_intents_long.csv")
+            lifecycle_after = lifecycle_path.read_text(encoding="utf-8")
+            finalized = market_making_run.finalize_scoring_projection(payload)
+
+            no_companion_payload = build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=root / "default_off_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id="companion-default-off",
+                now=NOW,
+            )
+
+        self.assertEqual(payload["quote_permission_rows"], 0)
+        self.assertEqual(companion["status"], "PASS")
+        self.assertEqual(companion["latest_tick"]["opportunities"], 2)
+        self.assertEqual(Path(companion["run_folder"]), companion_folder)
+        self.assertTrue(rows)
+        self.assertEqual({row["evidence_class"] for row in rows}, {"quote_opportunity"})
+        self.assertEqual({row["platform_id"] for row in rows}, {"polymarket_global"})
+        self.assertEqual({row["parent_run_id"] for row in rows}, {payload["run_id"]})
+        self.assertEqual({row["live_trade_permission"] for row in rows}, {"False"})
+        self.assertEqual({row["authenticated_fill"] for row in rows}, {"False"})
+        self.assertEqual({row["realized_pnl_eligible"] for row in rows}, {"False"})
+        self.assertTrue(all(len(row["book_rows_sha256"]) == 64 for row in rows))
+        self.assertTrue(all(len(row["token_rows_sha256"]) == 64 for row in rows))
+        self.assertTrue(all(len(row["source_status_rows_sha256"]) == 64 for row in rows))
+        self.assertEqual(duplicate["status"], "DUPLICATE_SKIPPED")
+        self.assertEqual(
+            finalized["market_harvest_companion"]["scoring_projection"]["status"],
+            "PASS",
+        )
+        self.assertEqual(rows_after, rows)
+        self.assertEqual(lifecycle_after, lifecycle_before)
+        self.assertIsNone(no_companion_payload["market_harvest_companion"])
+        self.assertFalse(
+            (Path(no_companion_payload["run_folder"]) / "market_harvest_companion").exists()
+        )
+
+    def test_market_harvest_companion_fails_closed_on_stale_gap_missing_book_and_depth(self):
+        def run_case(case):
+            case_root = root / case
+            snapshots_root, promotion = write_market_fixture(
+                case_root,
+                stale_book=case == "stale",
+            )
+            folder = snapshots_root / "highest-temperature-in-atlanta-on-june-14-2026"
+            if case == "gap":
+                rows = read_csv(folder / "order_books_summary.csv")
+                older = [
+                    {**row, "capture_id": f"older-{row['capture_id']}", "captured_at_utc": "2026-06-14T15:00:00+00:00", "book_time_utc": "2026-06-14T15:00:00+00:00"}
+                    for row in rows
+                ]
+                write_csv(folder / "order_books_summary.csv", list(rows[0]), older + rows)
+            elif case == "missing-book":
+                (folder / "order_books_summary.csv").unlink()
+            elif case == "depth":
+                books = read_csv(folder / "order_books_summary.csv")
+                for row in books:
+                    row.update({
+                        "bid_depth_1pct": "0",
+                        "ask_depth_1pct": "0",
+                        "bid_size_at_best": "0",
+                        "ask_size_at_best": "0",
+                    })
+                write_csv(folder / "order_books_summary.csv", list(books[0]), books)
+                features = read_csv(folder / "clob_features_long.csv")
+                for row in features:
+                    row["clob_depth_1pct_total"] = "0"
+                write_csv(folder / "clob_features_long.csv", list(features[0]), features)
+            status = case_root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(case_root / "known_edge.json")
+            return build_run_once(
+                TARGET_DATE,
+                25.0,
+                mode="paper-live-forward",
+                markets=["atlanta"],
+                runs_root=case_root / "mm_runs",
+                snapshots_root=snapshots_root,
+                promotion_refresh=promotion,
+                known_edge_map=known_edge,
+                observation_status_path=status,
+                run_id=f"companion-{case}",
+                now=NOW,
+                enable_market_harvest_companion=True,
+            )["market_harvest_companion"]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            results = {case: run_case(case) for case in ("stale", "gap", "missing-book", "depth")}
+
+        for case, companion in results.items():
+            with self.subTest(case=case):
+                self.assertEqual(companion["status"], "PASS")
+                self.assertEqual(companion["latest_tick"]["opportunities"], 0)
+                self.assertEqual(companion["latest_tick"]["coverage_gaps"], 2)
+                self.assertEqual(companion["live_trade_permission_rows"], 0)
+
     def test_blank_clob_tokens_are_market_discovery_blocker(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

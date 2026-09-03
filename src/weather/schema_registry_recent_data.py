@@ -515,6 +515,13 @@ RECENT_REGISTERED_SCHEMAS = (
         "Normalized genuine-execution provenance embedded in admitted trades, fill-evidence diagnostics, and persisted maker-paper fill rows.",
     ),
     SchemaSpec(
+        "market_harvest_paper_companion",
+        "market_harvest_paper_companion_v0.1",
+        "weather.market.market_harvest_companion",
+        "active",
+        "Forward-only International paper opportunities, simulated lifecycle, strict public-execution scoring, and explicit non-realized evidence bindings.",
+    ),
+    SchemaSpec(
         "mm_scoring_projection",
         "mm_scoring_projection_v0.1",
         "weather.market.mm_scoring_projection",

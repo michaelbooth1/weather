@@ -142,6 +142,20 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
             ],
         )
 
+    def test_build_command_adds_market_harvest_companion_only_when_opted_in(self):
+        default = build_market_making_command(
+            "2026-06-16",
+            python_executable="python.exe",
+        )
+        opted_in = build_market_making_command(
+            "2026-06-16",
+            python_executable="python.exe",
+            market_harvest_companion=True,
+        )
+
+        self.assertNotIn("--enable-market-harvest-companion", default)
+        self.assertEqual(opted_in.count("--enable-market-harvest-companion"), 1)
+
     def test_start_for_date_records_child_pid_and_avoids_duplicate_same_day_run(self):
         calls = []
 

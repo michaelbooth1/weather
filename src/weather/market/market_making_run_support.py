@@ -313,6 +313,7 @@ def assemble_market_harvest_inputs_for_market(
     source_rows=None,
     current_high_assessment=None,
     book_audit=None,
+    token_rows=None,
 ):
     """Build paper harvest rows without reading model probabilities.
 
@@ -320,7 +321,11 @@ def assemble_market_harvest_inputs_for_market(
     features add executable market state. Model snapshots, model promotion,
     and known-edge records are deliberately not permission inputs.
     """
-    all_token_rows = read_csv_rows(Path(folder) / "clob_tokens.csv")
+    all_token_rows = (
+        read_csv_rows(Path(folder) / "clob_tokens.csv")
+        if token_rows is None
+        else list(token_rows)
+    )
     latest_token_time = max(
         (
             parse_time(row.get("captured_at_utc"))
@@ -738,6 +743,10 @@ def preflight_market(
     release_production_capable=False,
     active_window_start_utc=None,
     permission_profile="model",
+    token_rows=None,
+    book_audit=None,
+    csv_encoding=None,
+    source_status_degradation=None,
 ):
     if permission_profile not in PERMISSION_PROFILES:
         raise ValueError(
@@ -775,27 +784,31 @@ def preflight_market(
     source_status_times = [value for value in source_status_times if value is not None]
     source_status_latest = max(source_status_times) if source_status_times else None
     source_status_fresh = source_status_is_current(source_rows)
-    source_status_degradation = source_status_degradation_preflight(folder, snapshot_id) if source_rows else {
-        "status": "SKIPPED",
-        "ok": True,
-        "root_cause": "source_status_rows_missing",
-        "reason": "source-status degradation gate skipped until source rows exist",
-        "available": False,
-        "snapshot_id": None,
-        "snapshot_matches": False,
-        "trading_evidence_allowed": False,
-        "live_trade_permission_allowed": False,
-        "promotion_readiness_allowed": False,
-        "claim_lane_allowance": {},
-    }
-    book_audit = preflight_book_audit(
+    source_status_degradation = source_status_degradation or (
+        source_status_degradation_preflight(folder, snapshot_id)
+        if source_rows
+        else {
+            "status": "SKIPPED",
+            "ok": True,
+            "root_cause": "source_status_rows_missing",
+            "reason": "source-status degradation gate skipped until source rows exist",
+            "available": False,
+            "snapshot_id": None,
+            "snapshot_matches": False,
+            "trading_evidence_allowed": False,
+            "live_trade_permission_allowed": False,
+            "promotion_readiness_allowed": False,
+            "claim_lane_allowance": {},
+        }
+    )
+    book_audit = book_audit or preflight_book_audit(
         folder,
         now=now,
         max_gap_seconds=float(policy_config["max_book_age_seconds"]),
         active_window_start_utc=active_window_start_utc,
     )
-    csv_encoding = preflight_csv_encoding_diagnostics(folder)
-    token_rows = read_csv_rows(folder / "clob_tokens.csv")
+    csv_encoding = csv_encoding or preflight_csv_encoding_diagnostics(folder)
+    token_rows = read_csv_rows(folder / "clob_tokens.csv") if token_rows is None else list(token_rows)
     token_discovery = clob_token_discovery_health(token_rows)
     token_count = sum(1 for row in token_rows if row.get("clob_token_id") and str(row.get("outcome") or "").lower() in {"yes", ""})
     condition_count = len({row.get("condition_id") for row in token_rows if row.get("condition_id")})
