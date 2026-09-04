@@ -41,6 +41,9 @@ ARTIFACT_PAYLOAD = {
 }
 ARTIFACT_TEXT = json.dumps(ARTIFACT_PAYLOAD, sort_keys=True) + "\n"
 ARTIFACT_SHA256 = hashlib.sha256(ARTIFACT_TEXT.encode("utf-8")).hexdigest()
+LEGACY_STAGED_RESULT_LENGTH = 267
+ATOMIC_TEMP_SUFFIX = ".12345.1234567890123456789.tmp"
+REPAIRED_STAGING_PATH_SAVINGS = 76
 
 
 def _admit(**kwargs):
@@ -263,6 +266,36 @@ def _fixture(
     return manifest, _write_queue(repo_root, manifest)
 
 
+def _legacy_staged_result_path(repo_root: Path) -> Path:
+    candidate_output_root = Path(
+        "artifacts/candidates/candidate-1/experiments/exp-1"
+    )
+    return (
+        repo_root
+        / candidate_output_root.parent
+        / ".executor_runs"
+        / ("0" * 16 + "-" + "0" * 32)
+        / "workspace"
+        / candidate_output_root
+        / "experiment_result.json"
+    )
+
+
+def _formerly_failing_repo_root(tmp_path_factory, name: str) -> Path:
+    base = tmp_path_factory.getbasetemp()
+    root = base / name
+    minimum_length = len(str(_legacy_staged_result_path(root)))
+    if minimum_length < LEGACY_STAGED_RESULT_LENGTH:
+        root = base / (name + "x" * (LEGACY_STAGED_RESULT_LENGTH - minimum_length))
+    root.mkdir()
+    assert len(str(_legacy_staged_result_path(root))) >= LEGACY_STAGED_RESULT_LENGTH
+    return root
+
+
+def _atomic_temp_shape(path: Path) -> Path:
+    return path.with_name(path.name + ATOMIC_TEMP_SUFFIX)
+
+
 @pytest.mark.parametrize(
     ("sample_count", "primary", "protected", "expected"),
     [
@@ -331,6 +364,84 @@ def test_executor_records_verified_terminal_disposition_and_declared_artifacts(t
     assert result_path.is_file()
     artifact = tmp_path / manifest["expected_artifacts"][0]["path"]
     assert artifact.read_text(encoding="utf-8") == ARTIFACT_TEXT
+
+
+def test_long_path_success_publishes_exact_hashed_result_without_temp(
+    tmp_path_factory,
+    monkeypatch,
+):
+    repo_root = _formerly_failing_repo_root(tmp_path_factory, "success-")
+    legacy_staged_result = _legacy_staged_result_path(repo_root)
+    manifest, queue_path = _fixture(repo_root, mode="success")
+    observed_staged_results: list[Path] = []
+    real_writer = experiment_executor_module.write_json_atomic
+
+    def observe_staged_result(path, payload, **kwargs):
+        observed_staged_results.append(Path(path))
+        return real_writer(path, payload, **kwargs)
+
+    monkeypatch.setattr(
+        experiment_executor_module,
+        "write_json_atomic",
+        observe_staged_result,
+    )
+
+    result, result_path = _execute(queue_path, manifest, repo_root)
+
+    expected_result = (
+        repo_root / manifest["candidate_output_root"] / "experiment_result.json"
+    )
+    assert result_path == expected_result
+    assert json.loads(result_path.read_text(encoding="utf-8")) == result
+    assert verify_experiment_result(result, manifest=manifest) == result
+    assert result["execution"]["discarded_output_quarantine"] is None
+    assert result["execution"]["terminal_commit"] == (
+        "result_and_declared_artifacts_in_one_directory_rename"
+    )
+    assert len(str(legacy_staged_result)) >= LEGACY_STAGED_RESULT_LENGTH
+    assert len(str(_atomic_temp_shape(legacy_staged_result))) >= 297
+    assert len(observed_staged_results) == 1
+    repaired_staged_result = observed_staged_results[0]
+    assert len(str(repaired_staged_result)) == (
+        len(str(legacy_staged_result)) - REPAIRED_STAGING_PATH_SAVINGS
+    )
+    assert len(str(_atomic_temp_shape(repaired_staged_result))) < 260
+    scratch_root = repo_root / ".e"
+    assert scratch_root.is_dir()
+    assert not any(scratch_root.iterdir())
+    assert scratch_root.stat().st_dev == result_path.stat().st_dev
+    assert not list(repo_root.rglob("experiment_result.json.*.tmp"))
+    claim_root = result_path.parent.parent / ".executor_claims"
+    assert claim_root.is_dir()
+    assert not any(claim_root.iterdir())
+
+
+def test_long_path_failure_quarantines_and_publishes_only_terminal_result(
+    tmp_path_factory,
+):
+    repo_root = _formerly_failing_repo_root(tmp_path_factory, "failure-")
+    manifest, queue_path = _fixture(repo_root, mode="unexpected_directory")
+
+    result, result_path = _execute(queue_path, manifest, repo_root)
+
+    expected_result = (
+        repo_root / manifest["candidate_output_root"] / "experiment_result.json"
+    )
+    assert result_path == expected_result
+    assert verify_experiment_result(result, manifest=manifest) == result
+    assert result["disposition"] == "inconclusive"
+    assert result["failure"]["code"] == "untrusted_child_output"
+    assert set(path.name for path in result_path.parent.iterdir()) == {
+        "experiment_result.json"
+    }
+    scratch_root = repo_root / ".e"
+    quarantine = Path(result["execution"]["discarded_output_quarantine"])
+    assert quarantine.is_relative_to(scratch_root)
+    assert (quarantine / "undeclared" / "nested").is_dir()
+    assert not list(repo_root.rglob("experiment_result.json.*.tmp"))
+    claim_root = result_path.parent.parent / ".executor_claims"
+    assert claim_root.is_dir()
+    assert not any(claim_root.iterdir())
 
 
 def test_timeout_budget_kills_tree_and_records_unmeasured_inconclusive(tmp_path):
@@ -735,7 +846,7 @@ def test_initial_serving_fingerprint_failure_blocks_before_claim(
     assert not any(candidate_root.iterdir())
     claim_root = candidate_root.parent / ".executor_claims"
     assert not claim_root.exists() or not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / ".e"
     assert not scratch_root.exists()
 
 
@@ -758,7 +869,7 @@ def test_claim_write_failure_removes_partial_claim_and_empty_run_root(
     claim_root = candidate_root.parent / ".executor_claims"
     assert claim_root.is_dir()
     assert not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / ".e"
     assert scratch_root.is_dir()
     assert not any(scratch_root.iterdir())
 
@@ -785,7 +896,39 @@ def test_terminal_write_interruption_releases_claim_and_preserves_scratch(
     claim_root = candidate_root.parent / ".executor_claims"
     assert claim_root.is_dir()
     assert not any(claim_root.iterdir())
-    scratch_root = candidate_root.parent / ".executor_runs"
+    scratch_root = tmp_path / ".e"
     assert scratch_root.is_dir()
     assert any(scratch_root.iterdir())
     assert not any(candidate_root.iterdir())
+
+
+def test_long_path_atomic_write_interruption_releases_claim_without_orphan_temp(
+    tmp_path_factory,
+    monkeypatch,
+):
+    repo_root = _formerly_failing_repo_root(tmp_path_factory, "interruption-")
+    manifest, queue_path = _fixture(repo_root, mode="success")
+    path_type = type(repo_root)
+    real_replace = path_type.replace
+
+    def interrupt_result_replace(self, target):
+        if self.name.startswith("experiment_result.json.") and self.name.endswith(
+            ".tmp"
+        ):
+            raise OSError("synthetic atomic result replace interruption")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(path_type, "replace", interrupt_result_replace)
+
+    with pytest.raises(OSError, match="atomic result replace interruption"):
+        _execute(queue_path, manifest, repo_root)
+
+    candidate_root = repo_root / manifest["candidate_output_root"]
+    assert not any(candidate_root.iterdir())
+    claim_root = candidate_root.parent / ".executor_claims"
+    assert claim_root.is_dir()
+    assert not any(claim_root.iterdir())
+    scratch_root = repo_root / ".e"
+    assert scratch_root.is_dir()
+    assert any(scratch_root.iterdir())
+    assert not list(repo_root.rglob("experiment_result.json.*.tmp"))
