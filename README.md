@@ -426,10 +426,17 @@ lane intact and writes a nested `market_harvest_companion/` family from the
 same loaded book, token, source, and exchange-economics objects. Companion
 quotes, simulated lifecycle/queue/fills, and public trades remain separate
 evidence classes; they never count as authenticated fills, realized P&L,
-model promotion, or live-forward permission. The daily paper-score step sends
-only those nested folders through the existing strict trade-through, size,
-queue, markout, and native-settlement scorer and publishes separately named
-companion reports.
+model promotion, or live-forward permission. Each tick is staged in an atomic
+pending outbox before durable append; deterministic row identities recover a
+partial append exactly once, corrupt checkpoints fail closed, and a run stops
+instead of evicting identity after 2,048 ticks. The daily paper-score step
+sends only nested companion folders through the existing strict trade-through,
+size, queue, and markout scorer. It additionally requires International
+platform identity, exact quote/execution condition binding, the authoritative
+settlement ledger when configured, `promotion_countable=true`, and the
+market's native settlement unit. Its separately named report calls the result
+a public-counterfactual market-day and keeps authenticated-account market-days
+at zero.
 
 ## Scheduled Operations
 

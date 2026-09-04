@@ -1308,6 +1308,13 @@ def build_run_once(
         raise ValueError("market-harvest companion requires the ordinary model permission profile")
     if enable_market_harvest_companion and mode == "live-pilot":
         raise ValueError("market-harvest companion is paper-only")
+    if (
+        enable_market_harvest_companion
+        and str(exchange_economics_platform) != market_harvest_companion.PLATFORM_ID
+    ):
+        raise ValueError(
+            "market-harvest companion accepts International Polymarket only"
+        )
     now = utc_now(now)
     target = ensure_date(target_date)
     release_binding = load_worker_release_binding(
@@ -2017,8 +2024,9 @@ def build_run_once(
             "summary": live_forward_gate_payload.get("summary"),
         },
         "markets": preflight_rows,
-        "market_harvest_companion": companion_payload,
     }
+    if companion_payload is not None:
+        payload["market_harvest_companion"] = companion_payload
     write_json(run_folder / "run_summary.json", payload)
     return payload
 

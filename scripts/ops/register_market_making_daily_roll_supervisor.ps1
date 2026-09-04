@@ -28,6 +28,10 @@ param(
     [switch]$EnableMarketHarvestCompanion
 )
 
+if ($EnableMarketHarvestCompanion -and $Mode -eq "live-pilot") {
+    throw "market-harvest companion is paper-only"
+}
+
 $wrapper = Join-Path $RepoRoot "scripts\ops\market_making_daily_roll_task.ps1"
 if (-not (Test-Path $wrapper)) {
     throw "daily-roll task wrapper not found at $wrapper"
