@@ -1,0 +1,246 @@
+{
+  "schema_version": "workstation_unattended_mission_handback_v0.1",
+  "mission_id": "workstation-wu-outcome-exporter-portable-repair-2026-09-100e",
+  "mission_sha256": "e440e9a8d8b971e7dfacfaecb41be821815dbf99527ec9fe62c5d9709065c637",
+  "source_tip": "e87af418e4aa78b3628b6da8225ed4f0288f8c06",
+  "source_tree": "5ad3c96d2fb051dd9a58724e906867227a53f200",
+  "source_sole_parent": "93bcb73b98c22b374d9b8b074a437558b9d5801b",
+  "base_tip": "2e20e59aae08e7367dc79e1b8102c0551e7f6904",
+  "base_tree": "f3855fcd456fa81df8486bf02d0f21de833ea4ff",
+  "result_ref": "refs/heads/codex/workstation-wu-outcome-exporter-portable-repair-2026-09-100e",
+  "implementation_tip": "93f8fcfede0b0767caacfb3de3e460837f922c8a",
+  "implementation_tree": "d8e2e13cadc252a5db04670449e75fa34f90a730",
+  "report_path": "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-exporter-portable-repair.md",
+  "receipt_path": "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-exporter-portable-repair.json",
+  "bundle_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-exporter-portable-repair-2026-09-100e\\publication-transfer-final.bundle",
+  "changed_paths": [
+    "docs/operations/WU_OUTCOME_EXPORT_CONTRACT.md",
+    "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-exporter-portable-repair.md",
+    "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-exporter-portable-repair.json",
+    "src/weather/operations/wu_outcome_export_contract.py",
+    "src/weather/operations/wu_outcome_production_exporter.py",
+    "tests/operations/test_wu_outcome_production_exporter.py"
+  ],
+  "tests": [
+    {
+      "name": "p0_exact_identity_and_prior_terminal_evidence",
+      "status": "PASS",
+      "source_objects_parent_tree_and_ancestry": true,
+      "clean_root_source_controller_and_dormant_100d": true,
+      "result_ref_and_worktree_initially_absent": true,
+      "assigned_host_and_principal": true,
+      "shared_mutex_available": true,
+      "poison_marker_absent": true,
+      "conflicting_worker_absent": true,
+      "outer_100c_complete_validated": true,
+      "outer_100d_interrupted_and_torn_down": true
+    },
+    {
+      "name": "focused_wu_export_contract_and_production_exporter",
+      "status": "PASS",
+      "passed": 72,
+      "seconds": 45.65,
+      "synthetic_sources_only": true
+    },
+    {
+      "name": "compileall_app_src_tests",
+      "status": "PASS"
+    },
+    {
+      "name": "import_schema_module_size_wrapper_hook_ratchets",
+      "status": "PASS",
+      "passed": 91,
+      "skipped": 15,
+      "seconds": 15.78
+    },
+    {
+      "name": "agent_document_audit",
+      "status": "PASS",
+      "agent_files": 18,
+      "markdown_files": 839
+    },
+    {
+      "name": "roadmap_lint_check",
+      "status": "PASS",
+      "generated_report_matches_sources": true
+    },
+    {
+      "name": "complete_workstation_suite",
+      "status": "PASS",
+      "passed": 4425,
+      "skipped": 18,
+      "warnings": 13,
+      "subtests_passed": 866,
+      "seconds": 478.65,
+      "complete_suite_repeated": false
+    },
+    {
+      "name": "explicit_split_root_and_portable_copy_proof",
+      "status": "PASS",
+      "passed": 8,
+      "seconds": 12.39,
+      "synthetic_sources_only": true
+    },
+    {
+      "name": "outcome_output_leak_audit",
+      "status": "PASS",
+      "stdout_and_stderr_expose_only_allowed_metadata": true,
+      "report_exposes_no_outcome_value": true
+    },
+    {
+      "name": "cumulative_git_diff_check",
+      "status": "PASS"
+    },
+    {
+      "name": "generic_runner_handback_contract",
+      "status": "PASS",
+      "schema": "workstation_unattended_mission_handback_v0.1",
+      "external_binding_preterminal_exact": true,
+      "all_test_rows_literal_pass": true,
+      "script_hashes_match": true,
+      "boundary_declarations_nonempty": true
+    }
+  ],
+  "script_sha256": {
+    "scripts/ops/windows_kill_on_close_job.ps1": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+    "scripts/ops/workstation_heavy.ps1": "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532",
+    "scripts/ops/workload_admission.ps1": "1d2a291caa0aa9fcea5baa80efcce88a79ebda3cb717425be54d8bb5acdae947"
+  },
+  "terminal_state_semantics": {
+    "COMPLETE_VALIDATED": 0,
+    "CHILD_FAILURE": 20,
+    "DEADLINE": 21,
+    "INTERRUPTED": 22,
+    "INVALID_HANDBACK": 23,
+    "IDENTITY_DRIFT": 24,
+    "TEARDOWN_FAILURE": 25,
+    "RUNNER_FAILURE": 26
+  },
+  "measured_evidence": {
+    "verdict": "COMPLETE_WORKSTATION_QUALIFIED_PORTABLE_REPAIR",
+    "implementation_changed": true,
+    "implementation_commit_count": 1,
+    "implementation_changed_path_count": 4,
+    "production_export_executed": false,
+    "real_production_sources_opened": false,
+    "synthetic_sources_only": true,
+    "split_root_repair": {
+      "distinct_linked_git_worktrees": true,
+      "shared_git_common_directory_required": true,
+      "data_root_remained_clean": true,
+      "spec_root_remained_clean": true,
+      "byte_identical_two_destination_output": true,
+      "untracked_wrong_path_wrong_case_reparse_and_other_repository_rejected": true
+    },
+    "portable_copy_repair": {
+      "default_acl_equality_preserved": true,
+      "both_producer_hashes_required": true,
+      "manifest_exact_file_bytes_bound": true,
+      "payload_exact_file_bytes_bound": true,
+      "producer_acl_internally_validated": true,
+      "actual_destination_acl_returned": true,
+      "artifact_files_unchanged": true,
+      "partial_wrong_tampered_extra_and_reparse_rejected": true
+    },
+    "module_lines": {
+      "src/weather/operations/wu_outcome_export_contract.py": 1276,
+      "src/weather/operations/wu_outcome_production_exporter.py": 996
+    },
+    "frozen_spec": {
+      "path": "docs/roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json",
+      "file_sha256": "cf10553a9b041a783bf5caf56b191835e2904474a4bad34dcbc1f6ad934d093f",
+      "self_hash": "5d370c51da7d95e1d3a62a8ff4f9d66cd3312c5eecfebcbdbaab169be505e0f9"
+    },
+    "outer_100c": {
+      "terminal_state": "COMPLETE_VALIDATED",
+      "exit_code": 0,
+      "terminal_receipt_sha256": "3cf74fa248762f6272e4e5f274e144171b85a5fb3526be036664c52b4a2b72ff",
+      "implementation_tip": "93bcb73b98c22b374d9b8b074a437558b9d5801b",
+      "implementation_tree": "3050d0f9baf2739359895a8c74a53a7650612dfc",
+      "final_tip": "e87af418e4aa78b3628b6da8225ed4f0288f8c06",
+      "final_tree": "5ad3c96d2fb051dd9a58724e906867227a53f200",
+      "bundle_sha256": "6af19ddf6a9fe75f676317991e4883da51bb1bd108a71c41bc1e9380684b4f38"
+    },
+    "outer_100d": {
+      "terminal_state": "INTERRUPTED",
+      "exit_code": 22,
+      "terminal_receipt_sha256": "87b4e5ff7f6e31d5f9a058955bd4d4b163980b404b9d6738a2f02364d452c533",
+      "child_tree_teardown_confirmed": true,
+      "dormant_source_identical_evidence_untouched": true
+    },
+    "workstation": {
+      "host": "DESKTOP-RFCD2GH",
+      "principal": "DESKTOP-RFCD2GH\\Michael",
+      "runner_host_id": "31240dff4b7af1a8bff9df37a1f26424b5cf1ab03764ec39769cff4a1ce6f5ee",
+      "runner_principal_id": "d501209aea15eecd4334a10fb6c49532ccf94b2358b409d4a718d3938969221e",
+      "full_suite_base_temp": "C:\\t\\w100e-f1-93f8fcfe"
+    },
+    "runner": {
+      "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\unattended-runner-portable-binding-repair-09-99c\\scripts\\ops\\invoke_workstation_codex_mission.ps1",
+      "bytes": 58279,
+      "sha256": "50dc332d687704047c6c1a440ca4352af1246466a8873df6225e052a5915e9c8",
+      "validator_function": "Assert-Handback"
+    },
+    "job_helper": {
+      "bytes": 16406,
+      "sha256": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243"
+    },
+    "codex": {
+      "bytes": 295295792,
+      "sha256": "be83164c07287d028cc4725105f3cceaaf244d53a862e19743f55e9150a66fc1"
+    },
+    "powershell": {
+      "bytes": 454656,
+      "sha256": "7600ffe12da441fe89d035b13801e8e91d064bc544a27b19a5cf49f6ab8b18f5"
+    },
+    "git": {
+      "bytes": 46480,
+      "sha256": "81ef35ae005ca9318018d18e3327578ce939fb99feaad6b2d7c8ab15f3de8db5"
+    },
+    "roll_verdict": {
+      "status": "UNDECIDABLE",
+      "reason_code": "NO_LIVE_CLOSURE_EVIDENCE",
+      "exit_code": 1,
+      "derived_manually": false
+    },
+    "complete_suite_repeated": false,
+    "gap_or_spec_regenerated": false,
+    "outcome_values_opened": false,
+    "post_commit_binding_owner": "unchanged outer runner terminal receipt"
+  },
+  "remaining_reboot_boundary": "A reboot destroys the in-memory Job and outer-runner state. Attempt 1 is the sole authorized attempt; the committed pre-terminal receipt is not publication authority until the unchanged runner creates a COMPLETE_VALIDATED terminal receipt binding the final tip, tree, bundle SHA-256, and committed report/receipt blob identities.",
+  "prohibited_actions": {
+    "production_host_contact": false,
+    "scheduler_access_or_mutation": false,
+    "credential_access": false,
+    "provider_access": false,
+    "exchange_access": false,
+    "github_or_remote_access": false,
+    "market_data_or_price_access": false,
+    "real_production_data_access": false,
+    "production_export_invocation": false,
+    "corpus_or_ledger_mutation": false,
+    "outcome_value_access": false,
+    "wu_gap_or_spec_regeneration": false,
+    "model_refit": false,
+    "probability_generation": false,
+    "prediction_scoring_or_metrics": false,
+    "campaign_or_promotion": false,
+    "live_action": false,
+    "git_fetch_or_pull": false,
+    "git_merge": false,
+    "git_push": false,
+    "pull_request_action": false,
+    "prior_attempt_rerun": false,
+    "complete_suite_rerun": false,
+    "existing_production_evidence_modified_or_deleted": false,
+    "old_worktree_or_branch_cleanup": false,
+    "daemon_started": false
+  },
+  "external_binding": {
+    "rule": "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
+    "final_tip": null,
+    "final_tree": null,
+    "bundle_sha256": null
+  }
+}
