@@ -117,6 +117,9 @@ Scoped agent instructions also live in `config/AGENTS.md`,
   `canonical_evidence`, `analysis_projection`, and `operator_cache`.
 - [Data Retention Policy](data-retention-policy.md) defines inventory and
   reviewed cleanup requirements.
+- [Verified Cold-Archive Foundation](verified-cold-archive.md) defines the
+  fixture-only create-only object, verification, restore-drill, and cleanup-plan
+  contracts, plus the separate encrypted transport boundary.
 - [Closed Market-Day Parquet Archive Contract](closed-market-day-parquet-archive-contract.md)
   defines archive eligibility, manifests, and raw-evidence boundaries.
 - [History Data Design](HISTORY_DATA_DESIGN.md) describes Weather Underground

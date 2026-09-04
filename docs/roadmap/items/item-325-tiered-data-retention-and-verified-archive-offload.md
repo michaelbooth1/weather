@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]
+# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - VERIFIED FIXTURE FOUNDATION BUILT; PRODUCTION OFFLOAD AND DELETION NOT AUTHORIZED]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -304,6 +304,32 @@ Revised ordering for the warm tier, replacing the 07-29 framing:
 
 Automating an apply path is deliberately gated behind operator review by the design above, and it
 would touch `src/**` or `scripts/**`, making it roll-sensitive. **Not before the release-#1 lock.**
+
+## 2026-09-10 verified cold-archive foundation
+
+The workstation build adds the fixture-only
+[Verified Cold-Archive Foundation](../../operations/verified-cold-archive.md).
+It now provides a deterministic one-day planner, one create-only deterministic
+archive object plus a self-hashed sidecar, append-only object/member
+verification, a traversal/link-safe exact-parity restore drill with a durable
+receipt, and a reviewed cleanup-manifest generator with no delete executor.
+
+The selection gate requires a current event-day manifest, no shared external
+payload dependencies, a minimum 30-day hot window, final settlement and closure,
+no open barrier/queue/point-in-time reference, stable non-reparse files, no
+writer lock, and exact parity for split plain/gzip representations. Adversarial
+tests use only synthetic `tmp_path` fixtures and cover determinism, collisions,
+drift, manifest tampering, truncation, traversal, links, duplicate members,
+restore mismatch, stale/open dates, and cleanup-plan gate failures.
+
+This completes the build-and-test foundation, not the production scope checkbox.
+The command surface refuses unmarked roots and repository `data/`. Production
+still needs a source-of-truth selection-proof adapter, encrypted append-only
+`rclone crypt` transport with `cryptcheck`, operator credential/OAuth setup,
+mirror-topology separation, a real restore drill, and separately reviewed prune
+ledger/execution work. Raw capture can contain sensitive request material and
+must never be uploaded unencrypted. `/E`-equivalent append-only copy semantics
+remain required; `/MIR` and destructive `rclone sync` remain forbidden.
 
 Acceptance:
 

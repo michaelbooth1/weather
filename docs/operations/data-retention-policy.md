@@ -111,6 +111,15 @@ compression cannot starve the capture loops.
 The workstation storage-pressure tools are manual and dry-run first. They are
 not scheduled and a code merge performs no cleanup.
 
+The [Verified Cold-Archive Foundation](verified-cold-archive.md) adds a separate
+fixture-only path for preserving an entire sealed market-day as one
+deterministic create-only object. It reuses the event-day manifest,
+storage-class classification, and cleanup-manifest helper; requires a minimum
+30-day hot window plus explicit settled/closed/barrier/queue/window evidence;
+and gates cleanup-plan generation on exact archive verification and a successful
+restore receipt. It contains no production transport or delete executor and
+does not change any retention period or current reader.
+
 `config/storage_pressure.json` owns the capture switch. The checked-in value
 `capture.write_order_books_long_csv=true` preserves current behavior. Missing,
 malformed, wrong-schema, duplicate-key, or non-boolean policy also fails safe
