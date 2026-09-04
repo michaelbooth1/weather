@@ -1,16 +1,15 @@
-"""Build outcome-blind WU gaps and validate a future production export.
+"""Build WU gap contracts and own the bounded production-export CLI.
 
-This module deliberately has no production exporter.  It inventories the frozen
-research cohort from already-transferred WU daily-summary evidence and validates
-the narrow, create-only artifact that a separately reviewed production exporter
-may eventually create.
+The gap inventory stays outcome blind.  The production command delegates its
+filesystem transaction to a small operations helper, then this module validates
+the resulting two-file, research-only artifact.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -119,6 +118,17 @@ def _require_sha(value: Any, label: str) -> str:
     text = str(value or "")
     if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
         raise ContractError(f"{label} is not a lowercase SHA-256")
+    return text
+
+
+def _require_utc_timestamp(value: Any, label: str) -> str:
+    text = str(value or "")
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ContractError(f"{label} is not an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+        raise ContractError(f"{label} is not UTC")
     return text
 
 
@@ -792,6 +802,11 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
     manifest_path = export_root / "manifest.json"
     payload_path = export_root / "wu-outcomes.jsonl"
     manifest = _read_json(manifest_path)
+    canonical_manifest = json.dumps(
+        manifest, indent=2, sort_keys=True, ensure_ascii=True
+    ).encode("utf-8") + b"\n"
+    if manifest_path.read_bytes() != canonical_manifest:
+        raise ContractError("export manifest encoding is not canonical")
     if manifest.get("schema_version") != EXPORT_MANIFEST_SCHEMA:
         raise ContractError("export manifest schema differs")
     if manifest.get("manifest_sha256") != self_hash(manifest, "manifest_sha256"):
@@ -806,7 +821,18 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
         raise ContractError("export requested-row count differs")
     if manifest.get("exported_rows") != spec["request"]["requested_rows"]:
         raise ContractError("export row coverage is incomplete")
+    if "downstream_authority" in spec and manifest.get("downstream_authority") != spec.get(
+        "downstream_authority"
+    ):
+        raise ContractError("export downstream authority differs")
     _validate_acl_proof(manifest.get("destination_acl_proof"))
+    if os.name == "nt":
+        from weather.operations.wu_outcome_production_exporter import (
+            _windows_acl_proof,
+        )
+
+        if manifest.get("destination_acl_proof") != _windows_acl_proof(export_root):
+            raise ContractError("export ACL proof does not match the destination")
     payload_binding = manifest.get("payload_file")
     if not isinstance(payload_binding, dict) or set(payload_binding) != {
         "relative_path",
@@ -849,10 +875,51 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
             raise ContractError("export source file changed hash during export")
         source_bindings[binding_key] = before
 
-    requests = {
-        (str(row["market"]), str(row["target_date"])): row
-        for row in spec["request"]["keys"]
+    request_rows = spec.get("request", {}).get("keys")
+    if not isinstance(request_rows, list) or not request_rows:
+        raise ContractError("export request keys are absent")
+    requests: dict[tuple[str, str], Mapping[str, Any]] = {}
+    request_market_case: dict[str, str] = {}
+    for request in request_rows:
+        if not isinstance(request, dict):
+            raise ContractError("export request row is invalid")
+        market = str(request.get("market") or "")
+        folded = market.casefold()
+        if not market or (folded in request_market_case and request_market_case[folded] != market):
+            raise ContractError("export request markets have a case collision")
+        request_market_case[folded] = market
+        target = str(request.get("target_date") or "")
+        try:
+            date.fromisoformat(target)
+        except ValueError as exc:
+            raise ContractError("export request target date is invalid") from exc
+        request_key = (market, target)
+        if request_key in requests:
+            raise ContractError("export request contains a duplicate market/date key")
+        requests[request_key] = request
+    if len(requests) != spec["request"].get("requested_rows"):
+        raise ContractError("export request count differs")
+    expected_source_bindings = {
+        ("settlement_ledger", f"data/settlements/{market}/ledger.jsonl".casefold())
+        for market, _target in requests
     }
+    expected_source_bindings.update(
+        {
+            (
+                "wu_daily_summary",
+                (
+                    "data/wunderground/"
+                    f"{str(request['station']).casefold()}/daily/daily_summary.csv"
+                ).casefold(),
+            )
+            for request in requests.values()
+        }
+    )
+    if set(source_bindings) != expected_source_bindings:
+        raise ContractError("export source-file binding set differs")
+    from weather.market.market_registry import BUILTIN_SPECS
+
+    configured_markets = {item.id: item for item in BUILTIN_SPECS}
     seen: set[tuple[str, str]] = set()
     market_case: dict[str, str] = {}
     row_count = 0
@@ -866,6 +933,8 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
                 raise ContractError(f"export payload JSON is invalid at line {line_number}") from exc
             if not isinstance(row, dict) or set(row) != EXPORT_ROW_FIELDS:
                 raise ContractError(f"export payload fields differ at line {line_number}")
+            if line.encode("utf-8") != canonical_json_bytes(row) + b"\n":
+                raise ContractError(f"export payload encoding differs at line {line_number}")
             if row.get("schema_version") != EXPORT_ROW_SCHEMA:
                 raise ContractError("export row schema differs")
             market = str(row.get("market") or "")
@@ -894,6 +963,27 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
                 raise ContractError("export row station differs")
             if row.get("settlement_source") != "daily_summary" or row.get("resolution_source_type") != "wunderground_history":
                 raise ContractError("export row is not authoritative WU evidence")
+            if not str(row.get("resolution_wu_history_id") or ""):
+                raise ContractError("export row WU history identity is absent")
+            if not str(row.get("resolution_timezone") or ""):
+                raise ContractError("export row timezone is absent")
+            configured = configured_markets.get(market)
+            if configured is None:
+                raise ContractError("export row market is not configured")
+            expected_slug = (
+                f"{configured.slug_prefix}-"
+                f"{date.fromisoformat(target).strftime('%B').lower()}-"
+                f"{date.fromisoformat(target).day}-{date.fromisoformat(target).year}"
+            )
+            if (
+                row.get("resolution_wu_history_id") != configured.wu_history_id
+                or str(row.get("resolution_station") or "").casefold()
+                != configured.icao.casefold()
+                or row.get("resolution_timezone") != configured.timezone
+                or row.get("settlement_unit") != configured.display_unit
+                or row.get("source_event_slug") != expected_slug
+            ):
+                raise ContractError("export row configured resolution identity differs")
             if isinstance(row.get("wu_daily_row_count"), bool) or not isinstance(row.get("wu_daily_row_count"), int) or row["wu_daily_row_count"] < MIN_WU_ROWS:
                 raise ContractError("export row WU support is below threshold")
             bucket = row.get("settlement_bucket_native")
@@ -901,6 +991,21 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
                 raise ContractError("export row native settlement bucket is invalid")
             if isinstance(row.get("source_revision_number"), bool) or not isinstance(row.get("source_revision_number"), int) or row["source_revision_number"] < 0:
                 raise ContractError("export row revision number is invalid")
+            if not str(row.get("source_revision_id") or ""):
+                raise ContractError("export row revision identity is absent")
+            _require_utc_timestamp(row.get("source_recorded_at_utc"), "export row revision time")
+            _require_sha(row.get("source_label_hash"), "export row label hash")
+            if not str(row.get("source_event_slug") or ""):
+                raise ContractError("export row event slug is absent")
+            expected_ledger_path = f"data/settlements/{market}/ledger.jsonl"
+            expected_daily_path = (
+                "data/wunderground/"
+                f"{str(request['station']).casefold()}/daily/daily_summary.csv"
+            )
+            if row.get("source_ledger_relative_path") != expected_ledger_path:
+                raise ContractError("export row ledger path differs")
+            if row.get("source_daily_summary_relative_path") != expected_daily_path:
+                raise ContractError("export row daily-summary path differs")
             for key_name in (
                 "source_ledger_sha256",
                 "source_daily_summary_sha256",
@@ -956,6 +1061,22 @@ def _parse_expected_counts(value: str) -> dict[str, int]:
     return result
 
 
+def export_production(
+    *, repo_root: Path, spec_path: Path, destination: Path
+) -> dict[str, Any]:
+    """Create one reviewed, fail-closed production WU outcome export."""
+
+    from weather.operations.wu_outcome_production_exporter import (
+        export_production as _export_production,
+    )
+
+    return _export_production(
+        repo_root=repo_root,
+        spec_path=spec_path,
+        destination=destination,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -977,6 +1098,10 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--spec", type=Path, required=True)
     validate.add_argument("--export-root", type=Path, required=True)
     validate.add_argument("--output", type=Path)
+    production = commands.add_parser("export-production")
+    production.add_argument("--repo-root", type=Path, required=True)
+    production.add_argument("--spec", type=Path, required=True)
+    production.add_argument("--destination", type=Path, required=True)
     return parser
 
 
@@ -1009,7 +1134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"WU export spec created: {args.output} "
                 f"sha256={payload['spec_sha256']}"
             )
-        else:
+        elif args.command == "validate-export":
             payload = validate_export(spec_path=args.spec, export_root=args.export_root)
             if args.output:
                 payload["validation_sha256"] = self_hash(
@@ -1018,6 +1143,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 write_json_create_only(args.output, payload)
             print(
                 f"WU export validation PASS: rows={payload['validated_rows']} "
+                f"payload_sha256={payload['payload_sha256']}"
+            )
+        else:
+            payload = export_production(
+                repo_root=args.repo_root,
+                spec_path=args.spec,
+                destination=args.destination,
+            )
+            print(
+                "WU production export PASS: "
+                f"destination={payload['destination']} "
+                f"rows={payload['exported_rows']} "
+                f"manifest_sha256={payload['manifest_sha256']} "
                 f"payload_sha256={payload['payload_sha256']}"
             )
     except (ContractError, OSError, TypeError, ValueError) as exc:

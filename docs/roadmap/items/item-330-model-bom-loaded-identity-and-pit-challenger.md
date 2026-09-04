@@ -1,4 +1,4 @@
-# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-09-02 - FOUNDATION WORKSTATION-QUALIFIED; 12-FIELD SEASONAL CHALLENGER INCONCLUSIVE; PRODUCTION REVIEW OPEN]
+# 330. Model Bill Of Materials, Loaded Identity, And PIT Challenger [PARTIAL 2026-09-04 - FOUNDATION QUALIFIED; CHALLENGER INCONCLUSIVE; WU OUTCOME EXPORTER QUALIFIED; PRODUCTION EXPORT OPEN]
 
 Goal: make the served model graph reproducible from the bytes actually loaded
 by a process, establish the supported base retrain as a correctness baseline,
@@ -122,6 +122,26 @@ begins only on 2026-04-02 and its documented availability metadata covers only
 the latest run, not historical runs. No collector or provider transport was
 built. The evidence and exact field/timestamp matrices are in
 [`agent-report-2026-09-06-workstation-pit-v2-source-contract.md`](../agent-report-2026-09-06-workstation-pit-v2-source-contract.md).
+
+## Phase B3 — bounded WU outcome export
+
+- [x] Implement the frozen 96-key WU outcome export contract as a read-only,
+  fail-closed production entry point with exact ledger/WU reconciliation,
+  stable pre/post source identities, actual ACL proof, and a two-file 1 MiB
+  bound.
+- [x] Prove legacy and explicit revision selection, native C/F preservation,
+  deterministic two-root reproduction, create-only publication, and source,
+  evidence, tamper, reparse, drift, and injected-failure refusal using synthetic
+  files only.
+- [ ] Run the exporter against reviewed production sources and transfer the
+  resulting research-only artifact. This implementation does not perform that
+  operation and grants no refit, scoring, promotion, serving, or live authority.
+
+The stable CLI and validator remain in
+`weather.operations.wu_outcome_export_contract`; the bounded filesystem
+transaction is owned by `weather.operations.wu_outcome_production_exporter`.
+The canonical command contract and placeholder-only template are documented in
+[`WU_OUTCOME_EXPORT_CONTRACT.md`](../../operations/WU_OUTCOME_EXPORT_CONTRACT.md).
 
 ## Phase C — Correctness baseline and matched-stack qualification
 

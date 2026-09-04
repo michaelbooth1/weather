@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,9 @@ from weather.operations import wu_outcome_export_contract as contract
 
 
 def _write_json(path: Path, value: object) -> None:
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_bytes(
+        json.dumps(value, indent=2, sort_keys=True).encode("utf-8") + b"\n"
+    )
 
 
 def _request(market: str = "atlanta", target_date: str = "2026-06-03") -> dict:
@@ -30,6 +33,7 @@ def _request(market: str = "atlanta", target_date: str = "2026-06-03") -> dict:
 
 def _row(request: dict) -> dict:
     digest = "a" * 64
+    target = date.fromisoformat(request["target_date"])
     return {
         "schema_version": contract.EXPORT_ROW_SCHEMA,
         "market": request["market"],
@@ -43,14 +47,17 @@ def _row(request: dict) -> dict:
         "resolution_wu_history_id": "KATL:9:US",
         "resolution_station": request["station"],
         "resolution_timezone": "America/New_York",
-        "source_event_slug": "highest-temperature-in-atlanta-on-june-3-2026",
+        "source_event_slug": (
+            "highest-temperature-in-atlanta-on-"
+            f"{target.strftime('%B').lower()}-{target.day}-{target.year}"
+        ),
         "source_revision_id": "revision-1",
         "source_revision_number": 1,
         "source_recorded_at_utc": "2026-09-04T00:00:00+00:00",
         "source_label_hash": "b" * 64,
-        "source_ledger_relative_path": "atlanta/ledger.jsonl",
+        "source_ledger_relative_path": "data/settlements/atlanta/ledger.jsonl",
         "source_ledger_sha256": digest,
-        "source_daily_summary_relative_path": "wunderground/katl/daily/daily_summary.csv",
+        "source_daily_summary_relative_path": "data/wunderground/katl/daily/daily_summary.csv",
         "source_daily_summary_sha256": digest,
     }
 
@@ -80,7 +87,9 @@ def _make_export(
         for row in rows
     )
     payload_path.write_bytes(raw)
-    sddl = "O:SYG:SYD:(A;;FA;;;SY)"
+    from weather.operations.wu_outcome_production_exporter import _windows_acl_proof
+
+    acl = _windows_acl_proof(export_root)
     manifest = {
         "schema_version": contract.EXPORT_MANIFEST_SCHEMA,
         "status": "COMPLETE_CREATE_ONLY_EXPORT",
@@ -88,11 +97,7 @@ def _make_export(
         "gap_manifest_sha256": spec["gap_binding"]["self_hash"],
         "requested_rows": len(requests),
         "exported_rows": len(requests),
-        "destination_acl_proof": {
-            "owner": "SYSTEM",
-            "sddl": sddl,
-            "sddl_sha256": hashlib.sha256(sddl.encode("utf-8")).hexdigest(),
-        },
+        "destination_acl_proof": acl,
         "payload_file": {
             "relative_path": "wu-outcomes.jsonl",
             "bytes": len(raw),
@@ -102,7 +107,7 @@ def _make_export(
         "source_files": [
             {
                 "role": "settlement_ledger",
-                "relative_path": "atlanta/ledger.jsonl",
+                "relative_path": "data/settlements/atlanta/ledger.jsonl",
                 "bytes_before": 123,
                 "bytes_after": 123,
                 "sha256_before": "a" * 64,
@@ -110,7 +115,7 @@ def _make_export(
             },
             {
                 "role": "wu_daily_summary",
-                "relative_path": "wunderground/katl/daily/daily_summary.csv",
+                "relative_path": "data/wunderground/katl/daily/daily_summary.csv",
                 "bytes_before": 456,
                 "bytes_after": 456,
                 "sha256_before": "a" * 64,
