@@ -1,0 +1,671 @@
+{
+  "amendment_sha256": "5d6c9c1f44c4938b9d45e1c8329a213e0f57241f6fbb3c533a33ee68a1ff9171",
+  "cohorts": {
+    "post_boundary_directional": {
+      "end_date": "2026-08-09",
+      "role": "external_secondary",
+      "start_date": "2026-07-31"
+    },
+    "pre_boundary": {
+      "end_date": "2026-07-30",
+      "role": "external_secondary",
+      "start_date": "2026-06-03"
+    }
+  },
+  "disposition": {
+    "EXTERNAL_DIRECTION_ADVERSE": "all four MSE improvement points are negative",
+    "EXTERNAL_DIRECTION_CONSISTENT": "primary-MSE and leads-1-7-MSE improvement points are positive in both separate cohorts",
+    "EXTERNAL_DIRECTION_MIXED": "otherwise, including any zero or sign disagreement",
+    "INTEGRITY_FAILURE": "any identity, support, no-refit, unit, boundary, source, or create-only failure"
+  },
+  "evidence_classification": {
+    "can_authorize_distribution_challenger": false,
+    "can_authorize_release_promotion_alpha_serving_or_live_use": false,
+    "changes_original_verdict": false,
+    "confirmation": false,
+    "external_secondary": true,
+    "original_verdict": "INCONCLUSIVE_UNDERPOWERED"
+  },
+  "frozen_identity": {
+    "design_file_sha256": "0667fdc204360122f44e35f2ef31dad5d6f7f53afd83bfd09ba0f0a50874bc65",
+    "design_sha256": "bd4bdb2ebcdd67a498e461b455f77bc9ca5a88f73bb19dae389e4bb28e26c0fb",
+    "feature_order_sha256": {
+      "baseline": "4e35fe7e2d44d37e22ff02b2b681c2de840a487d1eeddef7cace58b2852bf603",
+      "challenger": "5839aa7373cdd78d4d54cccfa27d7d8b42ffb8acc5d80e08135561335fa2c3fb",
+      "combined": "3d2b3fa4a9b58f7881b80609234904f54fd2db05b21c1f96aac10b5389859bbd"
+    },
+    "frozen_module_sha256": "8b513188aa5a123f29c3225d2a8efa435a56b46a07c1bcc0f8a96e756641e27f",
+    "model_count": 2,
+    "model_sha256": {
+      "eleven_field_residual_challenger": "0ae3e67cfcda420a9c0103959b2c79cac6438d7fadf162b41f36a47919862ab5",
+      "temperature_residual_baseline": "c1ee07eef33016633ebf1ffdf847c7b55d90a2420b198eac7fb07ee88f5c2797"
+    },
+    "models_refitted": 0,
+    "old_amendment_file_sha256": "866d7537440c6d1921128deff04e04ecc03f9bcc6f0b904b0fa1489e302ac152",
+    "old_amendment_sha256": "34be1c1eb27d4a563baef3da00e6c24b9bb3e009f5fc7e41b5329b37f7bfa0e0",
+    "old_evaluator_sha256": "471d8dbd0f0adf97d040ec2351b6ad1b182934dcdc6296ceb8f71a20c69b469f",
+    "probability_models_refitted": 0
+  },
+  "implementation": {
+    "base_commit": "734f14adba7055ba7459db8a9ab4a16983a1b202",
+    "base_tree": "1468c089b62e09a09a13006a1936c32787e4c64b",
+    "exact_commit_bound_by_attempt_seal": true,
+    "files": [
+      {
+        "bytes": 77466,
+        "relative_path": "src/weather/calibration/multiyear_nwp_residual_external_completion.py",
+        "sha256": "97e75db6eb23a948169c0c0dd678d1e3c2bdc626da00dbfb2e9c6bd021d94190"
+      },
+      {
+        "bytes": 12710,
+        "relative_path": "tests/calibration/test_multiyear_nwp_residual_external_completion.py",
+        "sha256": "7368f075b4a241efe5504a1154db60419f9b4ae1c662fc0d4254c6c09fa40725"
+      },
+      {
+        "bytes": 62912,
+        "relative_path": "src/weather/schema_registry_recent_data.py",
+        "sha256": "857079dd0d844d9cfc39e3a01865edbbedb7fa3d2e547b91bfd725a7cf632097"
+      },
+      {
+        "bytes": 77990,
+        "relative_path": "scripts/ops/workload_admission.ps1",
+        "sha256": "29eb0804caacb4cc88609506281dff61b4615bc4b956f405205ae8e8a84a2604"
+      }
+    ],
+    "files_sha256": "a5a6e5e5872a11ca34245477b92dd186dd2d7a4e42f7afe5f33ac58a6379e278",
+    "planned_branch": "codex/workstation-multiyear-nwp-residual-external-completion-2026-09-100h"
+  },
+  "input_binding": {
+    "artifact_root": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\runs\\multiyear-nwp-residual-09-88a\\training",
+    "completion_spec_path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\wu-outcome-admissible-gap-production-export-spec-2026-09-100g.json",
+    "corpus_root": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\pit-12field-20260810",
+    "design_path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\multiyear-nwp-residual-design-2026-09-88a.json",
+    "export_root": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\wu-outcome-admissible-gap-export-20260904-100g",
+    "gap_manifest_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\wu-outcome-gap-manifest.json",
+    "old_amendment_path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\multiyear-nwp-residual-external-amendment-2026-09-88a.json",
+    "old_run_root": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\runs\\multiyear-nwp-residual-09-88a",
+    "original_spec_path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\wu-outcome-gap-production-export-spec-2026-09-100a.json",
+    "outcome_contract_audit": {
+      "accounting": {
+        "admitted_union": 814,
+        "excluded_keys": [
+          [
+            "atlanta",
+            "2026-06-06"
+          ],
+          [
+            "miami",
+            "2026-06-06"
+          ]
+        ],
+        "explicit_exclusions": 2,
+        "final_accounted_cells": 816,
+        "old_admitted": 720,
+        "post_export_keys": 12,
+        "pre_export_keys": 82,
+        "protected_export_requested": 94,
+        "request_overlap_with_old_admitted": 0,
+        "requested_cells": 816
+      },
+      "audit_sha256": "dcd192db032f93fd01bbd6d8698d0b30c26c7f897610c3e23d5a64ed976bf0bc",
+      "completion_spec": {
+        "file_sha256": "d540a5dc43845f87e811aca7670e86f5eada3f5ba8476dd1bdc2aef80bd3518c",
+        "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\wu-outcome-admissible-gap-production-export-spec-2026-09-100g.json",
+        "self_sha256": "6f02e1dcc077c69037017137725931e94d4fd652da976affda12a2109bb67407"
+      },
+      "gap_manifest": {
+        "file_sha256": "6ba020575e3ef1eb903ae0010510caea20f31b31bdf3451c0e03f11175c3de94",
+        "outcome_values_read": 0,
+        "path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\wu-outcome-gap-manifest.json",
+        "self_sha256": "64176a727907c8f62c496f6fb1893c1f7462cfef15c1db3f06ef7b3e244f0ce8"
+      },
+      "original_spec": {
+        "file_sha256": "cf10553a9b041a783bf5caf56b191835e2904474a4bad34dcbc1f6ad934d093f",
+        "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\wu-outcome-gap-production-export-spec-2026-09-100a.json",
+        "self_sha256": "5d370c51da7d95e1d3a62a8ff4f9d66cd3312c5eecfebcbdbaab169be505e0f9"
+      },
+      "portable_validation": {
+        "file_sha256": "92cfd27c7ada4b11cd41141cb0544cc29aa0064e7dcff43fd59691f8c2d84492",
+        "path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-admissible-gap-spec-2026-09-100g\\portable-validation-production-a2.json",
+        "validation_sha256": "747fbc570085cfc26b4de2743c2f16ef802e1dc9fe55701c61cde4668a289d43"
+      },
+      "protected_export": {
+        "acl": {
+          "owner": "S-1-5-32-544",
+          "sddl": "O:BAG:S-1-5-21-1221641991-3242046124-397692008-513D:AI(D;OICI;DCLCRPDTCRSD;;;S-1-5-21-1221641991-3242046124-397692008-1003)(A;OICIID;0x1301bf;;;S-1-5-21-3977061344-3132334682-981458938-2260386927)(A;OICIID;0x1301bf;;;S-1-5-21-1221641991-3242046124-397692008-1002)(A;OICIID;0x1301bf;;;S-1-5-21-2446951142-3294984327-3307767646-1752247055)(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)(A;OICIID;FA;;;S-1-5-21-1221641991-3242046124-397692008-1001)",
+          "sddl_sha256": "81fc4c7e398a1d90d2e3903f8e3c38e01ac4263a1d9d21f861a6dc981abfe14e"
+        },
+        "deny_acl": {
+          "access_rules_protected": false,
+          "owner": "BUILTIN\\Administrators",
+          "qualifying_rules": [
+            {
+              "Identity": "DESKTOP-RFCD2GH\\CodexSandboxOffline",
+              "Inherited": false,
+              "Rights": "DeleteSubdirectoriesAndFiles, Write, Delete",
+              "Type": "Deny"
+            }
+          ]
+        },
+        "file_count": 2,
+        "manifest_file_sha256": "849d7f1241451acfa0d5558d1978a99281c17ea214953b0008d534586190c8d5",
+        "manifest_sha256": "a500d1d0159cc112279a7d94bbe01a22306c741161b15ec98eb9b98556267aaf",
+        "outcome_values_parsed": 0,
+        "payload_bytes": 102295,
+        "payload_sha256": "3cef2fe7553cfd0450e78e7c45deda2d186beb607f34318ead545ce5e3863860",
+        "producer_acl": {
+          "owner": "S-1-5-21-1525964525-1566663060-3901869365-1001",
+          "sddl": "O:S-1-5-21-1525964525-1566663060-3901869365-1001G:S-1-5-21-1525964525-1566663060-3901869365-513D:(A;OICIID;FA;;;SY)(A;OICIID;FA;;;BA)(A;OICIID;FA;;;S-1-5-21-1525964525-1566663060-3901869365-1001)",
+          "sddl_sha256": "a9bb99e56878aca6052cac44238c6cf1d0ac49f6ca9719b0a51bcc5c6392b19d"
+        },
+        "root": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\wu-outcome-admissible-gap-export-20260904-100g"
+      }
+    },
+    "portable_validation_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-admissible-gap-spec-2026-09-100g\\portable-validation-production-a2.json",
+    "prior_audit": {
+      "audit_sha256": "5ab7a914fcf3368c2ba7a6de4de16b0273e37a98b08eea582c889f79a14ad7ce",
+      "design": {
+        "file_sha256": "0667fdc204360122f44e35f2ef31dad5d6f7f53afd83bfd09ba0f0a50874bc65",
+        "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\multiyear-nwp-residual-design-2026-09-88a.json",
+        "self_sha256": "bd4bdb2ebcdd67a498e461b455f77bc9ca5a88f73bb19dae389e4bb28e26c0fb"
+      },
+      "feature_order_sha256": {
+        "baseline": "4e35fe7e2d44d37e22ff02b2b681c2de840a487d1eeddef7cace58b2852bf603",
+        "challenger": "5839aa7373cdd78d4d54cccfa27d7d8b42ffb8acc5d80e08135561335fa2c3fb",
+        "combined": "3d2b3fa4a9b58f7881b80609234904f54fd2db05b21c1f96aac10b5389859bbd"
+      },
+      "frozen_module_sha256": "8b513188aa5a123f29c3225d2a8efa435a56b46a07c1bcc0f8a96e756641e27f",
+      "mirror": {
+        "file_count": 12,
+        "file_inventory_sha256": "74a291ee764dccc54ca410f3e9d4e271cc7a6a678c7ab351cc6865ad6e270a5d",
+        "files": [
+          {
+            "bytes": 888458,
+            "market": "atlanta",
+            "relative_path": "wunderground/katl/daily/daily_summary.csv",
+            "sha256": "1f013bb6cbd6b387184e5c3038f7cdf2f08a66f95342e59be887df6de482f060",
+            "station": "katl"
+          },
+          {
+            "bytes": 868209,
+            "market": "austin",
+            "relative_path": "wunderground/kaus/daily/daily_summary.csv",
+            "sha256": "05852251187f980771f7b08e52e53983314f43f94797677cb7dfc9eafd74be3e",
+            "station": "kaus"
+          },
+          {
+            "bytes": 889680,
+            "market": "chicago",
+            "relative_path": "wunderground/kord/daily/daily_summary.csv",
+            "sha256": "1eff2c8aa1e031298686b054e642dbf1518ed8e3f2efd7f3229f45ee5a5d437e",
+            "station": "kord"
+          },
+          {
+            "bytes": 887289,
+            "market": "dallas",
+            "relative_path": "wunderground/kdal/daily/daily_summary.csv",
+            "sha256": "db631cf6036ede6a64ea18b98c55a1a88dd9e96751c57bf22bccb103d7b31b8b",
+            "station": "kdal"
+          },
+          {
+            "bytes": 874808,
+            "market": "denver",
+            "relative_path": "wunderground/kbkf/daily/daily_summary.csv",
+            "sha256": "52ee59385d6ab5f265394e86acc99d22ec88ae7d92cbca0106e4e5f97cb351b1",
+            "station": "kbkf"
+          },
+          {
+            "bytes": 888882,
+            "market": "houston",
+            "relative_path": "wunderground/khou/daily/daily_summary.csv",
+            "sha256": "2ba8271cd8dc05b962309655ee62a8626bfd14f140867d1bd52de06310ef59fd",
+            "station": "khou"
+          },
+          {
+            "bytes": 876354,
+            "market": "los-angeles",
+            "relative_path": "wunderground/klax/daily/daily_summary.csv",
+            "sha256": "7e05d5d83e5999b975027fba7c86bfe71ba9a2de2829d4b2b0c074952058703f",
+            "station": "klax"
+          },
+          {
+            "bytes": 901582,
+            "market": "miami",
+            "relative_path": "wunderground/kmia/daily/daily_summary.csv",
+            "sha256": "a3d2c6d94462ac73718632def9860bea1ec24884fdc2e27d21681fcd02862440",
+            "station": "kmia"
+          },
+          {
+            "bytes": 893238,
+            "market": "nyc",
+            "relative_path": "wunderground/klga/daily/daily_summary.csv",
+            "sha256": "90e89fb67c48dceffdea43cc7320b35a6f3d163a5f44abc200ae4fcf4f8f4691",
+            "station": "klga"
+          },
+          {
+            "bytes": 876617,
+            "market": "san-francisco",
+            "relative_path": "wunderground/ksfo/daily/daily_summary.csv",
+            "sha256": "5f1560c0a4ac5f236dc9af7e2ed64b6156ebe114bed5e4f5462e9ff0dc472d49",
+            "station": "ksfo"
+          },
+          {
+            "bytes": 878163,
+            "market": "seattle",
+            "relative_path": "wunderground/ksea/daily/daily_summary.csv",
+            "sha256": "c2c5eebc0e8e29f5a4d753d50cd221e57adced8c8bfd5df4ebeb2280086460a7",
+            "station": "ksea"
+          },
+          {
+            "bytes": 2741446,
+            "market": "toronto",
+            "relative_path": "wunderground/cyyz/daily/daily_summary.csv",
+            "sha256": "1ced925a605b6f4e82fa20cbe238b9c91d841a9390da604bc648b630dac920e1",
+            "station": "cyyz"
+          }
+        ],
+        "root": "C:\\Users\\Michael\\Documents\\github\\weather\\data",
+        "semantic_outcome_values_parsed": 0
+      },
+      "models": {
+        "eleven_field_residual_challenger": "0ae3e67cfcda420a9c0103959b2c79cac6438d7fadf162b41f36a47919862ab5",
+        "temperature_residual_baseline": "c1ee07eef33016633ebf1ffdf847c7b55d90a2420b198eac7fb07ee88f5c2797"
+      },
+      "models_refitted": 0,
+      "old_amendment": {
+        "file_sha256": "866d7537440c6d1921128deff04e04ecc03f9bcc6f0b904b0fa1489e302ac152",
+        "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\docs\\roadmap\\multiyear-nwp-residual-external-amendment-2026-09-88a.json",
+        "self_sha256": "34be1c1eb27d4a563baef3da00e6c24b9bb3e009f5fc7e41b5329b37f7bfa0e0"
+      },
+      "old_evaluator": {
+        "file_sha256": "471d8dbd0f0adf97d040ec2351b6ad1b182934dcdc6296ceb8f71a20c69b469f",
+        "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\multiyear-nwp-residual-external-completion-09-100h\\src\\weather\\calibration\\multiyear_nwp_residual_external.py"
+      },
+      "old_run": {
+        "bytes": 1367357,
+        "file_count": 11,
+        "inventory": [
+          {
+            "bytes": 1151,
+            "relative_path": "external-2026/external-evaluation-attempt.json",
+            "sha256": "e8a3e19da0798fef56c74bca98c6fec798d3d3f99dd253f0c600532c8cc217d3"
+          },
+          {
+            "bytes": 74478,
+            "relative_path": "p0-post.json",
+            "sha256": "be25eab1e4ca4199022183b3e1c1709cbf8f3af1cb559303e6c3a9ef389d9ee1"
+          },
+          {
+            "bytes": 74477,
+            "relative_path": "p0-pre.json",
+            "sha256": "d997534449f60ffd27b5f21688cfc2f4fec78f0338eeab57ea3362ffeb5f2d95"
+          },
+          {
+            "bytes": 1080,
+            "relative_path": "result-verification.json",
+            "sha256": "049488d4ad679f80226471ae424f8dcb6555cab13e219181e656a9a433b3f5d9"
+          },
+          {
+            "bytes": 151155,
+            "relative_path": "terminal/evaluation-records.csv",
+            "sha256": "6888cdf6655448defd5b46b811ecd9bcf36b397b425b8322f37d083619a9b876"
+          },
+          {
+            "bytes": 41666,
+            "relative_path": "terminal/result.json",
+            "sha256": "1bb76d52daadecc2a4f978af56a0476c9ee43ae9ac097a8162630b51c803a656"
+          },
+          {
+            "bytes": 481,
+            "relative_path": "terminal/terminal-evaluation-attempt.json",
+            "sha256": "c596d921ebeb3c37b44a3d49989813d53289057bba02f8896aadd82fbe92b8cd"
+          },
+          {
+            "bytes": 481566,
+            "relative_path": "training/eleven-field-residual-challenger.pkl",
+            "sha256": "0ae3e67cfcda420a9c0103959b2c79cac6438d7fadf162b41f36a47919862ab5"
+          },
+          {
+            "bytes": 435499,
+            "relative_path": "training/temperature-residual-baseline.pkl",
+            "sha256": "c1ee07eef33016633ebf1ffdf847c7b55d90a2420b198eac7fb07ee88f5c2797"
+          },
+          {
+            "bytes": 10927,
+            "relative_path": "training/training-receipt.json",
+            "sha256": "5581c517e8a76399e7e0bdbac1c31ec059d67be977a0f7b54057d602018571b8"
+          },
+          {
+            "bytes": 94877,
+            "relative_path": "training/training-records.csv",
+            "sha256": "09fb7e37ba54b2dd93ef9fc85707fde17be5de05a87bf45966d725ab509d4026"
+          }
+        ],
+        "inventory_sha256": "0b0798b78b90204ba3447cacf7012f6e5bc99fe4719debe85667b054b1e2cd77",
+        "old_2025_outcome_values_accessed": 0,
+        "root": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\runs\\multiyear-nwp-residual-09-88a",
+        "spent_external_attempt_file_sha256": "e8a3e19da0798fef56c74bca98c6fec798d3d3f99dd253f0c600532c8cc217d3",
+        "spent_external_attempt_sha256": "55d7dfe0dd9fe45ecd0926931dfcca4376765ccec1751c0036053efcafc9d86b"
+      },
+      "outcome_values_parsed": 0,
+      "probability_models_refitted": 0,
+      "transfer": {
+        "combined_rows": 1645056,
+        "csv_count": 24,
+        "csv_inventory_sha256": "baf1b2fa6310e7bbe7a5429abe8a0c6dc3acbb97d45fa5d788977d068ac0e2cb",
+        "files": [
+          {
+            "bytes": 4409881,
+            "relative_path": "front/atlanta_previous_runs_long_front.csv",
+            "sha256": "5cc5e1fccaab30fcd6cd7cea51e38fbb3239156862fa001e745f63b198581683"
+          },
+          {
+            "bytes": 4371965,
+            "relative_path": "front/austin_previous_runs_long_front.csv",
+            "sha256": "902ac0ede133e78fee09a4d89ceab49a06930b14ba6e393e24e579d69271a5c0"
+          },
+          {
+            "bytes": 4409111,
+            "relative_path": "front/chicago_previous_runs_long_front.csv",
+            "sha256": "733b8f0c14866982d70cc5cec2f1680a1abedb43a91c86d125714613a1c110ae"
+          },
+          {
+            "bytes": 4372094,
+            "relative_path": "front/dallas_previous_runs_long_front.csv",
+            "sha256": "2f4651cbd5b1288c64605e71d0ab837b22ecc3d0ef67ae45c017c1869cf44084"
+          },
+          {
+            "bytes": 4364512,
+            "relative_path": "front/denver_previous_runs_long_front.csv",
+            "sha256": "6e1594ebad156456df45607cd513aa33f28fcfefce0ebb4a8a09517e7bda7a9d"
+          },
+          {
+            "bytes": 4414734,
+            "relative_path": "front/houston_previous_runs_long_front.csv",
+            "sha256": "532b74b48a0e5d03e4de5c002e206fb97ff1d4df2d9490d3a847964bcb095a9d"
+          },
+          {
+            "bytes": 4568943,
+            "relative_path": "front/los-angeles_previous_runs_long_front.csv",
+            "sha256": "72f0e3e945fac2edbbba7663297abe64bb45c07a4339ab6bc016cf45e6b5fd4b"
+          },
+          {
+            "bytes": 5481,
+            "relative_path": "front/manifest.json",
+            "sha256": "f1366001341ad6bf96242dc42a9ed47310051079a033e035e850f0f486d1d28d"
+          },
+          {
+            "bytes": 4330216,
+            "relative_path": "front/miami_previous_runs_long_front.csv",
+            "sha256": "7500668092290ba548b1db15a184dd6635db98c45fc301f3472f9088366ee344"
+          },
+          {
+            "bytes": 4238168,
+            "relative_path": "front/nyc_previous_runs_long_front.csv",
+            "sha256": "c35af4490572f88a0ecac6d116aeaa2b301d7741e9743ed1a31197e275ff578c"
+          },
+          {
+            "bytes": 4653955,
+            "relative_path": "front/san-francisco_previous_runs_long_front.csv",
+            "sha256": "2db9ea0aba717c5c4d06e486bbbdfc6231855bb214d08d2fbccfe7282e5dfa7a"
+          },
+          {
+            "bytes": 4403676,
+            "relative_path": "front/seattle_previous_runs_long_front.csv",
+            "sha256": "f6cd0640287d8d280e58f7480d7b69fdf91e8028e46ea18ce21a4751b0f05074"
+          },
+          {
+            "bytes": 4397739,
+            "relative_path": "front/toronto_previous_runs_long_front.csv",
+            "sha256": "9a358688f1e39963938911a191f74246c8f66c16dbc78ff12a63eba6736aede4"
+          },
+          {
+            "bytes": 9872148,
+            "relative_path": "back/atlanta_previous_runs_long.csv",
+            "sha256": "bd9010343e3be211c7c48e50b4736f495d75f0be9bea85d27bf8c67c78fa6f45"
+          },
+          {
+            "bytes": 9776974,
+            "relative_path": "back/austin_previous_runs_long.csv",
+            "sha256": "a8b49d2cc11dcc05b64dbb7f15aa149ed4a9cf2bc58c058f0bfb8a9da9cd8354"
+          },
+          {
+            "bytes": 4129,
+            "relative_path": "back/check_corpus_gate.py",
+            "sha256": "e341004a21985fc15dab425d242f9c3c888580dfc65dc4c53abab2d5fbf3332e"
+          },
+          {
+            "bytes": 9866946,
+            "relative_path": "back/chicago_previous_runs_long.csv",
+            "sha256": "29a19dc96c996a58140cb71c3f9576ef7ece3317becf4282f8759f719952d346"
+          },
+          {
+            "bytes": 2882,
+            "relative_path": "back/CORPUS.md",
+            "sha256": "de23f11319fe229506516e493da804ebd4f0a88702f178e0b37cba45e0e329e3"
+          },
+          {
+            "bytes": 9775250,
+            "relative_path": "back/dallas_previous_runs_long.csv",
+            "sha256": "aa151a1dd3843cc2ebe718a31ff93497bc0162aaafd212cd3ef881f95f0283a6"
+          },
+          {
+            "bytes": 9766963,
+            "relative_path": "back/denver_previous_runs_long.csv",
+            "sha256": "d73d5f394cbd418cf892cbe6df0cadc9a52e6e1a19abff815e1cc7cfc3dd8c12"
+          },
+          {
+            "bytes": 9873902,
+            "relative_path": "back/houston_previous_runs_long.csv",
+            "sha256": "9ee424ac3edb9144dfa05a6bbfb87bc689b9dd4bead1c8825edc43d87958fca0"
+          },
+          {
+            "bytes": 10224977,
+            "relative_path": "back/los-angeles_previous_runs_long.csv",
+            "sha256": "37d0ad44390a7e71ae2889b655be56937ed4ac6c66c3035e7f4db93ab8075854"
+          },
+          {
+            "bytes": 5427,
+            "relative_path": "back/manifest.json",
+            "sha256": "0f52e100a979e5aeb2949d94734682045b5fa294ca0f0cb0d88c1de078ebc735"
+          },
+          {
+            "bytes": 9692945,
+            "relative_path": "back/miami_previous_runs_long.csv",
+            "sha256": "a0facfac5112d49a56c9726aec3a2747ea357bd04d31e5fc0f6fe25d73dee820"
+          },
+          {
+            "bytes": 9489172,
+            "relative_path": "back/nyc_previous_runs_long.csv",
+            "sha256": "7c7d23c16f284ac6b0484ae04c3ebce65b205f21f566e2f143354415b1ef7d19"
+          },
+          {
+            "bytes": 10416766,
+            "relative_path": "back/san-francisco_previous_runs_long.csv",
+            "sha256": "6214b087a0c1cb5b2228d48c6c035f27bb6db672ba47b57378e326e7af56b40d"
+          },
+          {
+            "bytes": 9851393,
+            "relative_path": "back/seattle_previous_runs_long.csv",
+            "sha256": "1237217be844139cd8c30af4bf292ebeafeb7c7e0d6da6f2ff24f70fc863ec30"
+          },
+          {
+            "bytes": 9840791,
+            "relative_path": "back/toronto_previous_runs_long.csv",
+            "sha256": "7635ebbab6b371eec6eaa22029093835acb3d2c04ec6dbc3d86121b81ddaa71e"
+          }
+        ],
+        "manifest_sha256": "1794455e40f967411d05660ff4ac785e1fab48caccb8fbdfb3df7aa31438712a",
+        "outcomes_read": false,
+        "payload_bytes": 171401140,
+        "payload_count": 28,
+        "payload_inventory_sha256": "c2502bd1865eb323a3ee6337c14be9043167382215aa8fb29cb4ea020978545c",
+        "provider_contacted": false,
+        "root": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\pit-12field-20260810",
+        "schema_version": "multiyear_nwp_residual_external_transfer_v1",
+        "status": "PASS",
+        "transfer_sha256": "baaf46a447744c5acbb68708fcc5c19130f98e564a808e9617f08ae340b512dc"
+      }
+    }
+  },
+  "methods": {
+    "bootstrap": {
+      "draws": 20000,
+      "interval": "percentile 95%",
+      "mde_80": "(z_0.975 + z_0.8) * crossed bootstrap standard error",
+      "method": "shared-weight crossed target-date x market pigeonhole bootstrap",
+      "power": "two-sided normal plug-in at alpha=0.05",
+      "seed": 8802026
+    },
+    "errors": "forecast minus outcome in Celsius-equivalent units",
+    "estimators": "exact two already-fitted frozen estimators",
+    "features": "exact frozen preprocessing and feature order",
+    "improvement": "baseline loss minus challenger loss",
+    "minimum_wu_daily_rows": 18,
+    "model_refits": 0,
+    "native_units": {
+      "atlanta": "F",
+      "austin": "F",
+      "chicago": "F",
+      "dallas": "F",
+      "denver": "F",
+      "houston": "F",
+      "los-angeles": "F",
+      "miami": "F",
+      "nyc": "F",
+      "san-francisco": "F",
+      "seattle": "F",
+      "toronto": "C"
+    },
+    "pooled_headline": false,
+    "primary_leads": [
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "probability_model_refits": 0,
+    "sensitivity_leads": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "separate_reporting": [
+      "pre_boundary",
+      "post_boundary_directional"
+    ]
+  },
+  "mission": {
+    "result_branch": "codex/workstation-multiyear-nwp-residual-external-completion-2026-09-100h",
+    "sha256": "5824c7123d837f80cb4ffd9c80fb594e058b8b3bcb807557a09e57b10a77b36b",
+    "source": {
+      "complete_history_bundle": {
+        "bytes": 517258762,
+        "path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-admissible-gap-spec-2026-09-100g\\publication-transfer-final.bundle",
+        "sha256": "0fa455f058c2663e3d8d8ea9d9b66212fe6422ec3aa08f9bf1d0b9a9b9e9f8ef"
+      },
+      "implementation_is_ancestor": true,
+      "source_branch": "codex/workstation-wu-outcome-admissible-gap-spec-2026-09-100g",
+      "source_implementation": "e47857bad276e767f15baa98ccf0347cf2048ec0",
+      "source_implementation_tree": "e92bd4e4683d925d8bf961bc4dd751cb00322a5a",
+      "source_tip": "734f14adba7055ba7459db8a9ab4a16983a1b202",
+      "source_tree": "1468c089b62e09a09a13006a1936c32787e4c64b",
+      "terminal_receipt": {
+        "bytes": 5110,
+        "path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-admissible-gap-spec-2026-09-100g\\attempt-1\\terminal-receipt.json",
+        "sha256": "61552b4157cbe899cdaef05f12a3161b4b2898960a095c79445a6692d500e0c2"
+      }
+    }
+  },
+  "outcome_sources": {
+    "frozen_workstation_wu_mirror": {
+      "authority": "configured WU daily-summary native settlement high",
+      "expected_admitted_keys": 720,
+      "frozen_read_only": true
+    },
+    "overlap_permitted": false,
+    "protected_production_export": {
+      "authority": "exact protected production WU export",
+      "expected_admitted_keys": 94,
+      "frozen_read_only": true,
+      "manifest_file_sha256": "849d7f1241451acfa0d5558d1978a99281c17ea214953b0008d534586190c8d5",
+      "payload_sha256": "3cef2fe7553cfd0450e78e7c45deda2d186beb607f34318ead545ce5e3863860"
+    }
+  },
+  "outcome_values_parsed_before_freeze": 0,
+  "p0_precreation_proof": {
+    "assigned_principal": "DESKTOP-RFCD2GH\\Michael",
+    "controller_and_source_clean": true,
+    "controller_head": "734f14adba7055ba7459db8a9ab4a16983a1b202",
+    "controller_tree": "1468c089b62e09a09a13006a1936c32787e4c64b",
+    "poison_marker_absent": true,
+    "reserved_dates": [],
+    "result_ref_absent": true,
+    "result_run_root_absent": true,
+    "result_worktree_absent": true,
+    "shared_mutex_free": true
+  },
+  "prohibited_actions": [
+    "provider, network, market-data, production, Scheduler, exchange, or credential access",
+    "live trade, order, cancel, promotion, serving, release, candidate freeze, confirmation-window declaration, or alpha allocation",
+    "model fit, partial_fit, probability-model fit, or model write",
+    "2025 outcome access or use of a reserved date",
+    "pooling across b77cfbed / 2026-07-31",
+    "lowering the 18-row threshold, imputing exclusions, dropping a market, or changing any feature, estimator, lead, bootstrap, seed, or decision rule",
+    "mutation of any frozen corpus, export, mirror, old run, prior amendment, or prior evaluator",
+    "branch merge or history rewrite"
+  ],
+  "provenance_boundary": {
+    "anchor": "b77cfbed",
+    "cohorts_must_never_be_pooled": true,
+    "first_post_boundary_date": "2026-07-31"
+  },
+  "purpose": "Leakage-safe no-refit external-secondary completion of the frozen 2026 residual-model evaluation; directional and non-confirmatory.",
+  "result_contract": {
+    "attempt": "external-completion-attempt.json",
+    "create_only": true,
+    "records": {
+      "post_boundary_directional": "post-boundary-directional-records.csv",
+      "pre_boundary": "pre-boundary-records.csv"
+    },
+    "rerun_authorized": false,
+    "result": "result.json",
+    "root": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\runs\\multiyear-nwp-residual-external-completion-09-100h",
+    "verification": "result-verification.json"
+  },
+  "schema_version": "multiyear_nwp_residual_external_completion_amendment_v1",
+  "status": "IMMUTABLE_BEFORE_COMPLETION_OUTCOME_ACCESS",
+  "support_accounting": {
+    "admitted_export": 94,
+    "admitted_old": 720,
+    "admitted_union": 814,
+    "all_12_markets_must_be_represented": true,
+    "all_68_dates_must_be_represented": true,
+    "excluded_keys": [
+      [
+        "atlanta",
+        "2026-06-06"
+      ],
+      [
+        "miami",
+        "2026-06-06"
+      ]
+    ],
+    "exclusions": 2,
+    "post_admitted": 120,
+    "post_dates": 10,
+    "post_exclusions": 0,
+    "post_expected": 120,
+    "pre_admitted": 694,
+    "pre_dates": 58,
+    "pre_exclusions": 2,
+    "pre_expected": 696,
+    "requested_cells": 816
+  }
+}
