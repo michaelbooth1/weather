@@ -1,16 +1,18 @@
 {
     "schema_version":  "workstation_unattended_mission_handback_v0.1",
-    "mission_id":  "workstation-multiyear-nwp-residual-external-completion-2026-09-100h",
-    "mission_sha256":  "5824c7123d837f80cb4ffd9c80fb594e058b8b3bcb807557a09e57b10a77b36b",
+    "mission_id":  "workstation-multiyear-nwp-residual-external-completion-publication-repair-2026-09-100i",
+    "mission_sha256":  "60a11e44ab63d8b33ef4fc25dbe3f6b8a5b834adf5e9f4a3165c57ccbe7fcdcb",
     "source_tip":  "734f14adba7055ba7459db8a9ab4a16983a1b202",
     "source_tree":  "1468c089b62e09a09a13006a1936c32787e4c64b",
-    "result_ref":  "refs/heads/codex/workstation-multiyear-nwp-residual-external-completion-2026-09-100h",
+    "base_tip":  "2e20e59aae08e7367dc79e1b8102c0551e7f6904",
+    "base_tree":  "f3855fcd456fa81df8486bf02d0f21de833ea4ff",
+    "result_ref":  "refs/heads/codex/workstation-multiyear-nwp-residual-external-completion-publication-repair-2026-09-100i",
     "implementation_tip":  "8741047c8eca9ebbc31fc7178c1eafe0ac8ae457",
     "implementation_tree":  "5473d10d3ce90c72019f5b70acc188d20973639d",
     "report_path":  "docs/roadmap/agent-report-2026-09-04-workstation-multiyear-nwp-residual-external-completion.md",
-    "report_file_sha256":  "195ded8c58999d2ed841a77bc67b7fad478a6847da9962241065d515c85a644a",
+    "report_file_sha256":  "49940e9d7d792d77ba62e9d039d0ff7ccaa6579c5c2f085d3ebbabd1e5c5de4e",
     "receipt_path":  "docs/roadmap/workstation-handback-2026-09-04-multiyear-nwp-residual-external-completion.json",
-    "bundle_path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-multiyear-nwp-residual-external-completion-2026-09-100h\\publication-transfer-final.bundle",
+    "bundle_path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-multiyear-nwp-residual-external-completion-publication-repair-2026-09-100i\\publication-transfer-final.bundle",
     "changed_paths":  [
                           ".codex/hooks/pre_tool_use_host_load.py",
                           "docs/roadmap/active-backlog.md",
@@ -133,6 +135,16 @@
                           "scripts/ops/workstation_heavy.ps1":  "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532",
                           "scripts/ops/workload_admission.ps1":  "29eb0804caacb4cc88609506281dff61b4615bc4b956f405205ae8e8a84a2604"
                       },
+    "terminal_state_semantics":  {
+                                      "COMPLETE_VALIDATED":  0,
+                                      "CHILD_FAILURE":  20,
+                                      "DEADLINE":  21,
+                                      "INTERRUPTED":  22,
+                                      "INVALID_HANDBACK":  23,
+                                      "IDENTITY_DRIFT":  24,
+                                      "TEARDOWN_FAILURE":  25,
+                                      "RUNNER_FAILURE":  26
+                                  },
     "measured_evidence":  {
                               "verdict":  "EXTERNAL_DIRECTION_CONSISTENT",
                               "evidence_classification":  {
@@ -225,11 +237,14 @@
                                                   "failure_proof_base_temp":  "C:\\t\\f100h"
                                               },
                               "publication":  {
-                                                  "complete_history_bundle_pending_after_final_commit":  true,
-                                                  "noninteractive_push_pending_after_bundle":  true,
+                                                  "receipt_only_publication_repair":  true,
+                                                  "complete_history_bundle_created_and_verified_after_final_commit":  true,
+                                                  "runner_terminal_receipt_is_final_tip_tree_and_bundle_hash_authority":  true,
+                                                  "push_requested_or_performed":  false,
                                                   "weakened_authentication":  false
                                               }
                           },
+    "remaining_reboot_boundary":  "No reboot is required for this receipt-only publication repair; any future production adoption remains outside this mission and requires its own authority and gates.",
     "prohibited_actions":  {
                                "production_host_contact":  false,
                                "scheduler_access_or_mutation":  false,
@@ -253,11 +268,15 @@
                                "git_history_rewrite":  false,
                                "pull_request_action":  false,
                                "evaluation_attempt_rerun":  false,
+                               "protected_wu_export_access":  false,
+                               "source_outcome_file_access":  false,
+                               "model_binary_access":  false,
+                               "result_run_file_access":  false,
                                "existing_evidence_modified_or_deleted":  false,
                                "weakened_git_authentication":  false
                            },
     "external_binding":  {
-                             "rule":  "post_commit_local_verification_binds_final_result_tip_tree_and_complete_history_bundle_sha256",
+                             "rule":  "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
                              "final_tip":  null,
                              "final_tree":  null,
                              "bundle_sha256":  null
