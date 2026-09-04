@@ -1,0 +1,247 @@
+{
+  "schema_version": "workstation_unattended_mission_handback_v0.1",
+  "mission_id": "workstation-wu-outcome-exporter-request-scope-repair-2026-09-100f",
+  "mission_sha256": "8831c39776c5093cbef4d27a692f52d937cb2f9b21ef4938e57c47ba88cde481",
+  "source_tip": "164acb745275744768702ecaf41b8fb936ec1745",
+  "source_tree": "1f575f08ec89e39d540ed3ea0071f0c2878c6914",
+  "source_sole_parent": "93f8fcfede0b0767caacfb3de3e460837f922c8a",
+  "base_tip": "2e20e59aae08e7367dc79e1b8102c0551e7f6904",
+  "base_tree": "f3855fcd456fa81df8486bf02d0f21de833ea4ff",
+  "result_ref": "refs/heads/codex/workstation-wu-outcome-exporter-request-scope-repair-2026-09-100f",
+  "implementation_tip": "dd926395e7b4dd42a7dd4f98c1aee1b9a4921d76",
+  "implementation_tree": "0e610f85a3ce908fa177121cc711a5aa6ad56e21",
+  "report_path": "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-exporter-request-scope-repair.md",
+  "receipt_path": "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-exporter-request-scope-repair.json",
+  "bundle_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-exporter-request-scope-repair-2026-09-100f\\publication-transfer-final.bundle",
+  "changed_paths": [
+    "docs/operations/WU_OUTCOME_EXPORT_CONTRACT.md",
+    "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-exporter-request-scope-repair.md",
+    "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-exporter-request-scope-repair.json",
+    "src/weather/operations/wu_outcome_production_exporter.py",
+    "tests/operations/test_wu_outcome_production_exporter.py"
+  ],
+  "tests": [
+    {
+      "name": "p0_exact_identity_and_prior_terminal_evidence",
+      "status": "PASS",
+      "source_objects_parent_tree_and_ancestry": true,
+      "clean_root_source_controller": true,
+      "result_ref_and_worktree_initially_absent": true,
+      "assigned_host_and_principal": true,
+      "shared_mutex_available": true,
+      "poison_marker_absent": true,
+      "conflicting_worker_absent": true,
+      "outer_100e_complete_validated": true
+    },
+    {
+      "name": "pre_repair_request_scope_falsifier",
+      "status": "PASS",
+      "defect_reproduced": true,
+      "observed_reason": "E_DAILY_SCHEMA"
+    },
+    {
+      "name": "focused_wu_export_contract_and_production_exporter",
+      "status": "PASS",
+      "passed": 86,
+      "seconds": 57.11,
+      "synthetic_sources_only": true
+    },
+    {
+      "name": "compileall_app_src_tests",
+      "status": "PASS"
+    },
+    {
+      "name": "import_schema_module_size_wrapper_hook_ratchets",
+      "status": "PASS",
+      "passed": 91,
+      "skipped": 15,
+      "seconds": 16.04
+    },
+    {
+      "name": "agent_document_audit",
+      "status": "PASS",
+      "agent_files": 18,
+      "markdown_files": 840
+    },
+    {
+      "name": "roadmap_lint_check",
+      "status": "PASS",
+      "generated_report_matches_sources": true
+    },
+    {
+      "name": "complete_workstation_suite",
+      "status": "PASS",
+      "passed": 4439,
+      "skipped": 18,
+      "warnings": 13,
+      "subtests_passed": 866,
+      "seconds": 483.87,
+      "complete_suite_repeated": false
+    },
+    {
+      "name": "explicit_request_scope_split_root_portable_acl_leak_proof",
+      "status": "PASS",
+      "passed": 15,
+      "seconds": 13.94,
+      "synthetic_sources_only": true
+    },
+    {
+      "name": "outcome_output_leak_audit",
+      "status": "PASS",
+      "stdout_and_stderr_expose_only_allowed_metadata": true,
+      "report_exposes_no_outcome_value": true
+    },
+    {
+      "name": "cumulative_git_diff_check",
+      "status": "PASS"
+    },
+    {
+      "name": "generic_runner_handback_contract",
+      "status": "PASS",
+      "schema": "workstation_unattended_mission_handback_v0.1",
+      "external_binding_preterminal_exact": true,
+      "all_test_rows_literal_pass": true,
+      "script_hashes_match": true,
+      "boundary_declarations_nonempty": true
+    }
+  ],
+  "script_sha256": {
+    "scripts/ops/windows_kill_on_close_job.ps1": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+    "scripts/ops/workstation_heavy.ps1": "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532",
+    "scripts/ops/workload_admission.ps1": "1d2a291caa0aa9fcea5baa80efcce88a79ebda3cb717425be54d8bb5acdae947"
+  },
+  "terminal_state_semantics": {
+    "COMPLETE_VALIDATED": 0,
+    "CHILD_FAILURE": 20,
+    "DEADLINE": 21,
+    "INTERRUPTED": 22,
+    "INVALID_HANDBACK": 23,
+    "IDENTITY_DRIFT": 24,
+    "TEARDOWN_FAILURE": 25,
+    "RUNNER_FAILURE": 26
+  },
+  "measured_evidence": {
+    "verdict": "COMPLETE_WORKSTATION_QUALIFIED_REQUEST_SCOPE_REPAIR",
+    "implementation_changed": true,
+    "implementation_commit_count": 1,
+    "implementation_changed_path_count": 3,
+    "production_export_executed": false,
+    "real_production_sources_opened": false,
+    "synthetic_sources_only": true,
+    "request_scope_repair": {
+      "market_count": 12,
+      "requested_rows": 96,
+      "requested_dates_per_market": 8,
+      "requested_dates_derived_independently_per_market": true,
+      "exact_selected_set_equality_required": true,
+      "irrelevant_semantic_rows_accepted": true,
+      "requested_semantic_faults_rejected": true,
+      "whole_file_csv_structure_remains_strict": true,
+      "byte_identical_two_destination_output": true,
+      "source_file_count_bound": 24,
+      "all_source_bytes_and_hashes_stable": true
+    },
+    "retained_100e_proofs": {
+      "split_root_export_passed": true,
+      "data_and_spec_worktrees_clean": true,
+      "portable_copy_exact_manifest_hash_required": true,
+      "portable_copy_exact_payload_hash_required": true,
+      "default_acl_equality_preserved": true,
+      "artifact_files_unchanged": true,
+      "stdout_stderr_outcome_leak_absent": true
+    },
+    "module_lines": {
+      "src/weather/operations/wu_outcome_export_contract.py": 1276,
+      "src/weather/operations/wu_outcome_production_exporter.py": 1049
+    },
+    "frozen_spec": {
+      "path": "docs/roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json",
+      "file_sha256": "cf10553a9b041a783bf5caf56b191835e2904474a4bad34dcbc1f6ad934d093f",
+      "self_hash": "5d370c51da7d95e1d3a62a8ff4f9d66cd3312c5eecfebcbdbaab169be505e0f9"
+    },
+    "outer_100e": {
+      "terminal_state": "COMPLETE_VALIDATED",
+      "exit_code": 0,
+      "terminal_receipt_sha256": "b8710b8db4afcd82e2c521b65a8f0d9e8bde386f9dc72f27610706e3041c187e",
+      "implementation_tip": "93f8fcfede0b0767caacfb3de3e460837f922c8a",
+      "implementation_tree": "d8e2e13cadc252a5db04670449e75fa34f90a730",
+      "final_tip": "164acb745275744768702ecaf41b8fb936ec1745",
+      "final_tree": "1f575f08ec89e39d540ed3ea0071f0c2878c6914",
+      "bundle_sha256": "39a999bde992260ddeca3c93afd96552444da4a6df6313decbe889254a392e49"
+    },
+    "sealed_production_attempt_evidence": {
+      "source": "mission_supplied_external_facts_only",
+      "terminal_reason": "E_DAILY_BUCKET",
+      "published_file_count": 0,
+      "final_and_staging_absent": true,
+      "outcome_values_printed": 0,
+      "production_contacted_from_workstation": false
+    },
+    "workstation": {
+      "host": "DESKTOP-RFCD2GH",
+      "principal": "DESKTOP-RFCD2GH\\Michael",
+      "runner_host_id": "31240dff4b7af1a8bff9df37a1f26424b5cf1ab03764ec39769cff4a1ce6f5ee",
+      "runner_principal_id": "d501209aea15eecd4334a10fb6c49532ccf94b2358b409d4a718d3938969221e",
+      "full_suite_base_temp": "C:\\t\\w100f-f1-dd926395",
+      "proof_base_temp": "C:\\t\\w100f-proof-dd926395"
+    },
+    "runner": {
+      "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\unattended-runner-portable-binding-repair-09-99c\\scripts\\ops\\invoke_workstation_codex_mission.ps1",
+      "bytes": 58279,
+      "sha256": "50dc332d687704047c6c1a440ca4352af1246466a8873df6225e052a5915e9c8",
+      "validator_function": "Assert-Handback",
+      "claim_sha256": "ad79576c12127a5226b43c1260c7f8b0ad007e248186ae347afc062b6c7ad566"
+    },
+    "job_helper": {
+      "bytes": 16406,
+      "sha256": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243"
+    },
+    "roll_verdict": {
+      "status": "UNDECIDABLE",
+      "reason_code": "NO_LIVE_CLOSURE_EVIDENCE",
+      "exit_code": 1,
+      "derived_manually": false
+    },
+    "complete_suite_repeated": false,
+    "gap_or_spec_regenerated": false,
+    "outcome_values_opened": false,
+    "post_commit_binding_owner": "unchanged outer runner terminal receipt"
+  },
+  "remaining_reboot_boundary": "A reboot destroys the in-memory Job and outer-runner state. Attempt 1 is the sole authorized attempt; the committed pre-terminal receipt is not publication authority until the unchanged runner creates a COMPLETE_VALIDATED terminal receipt binding the final tip, tree, bundle SHA-256, and committed report/receipt blob identities.",
+  "prohibited_actions": {
+    "production_host_contact": false,
+    "scheduler_access_or_mutation": false,
+    "credential_access": false,
+    "provider_access": false,
+    "exchange_access": false,
+    "github_or_remote_access": false,
+    "market_data_or_price_access": false,
+    "real_production_data_access": false,
+    "real_wu_file_access": false,
+    "real_export_access": false,
+    "production_export_invocation": false,
+    "corpus_or_ledger_mutation": false,
+    "outcome_value_access": false,
+    "wu_gap_or_spec_regeneration": false,
+    "model_refit": false,
+    "probability_generation": false,
+    "prediction_scoring_or_metrics": false,
+    "campaign_or_promotion": false,
+    "live_action": false,
+    "git_fetch_or_pull": false,
+    "git_merge": false,
+    "git_push": false,
+    "pull_request_action": false,
+    "prior_attempt_rerun": false,
+    "complete_suite_rerun": false,
+    "existing_production_evidence_modified_or_deleted": false,
+    "old_worktree_or_branch_cleanup": false,
+    "daemon_started": false
+  },
+  "external_binding": {
+    "rule": "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
+    "final_tip": null,
+    "final_tree": null,
+    "bundle_sha256": null
+  }
+}
