@@ -1,0 +1,180 @@
+{
+  "schema_version": "workstation_unattended_mission_handback_v0.1",
+  "mission_id": "workstation-unattended-runner-linux-collection-repair-2026-09-99f",
+  "mission_sha256": "6e58c8a813a6941aeba37ae39ff43a34d41320d534dfea0ae58667afb0b84f48",
+  "source_tip": "7c58e55e156bbd486fbd0fbf977ff9db9864f657",
+  "source_tree": "0bddaae7997b88a3eb0a1cdb10a07d9aee761dae",
+  "source_sole_parent": "215c7a661e02672ca4aab96d1eba122ed6e03c60",
+  "base_tip": "ca75c2e476e865047f07dc9856e5897533834684",
+  "base_tree": "1c2a7fd18dacc84c6a0e9abd4afe837c0bab3801",
+  "result_ref": "refs/heads/codex/workstation-unattended-runner-linux-collection-repair-2026-09-99f",
+  "implementation_tip": "bf756a3e16d99cb0996d256af82d74221e9829b7",
+  "implementation_tree": "8a398b51cb2bc5ebbce7c1c85286114109021f7b",
+  "report_path": "docs/roadmap/agent-report-2026-09-04-workstation-unattended-runner-linux-collection-repair-acceptance-scoped.md",
+  "receipt_path": "docs/roadmap/workstation-handback-2026-09-04-unattended-runner-linux-collection-repair-acceptance-scoped.json",
+  "bundle_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-runner-linux-collection-repair-2026-09-99f\\publication-transfer-final.bundle",
+  "changed_paths": [
+    "docs/roadmap/agent-report-2026-09-04-workstation-unattended-runner-linux-collection-repair-acceptance-scoped.md",
+    "docs/roadmap/workstation-handback-2026-09-04-unattended-runner-linux-collection-repair-acceptance-scoped.json",
+    "tests/operations/test_workstation_codex_mission_runner.py"
+  ],
+  "tests": [
+    {
+      "name": "complete_workstation_codex_mission_runner_operation_file",
+      "status": "PASS",
+      "counts": {
+        "passed": 16,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "seconds": 34.214,
+      "junit_bytes": 2826,
+      "junit_sha256": "68b7eb6fbfd6fb9af2478233027f68e8efd5df2e77ff5a157c98152e1cf4487e",
+      "temp_root": "C:\\t99f-a1-6e58c8a8",
+      "windows_skip_fired": false
+    },
+    {
+      "name": "compileall",
+      "status": "PASS",
+      "arguments": [
+        "-m",
+        "compileall",
+        "-q",
+        "app",
+        "src",
+        "tests"
+      ]
+    },
+    {
+      "name": "agent_document_audit_and_roadmap_lint_check",
+      "status": "PASS",
+      "counts": {
+        "passed": 2
+      },
+      "seconds": 0.867,
+      "junit_bytes": 391,
+      "junit_sha256": "e9bdaf1295f7a4160bbd9052e091097009900d45950b19c659fd5a9ca8198d99"
+    },
+    {
+      "name": "cumulative_git_diff_check",
+      "status": "PASS",
+      "source_tip": "7c58e55e156bbd486fbd0fbf977ff9db9864f657",
+      "implementation_tip": "bf756a3e16d99cb0996d256af82d74221e9829b7"
+    }
+  ],
+  "script_sha256": {
+    "scripts/ops/invoke_workstation_codex_mission.ps1": "50dc332d687704047c6c1a440ca4352af1246466a8873df6225e052a5915e9c8",
+    "scripts/ops/windows_kill_on_close_job.ps1": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+    "scripts/ops/workstation_heavy.ps1": "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532"
+  },
+  "terminal_state_semantics": {
+    "COMPLETE_VALIDATED": 0,
+    "CHILD_FAILURE": 20,
+    "DEADLINE": 21,
+    "INTERRUPTED": 22,
+    "INVALID_HANDBACK": 23,
+    "IDENTITY_DRIFT": 24,
+    "TEARDOWN_FAILURE": 25,
+    "RUNNER_FAILURE": 26
+  },
+  "measured_evidence": {
+    "github_ci_failure": {
+      "run_id": 33835975368,
+      "head": "7c58e55e156bbd486fbd0fbf977ff9db9864f657",
+      "windows_job_id": 100908470945,
+      "windows_status": "PASS",
+      "linux_job_id": 100908470738,
+      "linux_status": "FAILED_DURING_COLLECTION",
+      "path": "tests/operations/test_workstation_codex_mission_runner.py",
+      "line": 18,
+      "error": "KeyError: 'WINDIR'"
+    },
+    "preserved_attempts": [
+      {
+        "attempt": "99d",
+        "worktree_unchanged": true,
+        "result_branch_uncommitted_at_source": true,
+        "windows_runner_passed": 16,
+        "seconds": 33.611,
+        "junit_bytes": 2826,
+        "junit_sha256": "6706fbb24ad969cc2d2d25459286d30882be76cb70b58e10011b16fba3405ced",
+        "stop": "unrelated daily-roll PermissionError(13) after exact 12 inherited MAX_PATH failures"
+      },
+      {
+        "attempt": "99e",
+        "worktree_unchanged": true,
+        "result_branch_uncommitted_at_source": true,
+        "windows_runner_passed": 16,
+        "seconds": 33.428,
+        "junit_bytes": 2826,
+        "junit_sha256": "9838fdc35892aeee50af1dc59b781c74499f60822f03a88311a7cc3c727c99c9",
+        "stop": "unrelated daily-roll PermissionError(13) in the permitted control"
+      }
+    ],
+    "attempt_99f": {
+      "unique_temp_root": "C:\\t99f-a1-6e58c8a8",
+      "temp_and_tmp_process_local": true,
+      "runner_file_executions": 1,
+      "daily_roll_test_executions": 0,
+      "complete_suite_executions": 0,
+      "repository_check_harness_precollection": {
+        "status": "FAILED_BEFORE_REQUIRED_CHECK_COLLECTION",
+        "reason": "external collection root encountered unrelated untrusted mount point",
+        "junit_bytes": 1465,
+        "junit_sha256": "035f574464afd3b6ceb62b42d39aba90751666d90bfbddecf7af073cfd9ef5f0",
+        "corrected_with_explicit_repository_root": true
+      }
+    },
+    "p0": {
+      "host": "DESKTOP-RFCD2GH",
+      "principal": "DESKTOP-RFCD2GH\\Michael",
+      "root_source_controller_clean": true,
+      "result_ref_and_worktree_absent": true,
+      "mutex_free_without_abandonment": true,
+      "poison_marker_absent": true,
+      "conflicting_worker_count": 0,
+      "source_objects_and_ancestry_exact": true,
+      "runner_and_codex_identities_exact": true,
+      "immutable_99c_bundle_sha256": "0503c0113d132cb2f122999556ebc197bd478b62d43d193e7e3b8f3753c068ab",
+      "immutable_99c_binding_sha256": "d54fcc39d81638b161d3d86556b74b516d0734c3f7d5e6a509e36e28d7dd89a2"
+    },
+    "linux_full_acceptance": "PENDING_EXTERNAL_EXACT_HEAD_GITHUB_ACTIONS",
+    "network_access": false
+  },
+  "remaining_reboot_boundary": "A reboot destroys the in-memory Job state of the unattended runner. Status can diagnose the boot change, but no Scheduler task, service, restart supervisor, or automatic next attempt is implemented. Linux/full acceptance also remains pending the production controller's subsequent exact-head GitHub Actions run.",
+  "prohibited_actions": {
+    "production_contact": false,
+    "scheduler_mutation": false,
+    "credential_access": false,
+    "provider_access": false,
+    "exchange_access": false,
+    "market_data_access": false,
+    "outcome_access": false,
+    "capture_action": false,
+    "application_or_model_change": false,
+    "runner_or_ci_workflow_change": false,
+    "unrelated_test_change": false,
+    "unrelated_daily_roll_test_run": false,
+    "complete_workstation_suite_run": false,
+    "release_or_promotion": false,
+    "git_fetch_or_pull": false,
+    "git_merge": false,
+    "git_push": false,
+    "pull_request_open_or_edit": false,
+    "live_trading": false,
+    "automatic_retry": false,
+    "lfs_fetch_or_network_fallback": false,
+    "cleanup_or_daemon": false,
+    "root_checkout_modified": false,
+    "source_99c_worktree_modified": false,
+    "preserved_99d_worktree_modified": false,
+    "preserved_99e_worktree_modified": false
+  },
+  "external_binding": {
+    "rule": "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
+    "final_tip": null,
+    "final_tree": null,
+    "bundle_sha256": null
+  }
+}

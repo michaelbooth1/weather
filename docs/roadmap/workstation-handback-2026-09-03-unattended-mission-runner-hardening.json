@@ -1,0 +1,208 @@
+{
+  "schema_version": "workstation_unattended_mission_handback_v0.1",
+  "generated_at_utc": "2026-09-04T02:51:40.1513215Z",
+  "verdict": "PASS_REPAIRED",
+  "mission_id": "workstation-unattended-mission-runner-hardening-2026-09-99a",
+  "mission_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-mission-runner-hardening-2026-09-99a\\mission.md",
+  "mission_sha256": "8d43e292925ded19d98db3c80b3b21c033bed9ae14a571f0de589b248b4213d0",
+  "origin": "https://github.com/michaelbooth1/weather.git",
+  "source_tip": "ca75c2e476e865047f07dc9856e5897533834684",
+  "source_tree": "1c2a7fd18dacc84c6a0e9abd4afe837c0bab3801",
+  "source_sole_parent": "1a3f94d1fd4d8e16f618411670418eb009f8e319",
+  "base_tip": "c932b54f8747df5cdefc4cc42f8454b6797f09ae",
+  "base_tree": "6df5bac16d8c780c35b4601941eaca1137ea7070",
+  "result_ref": "refs/heads/codex/workstation-unattended-mission-runner-hardening-2026-09-99a",
+  "result_worktree": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\unattended-runner-hardening-09-99a",
+  "implementation_tip": "0a8108f9d24321aaac88762c28426f8ca68d2bf8",
+  "implementation_tree": "08f5187dee1f617a76c3965f393b72f097b7d764",
+  "implementation_sole_parent": "ca75c2e476e865047f07dc9856e5897533834684",
+  "report_path": "docs/roadmap/agent-report-2026-09-03-workstation-unattended-mission-runner-hardening.md",
+  "receipt_path": "docs/roadmap/workstation-handback-2026-09-03-unattended-mission-runner-hardening.json",
+  "bundle_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-mission-runner-hardening-2026-09-99a\\publication-transfer-final.bundle",
+  "changed_paths": [
+    "docs/operations/WORKSTATION_CODEX_MISSION_RUNNER.md",
+    "docs/roadmap/ROADMAP.md",
+    "docs/roadmap/active-backlog.md",
+    "docs/roadmap/agent-report-2026-09-03-workstation-unattended-mission-runner-hardening.md",
+    "docs/roadmap/items/item-332-unattended-workstation-mission-runner.md",
+    "docs/roadmap/workstation-handback-2026-09-03-unattended-mission-runner-hardening.json",
+    "scripts/ops/invoke_workstation_codex_mission.ps1",
+    "tests/operations/test_workstation_codex_mission_runner.py"
+  ],
+  "tests": [
+    {
+      "name": "faithful_prototype_p0_probes",
+      "status": "PASS",
+      "counts": {"passed": 8},
+      "seconds": 10.61,
+      "junit_sha256": "132e94f3f3e2eabf54cafe9317cf2cebf8e37bcab6486aa1846335d4c07f7d40"
+    },
+    {
+      "name": "complete_workstation_codex_mission_runner_operation_file",
+      "status": "PASS",
+      "arguments": [
+        "-m",
+        "pytest",
+        "-q",
+        "tests/operations/test_workstation_codex_mission_runner.py"
+      ],
+      "counts": {"passed": 10},
+      "seconds": 36.05,
+      "junit_sha256": "2f35909c22db13626d091caa083e462daa09f56d7d6fdb89c823102a4b149f1b"
+    },
+    {
+      "name": "windows_powershell_5_1_ast",
+      "status": "PASS",
+      "paths": ["scripts/ops/invoke_workstation_codex_mission.ps1"],
+      "token_count": 7576
+    },
+    {
+      "name": "compileall",
+      "status": "PASS",
+      "arguments": ["-m", "compileall", "-q", "app", "src", "tests"]
+    },
+    {
+      "name": "agent_docs_audit_and_roadmap_check",
+      "status": "PASS",
+      "commands": [
+        ["-m", "weather.operations.agent_docs_audit"],
+        ["-m", "weather.reporting.roadmap.roadmap_backlog", "--fail-on-lint", "--check"]
+      ],
+      "counts": {"passed": 2},
+      "seconds": 1.3,
+      "junit_sha256": "3d86855fa5a6555ac5d486583504d5dff5e73c72972a50f949500ac0a33c6a79"
+    },
+    {
+      "name": "cumulative_git_diff_check",
+      "status": "PASS",
+      "source_tip": "ca75c2e476e865047f07dc9856e5897533834684"
+    }
+  ],
+  "reproduced_baseline_failures": [
+    {
+      "name": "appropriate_complete_workstation_suite",
+      "status": "REPRODUCED_BASELINE_FAILURES",
+      "counts": {
+        "passed": 4225,
+        "skipped": 18,
+        "failed": 12,
+        "subtests_passed": 862
+      },
+      "seconds": 599.04,
+      "junit_sha256": "f7ee20f8ab4abe7aabd3090235f2bfdef750e62f066f4f0044ac19782ef9a151",
+      "classification": "The twelve tests are unchanged experiment-executor Windows MAX_PATH source-baseline failures recorded by the sealed source commit's independent-review report; this branch changes no app/src file or failing test file."
+    },
+    {
+      "name": "complete_experiment_executor_operation_file_short_root",
+      "status": "REPRODUCED_BASELINE_FAILURES",
+      "counts": {"passed": 12, "failed": 12},
+      "seconds": 4.19,
+      "basetemp": "C:\\x9t",
+      "junit_sha256": "3c36a66fa0b6924fe212d11c986ca60eef9a7f34aa5dab65cbd30ce3dd1b804e"
+    }
+  ],
+  "script_sha256": {
+    "scripts/ops/invoke_workstation_codex_mission.ps1": "abb81d6e3f816a54432ce2a352f0476a1a49a7172a085504e037f18aec26e02c",
+    "scripts/ops/windows_kill_on_close_job.ps1": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+    "scripts/ops/workstation_heavy.ps1": "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532"
+  },
+  "implementation_content_sha256": {
+    "docs/operations/WORKSTATION_CODEX_MISSION_RUNNER.md": "49b6a34980802f9ab01f988c77d4ce2bb255ab88ca1eb5e0898fe9514409b094",
+    "tests/operations/test_workstation_codex_mission_runner.py": "9b4c58bcf749e5f7695ced777d742c679a0368bcd689e6ee9cb53e25c567ad8f"
+  },
+  "report": {
+    "sha256": "1eece110e6858eb54417db6cf43639671eaf817d7c24de45a7c82abb2af50403",
+    "bytes": 11413
+  },
+  "terminal_state_semantics": {
+    "COMPLETE_VALIDATED": 0,
+    "CHILD_FAILURE": 20,
+    "DEADLINE": 21,
+    "INTERRUPTED": 22,
+    "INVALID_HANDBACK": 23,
+    "IDENTITY_DRIFT": 24,
+    "TEARDOWN_FAILURE": 25,
+    "RUNNER_FAILURE": 26,
+    "success_rule": "Only COMPLETE_VALIDATED is success; Codex exit zero alone is insufficient."
+  },
+  "measured_evidence": {
+    "prototype_probe": {
+      "tests": 8,
+      "passed": 8,
+      "seconds": 10.61,
+      "results_sha256": "700af3773df084fc1085a68e1195703f5337e33ff221a2a65479a054c11e511b"
+    },
+    "heartbeat": {
+      "configured_interval_seconds": 1,
+      "test_seconds": 4.416,
+      "sequence_increased": true,
+      "monotonic_elapsed_increased": true,
+      "concurrent_json_reads_valid": true,
+      "read_only_status": "RUNNING"
+    },
+    "deadline": {
+      "configured_seconds": 4,
+      "test_seconds": 5.931,
+      "terminal_state": "DEADLINE",
+      "exit_code": 21
+    },
+    "teardown": {
+      "job_query_confirmed_zero_processes": true,
+      "child_root_pid_absent": true,
+      "codex_pid_absent": true,
+      "separately_spawned_descendant_pid_absent": true,
+      "pid_name_matching_used": false
+    },
+    "successful_handback": {
+      "test_seconds": 4.144,
+      "bundle_verify": "PASS",
+      "strict_fsck": "PASS",
+      "result_worktree_clean": true
+    }
+  },
+  "remaining_reboot_boundary": "The kill-on-close Job, heartbeat, and deadline survive client disconnection only while the host and wrapper remain alive. A reboot destroys in-memory Job state; status can diagnose the changed boot, but no Scheduler task, service, restart supervisor, or automatic next attempt is implemented.",
+  "roll_classification": {
+    "dynamic_verdict": "UNDECIDABLE",
+    "production_roll_verdict_run": false,
+    "manual_substitute_used": false,
+    "reason": "The workstation lacks authoritative live closure evidence and the mission forbids production contact."
+  },
+  "prohibited_actions": [
+    "production host access",
+    "Scheduler mutation",
+    "credential access",
+    "weather-provider access",
+    "exchange access",
+    "capture mutation",
+    "model or outcome mutation",
+    "release or promotion",
+    "Git merge",
+    "Git push",
+    "pull request open or edit",
+    "live trading",
+    "automatic retry or invented attempt"
+  ],
+  "prohibited_action_audit": {
+    "production_contact": false,
+    "scheduler_mutation": false,
+    "credential_access": false,
+    "provider_access": false,
+    "exchange_access": false,
+    "capture_action": false,
+    "model_or_outcome_mutation": false,
+    "release_or_promotion": false,
+    "git_merge": false,
+    "git_push": false,
+    "pr_open_or_edit": false,
+    "live_trading": false,
+    "automatic_retry": false,
+    "root_checkout_modified": false
+  },
+  "external_binding": {
+    "rule": "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
+    "final_tip": null,
+    "final_tree": null,
+    "bundle_sha256": null,
+    "reason": "This receipt cannot embed the hash of the commit/tree or bundle that contains its own bytes. The create-only external binding must record the final tip/tree, receipt hash, bundle bytes/hash, verification result, and require source, implementation, and final tip reachability."
+  }
+}
