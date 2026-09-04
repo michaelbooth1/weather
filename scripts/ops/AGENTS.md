@@ -65,10 +65,12 @@ These instructions apply to `scripts/ops/`.
   before publication. Failure leaves the merge unpushed; stacked overnight
   integrations share one pending closeout due by 09:00.
 - `quiet_window_merge.ps1` may acquire the `roll_free_control_plane` lease lane
-  from 09:00–18:00 to serialize classification of the frozen exact tip. Only
-  canonical roll-verdict exit 0 may proceed beyond that read-only gate; every
-  other verdict exits before mutation and remains quiet-window work. The shared
-  lease still makes roll-free integration yield to Stage A. Do not reuse that
+  from 11:55–18:00 to serialize classification of the frozen exact tip. The
+  09:00–11:55 reserve prevents it from acquiring before or during Stage A. Only
+  fresh, exact machine evidence for canonical roll-verdict exit 0 may proceed
+  beyond that read-only gate; every other verdict exits before mutation and
+  remains quiet-window work. The shared lease still makes roll-free integration
+  yield to a Stage-A overrun. Do not reuse that
   switch for tests, replay, training, Scheduler mutation, or any other workload.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external

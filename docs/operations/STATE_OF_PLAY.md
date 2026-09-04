@@ -36,9 +36,10 @@ market edge or model improvement is currently proved.
   window on a 16 GB capture host.
 - Roll-sensitive or undecidable tips still merge only 01:00-04:00 through the
   canonical guarded wrapper.
-- Exact exit-0 roll-free tips may use the 09:00-18:00 control-plane lane after
-  Item 331 is reviewed and integrated. The same lease makes them yield to Stage
-  A; 18:00-00:30 remains protected for every merge.
+- Exact exit-0 roll-free tips with fresh, exact machine evidence may use the
+  11:55-18:00 control-plane lane after Item 331 is reviewed and integrated.
+  The 09:00-11:55 reserve belongs to Stage A; 18:00-00:30 remains protected for
+  every merge.
 - Overnight full suites are confirmation, not discovery. Windows PowerShell
   parsing, Scheduler null/serialization probes, ancestry, clean-tree checks,
   and branch hashes must pass during the day before an attempt is armed.

@@ -24,14 +24,16 @@ strictly classified, lease-serialized control plane—not more production comput
 
 - [x] Serialize the frozen exact branch-tip classification under the same
   policy lease that protects later integration.
-- [x] Let a 09:00-18:00 `roll_free_control_plane` candidate proceed beyond its
-  read-only verdict gate only on canonical roll-verdict exit 0.
-- [x] Keep the shared OS-held lease, so Stage A and all heavy work take
-  precedence over daytime integration.
+- [x] Reserve 09:00-11:55 for Stage A, then let an 11:55-18:00
+  `roll_free_control_plane` candidate proceed beyond its read-only verdict gate
+  only on fresh machine evidence exactly binding canonical roll-verdict exit 0,
+  the frozen tip, synchronized base, invocation time, and required closures.
+- [x] Keep the shared OS-held lease, so a Stage-A overrun and all heavy work
+  take precedence over daytime integration.
 - [x] Keep every nonzero/undecidable verdict in the 01:00-04:00 quiet window
   and retain the universal 18:00-00:30 near-close prohibition.
-- [x] Add focused contract tests for the exact lane and
-  lease-before-verdict-before-mutation ordering.
+- [x] Add focused contract tests for the exact lane, fail-closed verdict JSON,
+  delayed boundary crossings, and lease-before-verdict-before-mutation ordering.
 - [x] Add a Windows PowerShell 5.1 CI job for operations-script parsing and
   focused Scheduler/lease/merge wrapper contracts; use full Git history
   without downloading LFS objects.
@@ -41,9 +43,9 @@ strictly classified, lease-serialized control plane—not more production comput
 - [ ] Run one exact roll-free production integration through the daytime lane
   and verify the receipt records `policy_window=roll_free_control_plane`.
 
-Acceptance: roll-free Git integration can complete during the day without
-competing with Stage A or opening a general-purpose heavy-work window, while a
-roll-sensitive or undecidable tip cannot enter the lane. Deterministic Windows
+Acceptance: roll-free Git integration can complete after Stage A without
+competing for its reserved lease or opening a general-purpose heavy-work window,
+while a roll-sensitive or undecidable tip cannot enter the lane. Deterministic Windows
 wrapper mismatches are discovered by CI or a daytime no-mutation probe before
 an overnight attempt is armed.
 

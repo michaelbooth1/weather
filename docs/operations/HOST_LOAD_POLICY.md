@@ -83,12 +83,16 @@ a committed timetable.
 | 12:00–18:00 | **PROTECTED graded capture window — no heavy work** |
 | 18:00–00:05 | **PROTECTED — nothing heavy, ever.** Near-close fast capture (15s CLOB), MM quoting from 19:30, settlement watch |
 
-There is one narrow control-plane overlay from **09:00–18:00**. It is not a
+There is one narrow control-plane overlay from **11:55–18:00**. It is not a
 second heavy-work window. `quiet_window_merge.ps1` may acquire it to serialize
 the canonical classification of a frozen branch tip, but may proceed beyond
-that read-only gate only when `roll_verdict.ps1` returns exact exit 0. The same
-OS-held lease means an active Stage-A chain or any heavy job wins and the merge
-stops. The lane authorizes Git integration, capture-health
+that read-only gate only when fresh machine-readable `roll_verdict.ps1`
+evidence exactly binds exit 0, the frozen tip, synchronized base, invocation
+time, and every required live closure. The 09:00–11:55 reserve prevents a
+merge from acquiring before or during Stage A. The same OS-held lease means a
+Stage-A overrun or any heavy job wins and the merge stops. The wrapper rechecks
+the wall-clock policy after classification and immediately before its first
+Git mutation. The lane authorizes Git integration, capture-health
 checks, documentation transaction, and remote acknowledgement for a genuinely
 roll-free branch; it does not authorize pytest, compileall, replay, training,
 bulk scans, provider work, Scheduler mutation, or a roll-sensitive merge.
@@ -267,9 +271,10 @@ useful work before capture is stopped. The independent
    the protected window under the literal dated token. The code path expires
    with that local date and grants no reusable authority. Separately, the
    canonical merge wrapper may request `roll_free_control_plane` from
-   09:00–18:00 only to classify and, after an exact exit-0 verdict, integrate
-   the frozen tip. Every other verdict exits before mutation. This keeps
-   integration serialized with Stage A without pretending a
+   11:55–18:00 only to classify and, after exact machine evidence for an
+   exit-0 verdict, integrate the frozen tip. The 09:00–11:55 reserve belongs
+   to Stage A, and every other verdict exits before mutation. This keeps
+   integration serialized with a Stage-A overrun without pretending a
    docs/config/PowerShell merge is a heavy workload or a capture roll.
 3. **Memory budget for any single ad-hoc job: 8 GB private bytes.** The
    `WeatherMemoryCommitGuard` task runs every minute. It warns when available

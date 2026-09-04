@@ -17,9 +17,12 @@ or `origin/master` acknowledgement.
 
 This overnight state machine is required for roll-sensitive adoption. It must
 not become a queue for roll-free work. A tip for which the production
-`roll_verdict.ps1` returns exact exit 0 may use the canonical 09:00–18:00
-control-plane lane in `quiet_window_merge.ps1`; the shared lease still makes it
-yield to Stage A. Exit 1, 2, or 3 is not daytime authority. Tests, compileall,
+`roll_verdict.ps1` returns exact exit 0 with fresh, exact machine evidence may
+use the canonical 11:55–18:00 control-plane lane in
+`quiet_window_merge.ps1`. The 09:00–11:55 reserve belongs to Stage A, and the
+shared lease makes a merge yield to any overrun. Exit 1, 2, or 3 is not daytime
+authority. Malformed, missing, stale, incomplete, or identity-mismatched JSON
+also has no daytime authority. Tests, compileall,
 replays, and training remain heavy work regardless of roll sensitivity.
 
 ## State machine

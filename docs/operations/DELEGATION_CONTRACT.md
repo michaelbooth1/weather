@@ -195,8 +195,9 @@ blocked its own handback for nothing.
 Every mission must deliver a **per-file roll verdict**, stating which closures each changed file
 enters. Roll-sensitive branches merge only in the **01:00–04:00 quiet window** and never inside
 **12:00–18:00**, the graded capture window. An exact exit-0 roll-free tip may use the canonical
-09:00–18:00 control-plane lane. That lane still takes the shared lease, so Stage A or any heavy
-owner blocks it; it is not permission for tests, training, replay, bulk scans, Scheduler changes,
+11:55–18:00 control-plane lane. The 09:00–11:55 reserve prevents a merge from acquiring before
+or during Stage A, and the lane still takes the shared lease, so a Stage-A overrun or any heavy
+owner blocks it. It is not permission for tests, training, replay, bulk scans, Scheduler changes,
 or a hand-derived verdict. Pushes, PRs, reviews, and workstation verification remain daytime work
 and never require the production quiet window.
 
