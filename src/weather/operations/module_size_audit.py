@@ -18,6 +18,11 @@ DEFAULT_REPORT = data_path() / "backtest" / "module_size_audit_report.md"
 DEFAULT_WARNING_LINES = 2_000
 
 OWNERSHIP_NOTES = {
+    "src/weather/calibration/multiyear_nwp_residual.py": {
+        "owner": "calibration",
+        "boundary": "Frozen multi-year residual design, corpus validation, two-arm training, terminal evaluation, verification, and CLI.",
+        "next_split": "Extract immutable input and corpus verification behind a dependency-light contract module while preserving design hashes and terminal-attempt semantics.",
+    },
     "src/weather/calibration/pooled_feature_model.py": {
         "owner": "calibration",
         "boundary": "Compatibility facade for pooled feature model implementation slices.",

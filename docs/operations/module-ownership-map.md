@@ -8,7 +8,7 @@ and CLIs stay stable while implementation ownership moves into smaller modules.
 Current module-size audit status:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 24 modules.
+- Current warning count: 25 modules.
 - Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
@@ -26,13 +26,15 @@ Current module-size audit status:
   `weather.reporting.hourly.ten_minute_model_performance`,
   `weather.market.taker_bot_cli`, `weather.market.taker_bot_finalization`,
   `weather.collection.snapshot_tracker`, `weather.market.taker_bot_bakeoff`, and
-  `weather.model.model_features`.
+  `weather.model.model_features`, and
+  `weather.calibration.multiyear_nwp_residual`.
 - A module can be marked "split complete" for an earlier item and still need a
   follow-on split if later feature growth pushes it back over the threshold.
 
 | Module | Owner | Boundary | Status |
 | :--- | :--- | :--- | :--- |
 | `weather.calibration.pooled_feature_model` | Calibration | Compatibility facade for pooled feature assembly, density/band training, training orchestration, artifact IO, reporting, and CLI modules. Dynamic source-state features live in `weather.calibration.pooled_feature_source_state`. | Split complete for item 173. |
+| `weather.calibration.multiyear_nwp_residual` | Calibration | Frozen multi-year residual design, corpus validation, two-arm training, terminal evaluation, verification, and CLI. | WARN in the 2026-09-04 source-stack audit. Extract immutable input and corpus verification behind a dependency-light contract module while preserving design hashes and terminal-attempt semantics. |
 | `weather.calibration.pooled_training` | Calibration | Point-in-time pooled training evidence, fit receipts, final refit verification, and density/band model fitting. | WARN in the 2026-07-15 audit. Extract point-in-time receipt construction and verification into a pooled point-in-time contract module while preserving canonical hashes and fitted-bundle behavior. |
 | `weather.calibration.pooled_candidate_replay` | Calibration | Live candidate-replay orchestration, cache and sentinel handling, prediction attachment, result aggregation, variant export, and CLI. Diagnostics, CLOB microstructure shadow helpers, market verdicts, replay gates, and sidecar summaries live in `weather.calibration.pooled_candidate_replay_diagnostics`; Markdown rendering lives in `weather.calibration.pooled_candidate_replay_report`; scoring/variant row logic lives in `weather.calibration.pooled_candidate_scoring`. | WARN in the 2026-07-12 audit. Extract cache, sentinel, and result aggregation into a replay-cache owner that does not import the facade, preserving cache keys and forensic payloads. |
 | `weather.calibration.pooled_candidate_replay_diagnostics` | Calibration | Candidate replay diagnostics, CLOB microstructure overlay training/scoring, casebook annotation, market verdicts, replay safety gates, forecast-profile guardrails, and data-layer sidecar summary loading. | Owner module; must not import the `pooled_candidate_replay` facade. |

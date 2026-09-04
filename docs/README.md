@@ -41,6 +41,7 @@ record that is valuable evidence but not current instruction.
 - [Data retention policy](operations/data-retention-policy.md)
 - [Artifact storage policy](operations/artifact-storage-policy.md)
 - [Closed market-day archive contract](operations/closed-market-day-parquet-archive-contract.md)
+- [WU outcome gap and production export contract](operations/WU_OUTCOME_EXPORT_CONTRACT.md)
 
 Exact market definitions, schema versions, release contents, event counts, and
 artifact hashes belong to code, config, and manifests. Canonical prose explains
