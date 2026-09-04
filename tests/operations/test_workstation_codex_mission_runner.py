@@ -1,10 +1,12 @@
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import shutil
 import subprocess
+import threading
 import time
 import uuid
 
@@ -77,6 +79,15 @@ public static class FakeCodex {
     public static int Main(string[] args) {
         string mode = Environment.GetEnvironmentVariable("FAKE_CODEX_MODE") ?? "exit0";
         if (mode == "exit17") return 17;
+        if (mode == "capture_lfs_env") {
+            string value = Environment.GetEnvironmentVariable("GIT_LFS_SKIP_SMUDGE");
+            File.WriteAllText(
+                Environment.GetEnvironmentVariable("FAKE_ENV_CAPTURE_PATH"),
+                value ?? "<unset>"
+            );
+            WriteLastMessage(args);
+            return 0;
+        }
         if (mode == "identity_drift") {
             File.WriteAllText(Path.Combine(Environment.CurrentDirectory, "identity-drift.txt"), "drift\n");
             WriteLastMessage(args);
@@ -156,6 +167,101 @@ def _make_repo(path: Path) -> dict[str, str]:
         "base_tree": base_tree,
         "source": source,
         "source_tree": source_tree,
+    }
+
+
+@pytest.fixture
+def local_lfs_endpoint():
+    state: dict[str, object] = {"requests": [], "oid": "", "payload": b""}
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, format, *args):
+            return
+
+        def _reply(self, status: int, body: bytes, content_type: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            request = json.loads(self.rfile.read(length).decode("utf-8"))
+            state["requests"].append(("POST", self.path, request))
+            response = {
+                "transfer": "basic",
+                "objects": [
+                    {
+                        "oid": state["oid"],
+                        "size": len(state["payload"]),
+                        "actions": {
+                            "download": {
+                                "href": (
+                                    f"http://127.0.0.1:{self.server.server_port}"
+                                    f"/objects/{state['oid']}"
+                                )
+                            }
+                        },
+                    }
+                ],
+            }
+            self._reply(200, json.dumps(response).encode("utf-8"), "application/json")
+
+        def do_GET(self):
+            state["requests"].append(("GET", self.path, None))
+            self._reply(200, state["payload"], "application/octet-stream")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield state, f"http://127.0.0.1:{server.server_port}/lfs"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        server.server_close()
+
+
+def _make_lfs_repo(path: Path, endpoint: str, state: dict[str, object]) -> dict[str, str]:
+    path.mkdir()
+    _git("init", "-q", str(path))
+    _git("config", "user.name", "Synthetic Runner Test", cwd=path)
+    _git("config", "user.email", "runner@example.invalid", cwd=path)
+    _git("remote", "add", "origin", CANONICAL_ORIGIN, cwd=path)
+    (path / "base.txt").write_text("base\n", encoding="utf-8")
+    _git("add", "--", "base.txt", cwd=path)
+    _git("commit", "-q", "-m", "synthetic base", cwd=path)
+    base = _git("rev-parse", "HEAD", cwd=path).stdout.strip()
+    base_tree = _git("rev-parse", "HEAD^{tree}", cwd=path).stdout.strip()
+
+    payload = b"local synthetic LFS payload\n"
+    oid = hashlib.sha256(payload).hexdigest()
+    pointer = (
+        "version https://git-lfs.github.com/spec/v1\n"
+        f"oid sha256:{oid}\n"
+        f"size {len(payload)}\n"
+    ).encode("ascii")
+    state["oid"] = oid
+    state["payload"] = payload
+    (path / ".gitattributes").write_text(
+        "*.bin filter=lfs diff=lfs merge=lfs -text\n", encoding="utf-8"
+    )
+    (path / "payload.bin").write_bytes(pointer)
+    _git("add", "--", ".gitattributes", "payload.bin", cwd=path)
+    _git("commit", "-q", "-m", "synthetic LFS pointer", cwd=path)
+    source = _git("rev-parse", "HEAD", cwd=path).stdout.strip()
+    source_tree = _git("rev-parse", "HEAD^{tree}", cwd=path).stdout.strip()
+    _git("config", "lfs.url", endpoint, cwd=path)
+    return {
+        "base": base,
+        "base_tree": base_tree,
+        "source": source,
+        "source_tree": source_tree,
+        "pointer": pointer,
+        "payload": payload,
     }
 
 
@@ -467,6 +573,158 @@ def test_controller_identity_drift_fails_closed(attempt_fixture):
     terminal = _terminal(attempt_fixture)
     assert terminal["state"] == "IDENTITY_DRIFT"
     assert "controller worktree identity drift" in terminal["detail"]
+
+
+def test_controller_checkout_skips_lfs_download_and_restores_scope(
+    tmp_path: Path, fake_codex_binary: Path, local_lfs_endpoint
+):
+    state, endpoint = local_lfs_endpoint
+    repo = tmp_path / "repo"
+    identities = _make_lfs_repo(repo, endpoint, state)
+    mission = tmp_path / "mission.md"
+    mission.write_text("sealed synthetic LFS mission\n", encoding="utf-8")
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    env_capture = tmp_path / "captured-lfs-env.txt"
+    branch = f"codex/synthetic-lfs-{uuid.uuid4().hex}"
+    fixture = {
+        **identities,
+        "repo": repo,
+        "mission": mission,
+        "mission_sha": _sha(mission),
+        "attempt_root": evidence / "attempt-1",
+        "controller": tmp_path / "controller",
+        "result_worktree": tmp_path / "result",
+        "result_ref": f"refs/heads/{branch}",
+        "result_branch": branch,
+        "report": "docs/roadmap/synthetic-report.md",
+        "receipt": "docs/roadmap/synthetic-handback.json",
+        "bundle": evidence / "final.bundle",
+        "codex": tmp_path / "codex.exe",
+    }
+    shutil.copy2(fake_codex_binary, fixture["codex"])
+
+    repo_config_before = (repo / ".git" / "config").read_bytes()
+    global_before = _git("config", "--global", "--null", "--show-origin", "--list", check=False)
+    system_before = _git("config", "--system", "--null", "--show-origin", "--list", check=False)
+    parent_env_before = os.environ.get("GIT_LFS_SKIP_SMUDGE")
+    completed = _run(
+        fixture,
+        "capture_lfs_env",
+        extra_env={
+            "GIT_LFS_SKIP_SMUDGE": "0",
+            "FAKE_ENV_CAPTURE_PATH": str(env_capture),
+        },
+    )
+    assert completed.returncode == 23, completed.stdout + completed.stderr
+    assert (fixture["controller"] / "payload.bin").read_bytes() == identities["pointer"]
+    assert state["requests"] == []
+    assert _git("status", "--porcelain=v1", cwd=fixture["controller"]).stdout == ""
+    assert _git("rev-parse", "HEAD", cwd=fixture["controller"]).stdout.strip() == identities["source"]
+    assert _git("rev-parse", "HEAD^{tree}", cwd=fixture["controller"]).stdout.strip() == identities["source_tree"]
+    assert env_capture.read_text(encoding="utf-8") == "0"
+    assert os.environ.get("GIT_LFS_SKIP_SMUDGE") == parent_env_before
+    assert (repo / ".git" / "config").read_bytes() == repo_config_before
+    global_after = _git("config", "--global", "--null", "--show-origin", "--list", check=False)
+    system_after = _git("config", "--system", "--null", "--show-origin", "--list", check=False)
+    assert (global_after.returncode, global_after.stdout, global_after.stderr) == (
+        global_before.returncode,
+        global_before.stdout,
+        global_before.stderr,
+    )
+    assert (system_after.returncode, system_after.stdout, system_after.stderr) == (
+        system_before.returncode,
+        system_before.stdout,
+        system_before.stderr,
+    )
+
+
+@pytest.mark.parametrize(
+    ("identity", "drift"),
+    (("Git", "path"), ("Git", "sha"), ("Windows PowerShell", "path"), ("Windows PowerShell", "sha")),
+)
+def test_final_executable_identity_drift_fails_before_handback(
+    tmp_path: Path, identity: str, drift: str
+):
+    paths = {}
+    for name in ("mission", "codex", "runner", "job", "powershell", "git"):
+        path = tmp_path / f"{name}.bin"
+        path.write_bytes(f"synthetic {name}\n".encode("ascii"))
+        paths[name] = path
+    claim = {
+        "mission_path": str(paths["mission"]),
+        "mission_sha256": _sha(paths["mission"]),
+        "codex_path": str(paths["codex"]),
+        "codex_sha256": _sha(paths["codex"]),
+        "runner_path": str(paths["runner"]),
+        "runner_sha256": _sha(paths["runner"]),
+        "job_helper_path": str(paths["job"]),
+        "job_helper_sha256": _sha(paths["job"]),
+        "powershell_path": str(paths["powershell"]),
+        "powershell_sha256": _sha(paths["powershell"]),
+        "git_path": str(paths["git"]),
+        "git_sha256": _sha(paths["git"]),
+    }
+    target_key = "git" if identity == "Git" else "powershell"
+    actual_path = paths[target_key]
+    if drift == "sha":
+        actual_path.write_bytes(actual_path.read_bytes() + b"drift\n")
+    else:
+        replacement = tmp_path / f"{target_key}-replacement.bin"
+        shutil.copy2(actual_path, replacement)
+        actual_path = replacement
+
+    runner_text = RUNNER.read_text(encoding="utf-8")
+    definitions = tmp_path / "runner-definitions.ps1"
+    definitions.write_text(runner_text[: runner_text.rfind("switch ($Mode)")], encoding="utf-8")
+    contract = tmp_path / "identity-contract.json"
+    contract.write_text(
+        json.dumps(
+            {
+                "definitions": str(definitions),
+                "paths": {**{key: str(value) for key, value in paths.items()}, target_key: str(actual_path)},
+                "claim": claim,
+            }
+        ),
+        encoding="utf-8",
+    )
+    harness = tmp_path / "identity-harness.ps1"
+    harness.write_text(
+        "$c=Get-Content -LiteralPath $args[0] -Raw|ConvertFrom-Json\n"
+        ". $c.definitions\n"
+        "try {\n"
+        "  Assert-FinalExecutableIdentity -MissionPath $c.paths.mission -CodexPath $c.paths.codex `\n"
+        "    -RunnerPath $c.paths.runner -JobHelperPath $c.paths.job `\n"
+        "    -PowerShellPath $c.paths.powershell -GitPath $c.paths.git -Claim $c.claim\n"
+        "  exit 0\n"
+        "} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 41 }\n",
+        encoding="utf-8",
+    )
+    checked = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(harness),
+            str(contract),
+        ],
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+    assert checked.returncode == 41
+    assert f"{identity} executable identity drift" in checked.stderr
+
+    final_boundary = runner_text.index("if ($teardownConfirmed -and $terminalState -eq \"PENDING_VALIDATION\")")
+    identity_call = runner_text.index("Assert-FinalExecutableIdentity", final_boundary)
+    identity_terminal = runner_text.index('$terminalState = "IDENTITY_DRIFT"', identity_call)
+    handback_call = runner_text.index("Assert-Handback", final_boundary)
+    assert identity_call < identity_terminal < handback_call
 
 
 def test_dirty_root_does_not_block_clean_controller_handback(attempt_fixture):

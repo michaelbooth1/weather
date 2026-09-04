@@ -14,6 +14,13 @@ state contracts. They also showed that the prototype already refused an
 existing attempt directory and did not retry, so the repository implementation
 preserves those properties.
 
+The production controller's independent 99a review then supplied a second
+falsifier: ordinary controller `worktree add` attempted to download the missing
+LFS object for `artifacts/models/hgb/feature_model_hgb.pkl` and failed with
+`Smudge error: batch request: missing protocol: ""`. The same review found that
+the final identity boundary did not recheck the already-claimed Git and Windows
+PowerShell path/digest pairs.
+
 Why this matters: long implementation missions outlive interactive client
 connections. Without a
 fresh heartbeat, absolute deadline, whole-tree containment, immutable attempt
@@ -34,6 +41,11 @@ work from a stranded process or trust a zero exit as a reviewable handback.
   failed strict object verification.
 - [x] Add Windows PowerShell 5.1 synthetic tests for success and every required
   fail-closed state, plus the durable operator contract.
+- [x] Suppress Git LFS smudging only while creating the controller worktree,
+  restore the exact prior process environment value, retain pointer bytes, and
+  leave Git configuration and non-LFS filter behavior unchanged.
+- [x] Re-resolve and rehash Git and Windows PowerShell with every other claimed
+  executable at the post-child identity boundary before handback validation.
 - [ ] Obtain independent review and integrate the exact result tip through the
   repository Git workflow.
 - [ ] Run one new non-production unattended mission with the adopted runner and
@@ -59,6 +71,11 @@ boundary until a separately reviewed Scheduler or service supervisor exists.
   `docs/roadmap/agent-report-2026-09-03-workstation-unattended-mission-runner-hardening.md`
   and
   `docs/roadmap/workstation-handback-2026-09-03-unattended-mission-runner-hardening.json`.
+- LFS/identity repair branch:
+  `codex/workstation-unattended-mission-runner-lfs-repair-2026-09-99b`.
+- Repair contracts: the local loopback LFS batch/download falsifier and copied
+  Git/Windows PowerShell path/SHA drift cases in
+  `tests/operations/test_workstation_codex_mission_runner.py`.
 
 ## Completion notes
 

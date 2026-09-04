@@ -250,6 +250,34 @@ function Resolve-GitExecutable {
     return Resolve-RegularFile -Path $commands[0].Source -Label "Git executable"
 }
 
+function Assert-FinalExecutableIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string]$MissionPath,
+        [Parameter(Mandatory = $true)][string]$CodexPath,
+        [Parameter(Mandatory = $true)][string]$RunnerPath,
+        [Parameter(Mandatory = $true)][string]$JobHelperPath,
+        [Parameter(Mandatory = $true)][string]$PowerShellPath,
+        [Parameter(Mandatory = $true)][string]$GitPath,
+        [Parameter(Mandatory = $true)]$Claim
+    )
+    $identities = @(
+        @("mission", $MissionPath, [string]$Claim.mission_path, [string]$Claim.mission_sha256),
+        @("Codex executable", $CodexPath, [string]$Claim.codex_path, [string]$Claim.codex_sha256),
+        @("runner", $RunnerPath, [string]$Claim.runner_path, [string]$Claim.runner_sha256),
+        @("Job helper", $JobHelperPath, [string]$Claim.job_helper_path, [string]$Claim.job_helper_sha256),
+        @("Windows PowerShell executable", $PowerShellPath, [string]$Claim.powershell_path, [string]$Claim.powershell_sha256),
+        @("Git executable", $GitPath, [string]$Claim.git_path, [string]$Claim.git_sha256)
+    )
+    foreach ($identity in $identities) {
+        $label = [string]$identity[0]
+        $actualPath = Resolve-RegularFile -Path ([string]$identity[1]) -Label $label
+        if (
+            $actualPath -cne [string]$identity[2] -or
+            (Get-Sha256 -Path $actualPath) -cne [string]$identity[3]
+        ) { throw "$label identity drift" }
+    }
+}
+
 function Invoke-LocalGit {
     param(
         [Parameter(Mandatory = $true)][string[]]$Arguments,
@@ -726,7 +754,23 @@ function Invoke-Run {
         $promptText = "Read and execute the complete sealed mission at $mission. Its required SHA-256 is $($ExpectedMissionSha256.ToLowerInvariant()). Read that exact file first; it is the sole authoritative task. Work autonomously through its stated falsifiers, bounded implementation, serial workstation verification, immutable handback, and complete verified bundle."
     }
     Write-ImmutableBytes -Path $paths.prompt -Bytes $script:Utf8.GetBytes($promptText + "`n")
-    [void](Invoke-LocalGit -Arguments @("-C", $repo, "worktree", "add", "--detach", $controller, $ExpectedSourceTip))
+    $previousLfsSkipSmudge = [Environment]::GetEnvironmentVariable(
+        "GIT_LFS_SKIP_SMUDGE",
+        "Process"
+    )
+    try {
+        [Environment]::SetEnvironmentVariable("GIT_LFS_SKIP_SMUDGE", "1", "Process")
+        [void](Invoke-LocalGit -Arguments @(
+            "-C", $repo, "worktree", "add", "--detach", $controller, $ExpectedSourceTip
+        ))
+    }
+    finally {
+        [Environment]::SetEnvironmentVariable(
+            "GIT_LFS_SKIP_SMUDGE",
+            $previousLfsSkipSmudge,
+            "Process"
+        )
+    }
     $controller = Resolve-RegularDirectory -Path $controller -Label "controller worktree"
     Assert-ControllerIdentity -Controller $controller
 
@@ -919,13 +963,19 @@ function Invoke-Run {
         }
         if ($teardownConfirmed -and $terminalState -eq "PENDING_VALIDATION") {
             try {
+                $finalPowerShellPath = Resolve-RegularFile `
+                    -Path (Join-Path $PSHOME "powershell.exe") `
+                    -Label "Windows PowerShell"
+                $finalGitPath = Resolve-GitExecutable
+                Assert-FinalExecutableIdentity `
+                    -MissionPath $mission `
+                    -CodexPath $codex `
+                    -RunnerPath $runnerPath `
+                    -JobHelperPath $jobHelper `
+                    -PowerShellPath $finalPowerShellPath `
+                    -GitPath $finalGitPath `
+                    -Claim $claim
                 Assert-ControllerIdentity -Controller $controller
-                if ((Get-Sha256 -Path $mission) -cne $ExpectedMissionSha256.ToLowerInvariant() -or
-                    (Get-Sha256 -Path $codex) -cne $ExpectedCodexSha256.ToLowerInvariant() -or
-                    (Get-Sha256 -Path $runnerPath) -cne [string]$claim.runner_sha256 -or
-                    (Get-Sha256 -Path $jobHelper) -cne [string]$claim.job_helper_sha256) {
-                    throw "mission, executable, runner, or Job-helper identity drift"
-                }
             }
             catch {
                 $terminalState = "IDENTITY_DRIFT"

@@ -21,9 +21,14 @@ repository outside every Git worktree.
 
 The repository root may contain unrelated tracked or untracked changes. The
 runner uses it only as the local object database and creates a detached
-controller worktree at the exact source commit. That controller must remain
-clean and unchanged. The delegated mission creates and commits only its named
-result branch/worktree.
+controller worktree at the exact source commit. Only for that `worktree add`,
+the runner sets process-local `GIT_LFS_SKIP_SMUDGE=1` and restores the exact
+prior process value in `finally`. Git LFS pointer bytes therefore remain in the
+controller without a payload download; no system, global, user, or repository
+Git configuration changes. Other Git filters and every later Git operation
+retain their normal behavior and errors. The controller must remain clean and
+unchanged. The delegated mission creates and commits only its named result
+branch/worktree.
 
 The selected Codex path is explicit. A new app version or multiple installed
 version directories cannot silently change selection. The immutable claim
@@ -31,6 +36,12 @@ records the executable path and digest along with the runner, Windows
 PowerShell, Git, and Job-helper paths and digests; source/base/result identities;
 host, principal, and boot hashes; runner and contained-child identities; every
 output path; start time; heartbeat interval; and deadline.
+
+After the child completes and Job teardown is proved, the runner resolves
+Windows PowerShell and Git again and compares every claimed mission, Codex,
+runner, Job-helper, PowerShell, and Git path and SHA-256 before it begins
+handback validation. A changed executable path or byte digest terminalizes as
+`IDENTITY_DRIFT`.
 
 The runner launches a private Windows PowerShell child suspended, assigns it to
 the existing repository-owned kill-on-close Job Object, and then resumes it.
@@ -105,7 +116,7 @@ PowerShell delivers the exception. An operator or test may instead create
 | `DEADLINE` | 21 | The absolute deadline fired and complete Job teardown passed. |
 | `INTERRUPTED` | 22 | A bound interrupt request or catchable PowerShell interruption fired and teardown passed. |
 | `INVALID_HANDBACK` | 23 | Exit zero was followed by a missing, malformed, dirty, incomplete, or mismatched handback. |
-| `IDENTITY_DRIFT` | 24 | Mission, executable, runner/helper, controller, source, or child identity changed. |
+| `IDENTITY_DRIFT` | 24 | Mission, claimed executable path/bytes, runner/helper, controller, source, or child identity changed. |
 | `TEARDOWN_FAILURE` | 25 | The owned Job could not prove zero active processes. |
 | `RUNNER_FAILURE` | 26 | The wrapper raised another caught exception and retained the exact detail. |
 
@@ -123,6 +134,8 @@ requires all of the following:
 
 - the expected local result ref exists, equals the named result worktree HEAD,
   descends from the exact source tip, and has a clean worktree;
+- the mission and every claimed Codex, runner, Job-helper, Windows PowerShell,
+  and Git path and SHA-256 still match at the post-child boundary;
 - the required report and handback receipt are regular tracked files at that
   result tip;
 - the handback receipt uses
