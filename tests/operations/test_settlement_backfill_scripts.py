@@ -19,6 +19,9 @@ def test_settlement_backfill_uses_exact_terminal_step_and_no_bare_lock_guard():
     assert "authoritative daily_summary settlement" in text
     assert "weather.market.market_registry" in text
     assert "m.all_specs()" in text
+    assert '$registryArguments = "-c `"$registryCode`""' in text
+    assert "-ArgumentList $registryArguments" in text
+    assert "-ArgumentList @('-c', $registryCode)" not in text
     assert "observedModule -eq $expectedModule" in text
     assert "foreach ($marketId in $expectedMarketIds)" in text
     assert "expected_market_ids" in text

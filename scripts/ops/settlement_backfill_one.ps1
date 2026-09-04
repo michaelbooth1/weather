@@ -95,8 +95,9 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     exit 2
 }
 $registryCode = "import json,weather.market.market_registry as m;print(json.dumps({'schema_version':'settlement_backfill_market_registry_discovery_v0.1','module_file':m.__file__,'market_ids':sorted(s.id for s in m.all_specs())}))"
+$registryArguments = "-c `"$registryCode`""
 $registryProcess = Start-Process -FilePath $python `
-    -ArgumentList @('-c', $registryCode) `
+    -ArgumentList $registryArguments `
     -WorkingDirectory $RepoRoot `
     -NoNewWindow -PassThru -Wait `
     -RedirectStandardOutput $registryOut `
