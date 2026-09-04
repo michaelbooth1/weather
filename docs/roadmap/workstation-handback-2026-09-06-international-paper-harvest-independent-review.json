@@ -1,0 +1,92 @@
+{
+  "verdict": "PASS_REPAIRED",
+  "mission_id": "workstation-international-paper-harvest-independent-review-2026-09-97a",
+  "mission_sha256": "48f5a88baba22109700cf68782019ab2251d66526ff81d8f837301055a5d2a7c",
+  "branch": "codex/workstation-international-paper-harvest-independent-review-2026-09-97a",
+  "dependency_tip": "f964b9463dd850d56b10658ade14d1ecb19aec0b",
+  "source": {
+    "branch": "codex/workstation-international-paper-harvest-2026-09-94a",
+    "tip": "2ae55453133b7e8108132d45555dbd8a316d3914",
+    "tree": "497b47365b7fc9acda06fbb382a5012e67c9dcca",
+    "implementation_tip": "d65144ec75be546db8aee254c8e9bbe02fad4a13",
+    "implementation_tree": "f96bcf08acddc53d89e7e0a38c96ba89387f8ca6"
+  },
+  "final_reviewed_implementation": {
+    "tip": "5d4406a8a34728645bbf8ac88982e6830a176b34",
+    "tree": "51953ba333a72ececd8a170863f0ab56359eef1e"
+  },
+  "report_receipt_carrier": {
+    "ref": "refs/heads/codex/workstation-international-paper-harvest-independent-review-2026-09-97a",
+    "identity_recorded_externally": true,
+    "reason": "A tracked receipt cannot embed the hash of the commit or tree containing itself; the verified handoff records the exact carrier identity and bundle SHA-256."
+  },
+  "mechanism": "single_process_exact_object_reuse",
+  "schema_change": {
+    "path": "src/weather/schema_registry_recent_data.py",
+    "additive_only": true,
+    "expected_capture_closures": 4
+  },
+  "repairs": [
+    "omit all companion output and payload keys when disabled",
+    "reject companion enablement in live-pilot before construction or status publication",
+    "reject nested non-International and Polymarket US identities",
+    "fail closed on corrupt state, pending transactions, and summaries",
+    "use an atomic per-tick outbox with deterministic row identities and restart recovery",
+    "refuse new ticks at the 2048 processed-identity cap",
+    "bind lifecycle, score inputs, tokens, conditions, books, sources, and economics exactly",
+    "require exact native promotion-countable settlement before public evidence counts",
+    "separate public-counterfactual days from authenticated-account economics",
+    "reject all live, authenticated, PnL, reward, release, promotion, and serving eligibility"
+  ],
+  "tests": {
+    "existing_narrow": "7 passed, 91 deselected, 4 subtests passed in 5.58s",
+    "adversarial_red_failures": 13,
+    "directly_affected": "354 passed, 36 subtests passed in 58.34s",
+    "final_focused": "113 passed, 19 subtests passed in 6.03s",
+    "complete_once": "4252 passed, 18 skipped, 4 failed, 867 subtests passed in 434.19s",
+    "complete_failures_classification": "pre_existing_windows_temp_path_case_mismatch",
+    "source_control": "same four failures at exact source tip in 1.54s",
+    "compileall": "PASS",
+    "powershell_ast": "PASS",
+    "agent_docs_audit": "PASS (18 agent files, 830 Markdown files)",
+    "roadmap_check": "OK (generated report matches sources)"
+  },
+  "changed_paths": [
+    {"path": "README.md", "expected_roll": "roll_free_durable_markdown"},
+    {"path": "docs/operations/OPERATIONS_DESIGN.md", "expected_roll": "roll_free_docs"},
+    {"path": "docs/roadmap/agent-report-2026-09-03-workstation-international-paper-harvest.md", "expected_roll": "roll_free_docs"},
+    {"path": "docs/roadmap/agent-report-2026-09-06-workstation-international-paper-harvest-independent-review.md", "expected_roll": "roll_free_docs"},
+    {"path": "docs/roadmap/workstation-handback-2026-09-06-international-paper-harvest-independent-review.json", "expected_roll": "roll_free_docs"},
+    {"path": "scripts/ops/market_making_daily_roll_task.ps1", "expected_roll": "roll_free_powershell"},
+    {"path": "scripts/ops/register_market_making_daily_roll.ps1", "expected_roll": "roll_free_powershell"},
+    {"path": "scripts/ops/register_market_making_daily_roll_supervisor.ps1", "expected_roll": "roll_free_powershell"},
+    {"path": "src/weather/market/market_harvest_companion.py", "expected_roll": "outside_capture_closures_pending_canonical_verdict"},
+    {"path": "src/weather/market/market_making_run.py", "expected_roll": "outside_capture_closures_pending_canonical_verdict"},
+    {"path": "src/weather/market/market_making_run_support.py", "expected_roll": "outside_capture_closures_pending_canonical_verdict"},
+    {"path": "src/weather/operations/daily_refresh_trading_steps.py", "expected_roll": "outside_capture_closures_pending_canonical_verdict"},
+    {"path": "src/weather/operations/market_making_daily_roll.py", "expected_roll": "outside_capture_closures_pending_canonical_verdict"},
+    {"path": "src/weather/schema_registry_recent_data.py", "expected_roll": "all_four_capture_closures_additive_only"},
+    {"path": "tests/market/test_market_harvest_companion.py", "expected_roll": "roll_free_tests"},
+    {"path": "tests/market/test_market_making_run.py", "expected_roll": "roll_free_tests"},
+    {"path": "tests/operations/test_host_task_wrappers.py", "expected_roll": "roll_free_tests"},
+    {"path": "tests/operations/test_market_making_daily_roll.py", "expected_roll": "roll_free_tests"}
+  ],
+  "falsifiers": {
+    "disabled_mode_inert": "PASS_AFTER_REPAIR",
+    "live_pilot_preconstruction_refusal": "PASS_AFTER_REPAIR",
+    "international_only": "PASS_AFTER_REPAIR",
+    "stale_gapped_mismatched_or_incomplete_inputs_fail_closed": "PASS_AFTER_REPAIR",
+    "restart_atomic_idempotent_and_bounded": "PASS_AFTER_REPAIR",
+    "prohibited_eligibility_always_false": "PASS_AFTER_REPAIR",
+    "schema_additive_only": "PASS",
+    "single_worker_object_reuse": "PASS"
+  },
+  "prohibited_actions_performed": [],
+  "production_actions_required": [
+    "verify the complete bundle and exact branch identity",
+    "push the exact branch",
+    "create a stacked draft PR targeting the source branch",
+    "run the canonical production roll verdict",
+    "monitor exact-head CI"
+  ]
+}
