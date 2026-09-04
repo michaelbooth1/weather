@@ -1,0 +1,266 @@
+{
+  "schema_version": "workstation_wu_outcome_gap_handback_v1",
+  "created_at_utc": "2026-09-04T06:13:54+00:00",
+  "mission_id": "workstation-wu-outcome-gap-export-contract-2026-09-100a",
+  "mission_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\mission.md",
+  "mission_bytes": 8212,
+  "mission_sha256": "3c91f416e193cd4b27db49e4dc4a2bd46ad681de2924ca13568c9d1b520a0429",
+  "verdict": "COMPLETE_VALIDATED",
+  "source": {
+    "ref": "refs/heads/codex/workstation-multiyear-nwp-residual-2026-09-88a",
+    "tip": "30386b5f082abbecda99c6357bccde1308771448",
+    "tree": "b373970f5912284d6852c9fbb145952727cdc04e",
+    "sole_parent": "663a288dbf04d8fbcabf0501288cfc9af1b8b545",
+    "stack_base": "2e20e59aae08e7367dc79e1b8102c0551e7f6904"
+  },
+  "result_ref": "refs/heads/codex/workstation-wu-outcome-gap-export-contract-2026-09-100a",
+  "result_worktree": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\wu-outcome-gap-export-contract-09-100a",
+  "implementation": {
+    "tip": "1f2b44a990cb9c4203a61c0a7aab881951ab2250",
+    "tree": "f2c67cbed28aa0a093cde81b82e115e7401a2796",
+    "sole_parent": "30386b5f082abbecda99c6357bccde1308771448"
+  },
+  "report_path": "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-gap-export-contract.md",
+  "receipt_path": "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-gap-export-contract.json",
+  "spec_path": "docs/roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json",
+  "bundle_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\publication-transfer-final.bundle",
+  "changed_paths": [
+    ".codex/hooks/pre_tool_use_host_load.py",
+    "docs/README.md",
+    "docs/operations/WU_OUTCOME_EXPORT_CONTRACT.md",
+    "docs/operations/module-ownership-map.md",
+    "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-gap-export-contract.md",
+    "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-gap-export-contract.json",
+    "docs/roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json",
+    "scripts/ops/workload_admission.ps1",
+    "src/weather/operations/module_size_audit.py",
+    "src/weather/operations/wu_outcome_export_contract.py",
+    "src/weather/schema_registry_recent_data.py",
+    "tests/operations/test_module_size_audit.py",
+    "tests/operations/test_wu_outcome_export_contract.py"
+  ],
+  "coverage": {
+    "pre_boundary": {
+      "requested_dates": 58,
+      "dates_with_any_admissible_market": 53,
+      "fully_complete_dates": 50,
+      "requested_market_days": 696,
+      "admissible_market_days": 612,
+      "missing_market_days": 82,
+      "below_threshold_market_days": 2
+    },
+    "post_boundary_directional": {
+      "requested_dates": 10,
+      "dates_with_any_admissible_market": 9,
+      "fully_complete_dates": 9,
+      "requested_market_days": 120,
+      "admissible_market_days": 108,
+      "missing_market_days": 12,
+      "below_threshold_market_days": 0
+    },
+    "total": {
+      "requested_dates": 68,
+      "dates_with_any_admissible_market": 62,
+      "fully_complete_dates": 59,
+      "requested_market_days": 816,
+      "admissible_market_days": 720,
+      "missing_market_days": 94,
+      "below_threshold_market_days": 2,
+      "requested_export_rows": 96,
+      "maximum_attainable_complete_dates": 68,
+      "maximum_attainable_market_days": 816,
+      "markets": 12
+    }
+  },
+  "artifacts": {
+    "gap": {
+      "path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\wu-outcome-gap-manifest.json",
+      "bytes": 340369,
+      "file_sha256": "6ba020575e3ef1eb903ae0010510caea20f31b31bdf3451c0e03f11175c3de94",
+      "self_hash": "64176a727907c8f62c496f6fb1893c1f7462cfef15c1db3f06ef7b3e244f0ce8",
+      "reproduced_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\wu-outcome-gap-manifest-reproduced.json",
+      "reproduced_byte_identical": true,
+      "settlement_temperature_values": 0
+    },
+    "spec": {
+      "path": "docs/roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json",
+      "bytes": 41288,
+      "file_sha256": "cf10553a9b041a783bf5caf56b191835e2904474a4bad34dcbc1f6ad934d093f",
+      "self_hash": "5d370c51da7d95e1d3a62a8ff4f9d66cd3312c5eecfebcbdbaab169be505e0f9",
+      "reproduced_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\wu-outcome-gap-production-export-spec-reproduced.json",
+      "reproduced_byte_identical": true
+    }
+  },
+  "nwp_coverage_context": {
+    "kept_separate_from_wu_gap": true,
+    "multiyear_2021_2025": {
+      "requested_cells": 13789440,
+      "present_cells": 5975424,
+      "missing_cells": 7814016,
+      "year_2025_present_cells": 2757888,
+      "year_2025_missing_cells": 0
+    },
+    "calendar_extension_2024_2025": {
+      "requested_cells": 11154528,
+      "present_cells": 10682595,
+      "missing_cells": 471933,
+      "year_2025_present_cells": 5566176,
+      "year_2025_missing_cells": 0,
+      "missing_period": "January 2024"
+    },
+    "target_2026": {
+      "rows": 1645056,
+      "markets": 12,
+      "fields": 12,
+      "leads": [1, 2, 3, 4, 5, 6, 7],
+      "missing_rows": 0
+    }
+  },
+  "production_handoff": {
+    "safe_existing_export_entry_point": false,
+    "command": null,
+    "smallest_missing_implementation": "A read-only production entry point that verifies settlement ledger history, selects authoritative WU revisions for the exact 96 requested market/date keys, and creates the spec's exact two-file artifact.",
+    "downstream_authority_granted": false
+  },
+  "verification": [
+    {
+      "name": "contract_unit_tests",
+      "status": "PASS",
+      "passed": 11,
+      "seconds": 0.13
+    },
+    {
+      "name": "wrapper_and_admission_focus",
+      "status": "PASS",
+      "passed": 44,
+      "skipped": 15,
+      "seconds": 6.02
+    },
+    {
+      "name": "pre_suite_contract_wrapper_import_schema_focus",
+      "status": "PASS",
+      "passed": 74,
+      "skipped": 15,
+      "seconds": 10.73
+    },
+    {
+      "name": "single_complete_workstation_suite",
+      "status": "FAIL_THEN_FOCUSED_REPAIR",
+      "passed": 4361,
+      "failed": 3,
+      "skipped": 18,
+      "warnings": 13,
+      "subtests_passed": 866,
+      "seconds": 419.85,
+      "base_temp": "C:\\w100af",
+      "junit_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\full-workstation-suite.junit.xml",
+      "junit_bytes": 710856,
+      "junit_sha256": "4e2ad8bc535a8148639964653550cf7697ce613f6504fd4ac4de87b49dba00b7",
+      "max_path_exception_used": false,
+      "complete_suite_repeated": false,
+      "failure_node_ids": [
+        "tests/operations/test_codex_host_load_hook.py::test_hook_and_workstation_wrapper_share_the_same_offline_module_set",
+        "tests/operations/test_module_size_audit.py::test_current_warning_modules_have_complete_ownership_metadata_and_no_orphans",
+        "tests/operations/test_module_size_audit.py::test_ownership_document_lists_every_current_warning"
+      ]
+    },
+    {
+      "name": "post_repair_contract_wrapper_hook_module_import_schema_focus",
+      "status": "PASS",
+      "passed": 109,
+      "skipped": 15,
+      "seconds": 11.75
+    },
+    {
+      "name": "compileall",
+      "status": "PASS",
+      "arguments": ["-m", "compileall", "-q", "app", "src", "tests"]
+    },
+    {
+      "name": "agent_docs_audit",
+      "status": "PASS",
+      "agent_files": 18,
+      "markdown_files": 836
+    },
+    {
+      "name": "roadmap_lint_check",
+      "status": "PASS"
+    },
+    {
+      "name": "cumulative_git_diff_check",
+      "status": "PASS",
+      "source_tip": "30386b5f082abbecda99c6357bccde1308771448",
+      "implementation_tip": "1f2b44a990cb9c4203a61c0a7aab881951ab2250"
+    },
+    {
+      "name": "independent_gap_and_spec_reproduction",
+      "status": "PASS",
+      "byte_identical": true
+    }
+  ],
+  "executables": {
+    "runner": {
+      "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\unattended-runner-portable-binding-repair-09-99c\\scripts\\ops\\invoke_workstation_codex_mission.ps1",
+      "bytes": 58279,
+      "sha256": "50dc332d687704047c6c1a440ca4352af1246466a8873df6225e052a5915e9c8"
+    },
+    "job_helper": {
+      "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\unattended-runner-portable-binding-repair-09-99c\\scripts\\ops\\windows_kill_on_close_job.ps1",
+      "bytes": 16406,
+      "sha256": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243"
+    },
+    "workstation_wrapper": {
+      "path": "scripts/ops/workstation_heavy.ps1",
+      "bytes": 6254,
+      "sha256": "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532"
+    },
+    "workload_admission": {
+      "path": "scripts/ops/workload_admission.ps1",
+      "bytes": 77916,
+      "sha256": "1d2a291caa0aa9fcea5baa80efcce88a79ebda3cb717425be54d8bb5acdae947"
+    },
+    "codex": {
+      "path": "C:\\Users\\Michael\\AppData\\Local\\OpenAI\\Codex\\bin\\9ba750cce02d5e5c\\codex.exe",
+      "bytes": 295295792,
+      "sha256": "be83164c07287d028cc4725105f3cceaaf244d53a862e19743f55e9150a66fc1"
+    },
+    "powershell": {
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "bytes": 454656,
+      "sha256": "7600ffe12da441fe89d035b13801e8e91d064bc544a27b19a5cf49f6ab8b18f5"
+    },
+    "git": {
+      "path": "C:\\Program Files\\Git\\cmd\\git.exe",
+      "bytes": 46480,
+      "sha256": "81ef35ae005ca9318018d18e3327578ce939fb99feaad6b2d7c8ab15f3de8db5"
+    }
+  },
+  "prohibited_actions": {
+    "production_contact": false,
+    "scheduler_access_or_mutation": false,
+    "credential_access": false,
+    "provider_access": false,
+    "exchange_access": false,
+    "github_or_remote_access": false,
+    "market_data_or_price_access": false,
+    "corpus_or_ledger_mutation": false,
+    "model_refit": false,
+    "probability_generation": false,
+    "prediction_scoring_or_metrics": false,
+    "campaign_or_promotion": false,
+    "live_action": false,
+    "git_fetch_or_pull": false,
+    "git_merge": false,
+    "git_push": false,
+    "prior_external_attempt_rerun": false,
+    "unsafe_production_command_invented": false
+  },
+  "external_binding": {
+    "rule": "external binding carries final tip, tree, bundle, and raw committed report/receipt blob identities",
+    "final_tip": null,
+    "final_tree": null,
+    "bundle_sha256": null,
+    "report_blob": null,
+    "receipt_blob": null
+  }
+}
