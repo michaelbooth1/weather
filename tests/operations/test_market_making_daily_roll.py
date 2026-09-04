@@ -156,6 +156,58 @@ class TestMarketMakingDailyRoll(unittest.TestCase):
         self.assertNotIn("--enable-market-harvest-companion", default)
         self.assertEqual(opted_in.count("--enable-market-harvest-companion"), 1)
 
+    def test_market_harvest_companion_rejects_live_pilot_before_launch_or_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            status_path = root / "status.json"
+            diagnostics_path = root / "diagnostics.json"
+            console_path = root / "console.log"
+            runs_root = root / "runs"
+            calls = []
+
+            def launcher(*args, **kwargs):
+                calls.append((args, kwargs))
+                return 4321
+
+            with self.assertRaisesRegex(ValueError, "paper-only"):
+                build_market_making_command(
+                    "2026-06-16",
+                    mode="live-pilot",
+                    market_harvest_companion=True,
+                )
+            with self.assertRaisesRegex(ValueError, "paper-only"):
+                start_for_date(
+                    "2026-06-16",
+                    mode="live-pilot",
+                    status_path=status_path,
+                    console_log_path=console_path,
+                    runs_root=runs_root,
+                    min_free_bytes=0,
+                    disk_usage_fn=lambda _path: SimpleNamespace(total=1000, used=0, free=1000),
+                    launcher=launcher,
+                    market_harvest_companion=True,
+                )
+            with self.assertRaisesRegex(ValueError, "paper-only"):
+                ensure_for_date(
+                    "2026-06-16",
+                    mode="live-pilot",
+                    status_path=status_path,
+                    diagnostics_path=diagnostics_path,
+                    console_log_path=console_path,
+                    runs_root=runs_root,
+                    min_free_bytes=0,
+                    disk_usage_fn=lambda _path: SimpleNamespace(total=1000, used=0, free=1000),
+                    launcher=launcher,
+                    market_harvest_companion=True,
+                    now="2026-06-16T16:00:00+00:00",
+                )
+
+            self.assertEqual(calls, [])
+            self.assertFalse(status_path.exists())
+            self.assertFalse(diagnostics_path.exists())
+            self.assertFalse(console_path.exists())
+            self.assertFalse(runs_root.exists())
+
     def test_start_for_date_records_child_pid_and_avoids_duplicate_same_day_run(self):
         calls = []
 

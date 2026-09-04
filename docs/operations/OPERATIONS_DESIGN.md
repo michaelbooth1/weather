@@ -272,17 +272,27 @@ the paper-only harvest policy from each tick's already-loaded token, book,
 source-status, and exchange-economics objects; it does not start another poller
 or fetch those inputs again. The companion writes beneath the parent run's
 `market_harvest_companion/` directory with separate schema, input hashes,
-paper lifecycle, restart state, and a permanently false live-forward gate.
+paper lifecycle, restart state, and a permanently false live-forward gate. An
+atomic pending-tick outbox precedes durable appends. Per-row transaction
+identities make recovery idempotent when a process exits between an append and
+its checkpoint; corrupt checkpoints and pending records fail closed. The
+checkpoint retains at most 2,048 tick identities and refuses another tick at
+the cap instead of evicting duplicate-suppression history.
 The normal model-gated quote tape and promotion inputs do not consume this
-family. Daily refresh discovers only these nested folders for the companion
+family, and disabled ticks omit the companion field and directory entirely.
+Daily refresh discovers only these nested folders for the companion
 portion of `maker_paper_score`, applies the canonical strict public-trade
 scorer, and publishes separately named companion report, simulated-fill, and
 queue artifacts. Public trades, quote opportunities, simulated lifecycle,
 queue estimates, and simulated fills are explicit evidence classes;
-authenticated fills and realized P&L remain zero. Missing or stale books,
-capture gaps, incomplete trade size, token/condition mismatch, and unresolved
-resting evidence block companion countability without changing the ordinary
-model lane.
+authenticated fills, realized P&L, and authenticated-account market-days
+remain zero. A public-counterfactual market-day is countable only when quote
+and execution conditions match, the configured authoritative settlement
+revision is valid, `promotion_countable` is true, the target/market/event bind,
+and the settlement unit matches the built-in market's native unit. Missing or
+stale books, capture gaps, incomplete trade size, token/condition mismatch,
+and unresolved resting evidence also block companion countability without
+changing the ordinary model lane.
 
 The PowerShell wrapper and both existing daily-roll registrars expose
 `-EnableMarketHarvestCompanion`. Repository integration does not register or

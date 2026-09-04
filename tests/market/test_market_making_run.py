@@ -2387,10 +2387,87 @@ class TestMarketMakingRun(unittest.TestCase):
         )
         self.assertEqual(rows_after, rows)
         self.assertEqual(lifecycle_after, lifecycle_before)
-        self.assertIsNone(no_companion_payload["market_harvest_companion"])
+        self.assertNotIn("market_harvest_companion", no_companion_payload)
         self.assertFalse(
             (Path(no_companion_payload["run_folder"]) / "market_harvest_companion").exists()
         )
+
+    def test_market_harvest_companion_rejects_us_platform_before_run_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+            runs_root = root / "mm_runs"
+
+            with self.assertRaisesRegex(ValueError, "International Polymarket"):
+                build_run_once(
+                    TARGET_DATE,
+                    25.0,
+                    mode="paper-live-forward",
+                    markets=["atlanta"],
+                    runs_root=runs_root,
+                    snapshots_root=snapshots_root,
+                    promotion_refresh=promotion,
+                    known_edge_map=known_edge,
+                    observation_status_path=status,
+                    run_id="companion-us-platform",
+                    now=NOW,
+                    enable_market_harvest_companion=True,
+                    exchange_economics_platform="polymarket_us",
+                )
+
+            self.assertFalse(runs_root.exists())
+
+    def test_market_harvest_companion_reuses_each_loaded_input_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            snapshots_root, promotion = write_market_fixture(root)
+            status = root / "observation_status.json"
+            write_observation_status(status)
+            known_edge = write_known_edge_map(root / "known_edge.json")
+            token_reads = []
+            original_read = market_making_run.read_csv_rows
+            original_books = market_making_run.latest_book_rows
+            original_sources = market_making_run.source_status_for_snapshot
+
+            def tracked_read(path):
+                if Path(path).name == "clob_tokens.csv":
+                    token_reads.append(str(path))
+                return original_read(path)
+
+            with (
+                patch.object(market_making_run, "read_csv_rows", side_effect=tracked_read),
+                patch.object(
+                    market_making_run,
+                    "latest_book_rows",
+                    wraps=original_books,
+                ) as book_reader,
+                patch.object(
+                    market_making_run,
+                    "source_status_for_snapshot",
+                    wraps=original_sources,
+                ) as source_reader,
+            ):
+                build_run_once(
+                    TARGET_DATE,
+                    25.0,
+                    mode="paper-live-forward",
+                    markets=["atlanta"],
+                    runs_root=root / "mm_runs",
+                    snapshots_root=snapshots_root,
+                    promotion_refresh=promotion,
+                    known_edge_map=known_edge,
+                    observation_status_path=status,
+                    run_id="companion-single-read",
+                    now=NOW,
+                    enable_market_harvest_companion=True,
+                )
+
+            self.assertEqual(len(token_reads), 1)
+            self.assertEqual(book_reader.call_count, 1)
+            self.assertEqual(source_reader.call_count, 1)
 
     def test_market_harvest_companion_fails_closed_on_stale_gap_missing_book_and_depth(self):
         def run_case(case):
@@ -2409,6 +2486,8 @@ class TestMarketMakingRun(unittest.TestCase):
                 write_csv(folder / "order_books_summary.csv", list(rows[0]), older + rows)
             elif case == "missing-book":
                 (folder / "order_books_summary.csv").unlink()
+            elif case == "missing-source":
+                (folder / "source_status_long.csv").unlink()
             elif case == "depth":
                 books = read_csv(folder / "order_books_summary.csv")
                 for row in books:
@@ -2443,7 +2522,16 @@ class TestMarketMakingRun(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            results = {case: run_case(case) for case in ("stale", "gap", "missing-book", "depth")}
+            results = {
+                case: run_case(case)
+                for case in (
+                    "stale",
+                    "gap",
+                    "missing-book",
+                    "missing-source",
+                    "depth",
+                )
+            }
 
         for case, companion in results.items():
             with self.subTest(case=case):

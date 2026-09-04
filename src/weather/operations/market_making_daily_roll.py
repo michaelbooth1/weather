@@ -221,6 +221,8 @@ def build_market_making_command(
     market_harvest_companion=False,
 ):
     mode = str(mode)
+    if market_harvest_companion and mode == "live-pilot":
+        raise ValueError("market-harvest companion is paper-only")
     if mode not in RUN_MODES:
         raise ValueError(f"unsupported market-making mode: {mode}")
     command = [
@@ -897,6 +899,8 @@ def start_for_date(
     market_harvest_companion=False,
     _launch_lock_held=False,
 ):
+    if market_harvest_companion and str(mode) == "live-pilot":
+        raise ValueError("market-harvest companion is paper-only")
     if not _launch_lock_held:
         return _run_with_daily_roll_launch_lock(
             lambda: start_for_date(
@@ -1184,6 +1188,8 @@ def ensure_for_date(
     market_harvest_companion=False,
     _launch_lock_held=False,
 ):
+    if market_harvest_companion and str(mode) == "live-pilot":
+        raise ValueError("market-harvest companion is paper-only")
     if not _launch_lock_held:
         return _run_with_daily_roll_launch_lock(
             lambda: ensure_for_date(
