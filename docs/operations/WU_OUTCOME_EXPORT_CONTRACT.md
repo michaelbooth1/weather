@@ -25,6 +25,14 @@ fewer than 18 observations. Sources are opened without writer locks and are
 bound by portable repository-relative path, bytes, SHA-256, and stable file
 identity before and after selection and immediately before publication.
 
+Each WU daily-summary CSV is decoded and structurally parsed from beginning to
+end. Header and row shape, duplicate or case-colliding columns, encoding, and
+file identity therefore remain whole-file gates. Daily schema, ISO date, native
+unit, row count, support threshold, and integral finite bucket checks apply to
+the exact requested dates derived independently for each market. Historical
+rows outside that frozen cohort do not enter the export and their semantic
+contents do not block it; every requested date must still appear exactly once.
+
 The command requires an absolute read-only data repository root, the exact
 tracked frozen spec, and a new absolute destination whose parent already
 exists. The spec may live in a separate reviewed worktree of the same Git

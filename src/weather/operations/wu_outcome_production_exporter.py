@@ -339,6 +339,33 @@ def _market_configuration(spec: Mapping[str, Any]) -> tuple[list[Mapping[str, An
     return checked, builtins
 
 
+def _requested_dates_by_market(
+    requests: Sequence[Mapping[str, Any]], configured: Mapping[str, Any]
+) -> dict[str, frozenset[str]]:
+    requested: dict[str, set[str]] = {market: set() for market in configured}
+    for request in requests:
+        if not isinstance(request, Mapping):
+            raise _block("E_REQUEST_NONOBJECT")
+        market = request.get("market")
+        if not isinstance(market, str) or market not in requested:
+            raise _block("E_REQUEST_MARKET_MISMATCH")
+        target_text = request.get("target_date")
+        if not isinstance(target_text, str):
+            raise _block("E_REQUEST_DATE")
+        try:
+            target = date.fromisoformat(target_text)
+        except ValueError as exc:
+            raise _block("E_REQUEST_DATE") from exc
+        if target.isoformat() != target_text:
+            raise _block("E_REQUEST_DATE")
+        if target_text in requested[market]:
+            raise _block("E_REQUEST_DUPLICATE")
+        requested[market].add(target_text)
+    if any(not dates for dates in requested.values()):
+        raise _block("E_REQUEST_DATE_SET_EMPTY")
+    return {market: frozenset(dates) for market, dates in requested.items()}
+
+
 def _decode_utf8(raw: bytes, code: str) -> str:
     try:
         return raw.decode("utf-8-sig")
@@ -494,10 +521,23 @@ def _parse_integral(value: Any, code: str) -> int:
     return int(number)
 
 
-def _parse_daily(snapshot: SourceSnapshot, expected_unit: str) -> dict[str, dict[str, int]]:
+def _parse_daily(
+    snapshot: SourceSnapshot,
+    expected_unit: str,
+    requested_dates: frozenset[str],
+) -> dict[str, dict[str, int]]:
+    if not requested_dates:
+        raise _block("E_REQUEST_DATE_SET_EMPTY")
+    for target_text in requested_dates:
+        try:
+            target = date.fromisoformat(target_text)
+        except ValueError as exc:
+            raise _block("E_REQUEST_DATE") from exc
+        if target.isoformat() != target_text:
+            raise _block("E_REQUEST_DATE")
     text = _decode_utf8(snapshot.raw, "E_DAILY_ENCODING")
     try:
-        reader = csv.DictReader(io.StringIO(text, newline=""))
+        reader = csv.DictReader(io.StringIO(text, newline=""), strict=True)
         fields = reader.fieldnames
     except csv.Error as exc:
         raise _block("E_DAILY_CSV") from exc
@@ -517,13 +557,19 @@ def _parse_daily(snapshot: SourceSnapshot, expected_unit: str) -> dict[str, dict
         for row in reader:
             if None in row:
                 raise _block("E_DAILY_EXTRA_COLUMNS")
+            if any(value is None for value in row.values()):
+                raise _block("E_DAILY_ROW_SHAPE")
+            target = str(row.get("local_date") or "")
+            if target not in requested_dates:
+                continue
             if row.get("schema_version") not in DAILY_SCHEMAS:
                 raise _block("E_DAILY_SCHEMA")
-            target = str(row.get("local_date") or "")
             try:
-                date.fromisoformat(target)
+                parsed_target = date.fromisoformat(target)
             except ValueError as exc:
                 raise _block("E_DAILY_DATE") from exc
+            if parsed_target.isoformat() != target:
+                raise _block("E_DAILY_DATE")
             if target in selected:
                 raise _block("E_DAILY_DUPLICATE_DATE")
             if row.get("temperature_unit") != expected_unit:
@@ -532,6 +578,8 @@ def _parse_daily(snapshot: SourceSnapshot, expected_unit: str) -> dict[str, dict
             if not row_count_text.isdigit():
                 raise _block("E_DAILY_ROW_COUNT")
             row_count = int(row_count_text)
+            if row_count < contract.MIN_WU_ROWS:
+                raise _block("E_DAILY_BELOW_THRESHOLD")
             bucket_value = row.get("max_temp_bucket_native")
             if bucket_value in (None, ""):
                 bucket_value = row.get("max_temp_bucket")
@@ -543,8 +591,8 @@ def _parse_daily(snapshot: SourceSnapshot, expected_unit: str) -> dict[str, dict
             }
     except csv.Error as exc:
         raise _block("E_DAILY_CSV") from exc
-    if not selected:
-        raise _block("E_DAILY_EMPTY")
+    if set(selected) != set(requested_dates):
+        raise _block("E_DAILY_REQUEST_SET_MISMATCH")
     return selected
 
 
@@ -671,6 +719,7 @@ def _build_rows(
     configured: Mapping[str, Any],
     sources: Mapping[tuple[str, str], SourceSnapshot],
 ) -> list[dict[str, Any]]:
+    requested_dates = _requested_dates_by_market(requests, configured)
     ledger_indexes: dict[str, dict[tuple[str, str], Mapping[str, Any]]] = {}
     daily_indexes: dict[str, dict[str, dict[str, int]]] = {}
     for market in sorted(configured):
@@ -679,7 +728,11 @@ def _build_rows(
         ledger_indexes[market] = contract.latest_authoritative_ledger_rows(
             _parse_ledger(ledger, market)
         )
-        daily_indexes[market] = _parse_daily(daily, configured[market].display_unit)
+        daily_indexes[market] = _parse_daily(
+            daily,
+            configured[market].display_unit,
+            requested_dates[market],
+        )
     rows: list[dict[str, Any]] = []
     for request in requests:
         market = str(request["market"])

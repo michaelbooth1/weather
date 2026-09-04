@@ -470,6 +470,68 @@ def test_two_fresh_roots_reproduce_byte_identical_exports(
     assert (second["destination"] / "manifest.json").read_bytes() == first_manifest
 
 
+def test_irrelevant_daily_semantics_do_not_block_exact_stable_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(tmp_path, monkeypatch)
+    irrelevant_rows = [
+        "wu_daily_legacy_v0,not-a-date,K,not-a-count,",
+        "wrong_schema,2025-01-01,C,-1,81.5",
+        "wu_daily_native_v2,also-not-a-date,K,NaN,Infinity",
+    ]
+    for path in case["dailies"].values():
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines[1:1] = irrelevant_rows[:2]
+        lines.append(irrelevant_rows[2])
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    sources = [*case["ledgers"].values(), *case["dailies"].values()]
+    source_identity = {
+        path.relative_to(case["repo"]).as_posix(): (
+            path.stat().st_size,
+            contract.sha256_file(path),
+        )
+        for path in sources
+    }
+    _invoke(case)
+    first_payload = (case["destination"] / "wu-outcomes.jsonl").read_bytes()
+    first_manifest = (case["destination"] / "manifest.json").read_bytes()
+    second_destination = case["destination"].with_name("export-second")
+    contract.export_production(
+        repo_root=case["repo"],
+        spec_path=case["spec_path"],
+        destination=second_destination,
+    )
+
+    assert (second_destination / "wu-outcomes.jsonl").read_bytes() == first_payload
+    assert (second_destination / "manifest.json").read_bytes() == first_manifest
+    payload = [json.loads(line) for line in first_payload.splitlines()]
+    expected_keys = [
+        (row["market"], row["target_date"])
+        for row in case["spec"]["request"]["keys"]
+    ]
+    assert len(payload) == 96
+    assert [(row["market"], row["target_date"]) for row in payload] == expected_keys
+    manifest = json.loads(first_manifest)
+    assert len(manifest["source_files"]) == 24
+    assert {
+        row["relative_path"]: (row["bytes_before"], row["sha256_before"])
+        for row in manifest["source_files"]
+    } == source_identity
+    assert all(
+        row["bytes_before"] == row["bytes_after"]
+        and row["sha256_before"] == row["sha256_after"]
+        for row in manifest["source_files"]
+    )
+    assert source_identity == {
+        path.relative_to(case["repo"]).as_posix(): (
+            path.stat().st_size,
+            contract.sha256_file(path),
+        )
+        for path in sources
+    }
+
+
 def _copied_acl_proof() -> dict[str, str]:
     sddl = "O:S-1-5-21-222D:(A;;FA;;;S-1-5-21-222)"
     return {
@@ -806,9 +868,26 @@ def test_blank_or_malformed_ledger_leaves_final_absent(
     assert not case["destination"].exists()
 
 
-@pytest.mark.parametrize("mutation", ["missing", "below", "duplicate", "wrong_unit"])
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("missing", "E_DAILY_REQUEST_SET_MISMATCH"),
+        ("below", "E_DAILY_BELOW_THRESHOLD"),
+        ("duplicate", "E_DAILY_DUPLICATE_DATE"),
+        ("wrong_unit", "E_DAILY_UNIT"),
+        ("wrong_schema", "E_DAILY_SCHEMA"),
+        ("blank_bucket", "E_DAILY_BUCKET"),
+        ("nonintegral_bucket", "E_DAILY_BUCKET"),
+        ("nonfinite_bucket", "E_DAILY_BUCKET"),
+        ("invalid_row_count", "E_DAILY_ROW_COUNT"),
+        ("invalid_date", "E_DAILY_REQUEST_SET_MISMATCH"),
+    ],
+)
 def test_adversarial_daily_evidence_leaves_final_absent(
-    mutation: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mutation: str,
+    error: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     case = _make_case(tmp_path, monkeypatch)
     path = case["dailies"]["chicago"]
@@ -819,12 +898,77 @@ def test_adversarial_daily_evidence_leaves_final_absent(
         lines[1] = lines[1].replace(",24,", ",17,")
     elif mutation == "duplicate":
         lines.append(lines[1])
-    else:
+    elif mutation == "wrong_unit":
         lines[1] = lines[1].replace(",F,", ",C,")
+    elif mutation == "wrong_schema":
+        lines[1] = lines[1].replace("wu_daily_native_v2", "wu_daily_legacy_v0")
+    elif mutation == "blank_bucket":
+        lines[1] = lines[1].rsplit(",", 1)[0] + ","
+    elif mutation == "nonintegral_bucket":
+        lines[1] = lines[1].rsplit(",", 1)[0] + ",81.5"
+    elif mutation == "nonfinite_bucket":
+        lines[1] = lines[1].rsplit(",", 1)[0] + ",NaN"
+    elif mutation == "invalid_row_count":
+        lines[1] = lines[1].replace(",24,", ",many,")
+    else:
+        lines[1] = lines[1].replace(DATES[0], "not-a-date")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    with pytest.raises(contract.ContractError):
+    with pytest.raises(contract.ContractError, match=error):
         _invoke(case)
     assert not case["destination"].exists()
+
+
+@pytest.mark.parametrize(
+    ("row", "error"),
+    [
+        ("legacy,not-a-date,K,broken", "E_DAILY_ROW_SHAPE"),
+        ("legacy,not-a-date,K,broken,,extra", "E_DAILY_EXTRA_COLUMNS"),
+        ('"unterminated', "E_DAILY_CSV"),
+    ],
+)
+def test_irrelevant_daily_csv_shape_faults_fail_closed(
+    row: str,
+    error: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _make_case(tmp_path, monkeypatch)
+    path = case["dailies"]["chicago"]
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        handle.write(row + "\n")
+    with pytest.raises(contract.ContractError, match=error):
+        _invoke(case)
+    assert not case["destination"].exists()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error"),
+    [
+        ("empty_market", "E_REQUEST_DATE_SET_EMPTY"),
+        ("non_iso_date", "E_REQUEST_DATE"),
+        ("duplicate", "E_REQUEST_DUPLICATE"),
+        ("wrong_market", "E_REQUEST_MARKET_MISMATCH"),
+    ],
+)
+def test_requested_dates_are_derived_independently_per_market(
+    mutation: str,
+    error: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _make_case(tmp_path, monkeypatch)
+    configured = {item.id: item for item in BUILTIN_SPECS}
+    requests = [dict(row) for row in case["spec"]["request"]["keys"]]
+    if mutation == "empty_market":
+        requests = [row for row in requests if row["market"] != "chicago"]
+    elif mutation == "non_iso_date":
+        requests[0]["target_date"] = "20260615"
+    elif mutation == "duplicate":
+        requests[1] = dict(requests[0])
+    else:
+        requests[0]["market"] = "not-configured"
+    with pytest.raises(contract.ContractError, match=error):
+        exporter._requested_dates_by_market(requests, configured)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "extra", "cross_boundary"])
