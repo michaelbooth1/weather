@@ -1845,7 +1845,7 @@
     }
   ],
   "event_metadata": {
-    "last_refreshed_at_utc": "2026-08-26T10:00:03.585662+00:00",
+    "last_refreshed_at_utc": "2026-09-04T04:00:02.184674+00:00",
     "path": "config/location_market_events.json",
     "schema_version": "location_market_events_v0.1"
   }
