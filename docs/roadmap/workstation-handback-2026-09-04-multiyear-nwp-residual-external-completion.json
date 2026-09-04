@@ -1,0 +1,265 @@
+{
+    "schema_version":  "workstation_unattended_mission_handback_v0.1",
+    "mission_id":  "workstation-multiyear-nwp-residual-external-completion-2026-09-100h",
+    "mission_sha256":  "5824c7123d837f80cb4ffd9c80fb594e058b8b3bcb807557a09e57b10a77b36b",
+    "source_tip":  "734f14adba7055ba7459db8a9ab4a16983a1b202",
+    "source_tree":  "1468c089b62e09a09a13006a1936c32787e4c64b",
+    "result_ref":  "refs/heads/codex/workstation-multiyear-nwp-residual-external-completion-2026-09-100h",
+    "implementation_tip":  "8741047c8eca9ebbc31fc7178c1eafe0ac8ae457",
+    "implementation_tree":  "5473d10d3ce90c72019f5b70acc188d20973639d",
+    "report_path":  "docs/roadmap/agent-report-2026-09-04-workstation-multiyear-nwp-residual-external-completion.md",
+    "report_file_sha256":  "195ded8c58999d2ed841a77bc67b7fad478a6847da9962241065d515c85a644a",
+    "receipt_path":  "docs/roadmap/workstation-handback-2026-09-04-multiyear-nwp-residual-external-completion.json",
+    "bundle_path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-multiyear-nwp-residual-external-completion-2026-09-100h\\publication-transfer-final.bundle",
+    "changed_paths":  [
+                          ".codex/hooks/pre_tool_use_host_load.py",
+                          "docs/roadmap/active-backlog.md",
+                          "docs/roadmap/agent-report-2026-09-04-workstation-multiyear-nwp-residual-external-completion.md",
+                          "docs/roadmap/multiyear-nwp-residual-external-completion-amendment-2026-09-100h.json",
+                          "docs/roadmap/workstation-handback-2026-09-04-multiyear-nwp-residual-external-completion.json",
+                          "scripts/ops/workload_admission.ps1",
+                          "src/weather/calibration/multiyear_nwp_residual_external_completion.py",
+                          "src/weather/schema_registry_recent_data.py",
+                          "tests/calibration/test_multiyear_nwp_residual_external_completion.py"
+                      ],
+    "tests":  [
+                  {
+                      "name":  "p0_exact_identity_and_outcome_blind_falsifiers",
+                      "status":  "PASS",
+                      "source_git_exact":  true,
+                      "mission_hash_exact":  true,
+                      "input_hashes_exact":  true,
+                      "result_targets_initially_absent":  true,
+                      "assigned_workstation":  true,
+                      "mutex_available":  true,
+                      "poison_absent":  true,
+                      "reserved_dates":  [
+
+                                         ],
+                      "outcome_values_parsed":  0
+                  },
+                  {
+                      "name":  "immutable_amendment_before_outcome_access",
+                      "status":  "PASS",
+                      "file_sha256":  "26075a650aabd554d923d98423bcaeb0144cbd3c1fd3adc828957b4b82a6a938",
+                      "amendment_sha256":  "5d6c9c1f44c4938b9d45e1c8329a213e0f57241f6fbb3c533a33ee68a1ff9171",
+                      "outcome_values_parsed_before_freeze":  0
+                  },
+                  {
+                      "name":  "pre_outcome_focused_tests",
+                      "status":  "PASS",
+                      "passed":  56,
+                      "skipped":  15
+                  },
+                  {
+                      "name":  "host_hook_parity_and_initial_failure_separation",
+                      "status":  "PASS",
+                      "passed":  17,
+                      "deselected":  367,
+                      "introduced_failure_fixed":  1,
+                      "unrelated_environment_failures":  16
+                  },
+                  {
+                      "name":  "complete_workstation_suite_executed_and_separated",
+                      "status":  "PASS",
+                      "implementation_tip":  "8741047c8eca9ebbc31fc7178c1eafe0ac8ae457",
+                      "suite_exit_code":  1,
+                      "passed":  4454,
+                      "failed":  12,
+                      "skipped":  18,
+                      "warnings":  13,
+                      "subtests_passed":  866,
+                      "seconds":  502.66,
+                      "failed_file":  "tests/operations/test_experiment_executor.py",
+                      "branch_touches_failed_module_or_test":  false,
+                      "bounded_short_path_rerun_passed":  12,
+                      "bounded_short_path_rerun_seconds":  3.91,
+                      "complete_suite_repeated_at_final_commit":  false
+                  },
+                  {
+                      "name":  "single_create_only_external_completion_evaluation",
+                      "status":  "PASS",
+                      "attempt_count":  1,
+                      "result_status":  "EXTERNAL_SECONDARY_2026_COMPLETION_COMPLETE",
+                      "disposition":  "EXTERNAL_DIRECTION_CONSISTENT"
+                  },
+                  {
+                      "name":  "deterministic_record_only_verification",
+                      "status":  "PASS",
+                      "bootstrap_reproduced":  true,
+                      "source_outcome_files_opened":  0,
+                      "models_loaded":  0,
+                      "reproduced_disposition":  "EXTERNAL_DIRECTION_CONSISTENT"
+                  },
+                  {
+                      "name":  "post_result_owner_schema_import_isolation_tests",
+                      "status":  "PASS",
+                      "passed":  113,
+                      "skipped":  15,
+                      "seconds":  13.33
+                  },
+                  {
+                      "name":  "compileall_app_src_tests",
+                      "status":  "PASS"
+                  },
+                  {
+                      "name":  "agent_document_audit",
+                      "status":  "PASS",
+                      "agent_files":  18,
+                      "markdown_files":  842
+                  },
+                  {
+                      "name":  "roadmap_regenerate_lint_check",
+                      "status":  "PASS",
+                      "generated_report_matches_sources":  true,
+                      "owning_item_update_required":  false
+                  },
+                  {
+                      "name":  "canonical_roll_verdict_invocation",
+                      "status":  "PASS",
+                      "tool_exit_code":  1,
+                      "tool_status":  "UNDECIDABLE",
+                      "reason_code":  "NO_LIVE_CLOSURE_EVIDENCE",
+                      "derived_manually":  false
+                  },
+                  {
+                      "name":  "cumulative_git_diff_check",
+                      "status":  "PASS"
+                  }
+              ],
+    "script_sha256":  {
+                          ".codex/hooks/pre_tool_use_host_load.py":  "09946bb70862a9a132efd65ad423533925a96d006064dd6225618d1d9e13c73a",
+                          "scripts/ops/windows_kill_on_close_job.ps1":  "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+                          "scripts/ops/workstation_heavy.ps1":  "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532",
+                          "scripts/ops/workload_admission.ps1":  "29eb0804caacb4cc88609506281dff61b4615bc4b956f405205ae8e8a84a2604"
+                      },
+    "measured_evidence":  {
+                              "verdict":  "EXTERNAL_DIRECTION_CONSISTENT",
+                              "evidence_classification":  {
+                                                              "external_secondary":  true,
+                                                              "confirmation":  false,
+                                                              "changes_original_verdict":  false,
+                                                              "original_verdict":  "INCONCLUSIVE_UNDERPOWERED",
+                                                              "can_authorize_distribution_challenger":  false,
+                                                              "can_authorize_release_promotion_alpha_serving_or_live_use":  false
+                                                          },
+                              "support":  {
+                                              "markets":  12,
+                                              "dates":  68,
+                                              "requested_cells":  816,
+                                              "admitted_union":  814,
+                                              "exclusions":  2,
+                                              "old_admitted":  720,
+                                              "protected_export_admitted":  94,
+                                              "key_overlap":  0,
+                                              "pre_dates":  58,
+                                              "pre_admitted":  694,
+                                              "post_dates":  10,
+                                              "post_admitted":  120
+                                          },
+                              "mse_directional_points":  {
+                                                             "pre_primary":  0.41908251003258018,
+                                                             "pre_all_leads_sensitivity":  0.40431171394222276,
+                                                             "post_primary":  0.3681200047973191,
+                                                             "post_all_leads_sensitivity":  0.18237465147806686
+                                                         },
+                              "every_improvement_interval_crosses_zero":  true,
+                              "bootstrap":  {
+                                                "draws":  20000,
+                                                "seed":  8802026,
+                                                "method":  "shared-weight crossed target-date x market pigeonhole bootstrap",
+                                                "cohorts_evaluated_separately":  true,
+                                                "pooled_headline":  false
+                                            },
+                              "amendment":  {
+                                                "file_sha256":  "26075a650aabd554d923d98423bcaeb0144cbd3c1fd3adc828957b4b82a6a938",
+                                                "amendment_sha256":  "5d6c9c1f44c4938b9d45e1c8329a213e0f57241f6fbb3c533a33ee68a1ff9171"
+                                            },
+                              "result":  {
+                                             "file_sha256":  "7b83e8d2a3b3828ce23414a7feda50f01e4c359a244289d0024c3d83bacb7cf4",
+                                             "result_sha256":  "b5395ca59f15c0f4059cb46336ff2f5d12b1585bd129b3952e5fa94e56c76117",
+                                             "attempt_file_sha256":  "d5b319917013c4e8d47b5b09e45abf906e7b38f4b7a0e5512a5f19997cd4c81f",
+                                             "attempt_sha256":  "c25947088569a7619a760c2e80dfb8c49240e5a490cf84a8d18cc3f3ac639faf",
+                                             "pre_records_sha256":  "06558f061208b6639117308534e80f8916edf7b05d8b9f1fc7fcd50e4831150b",
+                                             "post_records_sha256":  "0a5f921d12078a411c5d388196206db0ac768b7af7bd14a10c70a517257f7089"
+                                         },
+                              "verification":  {
+                                                   "file_sha256":  "9aec632de59d1a1d903af4849cb76ef308d76e035f57e3e509d147b7d2543144",
+                                                   "verification_sha256":  "e438ac528463c7ac180f87611f62c437d22ffb4b674cc4ed372ccc6fcf00cdac",
+                                                   "pre_evaluation_sha256":  "727b51690abc23198fcaff916e76a8f99ddd43932b7a44d0b8a516bb1d6ac929",
+                                                   "post_evaluation_sha256":  "1408d415032d7ac21252d63dcd224c236d4d5276624afdd4b247f1f19f02c979",
+                                                   "union_sha256":  "1653b6f7fb2c5269475223a9722873fe5fc3fd18fb1fdf2044478bb284e23b59",
+                                                   "source_outcome_files_opened":  0,
+                                                   "models_loaded":  0
+                                               },
+                              "no_refit":  {
+                                               "fit_calls_attempted":  0,
+                                               "models_refitted":  0,
+                                               "partial_fits":  0,
+                                               "probability_models_refitted":  0,
+                                               "model_writes":  0,
+                                               "baseline_sha256":  "c1ee07eef33016633ebf1ffdf847c7b55d90a2420b198eac7fb07ee88f5c2797",
+                                               "challenger_sha256":  "0ae3e67cfcda420a9c0103959b2c79cac6438d7fadf162b41f36a47919862ab5"
+                                           },
+                              "integrity":  {
+                                                "prior_input_pre_sha256":  "5ab7a914fcf3368c2ba7a6de4de16b0273e37a98b08eea582c889f79a14ad7ce",
+                                                "prior_input_post_sha256":  "5ab7a914fcf3368c2ba7a6de4de16b0273e37a98b08eea582c889f79a14ad7ce",
+                                                "outcome_contract_pre_sha256":  "dcd192db032f93fd01bbd6d8698d0b30c26c7f897610c3e23d5a64ed976bf0bc",
+                                                "outcome_contract_post_sha256":  "dcd192db032f93fd01bbd6d8698d0b30c26c7f897610c3e23d5a64ed976bf0bc",
+                                                "frozen_input_writes":  0,
+                                                "unchanged":  true
+                                            },
+                              "roll_verdict":  {
+                                                   "status":  "UNDECIDABLE",
+                                                   "reason_code":  "NO_LIVE_CLOSURE_EVIDENCE",
+                                                   "exit_code":  1,
+                                                   "missing_closure_file_count":  4,
+                                                   "derived_manually":  false
+                                               },
+                              "workstation":  {
+                                                  "host":  "DESKTOP-RFCD2GH",
+                                                  "principal":  "DESKTOP-RFCD2GH\\Michael",
+                                                  "runner_host_id":  "a740d5ff7ad1c45ed0cd68f8f4da2cbb68546640763fd423f829130643c0e5dc",
+                                                  "runner_principal_id":  "899c987e3a4181644b89b8b4bf88d74e78b6b63358d15569482097061b0c8507",
+                                                  "final_suite_base_temp":  "C:\\t\\w100h-full-final-20260904",
+                                                  "failure_proof_base_temp":  "C:\\t\\f100h"
+                                              },
+                              "publication":  {
+                                                  "complete_history_bundle_pending_after_final_commit":  true,
+                                                  "noninteractive_push_pending_after_bundle":  true,
+                                                  "weakened_authentication":  false
+                                              }
+                          },
+    "prohibited_actions":  {
+                               "production_host_contact":  false,
+                               "scheduler_access_or_mutation":  false,
+                               "credential_access":  false,
+                               "provider_or_market_data_access":  false,
+                               "exchange_access":  false,
+                               "network_access_during_evaluation":  false,
+                               "reserved_date_access":  false,
+                               "outcome_value_access_2025":  false,
+                               "frozen_corpus_export_mirror_old_run_prior_amendment_or_evaluator_mutation":  false,
+                               "model_or_probability_model_refit":  false,
+                               "model_write":  false,
+                               "low_support_imputation":  false,
+                               "market_drop":  false,
+                               "cross_boundary_pooling":  false,
+                               "probability_generation":  false,
+                               "release_distribution_promotion_candidate_alpha_confirmation_or_serving_action":  false,
+                               "live_action":  false,
+                               "git_fetch_or_pull":  false,
+                               "git_merge":  false,
+                               "git_history_rewrite":  false,
+                               "pull_request_action":  false,
+                               "evaluation_attempt_rerun":  false,
+                               "existing_evidence_modified_or_deleted":  false,
+                               "weakened_git_authentication":  false
+                           },
+    "external_binding":  {
+                             "rule":  "post_commit_local_verification_binds_final_result_tip_tree_and_complete_history_bundle_sha256",
+                             "final_tip":  null,
+                             "final_tree":  null,
+                             "bundle_sha256":  null
+                         }
+}
