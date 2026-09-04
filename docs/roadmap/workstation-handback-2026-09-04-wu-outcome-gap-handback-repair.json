@@ -1,0 +1,221 @@
+{
+  "schema_version": "workstation_unattended_mission_handback_v0.1",
+  "mission_id": "workstation-wu-outcome-gap-handback-repair-2026-09-100b",
+  "mission_sha256": "c7e8515e0abe2e9539c8634e17d8c1a3fa331ffd86e6942c46f12c40dede7258",
+  "source_tip": "097b3a0da2b1bd07509fbe5fff4f9d168a77c82d",
+  "source_tree": "fd726f4047936d335d5c103e2c282a4160d503af",
+  "source_sole_parent": "1f2b44a990cb9c4203a61c0a7aab881951ab2250",
+  "base_tip": "2e20e59aae08e7367dc79e1b8102c0551e7f6904",
+  "base_tree": "f3855fcd456fa81df8486bf02d0f21de833ea4ff",
+  "result_ref": "refs/heads/codex/workstation-wu-outcome-gap-handback-repair-2026-09-100b",
+  "implementation_tip": "097b3a0da2b1bd07509fbe5fff4f9d168a77c82d",
+  "implementation_tree": "fd726f4047936d335d5c103e2c282a4160d503af",
+  "report_path": "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-gap-handback-repair.md",
+  "receipt_path": "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-gap-handback-repair.json",
+  "bundle_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-handback-repair-2026-09-100b\\publication-transfer-final.bundle",
+  "changed_paths": [
+    "docs/roadmap/agent-report-2026-09-04-workstation-wu-outcome-gap-handback-repair.md",
+    "docs/roadmap/workstation-handback-2026-09-04-wu-outcome-gap-handback-repair.json"
+  ],
+  "tests": [
+    {
+      "name": "p0_exact_identity_and_immutable_100a_evidence",
+      "status": "PASS",
+      "source_objects_and_ancestry": true,
+      "clean_root_source_and_controller": true,
+      "result_ref_and_worktree_initially_absent": true,
+      "assigned_host_and_principal": true,
+      "shared_mutex_available": true,
+      "poison_marker_absent": true,
+      "conflicting_worker_absent": true,
+      "runner_and_codex_identities": true,
+      "preserved_artifact_hashes_and_lengths": true
+    },
+    {
+      "name": "generic_runner_handback_contract_and_json_assertions",
+      "status": "PASS",
+      "schema": "workstation_unattended_mission_handback_v0.1",
+      "required_top_level_properties": true,
+      "exact_identity_values": true,
+      "external_binding_preterminal_exact": true,
+      "all_test_rows_literal_pass": true,
+      "script_hashes_match": true,
+      "boundary_declarations_nonempty": true
+    },
+    {
+      "name": "agent_document_audit",
+      "status": "PASS",
+      "agent_files": 18,
+      "markdown_files": 837
+    },
+    {
+      "name": "roadmap_lint_check",
+      "status": "PASS",
+      "generated_sources_unchanged": true
+    },
+    {
+      "name": "cumulative_git_diff_check",
+      "status": "PASS",
+      "source_tip": "097b3a0da2b1bd07509fbe5fff4f9d168a77c82d"
+    },
+    {
+      "name": "exact_changed_path_comparison",
+      "status": "PASS",
+      "count": 2,
+      "sorted": true
+    }
+  ],
+  "script_sha256": {
+    "scripts/ops/windows_kill_on_close_job.ps1": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+    "scripts/ops/workstation_heavy.ps1": "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532",
+    "scripts/ops/workload_admission.ps1": "1d2a291caa0aa9fcea5baa80efcce88a79ebda3cb717425be54d8bb5acdae947"
+  },
+  "terminal_state_semantics": {
+    "COMPLETE_VALIDATED": 0,
+    "CHILD_FAILURE": 20,
+    "DEADLINE": 21,
+    "INTERRUPTED": 22,
+    "INVALID_HANDBACK": 23,
+    "IDENTITY_DRIFT": 24,
+    "TEARDOWN_FAILURE": 25,
+    "RUNNER_FAILURE": 26
+  },
+  "measured_evidence": {
+    "repair_verdict": "COMPLETE_VALIDATED_HANDOFF_REPAIR",
+    "scientific_or_data_result_changed": false,
+    "implementation_changed": false,
+    "implementation_is_source_tip": true,
+    "prior_100a": {
+      "mission_id": "workstation-wu-outcome-gap-export-contract-2026-09-100a",
+      "mission_sha256": "3c91f416e193cd4b27db49e4dc4a2bd46ad681de2924ca13568c9d1b520a0429",
+      "implementation_tip": "1f2b44a990cb9c4203a61c0a7aab881951ab2250",
+      "implementation_tree": "f2c67cbed28aa0a093cde81b82e115e7401a2796",
+      "final_tip": "097b3a0da2b1bd07509fbe5fff4f9d168a77c82d",
+      "final_tree": "fd726f4047936d335d5c103e2c282a4160d503af",
+      "final_sole_parent": "1f2b44a990cb9c4203a61c0a7aab881951ab2250",
+      "child_work_completed": true,
+      "outer_terminal_state": "INVALID_HANDBACK",
+      "outer_exit_code": 23,
+      "outer_detail": "handback receipt is missing property: source_tip",
+      "immutable_terminal_receipt": {
+        "bytes": 3127,
+        "sha256": "468d82fb3c44d9ad59a07ccd6a9c03ade7bf19304c49d4a0ffcf82d7043a6e3e"
+      },
+      "report": {
+        "blob_oid": "ca027a124174f6398773789f5d7a86ad4fdb8b57",
+        "bytes": 13789,
+        "sha256": "6f97b3ea1ac63b5aff998cec0c32aa37ba87203b40e676f55294c1cf5a1ed8d1"
+      },
+      "receipt": {
+        "blob_oid": "677b782d44a08fcd57e161d9bdf53361178ec94a",
+        "bytes": 10591,
+        "sha256": "217ac86c26765c27a544db6b88c65f0212b6af2608043c2235c60bd790f38222"
+      },
+      "bundle": {
+        "bytes": 517183743,
+        "sha256": "e26e4dbb4b4007d58a17aa8742e769117746c4776974a690e18da1bb85ac23fd"
+      },
+      "external_binding": {
+        "bytes": 11535,
+        "sha256": "6d45be7e5f4f1005980d9002abf6a9a28e653c83fe502bb72524be9d67b1e953"
+      },
+      "gap": {
+        "bytes": 340369,
+        "file_sha256": "6ba020575e3ef1eb903ae0010510caea20f31b31bdf3451c0e03f11175c3de94",
+        "self_hash": "64176a727907c8f62c496f6fb1893c1f7462cfef15c1db3f06ef7b3e244f0ce8"
+      },
+      "spec": {
+        "blob_oid": "baf48688a7a408790dfa2543d579e9f318d7b567",
+        "bytes": 41288,
+        "file_sha256": "cf10553a9b041a783bf5caf56b191835e2904474a4bad34dcbc1f6ad934d093f",
+        "self_hash": "5d370c51da7d95e1d3a62a8ff4f9d66cd3312c5eecfebcbdbaab169be505e0f9"
+      },
+      "coverage": {
+        "requested_dates": 68,
+        "current_fully_complete_dates": 59,
+        "maximum_attainable_complete_dates": 68,
+        "requested_market_days": 816,
+        "admissible_market_days": 720,
+        "missing_market_days": 94,
+        "below_threshold_market_days": 2,
+        "requested_export_rows": 96,
+        "markets": 12
+      },
+      "historical_complete_suite": {
+        "status": "FAIL_THEN_FOCUSED_REPAIR",
+        "passed": 4361,
+        "failed": 3,
+        "skipped": 18,
+        "warnings": 13,
+        "subtests_passed": 866,
+        "seconds": 419.85,
+        "junit_sha256": "4e2ad8bc535a8148639964653550cf7697ce613f6504fd4ac4de87b49dba00b7",
+        "complete_suite_repeated": false
+      },
+      "historical_post_repair_focused": {
+        "status": "PASS",
+        "passed": 109,
+        "skipped": 15,
+        "seconds": 11.75
+      }
+    },
+    "runner": {
+      "path": "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\unattended-runner-portable-binding-repair-09-99c\\scripts\\ops\\invoke_workstation_codex_mission.ps1",
+      "bytes": 58279,
+      "sha256": "50dc332d687704047c6c1a440ca4352af1246466a8873df6225e052a5915e9c8",
+      "validator_function": "Assert-Handback"
+    },
+    "job_helper": {
+      "bytes": 16406,
+      "sha256": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243"
+    },
+    "codex": {
+      "bytes": 295295792,
+      "sha256": "be83164c07287d028cc4725105f3cceaaf244d53a862e19743f55e9150a66fc1"
+    },
+    "powershell": {
+      "bytes": 454656,
+      "sha256": "7600ffe12da441fe89d035b13801e8e91d064bc544a27b19a5cf49f6ab8b18f5"
+    },
+    "git": {
+      "bytes": 46480,
+      "sha256": "81ef35ae005ca9318018d18e3327578ce939fb99feaad6b2d7c8ab15f3de8db5"
+    },
+    "post_commit_binding_owner": "unchanged outer runner terminal receipt",
+    "complete_suite_rerun": false,
+    "gap_or_spec_regenerated": false,
+    "outcome_values_opened": false
+  },
+  "remaining_reboot_boundary": "A reboot destroys in-memory Job and outer-runner state. Attempt 1 is the sole authorized attempt; the committed pre-terminal receipt is not publication authority until the unchanged runner creates a COMPLETE_VALIDATED terminal receipt binding the final tip, tree, bundle SHA-256, and committed report/receipt blob identities.",
+  "prohibited_actions": {
+    "production_contact": false,
+    "scheduler_access_or_mutation": false,
+    "credential_access": false,
+    "provider_access": false,
+    "exchange_access": false,
+    "github_or_remote_access": false,
+    "market_data_or_price_access": false,
+    "corpus_or_ledger_mutation": false,
+    "outcome_value_access": false,
+    "wu_gap_or_spec_regeneration": false,
+    "model_refit": false,
+    "probability_generation": false,
+    "prediction_scoring_or_metrics": false,
+    "campaign_or_promotion": false,
+    "live_action": false,
+    "git_fetch_or_pull": false,
+    "git_merge": false,
+    "git_push": false,
+    "pull_request_action": false,
+    "prior_attempt_rerun": false,
+    "complete_suite_rerun": false,
+    "existing_path_modified_or_deleted": false,
+    "cleanup_or_daemon": false
+  },
+  "external_binding": {
+    "rule": "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
+    "final_tip": null,
+    "final_tree": null,
+    "bundle_sha256": null
+  }
+}
