@@ -1,0 +1,156 @@
+{
+  "schema_version": "workstation_unattended_mission_handback_v0.1",
+  "mission_id": "workstation-unattended-mission-runner-portable-binding-repair-2026-09-99c",
+  "mission_sha256": "b695e2f30d13a573476b1e5a8feb166c856a0642c5f7a10ee85c54162f56bc41",
+  "source_tip": "45cc36c31be9e9c64f1f216a1d772407736655a7",
+  "source_tree": "19d736a8df0ef6503ae36960922d147ada3a4a69",
+  "source_sole_parent": "cb2b5c6eaafc51d67eb42cad009502506e5e6ec5",
+  "base_tip": "ca75c2e476e865047f07dc9856e5897533834684",
+  "base_tree": "1c2a7fd18dacc84c6a0e9abd4afe837c0bab3801",
+  "result_ref": "refs/heads/codex/workstation-unattended-mission-runner-portable-binding-repair-2026-09-99c",
+  "implementation_tip": "215c7a661e02672ca4aab96d1eba122ed6e03c60",
+  "implementation_tree": "330d0833771eed04954c140ea2d77f50f8ca3398",
+  "report_path": "docs/roadmap/agent-report-2026-09-03-workstation-unattended-mission-runner-portable-binding-repair.md",
+  "receipt_path": "docs/roadmap/workstation-handback-2026-09-03-unattended-mission-runner-portable-binding-repair.json",
+  "bundle_path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-mission-runner-portable-binding-repair-2026-09-99c\\publication-transfer-final.bundle",
+  "changed_paths": [
+    "docs/operations/WORKSTATION_CODEX_MISSION_RUNNER.md",
+    "docs/roadmap/active-backlog.md",
+    "docs/roadmap/agent-report-2026-09-03-workstation-unattended-mission-runner-portable-binding-repair.md",
+    "docs/roadmap/items/item-332-unattended-workstation-mission-runner.md",
+    "docs/roadmap/workstation-handback-2026-09-03-unattended-mission-runner-portable-binding-repair.json",
+    "scripts/ops/invoke_workstation_codex_mission.ps1",
+    "tests/operations/test_workstation_codex_mission_runner.py"
+  ],
+  "tests": [
+    {
+      "name": "committed_blob_portability_falsifier_green",
+      "status": "PASS",
+      "counts": {"passed": 1},
+      "seconds": 3.62,
+      "junit_bytes": 406,
+      "junit_sha256": "38414bea1f9ad893b074cafb04416924bbc313def59673025afb8cc9b708cccd",
+      "red_before": {
+        "counts": {"failed": 1},
+        "seconds": 3.21,
+        "junit_bytes": 3178,
+        "junit_sha256": "a48f0370f9d2c8e4f6af87329d7c6a55a1924bc1458fa96534dff9ad85d75f9d"
+      },
+      "second_bare_repository_identity_match": true
+    },
+    {
+      "name": "complete_workstation_codex_mission_runner_operation_file",
+      "status": "PASS",
+      "counts": {"passed": 16},
+      "seconds": 33.04,
+      "junit_bytes": 2826,
+      "junit_sha256": "8dce96741f851985241510c032694bef423da13139e63d61bf5dc148ca209461"
+    },
+    {
+      "name": "windows_powershell_5_1_ast",
+      "status": "PASS",
+      "paths": ["scripts/ops/invoke_workstation_codex_mission.ps1"],
+      "token_count": 8694,
+      "parse_error_count": 0
+    },
+    {
+      "name": "complete_workstation_suite",
+      "status": "PASS",
+      "counts": {"passed": 4231, "failed": 12, "skipped": 18, "subtests_passed": 862},
+      "seconds": 447.93,
+      "junit_bytes": 728672,
+      "junit_sha256": "3f7f842591c674d81693609b90ca18fa3e9a647678ba8037554f01e9c4a57293",
+      "baseline_junit_sha256": "caf7feacc9ea11badd792d947935695ccf026bd1d32d77ba89cc75300182fac1",
+      "exact_baseline_failure_node_ids": true,
+      "additional_failure_count": 0
+    },
+    {
+      "name": "compileall",
+      "status": "PASS",
+      "arguments": ["-m", "compileall", "-q", "app", "src", "tests"]
+    },
+    {
+      "name": "agent_document_audit_and_roadmap_lint_check",
+      "status": "PASS",
+      "counts": {"passed": 2},
+      "seconds": 0.90,
+      "junit_sha256": "1b853ae2d642e359d5363e9fde3b2b64f0c3fe835a4869d7721f40d12c54ac32"
+    },
+    {
+      "name": "cumulative_git_diff_check",
+      "status": "PASS",
+      "source_tip": "45cc36c31be9e9c64f1f216a1d772407736655a7",
+      "implementation_tip": "215c7a661e02672ca4aab96d1eba122ed6e03c60"
+    }
+  ],
+  "script_sha256": {
+    "scripts/ops/invoke_workstation_codex_mission.ps1": "50dc332d687704047c6c1a440ca4352af1246466a8873df6225e052a5915e9c8",
+    "scripts/ops/windows_kill_on_close_job.ps1": "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+    "scripts/ops/workstation_heavy.ps1": "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532"
+  },
+  "terminal_state_semantics": {
+    "COMPLETE_VALIDATED": 0,
+    "CHILD_FAILURE": 20,
+    "DEADLINE": 21,
+    "INTERRUPTED": 22,
+    "INVALID_HANDBACK": 23,
+    "IDENTITY_DRIFT": 24,
+    "TEARDOWN_FAILURE": 25,
+    "RUNNER_FAILURE": 26
+  },
+  "measured_evidence": {
+    "observed_99b_receipt_worktree": {
+      "bytes": 19441,
+      "sha256": "d0ce9e67d37624504a90f7f5cf2bef6af75fd78ab5325f5aadbbcd45f8136ee1"
+    },
+    "observed_99b_receipt_blob": {
+      "oid": "c78ed0e0d63aa80b1d722ca8eaf08225d8831320",
+      "bytes": 19163,
+      "sha256": "345e655e46ea1aa30639a1f35e4275eb6f12fbdba4322eda6476c840eaf5f843"
+    },
+    "normalization_difference_bytes": 278,
+    "publication_identity_fields": [
+      "report_blob_oid",
+      "report_blob_bytes",
+      "report_blob_sha256",
+      "handback_receipt_blob_oid",
+      "handback_receipt_blob_bytes",
+      "handback_receipt_blob_sha256"
+    ],
+    "raw_cat_file_stdout": true,
+    "text_decoding": false,
+    "shell_redirect": false,
+    "temporary_blob_file": false,
+    "network_access": false,
+    "worktree_hashes_are_diagnostic_only": true
+  },
+  "remaining_reboot_boundary": "A reboot destroys in-memory Job state. Status can diagnose the boot change, but no Scheduler task, service, restart supervisor, or automatic next attempt is implemented.",
+  "prohibited_actions": {
+    "production_contact": false,
+    "scheduler_mutation": false,
+    "credential_access": false,
+    "provider_access": false,
+    "exchange_access": false,
+    "market_data_access": false,
+    "outcome_access": false,
+    "capture_action": false,
+    "application_or_model_change": false,
+    "release_or_promotion": false,
+    "git_fetch_or_pull": false,
+    "git_merge": false,
+    "git_push": false,
+    "pull_request_open_or_edit": false,
+    "live_trading": false,
+    "automatic_retry": false,
+    "lfs_fetch_or_network_fallback": false,
+    "cleanup_or_daemon": false,
+    "root_checkout_modified": false,
+    "source_99b_worktree_modified": false
+  },
+  "external_binding": {
+    "rule": "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
+    "final_tip": null,
+    "final_tree": null,
+    "bundle_sha256": null
+  }
+}
