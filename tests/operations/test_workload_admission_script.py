@@ -204,7 +204,10 @@ def test_shared_lease_owns_the_heavy_window_and_exact_dated_exceptions() -> None
     assert "$localMinute -ge (9 * 60 + 30)" in text
     assert "$localMinute -lt (11 * 60 + 55)" in text
     assert "AllowStageAWindow" in text
-    assert "only the explicit Stage-A lane" in text
+    assert "only Stage A at 09:30-11:55" in text
+    assert "AllowRollFreeControlPlaneWindow" in text
+    assert 'return "roll_free_control_plane"' in text
+    assert 'Workload -cne "quiet_window_merge"' in text
     assert "OWNER_APPROVED_PROTECTED_WINDOW_MERGE_20260823" in text
     assert "owner_approved_merge_20260823" in text
     assert 'Workload -cne "quiet_window_merge"' in text
@@ -2412,6 +2415,195 @@ $stageA = Get-WeatherHeavyWorkloadPolicyWindow -Now '2026-08-14T10:00:00' `
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == '{"denied":true,"stage_a":"stage_a"}'
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_policy_admits_only_explicit_roll_free_control_plane_hours() -> None:
+    env = os.environ.copy()
+    env["WEATHER_LEASE_SCRIPT"] = str(LEASE_SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$beforeReserve = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T08:59:00' `
+    -AllowRollFreeControlPlaneWindow
+$reserveStart = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T09:00:00' `
+    -AllowRollFreeControlPlaneWindow
+$stageAStart = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T09:30:00' `
+    -AllowRollFreeControlPlaneWindow
+$reserveEnd = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T11:54:59' `
+    -AllowRollFreeControlPlaneWindow
+$dayStart = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T11:55:00' `
+    -AllowRollFreeControlPlaneWindow
+$after = Get-WeatherHeavyWorkloadPolicyWindow `
+    -Now '2026-09-03T18:00:00' `
+    -AllowRollFreeControlPlaneWindow
+[pscustomobject]@{
+    before_reserve = $beforeReserve
+    reserve_start = $null -eq $reserveStart
+    stage_a_start = $null -eq $stageAStart
+    reserve_end = $null -eq $reserveEnd
+    day_start = $dayStart
+    after = $null -eq $after
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        [*POWERSHELL, "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == (
+        '{"before_reserve":"agent_heavy","reserve_start":true,'
+        '"stage_a_start":true,"reserve_end":true,'
+        '"day_start":"roll_free_control_plane","after":true}'
+    )
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_quiet_merge_recomputes_every_delayed_classification_boundary() -> None:
+    env = os.environ.copy()
+    env["WEATHER_LEASE_SCRIPT"] = str(LEASE_SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+[pscustomobject]@{
+    before_0030 = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T00:29:59' -RollFree $true)
+    at_0030 = Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T00:30:00' -RollFree $true
+    sensitive_before_0100 = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T00:59:59' -RollFree $false)
+    sensitive_at_0100 = Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T01:00:00' -RollFree $false
+    sensitive_before_0400 = Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T03:59:59' -RollFree $false
+    sensitive_at_0400 = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T04:00:00' -RollFree $false)
+    before_0900 = Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T08:59:59' -RollFree $true
+    at_0900 = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T09:00:00' -RollFree $true)
+    stage_a = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T10:00:00' -RollFree $true)
+    before_1155 = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T11:54:59' -RollFree $true)
+    at_1155 = Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T11:55:00' -RollFree $true
+    before_1800 = Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T17:59:59' -RollFree $true
+    at_1800 = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T18:00:00' -RollFree $true)
+    forced_daytime_undecidable = $null -eq (Get-WeatherQuietMergeMutationPolicyWindow `
+        -Now '2026-09-03T12:00:00' -RollFree $false -Force)
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        [*POWERSHELL, "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "before_0030": True,
+        "at_0030": "agent_heavy",
+        "sensitive_before_0100": True,
+        "sensitive_at_0100": "quiet_window",
+        "sensitive_before_0400": "quiet_window",
+        "sensitive_at_0400": True,
+        "before_0900": "agent_heavy",
+        "at_0900": True,
+        "stage_a": True,
+        "before_1155": True,
+        "at_1155": "roll_free_control_plane",
+        "before_1800": "roll_free_control_plane",
+        "at_1800": True,
+        "forced_daytime_undecidable": True,
+    }
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_roll_free_machine_evidence_fails_closed_on_every_identity_gap() -> None:
+    env = os.environ.copy()
+    env["WEATHER_LEASE_SCRIPT"] = str(LEASE_SCRIPT)
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$started = [datetimeoffset]'2026-09-03T16:00:00-04:00'
+$finished = [datetimeoffset]'2026-09-03T16:00:02-04:00'
+$good = [pscustomobject]@{
+    generated_at = '2026-09-03T16:00:01-04:00'
+    branch = '1111111111111111111111111111111111111111'
+    verdict = 'ROLL-FREE'
+    base_ref = 'master'
+    base_sha = '2222222'
+    base_note = $null
+    closures_used = @('loop', 'clob_loop', 'observation_trigger')
+    problems = @('dormant closure clob_enrichment (999.0h old) is SUBSUMED: all 1 of its files are also covered by a live closure, so its dormancy cannot affect this verdict')
+    files = @([pscustomobject]@{ file = 'docs/example.md'; closures = @(); rolls = $false })
+}
+function Test-It($Payload, [int]$ExitCode = 0, [bool]$ExecutionTapeActive = $false) {
+    Test-WeatherRollFreeControlPlaneVerdictEvidence `
+        -Payload $Payload `
+        -ExitCode $ExitCode `
+        -ExpectedTip '1111111111111111111111111111111111111111' `
+        -ExpectedBaseRef 'master' `
+        -ExpectedBaseShortSha '2222222' `
+        -InvocationStartedAt $started `
+        -InvocationFinishedAt $finished `
+        -ExecutionTapeActive:$ExecutionTapeActive
+}
+function Copy-Good { ($good | ConvertTo-Json -Depth 8) | ConvertFrom-Json }
+$wrongTip = Copy-Good; $wrongTip.branch = '3333333333333333333333333333333333333333'
+$stale = Copy-Good; $stale.generated_at = '2026-09-03T15:59:59-04:00'
+$missingClosure = Copy-Good; $missingClosure.closures_used = @('loop', 'clob_loop')
+$dangerousProblem = Copy-Good; $dangerousProblem.problems = @('missing closure evidence: data/snapshots/loop_supervisor_status.json')
+$rollingFile = Copy-Good; $rollingFile.files[0].rolls = $true
+$wrongBase = Copy-Good; $wrongBase.base_sha = 'abcdef0'
+[pscustomobject]@{
+    good = Test-It $good
+    nonzero = Test-It $good 3
+    missing = Test-It $null
+    wrong_tip = Test-It $wrongTip
+    stale = Test-It $stale
+    incomplete = Test-It $missingClosure
+    dangerous_problem = Test-It $dangerousProblem
+    rolling_file = Test-It $rollingFile
+    wrong_base = Test-It $wrongBase
+    missing_active_execution = Test-It $good 0 $true
+} | ConvertTo-Json -Compress
+"""
+    result = subprocess.run(
+        [*POWERSHELL, "-Command", script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "good": True,
+        "nonzero": False,
+        "missing": False,
+        "wrong_tip": False,
+        "stale": False,
+        "incomplete": False,
+        "dangerous_problem": False,
+        "rolling_file": False,
+        "wrong_base": False,
+        "missing_active_execution": False,
+    }
 
 
 @pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")

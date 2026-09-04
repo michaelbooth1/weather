@@ -1,0 +1,535 @@
+{
+    "schema":  "workstation_independent_review_handback_v1",
+    "generated_at":  "2026-09-03T21:30:30.2326822-04:00",
+    "verdict":  "PASS_REVIEWED_REPAIRED",
+    "mission":  {
+                    "id":  "workstation-roll-free-daytime-control-plane-independent-review-2026-09-98a",
+                    "path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-roll-free-daytime-control-plane-independent-review-2026-09-98a\\mission.md",
+                    "sha256":  "79cfc97e22177801706552d0523a62786925a3ffa65fd13d08616427b5cca504"
+                },
+    "repository":  {
+                       "origin":  "https://github.com/michaelbooth1/weather.git",
+                       "result_branch":  "codex/workstation-roll-free-daytime-control-plane-independent-review-2026-09-98a",
+                       "worktree":  "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\roll-free-control-plane-review-09-98a"
+                   },
+    "identities":  {
+                       "base":  {
+                                    "tip":  "c932b54f8747df5cdefc4cc42f8454b6797f09ae",
+                                    "tree":  "6df5bac16d8c780c35b4601941eaca1137ea7070"
+                                },
+                       "source":  {
+                                      "tip":  "f2601198715163c8991d3065dc5622708e3b01db",
+                                      "tree":  "5c45123b524a9e1a145d1b5ac18124ce148f9bd1",
+                                      "sole_parent":  "c932b54f8747df5cdefc4cc42f8454b6797f09ae"
+                                  },
+                       "implementation":  {
+                                              "tip":  "1a3f94d1fd4d8e16f618411670418eb009f8e319",
+                                              "tree":  "93197c8f83e045695b347e91fad95ae94acf313b",
+                                              "sole_parent":  "f2601198715163c8991d3065dc5622708e3b01db"
+                                          },
+                       "final":  {
+                                     "tip":  null,
+                                     "tree":  null,
+                                     "binding":  "external_self_binding_rule"
+                                 }
+                   },
+    "public_source_proof":  {
+                                "pull_request":  {
+                                                     "number":  13,
+                                                     "state":  "open",
+                                                     "draft":  true,
+                                                     "base":  "master",
+                                                     "head_sha":  "f2601198715163c8991d3065dc5622708e3b01db"
+                                                 },
+                                "ci":  {
+                                           "run_id":  33768288205,
+                                           "workflow":  "CI",
+                                           "run_number":  570,
+                                           "status":  "completed",
+                                           "conclusion":  "success",
+                                           "head_sha":  "f2601198715163c8991d3065dc5622708e3b01db"
+                                       },
+                                "network_scope":  [
+                                                      "credential-disabled public fetch of exact absent source ref",
+                                                      "unauthenticated public GitHub PR/CI reads"
+                                                  ]
+                            },
+    "workstation_identity":  {
+                                 "profile":  "workstation_offline_v1",
+                                 "host_id":  "a740ee7dc03165b0c88094f8b313aa6676f0984b30737ec5bcd9f723709fe5dc",
+                                 "principal_id":  "899c8218f19e948baf648733e34ab9e3301c154300a30477816ed749c3c8507b",
+                                 "dedicated_capture_host":  false,
+                                 "initial_mutex_available":  true,
+                                 "initial_poison_absent":  true,
+                                 "initial_recognized_heavy_process_count":  0
+                             },
+    "demonstrated_defects":  [
+                                 {
+                                     "id":  "stage_a_first_come_race",
+                                     "repaired":  true,
+                                     "repair":  "reserve 09:00-11:55 and admit control plane only 11:55-18:00"
+                                 },
+                                 {
+                                     "id":  "stale_pre_verdict_clock",
+                                     "repaired":  true,
+                                     "repair":  "recompute after verdict and immediately before git fetch"
+                                 },
+                                 {
+                                     "id":  "exit_zero_without_exact_json",
+                                     "repaired":  true,
+                                     "repair":  "validate exact tip/base/time/closure/problem/file evidence and canonical classifier bytes"
+                                 },
+                                 {
+                                     "id":  "classifier_or_base_drift",
+                                     "repaired":  true,
+                                     "repair":  "bind HEAD classifier blob and SHA-256, freeze full base, recheck both before mutation"
+                                 }
+                             ],
+    "final_changed_paths":  [
+                                ".github/workflows/ci.yml",
+                                "docs/operations/DELEGATION_CONTRACT.md",
+                                "docs/operations/HOST_LOAD_POLICY.md",
+                                "docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md",
+                                "docs/operations/OPERATIONS_AGENT_ROLE.md",
+                                "docs/operations/STATE_OF_PLAY.md",
+                                "docs/roadmap/active-backlog.md",
+                                "docs/roadmap/agent-report-2026-09-03-workstation-roll-free-daytime-control-plane-independent-review.md",
+                                "docs/roadmap/items/item-331-roll-free-daytime-control-plane.md",
+                                "docs/roadmap/ROADMAP.md",
+                                "docs/roadmap/workstation-handback-2026-09-03-roll-free-daytime-control-plane-independent-review.json",
+                                "scripts/ops/AGENTS.md",
+                                "scripts/ops/quiet_window_merge.ps1",
+                                "scripts/ops/workload_admission.ps1",
+                                "tests/operations/test_quiet_window_merge_script.py",
+                                "tests/operations/test_workload_admission_script.py"
+                            ],
+    "content_hashes":  [
+                           {
+                               "path":  ".github/workflows/ci.yml",
+                               "sha256":  "7d27b289aee2333009beef23da9efac1c9872f5784b0322d7ed514f9dae2f344",
+                               "git_blob":  "9c818bf30c195626992ad3ebf02087188686e16b"
+                           },
+                           {
+                               "path":  "docs/operations/DELEGATION_CONTRACT.md",
+                               "sha256":  "2813ee3f4b801ca05b358f7c09fe6adf65be714b0ed88fd255f2ce71a6bdb4e7",
+                               "git_blob":  "ebb7a058a94d7110f1aeef103aa0d5e45f737bbc"
+                           },
+                           {
+                               "path":  "docs/operations/HOST_LOAD_POLICY.md",
+                               "sha256":  "ff156084390258336ab89a766d1e25a88a17359a57d4304b81a344d8afbc81b5",
+                               "git_blob":  "4f1378a671aa8c771481966d1d3db89e12c8da74"
+                           },
+                           {
+                               "path":  "docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md",
+                               "sha256":  "6c03e1cfaec8262d9c529b903e139c58bc44d8f02335a848b19bb42f0608bf79",
+                               "git_blob":  "f22b3bc1f890da28ed3180f6b60a02586e78a5bb"
+                           },
+                           {
+                               "path":  "docs/operations/OPERATIONS_AGENT_ROLE.md",
+                               "sha256":  "b3a04079f9d158f536b842169b3545e0a38fdd3cf35ca407891003d6f216cf08",
+                               "git_blob":  "5909c08ec2d673aa845ecf2c241cc51048fe0733"
+                           },
+                           {
+                               "path":  "docs/operations/STATE_OF_PLAY.md",
+                               "sha256":  "8eff476730572aa95edfa5e0be27a166ab8b4194524eb8d2b060a40f7801a5b7",
+                               "git_blob":  "ff94cdfe2eca048dcaaedb1f952863a746e63dd4"
+                           },
+                           {
+                               "path":  "docs/roadmap/ROADMAP.md",
+                               "sha256":  "7a9bd118dba57f9d0acd1463f472df187185a0b664be0bfc84f7983f30073a6b",
+                               "git_blob":  "85cd5c16a833929abd86b27546f0fa4df2f1a17d"
+                           },
+                           {
+                               "path":  "docs/roadmap/active-backlog.md",
+                               "sha256":  "7cec650810bb3a945c487f8eb729b8679467dbae31d511a1a3d35ff9a2a8c6b0",
+                               "git_blob":  "9a870da69af1f008ef660c0f7d750f4be5df9007"
+                           },
+                           {
+                               "path":  "docs/roadmap/items/item-331-roll-free-daytime-control-plane.md",
+                               "sha256":  "6f23903e518f7697bd1ba1ff5fb4f7635838a11838a4ff92026977ea27dda1b0",
+                               "git_blob":  "232e3507d282e2bde43916c167ae05778767a5e1"
+                           },
+                           {
+                               "path":  "scripts/ops/AGENTS.md",
+                               "sha256":  "d05669b1041ecb2a362b7d6214277c7fa5f421672803affa80fd410c80f0f86f",
+                               "git_blob":  "da52e7749455d88970330f47d0894a17a23ca3b6"
+                           },
+                           {
+                               "path":  "scripts/ops/quiet_window_merge.ps1",
+                               "sha256":  "62d4f8417e417f7f46eddf27ce9ff7eea2c692b098efda3cf11c1893b697b1ad",
+                               "git_blob":  "0f9652af686b1ced8981e025f327f6d8485c1a87"
+                           },
+                           {
+                               "path":  "scripts/ops/workload_admission.ps1",
+                               "sha256":  "b54a603bedbbe126ea5c28a8d45c9864dfba70024bd8286d9c77886c6886605c",
+                               "git_blob":  "9db3377c70dcb30dc1e564a114afd826d6fd50d7"
+                           },
+                           {
+                               "path":  "tests/operations/test_quiet_window_merge_script.py",
+                               "sha256":  "bec3879a09b24428259b61e4191605c16d244524ac4d4b73bf119704eb1eac2d",
+                               "git_blob":  "c87a0e37ea1a1fc6adc72f6f57fe6c84b54661e0"
+                           },
+                           {
+                               "path":  "tests/operations/test_workload_admission_script.py",
+                               "sha256":  "e89cb71e586c1bbdd6f2c4ab784c7a72c08fbd2e0351acc6c31ca3f2bbeba95a",
+                               "git_blob":  "798469027812bc37a2ad4950182161a1585bcdb5"
+                           },
+                           {
+                               "path":  "docs/roadmap/agent-report-2026-09-03-workstation-roll-free-daytime-control-plane-independent-review.md",
+                               "sha256":  "fb3b6bc94aabd58506c8603d97c5903f7da32f5d2055389667fffa68c66f6234",
+                               "git_blob":  "7e716259950cc1c1db4364a694c9dddb648d6638"
+                           }
+                       ],
+    "tests":  [
+                  {
+                      "kind":  "pytest",
+                      "arguments":  [
+                                        "-m",
+                                        "pytest",
+                                        "-q",
+                                        "tests/operations/test_quiet_window_merge_script.py::test_quiet_merge_serializes_daytime_classification_before_mutation",
+                                        "tests/operations/test_workload_admission_script.py::test_policy_admits_only_explicit_roll_free_control_plane_hours",
+                                        "tests/operations/test_workload_admission_script.py::test_quiet_merge_recomputes_every_delayed_classification_boundary",
+                                        "tests/operations/test_workload_admission_script.py::test_roll_free_machine_evidence_fails_closed_on_every_identity_gap"
+                                    ],
+                      "phase":  "test_first_source_behavior",
+                      "status":  "EXPECTED_FAIL",
+                      "counts":  {
+                                     "failed":  4,
+                                     "deselected":  65
+                                 }
+                  },
+                  {
+                      "kind":  "pytest",
+                      "arguments":  [
+                                        "-m",
+                                        "pytest",
+                                        "-q",
+                                        "tests/operations/test_quiet_window_merge_script.py::test_quiet_merge_serializes_daytime_classification_before_mutation",
+                                        "tests/operations/test_workload_admission_script.py::test_policy_admits_only_explicit_roll_free_control_plane_hours",
+                                        "tests/operations/test_workload_admission_script.py::test_quiet_merge_recomputes_every_delayed_classification_boundary",
+                                        "tests/operations/test_workload_admission_script.py::test_roll_free_machine_evidence_fails_closed_on_every_identity_gap"
+                                    ],
+                      "phase":  "final_implementation",
+                      "status":  "PASS",
+                      "counts":  {
+                                     "passed":  4
+                                 },
+                      "seconds":  0.9
+                  },
+                  {
+                      "kind":  "pytest",
+                      "arguments":  [
+                                        "-m",
+                                        "pytest",
+                                        "-q",
+                                        "tests/operations/test_quiet_window_merge_script.py",
+                                        "tests/operations/test_workload_admission_script.py"
+                                    ],
+                      "status":  "PASS",
+                      "counts":  {
+                                     "passed":  54,
+                                     "skipped":  15
+                                 },
+                      "seconds":  8.17
+                  },
+                  {
+                      "kind":  "pytest",
+                      "arguments":  [
+                                        "-m",
+                                        "pytest",
+                                        "-q"
+                                    ],
+                      "status":  "REPRODUCED_BASELINE_FAILURES",
+                      "counts":  {
+                                     "passed":  4210,
+                                     "skipped":  18,
+                                     "failed":  17,
+                                     "subtests_passed":  862
+                                 },
+                      "seconds":  506.85,
+                      "failure_nodes":  [
+                                            "tests/market/test_live_sdk_overlay.py::test_validator_binds_complete_overlay_and_ordered_wheelhouse",
+                                            "tests/operations/test_experiment_executor.py::test_executor_records_verified_terminal_disposition_and_declared_artifacts",
+                                            "tests/operations/test_experiment_executor.py::test_timeout_budget_kills_tree_and_records_unmeasured_inconclusive",
+                                            "tests/operations/test_experiment_executor.py::test_bounded_parent_capture_rejects_fast_noisy_child",
+                                            "tests/operations/test_experiment_executor.py::test_zero_exit_runner_error_records_honest_terminal_result",
+                                            "tests/operations/test_experiment_executor.py::test_zero_exit_resource_violation_records_truthful_child_status",
+                                            "tests/operations/test_experiment_executor.py::test_unexpected_output_tree_is_quarantined_without_recursive_cleanup",
+                                            "tests/operations/test_experiment_executor.py::test_sandbox_blocks_absolute_serving_mutation_and_original_hash_is_unchanged",
+                                            "tests/operations/test_experiment_executor.py::test_sandbox_denies_undeclared_external_read_but_allows_verified_run",
+                                            "tests/operations/test_experiment_executor.py::test_sandbox_denies_staged_input_mutation_and_parent_input_is_unchanged",
+                                            "tests/operations/test_experiment_executor.py::test_live_io_write_budget_kills_contained_experiment",
+                                            "tests/operations/test_experiment_executor.py::test_queue_change_before_commit_records_superseded_and_discards_output",
+                                            "tests/operations/test_experiment_executor.py::test_final_serving_fingerprint_failure_terminalizes_and_releases_claim",
+                                            "tests/operations/test_experiment_executor.py::test_terminal_write_interruption_releases_claim_and_preserves_scratch",
+                                            "tests/operations/test_replay_cache_retention.py::test_plan_selects_only_exact_unreachable_rebuildable_key",
+                                            "tests/reporting/test_point_in_time_preselection_source.py::test_bounded_feature_quality_audit_matches_legacy_fixture",
+                                            "tests/reporting/test_registration_parameters.py::test_verified_release_emits_exact_bindings_paths_and_powershell"
+                                        ],
+                      "classification":  "unchanged Windows path case/MAX_PATH defects; no src or failing test file changed"
+                  },
+                  {
+                      "kind":  "pytest",
+                      "arguments":  [
+                                        "-m",
+                                        "pytest",
+                                        "-q",
+                                        "--basetemp=C:\\t98a",
+                                        "tests/market/test_live_sdk_overlay.py::test_validator_binds_complete_overlay_and_ordered_wheelhouse",
+                                        "tests/operations/test_experiment_executor.py::test_executor_records_verified_terminal_disposition_and_declared_artifacts",
+                                        "tests/operations/test_experiment_executor.py::test_timeout_budget_kills_tree_and_records_unmeasured_inconclusive",
+                                        "tests/operations/test_experiment_executor.py::test_bounded_parent_capture_rejects_fast_noisy_child",
+                                        "tests/operations/test_experiment_executor.py::test_zero_exit_runner_error_records_honest_terminal_result",
+                                        "tests/operations/test_experiment_executor.py::test_zero_exit_resource_violation_records_truthful_child_status",
+                                        "tests/operations/test_experiment_executor.py::test_unexpected_output_tree_is_quarantined_without_recursive_cleanup",
+                                        "tests/operations/test_experiment_executor.py::test_sandbox_blocks_absolute_serving_mutation_and_original_hash_is_unchanged",
+                                        "tests/operations/test_experiment_executor.py::test_sandbox_denies_undeclared_external_read_but_allows_verified_run",
+                                        "tests/operations/test_experiment_executor.py::test_sandbox_denies_staged_input_mutation_and_parent_input_is_unchanged",
+                                        "tests/operations/test_experiment_executor.py::test_live_io_write_budget_kills_contained_experiment",
+                                        "tests/operations/test_experiment_executor.py::test_queue_change_before_commit_records_superseded_and_discards_output",
+                                        "tests/operations/test_experiment_executor.py::test_final_serving_fingerprint_failure_terminalizes_and_releases_claim",
+                                        "tests/operations/test_experiment_executor.py::test_terminal_write_interruption_releases_claim_and_preserves_scratch",
+                                        "tests/operations/test_replay_cache_retention.py::test_plan_selects_only_exact_unreachable_rebuildable_key",
+                                        "tests/reporting/test_point_in_time_preselection_source.py::test_bounded_feature_quality_audit_matches_legacy_fixture",
+                                        "tests/reporting/test_registration_parameters.py::test_verified_release_emits_exact_bindings_paths_and_powershell"
+                                    ],
+                      "status":  "REPRODUCED_BASELINE_FAILURES",
+                      "counts":  {
+                                     "passed":  5,
+                                     "failed":  12
+                                 },
+                      "seconds":  4.94,
+                      "classification":  "short case-stable temp cleared five; remaining twelve are unchanged experiment-executor MAX_PATH defects tracked by draft PR 11"
+                  },
+                  {
+                      "kind":  "compileall",
+                      "arguments":  [
+                                        "-m",
+                                        "compileall",
+                                        "-q",
+                                        "app",
+                                        "src",
+                                        "tests"
+                                    ],
+                      "status":  "PASS"
+                  },
+                  {
+                      "kind":  "powershell_ast",
+                      "paths":  [
+                                    "scripts/ops/quiet_window_merge.ps1",
+                                    "scripts/ops/workload_admission.ps1"
+                                ],
+                      "status":  "PASS",
+                      "count":  2
+                  },
+                  {
+                      "kind":  "repository_checks_via_serial_wrapped_pytest_harness",
+                      "child_arguments":  [
+                                              [
+                                                  "-m",
+                                                  "weather.operations.agent_docs_audit"
+                                              ],
+                                              [
+                                                  "-m",
+                                                  "weather.reporting.roadmap.roadmap_backlog",
+                                                  "--fail-on-lint",
+                                                  "--check"
+                                              ]
+                                          ],
+                      "status":  "PASS",
+                      "results":  [
+                                      "Agent docs audit: PASS (18 agent files, 828 Markdown files)",
+                                      "Roadmap backlog: OK (generated report matches sources)"
+                                  ]
+                  },
+                  {
+                      "kind":  "git_diff_check",
+                      "status":  "PASS",
+                      "scopes":  [
+                                     "working tree",
+                                     "staged implementation"
+                                 ]
+                  }
+              ],
+    "roll_classification":  {
+                                "dynamic_verdict":  "UNDECIDABLE",
+                                "production_roll_verdict_run":  false,
+                                "reason":  "workstation lacks authoritative live closure evidence and mission forbids production contact",
+                                "manual_substitute_used":  false,
+                                "per_file":  [
+                                                 {
+                                                     "path":  ".github/workflows/ci.yml",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/operations/DELEGATION_CONTRACT.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/operations/HOST_LOAD_POLICY.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/operations/INTEGRATION_ATTEMPT_RUNBOOK.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/operations/OPERATIONS_AGENT_ROLE.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/operations/STATE_OF_PLAY.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/roadmap/active-backlog.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/roadmap/agent-report-2026-09-03-workstation-roll-free-daytime-control-plane-independent-review.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/roadmap/items/item-331-roll-free-daytime-control-plane.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/roadmap/ROADMAP.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "docs/roadmap/workstation-handback-2026-09-03-roll-free-daytime-control-plane-independent-review.json",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "scripts/ops/AGENTS.md",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "scripts/ops/quiet_window_merge.ps1",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "scripts/ops/workload_admission.ps1",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "tests/operations/test_quiet_window_merge_script.py",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 },
+                                                 {
+                                                     "path":  "tests/operations/test_workload_admission_script.py",
+                                                     "structural_candidate_status":  "outside canonical production importable candidate set",
+                                                     "closures":  [
+
+                                                                  ],
+                                                     "canonical_dynamic_verdict":  "UNDECIDABLE"
+                                                 }
+                                             ]
+                            },
+    "prohibited_action_audit":  {
+                                    "production_contact":  false,
+                                    "scheduler_mutation":  false,
+                                    "credential_access":  false,
+                                    "provider_access":  false,
+                                    "exchange_access":  false,
+                                    "capture_action":  false,
+                                    "git_merge":  false,
+                                    "release_or_promotion":  false,
+                                    "model_or_outcome_mutation":  false,
+                                    "live_trading":  false,
+                                    "git_push":  false,
+                                    "pr_open_or_edit":  false,
+                                    "authenticated_git":  false,
+                                    "root_checkout_modified":  false,
+                                    "existing_worktree_modified":  false
+                                },
+    "report":  {
+                   "path":  "docs/roadmap/agent-report-2026-09-03-workstation-roll-free-daytime-control-plane-independent-review.md",
+                   "sha256":  "fb3b6bc94aabd58506c8603d97c5903f7da32f5d2055389667fffa68c66f6234",
+                   "git_blob":  "7e716259950cc1c1db4364a694c9dddb648d6638",
+                   "bytes":  10972
+               },
+    "bundle":  {
+                   "path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-roll-free-daytime-control-plane-independent-review-2026-09-98a\\publication-transfer-final.bundle",
+                   "required_refs":  [
+                                         "f2601198715163c8991d3065dc5622708e3b01db",
+                                         "1a3f94d1fd4d8e16f618411670418eb009f8e319",
+                                         "external_final_tip"
+                                     ],
+                   "sha256":  null,
+                   "bytes":  null,
+                   "binding":  "computed and printed after final commit because bundle contains the self-bound receipt commit"
+               },
+    "external_self_binding_rule":  {
+                                       "reason":  "a receipt cannot embed the hash of the commit/tree that contains its own bytes",
+                                       "receipt_path":  "docs/roadmap/workstation-handback-2026-09-03-roll-free-daytime-control-plane-independent-review.json",
+                                       "implementation_parent":  "1a3f94d1fd4d8e16f618411670418eb009f8e319",
+                                       "allowed_final_commit_paths":  [
+                                                                          "docs/roadmap/agent-report-2026-09-03-workstation-roll-free-daytime-control-plane-independent-review.md",
+                                                                          "docs/roadmap/workstation-handback-2026-09-03-roll-free-daytime-control-plane-independent-review.json"
+                                                                      ],
+                                       "rule":  "The final handback tip is the unique commit on the result branch whose sole parent is implementation_parent, whose diff changes exactly allowed_final_commit_paths, and whose tree contains this exact receipt blob and the report blob/hash above. Verify and record final tip/tree plus receipt blob/SHA-256 externally, then require the verified complete bundle to contain source, implementation, and that final tip."
+                                   }
+}

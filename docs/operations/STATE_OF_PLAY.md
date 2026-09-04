@@ -1,93 +1,87 @@
 # State of play
 
-**Last rewritten: 2026-08-31 America/Toronto.** Read this first; read `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
+**Last rewritten: 2026-09-03 America/Toronto.** Read this first; read
+`ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative evidence, false claims, and durable mechanics in their owning canonical file.
+> **REWRITTEN, never appended. Capped at about 90 lines.** Put quantitative
+> evidence, false claims, and durable mechanics in their owning canonical file.
 
-**Objectives:** protect capture/settlement; complete one bounded International Stage 0/1 lifecycle test; then measure maker economics after costs. **No market edge is proved.**
+**Objectives:** protect capture and settlement; restore reliable, high-throughput
+cross-host integration; collect admissible International execution evidence;
+then improve quote-centre calibration only when a sealed evaluation passes. No
+market edge or model improvement is currently proved.
 
 ## Current truth
 
 | Area | State / next action |
 | --- | --- |
-| Production | GitHub merged portable base PR #3 into `master` as `3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` on Aug 30, and exact-master CI passed. PR #4 was merged without being retargeted, so it landed on PR #3's old topic branch rather than `master`; its assignment and workstation-policy changes are therefore not production authority. Preserve the two expected fleet-generated location-config modifications on the production checkout. |
-| Overnight bootstrap | The offline integration runner bootstrap remains production-adopted. Do not reuse or reconstruct the spent historical attempts that preceded it. |
-| Portable executor | The owner-authorized exact remote branch `codex/portable-execution-host-clean-20260827` is now the sole pre-master live code authority for `portable_execution_v1`. It requires a clean exact local/cached/live topic tip, synchronized local/cached/live master, master ancestry, exact-head CI/review, and this tracked host/principal. `capture_colocated_v1` remains master-only; the exception is not production or capture adoption. |
-| Verification | The latest Stage 0 reached an authenticated user-stream subscription and then failed in a pre-mutation account/market read check, but v0.2 receipts could not name that check and falsely inferred a mutation merely from context creation. Exact repair commit `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` (tree `8ffec7b716cd45be82d64e27266e3196d459a2bc`) now records allowlisted phases, separates stream subscription from REST writes, records each heartbeat/cancel boundary, preserves recovery lineage, requires exact two-heartbeat/one-cancel evidence for PASS, and validates the copies through Stage 1 lineage. Local verification passes 230 focused tests with 3 expected skips, compileall, docs audit, and diff checks; an independent pre-publication review found no remaining must-fix issue. The final state-only topic tip still requires exact-head CI/review and synchronized refs before attempt generation. |
-| Second PC | The editable checkout contains the repair commit above; synchronizing the clean portable clone to the final published state-only tip is pending. Reprove local/cached/live topic equality, synchronized ancestral master, canonical origin, clean worktree, and exact-head CI/review after publication. Its CPython 3.11.9 x64 venv, all 26 HGB LFS objects, pinned dependencies, SDK 0.6.0 overlay, 34-wheel wheelhouse, installed audit, clock/proxy/reboot state, and tracked host/principal audit previously passed and must remain current. The development checkout's ambient SDK remains excluded from live use. |
-| Capture | The portable lane does not run capture and does not consume remote capture-host status as live authority. Capture continues as a separate production-host objective; a portable lifecycle receipt is not capture-health or streak evidence. |
-| Credentials | The root plaintext `.env` was moved intact outside Git into a non-reparse directory whose allow ACL is limited to the attending user, SYSTEM, and Administrators. The canonical create-only importer provisioned all four fixed WinCred targets. Prior compare-only receipts proved four exact matches, zero writes, zero mutation, and no retained values, but every spent-attempt receipt is historical only; create a fresh compare-only receipt for the new namespace. Keep the private transfer source locked down until that final comparison is consumed, then use the approved deletion procedure. |
-| Public substrate | Preserve every partial namespace. All substrates and candidates sealed into spent attempts are evidence only. The owner accepted economics snapshot `xecon-9f686625de725e6d` for August 31 and the latest exact NYC 78-79 scope, condition `0x576cca4ddd0ef5e55df4f79484ca88b6f4e1687288e7dabc0b145e7bbfe9e3c5`; use it only if the repository's freshness and exact-binding checks still pass after branch qualification, otherwise regenerate and obtain a new exact acceptance. |
-| Live money | Attempts `pilot-20260831T134425424Z` and `pilot-20260831T145154800Z` are spent and must never be retried. The latter passed authenticated user-stream readiness, then failed before pre-mutation geography and before any heartbeat or cancel-all REST call; no order was submitted. Cleanup proved zero open orders and positions, stopped the stream, and closed the client. Its old receipt could retain only `RuntimeError`, so the precise read/check subgate is unrecoverable; the new phase repair will identify it in a wholly new attempt. Keep the exact 10 pUSD request / 100 pUSD wallet cap and every action-time gate. |
+| Production Git | The working checkout remains `master@3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac`; GitHub `origin/master` is `c932b54f8747df5cdefc4cc42f8454b6797f09ae`. Preserve the two expected fleet-generated location-config modifications. Do not manually fast-forward, reset, or merge this baseline. |
+| Capture host | An unexpected power loss occurred at 01:20 on September 3 with no bugcheck, power-button, or WHEA cause. Boot recovery restored the three streak-critical loops. At the 10:06 audit the daily Stage-A chain held the shared lease and the capture supervisors were healthy; let its 11:55 teardown and the noon graded monitor decide current status. |
+| Observability | Canonical status is `ATTENTION`: about seven days of disk headroom at the sampled growth rate, no recent successful Windows Time event, seven recent settlement holes, a failed September 3 reconciliation task, and the unexpected shutdown. The health watchdog is additionally blind on the adopted tip because its Windows PowerShell 5.1 child omits `-RepoRoot`; draft PR #9 carries the reviewed roll-free repair. |
+| Storage | The single production SSD has roughly 55 GiB free. Retention/tiering is working but net growth remains unsafe. Do not recursively scan or casually delete evidence. Storage relief must be manifest-bound; heavy inventory and compaction belong on the workstation or in the 00:30-09:00 admitted window. |
+| Integration failure | The September 3 self-adopting reconciliation failed before merge or push. Parent and child used different `Export-ScheduledTask` overloads for the same `WeatherOneShotPush` task, and the real task exposes `$null` triggers while the mocks used an empty array. The failed evidence stays immutable. |
+| Workstation | The PC answers ping/SMB at `192.168.1.106`, but SSH port 22 is closed and this production account lacks remote service/admin-share authority. The sealed PR #10 repair mission remains at `C:\Users\micha\ops\workstation-missions\2026-09-03-production-baseline-reconcile-rpc-repair.md`; dispatch it unchanged after `sshd` is restored. |
+| Pull requests | Draft PR #9 is roll-free operations recovery. Draft PR #10 is the roll-sensitive baseline reconciliation and needs the RPC/null-shape repair before another attempt. Draft PR #11 fixes executor `MAX_PATH`; draft PR #12 is stacked on #11 and adds the default-off International paper companion. PR #7/#8 remain PIT foundation/source-contract work, not retraining authority. |
+| Model | The sealed seasonal, multiyear residual, and calendar replications were all `INCONCLUSIVE_UNDERPOWERED`; the external-secondary attempt failed integrity before prediction. Preserve those verdicts. More fitting against the same cohorts is not progress. Extend independent dates/outcomes and execution economics before another challenger. |
+| Research corpus | The workstation holds the verified 12-field 2026 package plus multiyear/calendar Previous Runs collections with explicit field gaps. Those research corpora are read-only evidence; they do not authorize provider refetch, outcome reopening, cross-boundary pooling, production release, or promotion. |
+| Execution evidence | Production quote-intent inventory is large, but the workstation economics reduction found zero admissible fills/reconciliations. The next economics step needs the exact compact production export defined by that mission, not reconstructed fills. International only; Polymarket US rows are compatibility evidence. |
+| Live money | No live trade, promotion, release, or unattended first live session is authorized. The market-harvest companion is paper-only, default-off, and permanently ineligible for authenticated fills or realized P&L. |
+
+## Window and workflow decision
+
+- Branch creation, pushes, PRs, review, workstation tests, and deterministic
+  no-mutation probes do not wait for quiet hours.
+- Heavy production-host pytest, compileall, replay, training, and bulk scans
+  remain 00:30-09:00 under the shared lease. Do not create a midday heavy
+  window on a 16 GB capture host.
+- Roll-sensitive or undecidable tips still merge only 01:00-04:00 through the
+  canonical guarded wrapper.
+- Exact exit-0 roll-free tips with fresh, exact machine evidence may use the
+  11:55-18:00 control-plane lane after Item 331 is reviewed and integrated.
+  The 09:00-11:55 reserve belongs to Stage A; 18:00-00:30 remains protected for
+  every merge.
+- Overnight full suites are confirmation, not discovery. Windows PowerShell
+  parsing, Scheduler null/serialization probes, ancestry, clean-tree checks,
+  and branch hashes must pass during the day before an attempt is armed.
+- Keep one production integration and one workstation mission active. Do not
+  build a new feature branch while a deterministic blocker on the critical
+  integration remains unrepaired.
+
+## Ordered critical path
+
+1. Let the current Stage-A run terminalize; review its receipt, capture grade,
+   disk headroom, and the seven explicit settlement holes without starting an
+   overlapping job.
+2. Restore workstation SSH, execute the sealed PR #10 RPC/null-trigger mission,
+   and require production-shaped Windows PowerShell tests plus a clean pushed
+   descendant tip.
+3. Land the roll-free daytime control-plane and PR #9 after exact CI/review and
+   canonical roll verdicts. Use the first daytime merge as the Item 331
+   production proof; do not combine it with Scheduler re-registration.
+4. Close the failed reconciliation attempt immutably, create a new exact repair
+   attempt, and reserve 01:00-04:00 only for its genuinely roll-sensitive
+   adoption.
+5. After the baseline is synchronized, review PR #11, then its stacked PR #12.
+   Keep the companion disabled until exact production execution evidence is
+   exported and its paper economics can be measured.
+6. Move model effort to independent calendar/outcome coverage and proper power;
+   do not retrain for production until a frozen challenger beats the baseline
+   on the predeclared metric with a non-crossing interval and contribution gates.
 
 ## Closed decisions -- do not relitigate without new evidence
 
 - International Polymarket only; never use Polymarket US for a new probe,
   credential path, readiness decision, or mutation.
-- The first live test is one bounded plumbing/evidence session: Stage 0
-  heartbeat/cancel-all plus one smallest-valid post-only BUY for each Stage 1
-  cancellation mode, at most 10 pUSD each and a non-raisable 100 pUSD wallet
-  cap.
-- Candidate selection is never authorization. A successful no-fill test does
-  not prove edge, profitability, fill quality, rebates, or Stage 2 readiness.
-- No alpha or paid weather provider. Baseline acceptance is informed operator
-  action and is never scheduled automatically.
-- No order from a blocked location and no circumvention. America/Toronto is
-  scheduling/target-date configuration, never evidence of physical location.
-  The live protocol asks for no city, state/province, or country; it uses the
-  exact attended eligibility literal and Polymarket's credential-free geoblock.
-- No unattended first live session.
-- `capture_colocated_v1` retains local capture/tape/streak checks and
-  `[00:30, 09:00) America/Toronto` containment.
-- The separate 32 GB workstation may run implementation, tests, training,
-  replay, and measurement outside the capture timetable/resource admission.
-  Recognized heavy commands use its admission-only wrapper, which requires the
-  assignment's exact host and attending principal. That wrapper and the
-  portable launcher hold one host-global mutex and kill-on-close child-tree
-  Jobs through cleanup. Finish heavy work before sealing to preserve the
-  attempt; an inert seal is not live authority. This grants no production or
-  live authority, and its PASS does not replace production-host qualification.
-- `portable_execution_v1` retains every money, identity, geography, Git, SDK,
-  credential, account, deadline, cancellation, and cleanup gate, but no local
-  capture/tape/streak or capture timetable. It accepts one tracked non-capture
-  host/principal and cannot authorize another workload; the hook is not role authority.
-  Its target may be the candidate-market-local execution date or the immediately
-  following date; its bounded execution and cleanup stay within one local date.
-- Its sole pre-master code exception is the literal remote topic branch named
-  above. No arbitrary branch argument exists; changing that branch requires a
-  new reviewed code and operator decision.
-- Moving the executor again means a new production-tip assignment, clone/venv,
-  uniquely named SDK transfer, WinCred setup, fresh compare receipt, host
-  audit, public substrate, candidates, and attempt manifests. Never edit an old
-  host ID or absolute path into prior evidence.
-
-## Ordered critical path
-
-1. Publish the repair plus this state update. Require exact local/cached/live
-   equality, master ancestry, green exact-head CI, and independent review on
-   the final topic tip, then fast-forward and re-inventory the portable clone.
-2. Create a wholly new August 31 attempt. Revalidate the accepted NYC scope or
-   select a fresh built-in market inside the unchanged midpoint/spread gates;
-   refresh economics and exact acceptance if any bound input is stale. Run the
-   600-second paper tick and no-network preflight. Never reuse either spent
-   attempt or any launcher, manifest, or candidate sealed beneath one.
-3. Build and review all three new immutable manifests and launchers, then
-   refresh a constrained candidate immediately before each stage.
-4. At action time, require eligible physical presence/no circumvention,
-   official geoblock PASS, exact account topology, balance/allowance, zero
-   unknown orders and positions, current market rules, clean synchronized Git,
-   and every exact attended stage literal.
-5. Stop on any ambiguity. PASS requires terminal receipts plus cancel-all and
-   authenticated zero-open-order/zero-position reconciliation.
-
-## Verification boundary
-
-A finite audit cannot predict every unknown defect. The durable standard is
-fail-closed identity and path binding, early deterministic checks, immutable
-receipts, bounded execution, and truthful claims. The portable lane requires
-the exact profile-authorized Git authority and every action-time gate; a green
-branch alone is never a runnable live session.
+- No alpha or paid weather provider. Candidate selection is not authorization,
+  and paper profitability is not realized execution profitability.
+- Merging and runtime adoption are separate. A push never rolls capture.
+- No direct production pytest suite. Production verification is serial,
+  admitted, bounded, and subordinate to capture.
+- Preserve immutable receipts, corpora, tapes, ledgers, and failed attempts.
+  Repair with a descendant attempt; never rewrite the failed evidence.
 
 ## Update this file when
 
-Rewrite after publication/CI, admitted qualification, production merge, second-PC provisioning, live-readiness, or any Stage 0/1 result.
+Rewrite after Stage-A terminal evidence, workstation SSH/repair, Item 331 or PR
+#9 integration, a repaired reconciliation attempt, production baseline
+synchronization, exact execution export, or a new sealed model verdict.

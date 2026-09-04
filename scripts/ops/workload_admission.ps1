@@ -567,6 +567,7 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
     param(
         [datetime]$Now = (Get-Date),
         [switch]$AllowStageAWindow,
+        [switch]$AllowRollFreeControlPlaneWindow,
         [string]$OwnerApprovedException = ""
     )
 
@@ -592,7 +593,133 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
     ) {
         return "stage_a"
     }
+    if (
+        $AllowRollFreeControlPlaneWindow -and
+        $localMinute -ge (11 * 60 + 55) -and
+        $localMinute -lt (18 * 60)
+    ) {
+        return "roll_free_control_plane"
+    }
     return $null
+}
+
+
+function Get-WeatherQuietMergeMutationPolicyWindow {
+    [CmdletBinding()]
+    param(
+        [datetime]$Now = (Get-Date),
+        [Parameter(Mandatory = $true)][bool]$RollFree,
+        [switch]$Force,
+        [switch]$OwnerProtectedWindowException
+    )
+
+    $localMinute = $Now.Hour * 60 + $Now.Minute + ($Now.Second / 60.0)
+    if ($OwnerProtectedWindowException) {
+        return "owner_approved_merge_20260823"
+    }
+    if ($localMinute -ge (18 * 60) -or $localMinute -lt 30) {
+        return $null
+    }
+    if ($RollFree) {
+        $ordinaryWindow = Get-WeatherHeavyWorkloadPolicyWindow -Now $Now
+        if ($ordinaryWindow -ceq "agent_heavy") {
+            return $ordinaryWindow
+        }
+        return Get-WeatherHeavyWorkloadPolicyWindow `
+            -Now $Now `
+            -AllowRollFreeControlPlaneWindow
+    }
+    if ($localMinute -ge 60 -and $localMinute -lt (4 * 60)) {
+        return "quiet_window"
+    }
+    if ($Force) {
+        return Get-WeatherHeavyWorkloadPolicyWindow -Now $Now
+    }
+    return $null
+}
+
+
+function Test-WeatherRollFreeControlPlaneVerdictEvidence {
+    [CmdletBinding()]
+    param(
+        [AllowNull()]$Payload,
+        [Parameter(Mandatory = $true)][int]$ExitCode,
+        [Parameter(Mandatory = $true)][string]$ExpectedTip,
+        [Parameter(Mandatory = $true)][string]$ExpectedBaseRef,
+        [Parameter(Mandatory = $true)][string]$ExpectedBaseShortSha,
+        [Parameter(Mandatory = $true)][datetimeoffset]$InvocationStartedAt,
+        [Parameter(Mandatory = $true)][datetimeoffset]$InvocationFinishedAt,
+        [switch]$ExecutionTapeActive
+    )
+
+    if ($ExitCode -ne 0 -or $null -eq $Payload) { return $false }
+    $expectedNames = @(
+        "base_note",
+        "base_ref",
+        "base_sha",
+        "branch",
+        "closures_used",
+        "files",
+        "generated_at",
+        "problems",
+        "verdict"
+    ) | Sort-Object
+    $observedNames = @($Payload.PSObject.Properties.Name | Sort-Object)
+    if ($observedNames.Count -ne $expectedNames.Count -or
+        @(Compare-Object $expectedNames $observedNames -CaseSensitive).Count -ne 0) {
+        return $false
+    }
+    if ($ExpectedTip -cnotmatch '\A[0-9a-f]{40}\z' -or
+        [string]$Payload.branch -cne $ExpectedTip -or
+        [string]$Payload.verdict -cne "ROLL-FREE" -or
+        [string]$Payload.base_ref -cne $ExpectedBaseRef -or
+        [string]$Payload.base_sha -cne $ExpectedBaseShortSha -or
+        -not [string]::IsNullOrEmpty([string]$Payload.base_note)) {
+        return $false
+    }
+    try {
+        $generatedAt = [datetimeoffset]::Parse(
+            [string]$Payload.generated_at,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind
+        )
+    }
+    catch { return $false }
+    if ($generatedAt -lt $InvocationStartedAt -or
+        $generatedAt -gt $InvocationFinishedAt) {
+        return $false
+    }
+    $closures = @($Payload.closures_used)
+    if ($closures.Count -eq 0 -or
+        @($closures | Where-Object { $_ -isnot [string] -or -not $_ }).Count -gt 0 -or
+        @($closures | Sort-Object -Unique).Count -ne $closures.Count) {
+        return $false
+    }
+    foreach ($requiredClosure in @("loop", "clob_loop", "observation_trigger")) {
+        if ($closures -cnotcontains $requiredClosure) { return $false }
+    }
+    if ($ExecutionTapeActive -and $closures -cnotcontains "execution_tape") {
+        return $false
+    }
+    foreach ($problem in @($Payload.problems)) {
+        if ($problem -isnot [string] -or
+            $problem -cnotmatch '\Adormant closure .+ is SUBSUMED:') {
+            return $false
+        }
+    }
+    foreach ($file in @($Payload.files)) {
+        if ($null -eq $file) { return $false }
+        $fileNames = @($file.PSObject.Properties.Name | Sort-Object)
+        $expectedFileNames = @("closures", "file", "rolls")
+        if ($fileNames.Count -ne $expectedFileNames.Count -or
+            @(Compare-Object $expectedFileNames $fileNames -CaseSensitive).Count -ne 0 -or
+            [string]::IsNullOrWhiteSpace([string]$file.file) -or
+            $file.rolls -ne $false -or
+            @($file.closures).Count -ne 0) {
+            return $false
+        }
+    }
+    return $true
 }
 
 
@@ -1312,6 +1439,7 @@ function Enter-WeatherHeavyWorkloadLease {
         [Parameter(Mandatory = $true)][string]$RepoRoot,
         [Parameter(Mandatory = $true)][string]$Workload,
         [switch]$AllowStageAWindow,
+        [switch]$AllowRollFreeControlPlaneWindow,
         [string]$OwnerApprovedException = "",
         [string]$ExecutionHostProfile = "capture_colocated_v1",
         [string]$ExpectedExecutionHostId = ""
@@ -1352,7 +1480,8 @@ function Enter-WeatherHeavyWorkloadLease {
         ) {
             throw "this host and Windows principal are not the active portable executor"
         }
-        if ($AllowStageAWindow -or $OwnerApprovedException) {
+        if ($AllowStageAWindow -or $AllowRollFreeControlPlaneWindow -or
+            $OwnerApprovedException) {
             throw (
                 "portable execution-host admission cannot combine with Stage-A " +
                 "or owner-approved exceptions"
@@ -1397,7 +1526,8 @@ function Enter-WeatherHeavyWorkloadLease {
                 "non-capture workstation"
             )
         }
-        if ($AllowStageAWindow -or $OwnerApprovedException) {
+        if ($AllowStageAWindow -or $AllowRollFreeControlPlaneWindow -or
+            $OwnerApprovedException) {
             throw (
                 "workstation-offline admission cannot combine with Stage-A " +
                 "or owner-approved exceptions"
@@ -1442,13 +1572,23 @@ function Enter-WeatherHeavyWorkloadLease {
         if ($OwnerApprovedException -and $Workload -cne "quiet_window_merge") {
             throw "owner-approved workload exception is restricted to quiet_window_merge"
         }
+        if ($AllowRollFreeControlPlaneWindow -and
+            ($Workload -cne "quiet_window_merge" -or $AllowStageAWindow -or
+             $OwnerApprovedException)) {
+            throw (
+                "roll-free control-plane admission is restricted to the " +
+                "canonical quiet-window merge wrapper"
+            )
+        }
         $policyWindow = Get-WeatherHeavyWorkloadPolicyWindow `
             -AllowStageAWindow:$AllowStageAWindow `
+            -AllowRollFreeControlPlaneWindow:$AllowRollFreeControlPlaneWindow `
             -OwnerApprovedException $OwnerApprovedException
         if ($null -eq $policyWindow) {
             throw (
                 "heavy workload '{0}' is outside the 00:30-09:00 window; " +
-                "only the explicit Stage-A lane may acquire the lease at 09:30-11:55"
+                "only Stage A at 09:30-11:55 or an exact roll-free integration " +
+                "after the Stage-A reserve at 11:55-18:00 may acquire an explicit lane"
             ) -f $Workload
         }
     }
@@ -1697,6 +1837,7 @@ function Enter-WeatherHeavyWorkloadLease {
             ExecutionHostProfile = $ExecutionHostProfile
             ExecutionHostId = $executionHostId
             ExecutionPrincipalId = $executionPrincipalId
+            PolicyWindow = $policyWindow
             DurablePoisonPath = $durablePoisonPath
             WorkloadState = $(
                 if ($poisonSensitiveProfile) { "ACTIVE" } else { $null }

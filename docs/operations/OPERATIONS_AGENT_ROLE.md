@@ -155,7 +155,11 @@ nowhere** — it is derived. `OPERATING_REFERENCE.md` is **generated**; fix the 
   or a topic already fully integrated into `master`, because that comparison has no changed files.
   `.ps1`, `docs/`, and `config/` are roll-free. Closure sizes and membership are dynamic evidence;
   never copy their current counts into a verdict. Roll-sensitive merges go in **01:00–04:00**;
-  never merge inside 12:00–18:00.
+  never merge those inside 12:00–18:00. Exact exit-0 roll-free tips with fresh, exact machine
+  evidence may use the canonical 11:55–18:00 control-plane lane. The 09:00–11:55 reserve belongs
+  to Stage A, and the shared lease serializes the lane behind any overrun. That lane is for Git
+  integration and bounded health/evidence checks only; it is not a midday heavy
+  compute window. Branch pushes, PRs, review, and workstation tests do not wait for quiet hours.
 - The former `data\snapshots\loop_status_supervisor_status.json` tombstone was retired from the
   live namespace on 2026-08-14 and preserved under `_retired_supervisor_status`. The live files are
   `loop_supervisor_status.json`, `clob_loop_supervisor_status.json`,

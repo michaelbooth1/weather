@@ -11,8 +11,10 @@
 # publishing means a bad merge is undone by resetting to the exact pre-merge commit with nothing
 # published and no history to rewrite.
 #
-# Refuses to run outside 01:00-04:00 without -Force: a roll inside the 12:00-18:00 graded
-# window can cost the streak day. See docs/ops/streak-soak.md.
+# Roll-sensitive tips refuse outside 01:00-04:00 without -Force: a roll inside
+# the 12:00-18:00 graded window can cost the streak day. Exact roll-free tips
+# may use the serialized 11:55-18:00 control-plane lane after the Stage-A
+# reserve has ended. See docs/ops/streak-soak.md.
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Branch,
@@ -84,6 +86,11 @@ $documentationTransactionPendingSha256 = $null
 $documentationTransactionSnapshotPath = $null
 $documentedMarkerSha256 = $null
 $activeMarkerOwned = $false
+$policyWindow = $null
+$mutationPolicyWindow = $null
+$rollVerdictExitCode = $null
+$rollVerdictEvidenceExact = $false
+$rollVerdictScriptSha256 = $null
 function Note($m) {
     $line = "{0}  {1}" -f (Get-Date -Format "HH:mm:ss"), $m
     $log.Add($line); Write-Output $line
@@ -113,6 +120,11 @@ function Save-Report($ok, $stage, $detail) {
         documentation_transaction_pending_sha256 = $documentationTransactionPendingSha256
         documentation_transaction_snapshot_path = $documentationTransactionSnapshotPath
         publication_acknowledged = $publicationAcknowledged
+        policy_window = $policyWindow
+        mutation_policy_window = $mutationPolicyWindow
+        roll_verdict_exit_code = $rollVerdictExitCode
+        roll_verdict_evidence_exact = $rollVerdictEvidenceExact
+        roll_verdict_script_sha256 = $rollVerdictScriptSha256
         stage = $stage; detail = $detail; log = @($log)
     }
     $json = $record | ConvertTo-Json -Depth 8
@@ -415,21 +427,36 @@ if ($OwnerApprovedException) {
     Note "one-time repository-owner protected-window exception accepted for exact branch lineage and baseline"
 }
 
-# The broad host windows do not depend on the roll verdict. Refuse them before
-# taking the shared lease, then serialize the verdict and every subsequent Git,
-# recovery, documentation, and publication decision under that one OS handle.
-$h = (Get-Date).Hour + ((Get-Date).Minute / 60.0)
-if (-not $ownerProtectedWindowException -and $h -ge 12 -and $h -lt 18) {
-    Fail "inside the 12:00-18:00 graded capture window - never merge here"
+# A daytime caller may acquire the control-plane lease only long enough to
+# classify the exact tip. The verdict and every later Git/recovery/publication
+# decision stay under that one OS handle, so a concurrent integration cannot
+# move the baseline between classification and mutation. No tracked or runtime
+# mutation occurs before the verdict gate below. Stage A exclusively owns its
+# 09:30-11:55 scheduled lane; keeping 09:00-11:55 unavailable to a new merge
+# prevents a first-come mutex race from delaying that sole scheduled exception.
+$admissionNow = Get-Date
+$admissionMinute = $admissionNow.Hour * 60 + $admissionNow.Minute + ($admissionNow.Second / 60.0)
+if (-not $ownerProtectedWindowException -and
+    ($admissionMinute -ge (18 * 60) -or $admissionMinute -lt 30)) {
+    Fail ("inside the 18:00-00:30 protected near-close window (now {0:HH:mm:ss}) - no merge here" -f $admissionNow)
 }
-if (-not $ownerProtectedWindowException -and ($h -ge 18 -or $h -lt 0.5)) {
-    Fail ("inside the 18:00-00:30 protected near-close window (now {0:N2}) - no heavy work here" -f $h)
+if (-not $ownerProtectedWindowException -and
+    $admissionMinute -ge (9 * 60) -and $admissionMinute -lt (11 * 60 + 55)) {
+    Fail "inside the 09:00-11:55 Stage-A reserve; a quiet merge may not compete for its lease"
 }
+$daytimeControlPlaneCandidate =
+    (Get-WeatherHeavyWorkloadPolicyWindow `
+        -Now $admissionNow `
+        -AllowRollFreeControlPlaneWindow) -ceq "roll_free_control_plane"
 $workloadLease = Enter-WeatherHeavyWorkloadLease `
     -RepoRoot $repo `
     -Workload "quiet_window_merge" `
+    -AllowRollFreeControlPlaneWindow:$daytimeControlPlaneCandidate `
     -OwnerApprovedException $OwnerApprovedException
-if ($null -eq $workloadLease) { Fail "another heavyweight host workload owns data/logs/heavy_workload.lock" }
+if ($null -eq $workloadLease) {
+    Fail "another heavyweight host workload owns data/logs/heavy_workload.lock"
+}
+$policyWindow = [string]$workloadLease.PolicyWindow
 try {
 
 # ---- window guard, proportional to the branch's actual roll verdict ----
@@ -446,6 +473,7 @@ try {
 $verdictScript = Join-Path $repo "scripts\ops\roll_verdict.ps1"
 $rollFree = $false
 $rollVerdictReadable = $false
+$rollVerdictEvidence = [pscustomobject]@{ ok = $false }
 $executionTapeActive = Test-ExecutionTapeActive
 if (-not $ExpectedTip) {
     # Classify the exact already-fetched object. A later fetch that moves the
@@ -460,36 +488,110 @@ if (-not $ExpectedTip) {
     Note "observed branch tip frozen before roll classification: $Branch -> $ExpectedTip"
 }
 $verdictRef = $ExpectedTip
+$expectedVerdictBaseRef = "master"
+$expectedVerdictBaseFullShaOutput = @(& git -C $repo rev-parse "$expectedVerdictBaseRef^{commit}")
+if ($LASTEXITCODE -ne 0 -or $expectedVerdictBaseFullShaOutput.Count -ne 1 -or
+    ([string]$expectedVerdictBaseFullShaOutput[0]).Trim().ToLowerInvariant() -notmatch '^[0-9a-f]{40}$') {
+    Fail "master is not locally resolvable before roll classification"
+}
+$expectedVerdictBaseFullSha = ([string]$expectedVerdictBaseFullShaOutput[0]).Trim().ToLowerInvariant()
+$expectedVerdictBaseShortShaOutput = @(& git -C $repo rev-parse --short "$expectedVerdictBaseRef^{commit}")
+if ($LASTEXITCODE -ne 0 -or $expectedVerdictBaseShortShaOutput.Count -ne 1 -or
+    ([string]$expectedVerdictBaseShortShaOutput[0]).Trim().ToLowerInvariant() -notmatch '^[0-9a-f]{7,40}$') {
+    Fail "master is not locally resolvable before roll classification"
+}
+$expectedVerdictBaseShortSha = ([string]$expectedVerdictBaseShortShaOutput[0]).Trim().ToLowerInvariant()
 if (Test-Path -LiteralPath $verdictScript) {
+    $verdictScriptRelative = "scripts/ops/roll_verdict.ps1"
+    $verdictScriptItem = Get-Item -LiteralPath $verdictScript -Force
+    if ($verdictScriptItem.PSIsContainer -or
+        ($verdictScriptItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        Fail "roll_verdict.ps1 is not a regular non-reparse file"
+    }
+    $verdictScriptBlobOutput = @(& git -C $repo hash-object --no-filters -- $verdictScript)
+    $verdictScriptHeadBlobOutput = @(& git -C $repo rev-parse "HEAD:$verdictScriptRelative")
+    if ($LASTEXITCODE -ne 0 -or $verdictScriptBlobOutput.Count -ne 1 -or
+        $verdictScriptHeadBlobOutput.Count -ne 1 -or
+        ([string]$verdictScriptBlobOutput[0]).Trim().ToLowerInvariant() -notmatch '^[0-9a-f]{40}$' -or
+        ([string]$verdictScriptBlobOutput[0]).Trim().ToLowerInvariant() -cne
+            ([string]$verdictScriptHeadBlobOutput[0]).Trim().ToLowerInvariant()) {
+        Fail "roll_verdict.ps1 does not match the canonical checked-out Git blob"
+    }
+    $rollVerdictScriptSha256 =
+        (Get-FileHash -LiteralPath $verdictScript -Algorithm SHA256).Hash.ToLowerInvariant()
     $verdictJsonPath = Join-Path ([IO.Path]::GetTempPath()) ("weather-roll-verdict-{0}.json" -f [guid]::NewGuid().ToString("N"))
     try {
+        if (Test-Path -LiteralPath $verdictJsonPath) {
+            Fail "fresh roll-verdict evidence path unexpectedly exists"
+        }
+        $verdictInvocationStartedAt = [datetimeoffset](Get-Date)
         & $verdictScript -Branch $verdictRef -JsonOut $verdictJsonPath |
             ForEach-Object { Note "roll_verdict: $_" }
-        $verdictExitCode = $LASTEXITCODE
-        $rollFree = ($verdictExitCode -eq 0)
+        $rollVerdictExitCode = $LASTEXITCODE
+        $verdictInvocationFinishedAt = [datetimeoffset](Get-Date)
+        if ((Get-FileHash -LiteralPath $verdictScript -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+            $rollVerdictScriptSha256) {
+            Fail "roll_verdict.ps1 changed during classification"
+        }
+        $verdictPayload = $null
         if (Test-Path -LiteralPath $verdictJsonPath -PathType Leaf) {
             try {
-                $verdictPayload = Get-Content -LiteralPath $verdictJsonPath -Raw | ConvertFrom-Json
-                $rollVerdictReadable = $true
-                $executionTapeReadoptionExpected = @(
-                    $verdictPayload.files |
-                        Where-Object {
-                            $_.rolls -eq $true -and
-                            @($_.closures) -contains "execution_tape"
-                        }
-                ).Count -gt 0
+                $verdictItem = Get-Item -LiteralPath $verdictJsonPath -Force
+                if (($verdictItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) {
+                    $verdictPayload = Get-Content -LiteralPath $verdictJsonPath -Raw | ConvertFrom-Json
+                }
+                else {
+                    Note "WARNING: roll-verdict JSON path is a reparse point"
+                }
             }
             catch {
-                Note "WARNING: roll-verdict JSON was unreadable; any active execution tape will be gated conservatively"
+                Note "WARNING: roll-verdict JSON was unreadable"
             }
         }
-        Note ("roll verdict exit {0} -> {1}" -f $verdictExitCode, $(if ($rollFree) { "ROLL-FREE" } else { "treated as ROLL-SENSITIVE" }))
+        if ($null -ne $verdictPayload) {
+            $executionTapeReadoptionExpected = @(
+                $verdictPayload.files |
+                    Where-Object {
+                        $_.rolls -eq $true -and
+                        @($_.closures) -contains "execution_tape"
+                    }
+            ).Count -gt 0
+        }
+        $rollVerdictEvidence = [pscustomobject]@{
+            ok = Test-WeatherRollFreeControlPlaneVerdictEvidence `
+                -Payload $verdictPayload `
+                -ExitCode $rollVerdictExitCode `
+                -ExpectedTip $ExpectedTip `
+                -ExpectedBaseRef $expectedVerdictBaseRef `
+                -ExpectedBaseShortSha $expectedVerdictBaseShortSha `
+                -InvocationStartedAt $verdictInvocationStartedAt `
+                -InvocationFinishedAt $verdictInvocationFinishedAt `
+                -ExecutionTapeActive:$executionTapeActive
+        }
+        $rollFree = $rollVerdictEvidence.ok -eq $true
+        $rollVerdictEvidenceExact = $rollFree
+        $rollVerdictReadable = $rollFree
+        if ($rollVerdictExitCode -eq 0 -and -not $rollFree) {
+            Note "WARNING: roll-verdict machine evidence is not exact; treating the tip as ROLL-SENSITIVE"
+        }
+        Note ("roll verdict exit {0} -> {1}" -f $rollVerdictExitCode, $(if ($rollFree) { "ROLL-FREE" } else { "treated as ROLL-SENSITIVE" }))
     }
     finally {
         Remove-Item -LiteralPath $verdictJsonPath -Force -ErrorAction SilentlyContinue
     }
 }
 else { Note "roll_verdict.ps1 not found - treating branch as ROLL-SENSITIVE" }
+
+$postVerdictNow = Get-Date
+$postVerdictPolicyWindow = Get-WeatherQuietMergeMutationPolicyWindow `
+    -Now $postVerdictNow `
+    -RollFree $rollFree `
+    -Force:$Force `
+    -OwnerProtectedWindowException:$ownerProtectedWindowException
+if ($null -eq $postVerdictPolicyWindow) {
+    Fail "post-verdict wall-clock policy no longer permits this merge"
+}
+$policyWindow = [string]$postVerdictPolicyWindow
 
 # Gate the auxiliary producer exactly when its live closure rolls. If the
 # mechanical verdict could not emit its structured closure proof, fail safe by
@@ -504,10 +606,12 @@ elseif ($executionTapeRolledButInactiveSkipped) {
     Note "execution-tape closure was listed but the optional producer is held inactive; leaving it disabled and skipping recovery proof"
 }
 
-if (-not $rollFree -and -not $Force -and -not ($h -ge 1 -and $h -lt 4)) {
-    Fail ("roll-sensitive branch outside the 01:00-04:00 quiet window (now {0:N2}); use -Force only if you are certain a capture roll is safe right now" -f $h)
+if ($rollFree) {
+    Note ("exact roll-free branch admitted by {0} at {1:HH:mm:ss}" -f $policyWindow, $postVerdictNow)
 }
-if ($rollFree) { Note ("roll-free branch: 01:00-04:00 not required (now {0:N2})" -f $h) }
+else {
+    Note ("tip admitted conservatively as roll-sensitive by {0} at {1:HH:mm:ss}" -f $policyWindow, $postVerdictNow)
+}
 
 # ---- preconditions ----
 Set-Location $repo
@@ -558,6 +662,27 @@ if ($unexpected.Count -gt 0) {
 # exactly the way push does. That is survivable -- the local refs are what we merge -- but
 # it means merging whatever copy of the branch was last fetched, so say so rather than
 # letting a stale merge look like a fresh one.
+$currentPreMutationBaseFullShaOutput = @(& git -C $repo rev-parse "$expectedVerdictBaseRef^{commit}")
+if ($LASTEXITCODE -ne 0 -or $currentPreMutationBaseFullShaOutput.Count -ne 1 -or
+    ([string]$currentPreMutationBaseFullShaOutput[0]).Trim().ToLowerInvariant() -cne
+        $expectedVerdictBaseFullSha) {
+    Fail "merge baseline changed after roll classification"
+}
+if ($rollVerdictScriptSha256 -and
+    (Get-FileHash -LiteralPath $verdictScript -Algorithm SHA256).Hash.ToLowerInvariant() -cne
+        $rollVerdictScriptSha256) {
+    Fail "roll_verdict.ps1 changed after classification"
+}
+$preMutationNow = Get-Date
+$preMutationPolicyWindow = Get-WeatherQuietMergeMutationPolicyWindow `
+    -Now $preMutationNow `
+    -RollFree $rollFree `
+    -Force:$Force `
+    -OwnerProtectedWindowException:$ownerProtectedWindowException
+if ($null -eq $preMutationPolicyWindow) {
+    Fail "pre-mutation wall-clock policy no longer permits this merge"
+}
+$mutationPolicyWindow = [string]$preMutationPolicyWindow
 $gitFetchExit = Invoke-GitAllowingNativeStderr { & git fetch origin --prune | Out-Null }
 if ($gitFetchExit -ne 0) { Note "WARNING: git fetch failed (no credential vault under S4U?); merging the last-fetched copy of $Branch" }
 $branchCommitRef = "{0}^{{commit}}" -f $Branch

@@ -321,14 +321,33 @@ def test_attempt_report_is_exclusive_atomic_and_written_before_mutable_slots() -
     assert '$stage -eq "rollback_recovery_failed"' not in retirement.group(1)
 
 
-def test_quiet_merge_can_bind_its_own_frozen_bytes_and_serializes_roll_verdict() -> None:
+def test_quiet_merge_serializes_daytime_classification_before_mutation() -> None:
     script = _script_text()
 
     assert '[string]$ExpectedSelfSha256 = ""' in script
     assert "Get-FileHash -LiteralPath $PSCommandPath" in script
     lease = script.index("$workloadLease = Enter-WeatherHeavyWorkloadLease")
     verdict = script.index("& $verdictScript -Branch $verdictRef")
-    assert lease < verdict
+    evidence = script.index("Test-WeatherRollFreeControlPlaneVerdictEvidence")
+    post_verdict_clock = script.index("$postVerdictNow = Get-Date")
+    pre_mutation_clock = script.index("$preMutationNow = Get-Date")
+    mutation = script.index("git fetch origin --prune")
+    assert lease < verdict < evidence < post_verdict_clock < pre_mutation_clock < mutation
+    assert (
+        "-AllowRollFreeControlPlaneWindow:$daytimeControlPlaneCandidate"
+        in script
+    )
+    assert "$rollFree = $rollVerdictEvidence.ok -eq $true" in script
+    assert "roll-verdict machine evidence is not exact" in script
+    assert "git -C $repo hash-object --no-filters -- $verdictScript" in script
+    assert 'git -C $repo rev-parse "HEAD:$verdictScriptRelative"' in script
+    assert "roll_verdict.ps1 changed during classification" in script
+    assert "merge baseline changed after roll classification" in script
+    assert "roll_verdict.ps1 changed after classification" in script
+    assert "post-verdict wall-clock policy no longer permits this merge" in script
+    assert "pre-mutation wall-clock policy no longer permits this merge" in script
+    assert "policy_window = $policyWindow" in script
+    assert "mutation_policy_window = $mutationPolicyWindow" in script
 
 
 def test_legacy_callers_bind_observed_synchronized_baseline_before_marker() -> None:
