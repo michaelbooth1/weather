@@ -13,6 +13,13 @@ import uuid
 import pytest
 
 
+if os.name != "nt":
+    pytest.skip(
+        "requires Windows PowerShell 5.1 and Windows process and Job Object APIs",
+        allow_module_level=True,
+    )
+
+
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "scripts" / "ops" / "invoke_workstation_codex_mission.ps1"
 POWERSHELL = Path(os.environ["WINDIR"]) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
