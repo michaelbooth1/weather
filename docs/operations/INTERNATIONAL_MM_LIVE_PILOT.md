@@ -18,22 +18,38 @@ The claim boundary and frozen economics decision rule are preregistered in
 
 The fixed-scope Stage 0/1 sealer, session runner, process-local pinned SDK
 overlay, and interrupt-cleanup path are integrated production software. The
-portable execution-host extension is a separate candidate until
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) records its production adoption and
-qualification. Read the exact current production tip from Git and
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated hash copied here.
+portable execution-host extension remains an unmerged candidate, but an
+operator-authorized portable-only exception permits the exact reviewed branch
+`codex/portable-execution-host-clean-20260827` to supply live code for
+`portable_execution_v1` before master adoption. Read the current exact branch
+tip, exact-head CI/review status, operator authorization, and production master
+baseline from Git and [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated
+hash copied here.
 Their integration receipts grant no credential or live-exchange authority, and
-no Stage 0 or Stage 1 session has run.
+no Stage 0 or Stage 1 protocol has passed. Failed precredential launcher
+attempts and their exact disposition are recorded in
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md).
 
-**Stage 0/1 execution is currently HOLD.** The explicit execution-host profile,
+**Stage 0/1 execution is currently HOLD until every action-time gate below
+passes.** The explicit execution-host profile,
 truthful Stage 0 authenticated-write confirmation contract, and canonical
 fixed-session manifest builder are implemented by the fixed-scope software
-described here; before the first session, use
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) to prove that exact code is adopted in
-production and has received exact-tip reproof. The fixed-session manifest
+described here. `capture_colocated_v1` still requires exact production-adopted
+canonical `master`. For `portable_execution_v1`, use
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) and fresh Git proof to require the exact
+owner-authorized, reviewed, CI-green remote branch named above; local `HEAD`,
+its local branch tip, cached origin branch, and live canonical branch tip must
+be identical, while local/cached/live canonical master are synchronized and
+that master is an ancestor of the topic tip. The fixed-session manifest
 builder and dated Stage 0/1-only substitute-gate decision below are preparation
 only. Neither is temporal, credential, exchange-mutation, or trading
 authorization.
+
+The portable exception removes only master promotion. It does not make the
+branch production-adopted or claim production-host integration, capture
+recovery, or Scheduler state, and it does not remove any money, SDK,
+credential, identity, geography, account, balance, allowance, zero-state,
+order, cancellation, deadline, cleanup, or attended-confirmation gate.
 
 **Geographic eligibility is an action-time fact, not a repository or timezone
 inference.** This repository does not assert the operator's or execution host's
@@ -42,6 +58,9 @@ proxy, or similar circumvention. Before any Stage 1 order, obtain a fresh
 official geoblock result and an attended no-circumvention attestation; an
 unblocked egress classification that disagrees with physical location is not
 authority.
+The protocol never solicits, accepts, or stores an operator-supplied city,
+state/province, or country. It uses only the exact attended eligibility and
+no-circumvention literal plus Polymarket's credential-free geoblock response.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -125,8 +144,8 @@ All must be current for the target date and selected market:
    exact `{status: "ok"}` acknowledgment within 7.5 seconds, and matching
    book/min-size/tick/neg-risk/fee endpoint evidence has been read within 10
    seconds.
-6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; production
-   adoption must be proved from `STATE_OF_PLAY.md`.** The general readiness
+6. **Dated Stage 0/1 readiness decision: approved 2026-08-23; exact Git
+   authority must be proved from `STATE_OF_PLAY.md` and the live remote.** The general readiness
    prerequisite is circular for the evidence-generating probes because
    `mm_platform_verification_v0.6` embeds
    both Stage 1 lifecycle proofs. For Stage 0/1 only, the operator approved the
@@ -139,8 +158,12 @@ All must be current for the target date and selected market:
    positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
    eligibility; and every stage-specific, hash-bound attended confirmation.
    This decision is not self-executing and cannot clear the HOLD until the
-   complete implementation is production-adopted and receives exact-tip
-   reproof. The ordinary maker-run live-readiness, target-date data-layer,
+   complete implementation receives exact-tip reproof. For the capture profile
+   that means production-adopted master. For the portable profile only, the
+   exact reviewed, CI-green, owner-authorized
+   `codex/portable-execution-host-clean-20260827` remote branch may substitute
+   under the branch/master equality and ancestry contract above. The ordinary
+   maker-run live-readiness, target-date data-layer,
    production release, full risk, and v0.6 platform gates remain unchanged for
    Stage 2.
 7. A simultaneous one-market paper counterfactual has quote permission and is
@@ -178,10 +201,16 @@ All must be current for the target date and selected market:
 8. Select exactly one immutable execution-host profile. For
    `capture_colocated_v1`, the complete candidate-derived execution window
    **plus the fixed 20-second cooperative-cleanup reserve** must remain inside
-   **[00:30, 09:00) America/Toronto**; 08:59:40 is the latest execution cutoff.
-   For `portable_execution_v1`, the same bounded window and cleanup reserve
-   must remain on the target date, but the capture PC's timetable is not a
-   constraint. Both profiles hold the exclusive shared lease. The portable
+   the target date and **[00:30, 09:00) America/Toronto**; 08:59:40 is the
+   latest execution cutoff. For `portable_execution_v1`, the same bounded
+   window and cleanup reserve must remain within one local execution date in
+   the immutable candidate's market timezone, and the market target date must
+   be that execution date or its immediately following date. The capture PC's
+   timetable is not a portable constraint. Both profiles hold the exclusive
+   shared lease. The distinct
+   admission-only workstation wrapper also holds the same host-global mutex,
+   so recognized offline heavy work cannot overlap a launched portable stage;
+   it is not a third live profile and creates no live evidence. The portable
    lane accepts only canonical attended International Stage 0/1 workloads and
    is refused on the dedicated capture host. Provision or relocate it only via
    [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md).
@@ -247,6 +276,21 @@ also true. Calling Stage 0 fully read-only is incorrect.
 - Require an exact-condition position query and zero starting outcome inventory.
 - Read the chosen book, market fee eligibility, min order size, tick size, and
   closed-only state immediately before mutation.
+
+The Stage 0 command receipt retains only allowlisted bootstrap phase names,
+never raw SDK exception text or response bodies. It records the authenticated
+account-wide user-stream subscription separately from per-operation heartbeat
+and cancel-all attempt counts. `exchange_mutation_attempted` becomes true only
+at one of those REST mutation call boundaries; a context or authenticated
+WebSocket subscription by itself does not claim that an account mutation was
+attempted. A failed pre-mutation run therefore identifies its last entered
+read/check phase while preserving zero heartbeat, cancel-all, and order counts.
+The command receipt is canonical for these facts and the fixed wrapper copies
+them into its execution receipt. The session runner validates those copies
+against the canonical command receipt and carries them into its child-execution
+facts. This is an additive tightening of command schema v0.2: a historical v0.2
+PASS receipt without the complete phase, user subscription fact, and exact
+`heartbeat=2` / `cancel_all=1` counts is not an eligible Stage 1 predecessor.
 
 ### Stage 1: dead-man and cancel proof
 
@@ -366,9 +410,10 @@ by the live runner and cannot authorize an order.
 
 ### Execution-host preparation
 
-The final sequence runs from one clean, production-adopted checkout. It may be
-the dedicated capture checkout under `capture_colocated_v1`, or a separately
-provisioned Windows PC under `portable_execution_v1`. Follow
+The final sequence runs from one clean, exact remote-synchronized checkout. It
+may be the production-adopted master checkout on the dedicated capture PC under
+`capture_colocated_v1`, or the exact operator-authorized portable branch on a
+separately provisioned Windows PC under `portable_execution_v1`. Follow
 [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md) for every
 second-PC deployment or later relocation. Public metadata, economics, paper
 evidence, candidate selection, credentials, and attempt manifests must be
@@ -380,13 +425,29 @@ and fixed 20-second cleanup reserve inside **[00:30, 09:00)
 America/Toronto**; 08:59:40 is the latest execution cutoff, and no heavy job may
 overlap. After boot and network recovery, prove all capture workers and the
 public execution-tape producer recovered. For `portable_execution_v1`, the
-execution and cleanup tail may run at another time on the target date, but the
-host/principal must match the tracked active assignment and pass its offline
-execution-only status before identity or credential preparation.
+execution and cleanup tail may run while the target is the selected market's
+current or immediately following local date, but it must remain within one
+market-local execution date. The host/principal must match the tracked active
+assignment and pass its offline execution-only status before identity or
+credential preparation. Recognized
+heavy work on that PC must run through `scripts/ops/workstation_heavy.ps1`.
+The wrapper and portable launcher each own their full child tree in a kill-on-
+close Windows Job and contend for the same host-global mutex. Finish heavy work
+before sealing to avoid spending an inert reviewed attempt; the mechanical
+exclusion begins when either compliant runtime acquires the mutex and lasts
+through complete child-tree cleanup. An obsolete or manually bypassed launcher
+is not made compliant by this protocol.
 For both profiles, log in as the Windows user who owns Credential Manager,
-prove master equals a freshly observed origin at the reviewed exact tip, clear
-pending reboot state, and ensure no other local live stage holds the lease. Do
-not trade merely because Windows restarted successfully.
+clear pending reboot state, and ensure no other local live stage holds the
+lease. The capture profile must prove `HEAD == master == cached origin/master ==
+live canonical refs/heads/master`. The portable profile must prove
+`HEAD == local codex/portable-execution-host-clean-20260827 == cached
+origin/codex/portable-execution-host-clean-20260827 == live canonical
+refs/heads/codex/portable-execution-host-clean-20260827`; it must separately
+prove local master equals cached and live canonical master and is an ancestor
+of that branch tip. It must also match the exact tracked host/principal and the
+operator-recorded reviewed, exact-head CI-green authorization. Do not trade
+merely because Windows restarted successfully or because a branch was pushed.
 
 Do not continue merely because a public endpoint classifies the host's egress
 as unblocked. Eligibility also follows the attended operator's and execution
@@ -479,7 +540,10 @@ if ([string]::IsNullOrWhiteSpace($pilotLocalApplicationData) -or
   throw "current-user local application-data path is unavailable"
 }
 $pilotStateRoot = Get-VerifiedPilotLocalPath (
-  Join-Path $pilotLocalApplicationData "WeatherPortable\live-pilot"
+  # Keep this root intentionally short. Snapshot CAS filenames include the
+  # complete event slug and a SHA-256 digest, and supported Windows hosts may
+  # still enforce the legacy 260-character filesystem limit.
+  Join-Path $pilotLocalApplicationData "WLive"
 )
 $null = New-Item -ItemType Directory -Path $pilotStateRoot -Force `
   -ErrorAction Stop
@@ -487,6 +551,10 @@ $pilotStateRoot = Get-VerifiedPilotLocalPath $pilotStateRoot
 $pilotPublicRoot = Join-Path $pilotStateRoot "public"
 $pilotAttemptsParent = Join-Path $pilotStateRoot "attempts" # init-attempt validates it
 $pilotAttemptRoot = Join-Path $pilotAttemptsParent $pilotAttemptId
+# Snapshot CAS leaves can approach the legacy Windows path limit. Keep later
+# stage refreshes in this compact, attempt-bound sibling namespace.
+$pilotStageRefreshBase = Join-Path $pilotStateRoot "r"
+$pilotStageRefreshParent = Join-Path $pilotStageRefreshBase $pilotAttemptId
 $pilotDiscoveryPlan = Join-Path $pilotPublicRoot ($pilotAttemptId + "-discovery.json")
 $pilotIdentitySource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity.json")
 $pilotIdentityReceipt = Join-Path $pilotPublicRoot ($pilotAttemptId + "-identity-receipt.json")
@@ -508,8 +576,16 @@ $paperRunFolder = Join-Path $paperRunsRoot (Join-Path $pilotTargetDate $paperRun
 
 New-Item -ItemType Directory -Path $pilotPublicRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $pilotAttemptsParent -Force | Out-Null
+New-Item -ItemType Directory -Path $pilotStageRefreshBase -Force | Out-Null
 $pilotPublicRoot = Get-VerifiedPilotLocalPath $pilotPublicRoot
 $pilotAttemptsParent = Get-VerifiedPilotLocalPath $pilotAttemptsParent
+$pilotStageRefreshBase = Get-VerifiedPilotLocalPath $pilotStageRefreshBase
+if (Test-Path -LiteralPath $pilotStageRefreshParent) {
+  throw "attempt-bound stage refresh namespace must be new"
+}
+New-Item -ItemType Directory -Path $pilotStageRefreshParent `
+  -ErrorAction Stop | Out-Null
+$pilotStageRefreshParent = Get-VerifiedPilotLocalPath $pilotStageRefreshParent
 if (Test-Path -LiteralPath $pilotSubstrateRoot) {
   throw "candidate substrate namespace must be new"
 }
@@ -968,14 +1044,18 @@ edit timestamps or reuse an earlier gate.
 Do not invoke Stage 0 or Stage 1 with `python -m`: the parser intentionally has
 no exchange-mutation commands. Do not hand-edit a copy of the old host template.
 The repository-owned manifest builder and sealers are the only supported path.
-The builder rereads the current public inventory, requires synchronized
-production `master`, the exact canonical Git executable and hash, the canonical
-HTTPS origin URL with no local trust/proxy override, no ambient
-`WEATHER_MARKET_REGISTRY`, and a bounded live query of
-`refs/heads/master` against that literal canonical URL. Inventory v0.3 passes
-only when local `HEAD`, local `master`, cached `origin/master`, and that live
-remote object ID are identical; a stale cached ref, malformed result, timeout,
-or unavailable remote blocks. It derives the Git tree, interpreter, template,
+The builder rereads the current public inventory and requires the exact
+canonical Git executable and hash, the canonical HTTPS origin URL with no local
+trust/proxy override, no ambient `WEATHER_MARKET_REGISTRY`, and a bounded live
+query of the profile-authorized ref against that literal canonical URL. The
+capture profile remains master-only. On the pre-adoption exception path, the
+portable profile accepts only `codex/portable-execution-host-clean-20260827`,
+and only when local `HEAD`, the
+local branch, cached origin branch, and live canonical branch object ID are
+identical; local/cached/live master must also be synchronized and that master
+must be an ancestor of the branch. A stale cached ref, malformed result,
+timeout, unavailable remote, detached checkout, dirty tree, master drift, or
+missing ancestry blocks. It derives the Git tree, interpreter, template,
 complete live source, and session-bootstrap hashes, and hardcodes 10 pUSD plus
 the profile-bound 120-second colocated or 240-second portable session envelope. It
 accepts no typed target, condition, token, budget, duration, output, or candidate
@@ -1113,13 +1193,15 @@ the fixed-scope sealer; operators do not hand-author or directly invoke that
 inner surface. The sealer never opens Credential Manager or runs the generated
 launcher. It independently validates the inert SDK overlay helper, candidate
 semantic hash, a paper TTL no greater than 600 seconds, same-target-date
-containment including the shared 20-second cleanup reserve and, for
-`capture_colocated_v1`, complete
-**[00:30, 09:00) America/Toronto** containment,
+containment including the shared 20-second cleanup reserve for
+`capture_colocated_v1`, and current-or-next target-date eligibility with one
+market-local execution date for `portable_execution_v1`,
+including complete **[00:30, 09:00) America/Toronto** containment for the
+colocated profile,
 all public inputs, every imported live-source hash, exact production ancestry,
 and new contained output paths. It creates a fixed no-argument Python wrapper,
 a hash-bound inner PowerShell launcher, an
-`international_live_fixed_scope_seal_v0.4` receipt, and its SHA-256 sidecar.
+`international_live_fixed_scope_seal_v0.6` receipt, and its SHA-256 sidecar.
 Each Stage 1 mode also requires the exact successful predecessor lineage. A
 partial or failed build, seal, or run spends that stage namespace; create a new
 attempt rather than overwriting it.
@@ -1176,7 +1258,11 @@ if (Test-Path -LiteralPath $expectedStage0CandidateInbox) {
 }
 
 $freshStage0Id = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
-$freshStage0Root = Join-Path $pilotSubstrateRoot ("stage0-refresh-" + $freshStage0Id)
+$freshStage0Parent = Join-Path $pilotStageRefreshParent "s0"
+New-Item -ItemType Directory -Path $freshStage0Parent -Force `
+  -ErrorAction Stop | Out-Null
+$freshStage0Parent = Get-VerifiedPilotLocalPath $freshStage0Parent
+$freshStage0Root = Join-Path $freshStage0Parent $freshStage0Id
 $freshStage0EventMetadata = Join-Path $freshStage0Root "location-market-events.json"
 $freshStage0Validation = Join-Path $freshStage0Root "event-metadata-validation.json"
 $freshStage0Observation = Join-Path $freshStage0Root "observation-status.json"
@@ -1381,7 +1467,16 @@ function Invoke-FreshReviewedStage1 {
   }
 
   $freshId = [DateTimeOffset]::UtcNow.ToString("yyyyMMddTHHmmssfffZ")
-  $freshRoot = Join-Path $pilotSubstrateRoot ($Stage + "-refresh-" + $freshId)
+  $stagePathCode = switch ($Stage) {
+    "stage1_cancel_all" { "s1a" }
+    "stage1_dead_man" { "s1d" }
+    default { throw "unsupported Stage 1 refresh path scope" }
+  }
+  $freshParent = Join-Path $pilotStageRefreshParent $stagePathCode
+  New-Item -ItemType Directory -Path $freshParent -Force `
+    -ErrorAction Stop | Out-Null
+  $freshParent = Get-VerifiedPilotLocalPath $freshParent
+  $freshRoot = Join-Path $freshParent $freshId
   $freshEventMetadata = Join-Path $freshRoot "location-market-events.json"
   $freshValidation = Join-Path $freshRoot "event-metadata-validation.json"
   $freshObservation = Join-Path $freshRoot "observation-status.json"
@@ -1541,16 +1636,20 @@ hash and fixed candidate path to the composer; no scope or ceiling is accepted a
 the live boundary. Before writing candidate/spec/composition/intent artifacts,
 the composer derives a candidate-bounded window of at most 120 seconds for
 `capture_colocated_v1` or 240 seconds for `portable_execution_v1` and
-rejects unless that window plus the full 20-second cleanup tail stays on the
-target date. The colocated profile additionally requires complete
-**[00:30, 09:00) America/Toronto** containment. It repeats the check at the execution
+rejects unless that window plus the full 20-second cleanup tail remains within
+one profile-valid local date. The colocated profile requires the target date
+and complete **[00:30, 09:00) America/Toronto** containment. The portable
+profile requires one candidate-market-local execution date and a target equal
+to that date or its immediately following date. It repeats the check at the execution
 boundary and requires at least 90 seconds for the colocated profile or 180
 seconds for the portable profile still available immediately before launch.
-The manifest builder and fixed-scope sealer repeat the bounded live
-remote proof at their validation and publication boundaries; the composer
+The manifest builder and fixed-scope sealer repeat the bounded, profile-aware
+live remote proof at their validation and publication boundaries; the composer
 repeats it after all protected-file checks immediately before launching, and
-the sealed wrapper repeats it before credentials. A cached `origin/master`
-match alone is never launch authority. The composer then writes an immutable ARMED intent and atomically claims the terminal
+the sealed wrapper repeats it before credentials. A cached master or topic ref
+match alone is never launch authority. For the portable exception, every
+boundary repeats exact topic equality plus synchronized-master ancestry; for
+the capture profile every boundary remains exact master-only. The composer then writes an immutable ARMED intent and atomically claims the terminal
 receipt and sidecar paths. The no-argument launcher and parent runner hold
 deny-write/delete handles for the reviewed runner, production sources, public
 credential inputs, candidate, complete predecessor lineage, external SDK
@@ -1560,6 +1659,20 @@ cooperative cleanup at the sealed execution stop, allows only the same
 sealer-owned 20-second grace already reserved by every window check, and then
 uses kill-on-close containment if required. For the colocated profile the
 reserved end may equal 09:00; it must never exceed it.
+
+The fixed launcher additionally proves the active shared lease is still held
+with write sharing denied and binds the lease record to the canonical
+PowerShell owner's PID and Windows process-creation token. The Python process
+must be either its direct child or the child of exactly one hash-bound venv
+`python.exe` redirector. The sealed venv `pyvenv.cfg` resolves the separately
+hash-bound base Python process image; the launcher locks all three files, and
+the wrapper requires strict owner-before-redirector-before-runtime creation
+order. Every one of the three host attestations must carry the same complete
+lineage proof. A stale/reused PID, permissive or absent lease handle, extra
+process hop, changed config/image/hash, uninspectable process, or cross-stage
+interpreter-binding mismatch fails before credentials. The seal and terminal
+execution receipts carrying this mandatory evidence are v0.6 and v0.7,
+respectively; earlier receipt versions cannot authorize a new attempt.
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
 request, 100 pUSD wallet cap, execution cutoff, cleanup reserve, and contained
@@ -1838,11 +1951,12 @@ Cancel all and do not resume on any of the following:
   truth;
 - unknown order, unexpected partial fill, unbacked sell, or risk-cap breach;
 - cancel-all is not followed by zero open orders;
-- the execution cutoff plus its cleanup reserve leaves the target date;
-- under `capture_colocated_v1`, the contained interval leaves **[00:30, 09:00)
-  America/Toronto**, the host enters a protected window, or capture health
-  degrades;
-- under `portable_execution_v1`, the execution-only status, exact host binding,
+- under `capture_colocated_v1`, the contained interval leaves the target date
+  or **[00:30, 09:00) America/Toronto**, the host enters a protected window, or
+  capture health degrades;
+- under `portable_execution_v1`, the contained interval crosses its
+  candidate-market-local execution date, the target is neither that date nor
+  its immediately following date, or execution-only status, exact host binding,
   clock, reboot, capture-host exclusion, or exclusive lease stops passing;
 - official geoblock state is unavailable or blocked, physical eligibility is
   unconfirmed, or endpoint and attended physical-location attestations disagree.

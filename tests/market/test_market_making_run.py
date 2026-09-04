@@ -997,6 +997,45 @@ class TestMarketMakingRun(unittest.TestCase):
         finalize.assert_not_called()
         self.assertIs(result, loop_payload)
 
+    def test_main_accepts_run_lifecycle_quote_ttl_override(self):
+        one_shot_payload = {"run_folder": "one-shot"}
+        finalized_payload = {
+            **one_shot_payload,
+            "scoring_projection": {"status": "PASS"},
+        }
+        with patch.object(
+            market_making_run,
+            "build_run_once",
+            return_value=one_shot_payload,
+        ) as build_once, patch.object(
+            market_making_run,
+            "finalize_scoring_projection",
+            return_value=finalized_payload,
+        ), patch.object(
+            market_making_run,
+            "format_run_cli_summary",
+            return_value="one-shot",
+        ):
+            result = market_making_run.main([
+                "--date",
+                TARGET_DATE,
+                "--mode",
+                "paper-live-forward",
+                "--permission-profile",
+                "market_harvest",
+                "--budget-usdc",
+                "25",
+                "--config",
+                "quote_ttl_seconds=600",
+                "--once",
+            ])
+
+        self.assertEqual(
+            build_once.call_args.kwargs["policy_config"],
+            {"quote_ttl_seconds": 600.0},
+        )
+        self.assertIs(result, finalized_payload)
+
     def test_main_require_preflight_pass_exits_nonzero_after_blocked_run(self):
         blocked_payload = {
             "run_folder": "blocked",

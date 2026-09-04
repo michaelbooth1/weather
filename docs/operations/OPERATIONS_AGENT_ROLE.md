@@ -95,6 +95,22 @@ the production PC. An explicitly authorized workstation or portable-PC agent
 may create a PR or perform a Git merge under `docs/git-workflow.md`; any owning
 production integration/adoption runbook remains separately binding.
 
+**Operator correction 2026-08-28:** the 00:30–09:00 heavy-work timetable is a
+property of this 16 GB capture host, not of the separate 32 GB workstation.
+That workstation may run ordinary implementation, tests, training, replay,
+and measurement at any local time even when it also holds the portable
+live-executor assignment. Recognized heavy commands must use the repository
+workstation wrapper, whose admission-only profile shares the portable
+launcher's host-global mutex and admits only the assignment's exact
+non-capture Windows installation and attending principal. Both launch paths
+own their complete child tree in a kill-on-close Windows Job. Wrapped heavy
+work and a launched stage are mutually exclusive through cleanup; heavy work
+still ends before sealing as an
+operational attempt-preservation rule. The live profile remains fixed-scope
+and grants no
+capture, production, Scheduler, credential, exchange, unattended-trading, or
+live-order authority.
+
 ---
 
 ## 4. Authority — you are expected to act
@@ -295,8 +311,13 @@ was wrong, several in the opposite direction from the defect.
 
 ## 9. Delegation to the workstation
 
-The 32 GB workstation (`DESKTOP-RFCD2GH`) runs a separate research agent. It communicates **only**
-through origin topic branches and operator-relayed prompts. You never talk to it directly.
+The 32 GB workstation (`DESKTOP-RFCD2GH`) runs a separate implementation and
+research agent. Its ordinary development, verification, training, replay, and
+measurement work is outside this capture host's timetable and resource
+admission, but recognized heavy commands hold the shared host-global mutex
+through `workstation_heavy.ps1` and cannot overlap a launched portable stage. It
+communicates **only** through origin topic branches and operator-relayed
+prompts. You never talk to it directly.
 
 1. Write `docs/roadmap/workstation-handoff-<date><letter>-<slug>.md`.
 2. Commit (docs are roll-free) and push via `WeatherOneShotPush`.

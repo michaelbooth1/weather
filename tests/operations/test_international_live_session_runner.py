@@ -117,9 +117,12 @@ class LaunchGitStub:
             return subprocess.CompletedProcess(args, 0, "remote.origin.url\n", "")
         if command == ("rev-parse", "--show-object-format"):
             return subprocess.CompletedProcess(args, 0, "sha1\n", "")
-        if command in (("rev-parse", "HEAD"), ("rev-parse", "master")):
+        if command in (
+            ("rev-parse", "HEAD"),
+            ("rev-parse", "refs/heads/master"),
+        ):
             return subprocess.CompletedProcess(args, 0, self.commit + "\n", "")
-        if command == ("rev-parse", "origin/master"):
+        if command == ("rev-parse", "refs/remotes/origin/master"):
             return subprocess.CompletedProcess(args, 0, self.origin_commit + "\n", "")
         if command == ("rev-parse", "HEAD^{tree}"):
             return subprocess.CompletedProcess(args, 0, self.tree + "\n", "")
@@ -151,12 +154,19 @@ class LaunchGitStub:
         raise AssertionError(f"unexpected Git command: {command}")
 
 
-def candidate(now=NOW, *, remaining_seconds=120, economics_acceptance=None):
+def candidate(
+    now=NOW,
+    *,
+    target_date=None,
+    remaining_seconds=120,
+    economics_acceptance=None,
+):
     if economics_acceptance is None:
         raise AssertionError("runner candidate fixture requires economics acceptance")
+    target_date = target_date or now.date().isoformat()
     return build_live_candidate_payload(
         now=now,
-        target_date=now.date().isoformat(),
+        target_date=target_date,
         condition_id=CONDITION,
         token_id=TOKEN,
         remaining_seconds=remaining_seconds,
@@ -177,7 +187,9 @@ def session_fixture(
     remaining_seconds=120,
     now: datetime = NOW,
     execution_host_profile: str = "capture_colocated_v1",
+    target_date: str | None = None,
 ):
+    target_date = target_date or now.date().isoformat()
     attempt = tmp_path / "attempt"
     attempt.mkdir()
     identity = write(
@@ -198,7 +210,7 @@ def session_fixture(
         {"status": "PASS", "rescore_required": False},
     )
     acknowledgment = sealer.economics_acceptance_acknowledgment(
-        now.date().isoformat(),
+        target_date,
         CONDITION,
         TOKEN,
         accepted_snapshot_file_sha256=sha(accepted_economics),
@@ -221,6 +233,15 @@ def session_fixture(
     production_python = tmp_path / "production/venv/Scripts/python.exe"
     production_python.parent.mkdir(parents=True, exist_ok=True)
     production_python.write_bytes(b"reviewed python")
+    runtime_home = tmp_path / "production/runtime"
+    runtime_home.mkdir(parents=True, exist_ok=True)
+    runtime_python = runtime_home / "python.exe"
+    runtime_python.write_bytes(b"reviewed runtime python")
+    pyvenv_config = tmp_path / "production/venv/pyvenv.cfg"
+    pyvenv_config.write_text(
+        f"home = {runtime_home}\nexecutable = {runtime_python}\n",
+        encoding="utf-8",
+    )
     bootstrap_hashes = {}
     for relative in runner.SESSION_BOOTSTRAP_PATHS:
         source = tmp_path / "production" / relative
@@ -266,7 +287,7 @@ def session_fixture(
             "canonical_origin_url": sealer.CANONICAL_ORIGIN_URL,
         },
         "scope": {
-            "target_date": now.date().isoformat(),
+            "target_date": target_date,
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -319,6 +340,7 @@ def session_fixture(
         tmp_path / f"fresh-{stage}.json",
         candidate(
             now=now,
+            target_date=target_date,
             remaining_seconds=remaining_seconds,
             economics_acceptance=economics_acceptance,
         ),
@@ -336,11 +358,15 @@ def fake_sealer(attempt: Path, stage: str):
         wrapper.write_text("# sealed wrapper\n", encoding="utf-8")
         launcher.write_text("# sealed launcher\n", encoding="utf-8")
         seal_path = attempt / sealer.OUTPUT_LAYOUTS[stage]["seal_receipt"]
+        interpreter_binding = runner.resolve_production_python_runtime_binding(
+            spec["production"]["root"],
+            interpreter_redirector=spec["production"]["python"],
+        )
         seal_payload = {
             "schema_version": sealer.RECEIPT_SCHEMA_VERSION,
             "status": "PASS",
             "stage": stage,
-            "production": spec["production"],
+            "production": {**spec["production"], **interpreter_binding},
             "scope": {
                 **spec["scope"],
                 "cancellation_mode": (
@@ -577,11 +603,17 @@ def write_execution(
                 "lifecycle_journal": str(journal.resolve()),
             }
         )
+    seal_spec = json.loads(
+        (attempt / "inputs" / f"{stage}-seal-spec.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    receipt_target_date = seal_spec["scope"]["target_date"]
     command = {
         "schema_version": "mm_live_pilot_command_receipt_v0.2",
         "status": "PASS",
         "command": "stage0" if stage == "stage0" else "stage1",
-        "target_date": NOW.date().isoformat(),
+        "target_date": receipt_target_date,
         "condition_id": CONDITION,
         "token_id": TOKEN,
         "requested_budget_pusd": 10,
@@ -599,6 +631,12 @@ def write_execution(
     }
     if stage == "stage0":
         command["exchange_mutation_attempted"] = True
+        command["authenticated_user_stream_subscription_sent"] = True
+        command["bootstrap_phase"] = "complete"
+        command["exchange_mutation_attempt_counts"] = {
+            "cancel_all": 1,
+            "heartbeat": 2,
+        }
         command["mutation_geographic_eligibility"] = {
             "path": artifacts["geography_premutation_receipt_out"]["path"],
             "sha256": artifacts["geography_premutation_receipt_out"]["sha256"],
@@ -613,11 +651,6 @@ def write_execution(
         "path": str(command_path.resolve()),
         "sha256": sha(command_path),
     }
-    seal_spec = json.loads(
-        (attempt / "inputs" / f"{stage}-seal-spec.json").read_text(
-            encoding="utf-8"
-        )
-    )
     execution_host_profile = seal_spec["scope"]["execution_host_profile"]
     execution_host_id = seal_spec["scope"]["execution_host_id"]
     host_attestations = [
@@ -627,6 +660,13 @@ def write_execution(
             "status_flag_sha256": [],
             "execution_host_profile": execution_host_profile,
             "execution_host_id": execution_host_id,
+            "lease_process_lineage": {
+                "status": "PASS",
+                "relationship": "single_sealed_python_redirector",
+                "lease_owner_creation_token_sha256": "1" * 64,
+                "redirector_creation_token_sha256": "2" * 64,
+                "runtime_creation_token_sha256": "3" * 64,
+            },
         }
         for _index in range(3)
     ]
@@ -640,7 +680,7 @@ def write_execution(
             "execution_host_id": execution_host_id,
             "phase": "complete" if status == "PASS" else "stage1_command",
             "production_tip": "a" * 40,
-            "target_date": NOW.date().isoformat(),
+            "target_date": receipt_target_date,
             "condition_id": CONDITION,
             "token_id": TOKEN,
             "requested_budget_pusd": 10,
@@ -655,6 +695,19 @@ def write_execution(
             "live_mutation_attempted": mutation,
             "order_submit_attempted": stage != "stage0" if mutation else False,
             "authenticated_exchange_write_attempted": mutation,
+            **(
+                {
+                    "authenticated_user_stream_subscription_sent": True,
+                    "bootstrap_phase": "complete",
+                    "bootstrap_recovery_phase": None,
+                    "exchange_mutation_attempt_counts": {
+                        "cancel_all": 1,
+                        "heartbeat": 2,
+                    },
+                }
+                if stage == "stage0"
+                else {}
+            ),
             "credential_values_read_in_memory": credential,
             "confirmation_scope_display_sha256": "8" * 64,
             "host_attestations": host_attestations,
@@ -747,6 +800,100 @@ def test_portable_execution_host_can_compose_a_daytime_session(tmp_path):
     assert result["status"] == "PASS"
 
 
+def test_portable_execution_host_can_compose_for_next_day_market(tmp_path):
+    stage = "stage0"
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        stage,
+        now=current,
+        target_date=target_date,
+        remaining_seconds=300,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    result = runner.compose_and_run_live_session(
+        manifest,
+        fresh,
+        expected_session_manifest_sha256=sha(manifest),
+        now=current,
+        seal_function=fake_sealer(attempt, stage),
+        launcher_runner=lambda path: (
+            write_execution(attempt, stage, mutation=True)
+            or subprocess.CompletedProcess([str(path)], 0, "", "")
+        ),
+    )
+
+    spec = json.loads((attempt / "inputs/stage0-seal-spec.json").read_text())
+    assert spec["scope"]["target_date"] == target_date
+    assert (
+        datetime.fromisoformat(spec["scope"]["run_not_before_local"]).date()
+        == current.date()
+    )
+    assert result["status"] == "PASS"
+
+
+@pytest.mark.parametrize("target_offset_days", [-1, 2])
+def test_portable_composer_refuses_target_outside_current_or_next_day(
+    tmp_path,
+    target_offset_days,
+):
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    target_date = (current.date() + timedelta(days=target_offset_days)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        "stage0",
+        now=current,
+        target_date=target_date,
+        remaining_seconds=300,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="current-day or next-day market target",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            seal_function=lambda *_args, **_kwargs: pytest.fail("must not seal"),
+            launcher_runner=lambda _path: pytest.fail("must not launch"),
+        )
+
+    assert not (attempt / "inputs/stage0-seal-spec.json").exists()
+
+
+def test_portable_composer_refuses_cleanup_crossing_market_midnight(tmp_path):
+    current = datetime.fromisoformat("2026-08-23T23:55:40-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        "stage0",
+        now=current,
+        target_date=target_date,
+        remaining_seconds=600,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="current-day or next-day market target",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            seal_function=lambda *_args, **_kwargs: pytest.fail("must not seal"),
+            launcher_runner=lambda _path: pytest.fail("must not launch"),
+        )
+
+    assert not (attempt / "inputs/stage0-seal-spec.json").exists()
+
+
 def test_composer_refuses_manifest_bound_to_a_different_execution_host(tmp_path):
     attempt, manifest, fresh = session_fixture(tmp_path, "stage0")
     payload = json.loads(manifest.read_text(encoding="utf-8"))
@@ -817,6 +964,7 @@ def test_launch_boundary_refuses_stale_cached_origin_despite_matching_live_remot
     ):
         runner._verify_launch_git_state(
             production,
+            execution_host_profile="capture_colocated_v1",
             git_runner=LaunchGitStub(
                 origin_commit="c" * 40,
                 remote_commit="a" * 40,
@@ -844,6 +992,7 @@ def test_launch_boundary_refuses_live_remote_lookup_failure(tmp_path):
     ):
         runner._verify_launch_git_state(
             production,
+            execution_host_profile="capture_colocated_v1",
             git_runner=git,
         )
 
@@ -975,6 +1124,34 @@ def test_composer_rechecks_supported_window_at_execution_boundary(tmp_path):
             expected_session_manifest_sha256=sha(manifest),
             now=current,
             clock=lambda: datetime.fromisoformat("2026-08-23T09:00:00-04:00"),
+            seal_function=fake_sealer(attempt, stage),
+            launcher_runner=lambda _path: pytest.fail("launcher must not run"),
+        )
+
+
+def test_portable_composer_rechecks_execution_date_before_launch(tmp_path):
+    stage = "stage0"
+    current = datetime.fromisoformat("2026-08-23T23:55:00-04:00")
+    target_date = (current.date() + timedelta(days=1)).isoformat()
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        stage,
+        now=current,
+        target_date=target_date,
+        remaining_seconds=600,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="launch boundary is not current-day or next-day target eligible",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            clock=lambda: datetime.fromisoformat("2026-08-24T00:00:00-04:00"),
             seal_function=fake_sealer(attempt, stage),
             launcher_runner=lambda _path: pytest.fail("launcher must not run"),
         )
@@ -1159,7 +1336,15 @@ def test_runner_emits_terminal_unknown_on_keyboard_interrupt(tmp_path):
 
 @pytest.mark.parametrize(
     "tamper",
-    ["missing_artifact", "phase", "credential", "mutation", "scope"],
+    [
+        "missing_artifact",
+        "phase",
+        "credential",
+        "mutation",
+        "scope",
+        "lease_lineage",
+        "attestation_shape",
+    ],
 )
 def test_runner_rejects_under_validated_pass_execution_receipt(tmp_path, tamper):
     stage = "stage1_cancel_all"
@@ -1179,8 +1364,14 @@ def test_runner_rejects_under_validated_pass_execution_receipt(tmp_path, tamper)
             payload["credential_values_read_in_memory"] = "UNKNOWN"
         elif tamper == "mutation":
             payload["live_mutation_attempted"] = False
-        else:
+        elif tamper == "scope":
             payload["production_tip"] = "b" * 40
+        elif tamper == "lease_lineage":
+            payload["host_attestations"][2]["lease_process_lineage"][
+                "runtime_creation_token_sha256"
+            ] = "4" * 64
+        else:
+            del payload["host_attestations"][1]["status_json_sha256"]
         execution_path.write_text(json.dumps(payload), encoding="utf-8")
         return subprocess.CompletedProcess([str(path)], 0, "", "")
 
@@ -1196,6 +1387,80 @@ def test_runner_rejects_under_validated_pass_execution_receipt(tmp_path, tamper)
 
     receipt = json.loads(
         (attempt / "session/stage1_cancel_all-run-receipt.json").read_text()
+    )
+    assert receipt["status"] == "UNKNOWN"
+    assert receipt["child_execution"]["validation"] == "FAIL"
+
+
+def test_runner_rejects_stage0_execution_copy_that_differs_from_command(tmp_path):
+    stage = "stage0"
+    attempt, manifest, fresh = session_fixture(tmp_path, stage)
+
+    def launch(path):
+        write_execution(attempt, stage, status="PASS", mutation=True, credential=True)
+        execution_path = attempt / sealer.OUTPUT_LAYOUTS[stage][
+            "wrapper_execution_receipt"
+        ]
+        payload = json.loads(execution_path.read_text())
+        payload["exchange_mutation_attempt_counts"] = {
+            "cancel_all": 0,
+            "heartbeat": 2,
+        }
+        execution_path.write_text(json.dumps(payload), encoding="utf-8")
+        return subprocess.CompletedProcess([str(path)], 0, "", "")
+
+    with pytest.raises(runner.SessionCompositionError, match="validated PASS"):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=NOW,
+            seal_function=fake_sealer(attempt, stage),
+            launcher_runner=launch,
+        )
+
+    receipt = json.loads(
+        (attempt / "session/stage0-run-receipt.json").read_text()
+    )
+    assert receipt["status"] == "UNKNOWN"
+    assert receipt["child_execution"]["validation"] == "FAIL"
+
+
+def test_runner_rejects_seal_without_exact_interpreter_binding(tmp_path):
+    stage = "stage0"
+    attempt, manifest, fresh = session_fixture(tmp_path, stage)
+    base_sealer = fake_sealer(attempt, stage)
+
+    def invalid_binding_sealer(spec_path, **kwargs):
+        result = base_sealer(spec_path, **kwargs)
+        seal_path = Path(result["seal_receipt"]["path"])
+        payload = json.loads(seal_path.read_text(encoding="utf-8"))
+        payload["production"]["runtime_process_image_sha256"] = "0" * 64
+        seal_path.write_text(json.dumps(payload), encoding="utf-8")
+        seal_sha256 = sha(seal_path)
+        result["seal_receipt"]["sha256"] = seal_sha256
+        sidecar = Path(result["seal_receipt_sidecar"])
+        sidecar.write_text(
+            f"{seal_sha256}  {seal_path.name}\n",
+            encoding="ascii",
+        )
+        return result
+
+    with pytest.raises(runner.SessionCompositionError, match="validated PASS"):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=NOW,
+            seal_function=invalid_binding_sealer,
+            launcher_runner=lambda path: (
+                write_execution(attempt, stage, mutation=True)
+                or subprocess.CompletedProcess([str(path)], 0, "", "")
+            ),
+        )
+
+    receipt = json.loads(
+        (attempt / "session/stage0-run-receipt.json").read_text()
     )
     assert receipt["status"] == "UNKNOWN"
     assert receipt["child_execution"]["validation"] == "FAIL"

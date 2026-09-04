@@ -863,7 +863,8 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
         [bool]$SuiteRanWithoutReceipt = $false,
         [bool]$MergeReceiptMissingAfterTrigger = $false,
         [AllowEmptyString()][string]$RecoveryDispatch = "",
-        [AllowEmptyString()][string]$SuccessorAttemptId = ""
+        [AllowEmptyString()][string]$SuccessorAttemptId = "",
+        [AllowEmptyString()][string]$PublicationClassification = "ordinary"
     )
 
     $severity = "NONE"
@@ -873,7 +874,12 @@ function Get-WeatherIntegrationAttemptAlertDisposition {
         $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
     }
     elseif ($State -eq "MERGED_UNPUSHED") {
-        $detail = "integration attempt $AttemptId has a recovery-proved local merge not acknowledged by origin; obtain review, resume publication, and do not retry it"
+        $detail = if ($PublicationClassification -ceq "ordinary") {
+            "integration attempt $AttemptId has a recovery-proved local merge not acknowledged by origin; obtain review, resume publication, and do not retry it"
+        }
+        else {
+            "RECONCILIATION_PUBLICATION_RELATED_ATTEMPT: integration attempt $AttemptId has a recovery-proved local merge not acknowledged by origin; the active reconciliation marker owns publication, so preserve exact evidence and do not manually invoke or retry WeatherOneShotPush"
+        }
         $severity = if ($EvidenceIsFresh) { "FLAG" } else { "WARN" }
     }
     elseif ($State -eq "MERGED_RECONCILED") {
@@ -1650,12 +1656,1473 @@ if (Test-Path $settleRoot) {
 }
 
 # ---- git / push ----
-$unpushed = & git -C $repo rev-list --count origin/master..master 2>$null
-if (-not $unpushed) { $unpushed = "?" }
+# Publication guidance is action-bearing.  Inspect the reconciliation marker and
+# last report before offering the ordinary push command so a spent incident-bound
+# invocation can never be presented as a harmless retry.  Missing operation_mode is
+# valid for historical ordinary quiet-merge evidence; malformed or unknown evidence
+# is not sufficient authority to recommend a credential-bearing push.
+function Get-WeatherReconciliationPublicationState {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][string]$ActiveMarkerPath,
+        [Parameter(Mandatory = $true)][string]$CanonicalOrigin,
+        [datetimeoffset]$Now = [datetimeoffset]::Now
+    )
+
+    # This is a one-incident consumer, not a generic marker trust mechanism.
+    # L and T are immutable anchors; S, C, and M are accepted only after Git,
+    # the active marker, the raw snapshot, and the two live config files agree.
+    $localBaseline = "3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac"
+    $publishedTarget = "c932b54f8747df5cdefc4cc42f8454b6797f09ae"
+    $reviewedParent = "a24cf0f41bf0b321c5c813820594c56198a58d1a"
+    $configPaths = @(
+        "config/locations.json",
+        "config/location_market_events.json"
+    )
+    $safetyDependencyPaths = @(
+        "scripts/ops/quiet_window_merge.ps1",
+        "scripts/ops/production_baseline_scheduler_rpc.ps1",
+        "scripts/ops/windows_kill_on_close_job.ps1",
+        "scripts/ops/status.ps1",
+        "scripts/ops/health_watchdog.ps1"
+    )
+    $localBaselineDependencySha256 = [ordered]@{
+        "scripts/ops/boot_recovery.ps1" = "253ab48e38a24af8cf8c8a5fde33f223b6e298b7acf91bbc56ad4c4a0ea8dc4a"
+        "scripts/ops/roll_verdict.ps1" = "3fb522a82c5325558a9da9d458c643edf5c0da8d5893e14189979859ed0a4881"
+        "scripts/ops/workload_admission.ps1" = "cdeaab38b2b9483cff5936e52411d725b0cffe4373ccebba688797c6e1d3c105"
+        "src/weather/operations/capture_recovery_check.py" = "814ec274838e5cb905a0074298f5c4e27aee2d32b0b9cc6fac2ca4def27cc895"
+        "src/weather/operations/documentation_transaction.py" = "057def07c4ad8529457a11bba6b1f5afdb19b6f6011ff3dd77905af29bd354d9"
+        "src/weather/operations/execution_tape_supervisor.py" = "1f5d8e1130fa2dd4c14d8f8f9dd6c44d9a7c4850f85a5942919d5c6bbfc5763f"
+    }
+    $publishedTargetDependencySha256 = [ordered]@{
+        "scripts/ops/boot_recovery.ps1" = "253ab48e38a24af8cf8c8a5fde33f223b6e298b7acf91bbc56ad4c4a0ea8dc4a"
+        "scripts/ops/roll_verdict.ps1" = "3fb522a82c5325558a9da9d458c643edf5c0da8d5893e14189979859ed0a4881"
+        "scripts/ops/workload_admission.ps1" = "4117eb901d292952473c57425434593bed414fa2ed2fecee301fe56e8f893306"
+        "src/weather/operations/capture_recovery_check.py" = "814ec274838e5cb905a0074298f5c4e27aee2d32b0b9cc6fac2ca4def27cc895"
+        "src/weather/operations/documentation_transaction.py" = "057def07c4ad8529457a11bba6b1f5afdb19b6f6011ff3dd77905af29bd354d9"
+        "src/weather/operations/execution_tape_supervisor.py" = "1f5d8e1130fa2dd4c14d8f8f9dd6c44d9a7c4850f85a5942919d5c6bbfc5763f"
+    }
+    $maximumMarkerAge = [timespan]::FromHours(36)
+    $maximumFutureSkew = [timespan]::FromMinutes(5)
+
+    # Windows PowerShell's ConvertFrom-Json silently accepts duplicate object
+    # keys and resolves names case-insensitively on later property lookup. Parse
+    # the complete grammar first so no reconciliation authority can be changed
+    # by duplicate or case-colliding keys at any nesting depth.
+    if (-not ("Weather.Operations.StatusStrictJsonObjectKeyValidator" -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+
+namespace Weather.Operations
+{
+    public sealed class StatusStrictJsonObjectKeyValidator
+    {
+        private readonly string text;
+        private int index;
+        private int depth;
+
+        private StatusStrictJsonObjectKeyValidator(string value)
+        {
+            if (value == null)
+            {
+                throw new ArgumentNullException("value");
+            }
+            text = value;
+        }
+
+        public static void Validate(string value)
+        {
+            StatusStrictJsonObjectKeyValidator parser =
+                new StatusStrictJsonObjectKeyValidator(value);
+            parser.SkipWhitespace();
+            parser.ParseValue();
+            parser.SkipWhitespace();
+            if (parser.index != parser.text.Length)
+            {
+                throw new FormatException("trailing content after JSON value");
+            }
+        }
+
+        private void ParseValue()
+        {
+            if (index >= text.Length)
+            {
+                throw new FormatException("unexpected end of JSON");
+            }
+            if (depth >= 32)
+            {
+                throw new FormatException("JSON nesting exceeds the fixed bound");
+            }
+            depth++;
+            try
+            {
+                char c = text[index];
+                if (c == '{') { ParseObject(); return; }
+                if (c == '[') { ParseArray(); return; }
+                if (c == '"') { ParseString(); return; }
+                if (c == 't') { ParseLiteral("true"); return; }
+                if (c == 'f') { ParseLiteral("false"); return; }
+                if (c == 'n') { ParseLiteral("null"); return; }
+                if (c == '-' || (c >= '0' && c <= '9'))
+                {
+                    ParseNumber();
+                    return;
+                }
+                throw new FormatException("invalid JSON value");
+            }
+            finally { depth--; }
+        }
+
+        private void ParseObject()
+        {
+            Expect('{');
+            SkipWhitespace();
+            if (TryConsume('}')) { return; }
+            HashSet<string> keys = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase
+            );
+            while (true)
+            {
+                SkipWhitespace();
+                string key = ParseString();
+                if (!keys.Add(key))
+                {
+                    throw new FormatException("duplicate JSON property");
+                }
+                SkipWhitespace();
+                Expect(':');
+                SkipWhitespace();
+                ParseValue();
+                SkipWhitespace();
+                if (TryConsume('}')) { return; }
+                Expect(',');
+            }
+        }
+
+        private void ParseArray()
+        {
+            Expect('[');
+            SkipWhitespace();
+            if (TryConsume(']')) { return; }
+            while (true)
+            {
+                ParseValue();
+                SkipWhitespace();
+                if (TryConsume(']')) { return; }
+                Expect(',');
+                SkipWhitespace();
+            }
+        }
+
+        private string ParseString()
+        {
+            Expect('"');
+            StringBuilder value = new StringBuilder();
+            while (index < text.Length)
+            {
+                char c = text[index++];
+                if (c == '"') { return value.ToString(); }
+                if (c < 0x20)
+                {
+                    throw new FormatException("control character in JSON string");
+                }
+                if (c != '\\')
+                {
+                    value.Append(c);
+                    continue;
+                }
+                if (index >= text.Length)
+                {
+                    throw new FormatException("unterminated JSON escape");
+                }
+                char escaped = text[index++];
+                switch (escaped)
+                {
+                    case '"': value.Append('"'); break;
+                    case '\\': value.Append('\\'); break;
+                    case '/': value.Append('/'); break;
+                    case 'b': value.Append('\b'); break;
+                    case 'f': value.Append('\f'); break;
+                    case 'n': value.Append('\n'); break;
+                    case 'r': value.Append('\r'); break;
+                    case 't': value.Append('\t'); break;
+                    case 'u':
+                        if (index + 4 > text.Length)
+                        {
+                            throw new FormatException("short JSON unicode escape");
+                        }
+                        string hex = text.Substring(index, 4);
+                        int code;
+                        if (!Int32.TryParse(
+                            hex,
+                            NumberStyles.AllowHexSpecifier,
+                            CultureInfo.InvariantCulture,
+                            out code
+                        ))
+                        {
+                            throw new FormatException("invalid JSON unicode escape");
+                        }
+                        value.Append((char)code);
+                        index += 4;
+                        break;
+                    default:
+                        throw new FormatException("invalid JSON escape");
+                }
+            }
+            throw new FormatException("unterminated JSON string");
+        }
+
+        private void ParseNumber()
+        {
+            if (TryConsume('-') && index >= text.Length)
+            {
+                throw new FormatException("incomplete JSON number");
+            }
+            if (TryConsume('0'))
+            {
+                if (index < text.Length && Char.IsDigit(text[index]))
+                {
+                    throw new FormatException("leading zero in JSON number");
+                }
+            }
+            else
+            {
+                int start = index;
+                while (index < text.Length && Char.IsDigit(text[index]))
+                {
+                    index++;
+                }
+                if (index == start)
+                {
+                    throw new FormatException("invalid JSON number");
+                }
+            }
+            if (TryConsume('.'))
+            {
+                int start = index;
+                while (index < text.Length && Char.IsDigit(text[index]))
+                {
+                    index++;
+                }
+                if (index == start)
+                {
+                    throw new FormatException("invalid JSON fraction");
+                }
+            }
+            if (index < text.Length &&
+                (text[index] == 'e' || text[index] == 'E'))
+            {
+                index++;
+                if (index < text.Length &&
+                    (text[index] == '+' || text[index] == '-'))
+                {
+                    index++;
+                }
+                int start = index;
+                while (index < text.Length && Char.IsDigit(text[index]))
+                {
+                    index++;
+                }
+                if (index == start)
+                {
+                    throw new FormatException("invalid JSON exponent");
+                }
+            }
+        }
+
+        private void ParseLiteral(string literal)
+        {
+            if (index + literal.Length > text.Length ||
+                String.CompareOrdinal(text, index, literal, 0, literal.Length) != 0)
+            {
+                throw new FormatException("invalid JSON literal");
+            }
+            index += literal.Length;
+        }
+
+        private void SkipWhitespace()
+        {
+            while (index < text.Length)
+            {
+                char c = text[index];
+                if (c != ' ' && c != '\t' && c != '\r' && c != '\n')
+                {
+                    return;
+                }
+                index++;
+            }
+        }
+
+        private void Expect(char expected)
+        {
+            if (index >= text.Length || text[index] != expected)
+            {
+                throw new FormatException("invalid JSON syntax");
+            }
+            index++;
+        }
+
+        private bool TryConsume(char expected)
+        {
+            if (index < text.Length && text[index] == expected)
+            {
+                index++;
+                return true;
+            }
+            return false;
+        }
+    }
+}
+'@
+    }
+
+    function ConvertFrom-StrictReconciliationJson {
+        param(
+            [Parameter(Mandatory = $true)][string]$Raw,
+            [Parameter(Mandatory = $true)][string]$Label
+        )
+
+        try {
+            [Weather.Operations.StatusStrictJsonObjectKeyValidator]::Validate($Raw)
+            return ($Raw | ConvertFrom-Json -ErrorAction Stop)
+        }
+        catch {
+            throw "$Label JSON is invalid or contains duplicate/case-colliding object keys: $($_.Exception.Message)"
+        }
+    }
+
+    function Test-ReconciliationIncidentFieldPopulated {
+        param(
+            [Parameter(Mandatory = $true)][object]$Marker,
+            [Parameter(Mandatory = $true)][string]$Name
+        )
+
+        $property = $Marker.PSObject.Properties[$Name]
+        if ($null -eq $property -or $null -eq $property.Value) { return $false }
+        $value = $property.Value
+        if ($value -is [string]) {
+            return -not [string]::IsNullOrWhiteSpace([string]$value)
+        }
+        if ($value -is [bool]) { return [bool]$value }
+        if ($value -is [System.Collections.IDictionary]) { return $value.Count -gt 0 }
+        if ($value -is [pscustomobject]) {
+            return @($value.PSObject.Properties).Count -gt 0
+        }
+        if ($value -is [System.Collections.IEnumerable]) {
+            return @($value).Count -gt 0
+        }
+        return $true
+    }
+
+    function Get-ReconciliationIncidentSignals {
+        param([Parameter(Mandatory = $true)][object]$Marker)
+
+        # reconciliation_config_content_sha256 is an additive compatibility
+        # alias that the current writer also populates for genuine ordinary
+        # markers. Every other populated reconciliation_* field is incident
+        # evidence. The non-prefixed list covers the roll and child-RPC seam.
+        $ordinaryCompatibilityFields = @("reconciliation_config_content_sha256")
+        $candidateNames = @($Marker.PSObject.Properties | Where-Object {
+                [string]$_.Name -like "reconciliation_*" -and
+                [string]$_.Name -notin $ordinaryCompatibilityFields
+            } | ForEach-Object { [string]$_.Name }) + @(
+            "roll_verdict_exit_code",
+            "roll_verdict_explicit_base",
+            "roll_verdict_explicit_branch",
+            "roll_verdict_json_sha256",
+            "roll_verdict_transcript_sha256",
+            "push_start_rpc_request_id",
+            "push_start_rpc_request_sha256",
+            "push_start_rpc_deadline_utc",
+            "push_start_rpc_timed_out",
+            "push_stop_rpc_request_id",
+            "push_stop_rpc_request_sha256",
+            "push_stop_rpc_deadline_utc",
+            "push_stop_rpc_timed_out",
+            "push_containment_deadline",
+            "push_terminal_proved_at",
+            "push_containment_breached",
+            "push_terminal_proved",
+            "push_run_observed",
+            "push_stop_attempted",
+            "push_stop_exhausted"
+        )
+        return @($candidateNames | Select-Object -Unique | Where-Object {
+                Test-ReconciliationIncidentFieldPopulated -Marker $Marker -Name $_
+            })
+    }
+
+    function New-PublicationState {
+        param(
+            [Parameter(Mandatory = $true)][string]$Classification,
+            [string]$Detail = "",
+            [string]$MergeCommit = "",
+            [string]$LiveOriginMaster = "",
+            [bool]$PushInvocationAttempted = $false,
+            [bool]$PublicationAcknowledged = $false,
+            [bool]$MarkerPresent = $true
+        )
+        return [pscustomobject]@{
+            classification = $Classification
+            detail = $Detail
+            merge_commit = $MergeCommit
+            live_origin_master = $LiveOriginMaster
+            push_invocation_attempted = $PushInvocationAttempted
+            publication_acknowledged = $PublicationAcknowledged
+            marker_present = $MarkerPresent
+            manual_push_allowed = ($Classification -ceq "ordinary")
+        }
+    }
+
+    function Get-RequiredStringProperty {
+        param([object]$Object, [string]$Name)
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property -or $property.Value -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            throw "marker property '$Name' is missing or not a non-empty string"
+        }
+        return [string]$property.Value
+    }
+
+    function Get-RequiredBooleanProperty {
+        param([object]$Object, [string]$Name)
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property -or $property.Value -isnot [bool]) {
+            throw "marker property '$Name' is missing or not Boolean"
+        }
+        return [bool]$property.Value
+    }
+
+    function Get-RequiredNonnegativeIntegerProperty {
+        param([object]$Object, [string]$Name)
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property -or
+            ($property.Value -isnot [int] -and $property.Value -isnot [long]) -or
+            [long]$property.Value -lt 0) {
+            throw "marker property '$Name' is missing or not a nonnegative integer"
+        }
+        return [long]$property.Value
+    }
+
+    function Get-OptionalIntegerProperty {
+        param([object]$Object, [string]$Name)
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property) { throw "marker property '$Name' is missing" }
+        if ($null -eq $property.Value) { return $null }
+        if ($property.Value -isnot [int] -and $property.Value -isnot [long]) {
+            throw "marker property '$Name' is not an integer"
+        }
+        return [long]$property.Value
+    }
+
+    function Get-OptionalStringProperty {
+        param([object]$Object, [string]$Name)
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property) { throw "marker property '$Name' is missing" }
+        if ($null -eq $property.Value) { return $null }
+        if ($property.Value -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            throw "marker property '$Name' is not a non-empty string or null"
+        }
+        return [string]$property.Value
+    }
+
+    function Get-OptionalTimestampProperty {
+        param([object]$Object, [string]$Name)
+        $property = $Object.PSObject.Properties[$Name]
+        if ($null -eq $property) { throw "marker timestamp '$Name' is missing" }
+        if ($null -eq $property.Value) { return $null }
+        if ($property.Value -isnot [string] -or
+            [string]::IsNullOrWhiteSpace([string]$property.Value)) {
+            throw "marker timestamp '$Name' is not a string"
+        }
+        try { return [datetimeoffset]::Parse([string]$property.Value) }
+        catch { throw "marker timestamp '$Name' is invalid" }
+    }
+
+    function Get-StatusGitScalar {
+        param([string[]]$Arguments)
+        $rows = @(& git --no-optional-locks -C $RepositoryRoot @Arguments 2>$null)
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0 -or $rows.Count -ne 1 -or
+            [string]::IsNullOrWhiteSpace([string]$rows[0])) {
+            throw "git $($Arguments -join ' ') did not return one value"
+        }
+        return ([string]$rows[0]).Trim().ToLowerInvariant()
+    }
+
+    function Get-StatusGitRows {
+        param([string[]]$Arguments)
+        $rows = @(& git --no-optional-locks -C $RepositoryRoot @Arguments 2>$null)
+        if ($LASTEXITCODE -ne 0) {
+            throw "git $($Arguments -join ' ') failed"
+        }
+        return @($rows | ForEach-Object {
+                ([string]$_).Trim().Replace('\', '/')
+            } | Where-Object { $_ })
+    }
+
+    function Get-StatusGitRawRows {
+        param(
+            [string[]]$Arguments,
+            [switch]$AllowNoMatch
+        )
+        $rows = @(& git --no-optional-locks -C $RepositoryRoot @Arguments 2>$null)
+        $exitCode = $LASTEXITCODE
+        if (($AllowNoMatch -and $exitCode -notin @(0, 1)) -or
+            (-not $AllowNoMatch -and $exitCode -ne 0)) {
+            throw "git $($Arguments -join ' ') failed"
+        }
+        return @($rows | ForEach-Object { ([string]$_).Trim() } |
+                Where-Object { $_ })
+    }
+
+    function Assert-StatusCanonicalOrigin {
+        $fetchUrls = @(Get-StatusGitRawRows -Arguments @(
+                "remote", "get-url", "--all", "origin"
+            ))
+        $pushUrls = @(Get-StatusGitRawRows -Arguments @(
+                "remote", "get-url", "--push", "--all", "origin"
+            ))
+        $pushUrlOverrides = @(Get-StatusGitRawRows -Arguments @(
+                "config", "--get-all", "remote.origin.pushurl"
+            ) -AllowNoMatch)
+        $pushRefOverrides = @(Get-StatusGitRawRows -Arguments @(
+                "config", "--get-all", "remote.origin.push"
+            ) -AllowNoMatch)
+        $urlRewrites = @(Get-StatusGitRawRows -Arguments @(
+                "config", "--get-regexp", '^url\..*\.(insteadof|pushinsteadof)$'
+            ) -AllowNoMatch)
+        if ($fetchUrls.Count -ne 1 -or $pushUrls.Count -ne 1 -or
+            [string]$fetchUrls[0] -cne $CanonicalOrigin -or
+            [string]$pushUrls[0] -cne $CanonicalOrigin -or
+            $pushUrlOverrides.Count -ne 0 -or $pushRefOverrides.Count -ne 0 -or
+            $urlRewrites.Count -ne 0) {
+            throw "origin fetch/push identity is not the exact canonical no-rewrite contract"
+        }
+    }
+
+    function Get-StatusLiveOriginMaster {
+        $gitCommands = @(Get-Command -Name "git.exe" -CommandType Application -ErrorAction SilentlyContinue)
+        if ($gitCommands.Count -eq 0) {
+            $gitCommands = @(Get-Command -Name "git" -CommandType Application -ErrorAction Stop)
+        }
+        if ($gitCommands.Count -eq 0 -or [string]::IsNullOrWhiteSpace([string]$gitCommands[0].Source)) {
+            throw "Git executable is unavailable for bounded live origin acknowledgement"
+        }
+        if ($RepositoryRoot.Contains('"') -or $CanonicalOrigin.Contains('"')) {
+            throw "repository/origin identity cannot be quoted for bounded live acknowledgement"
+        }
+        $token = [guid]::NewGuid().ToString("N")
+        $temporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
+        $stdoutPath = Join-Path $temporaryRoot "weather-status-origin-$token.out"
+        $stderrPath = Join-Path $temporaryRoot "weather-status-origin-$token.err"
+        $process = $null
+        try {
+            $process = Start-Process -FilePath ([string]$gitCommands[0].Source) `
+                -ArgumentList @(
+                    "--no-optional-locks", "-C", ('"{0}"' -f $RepositoryRoot),
+                    "ls-remote", "--exit-code", "--refs",
+                    ('"{0}"' -f $CanonicalOrigin), "refs/heads/master"
+                ) `
+                -WindowStyle Hidden -PassThru `
+                -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+            if (-not $process.WaitForExit(5000)) {
+                try { $process.Kill() }
+                catch {
+                    throw "bounded live origin acknowledgement timed out and root termination failed"
+                }
+                if (-not $process.WaitForExit(5000)) {
+                    throw "bounded live origin acknowledgement timed out and root termination was not observed"
+                }
+                throw "bounded live origin acknowledgement timed out"
+            }
+            if (-not $process.WaitForExit(1000)) {
+                throw "bounded live origin acknowledgement did not remain terminal during readback"
+            }
+            if ([int]$process.ExitCode -ne 0 -or
+                -not (Test-Path -LiteralPath $stdoutPath -PathType Leaf)) {
+                throw "bounded live origin acknowledgement failed"
+            }
+            $rows = @([IO.File]::ReadAllLines($stdoutPath, [Text.Encoding]::UTF8) |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+            if ($rows.Count -ne 1 -or
+                [string]$rows[0] -notmatch '^([0-9a-fA-F]{40})\s+refs/heads/master$') {
+                throw "live origin/master response is not one exact full-SHA ref"
+            }
+            return $Matches[1].ToLowerInvariant()
+        }
+        finally {
+            if ($process) { $process.Dispose() }
+            Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    function Test-ExactConfigPathSet {
+        param([object[]]$Rows)
+        $normalized = @($Rows | ForEach-Object {
+                ([string]$_).Trim().Replace('\', '/')
+            } | Where-Object { $_ })
+        return $normalized.Count -eq $configPaths.Count -and
+            @($normalized | Where-Object { $configPaths -cnotcontains $_ }).Count -eq 0 -and
+            @($configPaths | Where-Object { $normalized -cnotcontains $_ }).Count -eq 0
+    }
+
+    function Get-ContainedRepositoryPath {
+        param([string]$RelativePath)
+        if ([string]::IsNullOrWhiteSpace($RelativePath) -or
+            [IO.Path]::IsPathRooted($RelativePath)) {
+            throw "evidence path is empty or rooted"
+        }
+        $root = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
+        $candidate = [IO.Path]::GetFullPath(
+            (Join-Path $root ($RelativePath.Replace('/', '\')))
+        )
+        if (-not $candidate.StartsWith(
+                $root + [IO.Path]::DirectorySeparatorChar,
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            throw "evidence path escapes the repository"
+        }
+        return $candidate
+    }
+
+    $activeMarkerItem = $null
+    try {
+        $activeMarkerItem = Get-Item `
+            -LiteralPath $ActiveMarkerPath -Force -ErrorAction Stop
+    }
+    catch [System.Management.Automation.ItemNotFoundException] {
+        return New-PublicationState -Classification "ordinary" -MarkerPresent $false
+    }
+    catch {
+        $lookupDetail = $_.Exception.Message
+        if ([string]::IsNullOrWhiteSpace($lookupDetail)) {
+            $lookupDetail = "active quiet-window marker lookup failed"
+        }
+        return New-PublicationState `
+            -Classification "incident_evidence_invalid" `
+            -Detail $lookupDetail `
+            -PushInvocationAttempted $false `
+            -PublicationAcknowledged $false
+    }
+
+    $marker = $null
+    $markerSha256 = $null
+    $liveOriginMaster = ""
+    try {
+        if ($activeMarkerItem.PSIsContainer -or
+            ($activeMarkerItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            throw "active quiet-window marker path is not a file"
+        }
+        $markerSha256 = (Get-FileHash -LiteralPath $ActiveMarkerPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $markerRaw = [IO.File]::ReadAllText(
+            [IO.Path]::GetFullPath($ActiveMarkerPath),
+            [Text.Encoding]::UTF8
+        )
+        if ([string]::IsNullOrWhiteSpace($markerRaw)) {
+            throw "active quiet-window marker is empty"
+        }
+        $marker = ConvertFrom-StrictReconciliationJson `
+            -Raw $markerRaw -Label "active quiet-window marker"
+        if ((Get-RequiredStringProperty -Object $marker -Name "schema") -cne
+            "quiet_window_merge_in_progress_v0.1") {
+            throw "active quiet-window marker schema is unsupported"
+        }
+        $reconciliationSignals = @(Get-ReconciliationIncidentSignals -Marker $marker)
+        $modeProperty = $marker.PSObject.Properties["operation_mode"]
+        if ($null -eq $modeProperty -or $null -eq $modeProperty.Value -or
+            [string]::IsNullOrWhiteSpace([string]$modeProperty.Value)) {
+            if ($reconciliationSignals.Count -gt 0) {
+                throw "active marker has populated reconciliation incident evidence but no operation mode: $($reconciliationSignals -join ', ')"
+            }
+            return New-PublicationState -Classification "ordinary"
+        }
+        if ([string]$modeProperty.Value -ceq "ordinary_synchronized_merge_v0.1") {
+            if ($reconciliationSignals.Count -gt 0) {
+                throw "ordinary operation mode cannot downgrade populated reconciliation incident evidence: $($reconciliationSignals -join ', ')"
+            }
+            return New-PublicationState -Classification "ordinary"
+        }
+        if ($modeProperty.Value -isnot [string] -or
+            [string]$modeProperty.Value -cne "production_baseline_reconciliation_v0.1") {
+            throw "active quiet-window marker operation mode is unsupported"
+        }
+        $rootFromMarker = [IO.Path]::GetFullPath(
+            (Get-RequiredStringProperty -Object $marker -Name "repo_root")
+        ).TrimEnd('\', '/')
+        $normalizedRoot = [IO.Path]::GetFullPath($RepositoryRoot).TrimEnd('\', '/')
+        if (-not $rootFromMarker.Equals($normalizedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "marker repository root does not match the invoked checkout"
+        }
+
+        $updatedAt = [datetimeoffset]::Parse(
+            (Get-RequiredStringProperty -Object $marker -Name "updated_at")
+        )
+        $markerAge = $Now.ToUniversalTime() - $updatedAt.ToUniversalTime()
+        if ($markerAge -gt $maximumMarkerAge -or $markerAge -lt -$maximumFutureSkew) {
+            throw "active reconciliation marker timestamp is stale or in the future"
+        }
+
+        $baselineCommit = (Get-RequiredStringProperty -Object $marker -Name "baseline_commit").ToLowerInvariant()
+        $expectedBaseline = (Get-RequiredStringProperty -Object $marker -Name "expected_baseline").ToLowerInvariant()
+        $reconciliationBaseline = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_local_baseline").ToLowerInvariant()
+        $markerPublishedTarget = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_published_target").ToLowerInvariant()
+        $bootGuardCommit = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_boot_guard_commit").ToLowerInvariant()
+        if ($baselineCommit -cne $localBaseline -or $expectedBaseline -cne $localBaseline -or
+            $reconciliationBaseline -cne $localBaseline -or
+            $markerPublishedTarget -cne $publishedTarget -or
+            $bootGuardCommit -cne $publishedTarget) {
+            throw "marker L/T anchors are not the exact incident anchors"
+        }
+
+        $safetyTip = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_safety_tip").ToLowerInvariant()
+        $sourceTip = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_source_tip").ToLowerInvariant()
+        $expectedTip = (Get-RequiredStringProperty -Object $marker -Name "expected_tip").ToLowerInvariant()
+        $resolvedTip = (Get-RequiredStringProperty -Object $marker -Name "resolved_branch_tip").ToLowerInvariant()
+        $markerBranch = (Get-RequiredStringProperty -Object $marker -Name "branch").ToLowerInvariant()
+        $sourceTree = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_source_tree").ToLowerInvariant()
+        $safetyTree = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_safety_tree").ToLowerInvariant()
+        $configCommit = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_actual_pre_merge_commit").ToLowerInvariant()
+        $preMergeCommit = (Get-RequiredStringProperty -Object $marker -Name "pre_merge_commit").ToLowerInvariant()
+        $mergeCommit = (Get-RequiredStringProperty -Object $marker -Name "merge_commit").ToLowerInvariant()
+        foreach ($commitIdentity in @($safetyTip, $sourceTip, $expectedTip, $resolvedTip,
+                $configCommit, $preMergeCommit, $mergeCommit)) {
+            if ($commitIdentity -notmatch '^[0-9a-f]{40}$') {
+                throw "marker contains a non-full commit identity"
+            }
+        }
+        if ($sourceTree -notmatch '^[0-9a-f]{40}$' -or $safetyTree -notmatch '^[0-9a-f]{40}$' -or
+            $sourceTree -cne $safetyTree -or
+            $safetyTip -cne $sourceTip -or $safetyTip -cne $expectedTip -or
+            $safetyTip -cne $resolvedTip -or $safetyTip -cne $markerBranch -or
+            $configCommit -cne $preMergeCommit -or
+            $safetyTip -ceq $publishedTarget) {
+            throw "marker S/C identities are inconsistent"
+        }
+
+        Assert-StatusCanonicalOrigin
+        $branch = Get-StatusGitScalar -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")
+        $head = Get-StatusGitScalar -Arguments @("rev-parse", "HEAD^{commit}")
+        $master = Get-StatusGitScalar -Arguments @("rev-parse", "refs/heads/master^{commit}")
+        $originMaster = Get-StatusGitScalar -Arguments @("rev-parse", "refs/remotes/origin/master^{commit}")
+        $liveOriginMaster = Get-StatusLiveOriginMaster
+        if ($branch -cne "master" -or $head -cne $mergeCommit -or $master -cne $mergeCommit) {
+            throw "current HEAD/master is not exact M"
+        }
+
+        $mergeParents = @((Get-StatusGitScalar -Arguments @(
+                    "rev-list", "--parents", "-n", "1", $mergeCommit
+                )) -split '\s+' | Where-Object { $_ })
+        if ($mergeParents.Count -ne 3 -or $mergeParents[0] -cne $mergeCommit -or
+            $mergeParents[1] -cne $configCommit -or $mergeParents[2] -cne $safetyTip) {
+            throw "M does not have exact ordered parents [C,S]"
+        }
+        $configParents = @((Get-StatusGitScalar -Arguments @(
+                    "rev-list", "--parents", "-n", "1", $configCommit
+                )) -split '\s+' | Where-Object { $_ })
+        if ($configParents.Count -ne 2 -or $configParents[0] -cne $configCommit -or
+            $configParents[1] -cne $localBaseline) {
+            throw "C is not an exact one-parent child of L"
+        }
+        & git --no-optional-locks -C $RepositoryRoot merge-base --is-ancestor $publishedTarget $safetyTip 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "S is not a strict descendant of T" }
+        & git --no-optional-locks -C $RepositoryRoot merge-base --is-ancestor $reviewedParent $safetyTip 2>$null
+        if ($LASTEXITCODE -ne 0) { throw "S does not descend from the exact reviewed parent" }
+        if ((Get-StatusGitScalar -Arguments @("rev-parse", "$safetyTip^{tree}")) -cne $sourceTree) {
+            throw "marker source tree does not match S"
+        }
+        if (-not (Test-ExactConfigPathSet -Rows (Get-StatusGitRows -Arguments @(
+                        "diff", "--name-only", $localBaseline, $configCommit
+                    ))) -or
+            -not (Test-ExactConfigPathSet -Rows (Get-StatusGitRows -Arguments @(
+                        "diff", "--name-only", $safetyTip, $mergeCommit
+                    )))) {
+            throw "C or M changes paths outside the exact generated-config set"
+        }
+
+        $markerPathValues = @($marker.auto_refreshed_paths)
+        if (-not (Test-ExactConfigPathSet -Rows $markerPathValues)) {
+            throw "marker auto-refreshed path set is not exact"
+        }
+        $hashProperties = @($marker.auto_refreshed_sha256.PSObject.Properties)
+        $contentHashProperties = @($marker.reconciliation_config_content_sha256.PSObject.Properties)
+        $snapshotProperties = @($marker.reconciliation_snapshot_paths.PSObject.Properties)
+        if ($hashProperties.Count -ne $configPaths.Count -or
+            $contentHashProperties.Count -ne $configPaths.Count -or
+            $snapshotProperties.Count -ne $configPaths.Count -or
+            @($configPaths | Where-Object { $hashProperties.Name -cnotcontains $_ }).Count -ne 0 -or
+            @($configPaths | Where-Object { $contentHashProperties.Name -cnotcontains $_ }).Count -ne 0 -or
+            @($configPaths | Where-Object { $snapshotProperties.Name -cnotcontains $_ }).Count -ne 0) {
+            throw "marker config hash/snapshot maps are not exact"
+        }
+
+        $manifestRelative = Get-RequiredStringProperty -Object $marker -Name "reconciliation_snapshot_manifest_path"
+        $normalizedManifestRelative = $manifestRelative.Replace('\', '/')
+        if ($manifestRelative -cne $normalizedManifestRelative -or
+            $normalizedManifestRelative -notmatch '^((?:data/alerts/production_baseline_reconciliation)/[0-9]{8}T[0-9]{9}-[0-9a-f]{32})/manifest\.json$') {
+            throw "snapshot manifest path is not the exact immutable reconciliation layout"
+        }
+        $snapshotRootRelative = [string]$Matches[1]
+        $manifestExpectedSha = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_snapshot_manifest_sha256").ToLowerInvariant()
+        if ($manifestExpectedSha -notmatch '^[0-9a-f]{64}$') {
+            throw "marker snapshot-manifest SHA256 is invalid"
+        }
+        $manifestPath = Get-ContainedRepositoryPath -RelativePath $manifestRelative
+        if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $manifestExpectedSha) {
+            throw "snapshot manifest is missing or changed"
+        }
+        $manifestRaw = [IO.File]::ReadAllText(
+            $manifestPath, [Text.Encoding]::UTF8
+        )
+        $manifest = ConvertFrom-StrictReconciliationJson `
+            -Raw $manifestRaw -Label "reconciliation snapshot manifest"
+        $manifestCreatedAt = [datetimeoffset]::Parse(
+            (Get-RequiredStringProperty -Object $manifest -Name "created_at")
+        )
+        $entrySha = (Get-RequiredStringProperty -Object $marker -Name "reconciliation_entry_sha256").ToLowerInvariant()
+        if ((Get-RequiredStringProperty -Object $manifest -Name "schema") -cne
+                "production_baseline_reconciliation_snapshot_v0.1" -or
+            $manifestCreatedAt -gt $updatedAt -or
+            (Get-RequiredStringProperty -Object $manifest -Name "local_baseline").ToLowerInvariant() -cne
+                $localBaseline -or
+            (Get-RequiredStringProperty -Object $manifest -Name "published_target").ToLowerInvariant() -cne
+                $publishedTarget -or
+            (Get-RequiredStringProperty -Object $manifest -Name "source_tip").ToLowerInvariant() -cne
+                $safetyTip -or
+            (Get-RequiredStringProperty -Object $manifest -Name "source_tree").ToLowerInvariant() -cne
+                $sourceTree -or
+            (Get-RequiredStringProperty -Object $manifest -Name "safety_tip").ToLowerInvariant() -cne
+                $safetyTip -or
+            (Get-RequiredStringProperty -Object $manifest -Name "safety_tree").ToLowerInvariant() -cne
+                $safetyTree -or
+            $entrySha -notmatch '^[0-9a-f]{64}$' -or
+            (Get-RequiredStringProperty -Object $manifest -Name "entry_sha256").ToLowerInvariant() -cne
+                $entrySha) {
+            throw "snapshot manifest identity does not match L/T/S"
+        }
+        $entryPath = Get-ContainedRepositoryPath -RelativePath "scripts/ops/quiet_window_merge.ps1"
+        if (-not (Test-Path -LiteralPath $entryPath -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $entryPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $entrySha) {
+            throw "reconciliation entry bytes do not match the marker/snapshot identity"
+        }
+
+        $rollExitCode = Get-RequiredNonnegativeIntegerProperty -Object $marker -Name "roll_verdict_exit_code"
+        $rollExplicitBase = (Get-RequiredStringProperty -Object $marker -Name "roll_verdict_explicit_base").ToLowerInvariant()
+        $rollExplicitBranch = (Get-RequiredStringProperty -Object $marker -Name "roll_verdict_explicit_branch").ToLowerInvariant()
+        $rollTranscriptSha = (Get-RequiredStringProperty -Object $marker -Name "roll_verdict_transcript_sha256").ToLowerInvariant()
+        $rollJsonSha = Get-OptionalStringProperty -Object $marker -Name "roll_verdict_json_sha256"
+        if ($null -ne $rollJsonSha) { $rollJsonSha = $rollJsonSha.ToLowerInvariant() }
+        $manifestRoll = $manifest.roll_verdict
+        $manifestRollExitCode = Get-RequiredNonnegativeIntegerProperty -Object $manifestRoll -Name "exit_code"
+        $manifestRollReadable = Get-RequiredBooleanProperty -Object $manifestRoll -Name "readable"
+        $manifestRollTranscriptPath = Get-RequiredStringProperty -Object $manifestRoll -Name "transcript_path"
+        $manifestRollTranscriptSha = (Get-RequiredStringProperty -Object $manifestRoll -Name "transcript_sha256").ToLowerInvariant()
+        $manifestRollJsonPath = Get-OptionalStringProperty -Object $manifestRoll -Name "json_path"
+        $manifestRollJsonSha = Get-OptionalStringProperty -Object $manifestRoll -Name "json_sha256"
+        if ($null -ne $manifestRollJsonSha) { $manifestRollJsonSha = $manifestRollJsonSha.ToLowerInvariant() }
+        if ($rollExitCode -ne $manifestRollExitCode -or
+            $rollExplicitBase -cne $localBaseline -or
+            $rollExplicitBranch -cne $safetyTip -or
+            (Get-RequiredStringProperty -Object $manifestRoll -Name "explicit_base").ToLowerInvariant() -cne
+                $localBaseline -or
+            (Get-RequiredStringProperty -Object $manifestRoll -Name "explicit_branch").ToLowerInvariant() -cne
+                $safetyTip -or
+            $rollTranscriptSha -notmatch '^[0-9a-f]{64}$' -or
+            $manifestRollTranscriptSha -cne $rollTranscriptSha -or
+            $manifestRollTranscriptPath -cne "$snapshotRootRelative/roll-verdict-output.txt") {
+            throw "roll-verdict evidence does not bind exact L/S identities"
+        }
+        $rollTranscriptPath = Get-ContainedRepositoryPath -RelativePath $manifestRollTranscriptPath
+        if (-not (Test-Path -LiteralPath $rollTranscriptPath -PathType Leaf) -or
+            (Get-FileHash -LiteralPath $rollTranscriptPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $rollTranscriptSha) {
+            throw "roll-verdict transcript snapshot is missing or changed"
+        }
+        if ($null -eq $manifestRollJsonPath) {
+            if ($null -ne $manifestRollJsonSha -or $null -ne $rollJsonSha -or $manifestRollReadable) {
+                throw "roll-verdict JSON/readability evidence is inconsistent"
+            }
+        }
+        else {
+            if ($manifestRollJsonPath -cne "$snapshotRootRelative/roll-verdict.json" -or
+                $null -eq $manifestRollJsonSha -or
+                $manifestRollJsonSha -notmatch '^[0-9a-f]{64}$' -or
+                $rollJsonSha -cne $manifestRollJsonSha) {
+                throw "roll-verdict JSON identity is inconsistent"
+            }
+            $rollJsonPath = Get-ContainedRepositoryPath -RelativePath $manifestRollJsonPath
+            if (-not (Test-Path -LiteralPath $rollJsonPath -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $rollJsonPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $manifestRollJsonSha) {
+                throw "roll-verdict JSON snapshot is missing or changed"
+            }
+            $rollPayloadRaw = [IO.File]::ReadAllText(
+                $rollJsonPath, [Text.Encoding]::UTF8
+            )
+            $rollPayload = ConvertFrom-StrictReconciliationJson `
+                -Raw $rollPayloadRaw -Label "reconciliation roll-verdict snapshot"
+            if ($manifestRollReadable) {
+                $rollGeneratedAt = [datetimeoffset]::Parse(
+                    (Get-RequiredStringProperty -Object $rollPayload -Name "generated_at")
+                )
+                $expectedShortBase = Get-StatusGitScalar -Arguments @(
+                    "rev-parse", "--short", $localBaseline
+                )
+                $expectedVerdict = switch ($rollExitCode) {
+                    0 { "ROLL-FREE" }
+                    2 { "ROLL-FREE-IF-DORMANT" }
+                    3 { "ROLL-SENSITIVE" }
+                    default { "" }
+                }
+                $closuresProperty = $rollPayload.PSObject.Properties["closures_used"]
+                $problemsProperty = $rollPayload.PSObject.Properties["problems"]
+                $filesProperty = $rollPayload.PSObject.Properties["files"]
+                $incompleteClosureProblems = if ($null -ne $problemsProperty) {
+                    @($problemsProperty.Value | Where-Object {
+                            [string]$_ -match '(?i)(missing closure evidence|unreadable closure evidence|no source_scope_files|stale|dormant|tombstone)'
+                        })
+                }
+                else { @("missing problems field") }
+                $rollToSnapshot = $manifestCreatedAt.ToUniversalTime() -
+                    $rollGeneratedAt.ToUniversalTime()
+                if ([string]::IsNullOrWhiteSpace($expectedVerdict) -or
+                    (Get-RequiredStringProperty -Object $rollPayload -Name "verdict") -cne
+                        $expectedVerdict -or
+                    (Get-RequiredStringProperty -Object $rollPayload -Name "branch").ToLowerInvariant() -cne
+                        $safetyTip -or
+                    (Get-RequiredStringProperty -Object $rollPayload -Name "base_ref").ToLowerInvariant() -cne
+                        $localBaseline -or
+                    (Get-RequiredStringProperty -Object $rollPayload -Name "base_sha").ToLowerInvariant() -cne
+                        $expectedShortBase -or
+                    $null -eq $closuresProperty -or @($closuresProperty.Value).Count -eq 0 -or
+                    $null -eq $filesProperty -or $incompleteClosureProblems.Count -ne 0 -or
+                    $rollToSnapshot -lt [timespan]::Zero -or
+                    $rollToSnapshot -gt [timespan]::FromMinutes(5)) {
+                    throw "readable roll-verdict payload is not the writer-validated L-to-S result"
+                }
+            }
+        }
+
+        $markerDependencyProperties = @($marker.reconciliation_dependency_sha256.PSObject.Properties)
+        $manifestDependencyProperties = @($manifest.dependency_sha256.PSObject.Properties)
+        $expectedManifestDependencyKeys = @(
+            $localBaselineDependencySha256.Keys | ForEach-Object { "$_@local_baseline" }
+        ) + @(
+            $safetyDependencyPaths | ForEach-Object { "$_@safety_tip" }
+        )
+        $expectedMarkerDependencyKeys = @($expectedManifestDependencyKeys) + @(
+            $publishedTargetDependencySha256.Keys | ForEach-Object { "$_@published_target" }
+        ) + @(
+            $safetyDependencyPaths | ForEach-Object { "$_@published_target" }
+        )
+        if ($manifestDependencyProperties.Count -ne $expectedManifestDependencyKeys.Count -or
+            $markerDependencyProperties.Count -ne $expectedMarkerDependencyKeys.Count -or
+            @($expectedManifestDependencyKeys | Where-Object {
+                    $manifestDependencyProperties.Name -cnotcontains $_
+                }).Count -ne 0 -or
+            @($expectedMarkerDependencyKeys | Where-Object {
+                    $markerDependencyProperties.Name -cnotcontains $_
+                }).Count -ne 0) {
+            throw "reconciliation dependency maps do not have the exact writer key sets"
+        }
+        foreach ($relativePath in $localBaselineDependencySha256.Keys) {
+            $localKey = "$relativePath@local_baseline"
+            $publishedKey = "$relativePath@published_target"
+            $expectedLocalSha = [string]$localBaselineDependencySha256[$relativePath]
+            $expectedPublishedSha = [string]$publishedTargetDependencySha256[$relativePath]
+            if (([string]$marker.reconciliation_dependency_sha256.PSObject.Properties[$localKey].Value).ToLowerInvariant() -cne
+                    $expectedLocalSha -or
+                ([string]$manifest.dependency_sha256.PSObject.Properties[$localKey].Value).ToLowerInvariant() -cne
+                    $expectedLocalSha -or
+                ([string]$marker.reconciliation_dependency_sha256.PSObject.Properties[$publishedKey].Value).ToLowerInvariant() -cne
+                    $expectedPublishedSha) {
+                throw "fixed dependency stage identity disagrees: $relativePath"
+            }
+            $publishedDependencyPath = Get-ContainedRepositoryPath -RelativePath $relativePath
+            if (-not (Test-Path -LiteralPath $publishedDependencyPath -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $publishedDependencyPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $expectedPublishedSha) {
+                throw "published-target dependency bytes changed: $relativePath"
+            }
+        }
+        foreach ($relativePath in $safetyDependencyPaths) {
+            $dependencyKey = "$relativePath@safety_tip"
+            $publishedDependencyKey = "$relativePath@published_target"
+            $markerDependency = $markerDependencyProperties | Where-Object { $_.Name -ceq $dependencyKey }
+            $manifestDependency = $manifestDependencyProperties | Where-Object { $_.Name -ceq $dependencyKey }
+            $publishedDependency = $markerDependencyProperties | Where-Object {
+                $_.Name -ceq $publishedDependencyKey
+            }
+            if (@($markerDependency).Count -ne 1 -or @($manifestDependency).Count -ne 1 -or
+                @($publishedDependency).Count -ne 1) {
+                throw "required safety dependency identity is missing: $dependencyKey"
+            }
+            $expectedDependencySha = ([string]$markerDependency[0].Value).ToLowerInvariant()
+            if ($expectedDependencySha -notmatch '^[0-9a-f]{64}$' -or
+                ([string]$manifestDependency[0].Value).ToLowerInvariant() -cne $expectedDependencySha -or
+                ([string]$publishedDependency[0].Value).ToLowerInvariant() -cne $expectedDependencySha) {
+                throw "safety dependency marker/snapshot identity disagrees: $dependencyKey"
+            }
+            if ($relativePath -ceq "scripts/ops/quiet_window_merge.ps1" -and
+                $expectedDependencySha -cne $entrySha) {
+                throw "entry SHA256 does not match the safety dependency identity"
+            }
+            $dependencyPath = Get-ContainedRepositoryPath -RelativePath $relativePath
+            if (-not (Test-Path -LiteralPath $dependencyPath -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $dependencyPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $expectedDependencySha) {
+                throw "adopted safety dependency bytes changed: $relativePath"
+            }
+            $dependencyBlob = Get-StatusGitScalar -Arguments @("rev-parse", "$safetyTip`:$relativePath")
+            $liveDependencyBlob = Get-StatusGitScalar -Arguments @("hash-object", "--", $relativePath)
+            if ($dependencyBlob -cne $liveDependencyBlob) {
+                throw "adopted safety dependency is not the exact S blob: $relativePath"
+            }
+        }
+        $manifestConfigProperties = @($manifest.config.PSObject.Properties)
+        $manifestHashProperties = @($manifest.reconciliation_config_content_sha256.PSObject.Properties)
+        if ($manifestConfigProperties.Count -ne $configPaths.Count -or
+            $manifestHashProperties.Count -ne $configPaths.Count -or
+            @($configPaths | Where-Object { $manifestConfigProperties.Name -cnotcontains $_ }).Count -ne 0 -or
+            @($configPaths | Where-Object { $manifestHashProperties.Name -cnotcontains $_ }).Count -ne 0) {
+            throw "snapshot manifest config map is not exact"
+        }
+
+        foreach ($relativePath in $configPaths) {
+            $expectedHash = ([string]$marker.auto_refreshed_sha256.$relativePath).ToLowerInvariant()
+            $snapshot = $marker.reconciliation_snapshot_paths.$relativePath
+            $manifestSnapshot = $manifest.config.$relativePath
+            $expectedSnapshotRelative = "$snapshotRootRelative/raw/$relativePath"
+            if ($expectedHash -notmatch '^[0-9a-f]{64}$' -or
+                ([string]$marker.reconciliation_config_content_sha256.$relativePath).ToLowerInvariant() -cne
+                    $expectedHash -or
+                ([string]$manifest.reconciliation_config_content_sha256.$relativePath).ToLowerInvariant() -cne
+                    $expectedHash -or
+                ([string]$snapshot.sha256).ToLowerInvariant() -cne $expectedHash -or
+                ([string]$manifestSnapshot.sha256).ToLowerInvariant() -cne $expectedHash -or
+                [string]$snapshot.snapshot_path -cne $expectedSnapshotRelative -or
+                [string]$snapshot.snapshot_path -cne [string]$manifestSnapshot.snapshot_path -or
+                [long]$snapshot.length -ne [long]$manifestSnapshot.length) {
+                throw "config snapshot evidence disagrees for $relativePath"
+            }
+            $livePath = Get-ContainedRepositoryPath -RelativePath $relativePath
+            $snapshotPath = Get-ContainedRepositoryPath -RelativePath ([string]$snapshot.snapshot_path)
+            if (-not (Test-Path -LiteralPath $livePath -PathType Leaf) -or
+                -not (Test-Path -LiteralPath $snapshotPath -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $livePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $expectedHash -or
+                (Get-FileHash -LiteralPath $snapshotPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $expectedHash -or
+                (Get-Item -LiteralPath $livePath -ErrorAction Stop).Length -ne [long]$snapshot.length -or
+                (Get-Item -LiteralPath $snapshotPath -ErrorAction Stop).Length -ne [long]$snapshot.length) {
+                throw "live/snapshotted config bytes disagree for $relativePath"
+            }
+            $configBlob = Get-StatusGitScalar -Arguments @("rev-parse", "$configCommit`:$relativePath")
+            $mergeBlob = Get-StatusGitScalar -Arguments @("rev-parse", "$mergeCommit`:$relativePath")
+            # Git's clean filter defines the blob that C/M commit. The raw-byte
+            # SHA256 checks above independently bind the production file bytes.
+            $liveBlob = Get-StatusGitScalar -Arguments @("hash-object", "--", $relativePath)
+            if ($configBlob -cne $mergeBlob -or $mergeBlob -cne $liveBlob) {
+                throw "C/M/live config blob identity disagrees for $relativePath"
+            }
+        }
+        if (@(Get-StatusGitRows -Arguments @(
+                    "status", "--porcelain=v1", "--untracked-files=all"
+                )).Count -ne 0) {
+            throw "post-M worktree is not clean"
+        }
+
+        $phase = Get-RequiredStringProperty -Object $marker -Name "phase"
+        $captureRecoveryProved = Get-RequiredBooleanProperty -Object $marker -Name "capture_recovery_proved"
+        $stagedRecoveryProved = Get-RequiredBooleanProperty -Object $marker -Name "reconciliation_staged_safety_capture_recovery_proved"
+        $stagedRecoveryAt = Get-OptionalTimestampProperty -Object $marker -Name "reconciliation_staged_safety_capture_recovery_at"
+        $prePushRecoveryProved = Get-RequiredBooleanProperty -Object $marker -Name "reconciliation_pre_push_capture_recovery_proved"
+        $prePushRecoveryAt = Get-OptionalTimestampProperty -Object $marker -Name "reconciliation_pre_push_capture_recovery_at"
+        $executionTapeRecoveryRequired = Get-RequiredBooleanProperty -Object $marker -Name "execution_tape_recovery_required"
+        $executionTapeReadoptionExpected = Get-RequiredBooleanProperty -Object $marker -Name "execution_tape_readoption_expected"
+        $executionTapeRolledInactive = Get-RequiredBooleanProperty -Object $marker -Name "execution_tape_rolled_but_inactive_skipped"
+        $executionTapeRecoveryProved = Get-RequiredBooleanProperty -Object $marker -Name "execution_tape_recovery_proved"
+        $executionTapeSourceBefore = Get-OptionalStringProperty -Object $marker -Name "execution_tape_source_before"
+        if ($phase -notin @("merge_committed_unpublished", "documented_unpublished", "published") -or
+            -not $captureRecoveryProved -or -not $stagedRecoveryProved -or
+            $null -eq $stagedRecoveryAt -or $stagedRecoveryAt -gt $updatedAt -or
+            $manifestCreatedAt -gt $stagedRecoveryAt -or
+            $executionTapeRecoveryRequired -ne $executionTapeRecoveryProved -or
+            ($executionTapeRecoveryRequired -ne ($null -ne $executionTapeSourceBefore)) -or
+            ($executionTapeRolledInactive -and (-not $executionTapeReadoptionExpected -or
+                    $executionTapeRecoveryRequired)) -or
+            ($executionTapeReadoptionExpected -and -not ($executionTapeRecoveryRequired -xor
+                    $executionTapeRolledInactive)) -or
+            ($prePushRecoveryProved -ne ($null -ne $prePushRecoveryAt)) -or
+            ($null -ne $prePushRecoveryAt -and ($prePushRecoveryAt -le $stagedRecoveryAt -or
+                    $prePushRecoveryAt -gt $updatedAt))) {
+            throw "marker phase or capture-recovery evidence is incomplete"
+        }
+        $documentationRecorded = Get-RequiredBooleanProperty -Object $marker -Name "documentation_transaction_recorded"
+        $pendingEvidencePath = $null
+        if ($phase -ceq "merge_committed_unpublished") {
+            $pendingShaProperty = $marker.PSObject.Properties["documentation_transaction_pending_sha256"]
+            $pendingPathProperty = $marker.PSObject.Properties["documentation_transaction_snapshot_path"]
+            if ($documentationRecorded -or $null -eq $pendingShaProperty -or
+                $null -eq $pendingPathProperty -or $null -ne $pendingShaProperty.Value -or
+                $null -ne $pendingPathProperty.Value) {
+                throw "pre-documentation phase claims documentation"
+            }
+        }
+        else {
+            $pendingSha = (Get-RequiredStringProperty -Object $marker -Name "documentation_transaction_pending_sha256").ToLowerInvariant()
+            $pendingPath = Get-RequiredStringProperty -Object $marker -Name "documentation_transaction_snapshot_path"
+            if (-not $documentationRecorded -or $pendingSha -notmatch '^[0-9a-f]{64}$' -or
+                $pendingPath -cne "data/alerts/documentation_transactions/pending-$pendingSha.json") {
+                throw "documented phase lacks exact documentation identity"
+            }
+            $pendingEvidencePath = Get-ContainedRepositoryPath -RelativePath $pendingPath
+            if (-not (Test-Path -LiteralPath $pendingEvidencePath -PathType Leaf) -or
+                (Get-FileHash -LiteralPath $pendingEvidencePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $pendingSha) {
+                throw "documentation transaction snapshot is missing or changed"
+            }
+            $pendingSnapshotRaw = [IO.File]::ReadAllText(
+                $pendingEvidencePath, [Text.Encoding]::UTF8
+            )
+            $pendingSnapshot = ConvertFrom-StrictReconciliationJson `
+                -Raw $pendingSnapshotRaw `
+                -Label "reconciliation documentation transaction snapshot"
+            $pendingIntegrationsProperty = $pendingSnapshot.PSObject.Properties["integrations"]
+            if ($null -eq $pendingIntegrationsProperty) {
+                throw "documentation transaction snapshot has no integrations"
+            }
+            $pendingIntegrations = @($pendingIntegrationsProperty.Value)
+            $invalidPendingIntegrations = @($pendingIntegrations | Where-Object {
+                    [string]$_.integration_tip -notmatch '^[0-9a-f]{40}$' -or
+                    [string]::IsNullOrWhiteSpace([string]$_.branch)
+                })
+            $matchingPendingIntegrations = @($pendingIntegrations | Where-Object {
+                    ([string]$_.integration_tip).ToLowerInvariant() -ceq $mergeCommit -and
+                    [string]$_.branch -ceq $safetyTip -and
+                    ([string]$_.expected_tip).ToLowerInvariant() -ceq $safetyTip
+                })
+            if ($matchingPendingIntegrations.Count -eq 1) {
+                $pendingRecordedAt = [datetimeoffset]::Parse(
+                    (Get-RequiredStringProperty `
+                            -Object $matchingPendingIntegrations[0] `
+                            -Name "recorded_at_local")
+                )
+            }
+            else { $pendingRecordedAt = $null }
+            $pendingCreatedAt = [datetimeoffset]::Parse(
+                (Get-RequiredStringProperty -Object $pendingSnapshot -Name "created_at_local")
+            )
+            $pendingDueAt = [datetimeoffset]::Parse(
+                (Get-RequiredStringProperty -Object $pendingSnapshot -Name "due_at_local")
+            )
+            if ((Get-RequiredStringProperty -Object $pendingSnapshot -Name "schema_version") -cne
+                    "documentation_transaction_pending_v0.1" -or
+                (Get-RequiredStringProperty -Object $pendingSnapshot -Name "status") -cne
+                    "PENDING" -or
+                (Get-RequiredStringProperty -Object $pendingSnapshot -Name "latest_integration_tip").ToLowerInvariant() -cne
+                    $mergeCommit -or
+                $pendingIntegrations.Count -eq 0 -or $invalidPendingIntegrations.Count -ne 0 -or
+                $matchingPendingIntegrations.Count -ne 1 -or
+                $pendingDueAt -le $pendingCreatedAt -or
+                $null -eq $pendingRecordedAt -or $pendingRecordedAt -lt $stagedRecoveryAt -or
+                $pendingRecordedAt -gt $updatedAt) {
+                throw "documentation transaction snapshot does not exactly bind M/S"
+            }
+        }
+
+        $pushAttempted = Get-RequiredBooleanProperty -Object $marker -Name "push_invocation_attempted"
+        $publicationAcknowledged = Get-RequiredBooleanProperty -Object $marker -Name "publication_acknowledged"
+        $pushTerminalProved = Get-RequiredBooleanProperty -Object $marker -Name "push_terminal_proved"
+        $pushRunObserved = Get-RequiredBooleanProperty -Object $marker -Name "push_run_observed"
+        $pushStopAttempted = Get-RequiredBooleanProperty -Object $marker -Name "push_stop_attempted"
+        $pushStopCount = Get-RequiredNonnegativeIntegerProperty -Object $marker -Name "push_stop_count"
+        $pushStopExhausted = Get-RequiredBooleanProperty -Object $marker -Name "push_stop_exhausted"
+        $pushContainmentBreached = Get-RequiredBooleanProperty -Object $marker -Name "push_containment_breached"
+        $pushLastTaskResult = Get-OptionalIntegerProperty -Object $marker -Name "push_last_task_result"
+        $pushRuntimeState = Get-OptionalStringProperty -Object $marker -Name "push_runtime_state"
+        $pushStartRpcRequestId = Get-OptionalStringProperty -Object $marker -Name "push_start_rpc_request_id"
+        $pushStartRpcRequestSha = Get-OptionalStringProperty -Object $marker -Name "push_start_rpc_request_sha256"
+        $pushStartRpcDeadline = Get-OptionalTimestampProperty -Object $marker -Name "push_start_rpc_deadline_utc"
+        $pushStartRpcTimedOut = Get-RequiredBooleanProperty -Object $marker -Name "push_start_rpc_timed_out"
+        $pushStopRpcRequestId = Get-OptionalStringProperty -Object $marker -Name "push_stop_rpc_request_id"
+        $pushStopRpcRequestSha = Get-OptionalStringProperty -Object $marker -Name "push_stop_rpc_request_sha256"
+        $pushStopRpcDeadline = Get-OptionalTimestampProperty -Object $marker -Name "push_stop_rpc_deadline_utc"
+        $pushStopRpcTimedOut = Get-RequiredBooleanProperty -Object $marker -Name "push_stop_rpc_timed_out"
+        $pushPreLastRun = Get-OptionalTimestampProperty -Object $marker -Name "push_pre_last_run_time"
+        $pushObservedLastRun = Get-OptionalTimestampProperty -Object $marker -Name "push_observed_last_run_time"
+        $pushStartIssued = Get-OptionalTimestampProperty -Object $marker -Name "push_start_issued_at"
+        $pushDeadline = Get-OptionalTimestampProperty -Object $marker -Name "push_containment_deadline"
+        $pushTerminalAt = Get-OptionalTimestampProperty -Object $marker -Name "push_terminal_proved_at"
+        if (($null -eq $pushStartIssued) -ne ($null -eq $pushDeadline) -or
+            ($null -ne $pushStartIssued -and $pushStartIssued -ge $pushDeadline) -or
+            ($null -eq $pushObservedLastRun) -ne ($null -eq $pushLastTaskResult) -or
+            ($null -eq $pushObservedLastRun) -ne ($null -eq $pushRuntimeState) -or
+            ($null -ne $pushObservedLastRun -and ($null -eq $pushPreLastRun -or
+                    $pushObservedLastRun -lt $pushPreLastRun -or $pushObservedLastRun -gt $updatedAt)) -or
+            ($null -ne $pushPreLastRun -and $pushPreLastRun -gt $updatedAt) -or
+            ($null -ne $pushStartIssued -and $pushStartIssued -gt $updatedAt) -or
+            ($null -ne $pushStartIssued -and $null -ne $pushPreLastRun -and
+                $pushPreLastRun -gt $pushStartIssued) -or
+            ($pushTerminalProved -ne ($null -ne $pushTerminalAt)) -or
+            ($null -ne $pushTerminalAt -and ($null -eq $pushStartIssued -or
+                    $pushTerminalAt -lt $pushStartIssued -or $pushTerminalAt -gt $updatedAt)) -or
+            ($pushRunObserved -and ($null -eq $pushObservedLastRun -or
+                    $null -eq $pushPreLastRun -or $pushObservedLastRun -le $pushPreLastRun)) -or
+            ($pushStopAttempted -ne ($pushStopCount -gt 0)) -or $pushStopCount -gt 2 -or
+            ($pushStopExhausted -and -not $pushStopAttempted) -or
+            ($pushContainmentBreached -and $null -eq $pushStartIssued) -or
+            (($null -eq $pushStartRpcRequestId) -ne ($null -eq $pushStartRpcDeadline)) -or
+            ($null -ne $pushStartRpcRequestId -and $pushStartRpcRequestId -notmatch '^[0-9a-f]{32}$') -or
+            ($null -ne $pushStartRpcRequestSha -and ($pushStartRpcRequestSha -notmatch '^[0-9a-f]{64}$' -or
+                    $null -eq $pushStartRpcRequestId)) -or
+            ($pushStartRpcTimedOut -and $null -eq $pushStartRpcRequestSha) -or
+            (($null -ne $pushObservedLastRun -or $pushTerminalProved) -and
+                $null -eq $pushStartRpcRequestSha) -or
+            ($null -ne $pushStartRpcRequestId -and (-not $pushAttempted -or
+                    -not $prePushRecoveryProved -or $null -eq $pushStartIssued -or
+                    $pushStartRpcDeadline -le $pushStartIssued -or
+                    $pushStartRpcDeadline -gt $pushDeadline)) -or
+            (($null -eq $pushStopRpcRequestId) -ne ($null -eq $pushStopRpcDeadline)) -or
+            ($null -ne $pushStopRpcRequestId -and $pushStopRpcRequestId -notmatch '^[0-9a-f]{32}$') -or
+            ($null -ne $pushStopRpcRequestSha -and ($pushStopRpcRequestSha -notmatch '^[0-9a-f]{64}$' -or
+                    $null -eq $pushStopRpcRequestId)) -or
+            ($pushStopRpcTimedOut -and ($null -eq $pushStopRpcRequestSha -or
+                    -not $pushStopExhausted)) -or
+            ($pushStopExhausted -and $null -eq $pushStopRpcRequestSha) -or
+            ($pushStopAttempted -ne ($null -ne $pushStopRpcRequestId)) -or
+            ($null -ne $pushStopRpcRequestId -and ($null -eq $pushStartIssued -or
+                    $pushStopRpcDeadline -le $pushStartIssued -or
+                    $pushStopRpcDeadline -gt $pushDeadline))) {
+            throw "push evidence fields or timestamps are inconsistent"
+        }
+
+        $classification = $null
+        if ($publicationAcknowledged) {
+            if (-not $pushAttempted -or $phase -cne "published" -or
+                $originMaster -cne $mergeCommit -or $liveOriginMaster -cne $mergeCommit -or
+                -not $prePushRecoveryProved -or $prePushRecoveryAt -gt $pushStartIssued -or
+                -not $pushTerminalProved -or -not $pushRunObserved -or
+                $pushStopExhausted -or $pushContainmentBreached -or
+                $pushRuntimeState -cne "Ready" -or $null -eq $pushLastTaskResult -or
+                $pushLastTaskResult -ne 0 -or
+                $null -eq $pushStartRpcRequestId -or $null -eq $pushStartRpcRequestSha -or
+                $null -eq $pushStartRpcDeadline -or $pushStartRpcTimedOut -or
+                $pushStopRpcTimedOut -or
+                ($pushStopAttempted -and $null -eq $pushStopRpcRequestSha) -or
+                $null -eq $pushPreLastRun -or $null -eq $pushObservedLastRun -or
+                $null -eq $pushStartIssued -or $null -eq $pushDeadline -or
+                $null -eq $pushTerminalAt -or $pushObservedLastRun -le $pushPreLastRun -or
+                $pushTerminalAt -ge $pushDeadline) {
+                throw "published marker lacks exact successful push evidence"
+            }
+            $classification = "acknowledged"
+        }
+        elseif ($pushAttempted) {
+            if ($phase -cne "documented_unpublished" -or
+                $originMaster -notin @($publishedTarget, $mergeCommit) -or
+                $liveOriginMaster -notin @($publishedTarget, $mergeCommit) -or
+                $null -eq $pushPreLastRun -or
+                $prePushRecoveryProved -ne ($null -ne $pushStartIssued) -or
+                ($null -ne $pushStartIssued -and ($prePushRecoveryAt -gt $pushStartIssued -or
+                        $pushPreLastRun -gt $pushStartIssued)) -or
+                ($pushTerminalProved -and $pushRuntimeState -cne "Ready")) {
+                throw "attempted marker phase/origin/runtime baseline is inconsistent"
+            }
+            $classification = "attempted_unacknowledged"
+        }
+        else {
+            if ($phase -eq "published" -or $originMaster -cne $publishedTarget -or
+                $liveOriginMaster -cne $publishedTarget -or
+                $prePushRecoveryProved -or $pushTerminalProved -or $pushRunObserved -or
+                $pushStopAttempted -or $pushStopCount -ne 0 -or $pushStopExhausted -or
+                $pushContainmentBreached -or $null -ne $pushPreLastRun -or
+                $null -ne $pushObservedLastRun -or $null -ne $pushLastTaskResult -or
+                $null -ne $pushRuntimeState -or $null -ne $pushStartIssued -or
+                $null -ne $pushDeadline -or $null -ne $pushTerminalAt -or
+                $null -ne $pushStartRpcRequestId -or $null -ne $pushStartRpcRequestSha -or
+                $null -ne $pushStartRpcDeadline -or $pushStartRpcTimedOut -or
+                $null -ne $pushStopRpcRequestId -or $null -ne $pushStopRpcRequestSha -or
+                $null -ne $pushStopRpcDeadline -or $pushStopRpcTimedOut) {
+                throw "pre-dispatch marker contains contradictory push evidence"
+            }
+            $classification = "guarded_pre_dispatch"
+        }
+
+        # Re-sample the mutable boundary after every file and Git proof. A mixed
+        # transition is invalid evidence, never permission to invoke the task.
+        $evidenceFilesChanged = (
+            (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $manifestExpectedSha -or
+            (Get-FileHash -LiteralPath $entryPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $entrySha -or
+            (Get-FileHash -LiteralPath $rollTranscriptPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $rollTranscriptSha
+        )
+        if ($null -ne $manifestRollJsonPath -and
+            (Get-FileHash -LiteralPath $rollJsonPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $manifestRollJsonSha) {
+            $evidenceFilesChanged = $true
+        }
+        if ($null -ne $pendingEvidencePath -and
+            (Get-FileHash -LiteralPath $pendingEvidencePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $pendingSha) {
+            $evidenceFilesChanged = $true
+        }
+        foreach ($relativePath in $configPaths) {
+            $boundaryExpectedHash = ([string]$marker.auto_refreshed_sha256.$relativePath).ToLowerInvariant()
+            $boundaryLivePath = Get-ContainedRepositoryPath -RelativePath $relativePath
+            $boundarySnapshot = $marker.reconciliation_snapshot_paths.$relativePath
+            $boundarySnapshotPath = Get-ContainedRepositoryPath `
+                -RelativePath ([string]$boundarySnapshot.snapshot_path)
+            if ((Get-FileHash -LiteralPath $boundaryLivePath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $boundaryExpectedHash -or
+                (Get-FileHash -LiteralPath $boundarySnapshotPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                    $boundaryExpectedHash) {
+                $evidenceFilesChanged = $true
+            }
+        }
+        Assert-StatusCanonicalOrigin
+        if ($evidenceFilesChanged -or
+            (Get-FileHash -LiteralPath $ActiveMarkerPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() -cne
+                $markerSha256 -or
+            (Get-StatusGitScalar -Arguments @("symbolic-ref", "--quiet", "--short", "HEAD")) -cne
+                $branch -or
+            (Get-StatusGitScalar -Arguments @("rev-parse", "HEAD^{commit}")) -cne $head -or
+            (Get-StatusGitScalar -Arguments @("rev-parse", "refs/heads/master^{commit}")) -cne $master -or
+            (Get-StatusGitScalar -Arguments @("rev-parse", "refs/remotes/origin/master^{commit}")) -cne
+                $originMaster -or
+            (Get-StatusLiveOriginMaster) -cne $liveOriginMaster -or
+            @(Get-StatusGitRows -Arguments @(
+                    "status", "--porcelain=v1", "--untracked-files=all"
+                )).Count -ne 0) {
+            throw "marker or Git refs changed during status validation"
+        }
+        return New-PublicationState `
+            -Classification $classification `
+            -MergeCommit $mergeCommit `
+            -LiveOriginMaster $liveOriginMaster `
+            -PushInvocationAttempted $pushAttempted `
+            -PublicationAcknowledged $publicationAcknowledged
+    }
+    catch {
+        $detail = $_.Exception.Message
+        if ([string]::IsNullOrWhiteSpace($detail)) { $detail = "active marker validation failed" }
+        if ($liveOriginMaster -notmatch '^[0-9a-f]{40}$') {
+            try { $liveOriginMaster = Get-StatusLiveOriginMaster }
+            catch { $liveOriginMaster = "" }
+        }
+        return New-PublicationState `
+            -Classification "incident_evidence_invalid" `
+            -Detail $detail `
+            -LiveOriginMaster $liveOriginMaster `
+            -PushInvocationAttempted $false `
+            -PublicationAcknowledged $false
+    }
+}
+
+function Get-WeatherUnpushedPublicationGuidance {
+    param(
+        [Parameter(Mandatory = $true)][int]$UnpushedCount,
+        [Parameter(Mandatory = $true)][object]$PublicationState
+    )
+
+    $warning = if ($UnpushedCount -lt 0) {
+        "unpushed commit state unreadable"
+    }
+    elseif ($UnpushedCount -gt 0) {
+        if ([string]$PublicationState.classification -ceq "ordinary") {
+            "$UnpushedCount commit(s) unpushed (run WeatherOneShotPush)"
+        }
+        else { "$UnpushedCount commit(s) unpushed" }
+    }
+    else { $null }
+    $flag = switch ([string]$PublicationState.classification) {
+        "guarded_pre_dispatch" {
+            "RECONCILIATION_PUBLICATION_GUARDED_PRE_DISPATCH: guarded reconciliation owns publication; manual WeatherOneShotPush invocation is forbidden"
+        }
+        "attempted_unacknowledged" {
+            "RECONCILIATION_PUBLICATION_ATTEMPTED_UNACKNOWLEDGED: publication is pending or uncertain; the sole invocation is spent and WeatherOneShotPush retry is forbidden"
+        }
+        "incident_evidence_invalid" {
+            "RECONCILIATION_PUBLICATION_EVIDENCE_INVALID: preserve the active marker and obtain reviewed recovery; WeatherOneShotPush invocation is forbidden ($([string]$PublicationState.detail))"
+        }
+        default { $null }
+    }
+    return [pscustomobject]@{ warning = $warning; flag = $flag }
+}
+
+function Get-WeatherUnpushedPublicationSummary {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryRoot,
+        [Parameter(Mandatory = $true)][object]$PublicationState
+    )
+
+    $classification = [string]$PublicationState.classification
+    # Invalid incident evidence is never allowed to choose the comparison
+    # object.  Its live-origin SHA may be real but unfetched, malformed marker
+    # state cannot attest it, and treating a failed rev-list as zero would
+    # suppress the ordinary safety warning.  Use the cached tracking ref for
+    # ordinary/invalid state; only fully validated incident state may bind the
+    # live canonical-origin SHA.
+    $unpushedBase = if (
+        $classification -notin @("ordinary", "incident_evidence_invalid") -and
+        [string]$PublicationState.live_origin_master -match '^[0-9a-f]{40}$'
+    ) { [string]$PublicationState.live_origin_master }
+    else { "origin/master" }
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        # Native git writes a diagnostic to stderr for an unreadable revision.
+        # Suppress that expected probe failure even when the caller uses Stop,
+        # then classify it explicitly instead of accidentally terminating.
+        $ErrorActionPreference = "SilentlyContinue"
+        $rows = @(& git -C $RepositoryRoot rev-list --count "${unpushedBase}..master" 2>$null)
+        $revListExit = $LASTEXITCODE
+    }
+    finally { $ErrorActionPreference = $previousErrorActionPreference }
+    $readable = $revListExit -eq 0 -and $rows.Count -eq 1 -and
+        ([string]$rows[0]).Trim() -match '^\d+$'
+    if (-not $readable) {
+        return [pscustomobject]@{
+            display = "?"; count = -1; readable = $false; base = $unpushedBase
+        }
+    }
+    $count = [int]([string]$rows[0]).Trim()
+    return [pscustomobject]@{
+        display = [string]$count; count = $count; readable = $true; base = $unpushedBase
+    }
+}
+
+$quietMarkerPath = Join-Path $repo "data\alerts\quiet_window_merge_in_progress.json"
+$qwf = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
+$reconciliationPublication = Get-WeatherReconciliationPublicationState `
+    -RepositoryRoot $repo `
+    -ActiveMarkerPath $quietMarkerPath `
+    -CanonicalOrigin "https://github.com/michaelbooth1/weather.git"
+$unpushedSummary = Get-WeatherUnpushedPublicationSummary `
+    -RepositoryRoot $repo -PublicationState $reconciliationPublication
+$unpushed = [string]$unpushedSummary.display
 $dirty = @(& git -C $repo status --porcelain 2>$null)
 $dirtyCount = ($dirty | Where-Object { $_ }).Count
 $lastCommit = & git -C $repo log -1 --format="%h %s" 2>$null
-if (($unpushed -ne "?") -and ([int]$unpushed -gt 0)) { $warns.Add("$unpushed commit(s) unpushed (run WeatherOneShotPush)") }
+$unpushedCount = [int]$unpushedSummary.count
+$publicationGuidance = Get-WeatherUnpushedPublicationGuidance `
+    -UnpushedCount $unpushedCount `
+    -PublicationState $reconciliationPublication
+if ($publicationGuidance.warning) {
+    $warns.Add([string]$publicationGuidance.warning)
+}
+if ($publicationGuidance.flag) {
+    $flags.Add([string]$publicationGuidance.flag)
+}
 
 # ---- scheduled tasks (classify against what is EXPECTED) ----
 function Test-WeatherOneShotTrigger {
@@ -2321,7 +3788,8 @@ Get-ScheduledTask | Where-Object { $_.TaskName -like "Weather*" } | ForEach-Obje
                         -SuiteRanWithoutReceipt ([bool]$suiteObservation.RanWithoutReceipt) `
                         -MergeReceiptMissingAfterTrigger ([bool]$mergeObservation.ReceiptMissingAfterTrigger) `
                         -RecoveryDispatch ([string]$attemptManifest.evidence.recovery_dispatch) `
-                        -SuccessorAttemptId $successorAttemptId
+                        -SuccessorAttemptId $successorAttemptId `
+                        -PublicationClassification ([string]$reconciliationPublication.classification)
                     if ([string]$attemptAlert.Severity -eq "FLAG") { $flags.Add([string]$attemptAlert.Detail) }
                     elseif ([string]$attemptAlert.Severity -eq "WARN") { $warns.Add([string]$attemptAlert.Detail) }
             }
@@ -2824,8 +4292,8 @@ elseif ([string]$documentationTransaction.state -eq "PENDING") {
 
 # ---- active/last guarded quiet-window merge ----
 # Merges happen at 01:30 while I am not watching; the outcome must be waiting in the morning.
-$quietMarkerPath = Join-Path $repo "data\alerts\quiet_window_merge_in_progress.json"
-if (Test-Path -LiteralPath $quietMarkerPath -PathType Leaf) {
+if (([string]$reconciliationPublication.classification -ceq "ordinary") -and
+    (Test-Path -LiteralPath $quietMarkerPath -PathType Leaf)) {
     try {
         $quietMarker = Get-Content -LiteralPath $quietMarkerPath -Raw | ConvertFrom-Json
         if ([string]$quietMarker.schema -ne "quiet_window_merge_in_progress_v0.1" -or
@@ -2848,20 +4316,27 @@ if (Test-Path -LiteralPath $quietMarkerPath -PathType Leaf) {
     }
 }
 $qw = $null
-$qwf = Join-Path $repo "data\alerts\quiet_window_merge_last.json"
 if (Test-Path $qwf) {
     try {
         $qw = Get-Content $qwf -Raw | ConvertFrom-Json
         $qwAgeH = ((Get-Date) - [datetime]$qw.ts).TotalHours
         # A rollback means capture did not survive the code roll -- streak-critical, and the
         # branch still needs a human decision. Never let that scroll past in a log file.
-        if ($qw.stage -eq "rollback_recovery_failed" -and $qwAgeH -lt 36) {
+        # Special reconciliation reports are historical compatibility slots.
+        # The exact active marker above is the sole publication authority, so an
+        # old report cannot poison an unrelated later commit or contradict a
+        # current pre-/post-dispatch state.
+        $ordinaryReport = [string]$qw.operation_mode -cne
+            "production_baseline_reconciliation_v0.1"
+        if ($ordinaryReport -and $qw.stage -eq "rollback_recovery_failed" -and $qwAgeH -lt 36) {
             $flags.Add("quiet-window merge rollback recovery is UNPROVEN ($($qw.detail)) - protect capture and reconcile before another merge")
         }
-        elseif ($qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
+        elseif ($ordinaryReport -and $qw.stage -eq "rolled_back" -and $qwAgeH -lt 36) {
             $flags.Add("quiet-window merge ROLLED BACK ($($qw.detail)) - capture did not recover; branch unmerged")
         }
-        elseif ($qw.stage -eq "merged_unpushed" -and $qwAgeH -lt 36) {
+        elseif ($ordinaryReport -and
+            [string]$reconciliationPublication.classification -ceq "ordinary" -and
+            $qw.stage -eq "merged_unpushed" -and $qwAgeH -lt 36) {
             $flags.Add("quiet-window merge committed locally but NOT pushed - obtain review, run WeatherOneShotPush, then reconcile the immutable attempt evidence")
         }
     }
@@ -2891,6 +4366,38 @@ if (Test-Path $af) {
         }
         catch {}
     }
+}
+
+# No task/integration compatibility branch may turn an active incident marker
+# back into ordinary retry advice. Exact acknowledgement suppresses stale task
+# chatter; every other incident state preserves the anomaly under the watchdog's
+# reconciliation-specific no-retry action.
+if ([string]$reconciliationPublication.classification -cne "ordinary") {
+    $protectedFlags = New-Object System.Collections.Generic.List[string]
+    foreach ($flagText in @($flags)) {
+        if ([string]$flagText -notmatch 'WeatherOneShotPush' -or
+            [string]$flagText -match '^RECONCILIATION_PUBLICATION_') {
+            $protectedFlags.Add([string]$flagText)
+        }
+        elseif ([string]$reconciliationPublication.classification -cne "acknowledged") {
+            $protectedFlags.Add(
+                "RECONCILIATION_PUBLICATION_RELATED_TASK_STATE: an additional WeatherOneShotPush task anomaly was observed; the active marker owns publication, so preserve evidence and do not manually invoke or retry"
+            )
+        }
+    }
+    $protectedWarns = New-Object System.Collections.Generic.List[string]
+    foreach ($warnText in @($warns)) {
+        if ([string]$warnText -notmatch 'WeatherOneShotPush') {
+            $protectedWarns.Add([string]$warnText)
+        }
+        elseif ([string]$reconciliationPublication.classification -cne "acknowledged") {
+            $protectedWarns.Add(
+                "RECONCILIATION_PUBLICATION_RELATED_TASK_STATE: WeatherOneShotPush has additional task history; the active marker owns publication and manual invocation or retry is forbidden"
+            )
+        }
+    }
+    $flags = $protectedFlags
+    $warns = $protectedWarns
 }
 
 # ---- verdict ----
@@ -2930,6 +4437,16 @@ if ($Json) {
         }
         chain    = @{ status = $chainStatus; terminal = $chainTerm; failing_step = $chainFail; payload_blocked = $chainBlocked }
         git      = @{ unpushed = $unpushed; dirty = $dirtyCount; last = $lastCommit }
+        reconciliation_publication = @{
+            classification = [string]$reconciliationPublication.classification
+            detail = [string]$reconciliationPublication.detail
+            merge_commit = [string]$reconciliationPublication.merge_commit
+            live_origin_master = [string]$reconciliationPublication.live_origin_master
+            push_invocation_attempted = [bool]$reconciliationPublication.push_invocation_attempted
+            publication_acknowledged = [bool]$reconciliationPublication.publication_acknowledged
+            marker_present = [bool]$reconciliationPublication.marker_present
+            manual_push_allowed = [bool]$reconciliationPublication.manual_push_allowed
+        }
         mirror   = @{ ok = $(if ($mirror) { [bool]$mirror.ok } else { $null }); age_hours = $mirrorAgeH
             paused = $mirrorPaused
             restore_verified = $(if ($restore) { [bool]$restore.ok } else { $null })

@@ -1,8 +1,10 @@
 # Install the repository-owned host-load PreToolUse policy at the user layer.
 #
 # The user layer is intentional: the dedicated capture host must be protected
-# even when Codex starts from a sibling worktree or the parent github folder.
-# Existing hook configuration is never overwritten implicitly.
+# even when Codex starts from a sibling worktree or the parent github folder,
+# and a non-capture workstation must route heavy work through the shared-mutex
+# wrapper while it can also serve as the portable live executor. Existing hook
+# configuration is never overwritten implicitly.
 
 param(
     [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
@@ -24,7 +26,7 @@ if (-not (Test-Path -LiteralPath $CodexRoot)) {
 
 $escapedPolicy = $policyPath.Replace('"', '\"')
 $payload = [ordered]@{
-    description = "Protect the dedicated capture host from agent-started heavy work."
+    description = "Enforce capture-host limits and portable-live/workstation-heavy exclusion."
     hooks = [ordered]@{
         PreToolUse = @(
             [ordered]@{
@@ -35,7 +37,7 @@ $payload = [ordered]@{
                         command = "python3 `"$escapedPolicy`""
                         commandWindows = "py -3 `"$escapedPolicy`""
                         timeout = 5
-                        statusMessage = "Checking capture-host load policy"
+                        statusMessage = "Checking host-role load policy"
                     }
                 )
             }

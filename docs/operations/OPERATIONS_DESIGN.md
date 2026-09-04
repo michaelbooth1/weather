@@ -479,6 +479,83 @@ merge task action cannot make an active attempt disappear from health reporting.
 A fresh `merged_unpushed` commit is a FLAG requiring reviewed publication or
 recovery, not a passive warning.
 
+The one-time `production_baseline_reconciliation_v0.1` topology is deliberately
+outside that generic attempt state machine. It starts from the exact accepted
+local baseline while the published target is already ahead, creates a
+config-only child `C`, and stages the frozen reviewed safety tip `S`, a strict
+descendant of published target `T`, so the only acceptable commit is `M` with
+ordered parents `[C,S]`. `M` must equal `S` plus only the two captured generated
+config contents. Until `M`, raw-config, and affected-
+producer recovery are all proved, the marker retains `T` as an adopted-boot
+refusal sentinel rather than a reset target. The single atomic postcommit
+cutover replaces it with `C` and a complete existing boot-recognized phase.
+Generic attempt merge/reconcile/close consumers reject this operation mode.
+Its push-attempt bit is durable before the sole pre-provisioned task invocation,
+so task failure or missing acknowledgement is a terminal reviewed handoff, not
+permission to retry. Because Windows bypasses a registered task's
+`ExecutionTimeLimit` for on-demand starts, the incident mode owns a separate
+15-minute deadline inside 04:00 and stable `Ready`/runtime readback. Every
+reconciliation ScheduledTasks read, export, Start, and Stop is isolated in a
+strict-request child owned by the parent's kill-on-close Job. Immediately before
+every RPC launch, the parent re-hashes the helper against its exact `S`-pinned
+dependency SHA-256. The request deadline is eight seconds before the applicable
+PT15M/04:00 boundary: five seconds, clamped to the remaining time, are reserved
+for `TerminateAndWait` proof and a further three seconds remain for bounded
+  result parsing. Each child snapshot brackets the structured task read with
+  the same name/path `Export-ScheduledTask` and UTF-8 hash path used by the
+  parent freeze, treating a null `Triggers` property as zero while still
+  rejecting any real trigger. The child re-resolves and fully attests the exact
+  task twice, uses only the final `InputObject` for mutation, and emits bounded
+  structured evidence which the parent independently validates. The exact Start
+  request is
+journaled before launch. Immediately before Scheduler mutation the helper
+atomically creates a fixed durable one-use claim for Start, or for the exact Stop
+ordinal, and never deletes it. Creation and durable flush are followed by one
+immediate nonblocking deadline recheck before the direct `InputObject` mutation;
+if the claim consumes the remaining budget, authority is spent/unknown and no
+Scheduler dispatch occurs. A claim collision, or any cmdlet throw once a
+durable claim exists, is authority-claimed with dispatch unknown and spent,
+never a false no-dispatch. Thus a replay or lost result cannot reacquire the same
+authority. Any failed, lost, or timed-out Start response spends the sole
+authority and cannot PASS or write a published marker even if exact publication
+is later observed.
+Before the first Stop claim, every post-Start Scheduler read identity is bounded
+to `pushContainmentStopAt`, preserving the complete 30-second mutation reserve;
+a slow or hung read is killed before that edge. If a Stop identity or its budget
+cannot be created, Stop authority is exhausted locally without recording a
+false attempt or dispatch. No post-boundary marker is written, and the lease
+plus read-only drain remains until exact terminal proof or the absolute report
+boundary. Successful Stops remain capped at two;
+any lost, timed-out, or uncertain Stop is terminal non-PASS and cannot be
+retried. Stop exhaustion and any window breach are recorded and can never
+publish PASS. This depends on an explicit exclusive-operator invariant: no other
+caller may race the zero-trigger task between the final Ready proof and the sole
+  start. The prepublication capture/documentation Python commands and canonical
+  live-Git queries use the same kill-on-close ownership with absolute child
+  deadlines. The writer rechecks 01:00-04:00 at every risky mutating stage,
+  refuses a settle interval that cannot finish in-window, caps rollback recovery
+  at 04:00, and re-proves live origin plus local refs after the final Start
+  journal. No post-boundary marker replacement is attempted; the earlier
+  attempted marker remains the conservative durable authority.
+The special unpublished report stage remains
+`reconciliation_merged_unpublished`, never generic `merged_unpushed`. Because
+`M` adopts `S`, the production status/watchdog immediately understands the
+incident marker. Exact complete evidence produces one of three states:
+guarded-before-dispatch (manual invocation forbidden), attempted-unacknowledged
+(publication pending/uncertain and retry forbidden), or exact acknowledged
+(warning suppressed). Any incomplete, stale, malformed, unreadable/lookup-failed,
+unrelated, or mismatched marker is `incident_evidence_invalid`: preserve the marker and bound
+evidence, obtain reviewed recovery authority, and never manually invoke or
+retry `WeatherOneShotPush`. Invalid evidence uses cached `origin/master`, not an
+unfetched live SHA, for the unpushed count; an unreadable comparison produces a
+neutral warning rather than a false zero. The classifier independently reproves topology, raw
+snapshots, roll evidence, documentation, dependency hashes, task-RPC chronology,
+clean worktree, immutable canonical-origin configuration, cached master, and a
+  bounded live canonical master query. Before decoding, it rejects duplicate or
+  case-colliding JSON keys at every nesting depth in the marker and every bound
+  artifact. Relabeling populated reconciliation evidence as ordinary is invalid
+  and cannot restore generic push guidance.
+
 One-date settlement recovery uses the same containment and lock contracts but
 adds an inclusive execution boundary:
 `daily_refresh run --resume-from-step public_wu_settlement_restore

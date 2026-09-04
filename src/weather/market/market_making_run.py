@@ -2040,7 +2040,10 @@ def main(argv=None):
         "known_edge_map": Path(args.known_edge_map),
         "observation_status_path": Path(args.observation_status),
         "run_id": args.run_id,
-        "policy_config": parse_config_overrides(args.config),
+        "policy_config": parse_config_overrides(
+            args.config,
+            extra_defaults={"quote_ttl_seconds": DEFAULT_QUOTE_TTL_SECONDS},
+        ),
         "live_readiness_path": args.live_readiness,
         "data_layer_audit_path": Path(args.data_layer_audit) if args.data_layer_audit else None,
         "platform_verification_path": Path(args.platform_verification) if args.platform_verification else None,

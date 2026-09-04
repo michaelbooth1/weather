@@ -61,6 +61,7 @@ else { "off_peak" }
 
 # ---- classify each flag: what is it, how bad NOW, and when can it be acted on ----
 function Get-FlagClass($text) {
+    if ($text -match "^RECONCILIATION_PUBLICATION_") { return "reconciliation_publication" }
     if ($text -match "capture loop DOWN|TODAY capture AT_RISK|capture alert raised") { return "capture" }
     if ($text -match "LOW RAM") { return "memory" }
     if ($text -match "LOW DISK") { return "capacity" }
@@ -70,15 +71,19 @@ function Get-FlagClass($text) {
     if ($text -match "streak checker failed|BLIND") { return "observability" }
     return "scheduled_job"
 }
-$actionWindow = @{
-    capture       = "NOW - the graded window is 12:00-18:00"
-    memory        = "NOW - memory pressure is the streak's primary failure mode"
-    capacity      = "any time; tiering/cleanup is memory-light"
-    settlement    = "tonight - scripts\ops\chain_recovery_run.ps1 -ResumeFrom <failed step> -TargetDate <date> -Refetch, in the quiet window"
-    durability    = "any time; mirror runs nightly 04:30"
-    resilience    = "any time, but a reboot must not happen before it is fixed"
-    observability = "NOW - nothing else is watching while this is broken"
-    scheduled_job = "next scheduled run, or resume in the quiet window 01:00-04:00"
+function Get-FlagAction($class) {
+    $actionWindow = @{
+        reconciliation_publication = "preserve the exact marker and evidence; do not manually invoke or retry WeatherOneShotPush; obtain reviewed recovery authority"
+        capture       = "NOW - the graded window is 12:00-18:00"
+        memory        = "NOW - memory pressure is the streak's primary failure mode"
+        capacity      = "any time; tiering/cleanup is memory-light"
+        settlement    = "tonight - scripts\ops\chain_recovery_run.ps1 -ResumeFrom <failed step> -TargetDate <date> -Refetch, in the quiet window"
+        durability    = "any time; mirror runs nightly 04:30"
+        resilience    = "any time, but a reboot must not happen before it is fixed"
+        observability = "NOW - nothing else is watching while this is broken"
+        scheduled_job = "next scheduled run, or resume in the quiet window 01:00-04:00"
+    }
+    return [string]$actionWindow[[string]$class]
 }
 $entries = @()
 foreach ($f in @($status.flags)) {
@@ -87,6 +92,7 @@ foreach ($f in @($status.flags)) {
     $sev = switch ($class) {
         "capture" { if ($inCapture) { "CRITICAL" } elseif ($inRollover) { "HIGH" } else { "HIGH" } }
         "memory" { if ($inCapture) { "CRITICAL" } else { "HIGH" } }
+        "reconciliation_publication" { "HIGH" }
         "observability" { "HIGH" }
         "capacity" { "HIGH" }
         # A settlement hole is not a scheduled-job hiccup. The evidence is already lost
@@ -105,7 +111,7 @@ foreach ($f in @($status.flags)) {
         default { if ($inChain) { "HIGH" } else { "MEDIUM" } }
     }
     $entries += [PSCustomObject]@{
-        severity = $sev; class = $class; flag = $f; act = $actionWindow[$class]
+        severity = $sev; class = $class; flag = $f; act = (Get-FlagAction $class)
     }
 }
 $rank = @{ CRITICAL = 0; HIGH = 1; MEDIUM = 2 }
@@ -135,6 +141,7 @@ $record = [ordered]@{
     today = $(if ($status.streak) { [string]$status.streak.today } else { "?" })
     alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act } })
     notes = @($status.warns)
+    reconciliation_publication = $status.reconciliation_publication
 }
 $record | ConvertTo-Json -Depth 6 | Set-Content -Path $latestPath -Encoding utf8
 if ($shouldLog) {

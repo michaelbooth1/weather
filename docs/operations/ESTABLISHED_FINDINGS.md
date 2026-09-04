@@ -2526,6 +2526,185 @@ though CLOB never recovered. The repaired contracts use a one-minute OS
 backstop, a user-layer Codex pre-tool hook, and PID-reuse-resistant boot proof;
 see [the incident trace](codex-host-overload-2026-08-23.md).
 
+## 8v. Guarded integration has no authorized bootstrap for a behind production master
+
+**Workstation audit completed 2026-09-01 from exact Git/GitHub and repository
+control-flow evidence.** GitHub `master` at `c932b54f8747df5cdefc4cc42f8454b6797f09ae`
+strictly descends the accepted production checkout
+`3361520fa4c2bb8aa8701f94ce57fcbd0c7d3bac` by 26 commits. The published delta
+does not change either tracked generated location-config blob. Nevertheless,
+the canonical quiet merge and immutable-attempt creator intentionally require
+local `master == origin/master` and refuse before hashing or journaling the
+production working bytes.
+
+A plain fast-forward is not a substitute: it does not stage the target, classify
+the exact old-to-origin delta against live closures, prove capture recovery, or
+close every interruption boundary. A staged fast-forward can avoid a push, but
+the currently adopted boot script retains `reset --hard` fallbacks during the
+first-use interval; adopting repaired boot bytes first requires prohibited
+Scheduler rebinding. A synthetic guarded merge instead requires the real
+credential-bearing one-shot push task. Under a mission that forbids both
+dependencies, the truthful verdict is **NO-GO** and the equality refusal must
+not be weakened. See
+[the exact audit](../roadmap/agent-report-2026-09-07-workstation-production-baseline-reconciliation.md).
+
+One additional trap is durable: `roll_verdict.ps1` changes its default base to
+`origin/master` when local `master` is strictly behind. A future authorized
+baseline repair must explicitly classify `-Base <old-local-sha> -Branch
+<exact-origin-sha>`; otherwise it excludes the very catch-up delta being
+adopted. Missing, stale, or unreadable live closure evidence remains
+roll-sensitive.
+
+## 8w. A fail-closed synthetic bootstrap exists only with explicit one-shot push authority
+
+**Implementation candidate and static audit recorded 2026-09-01; production
+remains unchanged and the first-adoption path is still NO-GO.**
+The owner subsequently authorized one future use of the already-provisioned
+`WeatherOneShotPush` task for the exact §8v incident. That resolves the task-
+authority falsifier but does not authorize a fast-forward, Scheduler change,
+generic retry, or any other baseline pair.
+
+The adopted `3361520f...` boot script need not be changed. With local baseline
+`L=3361520...` and published target `T=c932b54f...`, every precommit marker can
+keep `baseline_commit=expected_baseline=L` and use `pre_merge_commit=T` as a
+deliberately invalid reset sentinel. `L` is ancestral to `T`, but `T` is a
+two-parent merge with non-config changes, so it cannot satisfy adopted boot's
+validated one-parent config-child predicate. Reconciliation-specific phases
+also avoid boot's legacy `preparing` mixed-reset branch. Without `MERGE_HEAD`,
+boot refuses and preserves; with it, boot may try `merge --abort`, but both
+marker-derived hard-reset fallbacks remain unreachable because the predicate is
+false.
+
+The real first parent is exposed only after an exact config-only child `C` of
+`L`, affected-producer recovery, and a merge `M` with ordered parents `[C,T]`
+are proved, together with a target-equivalent non-config tree and content-
+addressed raw config snapshots. One atomic marker replacement then changes
+`pre_merge_commit` to `C` in the existing
+`merge_committed_unpublished` phase with the complete capture/execution proof.
+At that point adopted boot's committed-recovery predicate is true and preserves
+`M`. Every later marker replacement must retain the full predicate; a partial
+postcommit marker would re-enable a hard reset and is forbidden.
+
+This is implemented as the incident-bound
+`production_baseline_reconciliation_v0.1` mode in
+`scripts/ops/quiet_window_merge.ps1`. It requires the exact L/T endpoint trees
+and config blobs, exact dirty paths, canonical origin, an isolated pinned
+source tip/tree/self hash, pinned adopted dependencies, explicit
+`roll_verdict.ps1 -Base L -Branch T`, 01:00-04:00 containment, the shared lease,
+raw byte snapshots, exact capture recovery, documentation binding, and the
+existing singleton zero-trigger push task. It atomically records
+`push_invocation_attempted=true` before the sole task start; failure or missing
+acknowledgement spends the invocation and cannot enter generic attempt resume.
+Special failure reports use `reconciliation_merged_unpublished`; the exact
+first `M` is `T` plus two configs and therefore cannot rely on this topic's
+newer status/consumer guards to suppress adopted `T`'s ordinary push-retry
+instruction. The distinct stage avoids the report-specific
+`merged_unpushed` instruction, but adopted `T` also emits an earlier,
+unconditional `origin/master..master` warning to run `WeatherOneShotPush`.
+The scheduled `WeatherHostHealthWatchdog` delegates to that adopted status
+script and republishes its warnings into the host-health state and morning
+briefing. Thus a failed or uncertain sole invocation can automatically leave a
+contradictory retry instruction. The topic-side status guard is correct defense
+for later adoption, but it is absent from exact `M` and cannot make this first
+run safe. Resolving that contradiction requires a newly reviewed topology or
+authorized containment that preserves the exact-tree and no-Scheduler-mutation
+contracts; operator prose alone is insufficient.
+Windows explicitly bypasses the task XML `ExecutionTimeLimit` for on-demand
+starts, so the mode separately persists a 15-minute containment deadline,
+reserves one minute before 04:00, stops the cached exact task object if needed,
+allows one stop retry, and requires repeated `Ready` plus stable runtime
+information. Stop exhaustion, a late terminal proof, or an unresolved stop is
+never PASS. This candidate bounds its poll sleeps and canonical Git child, but
+the ScheduledTasks cmdlets themselves still execute synchronously in the parent
+PowerShell process. A hung Start, Stop, Get, Info, or Export RPC can therefore
+cross the persisted deadline or 04:00 before control returns. A safe successor
+must isolate every Scheduler RPC in a killable, time-bounded helper that
+re-resolves and revalidates the exact singleton, atomically journals before a
+mutating call, treats a timed-out Start as spent, and never lets a Stop timeout
+authorize another mutation. Until that is implemented and adversarially
+exercised, the logical deadline is not an absolute wall-clock containment
+proof. The
+reviewed handoff must also exclude every concurrent manual invoker across the
+final Ready/start boundary; the task has no per-start identity that could safely
+resolve that race after it occurs.
+
+The exact adopted-boot replay harness covers every sentinel/cutover boundary and
+intercepts any `reset --hard`. Required Python verification must also run
+through `workstation_heavy.ps1` on the assigned non-capture workstation; no
+policy bypass is permitted. The dated report owns both remaining boundaries:
+the adopted automated retry instruction and any verification gate that was not
+admitted. There is no production command or handoff while either remains.
+
+## 8x. The self-adopting successor closes both first-adoption boundaries
+
+**Workstation implementation and adversarial verification recorded 2026-09-01;
+production remains unchanged.** The safe topology is no longer constrained to
+`M=T+two configs`. Under the owner's narrow authorization, freeze a reviewed
+safety tip `S` which strictly descends both published target `T` and reviewed
+parent `a24cf0f41bf0b321c5c813820594c56198a58d1a`. Create the same exact
+config-only child `C` of accepted local baseline `L`, then require the synthetic
+merge to have ordered parents `[C,S]` and a tree equal to `S` plus only the two
+captured production config contents. This preserves non-force ancestry through
+`T<S<M` while adopting the safety patch on the first published merge.
+
+The adopted patch makes status and its scheduled watchdog incident-aware.
+Only a complete marker bound to current `M`, `L`, `S`, `C`, exact config/raw
+snapshots, roll-verdict and documentation evidence, full dependency hashes,
+clean worktree, immutable canonical origin, cached origin, and a bounded live
+canonical query receives special treatment. Its strict parser rejects duplicate
+or case-colliding keys in every bound JSON object, and an ordinary-mode relabel
+cannot downgrade populated incident evidence. Before dispatch it reports guarded
+ownership and forbids manual invocation. Once the exact Start request is
+journaled, it reports publication pending/uncertain and forbids retry. Exact
+local/cached/live acknowledgement suppresses the warning. Every stale,
+malformed, unreadable/lookup-failed, incomplete, unrelated, or mismatched shape is
+`incident_evidence_invalid`: preserve the marker and its bound evidence, obtain
+reviewed recovery authority, and never manually invoke or retry
+`WeatherOneShotPush`. Invalid evidence uses cached `origin/master`, not an
+unfetched live SHA, to count unpushed commits; an unreadable comparison produces
+a neutral warning rather than a false zero. The watchdog retains that no-retry
+action.
+
+The same patch makes PT15M/04:00 containment absolute with respect to Scheduler
+RPCs. Reconciliation launches `production_baseline_scheduler_rpc.ps1` only in a
+repository kill-on-close Job. Immediately before every RPC launch, the parent
+re-hashes the helper against its exact `S`-pinned dependency SHA-256. The request
+deadline is eight seconds before the applicable PT15M/04:00 boundary, leaving
+five clamped seconds for `TerminateAndWait` proof and a further three seconds
+for bounded result parsing. The helper re-resolves and fully attests the exact
+task twice, uses only the final task object, and the parent independently
+validates its structured result. Start is journaled first; immediately before
+mutation an atomic fixed-path claim spends Start or the exact Stop ordinal.
+After claim creation and durable flush, one immediate nonblocking deadline
+recheck precedes the direct `InputObject` mutation. A deadline crossed during
+the claim leaves authority spent/unknown and performs no Scheduler dispatch. A
+claim collision, or any cmdlet throw once a durable claim exists, is
+authority-claimed with dispatch unknown and spent, never a false no-dispatch;
+replay and lost-result cases therefore fail closed. Any failed, lost, or
+timed-out Start is permanently spent and cannot PASS or produce a published
+marker even if exact publication is later observed.
+Before the first Stop claim, every post-Start Scheduler read identity is bounded
+to `pushContainmentStopAt`, preserving the complete 30-second mutation reserve;
+a slow or hung read is killed before that edge. If a Stop identity or its budget
+cannot be created, Stop authority is exhausted locally without recording a
+false attempt or dispatch. No post-boundary marker is written, and the lease
+plus read-only drain remains until exact terminal proof or the absolute report
+boundary. Successful Stop calls remain capped at two, while a lost,
+timed-out, or uncertain Stop is terminal non-PASS and is never retried. Closing
+the Job terminates and proves the entire helper descendant tree, including a
+hung cmdlet or helper-spawned child. No helper can register, edit, enable,
+disable, delete, or replace a task. The parent recomputes absolute deadlines
+immediately before waits; bounded capture/documentation Python and live-origin
+Git use the same Job ownership. Mid-flight 04:00 crossings cannot authorize a
+later mutation or extend rollback polling, and the final journal is followed by
+another exact live-origin/local-ref proof before the Start helper launches.
+
+This finding does not itself authorize production execution. The exact future
+command, frozen `S` commit/tree/entry/dependency hashes, host-profile proof, and
+all required gate receipts belong to the final branch's dated self-adopting
+reconciliation handoff report. That report is a handback artifact, not part of
+the safety tip adopted into the synthetic production merge.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

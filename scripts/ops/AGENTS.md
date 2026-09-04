@@ -64,6 +64,57 @@ These instructions apply to `scripts/ops/`.
   `weather.operations.documentation_transaction` after capture recovery and
   before publication. Failure leaves the merge unpushed; stacked overnight
   integrations share one pending closeout due by 09:00.
+- Its one-time `production_baseline_reconciliation_v0.1` mode is not a generic
+  integration attempt or resume path. It is bound to the exact reviewed
+  `3361520f... -> c932b54f...` incident, an isolated source tip/tree/self hash,
+  the 01:00-04:00 window, raw snapshots of exactly two generated configs, and
+  at most one already-provisioned `WeatherOneShotPush` invocation. Precommit
+  markers must keep the fail-closed published-target sentinel; only the proved
+  merge `M=[C,S]` may atomically expose real `C`, where `S` is the frozen
+  reviewed safety tip and a strict descendant of published target `T`. `M` must
+  equal `S` plus only the two captured config contents. Never route this marker
+  through generic attempt reconciliation or add a hard-reset fallback.
+  Reconciliation may access ScheduledTasks only through
+  `production_baseline_scheduler_rpc.ps1`, launched inside the repository's
+  kill-on-close Job. Immediately before every RPC launch, the parent re-hashes
+  the helper against its exact `S`-pinned dependency SHA-256. The helper request
+  deadline is eight seconds before the applicable PT15M/04:00 boundary, leaving
+  five clamped seconds for `TerminateAndWait` proof and a further three seconds
+  for bounded result parsing. The child brackets each structured task read with
+  the same name/path `Export-ScheduledTask` plus UTF-8 hash path used by the
+  parent freeze, counts only non-null triggers, re-resolves and fully attests
+  the exact task twice, rechecks the bound marker, and mutation uses only the
+  final `InputObject`; the parent independently validates bounded structured
+  output.
+  Journal the exact Start request before launch. Immediately before mutation
+  the helper atomically creates a fixed one-use Start claim (or one claim for
+  each of the two Stop ordinals); claims are never removed automatically. Claim
+  creation and durable flush are followed by one immediate nonblocking deadline
+  recheck before the direct `InputObject` mutation. If the flush consumed the
+  request budget, the claim is spent/unknown and Scheduler is not called.
+  A claim collision, or any cmdlet throw once a durable claim exists, is
+  authority-claimed with dispatch unknown and spent, never a false no-dispatch.
+  Any missing, failed, lost, or timed-out Start response likewise spends the
+  sole authority, cannot PASS even if publication later appears exact, and is
+  never retried. Before the first Stop claim, every post-Start Scheduler
+  read identity is bounded to `pushContainmentStopAt`, preserving the complete
+  30-second mutation reserve; a slow or hung read is killed before that edge.
+  If a Stop identity or its budget cannot be created, exhaust Stop authority
+  locally without recording a false attempt or dispatch. Write no post-boundary
+  marker, and retain the lease plus read-only drain until exact terminal proof
+  or the absolute report boundary. Successful Stop requests remain capped at
+  two; any missing/lost/timed-out Stop response is terminal non-PASS and is not
+  retried. Reconciliation Python and canonical remote-Git
+  probes also run as deadline-clamped Job children, and every mutating stage
+  rechecks the fixed quiet-window boundary. No concurrent manual
+  `WeatherOneShotPush` caller is allowed across the final Ready/start boundary.
+  The adopted `S` status/watchdog classify exact guarded, attempted, and
+  acknowledged markers and never turn this incident into generic push/retry
+  guidance. An unreadable or lookup-failed active marker is invalid evidence,
+  never absence. Invalid incident evidence counts unpushed state only from cached
+  `origin/master`; an unreadable comparison emits a neutral warning instead of
+  silently becoming zero. A production command still requires the exact fully verified
+  reviewed handoff; a green branch alone is not run authority.
 - Registration scripts assume the repository root, its `venv`, and Windows
   Task Scheduler. Re-registration replaces the named task; it is an external
   system change, not a harmless validation step.
@@ -113,21 +164,43 @@ recovery proof; failure must propagate out of `finally`.
 
 Every heavyweight wrapper must hold the shared lease from
 `workload_admission.ps1` across its expensive or capture-disrupting section.
-Resource headroom and time-window checks remain mandatory and independent; the
+On the capture host, resource headroom and time-window checks remain mandatory
+and independent; the
 lease prevents two individually admissible jobs from overlapping. A stale
 metadata file is not ownership—the open OS file handle is.
-The one execution-only exception is the sealed `portable_execution_v1`
+The one non-capture live exception is the sealed `portable_execution_v1`
 International Stage 0/1 launcher described in
 `docs/operations/PORTABLE_LIVE_EXECUTION_HOST.md`. It must remain bound to the
 current Windows installation, canonical live-stage workload name, and
 dedicated-capture-host exclusion; never generalize that lane to another heavy
-command or to an unattended session.
+command or to an unattended session. Ordinary implementation, tests,
+training, and replay on the same physical non-capture workstation are allowed
+by its workstation role. Recognized heavy commands must use
+`workstation_heavy.ps1`; its admission-only `workstation_offline_v1` profile
+shares the live launcher's host-global mutex without claiming the portable live
+profile or its evidence. Both profiles require the assignment's exact
+non-capture Windows installation and attending principal, and both paths own
+the complete child tree in a kill-on-close Windows Job.
+Wrapped work and a launched live stage are mechanically exclusive through
+cleanup. Finish heavy work before sealing as an operational attempt-
+preservation rule.
 
-`install_codex_host_load_hook.ps1` owns the production host's user-layer
-PreToolUse guard. It must never overwrite an existing `~/.codex/hooks.json`,
-must point at the repository-owned policy script, and must state that Codex
-requires review/trust on the next session. The hook is prevention at launch;
+`install_codex_host_load_hook.ps1` owns the host-role user-layer PreToolUse
+guard. It protects the capture host and, on an exact non-capture Windows host,
+denies recognized heavy commands unless they use the canonical workstation
+wrapper form with absolute Python and repository paths. It must never overwrite
+an existing `~/.codex/hooks.json`, must point at the repository-owned policy
+script, and must state that Codex requires review/trust on the next session.
+The hook is prevention at launch;
 the one-minute S4U memory/process guard remains the enforcement backstop.
+Both the hook and the S4U guard use the tracked MachineGuid-derived dedicated
+capture-host identity, not RAM, machine name, or portable assignment, as role
+authority. The registrar proves that identity before Scheduler mutation and
+seals it into the task action; a bound guard exits before log creation,
+process enumeration, or termination on any other host. Legacy task actions
+without the binding keep enforcing until separately authorized
+re-registration, so a source update cannot silently remove the capture-host
+backstop.
 
 One-date settlement backfills must use the canonical bounded daily-refresh
 slice ending at `market_day_labels_finalize`; never run the remaining chain and

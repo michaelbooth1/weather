@@ -9,6 +9,41 @@ streak state, and protected host-load timetable. It does not remove Git,
 source, SDK, credential, identity, geography, account, balance, allowance,
 zero-state, order, cancellation, deadline, or cleanup checks.
 
+**Operator-authorized portable Git exception (2026-08-30).** Before its
+production merge, the exact remote branch
+`codex/portable-execution-host-clean-20260827` may be live source authority for
+`portable_execution_v1` only. This is not a general topic-branch allowance.
+The branch must be clean, reviewed, exact-head CI-green, and explicitly
+authorized by the repository owner. At every inventory, seal, composition,
+and wrapper boundary, local `HEAD`, the local branch tip, cached
+`origin/codex/portable-execution-host-clean-20260827`, and a fresh query of
+canonical `refs/heads/codex/portable-execution-host-clean-20260827` must be
+identical. Local `master`, cached `origin/master`, and fresh canonical
+`refs/heads/master` must also be identical, and that synchronized master tip
+must be an ancestor of the reviewed branch tip. `capture_colocated_v1`
+remains restricted to exact synchronized canonical `master`.
+
+This exception removes only the requirement to promote the reviewed portable
+code to `master` before this one portable Stage 0/1 session. It does not make
+the branch production-adopted, alter capture, or remove any SDK, credential,
+identity, geography, account, balance, allowance, zero-state, order,
+cancellation, deadline, cleanup, or attended-confirmation gate. A remote
+branch push or merge is not a production-host integration or capture-recovery
+claim.
+
+`portable_execution_v1` describes this PC's live-production role, not every
+use of the physical machine. The separate 32 GB PC may also perform ordinary
+workstation implementation, tests, training, replay, and measurement outside
+a launched live attempt. Recognized heavy commands use the repository
+workstation wrapper. Its admission-only profile shares the live launcher's
+host-global mutex without producing live-readiness evidence; both profiles are
+bound to the assignment's exact Windows installation and attending principal,
+and both launch paths own their full child tree in a kill-on-close Windows Job.
+Finish heavy work before sealing as an operational attempt-preservation rule;
+inert sealed files alone are not live authority. These
+workloads grant no capture, production-state,
+Scheduler, credential, exchange, unattended-trading, or live-order authority.
+
 The live protocol remains owned by
 [`INTERNATIONAL_MM_LIVE_PILOT.md`](INTERNATIONAL_MM_LIVE_PILOT.md). This file
 owns only execution-host provisioning and relocation.
@@ -18,7 +53,7 @@ owns only execution-host provisioning and relocation.
 | Profile | Intended machine | Local host gate |
 | --- | --- | --- |
 | `capture_colocated_v1` | Dedicated capture PC | Three capture workers, execution tape, streak, clock, reboot, shared lease, and `[00:30, 09:00) America/Toronto` containment |
-| `portable_execution_v1` | Separate attended execution-only PC | Exact tracked Windows-installation and token-principal assignment, clock, reboot, and a host-global exclusive lease; no local capture/tape/streak dependency |
+| `portable_execution_v1` | Separate attended non-capture PC in its live-executor role | Exact tracked Windows-installation and token-principal assignment, clock, reboot, and a host-global exclusive lease; no local capture/tape/streak dependency |
 
 The profile is explicit and immutable in every session manifest, seal,
 launcher, execution receipt, and predecessor lineage. It is never inferred
@@ -45,8 +80,11 @@ changes it and intentionally invalidates all old manifests and launchers.
   `HKLM\SOFTWARE\GitForWindows`, with its real `mingw64\bin\git.exe` payload
   and sibling `git-lfs.exe` present. A user-local/PATH-only Git is not the
   canonical live Git identity.
-- A clean local clone whose checked-out `master`, tree, and freshly observed
-  canonical `origin/master` are identical at the production-adopted live tip.
+- A clean local clone on either exact synchronized canonical `master`, or, for
+  `portable_execution_v1` only, the operator-authorized
+  `codex/portable-execution-host-clean-20260827` branch under the exact
+  branch-equality, synchronized-master, master-ancestry, CI, review, and owner
+  authorization contract above.
 - A new venv built in that clone. Never copy a venv or its `.pth` files from
   another checkout.
 - Windows Time synchronized with a successful sync no more than 24 hours old
@@ -61,6 +99,35 @@ changes it and intentionally invalidates all old manifests and launchers.
   WinHTTP proxy set to direct. The builder, sealer, and sealed wrapper recheck
   these conditions around live Git proof and at both sides of every official
   geographic-eligibility request.
+- Every recognized heavy command on this PC uses the exact reviewed
+  `scripts/ops/workstation_heavy.ps1` wrapper. If a Codex session can remain
+  open during live preparation, install and trust the exact reviewed checkout's
+  user-layer host-role hook; otherwise close every Codex session before
+  sealing. The hook is a launch-prevention backstop, never host-role or live
+  authority.
+
+Every workstation-heavy or inner fixed-scope live launcher creates and flushes
+`%ProgramData%\WeatherProject\heavy_workload_v1.poison` as `ACTIVE` while it
+owns the host-global lease. Immediately before explicit Job teardown it
+atomically transitions that record to `TEARDOWN_PENDING`. A proved zero-child
+teardown deletes and verifies the record before releasing the lease. If the
+launcher reports that its Windows Job failed to reach zero active processes,
+stop: the pending record remains and all repository roots block workstation and
+portable admission. Do not delete it manually. After rebooting the PC, open a
+fresh PowerShell process, dot-source
+`scripts\ops\workload_admission.ps1`, and run
+`Clear-WeatherHeavyWorkloadPoison -Confirmation
+I_HAVE_VERIFIED_NO_RESIDUAL_WEATHER_WORKLOAD_PROCESSES`. The function independently
+requires a different Windows boot-session identifier and proves zero residual
+heavy processes while it owns the host-global mutex. A forced launcher exit is
+different: it leaves `ACTIVE`, and kill-on-close containment owns that child
+tree. The next exact attended operation may recover only after proving the
+recorded PID plus process-creation identity is gone and a bounded residual scan
+reaches zero while holding the mutex; that first attempt rejects with an exact
+retry instruction. The inner fixed-scope launcher owns this live-stage
+state/lease lifecycle. Its outer fixed-session launcher independently contains
+the session runner in a kill-on-close Job and propagates teardown failure, but
+does not claim or mutate the inner lease state.
 
 Do not copy `data/` from the capture PC. It is ignored local runtime state and
 is not cross-host authority. A new execution host must nevertheless collect a
@@ -200,20 +267,61 @@ if ($verifiedRepositoryRoot -cne [IO.Path]::GetFullPath($weatherRepositoryRoot))
   throw "portable repository path identity changed after clone"
 }
 Set-Location -LiteralPath $weatherRepositoryRoot
-& $gitLauncher switch master
-if ($LASTEXITCODE -ne 0) { throw "master checkout failed" }
 & $gitLauncher fetch --prune origin
 if ($LASTEXITCODE -ne 0) { throw "canonical origin refresh failed" }
+$canonicalOrigin = "https://github.com/michaelbooth1/weather.git"
+$portableLiveBranch = "codex/portable-execution-host-clean-20260827"
+$portableLiveRef = "refs/heads/$portableLiveBranch"
+$cachedPortableRef = "origin/$portableLiveBranch"
 $originUrl = (& $gitLauncher remote get-url origin)
 if ($LASTEXITCODE -ne 0 -or
-    $originUrl -cne "https://github.com/michaelbooth1/weather.git") {
+    $originUrl -cne $canonicalOrigin) {
   throw "origin is not the canonical HTTPS repository"
 }
-$localTip = (& $gitLauncher rev-parse HEAD)
-if ($LASTEXITCODE -ne 0) { throw "local tip query failed" }
-$remoteTip = (& $gitLauncher rev-parse origin/master)
-if ($LASTEXITCODE -ne 0 -or $localTip -cne $remoteTip) {
-  throw "local master is not the freshly observed canonical production tip"
+
+# Keep a complete synchronized master baseline even though the portable live
+# checkout uses the separately authorized topic branch.
+& $gitLauncher switch master
+if ($LASTEXITCODE -ne 0) { throw "master checkout failed" }
+& $gitLauncher merge --ff-only origin/master
+if ($LASTEXITCODE -ne 0) { throw "local master cannot fast-forward exactly" }
+$localMaster = (& $gitLauncher rev-parse master)
+$cachedMaster = (& $gitLauncher rev-parse origin/master)
+$liveMasterRows = @(& $gitPayload ls-remote --exit-code --refs $canonicalOrigin refs/heads/master)
+if ($LASTEXITCODE -ne 0 -or $liveMasterRows.Count -ne 1 -or
+    [string]$liveMasterRows[0] -cnotmatch '^(?<oid>[0-9a-f]{40}|[0-9a-f]{64})\s+refs/heads/master$') {
+  throw "fresh canonical master proof is malformed or unavailable"
+}
+$liveMaster = [string]$Matches.oid
+if ($localMaster -cne $cachedMaster -or $localMaster -cne $liveMaster) {
+  throw "local, cached, and live canonical master are not synchronized"
+}
+
+& $gitLauncher switch --track -c $portableLiveBranch $cachedPortableRef
+if ($LASTEXITCODE -ne 0) { throw "authorized portable branch checkout failed" }
+$checkedOutBranch = (& $gitLauncher branch --show-current)
+$headTip = (& $gitLauncher rev-parse HEAD)
+$localBranchTip = (& $gitLauncher rev-parse $portableLiveBranch)
+$cachedBranchTip = (& $gitLauncher rev-parse $cachedPortableRef)
+$liveBranchRows = @(& $gitPayload ls-remote --exit-code --refs $canonicalOrigin $portableLiveRef)
+if ($LASTEXITCODE -ne 0 -or $liveBranchRows.Count -ne 1 -or
+    [string]$liveBranchRows[0] -cnotmatch ('^(?<oid>[0-9a-f]{40}|[0-9a-f]{64})\s+' +
+      [regex]::Escape($portableLiveRef) + '$')) {
+  throw "fresh canonical portable-branch proof is malformed or unavailable"
+}
+$liveBranchTip = [string]$Matches.oid
+if ($checkedOutBranch -cne $portableLiveBranch -or
+    $headTip -cne $localBranchTip -or
+    $headTip -cne $cachedBranchTip -or
+    $headTip -cne $liveBranchTip) {
+  throw "portable HEAD/local/cached/live branch identity is not exact"
+}
+& $gitPayload merge-base --is-ancestor $liveMaster $headTip
+if ($LASTEXITCODE -ne 0) {
+  throw "synchronized canonical master is not an ancestor of the portable tip"
+}
+if (@(& $gitPayload status --porcelain=v1 --untracked-files=all).Count -ne 0) {
+  throw "portable live checkout is not clean"
 }
 
 & $gitLauncher lfs pull --include="artifacts/models/hgb/*.pkl"
@@ -429,8 +537,9 @@ The `public_candidate_substrate` field remains `NOT_EVALUATED`: this command is
 deliberately offline and does not claim that market data or a paper quote is
 ready.
 
-After the exact assignment tip is merged and pulled, rerun and require a clean
-terminal result:
+After the exact assigned-host change is present on the reviewed, CI-green,
+owner-authorized remote branch and the full Git proof above passes, rerun and
+require a clean terminal result:
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -449,9 +558,11 @@ if ($hostStatusExit -ne 0 -or
 After that offline audit, return to the live-pilot runbook. Candidate/economics
 collection, host-local credential comparison, official geographic eligibility,
 account bootstrap, and every attended mutation literal remain action-time
-gates. The portable lane permits a same-target-date session outside the
-capture PC's `[00:30, 09:00)` timetable, but its fixed 240-second execution
-envelope plus cleanup reserve may not cross the target-date boundary. Its
+gates. The portable lane permits a session while the immutable candidate's
+target is the selected market's current or immediately following local date,
+outside the capture PC's `[00:30, 09:00)` timetable. Its fixed 240-second
+execution envelope plus cleanup reserve must remain within one market-local
+execution date. Its
 strict public paper proof uses `--config quote_ttl_seconds=600`, and the
 reviewed launcher requires at least 180 seconds remaining at its boundary.
 The local substrate preflight is valid for at most 600 seconds and its
@@ -470,13 +581,17 @@ current-user installation, create a fresh compare-only credential receipt, and
 create a fresh candidate and all three attempts. Do not re-import the already
 installed SDK roots.
 
-For a different PC, Windows reinstall, or token principal, commit and merge a
-new exact host/principal assignment, then repeat clone/venv provisioning,
-Git/Git-LFS and HGB proof, SDK transfer/import under a new transfer namespace,
-offline host audit, fresh public candidate collection, credential provisioning
-and compare-only verification, and all three attempt builds. Do not edit an old
-host ID or absolute path into existing evidence; the old production tip and all
-old host receipts are designed to block.
+For a different PC, Windows reinstall, or token principal, commit and publish a
+new exact host/principal assignment to a reviewed, CI-green branch with explicit
+owner authorization, then repeat clone/venv provisioning, Git/Git-LFS and HGB
+proof, SDK transfer/import under a new transfer namespace, offline host audit,
+fresh public candidate collection, credential provisioning and compare-only
+verification, and all three attempt builds. The named portable-only exception
+above applies only to its exact branch; any different branch needs a new
+explicit operator decision, while normal production adoption still uses the
+guarded integration procedure. Do not edit an old host ID or absolute path into
+existing evidence; the old Git tip and all old host receipts are designed to
+block.
 
 ## Update when
 

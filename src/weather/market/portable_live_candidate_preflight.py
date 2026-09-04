@@ -13,6 +13,7 @@ import copy
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -46,6 +47,9 @@ from weather.schema_registry import schema_version
 SCHEMA_VERSION = schema_version("portable_live_candidate_substrate_preflight")
 MAX_PUBLIC_INPUT_AGE_SECONDS = 600.0
 MAX_BOOK_AGE_SECONDS = 180.0
+_CONDITION_ID_RE = re.compile(r"^0x[0-9a-fA-F]{64}$")
+_TOKEN_ID_RE = re.compile(r"^[1-9][0-9]{0,77}$")
+_MAX_TOKEN_ID = (1 << 256) - 1
 
 
 def _reject_duplicate_pairs(pairs):
@@ -121,15 +125,34 @@ def _selected_observation(payload: dict, market_id: str) -> dict:
     return observation if isinstance(observation, dict) else {}
 
 
-def _economics_market(payload: dict, market_id: str, target_date: str) -> dict:
-    matches = [
+def _economics_markets(
+    payload: dict,
+    market_id: str,
+    target_date: str,
+) -> list[dict]:
+    return [
         row
         for row in payload.get("markets") or []
         if isinstance(row, dict)
         and row.get("location_id") == market_id
         and row.get("event_date") == target_date
     ]
-    return matches[0] if len(matches) == 1 else {}
+
+
+def _canonical_condition_id(value) -> str | None:
+    if not isinstance(value, str) or _CONDITION_ID_RE.fullmatch(value) is None:
+        return None
+    return value.lower()
+
+
+def _canonical_token_id(value) -> str | None:
+    if (
+        not isinstance(value, str)
+        or _TOKEN_ID_RE.fullmatch(value) is None
+        or int(value) > _MAX_TOKEN_ID
+    ):
+        return None
+    return value
 
 
 def _validation_content_is_intact(payload: dict) -> bool:
@@ -275,7 +298,7 @@ def build_preflight(
         max_age_hours=2,
         required=True,
     )
-    economics_market = _economics_market(economics_payload, market_id, target)
+    economics_markets = _economics_markets(economics_payload, market_id, target)
     acceptance = load_economics_acceptance_evidence(
         paths["economics_snapshot"],
         paths["accepted_economics_snapshot"],
@@ -295,20 +318,47 @@ def build_preflight(
         now=current,
     )
 
-    token_conditions = {
-        str(row.get("condition_id") or "").lower()
-        for row in token_rows
-        if row.get("condition_id")
-    }
-    token_ids = {
-        str(row.get("clob_token_id") or "")
-        for row in token_rows
-        if row.get("clob_token_id")
-    }
-    economics_condition = str(economics_market.get("condition_id") or "").lower()
-    economics_tokens = {
-        str(value) for value in economics_market.get("token_ids") or [] if value
-    }
+    token_condition_tokens: dict[str, set[str]] = {}
+    token_pairs: set[tuple[str, str]] = set()
+    token_rows_exact = bool(token_rows)
+    for row in token_rows:
+        condition = _canonical_condition_id(row.get("condition_id"))
+        token = _canonical_token_id(row.get("clob_token_id"))
+        if condition is None or token is None or (condition, token) in token_pairs:
+            token_rows_exact = False
+            continue
+        token_pairs.add((condition, token))
+        token_condition_tokens.setdefault(condition, set()).add(token)
+    token_rows_exact = (
+        token_rows_exact
+        and bool(token_condition_tokens)
+        and all(len(tokens) == 2 for tokens in token_condition_tokens.values())
+    )
+    economics_condition_tokens: dict[str, set[str]] = {}
+    economics_rows_exact = bool(economics_markets)
+    for row in economics_markets:
+        condition = _canonical_condition_id(row.get("condition_id"))
+        raw_tokens = row.get("token_ids")
+        tokens = (
+            [_canonical_token_id(value) for value in raw_tokens]
+            if isinstance(raw_tokens, list)
+            else []
+        )
+        canonical_tokens = {token for token in tokens if token is not None}
+        if (
+            condition is None
+            or row.get("event_slug") != config.event_slug
+            or not isinstance(raw_tokens, list)
+            or len(tokens) != 2
+            or any(token is None for token in tokens)
+            or len(canonical_tokens) != 2
+            or condition in economics_condition_tokens
+        ):
+            economics_rows_exact = False
+            continue
+        economics_condition_tokens[condition] = canonical_tokens
+    economics_conditions = set(economics_condition_tokens)
+    token_conditions = set(token_condition_tokens)
     paper_markets = paper_preflight.get("markets") or []
     paper_market = paper_markets[0] if len(paper_markets) == 1 else {}
     token_times = [
@@ -382,13 +432,18 @@ def build_preflight(
             selected_observation.get("event_slug") == config.event_slug
         ),
         "economics_gate_pass": economics_gate.get("ok") is True,
-        "economics_market_exact": bool(economics_market),
+        "economics_market_exact": economics_rows_exact,
         "economics_condition_matches_tokens": (
-            bool(economics_condition)
-            and token_conditions == {economics_condition}
+            economics_rows_exact
+            and token_rows_exact
+            and bool(economics_conditions)
+            and token_conditions == economics_conditions
         ),
         "economics_tokens_match_collector": (
-            bool(economics_tokens) and economics_tokens == token_ids
+            economics_rows_exact
+            and token_rows_exact
+            and bool(economics_condition_tokens)
+            and economics_condition_tokens == token_condition_tokens
         ),
         "economics_acceptance_pass": acceptance.get("drift_status") == "PASS",
         "paper_config_snapshot_root": _same_path(

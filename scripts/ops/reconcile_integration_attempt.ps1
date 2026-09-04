@@ -353,6 +353,9 @@ function Assert-WeatherReconciliationActiveMarker {
     catch { throw "Active quiet-merge marker is not strict UTF-8." }
     try { $marker = $markerRaw | ConvertFrom-Json }
     catch { throw "Active quiet-merge marker JSON is unreadable." }
+    if ([string]$marker.operation_mode -ceq "production_baseline_reconciliation_v0.1") {
+        throw "Production-baseline reconciliation markers are one-shot and cannot enter generic publication resume."
+    }
     Assert-WeatherIntegrationBooleanProperties `
         -Object $marker `
         -Names @("execution_tape_readoption_expected") `

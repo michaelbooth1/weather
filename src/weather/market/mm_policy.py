@@ -1832,15 +1832,16 @@ def run_policy_snapshot(
     return payload
 
 
-def parse_config_overrides(items):
+def parse_config_overrides(items, *, extra_defaults=None):
+    defaults = {**DEFAULT_POLICY_CONFIG, **(extra_defaults or {})}
     config = {}
     for item in items or []:
         if "=" not in item:
             raise SystemExit(f"Invalid --config override {item!r}; expected key=value")
         key, value = item.split("=", 1)
-        if key not in DEFAULT_POLICY_CONFIG:
+        if key not in defaults:
             raise SystemExit(f"Unknown policy config key {key!r}")
-        default = DEFAULT_POLICY_CONFIG[key]
+        default = defaults[key]
         if isinstance(default, bool):
             config[key] = bool_value(value)
         elif isinstance(default, (int, float)):
