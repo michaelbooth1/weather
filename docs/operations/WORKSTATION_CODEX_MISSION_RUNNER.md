@@ -43,6 +43,14 @@ runner, Job-helper, PowerShell, and Git path and SHA-256 before it begins
 handback validation. A changed executable path or byte digest terminalizes as
 `IDENTITY_DRIFT`.
 
+Successful validation identifies the required report and receipt by their
+committed Git blobs at the validated result tip. For each file, the terminal
+validation records its blob OID, byte length, and SHA-256. The digest is
+computed while reading raw `git cat-file blob` stdout as bytes from the already
+claimed `git.exe`; the runner does not decode text, redirect through a shell,
+or materialize a temporary file. A process, exit, stream, or length mismatch
+fails validation.
+
 The runner launches a private Windows PowerShell child suspended, assigns it to
 the existing repository-owned kill-on-close Job Object, and then resumes it.
 The child waits for the immutable claim before starting the pinned executable.
@@ -148,7 +156,18 @@ requires all of the following:
 - the bundle path and receipt paths are exact; and
 - an empty short-path bare repository can verify and fetch the result ref from
   the bundle, find the base/source/implementation/final commits, and pass
-  `git fsck --strict --full --no-dangling`.
+  `git fsck --strict --full --no-dangling`; and
+- terminal validation exports `report_blob_oid`, `report_blob_bytes`,
+  `report_blob_sha256`, `handback_receipt_blob_oid`,
+  `handback_receipt_blob_bytes`, and `handback_receipt_blob_sha256` from those
+  exact objects in the verified bundle repository.
+
+The separately named `*_worktree_bytes` and `*_worktree_sha256` values are
+diagnostics only. A clean worktree does not imply byte equality with a Git blob:
+attributes such as `text=auto,eol=lf` can normalize CRLF worktree content to LF
+when it is committed. External publication bindings must copy the six committed
+blob identity fields from terminal validation and use those values as the
+portable report and receipt identities.
 
 The receipt containing itself cannot embed its own final commit/tree or the
 SHA-256 of the bundle that contains that commit. It must instead contain:
@@ -162,9 +181,10 @@ SHA-256 of the bundle that contains that commit. It must instead contain:
 }
 ```
 
-The immutable terminal receipt supplies those three final values after strict
-verification. This avoids a recursive hash claim while preserving an exact
-external binding.
+The immutable terminal receipt supplies those three final values and both
+committed report/receipt blob identities after strict verification. The
+create-only external publication binding copies them. This avoids a recursive
+hash claim while preserving an exact, portable binding.
 
 ## Run example
 

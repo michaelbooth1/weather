@@ -417,7 +417,7 @@ def _status_command(fixture, claim_sha: str, stale_after: int = 30) -> list[str]
     ]
 
 
-def _write_handback_helper(fixture) -> None:
+def _write_handback_helper(fixture, *, normalize_handback_text: bool = False) -> None:
     values = {
         "repo": str(fixture["repo"]),
         "result": str(fixture["result_worktree"]),
@@ -433,13 +433,39 @@ def _write_handback_helper(fixture) -> None:
         "mission_sha": fixture["mission_sha"],
     }
     encoded = json.dumps(values, separators=(",", ":"))
+    attributes_setup = ""
+    implementation_paths = "implementation.txt"
+    changed_paths = (
+        "@('.gitattributes','docs/roadmap/synthetic-handback.json',"
+        "'docs/roadmap/synthetic-report.md','implementation.txt')"
+        if normalize_handback_text
+        else "@('docs/roadmap/synthetic-handback.json','docs/roadmap/synthetic-report.md','implementation.txt')"
+    )
+    report_write = (
+        "[IO.File]::WriteAllText($reportFull,\"# Synthetic validated handback`r`n\",$utf8)\n"
+        if normalize_handback_text
+        else "[IO.File]::WriteAllText($reportFull,'# Synthetic validated handback`n',$utf8)\n"
+    )
+    receipt_write = (
+        "$receiptText=($payload|ConvertTo-Json -Depth 12) -replace \"`r?`n\",\"`r`n\"\n"
+        "[IO.File]::WriteAllText($receiptFull,$receiptText+\"`r`n\",$utf8)\n"
+        if normalize_handback_text
+        else "[IO.File]::WriteAllText($receiptFull,($payload|ConvertTo-Json -Depth 12)+\"`n\",$utf8)\n"
+    )
+    if normalize_handback_text:
+        attributes_setup = (
+            "[IO.File]::WriteAllText((Join-Path $v.result '.gitattributes'),"
+            "\"docs/roadmap/*.md text eol=lf`ndocs/roadmap/*.json text eol=lf`n\",$utf8)\n"
+        )
+        implementation_paths = ".gitattributes implementation.txt"
     fixture["helper"].write_text(
         f"$v = '{encoded}' | ConvertFrom-Json\n"
         "$utf8=[Text.UTF8Encoding]::new($false)\n"
         "git -C $v.repo worktree add -b $v.branch $v.result $v.source\n"
         "if($LASTEXITCODE -ne 0){exit 61}\n"
+        f"{attributes_setup}"
         "[IO.File]::WriteAllText((Join-Path $v.result 'implementation.txt'),'implemented`n',$utf8)\n"
-        "git -C $v.result add -- implementation.txt\n"
+        f"git -C $v.result add -- {implementation_paths}\n"
         "git -C $v.result commit -q -m 'synthetic implementation'\n"
         "if($LASTEXITCODE -ne 0){exit 62}\n"
         "$implementationTip=(git -C $v.result rev-parse HEAD).Trim()\n"
@@ -447,18 +473,18 @@ def _write_handback_helper(fixture) -> None:
         "$reportFull=Join-Path $v.result ($v.report -replace '/','\\')\n"
         "$receiptFull=Join-Path $v.result ($v.receipt -replace '/','\\')\n"
         "[void](New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($reportFull)) -Force)\n"
-        "[IO.File]::WriteAllText($reportFull,'# Synthetic validated handback`n',$utf8)\n"
+        f"{report_write}"
         "$payload=[ordered]@{\n"
         " schema_version='workstation_unattended_mission_handback_v0.1'; mission_id='synthetic-mission'; mission_sha256=$v.mission_sha;\n"
         " source_tip=$v.source; source_tree=$v.source_tree; base_tip=$v.base; base_tree=$v.base_tree; result_ref=$v.result_ref;\n"
         " implementation_tip=$implementationTip; implementation_tree=$implementationTree; report_path=$v.report; receipt_path=$v.receipt; bundle_path=$v.bundle;\n"
-        " changed_paths=@('docs/roadmap/synthetic-handback.json','docs/roadmap/synthetic-report.md','implementation.txt');\n"
+        f" changed_paths={changed_paths};\n"
         " tests=@([ordered]@{name='synthetic';status='PASS'}); script_sha256=[ordered]@{};\n"
         " terminal_state_semantics=[ordered]@{complete='COMPLETE_VALIDATED'}; measured_evidence=[ordered]@{synthetic=$true};\n"
         " remaining_reboot_boundary='No process supervisor survives host power loss.'; prohibited_actions=@('push','merge','scheduler','production');\n"
         " external_binding=[ordered]@{rule='terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256';final_tip=$null;final_tree=$null;bundle_sha256=$null}\n"
         "}\n"
-        "[IO.File]::WriteAllText($receiptFull,($payload|ConvertTo-Json -Depth 12)+\"`n\",$utf8)\n"
+        f"{receipt_write}"
         "git -C $v.result add -- $v.report $v.receipt\n"
         "git -C $v.result commit -q -m 'synthetic handback'\n"
         "if($LASTEXITCODE -ne 0){exit 63}\n"
@@ -467,6 +493,19 @@ def _write_handback_helper(fixture) -> None:
         "exit 0\n",
         encoding="utf-8",
     )
+
+
+def _git_blob_identity(repo: Path, tip: str, relative_path: str) -> tuple[str, int, str]:
+    oid = _git("rev-parse", "--verify", f"{tip}:{relative_path}", cwd=repo).stdout.strip()
+    length = int(_git("cat-file", "-s", oid, cwd=repo).stdout.strip())
+    content = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "blob", oid],
+        capture_output=True,
+        timeout=30,
+        check=True,
+    ).stdout
+    assert len(content) == length
+    return oid, length, hashlib.sha256(content).hexdigest()
 
 
 def test_heartbeat_is_atomic_fresh_and_status_is_read_only(attempt_fixture):
@@ -526,6 +565,65 @@ def test_success_requires_validated_handback_and_complete_bundle(attempt_fixture
         "rev-parse", attempt_fixture["result_ref"], cwd=attempt_fixture["repo"]
     ).stdout.strip()
     assert _git("status", "--porcelain=v1", cwd=attempt_fixture["result_worktree"]).stdout == ""
+
+
+def test_handback_publication_identity_uses_committed_blobs(attempt_fixture, tmp_path: Path):
+    _write_handback_helper(attempt_fixture, normalize_handback_text=True)
+    completed = _run(
+        attempt_fixture,
+        "handback",
+        extra_env={"FAKE_HANDBACK_HELPER": str(attempt_fixture["helper"])},
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    terminal = _terminal(attempt_fixture)
+    validation = terminal["validation"]
+    result_tip = validation["result_tip"]
+
+    report_full = attempt_fixture["result_worktree"] / attempt_fixture["report"]
+    receipt_full = attempt_fixture["result_worktree"] / attempt_fixture["receipt"]
+    report_identity = _git_blob_identity(
+        attempt_fixture["repo"], result_tip, attempt_fixture["report"]
+    )
+    receipt_identity = _git_blob_identity(
+        attempt_fixture["repo"], result_tip, attempt_fixture["receipt"]
+    )
+    assert report_full.read_bytes().count(b"\r\n") > 0
+    assert receipt_full.read_bytes().count(b"\r\n") > 0
+    report_worktree_sha = validation.get(
+        "report_worktree_sha256", validation.get("report_sha256")
+    )
+    receipt_worktree_sha = validation.get(
+        "handback_receipt_worktree_sha256", validation.get("handback_receipt_sha256")
+    )
+    assert report_worktree_sha == _sha(report_full)
+    assert receipt_worktree_sha == _sha(receipt_full)
+    assert report_worktree_sha != report_identity[2]
+    assert receipt_worktree_sha != receipt_identity[2]
+
+    assert (
+        validation.get("report_blob_oid"),
+        validation.get("report_blob_bytes"),
+        validation.get("report_blob_sha256"),
+    ) == report_identity, "runner publication identity still comes from report worktree bytes"
+    assert (
+        validation.get("handback_receipt_blob_oid"),
+        validation.get("handback_receipt_blob_bytes"),
+        validation.get("handback_receipt_blob_sha256"),
+    ) == receipt_identity, "runner publication identity still comes from receipt worktree bytes"
+
+    independent = tmp_path / "independent.git"
+    _git("init", "--bare", str(independent))
+    _git(
+        "fetch",
+        "--no-tags",
+        str(attempt_fixture["bundle"]),
+        f"{attempt_fixture['result_ref']}:refs/heads/verified",
+        cwd=independent,
+    )
+    independent_tip = _git("rev-parse", "refs/heads/verified", cwd=independent).stdout.strip()
+    assert independent_tip == result_tip
+    assert _git_blob_identity(independent, independent_tip, attempt_fixture["report"]) == report_identity
+    assert _git_blob_identity(independent, independent_tip, attempt_fixture["receipt"]) == receipt_identity
 
 
 def test_zero_exit_without_handback_is_invalid(attempt_fixture):

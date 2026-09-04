@@ -21,6 +21,13 @@ LFS object for `artifacts/models/hgb/feature_model_hgb.pkl` and failed with
 the final identity boundary did not recheck the already-claimed Git and Windows
 PowerShell path/digest pairs.
 
+Independent review of the 99b handback supplied a third falsifier. Its external
+binding identified the receipt from a 19,441-byte CRLF worktree file with
+SHA-256 `d0ce9e67d37624504a90f7f5cf2bef6af75fd78ab5325f5aadbbcd45f8136ee1`,
+while commit blob `c78ed0e0d63aa80b1d722ca8eaf08225d8831320` contained 19,163 LF bytes
+with SHA-256 `345e655e46ea1aa30639a1f35e4275eb6f12fbdba4322eda6476c840eaf5f843`.
+The clean worktree did not make those byte streams equal.
+
 Why this matters: long implementation missions outlive interactive client
 connections. Without a
 fresh heartbeat, absolute deadline, whole-tree containment, immutable attempt
@@ -46,6 +53,10 @@ work from a stranded process or trust a zero exit as a reviewable handback.
   leave Git configuration and non-LFS filter behavior unchanged.
 - [x] Re-resolve and rehash Git and Windows PowerShell with every other claimed
   executable at the post-child identity boundary before handback validation.
+- [x] Resolve the required report and receipt to exact blobs at the validated
+  final tip, hash raw `git cat-file blob` bytes with length checks, and require
+  external publication bindings to copy those portable identities from
+  terminal validation.
 - [ ] Obtain independent review and integrate the exact result tip through the
   repository Git workflow.
 - [ ] Run one new non-production unattended mission with the adopted runner and
@@ -55,8 +66,9 @@ Acceptance: an adopted runner attempt can report fresh progress, stop its full
 child tree by an absolute deadline, survive client disconnection while the
 wrapper remains alive, and declare `COMPLETE_VALIDATED` only when the exact
 result ref, clean worktree, required receipt/report, declared tests and hashes,
-complete bundle, and strict fsck all pass. A host reboot remains an explicit
-boundary until a separately reviewed Scheduler or service supervisor exists.
+committed report/receipt blob OIDs, lengths and SHA-256 values, complete bundle,
+and strict fsck all pass. A host reboot remains an explicit boundary until a
+separately reviewed Scheduler or service supervisor exists.
 
 ## Evidence
 
@@ -75,6 +87,11 @@ boundary until a separately reviewed Scheduler or service supervisor exists.
   `codex/workstation-unattended-mission-runner-lfs-repair-2026-09-99b`.
 - Repair contracts: the local loopback LFS batch/download falsifier and copied
   Git/Windows PowerShell path/SHA drift cases in
+  `tests/operations/test_workstation_codex_mission_runner.py`.
+- Portable-binding repair branch:
+  `codex/workstation-unattended-mission-runner-portable-binding-repair-2026-09-99c`.
+- Portable-binding contract: a CRLF handback normalized to LF on commit, with
+  both exact identities reproduced from a second bare repository, in
   `tests/operations/test_workstation_codex_mission_runner.py`.
 
 ## Completion notes

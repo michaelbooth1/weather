@@ -313,6 +313,126 @@ function Get-GitScalar {
     return ([string]$result.Output[0]).Trim()
 }
 
+function Get-CommittedBlobIdentity {
+    param(
+        [Parameter(Mandatory = $true)][string]$Repository,
+        [Parameter(Mandatory = $true)][string]$Tip,
+        [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+    if ($Tip -cnotmatch '\A[0-9a-f]{40}\z') {
+        throw "committed blob tip is invalid"
+    }
+    $blobOid = Get-GitScalar -Arguments @(
+        "-C", $Repository, "rev-parse", "--verify", "$Tip`:$RelativePath"
+    )
+    if ($blobOid -cnotmatch '\A[0-9a-f]{40}\z') {
+        throw "committed blob OID is invalid: $RelativePath"
+    }
+    $objectType = Get-GitScalar -Arguments @(
+        "-C", $Repository, "cat-file", "-t", $blobOid
+    )
+    if ($objectType -cne "blob") {
+        throw "committed handback object is not a blob: $RelativePath"
+    }
+    $lengthText = Get-GitScalar -Arguments @(
+        "-C", $Repository, "cat-file", "-s", $blobOid
+    )
+    $expectedLength = 0L
+    if (-not [long]::TryParse(
+        $lengthText,
+        [Globalization.NumberStyles]::None,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [ref]$expectedLength
+    ) -or $expectedLength -lt 0) {
+        throw "committed blob length is invalid: $RelativePath"
+    }
+
+    $info = [Diagnostics.ProcessStartInfo]::new()
+    $info.FileName = $script:GitExecutable
+    $info.Arguments = (
+        "-c credential.helper= -c core.askPass= cat-file blob {0}" -f $blobOid
+    )
+    $info.WorkingDirectory = $Repository
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardOutput = $true
+    $info.RedirectStandardError = $true
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $info
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    $oldPrompt = $env:GIT_TERMINAL_PROMPT
+    $oldInteractive = $env:GCM_INTERACTIVE
+    $started = $false
+    try {
+        $env:GIT_TERMINAL_PROMPT = "0"
+        $env:GCM_INTERACTIVE = "Never"
+        try { $started = $process.Start() }
+        catch { throw "committed blob Git process failed to start: $RelativePath" }
+        if (-not $started) {
+            throw "committed blob Git process did not start: $RelativePath"
+        }
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        $buffer = [byte[]]::new(65536)
+        $actualLength = 0L
+        $streamFailure = $null
+        try {
+            while ($true) {
+                $read = $process.StandardOutput.BaseStream.Read(
+                    $buffer,
+                    0,
+                    $buffer.Length
+                )
+                if ($read -eq 0) { break }
+                if ($actualLength -gt ([long]::MaxValue - $read)) {
+                    throw "committed blob stdout length overflow"
+                }
+                [void]$hasher.TransformBlock($buffer, 0, $read, $null, 0)
+                $actualLength += $read
+            }
+            [void]$hasher.TransformFinalBlock([byte[]]::new(0), 0, 0)
+        }
+        catch { $streamFailure = $_ }
+        if ($null -ne $streamFailure -and -not $process.HasExited) {
+            try { $process.Kill() } catch { }
+        }
+        $process.WaitForExit()
+        $stderr = $stderrTask.GetAwaiter().GetResult()
+        if ($null -ne $streamFailure) {
+            throw "committed blob stdout stream failed: $RelativePath"
+        }
+        if ($process.ExitCode -ne 0) {
+            throw (
+                "committed blob Git process failed ($($process.ExitCode)): " +
+                "$RelativePath`n$stderr"
+            )
+        }
+        if ($actualLength -ne $expectedLength) {
+            throw (
+                "committed blob stdout length mismatch: $RelativePath " +
+                "expected $expectedLength, read $actualLength"
+            )
+        }
+        $sha256 = -join ($hasher.Hash | ForEach-Object { $_.ToString("x2") })
+        if ($sha256 -cnotmatch '\A[0-9a-f]{64}\z') {
+            throw "committed blob SHA-256 is invalid: $RelativePath"
+        }
+        return [pscustomobject]@{
+            Oid = $blobOid
+            Bytes = $actualLength
+            Sha256 = $sha256
+        }
+    }
+    finally {
+        $env:GIT_TERMINAL_PROMPT = $oldPrompt
+        $env:GCM_INTERACTIVE = $oldInteractive
+        if ($started -and -not $process.HasExited) {
+            try { $process.Kill(); $process.WaitForExit() } catch { }
+        }
+        $process.Dispose()
+        $hasher.Dispose()
+    }
+}
+
 function Get-BootId {
     $boot = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
     return Get-StringSha256 -Value (
@@ -649,13 +769,29 @@ function Assert-Handback {
         [void](Invoke-LocalGit -Arguments @("-C", $verifyRoot, "cat-file", "-e", "$object^{commit}"))
     }
     [void](Invoke-LocalGit -Arguments @("-C", $verifyRoot, "fsck", "--strict", "--full", "--no-dangling"))
+    $reportBlob = Get-CommittedBlobIdentity `
+        -Repository $verifyRoot `
+        -Tip $bundledTip `
+        -RelativePath $RequiredReportPath
+    $receiptBlob = Get-CommittedBlobIdentity `
+        -Repository $verifyRoot `
+        -Tip $bundledTip `
+        -RelativePath $RequiredReceiptPath
     return [ordered]@{
         result_tip = $tip
         result_tree = $tree
         implementation_tip = $implementationTip
         implementation_tree = $implementationTree
-        report_sha256 = Get-Sha256 -Path $reportFull
-        handback_receipt_sha256 = Get-Sha256 -Path $receiptFull
+        report_blob_oid = $reportBlob.Oid
+        report_blob_bytes = $reportBlob.Bytes
+        report_blob_sha256 = $reportBlob.Sha256
+        handback_receipt_blob_oid = $receiptBlob.Oid
+        handback_receipt_blob_bytes = $receiptBlob.Bytes
+        handback_receipt_blob_sha256 = $receiptBlob.Sha256
+        report_worktree_bytes = (Get-Item -LiteralPath $reportFull).Length
+        report_worktree_sha256 = Get-Sha256 -Path $reportFull
+        handback_receipt_worktree_bytes = (Get-Item -LiteralPath $receiptFull).Length
+        handback_receipt_worktree_sha256 = Get-Sha256 -Path $receiptFull
         bundle_path = $bundle
         bundle_bytes = (Get-Item -LiteralPath $bundle).Length
         bundle_sha256 = Get-Sha256 -Path $bundle
