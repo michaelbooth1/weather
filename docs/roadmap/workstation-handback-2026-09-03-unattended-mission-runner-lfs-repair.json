@@ -1,0 +1,279 @@
+{
+    "schema_version":  "workstation_unattended_mission_handback_v0.1",
+    "generated_at_utc":  "2026-09-04T03:28:26.2942661+00:00",
+    "verdict":  "PASS_REPAIRED",
+    "mission_id":  "workstation-unattended-mission-runner-lfs-repair-2026-09-99b",
+    "mission_path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-mission-runner-lfs-repair-2026-09-99b\\mission.md",
+    "mission_sha256":  "c012a47b3e74e5f828159765c3dd768bbb3f387b9b116ca45d1d3d2946cef1aa",
+    "origin":  "https://github.com/michaelbooth1/weather.git",
+    "source_tip":  "b11626edb02f2c36d467597c83c067547c4ede39",
+    "source_tree":  "e5d1292e6e6fa4c21102172744aba544862a3540",
+    "source_sole_parent":  "0a8108f9d24321aaac88762c28426f8ca68d2bf8",
+    "base_tip":  "ca75c2e476e865047f07dc9856e5897533834684",
+    "base_tree":  "1c2a7fd18dacc84c6a0e9abd4afe837c0bab3801",
+    "result_ref":  "refs/heads/codex/workstation-unattended-mission-runner-lfs-repair-2026-09-99b",
+    "result_worktree":  "C:\\Users\\Michael\\Documents\\github\\weather\\scratch\\w\\unattended-runner-lfs-repair-09-99b",
+    "implementation_tip":  "cb2b5c6eaafc51d67eb42cad009502506e5e6ec5",
+    "implementation_tree":  "d4ddddc65584d9fbc719ba63356e81cf2bf99c36",
+    "implementation_sole_parent":  "b11626edb02f2c36d467597c83c067547c4ede39",
+    "report_path":  "docs/roadmap/agent-report-2026-09-03-workstation-unattended-mission-runner-lfs-repair.md",
+    "receipt_path":  "docs/roadmap/workstation-handback-2026-09-03-unattended-mission-runner-lfs-repair.json",
+    "bundle_path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-mission-runner-lfs-repair-2026-09-99b\\publication-transfer-final.bundle",
+    "changed_paths":  [
+                          "docs/operations/WORKSTATION_CODEX_MISSION_RUNNER.md",
+                          "docs/roadmap/active-backlog.md",
+                          "docs/roadmap/agent-report-2026-09-03-workstation-unattended-mission-runner-lfs-repair.md",
+                          "docs/roadmap/items/item-332-unattended-workstation-mission-runner.md",
+                          "docs/roadmap/workstation-handback-2026-09-03-unattended-mission-runner-lfs-repair.json",
+                          "scripts/ops/invoke_workstation_codex_mission.ps1",
+                          "tests/operations/test_workstation_codex_mission_runner.py"
+                      ],
+    "original_observed_failure":  {
+                                      "source":  "production controller independent 99a bundle review",
+                                      "artifact":  "artifacts/models/hgb/feature_model_hgb.pkl",
+                                      "error_lines":  [
+                                                          "Error downloading object: artifacts/models/hgb/feature_model_hgb.pkl (bf53fd6)",
+                                                          "Smudge error: batch request: missing protocol: \"\"",
+                                                          "error: external filter \u0027git-lfs filter-process\u0027 failed"
+                                                      ],
+                                      "ordinary_worktree_add_failed":  true,
+                                      "skip_smudge_worktree_add_succeeded":  true
+                                  },
+    "tests":  [
+                  {
+                      "name":  "local_lfs_and_executable_identity_falsifiers_green",
+                      "status":  "PASS",
+                      "counts":  {
+                                     "passed":  5
+                                 },
+                      "seconds":  4.54,
+                      "junit_sha256":  "28f4d96c2b5208fddbbf8b7d7629448ac3031b54cecf7b920f8381f26680c414",
+                      "red_before":  {
+                                         "counts":  {
+                                                        "failed":  5
+                                                    },
+                                         "seconds":  4.48,
+                                         "junit_sha256":  "42ec91e66695cb4b083db3552476949b23d4b584eb5a5d73edea04d43672da6f",
+                                         "test_source_sha256":  "6384fc09beafa25cce842b60d73d750235144cc2def621558ae408275bb20dd0"
+                                     }
+                  },
+                  {
+                      "name":  "complete_workstation_codex_mission_runner_operation_file",
+                      "status":  "PASS",
+                      "arguments":  [
+                                        "-m",
+                                        "pytest",
+                                        "-q",
+                                        "tests/operations/test_workstation_codex_mission_runner.py",
+                                        "--basetemp",
+                                        "C:\\t99b-runner"
+                                    ],
+                      "counts":  {
+                                     "passed":  15
+                                 },
+                      "seconds":  30.13,
+                      "junit_sha256":  "0bd536cbdbe151393b571c60dcd370f66735b69ae17cef162836fc974a82beb6"
+                  },
+                  {
+                      "name":  "windows_powershell_5_1_ast",
+                      "status":  "PASS",
+                      "paths":  [
+                                    "scripts/ops/invoke_workstation_codex_mission.ps1"
+                                ],
+                      "token_count":  7920,
+                      "parse_error_count":  0
+                  },
+                  {
+                      "name":  "compileall",
+                      "status":  "PASS",
+                      "arguments":  [
+                                        "-m",
+                                        "compileall",
+                                        "-q",
+                                        "app",
+                                        "src",
+                                        "tests"
+                                    ]
+                  },
+                  {
+                      "name":  "agent_docs_audit_and_roadmap_lint_check",
+                      "status":  "PASS",
+                      "commands":  [
+                                       [
+                                           "-m",
+                                           "weather.operations.agent_docs_audit"
+                                       ],
+                                       [
+                                           "-m",
+                                           "weather.reporting.roadmap.roadmap_backlog",
+                                           "--fail-on-lint",
+                                           "--check"
+                                       ]
+                                   ],
+                      "counts":  {
+                                     "passed":  2
+                                 },
+                      "seconds":  0.92,
+                      "junit_sha256":  "7c0197ecf932d8607c34cbd3e76aeff9db14de9586f8b795a4ee40f3a492bfee"
+                  },
+                  {
+                      "name":  "cumulative_implementation_diff_check",
+                      "status":  "PASS",
+                      "source_tip":  "b11626edb02f2c36d467597c83c067547c4ede39",
+                      "implementation_tip":  "cb2b5c6eaafc51d67eb42cad009502506e5e6ec5"
+                  }
+              ],
+    "reproduced_baseline_failures":  [
+                                         {
+                                             "name":  "complete_workstation_suite",
+                                             "status":  "REPRODUCED_BASELINE_FAILURES",
+                                             "arguments":  [
+                                                               "-m",
+                                                               "pytest",
+                                                               "-q",
+                                                               "--basetemp",
+                                                               "C:\\t99b-full"
+                                                           ],
+                                             "counts":  {
+                                                            "passed":  4230,
+                                                            "skipped":  18,
+                                                            "failed":  12,
+                                                            "subtests_passed":  862
+                                                        },
+                                             "seconds":  439.11,
+                                             "junit_sha256":  "caf7feacc9ea11badd792d947935695ccf026bd1d32d77ba89cc75300182fac1",
+                                             "baseline_junit_sha256":  "f7ee20f8ab4abe7aabd3090235f2bfdef750e62f066f4f0044ac19782ef9a151",
+                                             "exact_failure_node_identity_match":  true,
+                                             "classification":  "The exact twelve unchanged test_experiment_executor.py Windows MAX_PATH source-baseline failures reproduced; no other test failed."
+                                         }
+                                     ],
+    "script_sha256":  {
+                          "scripts/ops/invoke_workstation_codex_mission.ps1":  "4d204f176c2fb5201889c888cf7e9a054c518a422667482d4a60c35861ab112a",
+                          "scripts/ops/windows_kill_on_close_job.ps1":  "e910f4bcadd39a7b57413669fd75bcbff44b85aa46186c2f3324ec1a2ba36243",
+                          "scripts/ops/workstation_heavy.ps1":  "31a353c616e293882daab4292e8e7628ee09fdda032cb04bafed8ed8fe531532"
+                      },
+    "implementation_content_sha256":  {
+                                          "tests/operations/test_workstation_codex_mission_runner.py":  "02f780c904177752cc6ad8fd7bfbf31c19a7c864207f4729319db3f94bdac745",
+                                          "docs/operations/WORKSTATION_CODEX_MISSION_RUNNER.md":  "a46bef391d94fb3339e409019ecb53fc24b963f567318dea5e9f322d39a832fd",
+                                          "docs/roadmap/items/item-332-unattended-workstation-mission-runner.md":  "44f34464f8924a4b5ed507f630537859abe29f098e5246913af31f676658ef1e",
+                                          "docs/roadmap/active-backlog.md":  "2ee09a1d49491f111cf398cc484456c2c8bf90fbd9ef955f4e684f7b6aaadc8f"
+                                      },
+    "claimed_executable_identity":  {
+                                        "codex":  {
+                                                      "path":  "C:\\Users\\Michael\\AppData\\Local\\OpenAI\\Codex\\bin\\9ba750cce02d5e5c\\codex.exe",
+                                                      "sha256":  "be83164c07287d028cc4725105f3cceaaf244d53a862e19743f55e9150a66fc1"
+                                                  },
+                                        "powershell":  {
+                                                           "path":  "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                                                           "sha256":  "7600ffe12da441fe89d035b13801e8e91d064bc544a27b19a5cf49f6ab8b18f5"
+                                                       },
+                                        "git":  {
+                                                    "path":  "C:\\Program Files\\Git\\cmd\\git.exe",
+                                                    "sha256":  "81ef35ae005ca9318018d18e3327578ce939fb99feaad6b2d7c8ab15f3de8db5"
+                                                },
+                                        "external_prototype":  {
+                                                                   "path":  "C:\\Users\\Michael\\Documents\\Codex\\bin\\invoke-workstation-codex-mission.ps1",
+                                                                   "sha256":  "afb65b7e63083887f84f3fcfb407ff5f65e0d895b1a0d3c8a2f10474c9c84919"
+                                                               }
+                                    },
+    "terminal_state_semantics":  {
+                                     "COMPLETE_VALIDATED":  0,
+                                     "CHILD_FAILURE":  20,
+                                     "DEADLINE":  21,
+                                     "INTERRUPTED":  22,
+                                     "INVALID_HANDBACK":  23,
+                                     "IDENTITY_DRIFT":  24,
+                                     "TEARDOWN_FAILURE":  25,
+                                     "RUNNER_FAILURE":  26,
+                                     "success_rule":  "Only COMPLETE_VALIDATED is success; Codex exit zero alone is insufficient."
+                                 },
+    "measured_evidence":  {
+                              "lfs_red":  {
+                                              "internet_requests":  0,
+                                              "loopback_batch_posts":  1,
+                                              "loopback_payload_gets":  1,
+                                              "controller_materialized_payload":  true
+                                          },
+                              "lfs_green":  {
+                                                "internet_requests":  0,
+                                                "loopback_requests":  0,
+                                                "controller_pointer_bytes_exact":  true,
+                                                "controller_source_tip_and_tree_exact":  true,
+                                                "controller_clean":  true,
+                                                "process_environment_restored":  true,
+                                                "repository_git_config_unchanged":  true,
+                                                "user_global_git_config_unchanged":  true,
+                                                "system_git_config_unchanged":  true
+                                            },
+                              "executable_drift":  {
+                                                       "copied_git_path":  "IDENTITY_DRIFT",
+                                                       "copied_git_sha256":  "IDENTITY_DRIFT",
+                                                       "copied_powershell_path":  "IDENTITY_DRIFT",
+                                                       "copied_powershell_sha256":  "IDENTITY_DRIFT",
+                                                       "all_before_handback_validation":  true
+                                                   },
+                              "red_junit":  {
+                                                "path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-mission-runner-lfs-repair-2026-09-99b\\red-before-lfs-and-identity.junit.xml",
+                                                "bytes":  25325,
+                                                "sha256":  "42ec91e66695cb4b083db3552476949b23d4b584eb5a5d73edea04d43672da6f"
+                                            },
+                              "green_junit":  {
+                                                  "path":  "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-unattended-mission-runner-lfs-repair-2026-09-99b\\green-after-lfs-and-identity.junit.xml",
+                                                  "bytes":  1113,
+                                                  "sha256":  "28f4d96c2b5208fddbbf8b7d7629448ac3031b54cecf7b920f8381f26680c414"
+                                              }
+                          },
+    "report":  {
+                   "sha256":  "ad7bf098d356b8880d509676cbdce1cf03fad030ca9663b8878f3a30fe991c09",
+                   "bytes":  8687
+               },
+    "remaining_reboot_boundary":  "The kill-on-close Job, heartbeat, and deadline survive client disconnection only while the host and wrapper remain alive. A reboot destroys in-memory Job state; status can diagnose the changed boot, but no Scheduler task, service, restart supervisor, or automatic next attempt is implemented.",
+    "roll_classification":  {
+                                "dynamic_verdict":  "UNDECIDABLE",
+                                "production_roll_verdict_run":  false,
+                                "manual_substitute_used":  false,
+                                "reason":  "The workstation lacks authoritative live closure evidence and the mission forbids production contact."
+                            },
+    "prohibited_actions":  [
+                               "production host access",
+                               "Scheduler mutation",
+                               "credential access",
+                               "weather-provider access",
+                               "exchange access",
+                               "capture mutation",
+                               "model or outcome mutation",
+                               "release or promotion",
+                               "Git merge",
+                               "Git push",
+                               "pull request open or edit",
+                               "live trading",
+                               "automatic retry or invented attempt",
+                               "LFS fetch or network fallback",
+                               "cleanup or background daemon"
+                           ],
+    "prohibited_action_audit":  {
+                                    "production_contact":  false,
+                                    "scheduler_mutation":  false,
+                                    "credential_access":  false,
+                                    "provider_access":  false,
+                                    "exchange_access":  false,
+                                    "capture_action":  false,
+                                    "model_or_outcome_mutation":  false,
+                                    "release_or_promotion":  false,
+                                    "git_merge":  false,
+                                    "git_push":  false,
+                                    "pr_open_or_edit":  false,
+                                    "live_trading":  false,
+                                    "automatic_retry":  false,
+                                    "lfs_fetch_or_network_fallback":  false,
+                                    "root_checkout_modified":  false,
+                                    "source_99a_worktree_modified":  false
+                                },
+    "external_binding":  {
+                             "rule":  "terminal_receipt_binds_final_result_tip_tree_and_bundle_sha256",
+                             "final_tip":  null,
+                             "final_tree":  null,
+                             "bundle_sha256":  null,
+                             "reason":  "This receipt cannot embed the hash of the commit/tree or bundle that contains its own bytes. The create-only external binding records final identity and verification."
+                         }
+}
