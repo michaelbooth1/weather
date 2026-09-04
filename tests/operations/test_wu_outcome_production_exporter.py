@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 
 import pytest
 
@@ -214,12 +216,208 @@ def _rows(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
+def _git(root: Path, *arguments: str, expected: int = 0) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        ["git", "-C", os.fspath(root), *arguments],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="strict",
+        timeout=30,
+    )
+    assert result.returncode == expected, result.stderr
+    return result
+
+
+def _commit(root: Path, message: str) -> None:
+    _git(
+        root,
+        "-c",
+        "user.name=Synthetic Test",
+        "-c",
+        "user.email=synthetic@example.invalid",
+        "commit",
+        "-m",
+        message,
+    )
+
+
+def _write_sources_for_spec(repo_root: Path, spec: dict) -> list[int]:
+    configured = {item.id: item for item in BUILTIN_SPECS}
+    synthetic_values: list[int] = []
+    requests_by_market: dict[str, list[dict]] = {}
+    for request in spec["request"]["keys"]:
+        requests_by_market.setdefault(request["market"], []).append(request)
+    for market_index, market in enumerate(sorted(configured)):
+        market_spec = configured[market]
+        requests = requests_by_market[market]
+        buckets = {
+            request["target_date"]: 700_000 + market_index * 100 + date_index
+            for date_index, request in enumerate(requests)
+        }
+        synthetic_values.extend(buckets.values())
+        ledger_path = repo_root / "data" / "settlements" / market / "ledger.jsonl"
+        daily_path = (
+            repo_root
+            / "data"
+            / "wunderground"
+            / market_spec.icao.casefold()
+            / "daily"
+            / "daily_summary.csv"
+        )
+        daily_path.parent.mkdir(parents=True, exist_ok=True)
+        daily_path.write_text(
+            _daily_text(market_spec.display_unit, buckets), encoding="utf-8"
+        )
+        _write_ledger(
+            ledger_path,
+            [
+                _base_label(
+                    market,
+                    market_spec,
+                    request["target_date"],
+                    buckets[request["target_date"]],
+                )
+                for request in requests
+            ],
+        )
+    return synthetic_values
+
+
+def _make_split_root_case(tmp_path: Path) -> dict:
+    data_root = (tmp_path / "data-root").absolute()
+    spec_root = (tmp_path / "spec-root").absolute()
+    data_root.mkdir(parents=True)
+    _git(data_root, "init")
+    (data_root / ".gitignore").write_text("data/\n", encoding="utf-8")
+    _git(data_root, "add", "--", ".gitignore")
+    _commit(data_root, "synthetic base")
+    _git(data_root, "worktree", "add", "-b", "synthetic-spec", os.fspath(spec_root))
+
+    source_spec = Path(__file__).resolve().parents[2].joinpath(
+        *exporter.TRACKED_SPEC_RELATIVE.parts
+    )
+    spec_path = spec_root.joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
+    spec_path.parent.mkdir(parents=True)
+    spec_path.write_bytes(source_spec.read_bytes())
+    _git(spec_root, "add", "--", exporter.TRACKED_SPEC_RELATIVE.as_posix())
+    _commit(spec_root, "track frozen synthetic-test spec")
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    synthetic_values = _write_sources_for_spec(data_root, spec)
+    output_parent = (tmp_path / "outside").absolute()
+    output_parent.mkdir()
+    return {
+        "data_root": data_root,
+        "spec_root": spec_root,
+        "spec_path": spec_path,
+        "spec": spec,
+        "synthetic_values": synthetic_values,
+        "output_parent": output_parent,
+    }
+
+
 def test_frozen_spec_is_exact_tracked_file() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     spec_path = repo_root.joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
     spec = exporter._load_frozen_spec(repo_root, spec_path)
     assert spec["spec_sha256"] == exporter.TRACKED_SPEC_SELF_SHA256
     assert len(spec["request"]["keys"]) == 96
+
+
+def test_public_cli_exports_with_distinct_clean_data_and_spec_worktrees(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    case = _make_split_root_case(tmp_path)
+    destinations = [case["output_parent"] / "first", case["output_parent"] / "second"]
+    for destination in destinations:
+        assert contract.main(
+            [
+                "export-production",
+                "--repo-root",
+                os.fspath(case["data_root"]),
+                "--spec",
+                os.fspath(case["spec_path"]),
+                "--destination",
+                os.fspath(destination),
+            ]
+        ) == 0
+    captured = capsys.readouterr()
+    assert all(
+        str(value) not in captured.out + captured.err
+        for value in case["synthetic_values"]
+    )
+    assert (destinations[0] / "manifest.json").read_bytes() == (
+        destinations[1] / "manifest.json"
+    ).read_bytes()
+    assert (destinations[0] / "wu-outcomes.jsonl").read_bytes() == (
+        destinations[1] / "wu-outcomes.jsonl"
+    ).read_bytes()
+    assert _git(case["data_root"], "status", "--porcelain").stdout == ""
+    assert _git(case["spec_root"], "status", "--porcelain").stdout == ""
+    assert (
+        _git(
+            case["data_root"],
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            exporter.TRACKED_SPEC_RELATIVE.as_posix(),
+            expected=1,
+        ).returncode
+        == 1
+    )
+
+
+def test_split_root_spec_identity_falsifiers_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_split_root_case(tmp_path)
+    exact_bytes = case["spec_path"].read_bytes()
+
+    untracked = case["data_root"].joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
+    untracked.parent.mkdir(parents=True)
+    untracked.write_bytes(exact_bytes)
+    with pytest.raises(contract.ContractError, match="E_SPEC_NOT_TRACKED"):
+        exporter._load_frozen_spec(case["data_root"], untracked)
+    untracked.unlink()
+    untracked.parent.rmdir()
+    untracked.parent.parent.rmdir()
+
+    wrong_relative = case["spec_root"] / "other" / exporter.TRACKED_SPEC_RELATIVE.name
+    wrong_relative.parent.mkdir()
+    wrong_relative.write_bytes(exact_bytes)
+    with pytest.raises(contract.ContractError, match="E_SPEC_PATH_MISMATCH"):
+        exporter._load_frozen_spec(case["data_root"], wrong_relative)
+
+    wrong_case = (
+        case["spec_root"]
+        / "DOCS"
+        / "roadmap"
+        / exporter.TRACKED_SPEC_RELATIVE.name
+    )
+    expected_case_error = "E_PATH_CASE_COLLISION" if os.name == "nt" else "E_SPEC_MISSING"
+    with pytest.raises(contract.ContractError, match=expected_case_error):
+        exporter._load_frozen_spec(case["data_root"], wrong_case)
+
+    original_reparse = contract._is_reparse
+    monkeypatch.setattr(
+        contract,
+        "_is_reparse",
+        lambda path: path == case["spec_path"] or original_reparse(path),
+    )
+    with pytest.raises(contract.ContractError, match="reparse point"):
+        exporter._load_frozen_spec(case["data_root"], case["spec_path"])
+    monkeypatch.setattr(contract, "_is_reparse", original_reparse)
+
+    other_root = (tmp_path / "other-repository").absolute()
+    other_root.mkdir()
+    _git(other_root, "init")
+    other_spec = other_root.joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
+    other_spec.parent.mkdir(parents=True)
+    other_spec.write_bytes(exact_bytes)
+    _git(other_root, "add", "--", exporter.TRACKED_SPEC_RELATIVE.as_posix())
+    with pytest.raises(contract.ContractError, match="E_SPEC_REPOSITORY_IDENTITY"):
+        exporter._load_frozen_spec(case["data_root"], other_spec)
 
 
 def test_exact_96_row_export_is_stable_native_and_validated(
@@ -231,6 +429,9 @@ def test_exact_96_row_export_is_stable_native_and_validated(
     payload = _rows(destination / "wu-outcomes.jsonl")
     manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
     assert result["status"] == "PASS"
+    assert result["manifest_file_sha256"] == contract.sha256_file(
+        destination / "manifest.json"
+    )
     assert len(payload) == 96
     assert [(row["market"], row["target_date"]) for row in payload] == [
         (row["market"], row["target_date"]) for row in case["spec"]["request"]["keys"]
@@ -267,6 +468,189 @@ def test_two_fresh_roots_reproduce_byte_identical_exports(
     _invoke(second)
     assert (second["destination"] / "wu-outcomes.jsonl").read_bytes() == first_payload
     assert (second["destination"] / "manifest.json").read_bytes() == first_manifest
+
+
+def _copied_acl_proof() -> dict[str, str]:
+    sddl = "O:S-1-5-21-222D:(A;;FA;;;S-1-5-21-222)"
+    return {
+        "owner": "S-1-5-21-222",
+        "sddl": sddl,
+        "sddl_sha256": hashlib.sha256(sddl.encode("utf-8")).hexdigest(),
+    }
+
+
+def test_portable_copy_requires_hashes_and_returns_actual_acl_without_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = _make_case(tmp_path, monkeypatch)
+    secret = 314_159_265
+    ledger_rows = _rows(case["ledgers"]["chicago"])
+    ledger_row = next(
+        row for row in ledger_rows if row["target_date"] == DATES[0]
+    )
+    ledger_row["settlement_bucket"] = secret
+    ledger_row["evidence"]["summary"]["bucket"] = secret
+    _write_ledger(case["ledgers"]["chicago"], ledger_rows)
+    daily_path = case["dailies"]["chicago"]
+    daily_lines = daily_path.read_text(encoding="utf-8").splitlines()
+    daily_lines[1] = daily_lines[1].rsplit(",", 1)[0] + f",{secret}"
+    daily_path.write_text("\n".join(daily_lines) + "\n", encoding="utf-8")
+    _invoke(case)
+    copied = (tmp_path / "portable-copy").absolute()
+    shutil.copytree(case["destination"], copied)
+    manifest_path = copied / "manifest.json"
+    payload_path = copied / "wu-outcomes.jsonl"
+    manifest_hash = contract.sha256_file(manifest_path)
+    payload_hash = contract.sha256_file(payload_path)
+    producer_acl = json.loads(manifest_path.read_text(encoding="utf-8"))[
+        "destination_acl_proof"
+    ]
+    copied_acl = _copied_acl_proof()
+    before = {
+        path.name: (path.stat().st_size, contract.sha256_file(path))
+        for path in copied.iterdir()
+    }
+
+    monkeypatch.setattr(
+        contract,
+        "_actual_export_acl_proof",
+        lambda path: copied_acl if path == copied else producer_acl,
+    )
+    with pytest.raises(contract.ContractError, match="ACL proof does not match"):
+        contract.validate_export(spec_path=case["spec_path"], export_root=copied)
+    assert contract.validate_export(
+        spec_path=case["spec_path"], export_root=case["destination"]
+    )["status"] == "PASS"
+
+    result = contract.validate_portable_copy(
+        spec_path=case["spec_path"],
+        export_root=copied,
+        expected_producer_manifest_sha256=manifest_hash,
+        expected_producer_payload_sha256=payload_hash,
+    )
+    assert result["status"] == "PASS"
+    assert result["validation_mode"] == "portable_copy"
+    assert result["producer_manifest_file_sha256"] == manifest_hash
+    assert result["payload_sha256"] == payload_hash
+    assert result["actual_destination_acl_proof"] == copied_acl
+
+    evidence_path = (tmp_path / "portable-validation.json").absolute()
+    assert contract.main(
+        [
+            "validate-portable-copy",
+            "--spec",
+            os.fspath(case["spec_path"]),
+            "--export-root",
+            os.fspath(copied),
+            "--expected-producer-manifest-sha256",
+            manifest_hash,
+            "--expected-producer-payload-sha256",
+            payload_hash,
+            "--output",
+            os.fspath(evidence_path),
+        ]
+    ) == 0
+    captured = capsys.readouterr()
+    assert str(secret) not in captured.out + captured.err
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert evidence["actual_destination_acl_proof"] == copied_acl
+    assert evidence["producer_manifest_file_sha256"] == manifest_hash
+    after = {
+        path.name: (path.stat().st_size, contract.sha256_file(path))
+        for path in copied.iterdir()
+    }
+    assert after == before
+
+
+def test_portable_copy_rejects_missing_partial_and_wrong_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(tmp_path, monkeypatch)
+    _invoke(case)
+    destination = case["destination"]
+    manifest_hash = contract.sha256_file(destination / "manifest.json")
+    payload_hash = contract.sha256_file(destination / "wu-outcomes.jsonl")
+    monkeypatch.setattr(
+        contract, "_actual_export_acl_proof", lambda _path: _copied_acl_proof()
+    )
+    with pytest.raises(contract.ContractError, match="requires both producer hashes"):
+        contract._validate_export(
+            spec_path=case["spec_path"],
+            export_root=destination,
+            expected_producer_manifest_sha256=manifest_hash,
+        )
+    with pytest.raises(contract.ContractError, match="requires both producer hashes"):
+        contract._validate_export(
+            spec_path=case["spec_path"],
+            export_root=destination,
+            expected_producer_payload_sha256=payload_hash,
+        )
+    with pytest.raises(contract.ContractError, match="manifest hash mismatch"):
+        contract.validate_portable_copy(
+            spec_path=case["spec_path"],
+            export_root=destination,
+            expected_producer_manifest_sha256="0" * 64,
+            expected_producer_payload_sha256=payload_hash,
+        )
+    with pytest.raises(contract.ContractError, match="payload hash mismatch"):
+        contract.validate_portable_copy(
+            spec_path=case["spec_path"],
+            export_root=destination,
+            expected_producer_manifest_sha256=manifest_hash,
+            expected_producer_payload_sha256="0" * 64,
+        )
+    with pytest.raises(SystemExit) as missing_cli_hash:
+        contract.main(
+            [
+                "validate-portable-copy",
+                "--spec",
+                os.fspath(case["spec_path"]),
+                "--export-root",
+                os.fspath(destination),
+                "--expected-producer-manifest-sha256",
+                manifest_hash,
+            ]
+        )
+    assert missing_cli_hash.value.code == 2
+
+
+@pytest.mark.parametrize("fault", ["manifest", "payload", "extra", "reparse"])
+def test_portable_copy_tampering_and_path_faults_fail_closed(
+    fault: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(tmp_path, monkeypatch)
+    _invoke(case)
+    copied = (tmp_path / "portable-copy").absolute()
+    shutil.copytree(case["destination"], copied)
+    manifest_hash = contract.sha256_file(copied / "manifest.json")
+    payload_hash = contract.sha256_file(copied / "wu-outcomes.jsonl")
+    monkeypatch.setattr(
+        contract, "_actual_export_acl_proof", lambda _path: _copied_acl_proof()
+    )
+    if fault == "manifest":
+        with (copied / "manifest.json").open("ab") as handle:
+            handle.write(b" ")
+    elif fault == "payload":
+        with (copied / "wu-outcomes.jsonl").open("ab") as handle:
+            handle.write(b" ")
+    elif fault == "extra":
+        (copied / "extra.txt").write_text("synthetic", encoding="utf-8")
+    else:
+        original = contract._is_reparse
+        monkeypatch.setattr(
+            contract,
+            "_is_reparse",
+            lambda path: path == copied or original(path),
+        )
+    with pytest.raises(contract.ContractError):
+        contract.validate_portable_copy(
+            spec_path=case["spec_path"],
+            export_root=copied,
+            expected_producer_manifest_sha256=manifest_hash,
+            expected_producer_payload_sha256=payload_hash,
+        )
 
 
 def test_create_only_refuses_second_invocation_without_changing_artifact(

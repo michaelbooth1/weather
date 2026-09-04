@@ -25,8 +25,11 @@ fewer than 18 observations. Sources are opened without writer locks and are
 bound by portable repository-relative path, bytes, SHA-256, and stable file
 identity before and after selection and immediately before publication.
 
-The command requires an absolute repository root, the exact tracked frozen
-spec, and a new absolute destination whose parent already exists:
+The command requires an absolute read-only data repository root, the exact
+tracked frozen spec, and a new absolute destination whose parent already
+exists. The spec may live in a separate reviewed worktree of the same Git
+repository; its own worktree root, exact relative path, tracking state, and
+shared Git common-directory identity are verified independently:
 
 ```text
 python -m weather.operations.wu_outcome_export_contract export-production --repo-root <absolute-repository-root> --spec <absolute-path-to-tracked-spec> --destination <absolute-new-export-directory>
@@ -43,13 +46,31 @@ create-only. It builds the exact two files in a unique sibling staging
 directory, validates them, rechecks every source, and atomically renames the
 directory. A failed prepublication attempt leaves the final destination absent.
 
-The validator accepts only a new, non-reparse directory containing
+Producer validation accepts only a new, non-reparse directory containing
 `manifest.json` and `wu-outcomes.jsonl`. It enforces exact request coverage,
 native units, configured WU history identities, stations and timezones,
 boundary sides, per-file identities, canonical encodings, manifest self-hash,
 unchanged source hashes, byte/file bounds, all-false downstream authority, and
 the actual destination owner/SDDL proof. It returns counts and hashes without
 returning settlement values.
+
+A byte-perfect copy on another Windows host necessarily has a different
+owner/security descriptor. Portable-copy validation therefore has a separate
+explicit form that requires the SHA-256 of the exact producer manifest bytes
+and the producer-bound payload SHA-256 together:
+
+```text
+python -m weather.operations.wu_outcome_export_contract validate-portable-copy --spec <absolute-path-to-tracked-spec> --export-root <absolute-copied-export-directory> --expected-producer-manifest-sha256 <producer-manifest-file-sha256> --expected-producer-payload-sha256 <producer-payload-sha256>
+```
+
+Portable validation runs every content and provenance check performed by
+producer validation. It validates the producer ACL proof internally, skips
+only equality with the copied directory ACL, and returns the independently
+read actual destination ACL proof. Missing, partial, or incorrect producer
+hashes fail closed. Ordinary `validate-export` continues to require producer
+ACL equality. A successful production export reports the distinct exact-file
+manifest SHA-256 and payload SHA-256 needed by this portable form; the manifest
+self-hash remains a separate field.
 
 Run all builder, validator, and test invocations on the assigned workstation
 through `scripts/ops/workstation_heavy.ps1`; the CLI owner is in that wrapper's

@@ -763,7 +763,7 @@ def latest_authoritative_ledger_rows(
     return {key: value[2] for key, value in selected.items()}
 
 
-def _validate_acl_proof(value: Any) -> None:
+def _validate_acl_proof(value: Any) -> dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"owner", "sddl", "sddl_sha256"}:
         raise ContractError("export ACL proof fields differ")
     owner = str(value.get("owner") or "")
@@ -772,16 +772,56 @@ def _validate_acl_proof(value: Any) -> None:
         raise ContractError("export ACL proof is empty")
     if value.get("sddl_sha256") != hashlib.sha256(sddl.encode("utf-8")).hexdigest():
         raise ContractError("export ACL proof hash mismatch")
+    return {"owner": owner, "sddl": sddl, "sddl_sha256": str(value["sddl_sha256"])}
 
 
-def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
-    """Validate a bounded future production artifact without reporting outcomes."""
+def _actual_export_acl_proof(export_root: Path) -> dict[str, str] | None:
+    if os.name != "nt":
+        return None
+    from weather.operations.wu_outcome_production_exporter import (
+        _windows_acl_proof,
+    )
+
+    return _windows_acl_proof(export_root)
+
+
+def _validate_export(
+    *,
+    spec_path: Path,
+    export_root: Path,
+    expected_producer_manifest_sha256: str | None = None,
+    expected_producer_payload_sha256: str | None = None,
+) -> dict[str, Any]:
+    """Validate a producer artifact or an explicitly hash-bound portable copy."""
+
+    portable_copy = (
+        expected_producer_manifest_sha256 is not None
+        or expected_producer_payload_sha256 is not None
+    )
+    if portable_copy and (
+        expected_producer_manifest_sha256 is None
+        or expected_producer_payload_sha256 is None
+    ):
+        raise ContractError("portable validation requires both producer hashes")
+    if portable_copy:
+        expected_manifest_file_sha = _require_sha(
+            expected_producer_manifest_sha256, "expected producer manifest hash"
+        )
+        expected_payload_file_sha = _require_sha(
+            expected_producer_payload_sha256, "expected producer payload hash"
+        )
+    else:
+        expected_manifest_file_sha = None
+        expected_payload_file_sha = None
 
     spec = _read_json(spec_path)
     if spec.get("schema_version") != SPEC_SCHEMA:
         raise ContractError("export spec schema differs")
     if spec.get("spec_sha256") != self_hash(spec, "spec_sha256"):
         raise ContractError("export spec self-hash mismatch")
+    export_root = Path(export_root)
+    if portable_copy and not export_root.is_absolute():
+        raise ContractError("export root is not absolute")
     export_root = export_root.absolute()
     if not export_root.is_dir():
         raise ContractError("export root is missing")
@@ -801,6 +841,12 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
 
     manifest_path = export_root / "manifest.json"
     payload_path = export_root / "wu-outcomes.jsonl"
+    manifest_file_sha = sha256_file(manifest_path)
+    payload_file_sha = sha256_file(payload_path)
+    if portable_copy and manifest_file_sha != expected_manifest_file_sha:
+        raise ContractError("portable producer manifest hash mismatch")
+    if portable_copy and payload_file_sha != expected_payload_file_sha:
+        raise ContractError("portable producer payload hash mismatch")
     manifest = _read_json(manifest_path)
     canonical_manifest = json.dumps(
         manifest, indent=2, sort_keys=True, ensure_ascii=True
@@ -825,14 +871,12 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
         "downstream_authority"
     ):
         raise ContractError("export downstream authority differs")
-    _validate_acl_proof(manifest.get("destination_acl_proof"))
-    if os.name == "nt":
-        from weather.operations.wu_outcome_production_exporter import (
-            _windows_acl_proof,
-        )
-
-        if manifest.get("destination_acl_proof") != _windows_acl_proof(export_root):
-            raise ContractError("export ACL proof does not match the destination")
+    producer_acl = _validate_acl_proof(manifest.get("destination_acl_proof"))
+    actual_acl = _actual_export_acl_proof(export_root)
+    if portable_copy and actual_acl is None:
+        raise ContractError("portable ACL validation is unsupported on this platform")
+    if not portable_copy and actual_acl is not None and producer_acl != actual_acl:
+        raise ContractError("export ACL proof does not match the destination")
     payload_binding = manifest.get("payload_file")
     if not isinstance(payload_binding, dict) or set(payload_binding) != {
         "relative_path",
@@ -845,7 +889,7 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
         raise ContractError("export payload filename differs")
     if payload_binding.get("bytes") != payload_path.stat().st_size:
         raise ContractError("export payload byte count differs")
-    if payload_binding.get("sha256") != sha256_file(payload_path):
+    if payload_binding.get("sha256") != payload_file_sha:
         raise ContractError("export payload hash mismatch")
 
     source_files = manifest.get("source_files")
@@ -1036,7 +1080,7 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
         raise ContractError("export does not cover every requested market/date key")
     if payload_binding.get("rows") != row_count:
         raise ContractError("export payload row binding differs")
-    return {
+    result = {
         "schema_version": VALIDATION_SCHEMA,
         "status": "PASS",
         "spec_sha256": spec["spec_sha256"],
@@ -1046,6 +1090,38 @@ def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
         "validated_rows": row_count,
         "outcome_values_reported": 0,
     }
+    if portable_copy:
+        result.update(
+            {
+                "validation_mode": "portable_copy",
+                "producer_manifest_file_sha256": manifest_file_sha,
+                "actual_destination_acl_proof": actual_acl,
+            }
+        )
+    return result
+
+
+def validate_export(*, spec_path: Path, export_root: Path) -> dict[str, Any]:
+    """Validate an artifact at its producer destination, including ACL equality."""
+
+    return _validate_export(spec_path=spec_path, export_root=export_root)
+
+
+def validate_portable_copy(
+    *,
+    spec_path: Path,
+    export_root: Path,
+    expected_producer_manifest_sha256: str,
+    expected_producer_payload_sha256: str,
+) -> dict[str, Any]:
+    """Validate an exact portable copy against both producer file hashes."""
+
+    return _validate_export(
+        spec_path=spec_path,
+        export_root=export_root,
+        expected_producer_manifest_sha256=expected_producer_manifest_sha256,
+        expected_producer_payload_sha256=expected_producer_payload_sha256,
+    )
 
 
 def _parse_expected_counts(value: str) -> dict[str, int]:
@@ -1098,6 +1174,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--spec", type=Path, required=True)
     validate.add_argument("--export-root", type=Path, required=True)
     validate.add_argument("--output", type=Path)
+    portable = commands.add_parser("validate-portable-copy")
+    portable.add_argument("--spec", type=Path, required=True)
+    portable.add_argument("--export-root", type=Path, required=True)
+    portable.add_argument("--expected-producer-manifest-sha256", required=True)
+    portable.add_argument("--expected-producer-payload-sha256", required=True)
+    portable.add_argument("--output", type=Path)
     production = commands.add_parser("export-production")
     production.add_argument("--repo-root", type=Path, required=True)
     production.add_argument("--spec", type=Path, required=True)
@@ -1134,17 +1216,42 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"WU export spec created: {args.output} "
                 f"sha256={payload['spec_sha256']}"
             )
-        elif args.command == "validate-export":
-            payload = validate_export(spec_path=args.spec, export_root=args.export_root)
+        elif args.command in {"validate-export", "validate-portable-copy"}:
+            if args.command == "validate-portable-copy":
+                payload = validate_portable_copy(
+                    spec_path=args.spec,
+                    export_root=args.export_root,
+                    expected_producer_manifest_sha256=(
+                        args.expected_producer_manifest_sha256
+                    ),
+                    expected_producer_payload_sha256=(
+                        args.expected_producer_payload_sha256
+                    ),
+                )
+            else:
+                payload = validate_export(
+                    spec_path=args.spec, export_root=args.export_root
+                )
             if args.output:
                 payload["validation_sha256"] = self_hash(
                     payload, "validation_sha256"
                 )
                 write_json_create_only(args.output, payload)
-            print(
-                f"WU export validation PASS: rows={payload['validated_rows']} "
-                f"payload_sha256={payload['payload_sha256']}"
-            )
+            if args.command == "validate-portable-copy":
+                print(
+                    "WU portable export validation PASS: "
+                    f"rows={payload['validated_rows']} "
+                    f"manifest_file_sha256="
+                    f"{payload['producer_manifest_file_sha256']} "
+                    f"payload_sha256={payload['payload_sha256']} "
+                    "destination_acl_sha256="
+                    f"{payload['actual_destination_acl_proof']['sddl_sha256']}"
+                )
+            else:
+                print(
+                    f"WU export validation PASS: rows={payload['validated_rows']} "
+                    f"payload_sha256={payload['payload_sha256']}"
+                )
         else:
             payload = export_production(
                 repo_root=args.repo_root,
@@ -1156,6 +1263,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"destination={payload['destination']} "
                 f"rows={payload['exported_rows']} "
                 f"manifest_sha256={payload['manifest_sha256']} "
+                f"manifest_file_sha256={payload['manifest_file_sha256']} "
                 f"payload_sha256={payload['payload_sha256']}"
             )
     except (ContractError, OSError, TypeError, ValueError) as exc:

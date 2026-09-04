@@ -209,6 +209,21 @@ def _run_git(repo_root: Path, arguments: Sequence[str], code: str) -> str:
     return result.stdout.strip()
 
 
+def _git_common_directory(worktree_root: Path, code: str) -> Path:
+    raw = _run_git(
+        worktree_root,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        code,
+    )
+    common = Path(raw)
+    if not common.is_absolute():
+        common = worktree_root / common
+    try:
+        return common.resolve(strict=True)
+    except OSError as exc:
+        raise _block(code) from exc
+
+
 def _load_frozen_spec(repo_root: Path, spec_path: Path) -> dict[str, Any]:
     repo_root = _require_absolute(repo_root, "E_REPO_ROOT_NOT_ABSOLUTE")
     spec_path = _require_absolute(spec_path, "E_SPEC_NOT_ABSOLUTE")
@@ -218,12 +233,30 @@ def _load_frozen_spec(repo_root: Path, spec_path: Path) -> dict[str, Any]:
     top = _run_git(repo_root, ["rev-parse", "--show-toplevel"], "E_REPO_ROOT_UNTRACKED")
     if _normalized(Path(top)) != _normalized(repo_root):
         raise _block("E_REPO_ROOT_IDENTITY")
-    expected = repo_root.joinpath(*TRACKED_SPEC_RELATIVE.parts)
+    if not spec_path.is_file():
+        raise _block("E_SPEC_MISSING")
+    contract._require_non_reparse_tree(spec_path)
+    spec_top = _run_git(
+        spec_path.parent,
+        ["rev-parse", "--show-toplevel"],
+        "E_SPEC_WORKTREE_UNTRACKED",
+    )
+    spec_root = Path(spec_top)
+    if not spec_root.is_absolute() or not spec_root.is_dir():
+        raise _block("E_SPEC_WORKTREE_IDENTITY")
+    contract._require_non_reparse_tree(spec_root)
+    expected = spec_root.joinpath(*TRACKED_SPEC_RELATIVE.parts)
     if _normalized(spec_path) != _normalized(expected):
         raise _block("E_SPEC_PATH_MISMATCH")
-    _require_exact_case_below(repo_root, spec_path)
+    _require_exact_case_below(spec_root, spec_path)
+    if _normalized(
+        _git_common_directory(repo_root, "E_REPO_GIT_IDENTITY")
+    ) != _normalized(
+        _git_common_directory(spec_root, "E_SPEC_REPOSITORY_IDENTITY")
+    ):
+        raise _block("E_SPEC_REPOSITORY_IDENTITY")
     tracked = _run_git(
-        repo_root,
+        spec_root,
         ["ls-files", "--error-unmatch", "--", TRACKED_SPEC_RELATIVE.as_posix()],
         "E_SPEC_NOT_TRACKED",
     ).replace("\\", "/")
@@ -929,6 +962,7 @@ def export_production(
         manifest_raw = json.dumps(
             manifest, indent=2, sort_keys=True, ensure_ascii=True
         ).encode("utf-8") + b"\n"
+        manifest_file_sha = hashlib.sha256(manifest_raw).hexdigest()
         if len(payload_raw) + len(manifest_raw) > contract.MAX_EXPORT_BYTES:
             raise _block("E_EXPORT_BYTE_BOUND")
         _write_bytes_create_only(staging / "wu-outcomes.jsonl", payload_raw)
@@ -951,6 +985,7 @@ def export_production(
             "destination": os.fspath(destination),
             "exported_rows": len(rows),
             "manifest_sha256": manifest["manifest_sha256"],
+            "manifest_file_sha256": manifest_file_sha,
             "payload_sha256": payload_sha,
         }
     except Exception:
