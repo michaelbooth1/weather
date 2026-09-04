@@ -26,23 +26,14 @@ import uuid
 
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.operations import wu_outcome_export_contract as contract
+from weather.operations import wu_outcome_spec_registry as spec_registry
 
 
-TRACKED_SPEC_RELATIVE = PurePosixPath(
-    "docs/roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json"
-)
-TRACKED_SPEC_FILE_SHA256 = (
-    "cf10553a9b041a783bf5caf56b191835e2904474a4bad34dcbc1f6ad934d093f"
-)
-TRACKED_SPEC_SELF_SHA256 = (
-    "5d370c51da7d95e1d3a62a8ff4f9d66cd3312c5eecfebcbdbaab169be505e0f9"
-)
-TRACKED_GAP_FILE_SHA256 = (
-    "6ba020575e3ef1eb903ae0010510caea20f31b31bdf3451c0e03f11175c3de94"
-)
-TRACKED_GAP_SELF_SHA256 = (
-    "64176a727907c8f62c496f6fb1893c1f7462cfef15c1db3f06ef7b3e244f0ce8"
-)
+TRACKED_SPEC_RELATIVE = spec_registry.ORIGINAL_SPEC_RELATIVE
+TRACKED_SPEC_FILE_SHA256 = spec_registry.ORIGINAL_SPEC_FILE_SHA256
+TRACKED_SPEC_SELF_SHA256 = spec_registry.ORIGINAL_SPEC_SELF_SHA256
+TRACKED_GAP_FILE_SHA256 = spec_registry.TRACKED_GAP_FILE_SHA256
+TRACKED_GAP_SELF_SHA256 = spec_registry.TRACKED_GAP_SELF_SHA256
 MAX_SOURCE_BYTES = 128 * 1024 * 1024
 DAILY_SCHEMAS = frozenset({"wu_daily_native_v1", "wu_daily_native_v2"})
 REVISION_METADATA_FIELDS = frozenset(
@@ -224,15 +215,88 @@ def _git_common_directory(worktree_root: Path, code: str) -> Path:
         raise _block(code) from exc
 
 
-def _load_frozen_spec(repo_root: Path, spec_path: Path) -> dict[str, Any]:
-    repo_root = _require_absolute(repo_root, "E_REPO_ROOT_NOT_ABSOLUTE")
+def _validate_registered_spec(
+    spec: Mapping[str, Any], registration: spec_registry.FrozenSpecRegistration
+) -> None:
+    request = spec.get("request")
+    rows = request.get("keys") if isinstance(request, dict) else None
+    if (
+        not isinstance(rows, list)
+        or len(rows) != registration.requested_rows
+        or request.get("requested_rows") != registration.requested_rows
+    ):
+        raise _block("E_REQUEST_COUNT")
+    identities = [spec_registry.request_key_identity(row) for row in rows]
+    if any(identity is None for identity in identities):
+        raise _block("E_REQUEST_FIELDS")
+    status_counts = tuple(
+        sorted(
+            (status, sum(row.get("local_status") == status for row in rows))
+            for status in {row.get("local_status") for row in rows}
+        )
+    )
+    if status_counts != registration.status_counts:
+        raise _block("E_REQUEST_STATUS_PARTITION")
+    low_support = tuple(
+        identity
+        for identity in identities
+        if identity is not None and identity[-1] == "present_below_threshold"
+    )
+    exclusions = spec.get("known_low_support_exclusions")
+    if registration.low_support_in_request:
+        if low_support != spec_registry.LOW_SUPPORT_KEYS or exclusions is not None:
+            raise _block("E_REQUEST_LOW_SUPPORT_CONTRACT")
+    else:
+        if low_support or not isinstance(exclusions, dict):
+            raise _block("E_REQUEST_LOW_SUPPORT_CONTRACT")
+        excluded_rows = exclusions.get("keys")
+        excluded_identities = (
+            tuple(spec_registry.request_key_identity(row) for row in excluded_rows)
+            if isinstance(excluded_rows, list)
+            else ()
+        )
+        if (
+            excluded_identities != spec_registry.LOW_SUPPORT_KEYS
+            or exclusions.get("excluded_keys") != 2
+            or exclusions.get("exported") is not False
+            or exclusions.get("imputed") is not False
+            or exclusions.get("threshold_lowered") is not False
+            or exclusions.get("backfill_authorized") is not False
+            or set(identities).intersection(excluded_identities)
+        ):
+            raise _block("E_REQUEST_LOW_SUPPORT_EXCLUSIONS")
+        if spec.get("original_spec_binding") != {
+            "path": spec_registry.ORIGINAL_SPEC_RELATIVE.as_posix(),
+            "file_sha256": spec_registry.ORIGINAL_SPEC_FILE_SHA256,
+            "self_hash": spec_registry.ORIGINAL_SPEC_SELF_SHA256,
+        }:
+            raise _block("E_SPEC_SOURCE_BINDING")
+    gap = spec.get("gap_binding")
+    if not isinstance(gap, dict) or (
+        gap.get("file_sha256") != TRACKED_GAP_FILE_SHA256
+        or gap.get("self_hash") != TRACKED_GAP_SELF_SHA256
+    ):
+        raise _block("E_SPEC_GAP_BINDING")
+    authority = spec.get("downstream_authority")
+    if not isinstance(authority, dict) or not authority or any(
+        value is not False for value in authority.values()
+    ):
+        raise _block("E_SPEC_DOWNSTREAM_AUTHORITY")
+
+
+def _load_frozen_spec(repo_root: Path | None, spec_path: Path) -> dict[str, Any]:
+    if repo_root is not None:
+        repo_root = _require_absolute(repo_root, "E_REPO_ROOT_NOT_ABSOLUTE")
     spec_path = _require_absolute(spec_path, "E_SPEC_NOT_ABSOLUTE")
-    contract._require_non_reparse_tree(repo_root)
-    if not repo_root.is_dir():
-        raise _block("E_REPO_ROOT_MISSING")
-    top = _run_git(repo_root, ["rev-parse", "--show-toplevel"], "E_REPO_ROOT_UNTRACKED")
-    if _normalized(Path(top)) != _normalized(repo_root):
-        raise _block("E_REPO_ROOT_IDENTITY")
+    if repo_root is not None:
+        contract._require_non_reparse_tree(repo_root)
+        if not repo_root.is_dir():
+            raise _block("E_REPO_ROOT_MISSING")
+        top = _run_git(
+            repo_root, ["rev-parse", "--show-toplevel"], "E_REPO_ROOT_UNTRACKED"
+        )
+        if _normalized(Path(top)) != _normalized(repo_root):
+            raise _block("E_REPO_ROOT_IDENTITY")
     if not spec_path.is_file():
         raise _block("E_SPEC_MISSING")
     contract._require_non_reparse_tree(spec_path)
@@ -245,25 +309,30 @@ def _load_frozen_spec(repo_root: Path, spec_path: Path) -> dict[str, Any]:
     if not spec_root.is_absolute() or not spec_root.is_dir():
         raise _block("E_SPEC_WORKTREE_IDENTITY")
     contract._require_non_reparse_tree(spec_root)
-    expected = spec_root.joinpath(*TRACKED_SPEC_RELATIVE.parts)
+    _require_exact_case_below(spec_root, spec_path)
+    try:
+        relative = PurePosixPath(spec_path.relative_to(spec_root).as_posix())
+    except ValueError as exc:
+        raise _block("E_SPEC_PATH_MISMATCH") from exc
+    registration = spec_registry.FROZEN_SPEC_REGISTRY.get(relative)
+    if registration is None:
+        raise _block("E_SPEC_PATH_MISMATCH")
+    expected = spec_root.joinpath(*registration.relative_path.parts)
     if _normalized(spec_path) != _normalized(expected):
         raise _block("E_SPEC_PATH_MISMATCH")
-    _require_exact_case_below(spec_root, spec_path)
-    if _normalized(
+    if repo_root is not None and _normalized(
         _git_common_directory(repo_root, "E_REPO_GIT_IDENTITY")
-    ) != _normalized(
-        _git_common_directory(spec_root, "E_SPEC_REPOSITORY_IDENTITY")
-    ):
+    ) != _normalized(_git_common_directory(spec_root, "E_SPEC_REPOSITORY_IDENTITY")):
         raise _block("E_SPEC_REPOSITORY_IDENTITY")
     tracked = _run_git(
         spec_root,
-        ["ls-files", "--error-unmatch", "--", TRACKED_SPEC_RELATIVE.as_posix()],
+        ["ls-files", "--error-unmatch", "--", registration.relative_path.as_posix()],
         "E_SPEC_NOT_TRACKED",
     ).replace("\\", "/")
-    if tracked != TRACKED_SPEC_RELATIVE.as_posix():
+    if tracked != registration.relative_path.as_posix():
         raise _block("E_SPEC_TRACKED_IDENTITY")
     try:
-        if contract.sha256_file(spec_path) != TRACKED_SPEC_FILE_SHA256:
+        if contract.sha256_file(spec_path) != registration.file_sha256:
             raise _block("E_SPEC_FILE_HASH")
         spec = contract._read_json(spec_path)
     except (OSError, contract.ContractError) as exc:
@@ -272,27 +341,21 @@ def _load_frozen_spec(repo_root: Path, spec_path: Path) -> dict[str, Any]:
         raise _block("E_SPEC_READ") from exc
     if (
         spec.get("schema_version") != contract.SPEC_SCHEMA
-        or spec.get("spec_sha256") != TRACKED_SPEC_SELF_SHA256
-        or contract.self_hash(spec, "spec_sha256") != TRACKED_SPEC_SELF_SHA256
+        or spec.get("spec_sha256") != registration.self_sha256
+        or contract.self_hash(spec, "spec_sha256") != registration.self_sha256
     ):
         raise _block("E_SPEC_SELF_HASH")
-    gap = spec.get("gap_binding")
-    if not isinstance(gap, dict) or (
-        gap.get("file_sha256") != TRACKED_GAP_FILE_SHA256
-        or gap.get("self_hash") != TRACKED_GAP_SELF_SHA256
-    ):
-        raise _block("E_SPEC_GAP_BINDING")
-    authority = spec.get("downstream_authority")
-    if not isinstance(authority, dict) or not authority or any(value is not False for value in authority.values()):
-        raise _block("E_SPEC_DOWNSTREAM_AUTHORITY")
+    _validate_registered_spec(spec, registration)
     return spec
 
 
 def _market_configuration(spec: Mapping[str, Any]) -> tuple[list[Mapping[str, Any]], dict[str, Any]]:
+    registration = spec_registry.registration_for_self_hash(spec.get("spec_sha256"))
+    if registration is None:
+        raise _block("E_SPEC_UNREGISTERED")
+    _validate_registered_spec(spec, registration)
     request = spec.get("request")
     rows = request.get("keys") if isinstance(request, dict) else None
-    if not isinstance(rows, list) or len(rows) != 96 or request.get("requested_rows") != 96:
-        raise _block("E_REQUEST_COUNT")
     builtins = {item.id: item for item in BUILTIN_SPECS}
     if len(builtins) != 12:
         raise _block("E_BUILTIN_MARKET_COUNT")
@@ -966,7 +1029,7 @@ def _safe_remove_owned(path: Path, parent: Path, prefix: str) -> None:
 def export_production(
     *, repo_root: Path, spec_path: Path, destination: Path
 ) -> dict[str, Any]:
-    """Create and atomically publish the exact frozen 96-row export."""
+    """Create and atomically publish one exact registered frozen export."""
 
     repo_root = _require_absolute(repo_root, "E_REPO_ROOT_NOT_ABSOLUTE")
     spec = _load_frozen_spec(repo_root, spec_path)

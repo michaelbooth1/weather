@@ -8,6 +8,7 @@ the resulting two-file, research-only artifact.
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import csv
 from datetime import date, datetime, timedelta, timezone
 import hashlib
@@ -723,6 +724,62 @@ def build_export_spec(
     return payload
 
 
+def derive_admissible_export_spec(*, source_spec_path: Path) -> dict[str, Any]:
+    """Derive the exact missing-only request from the immutable 100a spec."""
+
+    from weather.operations import wu_outcome_spec_registry as registry
+
+    if sha256_file(source_spec_path) != registry.ORIGINAL_SPEC_FILE_SHA256:
+        raise ContractError("source export spec file hash mismatch")
+    source = _read_json(source_spec_path)
+    if (
+        source.get("schema_version") != SPEC_SCHEMA
+        or source.get("spec_sha256") != registry.ORIGINAL_SPEC_SELF_SHA256
+        or self_hash(source, "spec_sha256") != registry.ORIGINAL_SPEC_SELF_SHA256
+    ):
+        raise ContractError("source export spec self-hash mismatch")
+    request = source.get("request")
+    rows = request.get("keys") if isinstance(request, dict) else None
+    if not isinstance(rows, list) or len(rows) != 96:
+        raise ContractError("source export request count differs")
+    missing = [deepcopy(row) for row in rows if row.get("local_status") == "missing"]
+    exclusions = [
+        deepcopy(row)
+        for row in rows
+        if row.get("local_status") == "present_below_threshold"
+    ]
+    if len(missing) != 94 or tuple(
+        registry.request_key_identity(row) for row in exclusions
+    ) != registry.LOW_SUPPORT_KEYS:
+        raise ContractError("source export request status partition differs")
+    if any(registry.request_key_identity(row) is None for row in rows):
+        raise ContractError("source export request row fields differ")
+
+    payload = deepcopy(source)
+    payload.pop("spec_sha256", None)
+    payload["mission_id"] = registry.ADMISSIBLE_SPEC_MISSION_ID
+    payload["request"]["requested_rows"] = len(missing)
+    payload["request"]["keys"] = missing
+    payload["request"]["missing_only"] = True
+    payload["payload"]["maximum_rows"] = len(missing)
+    payload["original_spec_binding"] = {
+        "path": registry.ORIGINAL_SPEC_RELATIVE.as_posix(),
+        "file_sha256": registry.ORIGINAL_SPEC_FILE_SHA256,
+        "self_hash": registry.ORIGINAL_SPEC_SELF_SHA256,
+    }
+    payload["known_low_support_exclusions"] = {
+        "keys": exclusions,
+        "excluded_keys": len(exclusions),
+        "exported": False,
+        "imputed": False,
+        "threshold_lowered": False,
+        "backfill_authorized": False,
+        "reason": "source request local_status is present_below_threshold",
+    }
+    payload["spec_sha256"] = self_hash(payload, "spec_sha256")
+    return payload
+
+
 def latest_authoritative_ledger_rows(
     rows: Sequence[Mapping[str, Any]],
 ) -> dict[tuple[str, str], Mapping[str, Any]]:
@@ -814,11 +871,9 @@ def _validate_export(
         expected_manifest_file_sha = None
         expected_payload_file_sha = None
 
-    spec = _read_json(spec_path)
-    if spec.get("schema_version") != SPEC_SCHEMA:
-        raise ContractError("export spec schema differs")
-    if spec.get("spec_sha256") != self_hash(spec, "spec_sha256"):
-        raise ContractError("export spec self-hash mismatch")
+    from weather.operations.wu_outcome_production_exporter import _load_frozen_spec
+
+    spec = _load_frozen_spec(None, spec_path)
     export_root = Path(export_root)
     if portable_copy and not export_root.is_absolute():
         raise ContractError("export root is not absolute")
@@ -1170,6 +1225,9 @@ def build_parser() -> argparse.ArgumentParser:
     spec.add_argument("--multiyear-manifest", type=Path, required=True)
     spec.add_argument("--calendar-manifest", type=Path, required=True)
     spec.add_argument("--output", type=Path, required=True)
+    admissible = commands.add_parser("derive-admissible-spec")
+    admissible.add_argument("--source-spec", type=Path, required=True)
+    admissible.add_argument("--output", type=Path, required=True)
     validate = commands.add_parser("validate-export")
     validate.add_argument("--spec", type=Path, required=True)
     validate.add_argument("--export-root", type=Path, required=True)
@@ -1214,6 +1272,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_json_create_only(args.output, payload)
             print(
                 f"WU export spec created: {args.output} "
+                f"sha256={payload['spec_sha256']}"
+            )
+        elif args.command == "derive-admissible-spec":
+            payload = derive_admissible_export_spec(
+                source_spec_path=args.source_spec,
+            )
+            write_json_create_only(args.output, payload)
+            print(
+                f"Admissible WU export spec created: {args.output} "
                 f"sha256={payload['spec_sha256']}"
             )
         elif args.command in {"validate-export", "validate-portable-copy"}:

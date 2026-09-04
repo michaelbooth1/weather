@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-04T07:25:26.530206+00:00
+Generated: 2026-09-04T09:36:21.490428+00:00
 Status: `OK`
 
 ## Summary

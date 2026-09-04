@@ -10,6 +10,17 @@ import pytest
 from weather.operations import wu_outcome_export_contract as contract
 
 
+@pytest.fixture(autouse=True)
+def _admit_synthetic_validator_specs(monkeypatch: pytest.MonkeyPatch) -> None:
+    from weather.operations import wu_outcome_production_exporter as exporter
+
+    monkeypatch.setattr(
+        exporter,
+        "_load_frozen_spec",
+        lambda _repo_root, spec_path: contract._read_json(spec_path),
+    )
+
+
 def _write_json(path: Path, value: object) -> None:
     path.write_bytes(
         json.dumps(value, indent=2, sort_keys=True).encode("utf-8") + b"\n"

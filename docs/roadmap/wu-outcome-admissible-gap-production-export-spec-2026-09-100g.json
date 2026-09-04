@@ -1,0 +1,1531 @@
+{
+  "authoritative_source": {
+    "configured_station_and_native_unit_match_required": true,
+    "deduplication_key": [
+      "market_id",
+      "target_date"
+    ],
+    "equal_explicit_revision_conflict": "FAIL_CLOSED",
+    "latest_revision_order": [
+      "revision_number",
+      "append_order"
+    ],
+    "ledger_history_verification_required": true,
+    "ledger_pattern": "data/settlements/<market>/ledger.jsonl",
+    "market_case_collision": "FAIL_CLOSED",
+    "minimum_evidence_summary_row_count": 18,
+    "required_resolution_source_type": "wunderground_history",
+    "required_settlement_source": "daily_summary",
+    "substitute_weather_sources_permitted": []
+  },
+  "boundary": {
+    "first_post_boundary_date": "2026-07-31",
+    "pooling_permitted": false,
+    "pre_and_post_rows_must_remain_separate": true
+  },
+  "destination": {
+    "acl_proof_fields": [
+      "owner",
+      "sddl",
+      "sddl_sha256"
+    ],
+    "acl_proof_required": true,
+    "all_ancestors_must_be_non_reparse": true,
+    "create_only": true,
+    "exact_filenames": [
+      "manifest.json",
+      "wu-outcomes.jsonl"
+    ],
+    "maximum_files": 2,
+    "maximum_total_bytes": 1048576,
+    "must_be_non_reparse": true,
+    "must_not_exist_before_start": true,
+    "portable_relative_names_only": true
+  },
+  "downstream_authority": {
+    "live_use_authorized": false,
+    "model_refit_authorized": false,
+    "probability_generation_authorized": false,
+    "promotion_authorized": false,
+    "scoring_authorized": false
+  },
+  "gap_binding": {
+    "bytes": 340369,
+    "file_sha256": "6ba020575e3ef1eb903ae0010510caea20f31b31bdf3451c0e03f11175c3de94",
+    "path": "C:\\Users\\Michael\\Documents\\Codex\\runs\\workstation-wu-outcome-gap-export-contract-2026-09-100a\\wu-outcome-gap-manifest.json",
+    "self_hash": "64176a727907c8f62c496f6fb1893c1f7462cfef15c1db3f06ef7b3e244f0ce8"
+  },
+  "known_low_support_exclusions": {
+    "backfill_authorized": false,
+    "excluded_keys": 2,
+    "exported": false,
+    "imputed": false,
+    "keys": [
+      {
+        "local_status": "present_below_threshold",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-06"
+      },
+      {
+        "local_status": "present_below_threshold",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-06"
+      }
+    ],
+    "reason": "source request local_status is present_below_threshold",
+    "threshold_lowered": false
+  },
+  "manifest": {
+    "canonical_self_hash": {
+      "algorithm": "sha256",
+      "excluded_field": "manifest_sha256",
+      "serialization": "sorted keys, compact separators, ASCII JSON"
+    },
+    "filename": "manifest.json",
+    "per_file_sha256_and_bytes_required": true,
+    "schema_version": "wu_outcome_production_export_manifest_v1"
+  },
+  "mission_id": "workstation-wu-outcome-admissible-gap-spec-2026-09-100g",
+  "nwp_coverage_context_only": {
+    "2026_target_transfer": {
+      "fields": 12,
+      "leads": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "markets": 12,
+      "missing_rows": 0,
+      "rows": 1645056,
+      "status": "COMPLETE"
+    },
+    "calendar_extension": {
+      "bytes": 39050,
+      "counts": {
+        "complete_without_gaps_units": 84,
+        "completed_units": 96,
+        "missing_rows": 471933,
+        "non_null_rows": 10682595,
+        "normalized_bytes": 1109307859,
+        "normalized_rows": 11154528,
+        "raw_response_bytes": 55124205,
+        "request_units": 96,
+        "requested_rows": 11154528
+      },
+      "coverage_count_rollups": {
+        "field": [
+          {
+            "field": "cape",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "cloud_cover",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "diffuse_radiation",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "direct_radiation",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "et0_fao_evapotranspiration",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "precipitation",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "shortwave_radiation",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "temperature_2m",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "vapour_pressure_deficit",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "wind_gusts_10m",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          },
+          {
+            "field": "wind_speed_10m",
+            "missing": 42903,
+            "non_null": 971145,
+            "requested": 1014048
+          }
+        ],
+        "lead": [
+          {
+            "lead_days": 1,
+            "missing": 57915,
+            "non_null": 1535589,
+            "requested": 1593504
+          },
+          {
+            "lead_days": 2,
+            "missing": 61083,
+            "non_null": 1532421,
+            "requested": 1593504
+          },
+          {
+            "lead_days": 3,
+            "missing": 64251,
+            "non_null": 1529253,
+            "requested": 1593504
+          },
+          {
+            "lead_days": 4,
+            "missing": 67419,
+            "non_null": 1526085,
+            "requested": 1593504
+          },
+          {
+            "lead_days": 5,
+            "missing": 70587,
+            "non_null": 1522917,
+            "requested": 1593504
+          },
+          {
+            "lead_days": 6,
+            "missing": 73755,
+            "non_null": 1519749,
+            "requested": 1593504
+          },
+          {
+            "lead_days": 7,
+            "missing": 76923,
+            "non_null": 1516581,
+            "requested": 1593504
+          }
+        ],
+        "market": [
+          {
+            "market": "atlanta",
+            "missing": 39424,
+            "non_null": 890120,
+            "requested": 929544
+          },
+          {
+            "market": "austin",
+            "missing": 39347,
+            "non_null": 890197,
+            "requested": 929544
+          },
+          {
+            "market": "chicago",
+            "missing": 39347,
+            "non_null": 890197,
+            "requested": 929544
+          },
+          {
+            "market": "dallas",
+            "missing": 39347,
+            "non_null": 890197,
+            "requested": 929544
+          },
+          {
+            "market": "denver",
+            "missing": 39270,
+            "non_null": 890274,
+            "requested": 929544
+          },
+          {
+            "market": "houston",
+            "missing": 39347,
+            "non_null": 890197,
+            "requested": 929544
+          },
+          {
+            "market": "los-angeles",
+            "missing": 39193,
+            "non_null": 890351,
+            "requested": 929544
+          },
+          {
+            "market": "miami",
+            "missing": 39424,
+            "non_null": 890120,
+            "requested": 929544
+          },
+          {
+            "market": "nyc",
+            "missing": 39424,
+            "non_null": 890120,
+            "requested": 929544
+          },
+          {
+            "market": "san-francisco",
+            "missing": 39193,
+            "non_null": 890351,
+            "requested": 929544
+          },
+          {
+            "market": "seattle",
+            "missing": 39193,
+            "non_null": 890351,
+            "requested": 929544
+          },
+          {
+            "market": "toronto",
+            "missing": 39424,
+            "non_null": 890120,
+            "requested": 929544
+          }
+        ],
+        "month": [
+          {
+            "missing": 471933,
+            "month": 1,
+            "non_null": 902979,
+            "requested": 1374912
+          },
+          {
+            "missing": 0,
+            "month": 10,
+            "non_null": 1374912,
+            "requested": 1374912
+          },
+          {
+            "missing": 0,
+            "month": 11,
+            "non_null": 1330560,
+            "requested": 1330560
+          },
+          {
+            "missing": 0,
+            "month": 12,
+            "non_null": 1374912,
+            "requested": 1374912
+          },
+          {
+            "missing": 0,
+            "month": 2,
+            "non_null": 1264032,
+            "requested": 1264032
+          },
+          {
+            "missing": 0,
+            "month": 3,
+            "non_null": 1374912,
+            "requested": 1374912
+          },
+          {
+            "missing": 0,
+            "month": 4,
+            "non_null": 1330560,
+            "requested": 1330560
+          },
+          {
+            "missing": 0,
+            "month": 5,
+            "non_null": 399168,
+            "requested": 399168
+          },
+          {
+            "missing": 0,
+            "month": 9,
+            "non_null": 1330560,
+            "requested": 1330560
+          }
+        ],
+        "segment": [
+          {
+            "missing": 0,
+            "non_null": 1308384,
+            "requested": 1308384,
+            "segment": "jan01-feb28"
+          },
+          {
+            "missing": 471933,
+            "non_null": 858627,
+            "requested": 1330560,
+            "segment": "jan01-feb29"
+          },
+          {
+            "missing": 0,
+            "non_null": 3104640,
+            "requested": 3104640,
+            "segment": "mar01-may09"
+          },
+          {
+            "missing": 0,
+            "non_null": 2705472,
+            "requested": 2705472,
+            "segment": "nov01-dec31"
+          },
+          {
+            "missing": 0,
+            "non_null": 2705472,
+            "requested": 2705472,
+            "segment": "sep01-oct31"
+          }
+        ],
+        "year": [
+          {
+            "missing": 471933,
+            "non_null": 5116419,
+            "requested": 5588352,
+            "year": 2024
+          },
+          {
+            "missing": 0,
+            "non_null": 5566176,
+            "requested": 5566176,
+            "year": 2025
+          }
+        ]
+      },
+      "path": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\pit-11field-2024-2025-calendar-extension\\final\\corpus-manifest.json",
+      "role": "calendar_extension_2024_2025",
+      "self_hash": "501e5d0e22a0a21c9b0828e28dfa13b9ebc0043ab5c1e9335dda1d619689b448",
+      "sha256": "023c1a3fefa50b241a1a7a7234eb0c258d5e02c630d7468d057c0303e625fbd2"
+    },
+    "kept_separate_from_wu_gap": true,
+    "multiyear": {
+      "bytes": 49118,
+      "counts": {
+        "complete_without_gaps_units": 24,
+        "completed_units": 120,
+        "missing_rows": 7814016,
+        "non_null_rows": 5975424,
+        "normalized_bytes": 1354476392,
+        "normalized_rows": 13789440,
+        "raw_response_bytes": 71003723,
+        "request_units": 120,
+        "requested_rows": 13789440
+      },
+      "coverage_count_rollups": {
+        "field": [
+          {
+            "field": "cape",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "cloud_cover",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "diffuse_radiation",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "direct_radiation",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "et0_fao_evapotranspiration",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "precipitation",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "precipitation_probability",
+            "missing": 919296,
+            "non_null": 229824,
+            "requested": 1149120
+          },
+          {
+            "field": "shortwave_radiation",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "temperature_2m",
+            "missing": 0,
+            "non_null": 1149120,
+            "requested": 1149120
+          },
+          {
+            "field": "vapour_pressure_deficit",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "wind_gusts_10m",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          },
+          {
+            "field": "wind_speed_10m",
+            "missing": 689472,
+            "non_null": 459648,
+            "requested": 1149120
+          }
+        ],
+        "lead": [
+          {
+            "lead_days": 1,
+            "missing": 1116288,
+            "non_null": 853632,
+            "requested": 1969920
+          },
+          {
+            "lead_days": 2,
+            "missing": 1116288,
+            "non_null": 853632,
+            "requested": 1969920
+          },
+          {
+            "lead_days": 3,
+            "missing": 1116288,
+            "non_null": 853632,
+            "requested": 1969920
+          },
+          {
+            "lead_days": 4,
+            "missing": 1116288,
+            "non_null": 853632,
+            "requested": 1969920
+          },
+          {
+            "lead_days": 5,
+            "missing": 1116288,
+            "non_null": 853632,
+            "requested": 1969920
+          },
+          {
+            "lead_days": 6,
+            "missing": 1116288,
+            "non_null": 853632,
+            "requested": 1969920
+          },
+          {
+            "lead_days": 7,
+            "missing": 1116288,
+            "non_null": 853632,
+            "requested": 1969920
+          }
+        ],
+        "market": [
+          {
+            "market": "atlanta",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "austin",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "chicago",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "dallas",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "denver",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "houston",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "los-angeles",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "miami",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "nyc",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "san-francisco",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "seattle",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          },
+          {
+            "market": "toronto",
+            "missing": 651168,
+            "non_null": 497952,
+            "requested": 1149120
+          }
+        ],
+        "month": [
+          {
+            "missing": 1507968,
+            "month": 5,
+            "non_null": 1153152,
+            "requested": 2661120
+          },
+          {
+            "missing": 2056320,
+            "month": 6,
+            "non_null": 1572480,
+            "requested": 3628800
+          },
+          {
+            "missing": 2124864,
+            "month": 7,
+            "non_null": 1624896,
+            "requested": 3749760
+          },
+          {
+            "missing": 2124864,
+            "month": 8,
+            "non_null": 1624896,
+            "requested": 3749760
+          }
+        ],
+        "segment": [
+          {
+            "missing": 4249728,
+            "non_null": 3249792,
+            "requested": 7499520,
+            "segment": "jul01-aug31"
+          },
+          {
+            "missing": 3564288,
+            "non_null": 2725632,
+            "requested": 6289920,
+            "segment": "may10-jun30"
+          }
+        ],
+        "year": [
+          {
+            "missing": 2528064,
+            "non_null": 229824,
+            "requested": 2757888,
+            "year": 2021
+          },
+          {
+            "missing": 2528064,
+            "non_null": 229824,
+            "requested": 2757888,
+            "year": 2022
+          },
+          {
+            "missing": 2528064,
+            "non_null": 229824,
+            "requested": 2757888,
+            "year": 2023
+          },
+          {
+            "missing": 229824,
+            "non_null": 2528064,
+            "requested": 2757888,
+            "year": 2024
+          },
+          {
+            "missing": 0,
+            "non_null": 2757888,
+            "requested": 2757888,
+            "year": 2025
+          }
+        ]
+      },
+      "path": "C:\\Users\\Michael\\Documents\\Codex\\inputs\\pit-12field-multiyear-2021-2025\\final\\corpus-manifest.json",
+      "role": "multiyear_2021_2025",
+      "self_hash": "d41bd21efb7a62396851fe016a215db1ac8bea7de97f387333902aba7a35bb00",
+      "sha256": "25b7b50a733b2f714651bdd4fdb0724aa805fe684c0265e396d90f9d45e28c73"
+    }
+  },
+  "original_spec_binding": {
+    "file_sha256": "cf10553a9b041a783bf5caf56b191835e2904474a4bad34dcbc1f6ad934d093f",
+    "path": "docs/roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json",
+    "self_hash": "5d370c51da7d95e1d3a62a8ff4f9d66cd3312c5eecfebcbdbaab169be505e0f9"
+  },
+  "payload": {
+    "allowed_fields": [
+      "market",
+      "provenance_side",
+      "resolution_source_type",
+      "resolution_station",
+      "resolution_timezone",
+      "resolution_wu_history_id",
+      "schema_version",
+      "settlement_bucket_native",
+      "settlement_source",
+      "settlement_unit",
+      "source_daily_summary_relative_path",
+      "source_daily_summary_sha256",
+      "source_event_slug",
+      "source_label_hash",
+      "source_ledger_relative_path",
+      "source_ledger_sha256",
+      "source_recorded_at_utc",
+      "source_revision_id",
+      "source_revision_number",
+      "target_date",
+      "wu_daily_row_count"
+    ],
+    "duplicate_keys": "FAIL_CLOSED",
+    "encoding": "UTF-8",
+    "exact_request_key_coverage_required": true,
+    "extra_keys": "FAIL_CLOSED",
+    "filename": "wu-outcomes.jsonl",
+    "maximum_rows": 94,
+    "schema_version": "wu_outcome_production_export_row_v1"
+  },
+  "production_entry_point": {
+    "command": null,
+    "reason": "no reviewed read-only WU settlement export entry point exists",
+    "smallest_missing_implementation": "read verified settlement ledgers, select authoritative revisions, and create the two-file artifact defined here",
+    "status_at_source_tip": "ABSENT"
+  },
+  "prohibited_content": [
+    "credentials",
+    "provider requests",
+    "market prices",
+    "predictions",
+    "probabilities",
+    "model coefficients",
+    "evaluation metrics"
+  ],
+  "request": {
+    "absence_is_terminal": true,
+    "all_twelve_markets_required": true,
+    "keys": [
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "chicago",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kord",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-06-15"
+      },
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "chicago",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kord",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "toronto",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "C",
+        "station": "cyyz",
+        "target_date": "2026-06-16"
+      },
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "toronto",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "C",
+        "station": "cyyz",
+        "target_date": "2026-06-17"
+      },
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "chicago",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kord",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "toronto",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "C",
+        "station": "cyyz",
+        "target_date": "2026-06-18"
+      },
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "chicago",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kord",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "toronto",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "C",
+        "station": "cyyz",
+        "target_date": "2026-06-24"
+      },
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "chicago",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kord",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "toronto",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "C",
+        "station": "cyyz",
+        "target_date": "2026-06-25"
+      },
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "chicago",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kord",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "toronto",
+        "provenance_side": "pre_boundary",
+        "settlement_unit": "C",
+        "station": "cyyz",
+        "target_date": "2026-06-26"
+      },
+      {
+        "local_status": "missing",
+        "market": "atlanta",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "katl",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "austin",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "kaus",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "chicago",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "kord",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "dallas",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "kdal",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "denver",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "kbkf",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "houston",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "khou",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "los-angeles",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "klax",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "miami",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "kmia",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "nyc",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "klga",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "san-francisco",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "ksfo",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "seattle",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "F",
+        "station": "ksea",
+        "target_date": "2026-08-08"
+      },
+      {
+        "local_status": "missing",
+        "market": "toronto",
+        "provenance_side": "post_boundary_directional",
+        "settlement_unit": "C",
+        "station": "cyyz",
+        "target_date": "2026-08-08"
+      }
+    ],
+    "missing_only": true,
+    "missing_or_below_threshold_only": true,
+    "requested_rows": 94
+  },
+  "schema_version": "wu_outcome_production_export_spec_v1",
+  "source_stability": {
+    "bound_files": [
+      "settlement_ledger",
+      "wu_daily_summary"
+    ],
+    "identical_pre_and_post_identity_required": true,
+    "pre_and_post_bytes_required": true,
+    "pre_and_post_sha256_required": true
+  },
+  "spec_sha256": "6f02e1dcc077c69037017137725931e94d4fd652da976affda12a2109bb67407",
+  "status": "PRODUCTION_EXPORTER_REQUIRED"
+}

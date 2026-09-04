@@ -13,6 +13,7 @@ import pytest
 from weather.market.market_registry import BUILTIN_SPECS
 from weather.operations import wu_outcome_export_contract as contract
 from weather.operations import wu_outcome_production_exporter as exporter
+from weather.operations import wu_outcome_spec_registry as spec_registry
 
 
 DATES = (
@@ -118,18 +119,47 @@ def _explicit_revision(previous: dict, current: dict, number: int = 1) -> dict:
     return row
 
 
-def _make_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
+def _registered_spec_path(relative: Path) -> Path:
+    return Path(__file__).resolve().parents[2].joinpath(*relative.parts)
+
+
+def _make_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    spec_relative=spec_registry.ORIGINAL_SPEC_RELATIVE,
+    include_low_support_exclusions: bool = False,
+) -> dict:
     repo_root = (tmp_path / "repo").absolute()
     repo_root.mkdir(parents=True)
     configured = {item.id: item for item in BUILTIN_SPECS}
-    requests = []
+    spec = json.loads(
+        _registered_spec_path(spec_relative).read_text(encoding="utf-8")
+    )
+    requests_by_market: dict[str, list[dict]] = {}
+    for request in spec["request"]["keys"]:
+        requests_by_market.setdefault(request["market"], []).append(request)
+    exclusions_by_market: dict[str, list[dict]] = {}
+    if include_low_support_exclusions:
+        for exclusion in spec.get("known_low_support_exclusions", {}).get("keys", []):
+            exclusions_by_market.setdefault(exclusion["market"], []).append(exclusion)
     ledger_paths = {}
     daily_paths = {}
+    synthetic_values: list[int] = []
     for market in sorted(configured):
         market_spec = configured[market]
+        requests = requests_by_market[market]
+        daily_keys = [*exclusions_by_market.get(market, []), *requests]
         buckets = {
-            target: 20 + index + (0 if market_spec.display_unit == "C" else 50)
-            for index, target in enumerate(DATES)
+            request["target_date"]: (
+                20 + index + (0 if market_spec.display_unit == "C" else 50)
+            )
+            for index, request in enumerate(daily_keys)
+        }
+        synthetic_values.extend(buckets.values())
+        counts = {
+            row["target_date"]: 17
+            for row in exclusions_by_market.get(market, [])
         }
         ledger_path = repo_root / "data" / "settlements" / market / "ledger.jsonl"
         daily_path = (
@@ -142,11 +172,16 @@ def _make_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
         )
         daily_path.parent.mkdir(parents=True, exist_ok=True)
         daily_path.write_text(
-            _daily_text(market_spec.display_unit, buckets), encoding="utf-8"
+            _daily_text(market_spec.display_unit, buckets, counts), encoding="utf-8"
         )
         rows = [
-            _base_label(market, market_spec, target, buckets[target])
-            for target in DATES
+            _base_label(
+                market,
+                market_spec,
+                request["target_date"],
+                buckets[request["target_date"]],
+            )
+            for request in requests
         ]
         if market == "atlanta":
             original = rows[0]
@@ -158,37 +193,6 @@ def _make_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
         _write_ledger(ledger_path, rows)
         ledger_paths[market] = ledger_path
         daily_paths[market] = daily_path
-        for target in DATES:
-            requests.append(
-                {
-                    "market": market,
-                    "target_date": target,
-                    "provenance_side": (
-                        "post_boundary_directional"
-                        if target >= "2026-07-31"
-                        else "pre_boundary"
-                    ),
-                    "local_status": "missing",
-                    "station": market_spec.icao.casefold(),
-                    "settlement_unit": market_spec.display_unit,
-                }
-            )
-    spec = {
-        "schema_version": contract.SPEC_SCHEMA,
-        "gap_binding": {
-            "self_hash": exporter.TRACKED_GAP_SELF_SHA256,
-            "file_sha256": exporter.TRACKED_GAP_FILE_SHA256,
-        },
-        "request": {"requested_rows": 96, "keys": requests},
-        "downstream_authority": {
-            "model_refit_authorized": False,
-            "probability_generation_authorized": False,
-            "scoring_authorized": False,
-            "promotion_authorized": False,
-            "live_use_authorized": False,
-        },
-    }
-    spec["spec_sha256"] = contract.self_hash(spec, "spec_sha256")
     spec_path = repo_root / "synthetic-spec.json"
     _write_json(spec_path, spec)
     monkeypatch.setattr(exporter, "_load_frozen_spec", lambda _root, _path: spec)
@@ -201,6 +205,7 @@ def _make_case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict:
         "destination": output_parent / "export",
         "ledgers": ledger_paths,
         "dailies": daily_paths,
+        "synthetic_values": synthetic_values,
     }
 
 
@@ -243,20 +248,34 @@ def _commit(root: Path, message: str) -> None:
     )
 
 
-def _write_sources_for_spec(repo_root: Path, spec: dict) -> list[int]:
+def _write_sources_for_spec(
+    repo_root: Path,
+    spec: dict,
+    *,
+    include_low_support_exclusions: bool = False,
+) -> list[int]:
     configured = {item.id: item for item in BUILTIN_SPECS}
     synthetic_values: list[int] = []
     requests_by_market: dict[str, list[dict]] = {}
     for request in spec["request"]["keys"]:
         requests_by_market.setdefault(request["market"], []).append(request)
+    exclusions_by_market: dict[str, list[dict]] = {}
+    if include_low_support_exclusions:
+        for exclusion in spec.get("known_low_support_exclusions", {}).get("keys", []):
+            exclusions_by_market.setdefault(exclusion["market"], []).append(exclusion)
     for market_index, market in enumerate(sorted(configured)):
         market_spec = configured[market]
         requests = requests_by_market[market]
+        daily_keys = [*exclusions_by_market.get(market, []), *requests]
         buckets = {
             request["target_date"]: 700_000 + market_index * 100 + date_index
-            for date_index, request in enumerate(requests)
+            for date_index, request in enumerate(daily_keys)
         }
         synthetic_values.extend(buckets.values())
+        counts = {
+            row["target_date"]: 17
+            for row in exclusions_by_market.get(market, [])
+        }
         ledger_path = repo_root / "data" / "settlements" / market / "ledger.jsonl"
         daily_path = (
             repo_root
@@ -268,7 +287,7 @@ def _write_sources_for_spec(repo_root: Path, spec: dict) -> list[int]:
         )
         daily_path.parent.mkdir(parents=True, exist_ok=True)
         daily_path.write_text(
-            _daily_text(market_spec.display_unit, buckets), encoding="utf-8"
+            _daily_text(market_spec.display_unit, buckets, counts), encoding="utf-8"
         )
         _write_ledger(
             ledger_path,
@@ -285,7 +304,12 @@ def _write_sources_for_spec(repo_root: Path, spec: dict) -> list[int]:
     return synthetic_values
 
 
-def _make_split_root_case(tmp_path: Path) -> dict:
+def _make_split_root_case(
+    tmp_path: Path,
+    *,
+    spec_relative=spec_registry.ORIGINAL_SPEC_RELATIVE,
+    include_low_support_exclusions: bool = False,
+) -> dict:
     data_root = (tmp_path / "data-root").absolute()
     spec_root = (tmp_path / "spec-root").absolute()
     data_root.mkdir(parents=True)
@@ -295,16 +319,18 @@ def _make_split_root_case(tmp_path: Path) -> dict:
     _commit(data_root, "synthetic base")
     _git(data_root, "worktree", "add", "-b", "synthetic-spec", os.fspath(spec_root))
 
-    source_spec = Path(__file__).resolve().parents[2].joinpath(
-        *exporter.TRACKED_SPEC_RELATIVE.parts
-    )
-    spec_path = spec_root.joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
+    source_spec = _registered_spec_path(spec_relative)
+    spec_path = spec_root.joinpath(*spec_relative.parts)
     spec_path.parent.mkdir(parents=True)
     spec_path.write_bytes(source_spec.read_bytes())
-    _git(spec_root, "add", "--", exporter.TRACKED_SPEC_RELATIVE.as_posix())
+    _git(spec_root, "add", "--", spec_relative.as_posix())
     _commit(spec_root, "track frozen synthetic-test spec")
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    synthetic_values = _write_sources_for_spec(data_root, spec)
+    synthetic_values = _write_sources_for_spec(
+        data_root,
+        spec,
+        include_low_support_exclusions=include_low_support_exclusions,
+    )
     output_parent = (tmp_path / "outside").absolute()
     output_parent.mkdir()
     return {
@@ -317,18 +343,141 @@ def _make_split_root_case(tmp_path: Path) -> dict:
     }
 
 
-def test_frozen_spec_is_exact_tracked_file() -> None:
+@pytest.mark.parametrize(
+    "registration", spec_registry.FROZEN_SPEC_REGISTRY.values()
+)
+def test_frozen_specs_are_exact_tracked_files(registration) -> None:
     repo_root = Path(__file__).resolve().parents[2]
-    spec_path = repo_root.joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
+    spec_path = repo_root.joinpath(*registration.relative_path.parts)
     spec = exporter._load_frozen_spec(repo_root, spec_path)
-    assert spec["spec_sha256"] == exporter.TRACKED_SPEC_SELF_SHA256
-    assert len(spec["request"]["keys"]) == 96
+    assert contract.sha256_file(spec_path) == registration.file_sha256
+    assert spec["spec_sha256"] == registration.self_sha256
+    assert len(spec["request"]["keys"]) == registration.requested_rows
 
 
-def test_public_cli_exports_with_distinct_clean_data_and_spec_worktrees(
+def test_admissible_spec_derivation_is_byte_exact_and_partitioned(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    case = _make_split_root_case(tmp_path)
+    original_path = _registered_spec_path(spec_registry.ORIGINAL_SPEC_RELATIVE)
+    admissible_path = _registered_spec_path(spec_registry.ADMISSIBLE_SPEC_RELATIVE)
+    assert contract.sha256_file(original_path) == spec_registry.ORIGINAL_SPEC_FILE_SHA256
+    original = json.loads(original_path.read_text(encoding="utf-8"))
+    assert original["spec_sha256"] == spec_registry.ORIGINAL_SPEC_SELF_SHA256
+
+    reproduced = (tmp_path / "reproduced.json").absolute()
+    assert contract.main(
+        [
+            "derive-admissible-spec",
+            "--source-spec",
+            os.fspath(original_path),
+            "--output",
+            os.fspath(reproduced),
+        ]
+    ) == 0
+    assert reproduced.read_bytes() == admissible_path.read_bytes()
+    assert contract.sha256_file(reproduced) == spec_registry.ADMISSIBLE_SPEC_FILE_SHA256
+    captured = capsys.readouterr()
+    assert spec_registry.ADMISSIBLE_SPEC_SELF_SHA256 in captured.out
+
+    admissible = json.loads(admissible_path.read_text(encoding="utf-8"))
+    original_rows = original["request"]["keys"]
+    requested = admissible["request"]["keys"]
+    exclusions = admissible["known_low_support_exclusions"]["keys"]
+    assert len(original_rows) == 96
+    assert len(requested) == 94
+    assert len(exclusions) == 2
+    assert all(row["local_status"] == "missing" for row in requested)
+    assert tuple(spec_registry.request_key_identity(row) for row in exclusions) == (
+        spec_registry.LOW_SUPPORT_KEYS
+    )
+    assert requested == [
+        row for row in original_rows if row["local_status"] == "missing"
+    ]
+    assert exclusions == [
+        row
+        for row in original_rows
+        if row["local_status"] == "present_below_threshold"
+    ]
+    combined = {
+        (row["market"], row["target_date"]) for row in [*requested, *exclusions]
+    }
+    assert len(combined) == 96
+    assert combined == {
+        (row["market"], row["target_date"]) for row in original_rows
+    }
+    assert {row["market"] for row in requested} == {item.id for item in BUILTIN_SPECS}
+    for field in (
+        "gap_binding",
+        "boundary",
+        "authoritative_source",
+        "source_stability",
+        "destination",
+        "manifest",
+        "prohibited_content",
+        "nwp_coverage_context_only",
+        "downstream_authority",
+    ):
+        assert admissible[field] == original[field]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "exclusion",
+        "included_low_support",
+        "source_binding",
+        "count",
+        "status",
+        "cross_boundary",
+    ],
+)
+def test_admissible_spec_semantic_tampering_is_rejected(mutation: str) -> None:
+    path = _registered_spec_path(spec_registry.ADMISSIBLE_SPEC_RELATIVE)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if mutation == "exclusion":
+        payload["known_low_support_exclusions"]["keys"][0]["market"] = "austin"
+    elif mutation == "included_low_support":
+        payload["request"]["keys"][0] = dict(
+            payload["known_low_support_exclusions"]["keys"][0]
+        )
+    elif mutation == "source_binding":
+        payload["original_spec_binding"]["self_hash"] = "0" * 64
+    elif mutation == "count":
+        payload["request"]["requested_rows"] = 93
+    elif mutation == "status":
+        payload["request"]["keys"][0]["local_status"] = "present_below_threshold"
+    else:
+        payload["request"]["keys"][0]["provenance_side"] = (
+            "post_boundary_directional"
+        )
+    registration = spec_registry.FROZEN_SPEC_REGISTRY[
+        spec_registry.ADMISSIBLE_SPEC_RELATIVE
+    ]
+    with pytest.raises(contract.ContractError):
+        if mutation == "cross_boundary":
+            exporter._market_configuration(payload)
+        else:
+            exporter._validate_registered_spec(payload, registration)
+
+
+@pytest.mark.parametrize(
+    ("spec_relative", "include_low_support_exclusions"),
+    [
+        (spec_registry.ORIGINAL_SPEC_RELATIVE, False),
+        (spec_registry.ADMISSIBLE_SPEC_RELATIVE, True),
+    ],
+)
+def test_public_cli_exports_with_distinct_clean_data_and_spec_worktrees(
+    spec_relative,
+    include_low_support_exclusions: bool,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    case = _make_split_root_case(
+        tmp_path,
+        spec_relative=spec_relative,
+        include_low_support_exclusions=include_low_support_exclusions,
+    )
     destinations = [case["output_parent"] / "first", case["output_parent"] / "second"]
     for destination in destinations:
         assert contract.main(
@@ -353,6 +502,20 @@ def test_public_cli_exports_with_distinct_clean_data_and_spec_worktrees(
     assert (destinations[0] / "wu-outcomes.jsonl").read_bytes() == (
         destinations[1] / "wu-outcomes.jsonl"
     ).read_bytes()
+    payload = _rows(destinations[0] / "wu-outcomes.jsonl")
+    assert len(payload) == case["spec"]["request"]["requested_rows"]
+    assert [(row["market"], row["target_date"]) for row in payload] == [
+        (row["market"], row["target_date"])
+        for row in case["spec"]["request"]["keys"]
+    ]
+    if spec_relative == spec_registry.ADMISSIBLE_SPEC_RELATIVE:
+        excluded = {
+            (row["market"], row["target_date"])
+            for row in case["spec"]["known_low_support_exclusions"]["keys"]
+        }
+        assert not excluded.intersection(
+            (row["market"], row["target_date"]) for row in payload
+        )
     assert _git(case["data_root"], "status", "--porcelain").stdout == ""
     assert _git(case["spec_root"], "status", "--porcelain").stdout == ""
     assert (
@@ -361,20 +524,24 @@ def test_public_cli_exports_with_distinct_clean_data_and_spec_worktrees(
             "ls-files",
             "--error-unmatch",
             "--",
-            exporter.TRACKED_SPEC_RELATIVE.as_posix(),
+            spec_relative.as_posix(),
             expected=1,
         ).returncode
         == 1
     )
 
 
+@pytest.mark.parametrize(
+    "spec_relative",
+    [spec_registry.ORIGINAL_SPEC_RELATIVE, spec_registry.ADMISSIBLE_SPEC_RELATIVE],
+)
 def test_split_root_spec_identity_falsifiers_fail_closed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    spec_relative, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    case = _make_split_root_case(tmp_path)
+    case = _make_split_root_case(tmp_path, spec_relative=spec_relative)
     exact_bytes = case["spec_path"].read_bytes()
 
-    untracked = case["data_root"].joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
+    untracked = case["data_root"].joinpath(*spec_relative.parts)
     untracked.parent.mkdir(parents=True)
     untracked.write_bytes(exact_bytes)
     with pytest.raises(contract.ContractError, match="E_SPEC_NOT_TRACKED"):
@@ -383,7 +550,7 @@ def test_split_root_spec_identity_falsifiers_fail_closed(
     untracked.parent.rmdir()
     untracked.parent.parent.rmdir()
 
-    wrong_relative = case["spec_root"] / "other" / exporter.TRACKED_SPEC_RELATIVE.name
+    wrong_relative = case["spec_root"] / "other" / spec_relative.name
     wrong_relative.parent.mkdir()
     wrong_relative.write_bytes(exact_bytes)
     with pytest.raises(contract.ContractError, match="E_SPEC_PATH_MISMATCH"):
@@ -393,7 +560,7 @@ def test_split_root_spec_identity_falsifiers_fail_closed(
         case["spec_root"]
         / "DOCS"
         / "roadmap"
-        / exporter.TRACKED_SPEC_RELATIVE.name
+        / spec_relative.name
     )
     expected_case_error = "E_PATH_CASE_COLLISION" if os.name == "nt" else "E_SPEC_MISSING"
     with pytest.raises(contract.ContractError, match=expected_case_error):
@@ -412,12 +579,47 @@ def test_split_root_spec_identity_falsifiers_fail_closed(
     other_root = (tmp_path / "other-repository").absolute()
     other_root.mkdir()
     _git(other_root, "init")
-    other_spec = other_root.joinpath(*exporter.TRACKED_SPEC_RELATIVE.parts)
+    other_spec = other_root.joinpath(*spec_relative.parts)
     other_spec.parent.mkdir(parents=True)
     other_spec.write_bytes(exact_bytes)
-    _git(other_root, "add", "--", exporter.TRACKED_SPEC_RELATIVE.as_posix())
+    _git(other_root, "add", "--", spec_relative.as_posix())
     with pytest.raises(contract.ContractError, match="E_SPEC_REPOSITORY_IDENTITY"):
         exporter._load_frozen_spec(case["data_root"], other_spec)
+
+
+def test_admissible_spec_file_and_self_hash_falsifiers_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_split_root_case(
+        tmp_path, spec_relative=spec_registry.ADMISSIBLE_SPEC_RELATIVE
+    )
+    exact_bytes = case["spec_path"].read_bytes()
+    case["spec_path"].write_bytes(exact_bytes + b" ")
+    with pytest.raises(contract.ContractError, match="E_SPEC_FILE_HASH"):
+        exporter._load_frozen_spec(case["data_root"], case["spec_path"])
+
+    payload = json.loads(exact_bytes)
+    payload["spec_sha256"] = "0" * 64
+    _write_json(case["spec_path"], payload)
+    original_sha256_file = contract.sha256_file
+    monkeypatch.setattr(
+        contract,
+        "sha256_file",
+        lambda path: (
+            spec_registry.ADMISSIBLE_SPEC_FILE_SHA256
+            if path == case["spec_path"]
+            else original_sha256_file(path)
+        ),
+    )
+    with pytest.raises(contract.ContractError, match="E_SPEC_SELF_HASH"):
+        exporter._load_frozen_spec(case["data_root"], case["spec_path"])
+
+
+def test_public_validator_rejects_an_unregistered_spec_path(tmp_path: Path) -> None:
+    spec_path = (tmp_path / "arbitrary-spec.json").absolute()
+    _write_json(spec_path, {"schema_version": contract.SPEC_SCHEMA})
+    with pytest.raises(contract.ContractError, match="E_SPEC_WORKTREE_UNTRACKED"):
+        contract.validate_export(spec_path=spec_path, export_root=tmp_path)
 
 
 def test_exact_96_row_export_is_stable_native_and_validated(
@@ -457,23 +659,89 @@ def test_exact_96_row_export_is_stable_native_and_validated(
     )["status"] == "PASS"
 
 
-def test_two_fresh_roots_reproduce_byte_identical_exports(
+def test_admissible_export_accepts_excluded_low_support_and_rejects_requested_low_support(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    first = _make_case(tmp_path / "one", monkeypatch)
+    case = _make_case(
+        tmp_path / "accepted",
+        monkeypatch,
+        spec_relative=spec_registry.ADMISSIBLE_SPEC_RELATIVE,
+        include_low_support_exclusions=True,
+    )
+    before = {
+        path: (path.stat().st_size, contract.sha256_file(path))
+        for path in [*case["ledgers"].values(), *case["dailies"].values()]
+    }
+    result = _invoke(case)
+    payload = _rows(case["destination"] / "wu-outcomes.jsonl")
+    assert result["exported_rows"] == 94
+    assert len(payload) == 94
+    excluded = {
+        (row["market"], row["target_date"])
+        for row in case["spec"]["known_low_support_exclusions"]["keys"]
+    }
+    assert excluded == {("atlanta", "2026-06-06"), ("miami", "2026-06-06")}
+    assert not excluded.intersection(
+        (row["market"], row["target_date"]) for row in payload
+    )
+    assert all(
+        ",2026-06-06,F,17," in case["dailies"][market].read_text(encoding="utf-8")
+        for market in ("atlanta", "miami")
+    )
+    assert before == {
+        path: (path.stat().st_size, contract.sha256_file(path))
+        for path in before
+    }
+    manifest = json.loads(
+        (case["destination"] / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["destination_acl_proof"] == exporter._windows_acl_proof(
+        case["destination"]
+    )
+
+    rejected = _make_case(
+        tmp_path / "rejected",
+        monkeypatch,
+        spec_relative=spec_registry.ADMISSIBLE_SPEC_RELATIVE,
+    )
+    path = rejected["dailies"]["chicago"]
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[1] = lines[1].replace(",24,", ",17,")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    with pytest.raises(contract.ContractError, match="E_DAILY_BELOW_THRESHOLD"):
+        _invoke(rejected)
+    assert not rejected["destination"].exists()
+
+
+@pytest.mark.parametrize(
+    "spec_relative",
+    [spec_registry.ORIGINAL_SPEC_RELATIVE, spec_registry.ADMISSIBLE_SPEC_RELATIVE],
+)
+def test_two_fresh_roots_reproduce_byte_identical_exports(
+    spec_relative, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _make_case(
+        tmp_path / "one", monkeypatch, spec_relative=spec_relative
+    )
     _invoke(first)
     first_payload = (first["destination"] / "wu-outcomes.jsonl").read_bytes()
     first_manifest = (first["destination"] / "manifest.json").read_bytes()
-    second = _make_case(tmp_path / "two", monkeypatch)
+    second = _make_case(
+        tmp_path / "two", monkeypatch, spec_relative=spec_relative
+    )
     _invoke(second)
     assert (second["destination"] / "wu-outcomes.jsonl").read_bytes() == first_payload
     assert (second["destination"] / "manifest.json").read_bytes() == first_manifest
 
 
+@pytest.mark.parametrize(
+    "spec_relative",
+    [spec_registry.ORIGINAL_SPEC_RELATIVE, spec_registry.ADMISSIBLE_SPEC_RELATIVE],
+)
 def test_irrelevant_daily_semantics_do_not_block_exact_stable_export(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    spec_relative, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    case = _make_case(tmp_path, monkeypatch)
+    case = _make_case(tmp_path, monkeypatch, spec_relative=spec_relative)
     irrelevant_rows = [
         "wu_daily_legacy_v0,not-a-date,K,not-a-count,",
         "wrong_schema,2025-01-01,C,-1,81.5",
@@ -510,7 +778,7 @@ def test_irrelevant_daily_semantics_do_not_block_exact_stable_export(
         (row["market"], row["target_date"])
         for row in case["spec"]["request"]["keys"]
     ]
-    assert len(payload) == 96
+    assert len(payload) == case["spec"]["request"]["requested_rows"]
     assert [(row["market"], row["target_date"]) for row in payload] == expected_keys
     manifest = json.loads(first_manifest)
     assert len(manifest["source_files"]) == 24
@@ -541,12 +809,26 @@ def _copied_acl_proof() -> dict[str, str]:
     }
 
 
+@pytest.mark.parametrize(
+    ("spec_relative", "include_low_support_exclusions"),
+    [
+        (spec_registry.ORIGINAL_SPEC_RELATIVE, False),
+        (spec_registry.ADMISSIBLE_SPEC_RELATIVE, True),
+    ],
+)
 def test_portable_copy_requires_hashes_and_returns_actual_acl_without_mutation(
+    spec_relative,
+    include_low_support_exclusions: bool,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    case = _make_case(tmp_path, monkeypatch)
+    case = _make_case(
+        tmp_path,
+        monkeypatch,
+        spec_relative=spec_relative,
+        include_low_support_exclusions=include_low_support_exclusions,
+    )
     secret = 314_159_265
     ledger_rows = _rows(case["ledgers"]["chicago"])
     ledger_row = next(

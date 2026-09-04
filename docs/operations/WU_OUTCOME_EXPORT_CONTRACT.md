@@ -3,9 +3,14 @@
 `weather.operations.wu_outcome_export_contract` owns the outcome-blind coverage
 inventory, production-export CLI, and artifact validator.
 `weather.operations.wu_outcome_production_exporter` owns the dependency-light
-filesystem transaction behind that stable entry point. The frozen machine
-contract is the dated
-[`wu-outcome-gap-production-export-spec-2026-09-100a.json`](../roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json).
+filesystem transaction behind that stable entry point. The two admitted frozen
+machine contracts are the original
+[`wu-outcome-gap-production-export-spec-2026-09-100a.json`](../roadmap/wu-outcome-gap-production-export-spec-2026-09-100a.json)
+and its deterministic missing-only derivative,
+[`wu-outcome-admissible-gap-production-export-spec-2026-09-100g.json`](../roadmap/wu-outcome-admissible-gap-production-export-spec-2026-09-100g.json).
+An exact registry binds each canonical tracked path to its file hash, self-hash,
+request count, status partition, and low-support treatment. Export and both
+validator modes reject every path or identity outside that registry.
 
 The gap builder derives its market/date cohort from the frozen design and
 external amendment. It verifies the immutable 2026 NWP transfer and each frozen
@@ -18,12 +23,17 @@ The pre- and post-2026-07-31 sides remain separate.
 
 The production entry point reads exactly the 12 configured settlement ledgers
 and 12 configured WU daily summaries. It strictly verifies ledger history,
-selects the deterministic latest revision for each of the exact 96 requested
-`(market_id, target_date)` keys, reconciles the native-unit ledger bucket with
-the WU daily row, and fails if any requested row is absent, inconsistent, or has
-fewer than 18 observations. Sources are opened without writer locks and are
-bound by portable repository-relative path, bytes, SHA-256, and stable file
-identity before and after selection and immediately before publication.
+selects the deterministic latest revision for every key requested by the
+admitted spec, reconciles the native-unit ledger bucket with the WU daily row,
+and fails if any requested row is absent, inconsistent, or has fewer than 18
+observations. The original spec requests all 96 gap rows. The admissible spec
+requests the 94 rows whose original literal `local_status` is `missing` and
+records Atlanta and Miami on `2026-06-06` as the exact two known low-support
+exclusions. Those two rows remain explicit evaluation exclusions: this contract
+does not export, impute, threshold-lower, or backfill them. Sources are opened
+without writer locks and are bound by portable repository-relative path, bytes,
+SHA-256, and stable file identity before and after selection and immediately
+before publication.
 
 Each WU daily-summary CSV is decoded and structurally parsed from beginning to
 end. Header and row shape, duplicate or case-colliding columns, encoding, and
@@ -33,14 +43,21 @@ the exact requested dates derived independently for each market. Historical
 rows outside that frozen cohort do not enter the export and their semantic
 contents do not block it; every requested date must still appear exactly once.
 
-The command requires an absolute read-only data repository root, the exact
-tracked frozen spec, and a new absolute destination whose parent already
+The export command requires an absolute read-only data repository root, either
+exact tracked frozen spec, and a new absolute destination whose parent already
 exists. The spec may live in a separate reviewed worktree of the same Git
 repository; its own worktree root, exact relative path, tracking state, and
 shared Git common-directory identity are verified independently:
 
 ```text
 python -m weather.operations.wu_outcome_export_contract export-production --repo-root <absolute-repository-root> --spec <absolute-path-to-tracked-spec> --destination <absolute-new-export-directory>
+```
+
+The missing-only spec reproduces byte-for-byte from the original without a gap
+file or outcome source:
+
+```text
+python -m weather.operations.wu_outcome_export_contract derive-admissible-spec --source-spec <absolute-path-to-tracked-100a-spec> --output <absolute-new-spec-path>
 ```
 
 This is a placeholder-only template. Encode the argument vector and execute it

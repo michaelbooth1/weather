@@ -133,6 +133,11 @@ built. The evidence and exact field/timestamp matrices are in
   deterministic two-root reproduction, create-only publication, and source,
   evidence, tamper, reparse, drift, and injected-failure refusal using synthetic
   files only.
+- [x] Derive and register the exact 94-key missing-only export specification
+  while preserving the two June 6 F rows as explicit low-support evaluation
+  exclusions. Both immutable specs remain admitted by exact tracked path and
+  file/self hash; the exclusions are not exported, imputed, threshold-lowered,
+  or backfilled by this contract.
 - [ ] Run the exporter against reviewed production sources and transfer the
   resulting research-only artifact. This implementation does not perform that
   operation and grants no refit, scoring, promotion, serving, or live authority.
