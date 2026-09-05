@@ -18,31 +18,30 @@ The claim boundary and frozen economics decision rule are preregistered in
 
 The portable execution-host extension, fixed-scope Stage 0/1 sealer, session
 runner, process-local pinned SDK overlay, and interrupt-cleanup path are
-integrated production software. The stage-scoped gate redesign remains an
-unmerged candidate, and an operator-authorized portable-only exception permits
-the exact reviewed branch
-`codex/live-gate-provenance-20260831` to supply live code for
-`portable_execution_v1` before master adoption. Read the current exact branch
-tip, exact-head CI/review status, operator authorization, and production master
-baseline from Git and [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated
-hash copied here.
-Their integration receipts grant no credential or live-exchange authority, and
-no Stage 0 or Stage 1 protocol has passed. Failed precredential launcher
-attempts and their exact disposition are recorded in
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md).
+integrated production software. The Stage 0 structural scope and Stage 1
+lifecycle design below must be present on the exact source selected for the
+session. Normally that authority is production-adopted canonical `master`;
+the narrow pre-adoption portable exception is owned by
+[portable source authority](PORTABLE_LIVE_EXECUTION_HOST.md#source-authority).
+Reconcile an existing portable clone's reviewed changes before selecting or
+changing its branch. Read the current adopted tip, exact-head CI/review,
+operator authority, and prior attempt disposition from Git and
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md), not from a dated hash copied here.
+Integration receipts grant no credential or live-exchange authority and do not
+prove current execution-host qualification or a successful Stage 0/1 protocol.
 
 **Stage 0/1 execution is currently HOLD until every action-time gate below
 passes.** The explicit execution-host profile,
 truthful Stage 0 authenticated-write confirmation contract, and canonical
 fixed-session manifest builder are implemented by the fixed-scope software
-described here. `capture_colocated_v1` still requires exact production-adopted
-canonical `master`. For `portable_execution_v1`, use
-[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) and fresh Git proof to require the exact
-owner-authorized, reviewed, CI-green remote branch named above; local `HEAD`,
-its local branch tip, cached origin branch, and live canonical branch tip must
-be identical, while local/cached/live canonical master are synchronized and
-that master is an ancestor of the topic tip. The fixed-session manifest
-builder and dated Stage 0/1-only substitute-gate decision below are preparation
+described here. On adopted master, both profiles require
+`HEAD == master == cached origin/master == live canonical refs/heads/master`.
+`capture_colocated_v1` is master-only. If the current portable source decision
+uses the named topic exception, require exact local `HEAD`/local branch/cached
+branch/live branch equality plus synchronized ancestral master and the full
+[source-authority contract](PORTABLE_LIVE_EXECUTION_HOST.md#source-authority).
+The fixed-session manifest builder and dated Stage 0/1-only substitute-gate
+decision below are preparation
 only. Neither is temporal, credential, exchange-mutation, or trading
 authorization.
 
@@ -54,9 +53,9 @@ order, cancellation, deadline, cleanup, or attended-confirmation gate.
 
 ### Stage-scoped candidate-gate redesign qualification
 
-The stage-scoped replacement is implemented on the operator-selected portable
-branch. Naming the branch in code is not itself live authority: do not use an
-exact tip for Stage 0 or Stage 1 until the test, review, publication,
+The stage-scoped replacement is implemented by the canonical Stage 0 scope and
+Stage 1 lifecycle-plan modules. Naming a branch in code is not live authority:
+do not use an exact tip for Stage 0 or Stage 1 until the test, review, publication,
 exact-head CI, synchronized-ref, portable-update, and explicit exact-tip owner
 authority steps in [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md) pass. Code history
 establishes that the fixed
@@ -113,10 +112,10 @@ optimum unless a cited measurement says so:
 
 Do not repair this defect by changing five cents to another guessed number.
 The separate Stage 0 scope and Stage 1 lifecycle-plan gates now implement this
-contract on the selected portable branch. The commands below describe that
+contract in the selected source. The commands below describe that
 interface, but remain on HOLD for any exact tip that has not passed every
 dynamic qualification and action-time gate described above. See
-[`ESTABLISHED_FINDINGS.md`](ESTABLISHED_FINDINGS.md#8v-the-five-cent-live-candidate-spread-ceiling-is-an-unvalidated-pilot-heuristic).
+[`ESTABLISHED_FINDINGS.md`](ESTABLISHED_FINDINGS.md#8y-the-five-cent-live-candidate-spread-ceiling-is-an-unvalidated-pilot-heuristic).
 
 **Geographic eligibility is an action-time fact, not a repository or timezone
 inference.** This repository does not assert the operator's or execution host's
@@ -332,6 +331,77 @@ All must be current for the target date and selected market:
    missing attestor, malformed receipt, or receipt that expires while those
    calls run blocks before `place_order`.
 
+## Stage 0/1 preparation and launch sequence
+
+The first attended test is **Stage 0 heartbeat/account-wide cancel-all, Stage 1
+cancel-all, then Stage 1 dead-man**. Keep the exact **10 pUSD request and 100
+pUSD wallet cap**, one market, and one minimum-size, minimum-tick, post-only
+BUY per Stage 1 mode. All [pilot ceilings](#immutable-pilot-envelope) and
+[prerequisites](#prerequisites) remain binding. This sequence locates the full
+command blocks below; it does not grant live or Stage 2 authority.
+
+**Prepare before the session without credentials:** reconcile and qualify the
+chosen source, follow [host provisioning and the offline audit](PORTABLE_LIVE_EXECUTION_HOST.md),
+audit the installed public SDK, and finish admitted heavy work. Prepare the
+[private attempt namespace and public identity](#attempt-namespace-and-public-identity).
+Retain the chosen event's public Gamma response and generate its host-local
+[event metadata](#event-metadata-and-stage-discovery). These setup inputs do
+not have the plans' 300-second lease; current Git, host, SDK, identity and event
+binding still must pass at the session. Prepare the command blocks and review
+their intended paths now; create expiring plans only when ready to consume them.
+
+**At the attended session:**
+
+1. Use the prepared, unspent attempt and a fresh host/principal-bound v0.4
+   [compare-only credential receipt](#credential-provisioning-and-fresh-comparison)
+   from `weather.market.mm_credential_import_cli --verify-existing-exact`.
+   Its maximum age is two hours. Prior provisioning is not this fresh proof.
+2. Run [discovery](#event-metadata-and-stage-discovery) through
+   `weather.market.mm_live_stage0_scope`, then
+   `weather.market.mm_live_stage1_lifecycle_plan` for that exact condition/token.
+   Before their 300-second leases expire, build all three
+   [fixed manifests](#fixed-session-manifests-and-launcher-review) with
+   `weather.operations.international_live_session_launcher_sealer prepare-manifest`.
+   Review each manifest and build-receipt hash independently, then use
+   `prepare-launcher`. Finish this review before creating any live plan.
+3. With explicit current live authority, run the
+   [fresh Stage 0 scope and reviewed no-argument launcher](#fresh-stage-0-scope-and-attended-launch)
+   as one uninterrupted block. Use only the manifest's staged metadata and
+   exact selected condition/token. Stage 0 submits no order; its authenticated
+   heartbeat and account-wide cancel-all writes require the attended literals.
+4. Only after Stage 0 passes, invoke the
+   [fresh Stage 1 helper](#fresh-stage-1-plans-and-attended-launches) for
+   `stage1_cancel_all`, then `stage1_dead_man`. Each helper creates a separate
+   current lifecycle plan immediately before its reviewed launcher. The
+   bootstrap must remain current; every unknown state, failed receipt or
+   unexpected fill stops the attempt and enters reconciliation.
+5. After both modes pass, construct the
+   [offline lifecycle bundle](#offline-stage-1-lifecycle-bundle) with
+   `weather.market.mm_live_pilot_cli bundle`. Neither a lifecycle PASS nor
+   zero-fee acceptance qualifies settlement accounting or maker economics.
+
+**The live-plan bottleneck is 40 seconds, not five minutes of operator time.**
+For portable execution, a 300-second plan must leave at least 260 seconds at
+composition: the fixed 240-second session plus 20-second cleanup. Its clock
+starts after the current Gamma rebind; subsequent book/rule reads and process
+startup consume the margin before composition begins. Complete human review
+before the selector, then flow directly into the launcher. Later 180-second
+launch, 120-second precredential and 60-second premutation reserves are
+additional checks, not extensions. Preserve any spent namespace; a failed or
+late attempt needs review and a new namespace, never edited timestamps or a
+larger guessed limit. A backup market requires fresh discovery and three new
+manifests. The current date, setup time and selected event belong in the
+operator plan linked from [`STATE_OF_PLAY.md`](STATE_OF_PLAY.md).
+
+The current Gamma plan contract verifies identity/status and ordered
+condition/token mapping; it does not parse the event's full settlement-source
+hierarchy. Retain and review the actual venue rules separately. A venue rule
+that names NOAA first and WU only as a fallback is not equivalent to the
+configured WU settlement proxy. Record that distinction without relabeling WU
+evidence or treating a lifecycle PASS as settlement/model qualification. Stage
+0 submits no order; an unexpected Stage 1 fill is a stop and reconciliation
+outcome, not a successful no-fill lifecycle test.
+
 ## Staged protocol
 
 ### Stage 0: no-order account proof
@@ -498,10 +568,12 @@ by the live runner and cannot authorize an order.
 
 ### Execution-host preparation
 
-The final sequence runs from one clean, exact remote-synchronized checkout. It
-may be the production-adopted master checkout on the dedicated capture PC under
-`capture_colocated_v1`, or the exact operator-authorized portable branch on a
-separately provisioned Windows PC under `portable_execution_v1`. Follow
+The final sequence runs from one exact remote-synchronized source containing
+the reviewed Stage 0 scope and Stage 1 lifecycle design. Use adopted master on
+the dedicated capture PC under `capture_colocated_v1`; on a separately
+provisioned PC under `portable_execution_v1`, use clean adopted master or the
+currently authorized named topic under
+[portable source authority](PORTABLE_LIVE_EXECUTION_HOST.md#source-authority). Follow
 [`PORTABLE_LIVE_EXECUTION_HOST.md`](PORTABLE_LIVE_EXECUTION_HOST.md) for every
 second-PC deployment or later relocation. Stage 0/1 event metadata, structural
 scope/lifecycle plans, credentials, and attempt manifests must be regenerated
@@ -528,13 +600,12 @@ through complete child-tree cleanup. An obsolete or manually bypassed launcher
 is not made compliant by this protocol.
 For both profiles, log in as the Windows user who owns Credential Manager,
 clear pending reboot state, and ensure no other local live stage holds the
-lease. The capture profile must prove `HEAD == master == cached origin/master ==
-live canonical refs/heads/master`. The portable profile must prove
-`HEAD == local codex/live-gate-provenance-20260831 == cached
-origin/codex/live-gate-provenance-20260831 == live canonical
-refs/heads/codex/live-gate-provenance-20260831`; it must separately
-prove local master equals cached and live canonical master and is an ancestor
-of that branch tip. It must also match the exact tracked host/principal and the
+lease. On master, both profiles must prove
+`HEAD == master == cached origin/master == live canonical refs/heads/master`.
+On the portable topic exception, require the complete branch equality and
+synchronized-master ancestry contract in
+[source authority](PORTABLE_LIVE_EXECUTION_HOST.md#source-authority).
+The portable profile must also match the exact tracked host/principal and the
 operator-recorded reviewed, exact-head CI-green authorization. Do not trade
 merely because Windows restarted successfully or because a branch was pushed.
 
@@ -543,12 +614,13 @@ as unblocked. Eligibility also follows the attended operator's and execution
 host's real physical location. A session in a blocked location must stop;
 VPN/proxy/location circumvention is not an allowed workaround.
 
-After that host audit, prepare the identity and public credential
-receipt/reference sources first;
-they do not bind a market. Only after both preparations pass, generate one
-target-date event-metadata snapshot, discover a structural Stage 0 scope, and
-derive a Stage 1 lifecycle plan for that exact condition/token. Run all three
-manifest builds before the discovery plans' 300-second leases expire. The
+After that host audit, prepare the public identity and one target-date
+event-metadata snapshot on the selected host. The generator below may run
+before credential comparison. Then prepare the fresh public credential
+receipt/reference sources; only after those pass, discover a structural Stage
+0 scope and derive a Stage 1 lifecycle plan for that exact condition/token.
+Run all three manifest builds before the discovery plans' 300-second leases
+expire. The
 canonical keyless doctor runs later, only inside each sealed wrapper. Do not
 hand-pick a condition/token pair or retain one from a prior day.
 
@@ -556,6 +628,8 @@ The `--metadata-only` refresh leaves the tracked location registry byte-for-byte
 unchanged. Both selectors are public, authenticate nowhere, make no exchange
 mutation, and emit non-authorizing self-hashed plans. Spread/midpoint and paper
 or economics artifacts are not accepted by either CLI.
+
+#### Attempt namespace and public identity
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -682,6 +756,8 @@ if ($identityPreparationExit -ne 0 -or
   throw "public identity preparation blocked"
 }
 ```
+
+#### Credential provisioning and fresh comparison
 
 Only after identity preparation passes, create the four secret values as
 Windows Credential Manager generic credentials. Compare-only verification of
@@ -890,20 +966,41 @@ external source's retained copy, delete the source credential file using the
 approved secure-deletion procedure. The importer never deletes it
 automatically.
 
-Only now start the expiring discovery and manifest-build sequence. The
-Stage 0 selector may softly rank valid books, but it does not reject a scope
-for spread, midpoint, depth, economics, paper permission, rewards, rebate, or
-fee. The Stage 1 selector stays on the exact Stage 0 condition/token and
-accepts a current official fee rate of zero:
+#### Event metadata and stage discovery
+
+The metadata generator below can run during public preparation before
+credential comparison. For a selected city, supply a retained, unmodified
+Gamma `/events?slug=<exact-event-slug>` response to `--events-json`: it must be
+an event list (or an object containing `events`), not the single event object
+returned by `/events/slug/...`. Preserve its capture URL, time and raw hash.
+The canonical generator may produce metadata with only that event populated;
+other built-in locations need not have target-date events. Discovery remains
+unconstrained within that generated event's books. Never edit condition/token
+IDs into metadata or add an unsupported `--market` selector flag.
 
 ```powershell
 $ErrorActionPreference = "Stop"
+$pilotEventListSource = "replace-with-absolute-retained-public-Gamma-events-list-json"
+$pilotEventListSource = Get-VerifiedPilotLocalPath $pilotEventListSource
+if (-not (Test-Path -LiteralPath $pilotEventListSource -PathType Leaf)) {
+  throw "retained public Gamma event-list source is absent"
+}
 .\venv\Scripts\python.exe -m weather.operations.location_config_refresh `
   --locations .\config\locations.json `
   --event-metadata $pilotEventMetadata `
+  --events-json $pilotEventListSource `
   --metadata-only
 if ($LASTEXITCODE -ne 0) { throw "event metadata refresh failed" }
+```
 
+Only after fresh credential preparation passes, start the expiring selectors
+and manifest builds. The Stage 0 selector may softly rank valid books, but it
+does not reject a scope for spread, midpoint, depth, economics, paper
+permission, rewards, rebate, or fee. The Stage 1 selector stays on the exact
+Stage 0 condition/token and accepts a current official fee rate of zero:
+
+```powershell
+$ErrorActionPreference = "Stop"
 .\venv\Scripts\python.exe -m weather.market.mm_live_stage0_scope `
   --event-metadata $pilotEventMetadata `
   --target-date $pilotTargetDate `
@@ -949,6 +1046,8 @@ if (
 }
 ```
 
+#### Fixed session manifests and launcher review
+
 The manifest builder stages the discovery plan appropriate to each stage and
 the exact event-metadata bytes that plan binds. Discovery is preparation only:
 the fixed-scope sealer refuses a discovery artifact at the live-plan boundary.
@@ -983,13 +1082,12 @@ The repository-owned manifest builder and sealers are the only supported path.
 The builder rereads the current public inventory and requires the exact
 canonical Git executable and hash, the canonical HTTPS origin URL with no local
 trust/proxy override, no ambient `WEATHER_MARKET_REGISTRY`, and a bounded live
-query of the profile-authorized ref against that literal canonical URL. The
-capture profile remains master-only. On the pre-adoption exception path, the
-portable profile accepts only `codex/live-gate-provenance-20260831`,
-and only when local `HEAD`, the
-local branch, cached origin branch, and live canonical branch object ID are
-identical; local/cached/live master must also be synchronized and that master
-must be an ancestor of the branch. A stale cached ref, malformed result,
+query of the profile-authorized ref against that literal canonical URL. On
+adopted master, both profiles require exact `HEAD`/local/cached/live master
+equality; the capture profile is master-only. The portable topic exception
+requires its exact branch equality and synchronized-master ancestry under
+[source authority](PORTABLE_LIVE_EXECUTION_HOST.md#source-authority).
+A stale cached ref, malformed result,
 timeout, unavailable remote, detached checkout, dirty tree, master drift, or
 missing ancestry blocks. It derives the Git tree, interpreter, template,
 complete live source, and session-bootstrap hashes, and hardcodes 10 pUSD plus
@@ -1145,6 +1243,8 @@ a hash-bound inner PowerShell launcher, an
 A partial or failed build, seal, or run spends that stage namespace; create a new
 attempt rather than overwriting it.
 
+#### Fresh Stage 0 scope and attended launch
+
 The discovery plans are not the live plans. Use only the exact event-metadata
 copies already staged in each independently reviewed manifest. Immediately
 before Stage 0, verify the immutable launcher review and write a new structural
@@ -1206,6 +1306,9 @@ if (
 & ([string]$stage0Review.launcher.path)
 if ($LASTEXITCODE -ne 0) { throw "Stage 0 reviewed launcher failed" }
 ```
+
+#### Fresh Stage 1 plans and attended launches
+
 After Stage 0 passes, run this exact helper once for each Stage 1 mode. Each
 plan binds that manifest's exact staged event metadata and the Stage 0
 condition/token. The files retain compatibility `candidate` names, but their
@@ -1375,6 +1478,8 @@ host wrapper catches that `BaseException`, emits only its type, and stops; it
 must never print a traceback or retry the submit. A forced process kill or power
 loss cannot run Python cleanup and remains dependent on the independently proved
 heartbeat-lapse cancellation.
+
+#### Offline Stage 1 lifecycle bundle
 
 Only after both Stage 1 calls pass, build the content-bound bundle offline. The
 builder rereads and hashes both lifecycle journals rather than trusting copied
@@ -1549,6 +1654,11 @@ Its schema IDs are registered as `mm_paid_incentive_evidence`,
 The new path is an offline accounting contract; it does not implement a venue
 reader or grant readiness, credential, exchange or live authority.
 
+For retained raw activity and Polygon responses, the separate
+[activity-to-credit bridge](paid-credit-activity-evidence.md) can derive exact
+unique pUSD Transfer matches. It retains activity labels as DERIVED and does
+not invent an accrual/distribution link or feed this matcher automatically.
+
 The evidence object contains `schema_version`, `scope`, `as_of_utc`, `sources`,
 `accruals`, `distributions`, `wallet_credits` and
 `excluded_external_credit_ids`. The exact `scope` keys are `maker_address`,
@@ -1681,9 +1791,12 @@ The direct account-wide WebSocket reader remains the authoritative user-event
 boundary, while the unified SDK owns authenticated REST reads and order
 signing/submission. Before any credentialed Stage 0/1 session, the fixed-scope
 wrapper must validate the sealed external wheel closure, activate that exact
-overlay process-locally, pass the keyless doctor, and obtain the production-host
-Stage 0 proof. Installing the live extra into the shared checkout remains
-forbidden. The successful source/wheel audit is not wallet or exchange evidence.
+overlay process-locally and pass the keyless doctor. Stage 0 then collects its
+bootstrap on the selected execution host; Stage 1 requires that host-local
+passing predecessor and its exact lineage. A portable session does not require
+or accept a copied capture-host Stage 0 proof. Installing the live extra into
+the shared checkout remains forbidden. The successful source/wheel audit is
+not wallet or exchange evidence.
 
 The supplied Safe wallet's local cryptographic topology is proven, but its live
 exchange behavior is still unproven. Stage 0 must show that the exact signer,

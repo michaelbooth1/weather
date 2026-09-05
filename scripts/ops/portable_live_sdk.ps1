@@ -118,7 +118,9 @@ import sys
 sys.dont_write_bytecode = True
 source_root = sys.argv.pop(1)
 sys.path.insert(0, source_root)
-runpy.run_module("weather.market.live_sdk_portability", run_name="__main__")
+# PowerShell 5.1's native argument marshaller strips embedded double quotes.
+# Python single-quoted literals preserve this fixed module bootstrap exactly.
+runpy.run_module('weather.market.live_sdk_portability', run_name='__main__')
 '@
 
 $arguments = [Collections.Generic.List[string]]::new()

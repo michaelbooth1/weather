@@ -9,8 +9,19 @@ streak state, and protected host-load timetable. It does not remove Git,
 source, SDK, credential, identity, geography, account, balance, allowance,
 zero-state, order, cancellation, deadline, or cleanup checks.
 
-**Operator-authorized portable Git exception (2026-08-31).** Before its
-production merge, the exact remote branch
+## Source authority
+
+Normally use the current production-adopted canonical `master`, with
+`HEAD == master == cached origin/master == live canonical refs/heads/master`.
+Before updating an existing portable clone, reconcile its reviewed Stage 0/1
+changes with the intended source tip. A prior portable baseline's adoption does
+not prove that later scope/lifecycle changes are present on master. Read the
+current source decision, adoption and exact-head qualification from Git and
+[`STATE_OF_PLAY.md`](STATE_OF_PLAY.md); then use the same authority throughout
+host preparation, manifest building, sealing, and execution.
+
+**Operator-authorized portable Git exception (2026-08-31).** Before the selected
+Stage 0/1 changes receive production adoption, the exact remote branch
 `codex/live-gate-provenance-20260831` may be live source authority for
 `portable_execution_v1` only. This is not a general topic-branch allowance.
 It supersedes the exception for the earlier portable branch.
@@ -131,10 +142,14 @@ the session runner in a kill-on-close Job and propagates teardown failure, but
 does not claim or mutate the inner lease state.
 
 Do not copy `data/` from the capture PC. It is ignored local runtime state and
-is not cross-host authority. A new execution host must nevertheless collect a
-fresh, attempt-local public candidate substrate: selected-date event metadata,
-weather/source status, observation state, CLOB tokens/books, economics, and a
-strictly passing paper run. The live-pilot runbook gives the exact sequence.
+is not cross-host authority. A new execution host must generate its own
+target-date event metadata and fresh Stage 0 structural scope / Stage 1
+lifecycle plans. Each plan compares that exact metadata with current Gamma
+identity/status and current public book/rule evidence. Stage 0/1 do not consume
+a paper run, economics acceptance, or the legacy portable substrate preflight;
+those belong to Stage 2. The
+[live-pilot sequence](INTERNATIONAL_MM_LIVE_PILOT.md#stage-01-preparation-and-launch-sequence)
+gives the exact entry points.
 
 ## Clone and build the local environment
 
@@ -143,7 +158,12 @@ interpreter. The defaults below stay inside the current operator's local
 application-data directory, so a standard user does not need permission to
 create a drive-root directory. To relocate on the same Windows installation,
 set `$weatherPortableRoot` to another new absolute path on fixed or removable
-local media. The later status and sealing checks reject redirected paths:
+local media. Select `master` only after the required Stage 0/1 changes are
+adopted and qualified; otherwise only the currently authorized named topic may
+be selected under [source authority](#source-authority). The command block
+requires that reviewed choice explicitly. It provisions a new clone and is not
+an instruction to replace an existing portable checkout. The later status and
+sealing checks reject redirected paths:
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -271,7 +291,12 @@ Set-Location -LiteralPath $weatherRepositoryRoot
 & $gitLauncher fetch --prune origin
 if ($LASTEXITCODE -ne 0) { throw "canonical origin refresh failed" }
 $canonicalOrigin = "https://github.com/michaelbooth1/weather.git"
-$portableLiveBranch = "codex/live-gate-provenance-20260831"
+$portableLiveBranch = "replace-with-reviewed-master-or-authorized-topic"
+if ($portableLiveBranch -cnotin @(
+    "master", "codex/live-gate-provenance-20260831"
+  )) {
+  throw "select the current reviewed execution authority before checkout"
+}
 $portableLiveRef = "refs/heads/$portableLiveBranch"
 $cachedPortableRef = "origin/$portableLiveBranch"
 $originUrl = (& $gitLauncher remote get-url origin)
@@ -280,8 +305,7 @@ if ($LASTEXITCODE -ne 0 -or
   throw "origin is not the canonical HTTPS repository"
 }
 
-# Keep a complete synchronized master baseline even though the portable live
-# checkout uses the separately authorized topic branch.
+# Both source paths require a complete synchronized master baseline.
 & $gitLauncher switch master
 if ($LASTEXITCODE -ne 0) { throw "master checkout failed" }
 & $gitLauncher merge --ff-only origin/master
@@ -298,8 +322,10 @@ if ($localMaster -cne $cachedMaster -or $localMaster -cne $liveMaster) {
   throw "local, cached, and live canonical master are not synchronized"
 }
 
-& $gitLauncher switch --track -c $portableLiveBranch $cachedPortableRef
-if ($LASTEXITCODE -ne 0) { throw "authorized portable branch checkout failed" }
+if ($portableLiveBranch -cne "master") {
+  & $gitLauncher switch --track -c $portableLiveBranch $cachedPortableRef
+  if ($LASTEXITCODE -ne 0) { throw "authorized portable branch checkout failed" }
+}
 $checkedOutBranch = (& $gitLauncher branch --show-current)
 $headTip = (& $gitLauncher rev-parse HEAD)
 $localBranchTip = (& $gitLauncher rev-parse $portableLiveBranch)
@@ -534,13 +560,13 @@ identity, or repository-media disagreement is a technical blocker. The SDK
 audit and later manifest/seal inventory independently validate the exact SDK,
 interpreter, Git executable, origin, source, and attempt paths; this offline
 status command does not claim those later gates have passed.
-The `public_candidate_substrate` field remains `NOT_EVALUATED`: this command is
-deliberately offline and does not claim that market data or a paper quote is
-ready.
+The compatibility `public_candidate_substrate` field remains `NOT_EVALUATED`:
+this command is deliberately offline and does not qualify a Stage 0 scope,
+Stage 1 lifecycle plan, or Stage 2 paper/economics evidence.
 
 After the exact assigned-host change is present on the reviewed, CI-green,
-owner-authorized remote branch and the full Git proof above passes, rerun and
-require a clean terminal result:
+owner-authorized source tip and the full Git proof for the selected authority
+above passes, rerun and require a clean terminal result:
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -556,22 +582,22 @@ if ($hostStatusExit -ne 0 -or
 }
 ```
 
-After that offline audit, return to the live-pilot runbook. Candidate/economics
-collection, host-local credential comparison, official geographic eligibility,
-account bootstrap, and every attended mutation literal remain action-time
-gates. The portable lane permits a session while the immutable candidate's
+After that offline audit, return to the live-pilot runbook. Fresh structural
+scope/lifecycle plans, host-local credential comparison, official geographic
+eligibility, account bootstrap, and every attended mutation literal remain
+action-time gates. The portable lane permits a session while the immutable plan's
 target is the selected market's current or immediately following local date,
 outside the capture PC's `[00:30, 09:00)` timetable. Its fixed 240-second
-execution envelope plus cleanup reserve must remain within one market-local
-execution date. Its
-strict public paper proof uses `--config quote_ttl_seconds=600`, and the
-reviewed launcher requires at least 180 seconds remaining at its boundary.
-The local substrate preflight is valid for at most 600 seconds and its
-constrained candidate plan for at most 300 seconds. Every attended confirmation
-consumes the same absolute cutoff; none extends it. The portable wrapper also
-requires 120 seconds before credential context and 60 seconds immediately
-before mutation, so a fresh candidate must flow directly into its no-argument
-launcher.
+execution envelope plus 20-second cleanup reserve must remain within one
+market-local execution date. Each stage-specific plan lasts exactly 300
+seconds. Composition requires at least 260 seconds remaining, enforcing a
+maximum 40-second preparation/revalidation margin. Complete manifest and
+launcher review before creating the fresh live plan, then run its selector and
+reviewed no-argument launcher as one uninterrupted sequence. The later launch
+boundary still requires 180 seconds remaining; the wrapper requires 120 before
+credential context and 60 immediately before mutation. Every attended
+confirmation consumes the same absolute cutoff; none extends it. Stage 2's
+paper/economics evidence does not replace or extend these Stage 0/1 leases.
 
 ## Relocating again
 
@@ -579,14 +605,14 @@ For another checkout on the same Windows installation and token principal, the
 host/principal assignment does not change. Build a clean clone and venv, prove
 Git/Git-LFS and HGB materialization, run SDK `Audit` against the existing
 current-user installation, create a fresh compare-only credential receipt, and
-create a fresh candidate and all three attempts. Do not re-import the already
+create new stage plans and all three attempts. Do not re-import the already
 installed SDK roots.
 
 For a different PC, Windows reinstall, or token principal, commit and publish a
 new exact host/principal assignment to a reviewed, CI-green branch with explicit
 owner authorization, then repeat clone/venv provisioning, Git/Git-LFS and HGB
 proof, SDK transfer/import under a new transfer namespace, offline host audit,
-fresh public candidate collection, credential provisioning and compare-only
+fresh event metadata and stage plans, credential provisioning and compare-only
 verification, and all three attempt builds. The named portable-only exception
 above applies only to its exact branch; any different branch needs a new
 explicit operator decision, while normal production adoption still uses the

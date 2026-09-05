@@ -1,7 +1,8 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-05 - SEPTEMBER 6 ATTENDED TEST PREPARATION; LIVE AUTHORITY PENDING]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
-pilot without weakening the existing paper/risk gates.
+pilot with stage-appropriate structural, account, lifecycle and risk gates;
+preserve the separate economic-stage evidence requirements.
 
 Source: market-making roadmap items 43-46 and 55-57 built the keyless
 policy/orchestration/risk foundation, while item 45 defines the platform and
@@ -12,9 +13,9 @@ orchestration, lifecycle, budget, cockpit, and paper-scoring system. Item 45
 defines live gates and platform/account verification. There is still no
 roadmap owner for the authenticated exchange adapter that places, cancels,
 heartbeats, reconciles, redeems, and proves real order lifecycle behavior.
-Item 45's software gates are now ready: live-pilot requires current
-live-readiness, data-layer audit, and platform-verification artifacts before
-any adapter may submit an order.
+The general economic pilot requires current live-readiness, data-layer audit
+and platform-verification artifacts. The bounded Stage 0/1 protocol uses its
+separately reviewed structural and lifecycle gates below.
 
 Why this matters: authenticated exchange access is the first point where a
 software defect can spend real funds or leave live orders open. The adapter and
@@ -56,11 +57,73 @@ behavior before any size increase.
   heartbeat behavior, and rewards/rebates against the simultaneous paper
   counterfactual.
 
-Acceptance: live orders cannot be submitted unless platform/account checks,
-paper gates, SLO gates, risk caps, and operator confirmations pass; every live
+Acceptance: live orders cannot be submitted unless the applicable stage's
+platform/account, structural/lifecycle, SLO, risk and operator gates pass;
+economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-05 preparation for the September 6 attended test
+
+The owner requested all safe preparation for first live testing on September 6,
+with actual live authorization to follow when ready, and delegated market/time
+selection. Plan for **09:30 setup and 10:00 attended execution, America/Toronto,
+September 6**, on the assigned portable PC. Use the
+[NYC September 6 event](https://polymarket.com/event/highest-temperature-in-nyc-on-september-6-2026).
+This is a convenient morning lifecycle-test slot before the observation day's
+usual afternoon high, not a measured optimum or a profitable opportunity.
+Timezone scheduling is not geographic eligibility evidence.
+
+The September 5 public capture proves the event is available and its central
+74-75 F YES book has a 0.49/0.50 best bid/ask, 0.01 tick, 5-share CLOB minimum
+and neg-risk enabled. The fee endpoint returns `base_fee=1000`; the live
+selector re-reads the actual rule. These snapshots do not freeze tomorrow's
+token or order. Generate metadata from the retained genuine one-event Gamma
+list, then let the canonical unconstrained Stage 0 selector rank NYC's books.
+Keep the exact newly selected condition/token throughout all three manifests.
+The production-local raw captures and headers are retained under
+`scratch/handoffs/venue-candidate-20260906/`; they are not clean-checkout inputs.
+
+The retained venue Rules resolve from NOAA's LaGuardia hourly data first, with
+WU fallback only under their stated delayed-data condition. This differs from
+the configured WU proxy. Stage 0/1 validates identity, protocol and no-fill
+cleanup; it does not qualify the proxy for this event's settlement or authorize
+Stage 2 economics. Current official documentation also describes Gamma and
+CLOB minimum sizes with different units. The existing lifecycle selector uses
+the [CLOB share-size limit-order procedure](https://docs.polymarket.com/trading/place-orders);
+acceptance of its smallest resting BUY remains a live protocol observation.
+A venue rejection stops and reconciles; do not silently raise price/size or retry.
+
+The actual portable clone was clean at published `40717b288b77b69555f977099dff90966b5c93e4`
+on `codex/live-gate-provenance-20260831`. The reconciliation branch preserves
+that reviewed redesign and merges current master plus the W2/W4 follow-ups.
+Use the existing [named portable-only exception](../../operations/PORTABLE_LIVE_EXECUTION_HOST.md#source-authority)
+after exact-head review/CI and synchronized ancestral-master proof, then update
+the clean portable clone. Do not replace its redesign with the older master
+implementation or treat production capture adoption as this lane's prerequisite.
+
+The combined source passed 485 focused Windows checks. A real installed-SDK
+Audit exposed a PowerShell 5.1 quoting defect in the module bootstrap; the fix
+has a native subprocess regression fixture and the installed audit subsequently
+passed with all 2,260 overlay files and 34 wheels. SDK/architecture/roadmap
+verification passed after correcting a Windows resolved-path fixture. The
+offline audit made no credential, SDK-activation or exchange call. Final Git
+and exact-head CI records own qualification of later commits.
+
+The assigned host/principal and local non-reparse media checks pass. The retained
+host snapshot reports Windows Time stopped, automatic proxy discovery enabled
+and a pending restart; finish/recheck those host settings before final launch
+qualification. No account or geographic failure was established by this audit.
+
+Follow the [canonical preparation/launch sequence](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#stage-01-preparation-and-launch-sequence):
+fresh compare-only credential evidence, fresh discovery and three reviewed
+manifests/launchers, then separately authorized Stage 0, Stage 1 cancel-all and
+Stage 1 dead-man. Each fresh live plan has at most 40 seconds before portable
+composition. Human review comes first. Keep the 10 pUSD request / 100 pUSD
+wallet caps, one submit per Stage 1 mode, and zero-state terminal proof. Any
+backup market needs new discovery and manifests. No live action is authorized
+or scheduled by this preparation; no successful live stage is claimed.
 
 ## 2026-08-14 unified-client migration
 

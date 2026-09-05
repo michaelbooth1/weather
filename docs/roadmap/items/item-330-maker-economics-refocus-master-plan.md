@@ -1,4 +1,4 @@
-# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
+# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - SEPTEMBER 6 LIFECYCLE PREPARATION; ECONOMIC PROOF OPEN]
 
 Goal: determine whether a narrowly scoped International Polymarket weather
 maker can earn worthwhile returns from trading plus realized incentives, while
@@ -54,6 +54,15 @@ their offline preparation may proceed. The prospective Stage 0/1 10 pUSD request
 and 100 pUSD wallet ceilings remain unchanged. No new statistical alpha allocation,
 exchange-baseline acceptance, unattended operation or positive economic verdict
 is inferred from the implementation authorization.
+
+On September 5 the owner requested all preparation now for first attended
+testing on September 6 and delegated market/time selection, with live
+authorization to follow when ready. The [item-67 preparation](item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md#2026-09-05-preparation-for-the-september-6-attended-test)
+targets NYC, 09:30 setup and 10:00 Toronto-time attendance. It reuses the August
+31 Stage 0 structural / Stage 1 lifecycle redesign found on the actual portable
+clone and reconciles it with current master. The named portable exception can
+qualify independently of production capture adoption; no account or exchange
+mutation is authorized by this preparation request.
 
 ## 2. Starting point and what must be refreshed
 
@@ -162,7 +171,7 @@ flowchart TD
     A --> C[W3: exact-market incentive feasibility]
     C --> D[W4: authoritative accounting]
     B --> E[W5: remaining Stage 0/1 proof]
-    C --> E
+    C --> F
     D --> F[W6: bounded economic calibration]
     E --> F
     F --> G[W7: frozen forward decision]
@@ -321,10 +330,20 @@ must reject unsupported claims rather than drop the new component silently.
 If public/official evidence cannot attribute rewards, report that limitation
 and keep realized reward P&L incomplete. Rollback preserves raw receipts.
 
+The pure [activity-to-credit bridge](../../operations/paid-credit-activity-evidence.md)
+now validates supplied raw activity against exact unique native-pUSD transfers,
+successful receipts, canonical blocks and finalized-tip evidence. Independent
+review and 90 owner fixtures cover ambiguous matches, duplicates, extreme
+Decimal inputs and type-conflicting RPC captures. It preserves DERIVED labels
+and never fabricates accrued-period linkage, whole-account completeness or
+profit. It adds no account reader and is not wired into paid-accrual reporting.
+
 ### W5 — Finish only the remaining lifecycle proof
 
-Owner: existing item 67/pilot and fixed-scope wrapper owners. Depends on: W2,
-W3, and actual G0 branch/host qualification.
+Owner: existing item 67/pilot and fixed-scope wrapper owners. Depends on the
+relevant W2 identity/rule repairs and actual G0 branch/host qualification.
+W3 incentive feasibility is a Stage 2 economics dependency, not a Stage 0/1
+plumbing gate, under the reviewed stage-scoped gate design.
 
 Verify the current integrated and portable candidate tips; do not assume a
 historically green Stage 2 branch is currently runnable. Complete missing Stage
@@ -630,7 +649,7 @@ current account state, or any new live receipt.
 | W3 | PARTIAL: the [pure diagnostic calculator](../../operations/maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3` on `codex/maker-incentive-feasibility-20260905`. Independent review, 91 combined focused/import/module-size/source-binding workstation tests and compilation of both changed Python paths passed. Guarded production adoption completed at 01:49:16 as `6714b77d8bb57fa36b4d2dd33675cab971ef2432`; all three capture workers were healthy, Git/source-tree evidence matched, and post-merge master CI passed. W3/G1 stay open: no real campaign/economics collection or evidence qualification, no paid or reconciled profit, and no consumer/CLI/executor integration. | Market: qualify exact current campaign, terms, books and adjusted-midpoint provenance, then use the existing calculator with competitor-score scenario ranges. Public aggregate depth cannot identify the nonlinear per-maker denominator; preserve that uncertainty in G1. |
 | W4 | PARTIAL: the [offline paid-incentive contract](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#offline-paid-incentive-reconciliation) is implemented on `codex/maker-paid-incentive-reconciliation-20260905` in the existing `mm_exchange_reports` family. It matches explicit distribution/confirmed-credit identities once, separates programmes and unpaid accrual, rejects unsupported report versions, and preserves cash residual checks with exact native micro-units and period-bound closing positions. Independent source review, 230 distinct workstation checks and changed-path compilation passed; the receipt below owns qualification detail. No account evidence, actual incentive payment or economic result was observed. | Market: review and implement the missing official read-only earnings/distribution normalization and request/pagination capture, then qualify exact retained account receipts. Keep portfolio allocation unknown where unsupported. Operating-cost views and real economic acceptance remain open; no live session is authorized. |
 | W11 / item 325 | PARTIAL: real `v3-r1` restore passed all 17 checks at 13:34:16 Toronto on reviewed source `54da9076c` ([PR 23](https://github.com/michaelbooth1/weather/pull/23), full CI passed), recovering the 513,522,801-byte provisional source from independently downloaded private Drive ciphertext. Controller validation and independent review accepted the exact evidence chain; three new receipt copies were uploaded and read back byte-for-byte. [Item 325](item-325-tiered-data-retention-and-verified-archive-offload.md#2026-09-05-1334-real-independent-restore-passes) owns the immutable result. Production identity and reclaim remain open. | Storage owner: prepare the admitted production-source identity check and reviewed exact-source retention/deletion path. Preserve the spent v3-r1 namespace and all v1-v3 evidence. Production hashing requires fresh admission; the expired v1 proposal and paused mirror cannot substitute. Whole-W11 acceptance remains open; provisional restore success grants no cleanup/deletion authority. |
-| W5-W7 | BLOCKED for real sessions by the owner's no-live instruction. Integrated portable source and successful offline tests do not remove that boundary or qualify a new attempt. | Owning packages: continue offline lifecycle/accounting fixtures and prospective design only. Preserve the existing G2-G4 requirements. |
+| W5-W7 | W5 preparation is active for September 6 attendance under item 67; live authorization is still pending. The reconciled source retains Stage 0 structural / Stage 1 lifecycle gates, independently of W3 economics. Old Stage 2 donor code is not a runnable portable successor. | Qualify and publish the exact portable tip, prepare reusable host/public inputs, then obtain fresh attended authority and evidence at execution. W6/W7 retain separate G1-G4, settlement, source and host requirements. |
 | W8 / W11 optional work | PARTIAL: at September 5 00:30, disabled only the standalone `WeatherModelMarketDisagreementAnalysis` recurrence after exact task/action and no-active-process checks. XML comparison shows only Enabled=false; its Stage A rehydration producer, critical daily-learning reader and all existing reports/audit evidence remain. The status monitor recognizes this exact disabled task as an approved pause; enabled-task failures and independent freshness checks remain active. Receipt: `scratch/handoffs/model-disagreement-on-demand-20260905.md`, SHA-256 `A1C4DADF561A66EE61D484D003C03A740F8E818D48A373D88483FCCF2896BA34`. | Operations: observe the preserved daily producer and consumer freshness. Review paired maker-paper tasks and mixed-chain consumers before any additional reduction. No measured runtime saving is claimed. |
 
 W1/W2 jointly passed the actual non-capture workstation admission wrapper:
