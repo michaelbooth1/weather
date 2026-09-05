@@ -25,6 +25,7 @@ record that is valuable evidence but not current instruction.
 | **Overnight integration and recovery** | [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
+| Maker economics, liquidity rewards, and audit implementation | [Master plan / Item 330](roadmap/items/item-330-maker-economics-refocus-master-plan.md) | Numbered work item |
 | Agent decision log and cross-host correspondence | `roadmap/workstation-handoff-*.md`, `roadmap/agent-report-*.md` | Dated evidence; newest is current |
 | Roadmap item scope/status/evidence | `roadmap/items/item-*.md` | Canonical per item |
 | Operations and runbooks | [Operations index](operations/README.md) | Canonical index |
