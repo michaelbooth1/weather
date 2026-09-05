@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-04T23:23:53.567611+00:00
+Generated: 2026-09-05T04:24:09.729364+00:00
 Status: `OK`
 
 ## Summary
@@ -13,8 +13,8 @@ Status: `OK`
 | :--- | :--- |
 | Items | 323 |
 | Active items | 34 |
-| OPEN | 4 |
-| PARTIAL | 30 |
+| OPEN | 3 |
+| PARTIAL | 31 |
 | COMPLETE | 289 |
 | ROADMAP rows | 323 |
 | ROADMAP primary rows | 323 |
@@ -56,7 +56,7 @@ Status: `OK`
 | 322 | PARTIAL | 2026-07-16 | INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | PARTIAL | 2026-08-22 | WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 325 | OPEN | 2026-07-21 | PROVISIONAL LOCAL ENCRYPTED STAGING BUILT; PRODUCTION OFFLOAD AND DELETION NOT AUTHORIZED | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 325 | PARTIAL | 2026-09-05 | ENCRYPTION PREFLIGHT REPAIRED; NATIVE CONTEXT AND RESTORE PROOF OPEN | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
 

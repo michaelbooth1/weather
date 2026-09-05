@@ -139,6 +139,55 @@ placed only in a private child `RCLONE_CONFIG_PASS`, never placed in argv or
 output, and removed and zeroed as far as the runtime permits. Every other
 ambient `RCLONE_*` override is excluded from the private child environment.
 
+After the existing path/pin/tool checks and create-only receipt claim, DPAPI
+recovery, encrypted-config validation, and local crypt-root binding run before
+the source is opened or a plaintext staging directory is created. An encryption
+preflight refusal records `source_initial_hash_stable=NOT_RUN`,
+`deterministic_compression=NOT_RUN`, and `copy_not_attempted`. The failure still
+spends its receipt namespace and retains the source; it cannot authorize a
+retry. Successful preflight does not replace any later source, ciphertext, or
+supporting-input integrity check.
+After compression, the adapter compares config, DPAPI-file, and executable
+identities to their admission pins before invoking the client again. It repeats
+encrypted-config and local-root validation, brackets those checks with the same
+identity comparison, and retains the final post-staging comparison. This closes
+the long compression gap under the existing size/mtime/file-identity contract;
+it does not claim immutable config handles across every child invocation.
+
+The password file format is ASCII hexadecimal containing a native DPAPI blob
+over UTF-16LE text, protected for the same Windows user with no optional
+entropy. This is the Windows `ConvertFrom-SecureString` format when no `-Key`
+or `-SecureKey` is supplied; keyed/AES exports and other encodings are not
+accepted formats. The loader retains `CRYPTPROTECT_UI_FORBIDDEN` and never
+falls back to a different user, encryption scope, key, or plaintext. See the
+[PowerShell protection implementation](https://github.com/PowerShell/PowerShell/blob/master/src/System.Management.Automation/security/SecureStringHelper.cs).
+
+When native recovery fails, the sanitized error and optional integer
+`dpapi_winerror` field in a `FAIL_CLOSED` receipt retain the Windows last-error
+code captured immediately after `CryptUnprotectData`. The existing receipt
+version, error code, self-hash, and retention fields remain unchanged. Blob
+bytes, plaintext, raw exception messages, and OS error descriptions are not
+retained. A numeric error is a diagnostic, not proof of a wrong password,
+corrupt blob, or changed principal; distinguish format compatibility from
+current logon/profile access before deciding a repair. The
+[Windows API contract](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptunprotectdata)
+requires matching protection inputs. Failed attempts remain spent and retained;
+diagnosis does not authorize secret reprovisioning or retry. Windows fixture
+tests produce new synthetic DPAPI secrets with PowerShell and exercise actual
+native recovery and refusal without reading provisioned archive credentials.
+
+If a positive fixture fails in PowerShell `ConvertFrom-SecureString` before
+the Python loader runs, that proves only that the session could not protect
+a fresh synthetic fixture. It does not diagnose a retained real blob.
+Keep the positive Windows fixtures required. Run the same unchanged fixtures
+through the wrapper from the attending user's normal interactive workstation
+session to distinguish a session limitation from a loader problem. Microsoft
+[documents that key-authenticated SSH sessions lack associated user credentials](https://learn.microsoft.com/en-us/windows-server/administration/openssh/openssh_keymanagement).
+That makes logon context a diagnostic hypothesis, not a proven cause. The
+ordinary Job helper inherits the launching token and supplies containment; it
+does not create a credentialed logon. Do not change authentication, credential
+scope, profile or key material, or skip/mock the positive tests to obtain PASS.
+
 For each archive ID the adapter creates one normalized single-member
 `archive.tar.gz`, with zero timestamps and owner IDs, empty owner names, mode
 `0600`, and stable member name `payload`. Local paths are create-only. The

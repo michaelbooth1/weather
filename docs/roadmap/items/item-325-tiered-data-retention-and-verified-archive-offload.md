@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - PROVISIONAL LOCAL ENCRYPTED STAGING BUILT; PRODUCTION OFFLOAD AND DELETION NOT AUTHORIZED]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-05 - ENCRYPTION PREFLIGHT REPAIRED; NATIVE CONTEXT AND RESTORE PROOF OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -365,6 +365,36 @@ run must still bind authoritative production selection, perform real encrypted
 off-site transfer, complete and review a restore drill, split mirror semantics,
 and add the independent prune ledger/executor before any source can become
 deletion-eligible. The intended real source remains deletion-ineligible.
+
+## 2026-09-05 takeover and encryption preflight repair
+
+The owner authorized continuation of off-site storage and necessary changes,
+with no live trading. This supersedes the historical build-only authority
+limits above; authoritative selection, host admission, immutable attempts,
+encrypted transfer, independent restore, and exact-file prune-ledger gates
+still apply before source deletion.
+
+The inherited `real-pilot-clob-console-20260713-v1` attempt is spent. It failed
+at DPAPI recovery before ciphertext creation and remains preserved with its
+source, plaintext staging and failure receipt. It proves no off-site restore
+or production-source parity, and none of its bytes is deletion-eligible.
+
+The repair checks DPAPI access and encrypted local destination binding before
+source reads or compression. It rechecks supporting identities and destination
+binding after compression, retains numeric-only native errors, and adds real
+Windows ASCII/Unicode fixtures alongside failure-ordering and drift coverage.
+Independent review found no remaining actionable issue. Exact-source admitted
+workstation verification passed 51 tests and failed two positive fixtures in
+PowerShell protection before the Python loader ran. The separate archive and
+documentation ratchets passed 48 tests; changed Python files compile and the
+agent-document audit passes. The full native positive-fixture gate remains open.
+
+Run the unchanged native fixtures from the attending user's ordinary workstation
+session to distinguish session access from loader compatibility. No real secret
+reprovisioning, new upload, restore, or source deletion was performed in this
+takeover. Do not infer a corrupt retained blob from the fixture's protection
+failure. Continue with a wholly new reviewed namespace only after that gate
+passes. The provisional adapter still has no production delete executor.
 
 Acceptance:
 
