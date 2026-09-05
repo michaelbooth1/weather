@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -395,13 +396,21 @@ def test_snapshot_fails_closed_when_rule_document_semantics_are_not_verified():
     assert "global_rule_document_semantics_verified" in gate["missing"]
 
 
+@pytest.mark.parametrize("metadata_mutation", ["unchanged", "replace", "delete"])
+@pytest.mark.parametrize("metadata_bom", [False, True])
 def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_rewards(
     tmp_path,
     monkeypatch,
+    metadata_mutation,
+    metadata_bom,
 ):
     condition_id = "0x" + "2" * 64
     event_slug = "highest-temperature-in-toronto-on-june-24-2026"
-    event_metadata_path = _write(tmp_path / "events.json", {"locations": []})
+    event_metadata_path = tmp_path / "events.json"
+    metadata_bytes = b'{\r\n   "locations": []\r\n}\r\n'
+    if metadata_bom:
+        metadata_bytes = b"\xef\xbb\xbf" + metadata_bytes
+    event_metadata_path.write_bytes(metadata_bytes)
     selected = [{
         "location_id": "toronto",
         "event_slug": event_slug,
@@ -416,15 +425,22 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
             ],
         }],
     }]
-    monkeypatch.setattr(
-        exchange_economics,
-        "_event_rows_for_global_snapshot",
-        lambda _payload, _target: (selected, []),
-    )
+
+    def select_events(metadata, target):
+        assert metadata == {"locations": []}
+        assert target == TARGET_DATE
+        return selected, []
+
+    monkeypatch.setattr(exchange_economics, "_event_rows_for_global_snapshot", select_events)
 
     def fake_fetch(url, *, timeout_seconds):
         del timeout_seconds
         if "/events/slug/" in url:
+            if metadata_mutation == "replace":
+                replacement = _write(tmp_path / "replacement.json", {"locations": ["changed"]})
+                replacement.replace(event_metadata_path)
+            elif metadata_mutation == "delete":
+                event_metadata_path.unlink()
             return {
                 "id": "9",
                 "slug": event_slug,
@@ -520,6 +536,9 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
     assert payload["markets"][0]["fee_schedule"]["rebate_rate"] == 0.25
     assert payload["markets"][0]["liquidity_rewards"]["current_daily_rate_usdc"] == 46
     assert payload["liquidity_rewards"]["primary_pnl_assumption_usdc"] == 0.0
+    assert payload["source_verification"]["event_metadata_sha256"] == hashlib.sha256(
+        metadata_bytes
+    ).hexdigest()
     assert payload["source_verification"]["responses"]
     assert len(payload["source_verification"]["rule_documents"]) == len(
         exchange_economics.GLOBAL_SOURCE_URLS
@@ -528,6 +547,35 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
         all(row["semantic_checks"].values())
         for row in payload["source_verification"]["rule_documents"]
     )
+
+
+@pytest.mark.parametrize(
+    ("metadata_bytes", "error_type", "message"),
+    [
+        (None, ValueError, "invalid or missing event metadata"),
+        (b"not-json", ValueError, "invalid or missing event metadata"),
+        (b"null", ValueError, "invalid or missing event metadata"),
+        (b"\xff", UnicodeDecodeError, None),
+    ],
+)
+def test_collect_global_snapshot_preserves_metadata_read_errors(
+    tmp_path, metadata_bytes, error_type, message
+):
+    path = tmp_path / "events.json"
+    if metadata_bytes is not None:
+        path.write_bytes(metadata_bytes)
+
+    def unexpected_fetch(*_args, **_kwargs):
+        pytest.fail("invalid metadata must fail before network callbacks")
+
+    with pytest.raises(error_type, match=message):
+        exchange_economics.collect_global_snapshot_payload(
+            target_date=TARGET_DATE,
+            event_metadata_path=path,
+            now=NOW,
+            fetch_json=unexpected_fetch,
+            fetch_text=unexpected_fetch,
+        )
 
 
 def test_paper_legs_bind_to_exact_condition_token_economics_and_missing_tokens_block():
