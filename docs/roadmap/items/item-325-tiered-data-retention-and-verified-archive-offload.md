@@ -388,3 +388,83 @@ not executable authority for v2 even though the later capacity reading exceeds
 36 GiB. Any production hashing or subsequent heavy step needs fresh admission
 under the owning host policy; workstation fixture success changes neither the
 time nor reserve gate.
+
+## 2026-09-05 10:09: signed-in v2 fails at rclone copy
+
+The user's actual `real-pilot-clob-console-20260713-v2` attempt failed at
+`2026-09-05T14:09:51.448222Z` (10:09 Toronto) with
+`rclone_create_only_copy_failed`. This supersedes the pending-v2 status in the
+earlier qualification entry without changing its successful 53-test result.
+The raw 1,753-byte receipt is retained production-locally at
+`scratch/handoffs/real-pilot-clob-console-20260713-v2.receipt.json`, file SHA-256
+`570989B37B84E5EB65EA889500D8EAA97E9C7903594221160A20260E9B19A0F9`;
+the workstation copy matches. Its validated receipt self-hash is
+`6f6c28b97ea02a6c66f507435cad0e90681ff3b257eeb476027f56d8b2a45434`,
+verified together with its exact source binding in the admitted workstation
+suite below. Retain the raw evidence unchanged.
+
+The tool checkout remained clean at repair
+`aea427fb7faf0b5fd67b8893b62b11fe649e71ea`, tree
+`97adb242ee1af173ff26938a1eafe377d408aedd`, with the source SHA-256 recorded
+above unchanged. The receipt reports PASS for encrypted configuration and
+local crypt-root checks, supporting the inference that the real provisioned
+credential loaded through DPAPI in this signed-in session. Initial source hash,
+compression and destination-absence checks also passed. These checks do not
+qualify the failed copy, cryptcheck or restore.
+
+The retained encrypted-object state is `creation_state_ambiguous_retained`.
+A bounded metadata read found the exact target ciphertext absent and only the
+prior smoke directory in the ciphertext root. That observation neither clears
+the spent namespace nor replaces copy/cryptcheck/restore evidence. Preserve
+both v1 and v2 and all their outputs. No uploaded archive, restore proof,
+deletion or reclaimed bytes is established.
+
+Code review found `RCLONE_PARTIAL_SUFFIX = ".partial.cold-stage"` in the exact
+published source. The literal is **19 ASCII bytes**, independently counted,
+and exceeds [rclone's 16-byte suffix limit](https://rclone.org/docs/#partial-suffix-string).
+The independent stacked repair `codex/archive-rclone-suffix-20260905` is
+published at `5e9b60e9d9f346346c0d8ef7de751fc43130d402`, tree
+`763479ae1cc43680e85686d5261e7ea47805a21d`, in
+[PR 22](https://github.com/michaelbooth1/weather/pull/22). It uses the 13-byte
+`.partial.cold`, retains refusal of both raw partial suffixes and preserves all
+copy safety flags. Five real-rclone synthetic cases prove the legacy rejection,
+fresh copy plus cryptcheck success, unchanged ciphertext for identical and
+changed destination collisions, and empty-source refusal. The combined admitted
+workstation run passed 58 checks in 3.57 seconds; only the two signed-in DPAPI
+positive cases were deselected in SSH. Their implementation is unchanged from
+the earlier 53-pass signed-in qualification. All three changed Python files
+compiled, the documentation audit passed, and independent source review found
+no actionable issues.
+
+The retained `scratch/handoffs/archive-suffix-native-verification-20260905.xml`
+has SHA-256 `6DA775E9ECD039A8DB659ECFA1CB3EA93FFD4770CA510880EF8BA1C7D11B5085`.
+Source SHA-256 is `3813C67C5897982BA7FDC590859826236BFDAB77EF626503133825BA54B188BE`;
+unit-test SHA-256 is `64B6BF9ADDAA3E264E2EC8AB0450E08E6FA97E7488C842070DE7818602BD9118`;
+native-rclone-test SHA-256 is `4CAF21B798EF62786454C62548C0683E5F41FD95FCE75563E9FA48B5E7B03EF2`.
+The suite also validates v2's receipt self-hash and old source identity, plus the
+newly loaded module path and repository root. These proofs do not rehabilitate
+the spent real attempt or establish real ciphertext.
+
+A separate clean workstation checkout at
+`C:/Users/Michael/Documents/github/weather-archive-stage-v3-20260905` binds
+that exact published repair. The new signed-in runner
+`C:/Users/Michael/Documents/Codex/handoffs/run-archive-real-stage-v3-20260905.ps1`
+requires the full 59-case native suite with zero failures/errors/skips before
+claiming `real-pilot-clob-console-20260713-v3`, and rechecks source/Git identity
+after the fixtures. Four admitted smoke checks passed: PowerShell parsing,
+actual metadata/ACL preflight, fresh-process import binding and exact 59-case
+collection. The real v3 result is pending. This runner has no upload, restore,
+production hashing or deletion path. The next step is the signed-in result,
+followed by exact receipt/manifest review before any encrypted cloud transfer.
+Independent runner review found no actionable issues. Runner SHA-256 is
+`BF9344E59A5073B9F97281980F51D2B28C517FD153F5453FC7CB4213227BD3B9`,
+confirmed equal locally and on the workstation. The retained smoke report
+`scratch/handoffs/archive-v3-runner-smoke-20260905.xml` has SHA-256
+`568F2E73F804417F57A3937FD2D2B5160909E023646C486B107A84735DA4010C`.
+
+The prior qualification documentation's
+[PR 21 CI](https://github.com/michaelbooth1/weather/actions/runs/33970328290)
+passed. It has not been adopted on production, whose master remains
+`6714b77d8bb57fa36b4d2dd33675cab971ef2432`; the two generated-config changes
+remain preserved. Source publication and passing CI do not close storage
+qualification, admission, restore or whole-W11 acceptance.
