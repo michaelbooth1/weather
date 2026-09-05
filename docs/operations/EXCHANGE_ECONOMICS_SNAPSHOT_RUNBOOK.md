@@ -46,6 +46,10 @@ conditions, validates Gamma identity against the tracked condition/token map,
 fetches current reward campaigns from the CLOB, validates the complete payload,
 and only then replaces the ignored runtime snapshot.
 
+Event selection and `source_verification.event_metadata_sha256` use the same
+captured file bytes, including any UTF-8 BOM and formatting. Replacing or
+removing the metadata file during collection does not change that input binding.
+
 For isolated preparation or a branch proof, write a new external snapshot
 instead of replacing production state. Collection is not baseline acceptance:
 
