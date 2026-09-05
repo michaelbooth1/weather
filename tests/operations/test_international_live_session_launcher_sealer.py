@@ -12,15 +12,14 @@ import time
 
 import pytest
 
+from tests.live_candidate_fixture import (
+    build_stage0_event_metadata_payload,
+    build_stage0_scope_payload,
+)
 from weather.market.mm_credentials import (
     STAGE0_AUTHORIZATION,
     STAGE0_IDENTITY_SCHEMA_VERSION,
 )
-from weather.market.exchange_economics import (
-    accept_snapshot_baseline,
-    build_snapshot_payload,
-)
-from weather.market import mm_live_candidate_cli as candidate_cli
 from weather.operations import international_live_session_launcher_sealer as launcher_sealer
 from weather.operations import international_live_session_runner as runner
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
@@ -287,142 +286,6 @@ def write_json(path: Path, payload) -> Path:
     return path
 
 
-def discovery_payload(*, constrained: bool = False) -> dict:
-    created = NOW.astimezone(timezone.utc) - timedelta(seconds=5)
-    paper_generated = NOW.astimezone(timezone.utc) - timedelta(seconds=10)
-    expires = paper_generated + timedelta(seconds=120)
-    payload = {
-        "schema_version": candidate_cli.SCHEMA_VERSION,
-        "status": "PASS",
-        "created_at_utc": created.isoformat(),
-        "expires_at_utc": expires.isoformat(),
-        "target_date": NOW.date().isoformat(),
-        "platform": "polymarket_global",
-        "settlement_unit": "pUSD",
-        "exchange_economics_snapshot_id": "xecon-" + "e" * 16,
-        "exchange_economics_sha256": "e" * 32,
-        "economics_gate_ok": True,
-        "economics_gate_missing": [],
-        "substrate_preflight": {
-            "schema_version": candidate_cli.SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
-            "receipt_sha256": "0" * 64,
-            "checked_at_utc": created.isoformat(),
-            "expires_at_utc": (
-                created
-                + timedelta(
-                    seconds=candidate_cli.MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS
-                )
-            ).isoformat(),
-            "market_id": "toronto",
-            "target_date": NOW.date().isoformat(),
-            "event_slug": "toronto-high-temperature-test",
-            "validation_hash": "1" * 64,
-            "event_metadata_file_sha256": "2" * 64,
-            "event_metadata_validation_file_sha256": "3" * 64,
-            "observation_status_file_sha256": "4" * 64,
-            "economics_snapshot_file_sha256": "5" * 64,
-            "accepted_snapshot_file_sha256": "6" * 64,
-            "economics_drift_report_file_sha256": "7" * 64,
-            "paper_run_config_file_sha256": "a" * 64,
-            "paper_preflight_file_sha256": "8" * 64,
-            "paper_quote_intents_file_sha256": "b" * 64,
-            "clob_tokens_file_sha256": "9" * 64,
-            "order_books_summary_file_sha256": "c" * 64,
-            "source_status_long_file_sha256": "d" * 64,
-            "network_access": False,
-            "credential_access": False,
-            "exchange_contact": False,
-            "exchange_mutation": False,
-        },
-        "selection_is_trading_authorization": False,
-        "secret_values_retained": False,
-        "selection_policy": {
-            "built_in_locations_only": True,
-            "positive_fee_and_rebate_required": True,
-            "midpoint_interval": [0.2, 0.8],
-            "max_spread": 0.05,
-            "minimum_tick_buy_must_be_nonmarketable": True,
-            "book_tick_min_size_and_neg_risk_must_be_current": True,
-            "plan_max_age_seconds": 300,
-            "max_single_order_notional_pusd": 10,
-            "successful_current_market_harvest_quote_required": True,
-            "expected_bootstrap_scope": {
-                "condition_id": CONDITION if constrained else None,
-                "token_id": TOKEN if constrained else None,
-            },
-            "ranking": "spread_asc_then_best_level_depth_desc_then_midpoint_distance",
-        },
-        "paper_quote_evidence": {
-            "run_config_sha256": "a" * 64,
-            "quote_intents_sha256": "b" * 64,
-            "quote_intents_row_count": 1,
-            "market_id": "toronto",
-            "run_id": "paper-run-1",
-        },
-        "candidate_count": 1,
-        "selected": {
-            "location_id": "toronto",
-            "event_date": NOW.date().isoformat(),
-            "event_slug": "toronto-high-temperature-test",
-            "question": "Will Toronto reach the selected high-temperature range?",
-            "condition_id": CONDITION,
-            "token_id": TOKEN,
-            "outcome_index": 0,
-            "best_bid": 0.32,
-            "best_ask": 0.33,
-            "midpoint": 0.325,
-            "spread": 0.01,
-            "best_bid_depth": 100,
-            "best_ask_depth": 100,
-            "order_min_size": 5,
-            "tick_size": 0.01,
-            "neg_risk": False,
-            "fee_rate": 0.05,
-            "maker_rebate_rate": 0.25,
-            "reward_min_size": 20,
-            "reward_max_spread_cents": 4.5,
-            "current_book_within_reward_spread": True,
-            "lifecycle_probe_reward_min_size_met": False,
-            "book_sha256": "c" * 64,
-            "stage1_intent": {
-                "side": "BUY",
-                "price": 0.01,
-                "size": 5,
-                "notional_pusd": 0.05,
-                "post_only": True,
-            },
-            "paper_quote_proof": {
-                "run_id": "paper-run-1",
-                "market_id": "toronto",
-                "target_date": NOW.date().isoformat(),
-                "condition_id": CONDITION,
-                "token_id": TOKEN,
-                "range_label": "test-range",
-                "exchange_economics_snapshot_id": "xecon-" + "e" * 16,
-                "exchange_economics_hash": "e" * 32,
-                "policy_hash": "paper-policy-hash",
-                "generated_at_utc": paper_generated.isoformat(),
-                "expires_at_utc": expires.isoformat(),
-                "quote_ttl_seconds": 120,
-                "bid_price": 0.31,
-                "bid_size": 5,
-                "ask_price": 0.34,
-                "ask_size": 5,
-                "quote_risk_pusd": 4.85,
-                "quote_permission": True,
-                "live_trade_permission": False,
-                "two_sided_post_only_intent": True,
-                "reward_and_rebate_assumed_zero": True,
-                "quote_row_sha256": "d" * 64,
-            },
-        },
-        "alternates": [],
-        "missing": [],
-    }
-    payload["plan_sha256"] = candidate_cli.candidate_plan_sha256(payload)
-    return payload
-
-
 def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
     production = tmp_path / "production"
     python = production / "venv/Scripts/python.exe"
@@ -522,79 +385,29 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
             "ignored_relayers_rpc_and_self_assertions": True,
         },
     )
-    current_economics = write_json(
-        sources / "current-economics.json",
-        build_snapshot_payload(
+    event_metadata = write_json(
+        sources / "location-market-events.json",
+        build_stage0_event_metadata_payload(
+            generated_at=NOW.astimezone(timezone.utc) - timedelta(days=14),
             target_date=NOW.date().isoformat(),
-            verified_at_utc=(
-                NOW.astimezone(timezone.utc) - timedelta(seconds=30)
-            ).isoformat(),
-            platform="polymarket_global",
             condition_id=CONDITION,
-            token_ids=[TOKEN, "102"],
-            reward_daily_rate_usdc=1,
-            rewards_min_size=20,
-            rewards_max_spread_cents=4.5,
+            token_id=TOKEN,
+            alternate_token_id="102",
         ),
     )
-    accepted_economics = sources / "accepted-economics.json"
-    economics_drift = sources / "economics-drift.json"
-    accept_snapshot_baseline(
-        snapshot_path=current_economics,
-        accepted_snapshot_path=accepted_economics,
-        drift_report_path=economics_drift,
+    discovery_data = build_stage0_scope_payload(
+        now=NOW,
         target_date=NOW.date().isoformat(),
-        now=NOW - timedelta(seconds=20),
-        max_age_hours=2,
-        acknowledge_payout_asset_conflict=True,
-    )
-    accepted_payload = json.loads(accepted_economics.read_text(encoding="utf-8"))
-    drift_payload = json.loads(economics_drift.read_text(encoding="utf-8"))
-    discovery_data = discovery_payload(constrained=constrained)
-    discovery_data["exchange_economics_snapshot_id"] = accepted_payload[
-        "snapshot_id"
-    ]
-    discovery_data["exchange_economics_sha256"] = accepted_payload[
-        "exchange_economics_hash"
-    ]
-    discovery_data["selected"]["paper_quote_proof"].update(
-        {
-            "exchange_economics_snapshot_id": accepted_payload["snapshot_id"],
-            "exchange_economics_hash": accepted_payload[
-                "exchange_economics_hash"
-            ],
-        }
-    )
-    acknowledgment = candidate_cli.economics_acceptance_acknowledgment(
-        NOW.date().isoformat(),
-        CONDITION,
-        TOKEN,
-        accepted_snapshot_file_sha256=sha(accepted_economics),
-        drift_report_file_sha256=sha(economics_drift),
-    )
-    discovery_data["economics_acceptance"] = {
-        "accepted_at_utc": accepted_payload["accepted_at_utc"],
-        "accepted_snapshot_file_sha256": sha(accepted_economics),
-        "accepted_snapshot_id": accepted_payload["snapshot_id"],
-        "accepted_snapshot_sha256": accepted_payload[
-            "exchange_economics_hash"
-        ],
-        "drift_generated_at_utc": drift_payload["generated_at_utc"],
-        "drift_report_file_sha256": sha(economics_drift),
-        "drift_status": "PASS",
-        "operator_acknowledgment": acknowledgment,
-        "operator_acknowledgment_matches_candidate": True,
-        "required_operator_acknowledgment": acknowledgment,
-        "rescore_required": False,
-    }
-    discovery_data["substrate_preflight"][
-        "accepted_snapshot_file_sha256"
-    ] = sha(accepted_economics)
-    discovery_data["substrate_preflight"][
-        "economics_drift_report_file_sha256"
-    ] = sha(economics_drift)
-    discovery_data["plan_sha256"] = candidate_cli.candidate_plan_sha256(
-        discovery_data
+        condition_id=CONDITION,
+        token_id=TOKEN,
+        alternate_token_id="102",
+        event_metadata_file_sha256=sha(event_metadata),
+        event_metadata_generated_at=(
+            NOW.astimezone(timezone.utc) - timedelta(days=14)
+        ),
+        constrained=constrained,
+        best_bid=0.19,
+        best_ask=0.44,
     )
     discovery = write_json(sources / "discovery.json", discovery_data)
     attempt = tmp_path / "attempt"
@@ -670,8 +483,7 @@ def manifest_builder_fixture(tmp_path: Path, *, constrained=False):
         "identity": identity,
         "credential_receipt": credential_receipt,
         "credential_manifest": credential_manifest,
-        "accepted_economics": accepted_economics,
-        "economics_drift": economics_drift,
+        "event_metadata": event_metadata,
         "discovery": discovery,
         "inventory": inventory,
         "outer_template": outer_template,
@@ -692,10 +504,7 @@ def build_manifest(prepared, **overrides):
         "credential_reference_manifest_source_path": prepared[
             "credential_manifest"
         ],
-        "accepted_economics_snapshot_source_path": prepared[
-            "accepted_economics"
-        ],
-        "economics_drift_report_source_path": prepared["economics_drift"],
+        "event_metadata_source_path": prepared["event_metadata"],
         "attempt_root": prepared["attempt"],
         "lease_workload": workload,
         "execution_host_profile": "capture_colocated_v1",
@@ -754,15 +563,13 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
         "identity",
         "credential_import_receipt",
         "credential_reference_manifest",
-        "accepted_economics_snapshot",
-        "economics_drift_report",
+        "event_metadata",
     }
     for role, source_key in {
         "identity": "identity",
         "credential_import_receipt": "credential_receipt",
         "credential_reference_manifest": "credential_manifest",
-        "accepted_economics_snapshot": "accepted_economics",
-        "economics_drift_report": "economics_drift",
+        "event_metadata": "event_metadata",
     }.items():
         copied = Path(manifest["inputs"][role]["path"])
         assert copied.is_relative_to(prepared["attempt"])
@@ -771,9 +578,7 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     assert Path(receipt["staged_public_inputs"]["discovery_plan"]["path"]).read_bytes() == prepared[
         "discovery"
     ].read_bytes()
-    assert manifest["economics_acceptance"] == json.loads(
-        prepared["discovery"].read_text(encoding="utf-8")
-    )["economics_acceptance"]
+    assert "economics_acceptance" not in manifest
     assert Path(receipt["build_receipt_path"]).is_file()
     launcher_receipt = launcher_sealer.prepare_fixed_session_launcher(
         manifest_path,
@@ -813,19 +618,16 @@ def test_manifest_builder_rejects_create_new_credential_evidence(tmp_path):
     assert list((prepared["attempt"] / "inputs").iterdir()) == []
 
 
-def test_manifest_builder_rejects_drift_report_not_bound_by_discovery(tmp_path):
+def test_manifest_builder_rejects_event_metadata_not_bound_by_discovery(tmp_path):
     prepared = manifest_builder_fixture(tmp_path)
-    drift = prepared["economics_drift"]
-    payload = json.loads(drift.read_text(encoding="utf-8"))
-    payload["generated_at_utc"] = (
-        datetime.fromisoformat(payload["generated_at_utc"])
-        + timedelta(seconds=1)
-    ).isoformat()
-    write_json(drift, payload)
+    event_metadata = prepared["event_metadata"]
+    payload = json.loads(event_metadata.read_text(encoding="utf-8"))
+    payload["locations"][0]["active_events"][0]["title"] = "Changed title"
+    write_json(event_metadata, payload)
 
     with pytest.raises(
         launcher_sealer.SessionLauncherSealError,
-        match="economics acceptance does not match its source evidence",
+        match="does not match its stage-specific source evidence",
     ):
         build_manifest(prepared)
 
@@ -1264,10 +1066,8 @@ def test_manifest_cli_has_no_typed_scope_or_ceiling_override_surface():
             "import.json",
             "--credential-reference-manifest-source",
             "references.json",
-            "--accepted-economics-snapshot-source",
-            "accepted-economics.json",
-            "--economics-drift-report-source",
-            "economics-drift.json",
+            "--event-metadata-source",
+            "location-market-events.json",
             "--attempt-root",
             r"C:\attempt",
             "--lease-workload",

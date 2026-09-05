@@ -53,7 +53,7 @@ CORE_WORKERS = {
 }
 CAPTURE_COLOCATED_HOST_PROFILE = "capture_colocated_v1"
 PORTABLE_EXECUTION_HOST_PROFILE = "portable_execution_v1"
-PORTABLE_TOPIC_BRANCH = "codex/portable-execution-host-clean-20260827"
+PORTABLE_TOPIC_BRANCH = "codex/live-gate-provenance-20260831"
 EXECUTION_HOST_ID_DOMAIN = "international_live_execution_host_v2"
 PRE_CREDENTIAL_RESERVE_SECONDS = (
     120
@@ -537,6 +537,10 @@ def _assert_paths(*, doctor_may_exist: bool = False) -> None:
             Path(str(SCOPE["scope_plan_path"])).resolve(),
             str(SCOPE["scope_plan_sha256"]).lower(),
         ),
+        "event_metadata": (
+            Path(str(SCOPE["event_metadata_path"])).resolve(),
+            str(SCOPE["event_metadata_sha256"]).lower(),
+        ),
         "credential_import_receipt": (
             Path(str(SCOPE["credential_import_receipt_path"])).resolve(),
             str(SCOPE["credential_import_receipt_sha256"]).lower(),
@@ -910,16 +914,24 @@ def main() -> int:
         SCOPE["sdk_overlay_manifest_sha256"],
     )
     from weather.market import mm_live_pilot_cli as live_cli
-    from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
+    from weather.market.mm_live_stage0_scope import (
+        load_stage0_scope_gate,
+        validate_bound_stage0_event_metadata,
+    )
 
     expected_module = (PRODUCTION / "src/weather/market/mm_live_pilot_cli.py").resolve()
     if Path(live_cli.__file__).resolve() != expected_module:
         raise RuntimeError("live pilot module resolved outside the reviewed source")
-    load_stage1_candidate_gate(
+    scope_gate = load_stage0_scope_gate(
         SCOPE["scope_plan_path"],
         SCOPE["target_date"],
         expected_condition_id=SCOPE["condition_id"],
         expected_token_id=SCOPE["token_id"],
+    )
+    validate_bound_stage0_event_metadata(
+        SCOPE["event_metadata_path"],
+        scope_gate["event_metadata"],
+        target_date=SCOPE["target_date"],
     )
     doctor_args = SimpleNamespace(
         command="doctor",
@@ -945,11 +957,16 @@ def main() -> int:
     _assert_git_and_sources()
     _assert_paths(doctor_may_exist=True)
     _assert_host_state()
-    candidate_gate = load_stage1_candidate_gate(
+    candidate_gate = load_stage0_scope_gate(
         SCOPE["scope_plan_path"],
         SCOPE["target_date"],
         expected_condition_id=SCOPE["condition_id"],
         expected_token_id=SCOPE["token_id"],
+    )
+    validate_bound_stage0_event_metadata(
+        SCOPE["event_metadata_path"],
+        candidate_gate["event_metadata"],
+        target_date=SCOPE["target_date"],
     )
     EXECUTION_PHASE = "stage0_geography_gate"
     _run_geography_check("geography_precredential_receipt_out")
@@ -988,7 +1005,6 @@ def main() -> int:
         user_stream_ready_timeout_seconds=45.0,
         confirmation=expected_confirmation,
         expected_wallet_address=credential_manifest["wallet_address"],
-        expected_candidate_fee_rate=candidate_gate["fee_rate"],
         expected_candidate_neg_risk=candidate_gate["neg_risk"],
         pre_mutation_attestor=_run_premutation_geography_check,
     )

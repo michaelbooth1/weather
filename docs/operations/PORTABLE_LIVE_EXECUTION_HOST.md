@@ -9,15 +9,16 @@ streak state, and protected host-load timetable. It does not remove Git,
 source, SDK, credential, identity, geography, account, balance, allowance,
 zero-state, order, cancellation, deadline, or cleanup checks.
 
-**Operator-authorized portable Git exception (2026-08-30).** Before its
+**Operator-authorized portable Git exception (2026-08-31).** Before its
 production merge, the exact remote branch
-`codex/portable-execution-host-clean-20260827` may be live source authority for
+`codex/live-gate-provenance-20260831` may be live source authority for
 `portable_execution_v1` only. This is not a general topic-branch allowance.
+It supersedes the exception for the earlier portable branch.
 The branch must be clean, reviewed, exact-head CI-green, and explicitly
 authorized by the repository owner. At every inventory, seal, composition,
 and wrapper boundary, local `HEAD`, the local branch tip, cached
-`origin/codex/portable-execution-host-clean-20260827`, and a fresh query of
-canonical `refs/heads/codex/portable-execution-host-clean-20260827` must be
+`origin/codex/live-gate-provenance-20260831`, and a fresh query of
+canonical `refs/heads/codex/live-gate-provenance-20260831` must be
 identical. Local `master`, cached `origin/master`, and fresh canonical
 `refs/heads/master` must also be identical, and that synchronized master tip
 must be an ancestor of the reviewed branch tip. `capture_colocated_v1`
@@ -82,7 +83,7 @@ changes it and intentionally invalidates all old manifests and launchers.
   canonical live Git identity.
 - A clean local clone on either exact synchronized canonical `master`, or, for
   `portable_execution_v1` only, the operator-authorized
-  `codex/portable-execution-host-clean-20260827` branch under the exact
+  `codex/live-gate-provenance-20260831` branch under the exact
   branch-equality, synchronized-master, master-ancestry, CI, review, and owner
   authorization contract above.
 - A new venv built in that clone. Never copy a venv or its `.pth` files from
@@ -270,7 +271,7 @@ Set-Location -LiteralPath $weatherRepositoryRoot
 & $gitLauncher fetch --prune origin
 if ($LASTEXITCODE -ne 0) { throw "canonical origin refresh failed" }
 $canonicalOrigin = "https://github.com/michaelbooth1/weather.git"
-$portableLiveBranch = "codex/portable-execution-host-clean-20260827"
+$portableLiveBranch = "codex/live-gate-provenance-20260831"
 $portableLiveRef = "refs/heads/$portableLiveBranch"
 $cachedPortableRef = "origin/$portableLiveBranch"
 $originUrl = (& $gitLauncher remote get-url origin)

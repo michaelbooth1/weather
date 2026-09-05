@@ -708,7 +708,7 @@ class OfficialPolymarketGlobalAdapter:
             "supports_trading": self.supports_trading,
             "required": gate.get("required") is True,
             "ok": gate.get("ok") is True,
-            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.4",
+            "schema": gate.get("schema_version") == "mm_platform_bootstrap_v0.5",
             "status": gate.get("status") == "PASS",
             "platform": gate.get("platform") == "polymarket_global",
             "settlement_unit": gate.get("settlement_unit") == "pUSD",

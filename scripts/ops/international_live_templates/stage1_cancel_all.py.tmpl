@@ -55,7 +55,7 @@ CORE_WORKERS = {
 }
 CAPTURE_COLOCATED_HOST_PROFILE = "capture_colocated_v1"
 PORTABLE_EXECUTION_HOST_PROFILE = "portable_execution_v1"
-PORTABLE_TOPIC_BRANCH = "codex/portable-execution-host-clean-20260827"
+PORTABLE_TOPIC_BRANCH = "codex/live-gate-provenance-20260831"
 EXECUTION_HOST_ID_DOMAIN = "international_live_execution_host_v2"
 PRE_CREDENTIAL_RESERVE_SECONDS = (
     120
@@ -541,6 +541,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
         "stage0_run_receipt_sidecar",
         "stage0_wrapper_execution_receipt",
         "candidate_plan",
+        "event_metadata",
         "credential_import_receipt",
         "credential_reference_manifest",
     ]
@@ -890,6 +891,18 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 for row in prior_stream_rows
             )
         )
+        prior_stream_scoped_order_event_count = sum(
+            row.get("event_type") == "user_event"
+            and isinstance(row.get("payload"), dict)
+            and str(
+                row["payload"].get("orderID")
+                or row["payload"].get("order_id")
+                or row["payload"].get("id")
+                or ""
+            )
+            == str(prior_result.get("order_id") or "")
+            for row in prior_stream_rows
+        )
         prior_lineage_ok = True
         prior_root = Path(str(prior_scope.get("attempt_root") or "")).resolve()
         prior_expected = {
@@ -1140,9 +1153,13 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 == prior_stream_artifact.get("sha256"),
                 prior_result.get("cleanup_final_user_stream_journal_sha256")
                 == prior_stream_artifact.get("sha256"),
+                type(prior_result.get("user_stream_journal_row_count")) is int,
+                prior_result.get("user_stream_journal_row_count")
+                == len(prior_stream_rows),
                 type(prior_result.get("user_stream_scoped_order_event_count"))
                 is int,
-                prior_result.get("user_stream_scoped_order_event_count") >= 2,
+                prior_result.get("user_stream_scoped_order_event_count")
+                == prior_stream_scoped_order_event_count,
                 prior_result.get("journal_sha256")
                 == inputs["cancel_all_lifecycle_journal"][1],
                 prior_run_sidecar
@@ -1464,9 +1481,14 @@ def main() -> int:
         SCOPE["sdk_overlay_manifest_sha256"],
     )
     from weather.market import mm_live_pilot_cli as live_cli
-    from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
     from weather.market.mm_live_lifecycle_probe import (
         verify_stage1_user_stream_journal,
+    )
+    from weather.market.mm_live_stage0_scope import (
+        validate_bound_stage0_event_metadata,
+    )
+    from weather.market.mm_live_stage1_lifecycle_plan import (
+        load_stage1_lifecycle_plan_gate,
     )
 
     expected_module = (PRODUCTION / "src/weather/market/mm_live_pilot_cli.py").resolve()
@@ -1496,11 +1518,16 @@ def main() -> int:
     _assert_git_and_sources()
     _assert_paths_and_stage0(doctor_may_exist=True)
     _assert_host_state()
-    load_stage1_candidate_gate(
+    lifecycle_gate = load_stage1_lifecycle_plan_gate(
         SCOPE["candidate_plan_path"],
         SCOPE["target_date"],
         expected_condition_id=SCOPE["condition_id"],
         expected_token_id=SCOPE["token_id"],
+    )
+    validate_bound_stage0_event_metadata(
+        SCOPE["event_metadata_path"],
+        lifecycle_gate["event_metadata"],
+        target_date=SCOPE["target_date"],
     )
     EXECUTION_PHASE = "stage1_geography_gate"
     _run_geography_check("geography_precredential_receipt_out")
@@ -1531,6 +1558,7 @@ def main() -> int:
         budget=SCOPE["requested_budget_pusd"],
         bootstrap=SCOPE["bootstrap_path"],
         candidate_plan=SCOPE["candidate_plan_path"],
+        event_metadata=SCOPE["event_metadata_path"],
         cancellation_mode=CANCELLATION_MODE,
         submit_deadline_utc=SCOPE["run_not_after_local"],
         credential_resolution_deadline_utc=SCOPE["run_not_after_local"],
@@ -1584,8 +1612,12 @@ def main() -> int:
             final_stream_evidence.get("sha256")
             == result.get("user_stream_journal_sha256"),
             final_stream_evidence.get("terminal_stream_stopped_verified") is True,
+            type(result.get("user_stream_journal_row_count")) is int,
+            result.get("user_stream_journal_row_count")
+            == final_stream_evidence.get("row_count"),
             type(result.get("user_stream_scoped_order_event_count")) is int,
-            result.get("user_stream_scoped_order_event_count") >= 2,
+            result.get("user_stream_scoped_order_event_count")
+            == final_stream_evidence.get("scoped_order_event_count"),
         )
     ):
         raise RuntimeError("fixed-scope Stage 1 result failed host postconditions")

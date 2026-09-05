@@ -35,7 +35,7 @@ def stage1_lifecycle_bundle():
             "platform": "polymarket_global",
             "settlement_unit": "pUSD",
             "cancellation_mode": mode,
-            "bootstrap_schema_version": "mm_platform_bootstrap_v0.4",
+            "bootstrap_schema_version": "mm_platform_bootstrap_v0.5",
             "bootstrap_sha256": bootstrap_hash,
             "condition_id": "0x" + "b" * 64,
             "token_id": "12345",
@@ -83,7 +83,7 @@ def stage1_lifecycle_bundle():
             )
             * 64,
             "user_stream_journal_row_count": 8,
-            "user_stream_scoped_order_event_count": 2,
+            "user_stream_scoped_order_event_count": 1,
         }
 
     bundle = {
@@ -92,7 +92,7 @@ def stage1_lifecycle_bundle():
         "created_at_utc": "2026-06-26T16:00:00+00:00",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
-        "bootstrap_schema_version": "mm_platform_bootstrap_v0.4",
+        "bootstrap_schema_version": "mm_platform_bootstrap_v0.5",
         "bootstrap_sha256": bootstrap_hash,
         "condition_id": "0x" + "b" * 64,
         "token_id": "12345",
@@ -119,14 +119,14 @@ def stage1_lifecycle_bundle():
                 "path": "stage1-cancel_all-user-stream.jsonl",
                 "sha256": "c" * 64,
                 "row_count": 8,
-                "scoped_order_event_count": 2,
+                "scoped_order_event_count": 1,
                 "terminal_stream_stopped_verified": True,
             },
             "dead_man": {
                 "path": "stage1-dead_man-user-stream.jsonl",
                 "sha256": "d" * 64,
                 "row_count": 8,
-                "scoped_order_event_count": 2,
+                "scoped_order_event_count": 1,
                 "terminal_stream_stopped_verified": True,
             },
         },

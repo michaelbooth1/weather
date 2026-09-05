@@ -52,7 +52,7 @@ def official_stage1_gate(adapter, snapshot_character="b"):
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.4",
+        "schema_version": "mm_platform_bootstrap_v0.5",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",

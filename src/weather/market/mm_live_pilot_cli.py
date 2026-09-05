@@ -5,8 +5,9 @@ resolved from Windows Credential Manager references already present in the
 process environment; secret values are never accepted as arguments or written
 to artifacts. Exchange-mutating Stage 0 and Stage 1 functions are deliberately
 not exposed by this parser; a separately reviewed host-owned wrapper must call
-those library boundaries. Stage 1 additionally requires
-a fresh non-authorizing candidate plan bound to a successful paper-only quote.
+those library boundaries. Stage 1 additionally requires a fresh
+non-authorizing lifecycle plan that binds the exact Stage 0 scope to current
+public book and official market rules.
 """
 
 from __future__ import annotations
@@ -52,7 +53,10 @@ from weather.market.mm_live_lifecycle_probe import (
     execute_stage1_lifecycle_probe,
     verify_stage1_user_stream_journal,
 )
-from weather.market.mm_live_candidate_cli import load_stage1_candidate_gate
+from weather.market.mm_live_stage0_scope import validate_bound_stage0_event_metadata
+from weather.market.mm_live_stage1_lifecycle_plan import (
+    load_stage1_lifecycle_plan_gate,
+)
 from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
     OFFICIAL_CLOB_VERSION,
@@ -359,8 +363,12 @@ def _validate_stage1_bundle_lineage(args, mode: str, result_path: str | Path) ->
         and final_stream_evidence.get("sha256")
         == result_payload.get("user_stream_journal_sha256")
         and final_stream_evidence.get("terminal_stream_stopped_verified") is True
+        and type(result_payload.get("user_stream_journal_row_count")) is int
+        and result_payload.get("user_stream_journal_row_count")
+        == final_stream_evidence.get("row_count")
         and type(result_payload.get("user_stream_scoped_order_event_count")) is int
-        and result_payload.get("user_stream_scoped_order_event_count") >= 2,
+        and result_payload.get("user_stream_scoped_order_event_count")
+        == final_stream_evidence.get("scoped_order_event_count"),
         "result_terminal_no_fill": (
             result_payload.get("schema_version")
             == "mm_live_lifecycle_probe_v0.3"
@@ -907,17 +915,9 @@ def run_stage0(
     stage0_budget = _validate_budget(args.budget)
     if stage0_budget != 10.0:
         raise RuntimeError("first Stage 0 requires exactly 10 pUSD")
-    try:
-        candidate_fee_rate = float(args.expected_candidate_fee_rate)
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise RuntimeError("Stage 0 requires the sealed candidate fee rate") from exc
     candidate_neg_risk = getattr(args, "expected_candidate_neg_risk", None)
-    if (
-        not math.isfinite(candidate_fee_rate)
-        or candidate_fee_rate <= 0
-        or not isinstance(candidate_neg_risk, bool)
-    ):
-        raise RuntimeError("Stage 0 requires exact eligible candidate market rules")
+    if not isinstance(candidate_neg_risk, bool):
+        raise RuntimeError("Stage 0 requires exact current candidate market rules")
     credential_deadline = _require_current_deadline(
         getattr(args, "credential_resolution_deadline_utc", None),
         label="Stage 0 credential resolution",
@@ -963,7 +963,6 @@ def run_stage0(
         receipt["exchange_mutation_attempted"] = True
         receipt["authenticated_exchange_write_attempted"] = True
     receipt["candidate_market_rules"] = {
-        "fee_rate": candidate_fee_rate,
         "neg_risk": candidate_neg_risk,
     }
     context = None
@@ -1004,7 +1003,6 @@ def run_stage0(
             target_date=args.target_date,
             requested_budget_usdc=args.budget,
             secret_hygiene=credential_secret_hygiene(),
-            expected_candidate_fee_rate=candidate_fee_rate,
             expected_candidate_neg_risk=candidate_neg_risk,
             pre_mutation_attestor=pre_mutation_attestor,
             progress_recorder=record_bootstrap_phase,
@@ -1079,7 +1077,7 @@ def run_stage1(
     context_builder=build_live_pilot_context,
     stream_waiter=wait_for_user_stream,
     bootstrap_loader=load_platform_bootstrap_gate,
-    candidate_loader=load_stage1_candidate_gate,
+    candidate_loader=load_stage1_lifecycle_plan_gate,
     lifecycle_executor=execute_stage1_lifecycle_probe,
 ) -> dict:
     if args.confirmation != STAGE1_CONFIRMATION:
@@ -1123,6 +1121,12 @@ def run_stage1(
             expected_condition_id=args.condition_id,
         )
         receipt["candidate_gate"] = dict(candidate_gate)
+        validate_bound_stage0_event_metadata(
+            args.event_metadata,
+            candidate_gate["event_metadata"],
+            target_date=args.target_date,
+            current_gamma=candidate_gate["current_gamma"],
+        )
         gate = bootstrap_loader(
             args.bootstrap,
             args.target_date,
@@ -1175,15 +1179,6 @@ def run_stage1(
         result["candidate_plan_sha256"] = candidate_gate["plan_sha256"]
         result["candidate_semantic_plan_sha256"] = candidate_gate[
             "semantic_plan_sha256"
-        ]
-        result["paper_run_config_sha256"] = candidate_gate[
-            "paper_run_config_sha256"
-        ]
-        result["paper_quote_intents_sha256"] = candidate_gate[
-            "paper_quote_intents_sha256"
-        ]
-        result["paper_quote_row_sha256"] = candidate_gate[
-            "paper_quote_row_sha256"
         ]
     except BaseException as exc:
         operation_error = exc

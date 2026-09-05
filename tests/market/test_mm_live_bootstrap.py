@@ -83,7 +83,7 @@ def stage0_identity():
 
 def bootstrap_payload():
     payload = {
-        "schema_version": "mm_platform_bootstrap_v0.4",
+        "schema_version": "mm_platform_bootstrap_v0.5",
         "status": "PASS",
         "verified_at_utc": NOW,
         "verified_for_target_date": TARGET_DATE,
@@ -146,9 +146,8 @@ def bootstrap_payload():
             "condition_id": CONDITION_ID,
             "token_id": TOKEN_ID,
             "book_verified": True,
-            "fee_eligibility_verified": True,
+            "fee_rule_verified": True,
             "fee_rate_bps": 500,
-            "candidate_fee_rate": 0.05,
             "min_order_size": 5,
             "tick_size": 0.01,
             "neg_risk": False,
@@ -194,7 +193,6 @@ def bootstrap_payload():
             "https://docs.polymarket.com/trading/orders/overview",
             "https://docs.polymarket.com/trading/fees",
             "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
-            "https://docs.polymarket.com/programs/maker-rebates",
             "https://docs.polymarket.com/concepts/pusd",
         ],
     }
@@ -276,7 +274,7 @@ def test_bootstrap_gate_refuses_the_published_v03_contract(tmp_path):
         now=NOW,
     )
 
-    assert SCHEMA_VERSION == "mm_platform_bootstrap_v0.4"
+    assert SCHEMA_VERSION == "mm_platform_bootstrap_v0.5"
     assert gate["ok"] is False
     assert "schema_version_supported" in gate["missing"]
 
@@ -298,35 +296,41 @@ def test_bootstrap_research_template_tracks_the_active_contract():
         "fresh_until_utc",
         "freshness_max_age_seconds",
     }
-    assert payload["market_snapshot"]["candidate_fee_rate"] is None
+    assert payload["market_snapshot"]["fee_rule_verified"] is False
+    assert "candidate_fee_rate" not in payload["market_snapshot"]
     assert payload["market_snapshot"]["candidate_neg_risk"] is None
 
 
-def test_bootstrap_gate_rejects_zero_fee_or_candidate_neg_risk_drift(tmp_path):
-    cases = (
-        ("zero-fee", {"fee_rate_bps": 0}, "market_fee_rate_positive"),
-        (
-            "neg-risk-drift",
-            {"neg_risk": True},
-            "market_candidate_neg_risk_matches_current",
-        ),
+def test_bootstrap_gate_accepts_zero_fee_but_rejects_candidate_neg_risk_drift(
+    tmp_path,
+):
+    zero_fee = finalized_bootstrap_payload(tmp_path, name="zero-fee")
+    zero_fee["market_snapshot"]["fee_rate_bps"] = 0
+    zero_fee_path = write_payload(tmp_path / "zero-fee.json", zero_fee)
+    zero_fee_gate = load_platform_bootstrap_gate(
+        zero_fee_path,
+        TARGET_DATE,
+        requested_budget_usdc=100,
+        expected_token_id=TOKEN_ID,
+        expected_condition_id=CONDITION_ID,
+        now=NOW,
     )
-    for name, change, expected_missing in cases:
-        payload = finalized_bootstrap_payload(tmp_path, name=name)
-        payload["market_snapshot"].update(change)
-        path = write_payload(tmp_path / f"{name}.json", payload)
+    assert zero_fee_gate["ok"] is True
+    assert zero_fee_gate["fee_rate_bps"] == 0
 
-        gate = load_platform_bootstrap_gate(
-            path,
-            TARGET_DATE,
-            requested_budget_usdc=100,
-            expected_token_id=TOKEN_ID,
-            expected_condition_id=CONDITION_ID,
-            now=NOW,
-        )
-
-        assert gate["ok"] is False
-        assert expected_missing in gate["missing"]
+    drift = finalized_bootstrap_payload(tmp_path, name="neg-risk-drift")
+    drift["market_snapshot"]["neg_risk"] = True
+    drift_path = write_payload(tmp_path / "neg-risk-drift.json", drift)
+    drift_gate = load_platform_bootstrap_gate(
+        drift_path,
+        TARGET_DATE,
+        requested_budget_usdc=100,
+        expected_token_id=TOKEN_ID,
+        expected_condition_id=CONDITION_ID,
+        now=NOW,
+    )
+    assert drift_gate["ok"] is False
+    assert "market_candidate_neg_risk_matches_current" in drift_gate["missing"]
 
 
 def test_persisted_active_stream_boolean_cannot_authorize_stage1(tmp_path):
@@ -637,7 +641,6 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
             "direct_secret_environment_absent_verified": True,
             "diagnostic_redaction_verified": True,
         },
-        expected_candidate_fee_rate=0.05,
         expected_candidate_neg_risk=False,
         pre_mutation_attestor=attest_at_mutation_boundary,
         progress_recorder=bootstrap_phases.append,
@@ -665,7 +668,8 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
     assert payload["dead_man_heartbeat"]["acknowledgment_count"] == 2
     assert payload["wallet_identity"]["signed_order_preview_verified"] is True
     assert payload["wallet_identity"]["signed_order_preview_signature_retained"] is False
-    assert payload["market_snapshot"]["candidate_fee_rate"] == 0.05
+    assert payload["market_snapshot"]["fee_rate_bps"] == 500.0
+    assert "candidate_fee_rate" not in payload["market_snapshot"]
     assert payload["market_snapshot"]["candidate_neg_risk"] is False
     assert payload["mutation_geographic_eligibility"]["status"] == "PASS"
     assert boundary_events == [
@@ -708,7 +712,6 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
                 "direct_secret_environment_absent_verified": True,
                 "diagnostic_redaction_verified": True,
             },
-            expected_candidate_fee_rate=0.05,
             expected_candidate_neg_risk=False,
             pre_mutation_attestor=attest_at_mutation_boundary,
             progress_recorder=lambda _phase: None,
@@ -746,7 +749,6 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
                 "direct_secret_environment_absent_verified": True,
                 "diagnostic_redaction_verified": True,
             },
-            expected_candidate_fee_rate=0.05,
             expected_candidate_neg_risk=False,
             pre_mutation_attestor=attest_at_mutation_boundary,
             progress_recorder=lambda _phase: None,

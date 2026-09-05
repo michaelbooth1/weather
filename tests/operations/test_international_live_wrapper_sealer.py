@@ -11,13 +11,13 @@ from pathlib import Path
 import pytest
 
 from weather.market import mm_geographic_eligibility as geography
-from weather.market.exchange_economics import (
-    accept_snapshot_baseline,
-    build_snapshot_payload,
-)
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_wrapper_sealer as sealer
-from tests.live_candidate_fixture import build_live_candidate_payload
+from tests.live_candidate_fixture import (
+    build_live_candidate_payload,
+    build_stage0_event_metadata_payload,
+    build_stage0_scope_payload,
+)
 
 
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
@@ -101,7 +101,30 @@ def candidate_payload(
         target_date=target_date,
         condition_id=CONDITION,
         token_id=TOKEN,
+        alternate_token_id="102",
         remaining_seconds=remaining_seconds,
+    )
+
+
+def stage0_scope_payload(
+    now: datetime = NOW,
+    *,
+    target_date: str | None = None,
+    remaining_seconds: int = 300,
+) -> dict:
+    target_date = target_date or now.date().isoformat()
+    return build_stage0_scope_payload(
+        now=now,
+        target_date=target_date,
+        condition_id=CONDITION,
+        token_id=TOKEN,
+        alternate_token_id="102",
+        event_metadata_file_sha256="0" * 64,
+        event_metadata_generated_at=now.astimezone(timezone.utc)
+        - timedelta(days=14),
+        remaining_seconds=min(remaining_seconds, 300),
+        best_bid=0.19,
+        best_ask=0.44,
     )
 
 
@@ -246,7 +269,10 @@ def prepare(
     candidate: dict | None = None,
     execution_host_profile: str = "capture_colocated_v1",
 ):
-    fixture_candidate = json.loads(json.dumps(candidate or candidate_payload()))
+    default_candidate = (
+        stage0_scope_payload() if stage == "stage0" else candidate_payload()
+    )
+    fixture_candidate = json.loads(json.dumps(candidate or default_candidate))
     fixture_target_date = str(fixture_candidate["target_date"])
     production = tmp_path / "production"
     attempt = tmp_path / "ops" / "2026-08-23" / "attempt-1"
@@ -354,76 +380,21 @@ def prepare(
         "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100,
     }
-    current_economics = write_json(
-        tmp_path / f"{stage}-current-economics.json",
-        build_snapshot_payload(
+    plan = fixture_candidate
+    event_generated = datetime.fromisoformat(
+        plan["event_metadata"]["generated_at_utc"]
+    )
+    event_metadata = write_json(
+        attempt / sealer.INPUT_LAYOUTS[stage]["event_metadata"],
+        build_stage0_event_metadata_payload(
+            generated_at=event_generated,
             target_date=fixture_target_date,
-            verified_at_utc=NOW.astimezone(timezone.utc).isoformat(),
-            platform="polymarket_global",
             condition_id=CONDITION,
-            token_ids=[TOKEN, "102"],
-            reward_daily_rate_usdc=1,
-            rewards_min_size=20,
-            rewards_max_spread_cents=4.5,
+            token_id=TOKEN,
+            alternate_token_id="102",
         ),
     )
-    accepted_economics = (
-        attempt / sealer.INPUT_LAYOUTS[stage]["accepted_economics_snapshot"]
-    )
-    economics_drift = (
-        attempt / sealer.INPUT_LAYOUTS[stage]["economics_drift_report"]
-    )
-    accept_snapshot_baseline(
-        snapshot_path=current_economics,
-        accepted_snapshot_path=accepted_economics,
-        drift_report_path=economics_drift,
-        target_date=fixture_target_date,
-        now=NOW,
-        max_age_hours=2,
-        acknowledge_payout_asset_conflict=True,
-    )
-    accepted_payload = json.loads(accepted_economics.read_text(encoding="utf-8"))
-    drift_payload = json.loads(economics_drift.read_text(encoding="utf-8"))
-    plan = fixture_candidate
-    plan["schema_version"] = sealer.CANDIDATE_SCHEMA_VERSION
-    plan["exchange_economics_snapshot_id"] = accepted_payload["snapshot_id"]
-    plan["exchange_economics_sha256"] = accepted_payload[
-        "exchange_economics_hash"
-    ]
-    plan["selected"]["paper_quote_proof"][
-        "exchange_economics_snapshot_id"
-    ] = accepted_payload["snapshot_id"]
-    plan["selected"]["paper_quote_proof"][
-        "exchange_economics_hash"
-    ] = accepted_payload["exchange_economics_hash"]
-    acknowledgment = sealer.economics_acceptance_acknowledgment(
-        plan["target_date"],
-        plan["selected"]["condition_id"],
-        plan["selected"]["token_id"],
-        accepted_snapshot_file_sha256=sha256(accepted_economics),
-        drift_report_file_sha256=sha256(economics_drift),
-    )
-    plan["economics_acceptance"] = {
-        "accepted_at_utc": accepted_payload["accepted_at_utc"],
-        "accepted_snapshot_file_sha256": sha256(accepted_economics),
-        "accepted_snapshot_id": accepted_payload["snapshot_id"],
-        "accepted_snapshot_sha256": accepted_payload[
-            "exchange_economics_hash"
-        ],
-        "drift_generated_at_utc": drift_payload["generated_at_utc"],
-        "drift_report_file_sha256": sha256(economics_drift),
-        "drift_status": "PASS",
-        "operator_acknowledgment": acknowledgment,
-        "operator_acknowledgment_matches_candidate": True,
-        "required_operator_acknowledgment": acknowledgment,
-        "rescore_required": False,
-    }
-    plan["substrate_preflight"]["accepted_snapshot_file_sha256"] = sha256(
-        accepted_economics
-    )
-    plan["substrate_preflight"]["economics_drift_report_file_sha256"] = sha256(
-        economics_drift
-    )
+    plan["event_metadata"]["file_sha256"] = sha256(event_metadata)
     plan["plan_sha256"] = sealer._canonical_payload_sha256(
         plan, omit="plan_sha256"
     )
@@ -431,8 +402,7 @@ def prepare(
         input_paths = {
             "identity": write_json(attempt / "inputs/stage0-identity.json", identity_payload),
             "scope_plan": write_json(attempt / "inputs/stage0-scope-plan.json", plan),
-            "accepted_economics_snapshot": accepted_economics,
-            "economics_drift_report": economics_drift,
+            "event_metadata": event_metadata,
             "credential_import_receipt": credential,
             "credential_reference_manifest": credential_manifest,
         }
@@ -488,7 +458,7 @@ def prepare(
         bootstrap_path = write_json(
             attempt / "stage0/bootstrap.json",
             {
-                "schema_version": "mm_platform_bootstrap_v0.4",
+                "schema_version": "mm_platform_bootstrap_v0.5",
                 "status": "PASS",
                 "mutation_geographic_eligibility": {
                     key: stage0_premutation_geography[key]
@@ -688,8 +658,7 @@ def prepare(
             "stage0_run_receipt_sidecar": stage0_run_sidecar,
             "stage0_wrapper_execution_receipt": stage0_execution_path,
             "candidate_plan": write_json(attempt / "inputs" / candidate_name, plan),
-            "accepted_economics_snapshot": accepted_economics,
-            "economics_drift_report": economics_drift,
+            "event_metadata": event_metadata,
             "credential_import_receipt": credential,
             "credential_reference_manifest": credential_manifest,
         }
@@ -708,14 +677,6 @@ def prepare(
                 "".join(
                     json.dumps(row, separators=(",", ":")) + "\n"
                     for row in (
-                        {
-                            "schema_version": "mm_user_stream_journal_v0.1",
-                            "event_type": "user_event",
-                            "payload": {
-                                "orderID": "cancel-order",
-                                "status": "live",
-                            },
-                        },
                         {
                             "schema_version": "mm_user_stream_journal_v0.1",
                             "event_type": "user_event",
@@ -783,8 +744,8 @@ def prepare(
                     "cleanup_final_user_stream_journal_sha256": sha256(
                         cancel_stream
                     ),
-                    "user_stream_journal_row_count": 3,
-                    "user_stream_scoped_order_event_count": 2,
+                    "user_stream_journal_row_count": 2,
+                    "user_stream_scoped_order_event_count": 1,
                     "cancel_response_present": True,
                     "journal_path": str(cancel_journal.resolve()),
                     "journal_sha256": sha256(cancel_journal),
@@ -1067,7 +1028,6 @@ def prepare(
             role: {"path": str(path.resolve()), "sha256": sha256(path)}
             for role, path in input_paths.items()
         },
-        "economics_acceptance": plan["economics_acceptance"],
         "reviewed_status_flags": [],
         "template_sha256": {
             "python": sha256(production / sealer.PYTHON_TEMPLATE_PATHS[stage]),
@@ -1253,7 +1213,10 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "_assert_window_current()" in host_guard
     assert 'ZoneInfo("America/Toronto")' in wrapper_text
     assert "portable_target_date_matches" in wrapper_text
-    assert wrapper_text.count("load_stage1_candidate_gate(") == 2
+    assert wrapper_text.count("load_stage0_scope_gate(") == 2
+    assert "load_stage1_candidate_gate(" not in wrapper_text
+    assert "economics_acceptance" not in wrapper_text
+    assert "paper_quote" not in wrapper_text
     assert "activate_live_sdk_overlay(" in wrapper_text
     assert "validate_launcher_lease_process_lineage(" in wrapper_text
     assert "single_sealed_python_redirector" in (
@@ -1312,7 +1275,7 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
 def test_seal_refuses_ineligible_toronto_window_before_outputs(tmp_path, current):
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(current),
+        candidate=stage0_scope_payload(current),
     )
     spec["prepared_at_local"] = current.isoformat()
     spec["scope"].update(
@@ -1334,7 +1297,7 @@ def test_capture_colocated_seal_still_refuses_next_day_market_target(tmp_path):
     target_date = (current.date() + timedelta(days=1)).isoformat()
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(current, target_date=target_date),
+        candidate=stage0_scope_payload(current, target_date=target_date),
     )
     spec["prepared_at_local"] = current.isoformat()
     spec["scope"].update(
@@ -1355,7 +1318,7 @@ def test_portable_execution_host_seals_a_daytime_window_and_exact_host(tmp_path)
     current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(current, remaining_seconds=600),
+        candidate=stage0_scope_payload(current, remaining_seconds=300),
     )
     spec["prepared_at_local"] = current.isoformat()
     spec["scope"].update(
@@ -1416,10 +1379,10 @@ def test_portable_execution_host_seals_for_next_day_market(tmp_path):
     target_date = (current.date() + timedelta(days=1)).isoformat()
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(
+        candidate=stage0_scope_payload(
             current,
             target_date=target_date,
-            remaining_seconds=600,
+            remaining_seconds=300,
         ),
     )
     spec["prepared_at_local"] = current.isoformat()
@@ -1506,10 +1469,10 @@ def test_portable_seal_refuses_target_outside_current_or_next_market_day(
     target_date = (current.date() + timedelta(days=target_offset_days)).isoformat()
     production, attempt, spec_path, spec = prepare(
         tmp_path,
-        candidate=candidate_payload(
+        candidate=stage0_scope_payload(
             current,
             target_date=target_date,
-            remaining_seconds=600,
+            remaining_seconds=300,
         ),
     )
     spec["prepared_at_local"] = current.isoformat()
@@ -1728,7 +1691,7 @@ def test_seal_refuses_to_overwrite_a_spent_namespace(tmp_path):
 
 
 def test_seal_refuses_expired_candidate_before_writing(tmp_path):
-    candidate = candidate_payload()
+    candidate = stage0_scope_payload()
     expired = datetime.fromisoformat(candidate["created_at_utc"]) - timedelta(seconds=1)
     candidate["expires_at_utc"] = expired.isoformat()
     candidate["plan_sha256"] = sealer._canonical_payload_sha256(
@@ -1738,11 +1701,48 @@ def test_seal_refuses_expired_candidate_before_writing(tmp_path):
 
     with pytest.raises(
         sealer.SealError,
-        match="candidate plan failed the canonical gate",
+        match="Stage 0 scope plan failed the canonical gate",
     ):
         seal(spec_path, production)
 
     assert not (attempt / "wrappers/stage0.py").exists()
+
+
+@pytest.mark.parametrize("stage", ["stage0", "stage1_cancel_all"])
+@pytest.mark.parametrize(
+    ("remaining_seconds", "expected"),
+    [(80, True), (79, False)],
+)
+def test_plan_expiry_contains_the_complete_cleanup_tail(
+    tmp_path,
+    stage,
+    remaining_seconds,
+    expected,
+):
+    plan = (
+        stage0_scope_payload(remaining_seconds=remaining_seconds)
+        if stage == "stage0"
+        else candidate_payload(remaining_seconds=remaining_seconds)
+    )
+    production, attempt, spec_path, _spec = prepare(
+        tmp_path,
+        stage=stage,
+        candidate=plan,
+    )
+
+    if expected:
+        assert seal(spec_path, production)["status"] == "PASS"
+        return
+
+    with pytest.raises(
+        sealer.SealError,
+        match="execution_and_cleanup_within_ttl",
+    ):
+        seal(spec_path, production)
+
+    assert not (
+        attempt / sealer.OUTPUT_LAYOUTS[stage]["python_wrapper"]
+    ).exists()
 
 
 def test_seal_refuses_input_hash_mismatch_before_writing(tmp_path):
@@ -1756,20 +1756,18 @@ def test_seal_refuses_input_hash_mismatch_before_writing(tmp_path):
     assert not (attempt / "wrappers/stage0.py").exists()
 
 
-def test_seal_rejects_rehashed_accepted_economics_evidence_drift(tmp_path):
+def test_seal_rejects_rehashed_event_metadata_drift(tmp_path):
     production, attempt, spec_path, spec = prepare(tmp_path)
-    accepted = Path(spec["inputs"]["accepted_economics_snapshot"]["path"])
-    payload = json.loads(accepted.read_text(encoding="utf-8"))
-    payload["accepted_at_utc"] = (
-        datetime.fromisoformat(payload["accepted_at_utc"]) + timedelta(seconds=1)
-    ).isoformat()
-    write_json(accepted, payload)
-    spec["inputs"]["accepted_economics_snapshot"]["sha256"] = sha256(accepted)
+    event_metadata = Path(spec["inputs"]["event_metadata"]["path"])
+    payload = json.loads(event_metadata.read_text(encoding="utf-8"))
+    payload["locations"][0]["active_events"][0]["title"] = "Changed title"
+    write_json(event_metadata, payload)
+    spec["inputs"]["event_metadata"]["sha256"] = sha256(event_metadata)
     write_json(spec_path, spec)
 
     with pytest.raises(
         sealer.SealError,
-        match="candidate economics acceptance does not match the sealed evidence",
+        match="event metadata does not match the sealed stage plan",
     ):
         seal(spec_path, production)
 
@@ -2397,6 +2395,17 @@ def test_every_stage_binds_complete_status_attestation_source_closure():
         assert python_closure.issubset(sealer.LIVE_SOURCE_PATHS[stage])
 
 
+def test_stage1_source_closure_uses_lifecycle_plan_not_paper_candidate():
+    lifecycle_source = "src/weather/market/mm_live_stage1_lifecycle_plan.py"
+    for stage in ("stage1_cancel_all", "stage1_dead_man"):
+        assert lifecycle_source in sealer.LIVE_SOURCE_PATHS[stage]
+        template = (
+            Path(sealer.REPO_ROOT) / sealer.PYTHON_TEMPLATE_PATHS[stage]
+        ).read_text(encoding="utf-8")
+        assert "load_stage1_lifecycle_plan_gate(" in template
+        assert "load_stage1_candidate_gate(" not in template
+
+
 def test_real_repository_inventory_and_git_preflight_use_sha1_object_ids():
     root = Path(sealer.REPO_ROOT)
     inventory = sealer.build_public_inventory(
@@ -2513,7 +2522,7 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
         assert "not dirty" in template
         assert "dirty.issubset(ALLOWED_DIRTY_PATHS)" in template
 
-    stage0_candidate = stage0.rindex("candidate_gate = load_stage1_candidate_gate(")
+    stage0_candidate = stage0.rindex("candidate_gate = load_stage0_scope_gate(")
     stage0_geography = stage0.index(
         '_run_geography_check("geography_precredential_receipt_out")',
         stage0_candidate,
@@ -2529,7 +2538,7 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
         '_run_geography_check("geography_premutation_receipt_out")'
     )
 
-    stage1_candidate = stage1.rindex("load_stage1_candidate_gate(")
+    stage1_candidate = stage1.rindex("load_stage1_lifecycle_plan_gate(")
     stage1_geography = stage1.index(
         '_run_geography_check("geography_precredential_receipt_out")',
         stage1_candidate,
