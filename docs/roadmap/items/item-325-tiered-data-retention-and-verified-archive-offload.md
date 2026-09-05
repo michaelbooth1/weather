@@ -591,3 +591,41 @@ closures. The archive modules themselves are reported free. Production adoption
 remains a separate guarded quiet-window action. Production master, generated
 configuration, the paused mirror, and all source/attempt/output evidence remain
 preserved. Item 325 and W11 remain partial; no disk reclaim has occurred.
+
+## 2026-09-05 12:35: intact private upload verified; independent download is blocked
+
+The owner uploaded the intact encrypted object. At 16:35:36 UTC, Drive metadata
+confirmed [file `1qIgue3BgvRtrvH1WX8D4qdJ_UESTKNSC`](https://drive.google.com/file/d/1qIgue3BgvRtrvH1WX8D4qdJ_UESTKNSC/view),
+named `real-pilot-clob-console-20260713-v3.rclone.bin`, with exactly 136,770,431
+bytes and parent `1yyxRgtTJlEY87ZOAoZDGwM8kzPO_y27J`. The object, its v3 folder
+and the archive root each reported `shared=false` and only the owner's user
+permission. The retained metadata record is
+`scratch/handoffs/archive-v3-drive-upload-metadata-20260905.json`, SHA-256
+`BEAC02D56007E75030B55C68202B56D96DCB041C40EC3D824176D92F05FB9190`.
+This supersedes the pending-upload state above without rewriting stage evidence.
+
+The automated independent download reached Drive's large-file confirmation,
+then Chrome returned `ERR_BLOCKED_BY_CLIENT`. No completed or partial download
+was found at the expected Downloads location. Manual download through the
+verified object's Drive page is requested; no controller download receipt or
+real restore attempt has been created.
+
+The attended `v3-r1` runner and its metadata helper passed independent review.
+Their production-local paths are
+`scratch/handoffs/run-archive-real-restore-v3-r1-20260905.ps1` (SHA-256
+`143036D5B96264FD6E31577F383AC0186BAAD02575360522C19B97489A362447`) and
+`scratch/handoffs/test_archive_real_restore_runner_20260905.py` (SHA-256
+`54263BF214906ED469968D7B303BED768A777353685A55B3183DC1CC412C173D`).
+Matching copies exist under the workstation's `Codex/handoffs` directory.
+Two admitted parser/import smoke checks passed in 0.41 seconds. Their retained
+JUnit `scratch/handoffs/archive-restore-runner-preinput-smoke-v2-20260905.xml`
+has SHA-256 `CEE1CEF0C01E8F76809E35EC4B12CBFE7F0E165AC9CCC38B1FB0BFD3DB7BC7E2`.
+The actual-input `CheckOnly` test remains unrun until the real download and
+reviewed receipt exist. It can run through authorized SSH with the exact
+host/principal; the real restore still requires the ordinary signed-in desktop.
+
+Source PR 23 remains fully qualified on the exact tip above. Documentation
+[CI 33977648723](https://github.com/michaelbooth1/weather/actions/runs/33977648723)
+also passed on `615103f36db39756c62940314218b33fd47bf68b`.
+Private cloud metadata proves neither downloaded content nor a restore.
+Production identity, exact-manifest reclaim and whole-W11 acceptance remain open.
