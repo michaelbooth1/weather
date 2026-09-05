@@ -71,9 +71,10 @@ those bytes are not production truth until the exact branch is integrated.
 After a successful guarded integration, finish one documentation transaction
 before starting unrelated work:
 
-1. Rewrite `docs/operations/STATE_OF_PLAY.md` from the integrated Git ancestry,
+1. Review `docs/operations/STATE_OF_PLAY.md` against the integrated Git ancestry,
    durable suite/merge receipts, live worker evidence, and current blockers.
-   Remove superseded claims; never describe the next hoped-for state.
+   Rewrite changed facts and remove superseded claims; never describe the next
+   hoped-for state. If every fact remains accurate, record that review below.
 2. Update every numbered roadmap item whose acceptance or next evidence
    changed, then regenerate `docs/roadmap/active-backlog.md`.
 3. Update `ESTABLISHED_FINDINGS.md` only for reproduced measurements and move
@@ -82,8 +83,9 @@ before starting unrelated work:
 4. Reconcile changed task names, wrappers, receipt schemas, CLI surfaces, and
    evidence boundaries with their owning runbooks and operations design.
 5. Run the roadmap lint, focused documentation tests, `git diff --check`, and
-   `weather.operations.agent_docs_audit`; commit and publish the roll-free
-   documentation through the approved push path.
+   `weather.operations.agent_docs_audit`; commit and publish any required
+   documentation changes through the approved push path. Do not create a
+   ceremonial diff or empty commit for documents that remain accurate.
 
 The guarded merge records each exact merge commit in
 `data/alerts/documentation_transaction_pending.json` before publication.
@@ -91,22 +93,36 @@ Multiple commits in one reviewed overnight stack accumulate under one pending
 hash. `status.ps1` warns until the local 09:00 deadline and flags after it; a
 Task Scheduler result cannot clear the debt.
 
-After the documentation commit is published and local `master` equals
+After any required documentation commit is published and local `master` equals
 `origin/master`, prepare an ignored completion manifest with schema
 `documentation_transaction_completion_manifest_v0.1`. It must bind the current
 pending SHA-256, list the pending integration tips in order, identify the exact
 documentation tip, list all canonical documents reviewed, cite at least one
-durable evidence path, and summarize the reconciliation. Complete it with:
+durable evidence path, and summarize the reconciliation. For either
+`STATE_OF_PLAY.md` or `active-backlog.md` with no diff after the final pending
+integration, include a `documents_unchanged` object keyed by its repository path.
+Each entry must contain exactly `blob_oid` (the full committed Git blob SHA at
+the documentation tip) and `reason` (why the document remains accurate for these
+integrations). Obtain the blob with `git rev-parse <documentation-tip>:<path>`.
+The same form may record other reviewed unchanged documents. A changed document
+must not be claimed unchanged. The documentation tip may equal the final
+integration tip when no follow-up changes are needed. Complete it with:
 
 ```powershell
 .\venv\Scripts\python.exe -m weather.operations.documentation_transaction `
     --repo-root . complete --manifest data\alerts\documentation-completion.json
 ```
 
-The command independently verifies Git ancestry and local/remote equality,
-requires `STATE_OF_PLAY.md` and `active-backlog.md` to change after the final
-integration, runs generated-backlog parity, agent-docs audit, focused docs
-tests, and `git diff --check`, then writes an immutable hash-bound receipt.
+The command independently verifies Git ancestry and HEAD/local-master/cached-
+origin equality, requires an update or a bound unchanged review for each of
+`STATE_OF_PLAY.md` and `active-backlog.md`, and rejects missing committed files,
+stale blob reviews, and unpublished worktree or index edits to required reviewed
+documents. It
+runs generated-backlog parity, agent-docs audit, focused docs tests, and
+`git diff --check`, then writes an immutable hash-bound receipt containing the
+unchanged reviews. These reviews attest prose truth; byte checks cannot establish
+that a factual claim is accurate. Required factual updates and the existing
+evidence and verification gates remain mandatory.
 The pending file is retained; only a matching PASS receipt makes it complete.
 
 If integration fails, do not pre-write the successful state. Preserve the

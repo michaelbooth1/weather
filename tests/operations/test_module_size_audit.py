@@ -1,11 +1,13 @@
 import re
 from pathlib import Path
 
+from weather.operations import module_size_audit
 from weather.operations.module_size_audit import (
     DEFAULT_SOURCE_ROOT,
     build_module_size_audit,
     render_report,
 )
+from weather.paths import REPO_ROOT
 
 
 def test_module_size_audit_warns_for_modules_above_threshold(tmp_path):
@@ -48,25 +50,20 @@ def test_current_warning_modules_have_complete_ownership_metadata_and_no_orphans
     )
 
     warnings = [row for row in payload["largest_modules"] if row["status"] == "WARN"]
-    # 23 since 2026-08-24; the portable execution-host work subsequently moved
-    # weather.operations.international_live_wrapper_sealer to 2,770 lines.
-    # Raising this number is only legitimate alongside a real ownership entry in
-    # module-ownership-map.md -- the point of the ratchet is that growth costs
-    # documentation, so never bump it to make the suite green.
-    assert payload["warning_count"] == 23
+    # The named allowance below rejects new warnings while permitting reductions.
+    # Ensure the report's bounded largest-module view covers every warning.
     assert len(warnings) == payload["warning_count"]
     assert all(row["owner"] and row["boundary"] and row["next_split"] for row in warnings)
     assert payload["governance_status"] == "PASS"
     assert payload["governance_errors"] == []
 
 
-def test_ownership_document_lists_every_current_warning():
+def test_current_warnings_stay_within_reviewed_ownership_allowance():
     payload = build_module_size_audit(DEFAULT_SOURCE_ROOT)
-    document = Path("docs/operations/module-ownership-map.md").read_text(encoding="utf-8")
+    document = (REPO_ROOT / "docs/operations/module-ownership-map.md").read_text(encoding="utf-8")
 
-    assert f"Current warning count: {payload['warning_count']} modules." in document
     summary = re.search(
-        r"^- Warning modules: (?P<modules>.+?)\n- A module",
+        r"^- Allowed warning modules: (?P<modules>.+?)\n- A module",
         document,
         flags=re.MULTILINE | re.DOTALL,
     )
@@ -77,4 +74,36 @@ def test_ownership_document_lists_every_current_warning():
         for row in payload["largest_modules"]
         if row["status"] == "WARN"
     }
-    assert documented == expected
+    assert expected <= documented, f"New warnings require reviewed ownership: {sorted(expected - documented)}"
+
+
+def test_reducing_owned_module_debt_passes_but_replacement_unowned_warning_fails(tmp_path, monkeypatch):
+    root = tmp_path / "src" / "weather"
+    root.mkdir(parents=True)
+    owned = root / "owned.py"
+    owned.write_text("x = 1\n" * 5, encoding="utf-8")
+    monkeypatch.setattr(module_size_audit, "OWNERSHIP_NOTES", {
+        module_size_audit.relative_to_repo(owned): {
+            "owner": "operations",
+            "boundary": "Bounded fixture orchestration.",
+            "next_split": "Remove obsolete orchestration.",
+        },
+    })
+
+    initial = build_module_size_audit(root, warning_lines=5)
+    assert initial["warning_count"] == 1
+    assert initial["governance_status"] == "PASS"
+
+    owned.write_text("x = 1\n", encoding="utf-8")
+    reduced = build_module_size_audit(root, warning_lines=5)
+    assert reduced["warning_count"] == 0
+    assert reduced["governance_status"] == "PASS"
+
+    (root / "unowned.py").write_text("x = 1\n" * 5, encoding="utf-8")
+    replacement = build_module_size_audit(root, warning_lines=5)
+    assert replacement["warning_count"] == initial["warning_count"]
+    assert replacement["governance_status"] == "WARN"
+    assert any(
+        row["kind"] == "warning_metadata_missing" and Path(row["path"]).name == "unowned.py"
+        for row in replacement["governance_errors"]
+    )

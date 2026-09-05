@@ -1,15 +1,12 @@
 # Large Module Ownership Map
 
-Last updated: 2026-08-27
-
 Use this map when moving code behind compatibility facades. Public module names
 and CLIs stay stable while implementation ownership moves into smaller modules.
 
-Current module-size audit status:
+Reviewed module-size warning allowance:
 
 - Warning threshold: 2,000 lines.
-- Current warning count: 23 modules.
-- Warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
+- Allowed warning modules: `weather.reporting.scorecards.live_variant_settlement_scorecard`,
   `weather.reporting.serving_gates.production_readiness_gate`,
   `weather.reporting.validation.point_in_time_evaluation`,
   `weather.collection.snapshot_store`, `weather.market.market_making_run`,
@@ -95,9 +92,13 @@ Run the current audit with:
 python -m weather.operations.module_size_audit --out data\backtest\module_size_audit.json --report data\backtest\module_size_audit_report.md
 ```
 
-The warning threshold is 2,000 lines. The 2026-07-15 audit refreshes the
-current warning set; each warning must keep a concrete owner, next split target,
-and documented exception if it cannot be reduced immediately.
+The audit owns the current warning count and set. Tests require current warnings
+to be a subset of the reviewed allowance above, with complete ownership metadata
+and no ownership notes for missing modules. Reducing a module below the threshold
+passes without a ceremonial count update. A new warning needs a reviewed allowance
+entry and a concrete owner, boundary, and next split target; a reduction elsewhere
+does not grant an unnamed module permission to grow. Remove obsolete allowance
+and ownership entries when retiring a module.
 
 For a full repository structure snapshot, including tracked-file counts,
 package line counts, compatibility shim counts, artifact sizes, and optional
@@ -109,3 +110,8 @@ python -m weather.operations.structure_inventory --report data\backtest\structur
 
 Add `--include-data-sizes` only when local disk-state sizing and budget warnings
 are needed; ignored runtime data under `data/` can be very large.
+
+## Update this file when
+
+Update when module ownership, split boundaries, retirement, or the reviewed
+warning allowance changes. Current counts remain generated audit evidence.

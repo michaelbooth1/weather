@@ -1,9 +1,9 @@
 """Bind post-integration documentation closeout to exact Git and receipt evidence.
 
 Guarded merges call ``begin`` after capture recovery and before publication. Multiple
-merges may accumulate in one overnight stack. A morning closeout commits and pushes
-the documentation, supplies a small manifest, and calls ``complete``; the resulting
-receipt covers the exact pending-state hash and therefore cannot clear later work.
+merges may accumulate in one overnight stack. A morning closeout publishes needed
+documentation changes, records any reviewed unchanged documents, and calls
+``complete``; its receipt binds the pending-state hash and cannot clear later work.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ REQUIRED_REVIEWED_DOCUMENTS = frozenset(
         "docs/roadmap/active-backlog.md",
     }
 )
-REQUIRED_CHANGED_DOCUMENTS = frozenset(
+REQUIRED_DISPOSITION_DOCUMENTS = frozenset(
     {
         "docs/operations/STATE_OF_PLAY.md",
         "docs/roadmap/active-backlog.md",
@@ -332,6 +332,48 @@ def _completion_checks(repo_root: Path, first_integration: str) -> dict[str, Any
     return results
 
 
+def _document_dispositions(
+    repo_root: Path,
+    *,
+    documentation_tip: str,
+    reviewed: set[str],
+    changed: set[str],
+    unchanged: Any,
+) -> dict[str, dict[str, str]]:
+    """Require a committed update or an explicit review of exact unchanged bytes."""
+    if not isinstance(unchanged, dict):
+        raise ValueError("documents_unchanged must be an object keyed by canonical document path")
+    dispositions: dict[str, dict[str, str]] = {}
+    for path, review in unchanged.items():
+        if path not in reviewed or path in changed:
+            raise ValueError(f"unchanged document must be reviewed and have no post-integration diff: {path}")
+        if not isinstance(review, dict) or set(review) != {"blob_oid", "reason"}:
+            raise ValueError(f"unchanged document requires blob_oid and reason: {path}")
+        reason = review["reason"]
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"unchanged document review reason must be nonempty: {path}")
+        blob_oid = review["blob_oid"]
+        if not isinstance(blob_oid, str) or not FULL_SHA_RE.fullmatch(blob_oid):
+            raise ValueError(f"unchanged document blob_oid must be a full Git SHA: {path}")
+        if _git(repo_root, "cat-file", "-t", f"{documentation_tip}:{path}") != "blob":
+            raise ValueError(f"reviewed document must be a committed file: {path}")
+        if _git(repo_root, "rev-parse", f"{documentation_tip}:{path}") != blob_oid:
+            raise ValueError(f"unchanged document review does not bind the committed blob: {path}")
+        dispositions[path] = {"blob_oid": blob_oid, "reason": reason.strip()}
+
+    missing = sorted(REQUIRED_DISPOSITION_DOCUMENTS - changed - dispositions.keys())
+    if missing:
+        raise ValueError(f"post-integration documents need an update or bound unchanged review: {missing}")
+    for path in sorted(REQUIRED_REVIEWED_DOCUMENTS | dispositions.keys()):
+        if _git(repo_root, "cat-file", "-t", f"{documentation_tip}:{path}") != "blob":
+            raise ValueError(f"reviewed document must be a committed file: {path}")
+        if _git(repo_root, "diff", "--name-only", documentation_tip, "--", path) or _git(
+            repo_root, "diff", "--cached", "--name-only", documentation_tip, "--", path
+        ):
+            raise ValueError(f"reviewed document has unpublished changes: {path}")
+    return dispositions
+
+
 def complete_transaction(
     repo_root: Path,
     *,
@@ -356,8 +398,9 @@ def complete_transaction(
         repo_root, str(manifest.get("documentation_tip", "")), field="documentation_tip"
     )
     head = _git(repo_root, "rev-parse", "HEAD").lower()
+    master = _git(repo_root, "rev-parse", "refs/heads/master").lower()
     origin = _git(repo_root, "rev-parse", "origin/master").lower()
-    if documentation_tip != head or documentation_tip != origin:
+    if not documentation_tip == head == master == origin:
         raise ValueError("documentation tip must equal local master and origin/master")
 
     pending_tips = [entry["integration_tip"] for entry in integrations]
@@ -383,9 +426,13 @@ def complete_transaction(
         ).splitlines()
         if line
     }
-    missing_changes = sorted(REQUIRED_CHANGED_DOCUMENTS - changed)
-    if missing_changes:
-        raise ValueError(f"post-integration documentation did not change: {missing_changes}")
+    unchanged = _document_dispositions(
+        repo_root,
+        documentation_tip=documentation_tip,
+        reviewed=reviewed,
+        changed=changed,
+        unchanged=manifest.get("documents_unchanged", {}),
+    )
 
     evidence: list[dict[str, str]] = []
     for raw_path in manifest.get("evidence_paths", []):
@@ -409,6 +456,7 @@ def complete_transaction(
         "summary": str(manifest.get("summary", "")).strip(),
         "documents_reviewed": sorted(reviewed),
         "documents_changed": sorted(changed),
+        "documents_unchanged": unchanged,
         "evidence": evidence,
         "verification": checks,
     }
