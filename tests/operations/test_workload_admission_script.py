@@ -280,7 +280,7 @@ def test_workstation_wrapper_canonicalizes_modules_before_admission() -> None:
     assert "train_serve_feature_parity" not in text
 
 
-def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage() -> None:
+def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage_and_restore() -> None:
     text = LEASE_SCRIPT.read_text(encoding="utf-8-sig")
     match = re.search(
         r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}",
@@ -290,6 +290,7 @@ def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage() -> N
     assert match is not None
     modules = re.findall(r'"([A-Za-z0-9_.-]+)"', match.group(1))
     assert modules.count("weather.operations.workstation_cold_archive_stage") == 1
+    assert modules.count("weather.operations.workstation_cold_archive_restore") == 1
     assert "weather.operations.verified_cold_archive" not in modules
     assert "weather.operations" not in modules
     assert "rclone" not in modules

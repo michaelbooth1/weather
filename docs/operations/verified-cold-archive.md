@@ -239,7 +239,84 @@ requires separate operator authorization and provisioned local paths and keys;
 the build-and-test mission used only temporary fixtures and substituted child
 behavior.
 
-## Restore drill
+## Independent provisional workstation restore
+
+`weather.operations.workstation_cold_archive_restore` verifies one independently
+downloaded ciphertext object against the retained workstation staging manifest
+and PASS receipt. It is admitted only as the explicit `weather_heavy` module
+through `scripts/ops/workstation_heavy.ps1` under the existing workstation
+identity, host mutex, and kill-on-close Job. It has no cloud client, production
+mode, credential provisioner, or deletion executor.
+
+The controller separately supplies a create-only, self-hashed
+`workstation_cold_archive_download_receipt_v0.1`. Required fields are `status`
+(`PASS`), `archive_id`, `stage_manifest_hash`, `stage_receipt_hash`,
+`controller_evidence`, `independent_download_performed`, and
+`private_permissions_verified` (all three `true`), `drive` containing distinct
+`root_folder_id`, `folder_id`, and `file_id`, `ciphertext` with `bytes` and
+`sha256`, `downloaded_input` with an absolute `path` and the workstation regular
+file identity (`device`, `inode`, `mode`, `bytes`, `mtime_ns`), and an aware UTC
+`completed_at_utc`. `receipt_hash` uses the stage receipt's canonical JSON hash,
+excluding the hash field itself. The controller must establish the exact Drive
+object/private-parent evidence, perform a fresh independent cloud download,
+and transfer it into the restricted workstation inbox before recording that
+input identity. A local copy of the original staged ciphertext cannot establish
+independent cloud recovery.
+
+The verifier binds the two stage receipts, their tool identity and verification
+checks, the explicit expected stage manifest/download receipt hashes, and the
+downloaded file's identity and actual SHA-256. Drive provenance stays labeled
+`controller_evidence_only`; local success does not claim that this module
+queried Google Drive or independently audited those permissions.
+
+All root directories must already exist and be disjoint, regular local paths
+outside repository `data/`. The downloaded input must be outside original
+source/staging/ciphertext roots and must not share the original ciphertext's
+file identity. Config, DPAPI recovery, and the explicitly named local restore
+crypt remote are checked before large file reads or plaintext outputs. The
+config/executable/secret and other supporting file identities are rechecked
+before each child; encryption and root binding are also repeated across long
+local verification steps. This preserves the existing stat-identity scope and
+does not claim immutable configuration handles.
+
+Use a short fresh `--restore-id`, such as `v3-r1`. The mapped logical path is
+`<restore-id>/<stage-archive-id>/archive.tar.gz`; its final two encrypted path
+segments must equal the original manifest mapping. The new encrypted prefix
+and plaintext attempt directory must both be absent. Windows ciphertext paths
+are limited to fewer than 240 UTF-16 code units. The copied ciphertext remains
+create-only and is checked byte-for-byte, then `cryptcheck` compares it with the
+retained compressed archive. Bounded `copy --immutable --ignore-times
+--error-on-no-transfer` decrypts the single file into the fresh output directory.
+The client also requires that directory to be empty immediately before launching
+the child; the native flags alone can accept an identical existing local output.
+The normalized USTAR parser accepts one regular `payload`, with exact header,
+size, hash and bounded zero footer. It does not process PAX/GNU extensions or
+extract supplied archive paths. Compressed reads, decompression, hashes and
+children share a one-hour deadline; byte bounds derive from the stage evidence.
+Source and retained archive hashes are re-proved before and after restoration.
+
+The wrapper's canonical argument array starts with
+`["-m","weather.operations.workstation_cold_archive_restore", ...]` and requires
+`--provisional-mirror-copy`, `--stage-manifest`, `--stage-manifest-hash`,
+`--stage-receipt`, `--download-receipt`, `--download-receipt-hash`,
+`--downloaded-ciphertext`, `--source-root`, `--source-file`, `--staging-root`,
+`--staging-ciphertext-root`, `--retained-archive`, `--restore-ciphertext-root`,
+`--restore-output-root`, `--receipt-root`, `--rclone-config`, `--dpapi-secret`,
+`--rclone-executable`, `--crypt-remote-name`, and `--restore-id`. Paths and hashes
+come from the reviewed handoff, never a directory-wide selection or guessed ID.
+
+The create-only `workstation_cold_archive_restore_receipt_v0.1` records local
+checks and upstream identities. A claimed receipt namespace remains spent on
+failure, and every created object is retained. PASS sets `restore_performed`
+true while permanently retaining `source_retained=true`,
+`production_identity_not_proved=true`, `cleanup_eligible=false`, and
+`deletion_authorized=false`. Production source identity and an exact deletion
+proposal remain separate work with separate authority. The restore tests use
+tiny synthetic fixtures; the optional native case shares the explicit
+`WEATHER_TEST_RCLONE_EXECUTABLE` opt-in and verifies the installed rclone's
+decrypt-copy behavior and payload parity.
+
+## Fixture restore drill
 
 `restore` first runs the complete destination verifier. Only then does it create
 one new scratch directory below the marked fixture root. It never writes restored
