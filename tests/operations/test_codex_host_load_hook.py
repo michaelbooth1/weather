@@ -1095,6 +1095,172 @@ def test_non_capture_wrapper_shape_and_offline_scope_are_fail_closed():
         assert "workstation_heavy.ps1" in reason(blocked)
 
 
+def remote_workstation_command(kind="pytest", arguments=None):
+    encoded = base64.b64encode(
+        json.dumps(arguments or ["-m", "pytest", "-q"], separators=(",", ":")).encode()
+    ).decode()
+    repo = "C:/Users/worker/repo"
+    return (
+        "C:/Windows/System32/OpenSSH/ssh.exe -F none -T -n "
+        "-o BatchMode=yes -o StrictHostKeyChecking=yes "
+        "-o PermitLocalCommand=no -o ProxyCommand=none -o ProxyJump=none "
+        "-o ClearAllForwardings=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "
+        "-o HostName=192.168.1.106 "
+        "-i C:/Users/controller/.ssh/id_ed25519_workstation_codex "
+        "-o UserKnownHostsFile=C:/Users/controller/.ssh/known_hosts "
+        "-l worker weather-workstation "
+        "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe "
+        "-NoProfile -NonInteractive -ExecutionPolicy Bypass "
+        f"-File {repo}/scripts/ops/workstation_heavy.ps1 -Kind {kind} "
+        f"-PythonPath {repo}/venv/Scripts/python.exe "
+        f"-ArgumentsBase64 {encoded} -RepoRoot {repo}"
+    )
+
+
+def allow_test_remote_client(monkeypatch):
+    monkeypatch.setattr(
+        HOOK,
+        "_remote_client_paths",
+        lambda: (
+            Path("C:/Windows/System32/OpenSSH/ssh.exe"),
+            Path("C:/Users/controller/.ssh/id_ed25519_workstation_codex"),
+            Path("C:/Users/controller/.ssh/known_hosts"),
+        ),
+    )
+
+
+def test_capture_hook_allows_only_canonical_remote_workstation_transport(monkeypatch):
+    allow_test_remote_client(monkeypatch)
+    for kind, arguments in (
+        ("pytest", ["-m", "pytest", "-q"]),
+        ("compileall", ["-m", "compileall", "-q", "src"]),
+        ("weather_heavy", ["-m", "weather.operations.nightly_retrain", "--dry-run"]),
+    ):
+        command = remote_workstation_command(kind, arguments)
+        for hour in (2, 14, 21):
+            assert HOOK.evaluate(
+                payload(command),
+                now=datetime(2026, 9, 4, hour, tzinfo=ZONE),
+                constrained_capture_host=True,
+            ) is None
+        # This is a capture-controller transport exception, not a general lane.
+        assert HOOK.evaluate(payload(command), constrained_capture_host=False) is not None
+
+
+def test_remote_workstation_exception_cannot_execute_local_shell_payloads(monkeypatch):
+    allow_test_remote_client(monkeypatch)
+    command = remote_workstation_command()
+    for suffix in (
+        "; python -m pytest -q", "\npython -m pytest -q", "\r\nexit 0",
+        " | powershell -Command -", " & python -m pytest -q", " > output.txt",
+        " # comment", "\x00", "\t", " ",
+    ):
+        assert HOOK.evaluate(payload(command + suffix), constrained_capture_host=True)
+    for prefix in ("& ", "Write-Output ready; ", "$x=1\n", "cmd /c ", " "):
+        assert HOOK.evaluate(payload(prefix + command), constrained_capture_host=True)
+    for original, replacement in (
+        ("-F none", "-F C:/unsafe/config"),
+        ("-F none", "-F none -o LocalCommand=calc"),
+        ("PermitLocalCommand=no", "PermitLocalCommand=yes"),
+        ("ProxyCommand=none", "ProxyCommand=calc"),
+        ("ProxyJump=none", "ProxyJump=other"),
+        ("StrictHostKeyChecking=yes", "StrictHostKeyChecking=no"),
+        ("ClearAllForwardings=yes", "ClearAllForwardings=no"),
+        ("BatchMode=yes", "BatchMode=no"),
+        ("-T -n", "-T -n -L 8080:localhost:80"),
+        ("-NonInteractive", "-Command"),
+        ("-File C:/", "-File $env:REMOTE/"),
+        ("-l worker", "-l $(calc)"),
+        ("-l worker", "-l %USERNAME%"),
+        ("-l worker", "-l worker`ncalc"),
+    ):
+        changed = command.replace(original, replacement)
+        assert changed != command
+        assert HOOK.evaluate(payload(changed), constrained_capture_host=True), changed
+
+
+def test_remote_workstation_transport_paths_and_destination_fail_closed(monkeypatch):
+    allow_test_remote_client(monkeypatch)
+    command = remote_workstation_command()
+    for original, replacement in (
+        ("C:/Windows/System32/OpenSSH/ssh.exe", "ssh"),
+        ("C:/Windows/System32/OpenSSH/ssh.exe", "C:/untrusted/ssh.exe"),
+        ("id_ed25519_workstation_codex", "id_other"),
+        (".ssh/known_hosts", ".ssh/untrusted_hosts"),
+        ("weather-workstation", "another-workstation"),
+        ("192.168.1.106", "127.0.0.1"),
+        ("192.168.1.106", "8.8.8.8"),
+        ("192.168.1.106", "169.254.1.2"),
+        ("192.168.1.106", "192.168.1.999"),
+        ("192.168.1.106", "192.168.1.0106"),
+        ("/repo/scripts", "/other/scripts"),
+        ("/repo/scripts", "/repo/../repo/scripts"),
+        ("/repo/scripts", "/repo./scripts"),
+        ("/repo/scripts", "/repo//scripts"),
+        ("/repo/scripts", "/repo:stream/scripts"),
+        ("/python.exe", "/other.exe"),
+        ("-RepoRoot C:/Users/worker/repo", "-RepoRoot C:/Users/worker/repo/"),
+    ):
+        changed = command.replace(original, replacement)
+        assert HOOK.evaluate(payload(changed), constrained_capture_host=True), changed
+    monkeypatch.setattr(HOOK, "_remote_client_paths", lambda: None)
+    assert HOOK.evaluate(payload(command), constrained_capture_host=True)
+
+
+def test_remote_workstation_transport_keeps_module_and_argument_gates(monkeypatch):
+    allow_test_remote_client(monkeypatch)
+    for kind, arguments in (
+        ("pytest", ["-m", "compileall", "src"]),
+        ("weather_heavy", ["-m", "weather.operations.daily_refresh"]),
+        ("weather_heavy", ["-m", "weather.operations.nightly_retrain", "--live"]),
+        ("weather_heavy", ["-m", "weather.operations.nightly_retrain", "--execute=1"]),
+        ("pytest", ["-c", "print('bad')"]),
+        ("pytest", ["-m", "pytest", "bad\nargument"]),
+        ("pytest", ["-m", "pytest", 123]),
+    ):
+        command = remote_workstation_command(kind, arguments)
+        assert HOOK.evaluate(payload(command), constrained_capture_host=True)
+    valid = remote_workstation_command()
+    for invalid in ("A", "====", "W10=", "WyItbSIsInB5dGVzdCJd==="):
+        changed = re.sub(r"-ArgumentsBase64 [^ ]+", f"-ArgumentsBase64 {invalid}", valid)
+        assert HOOK.evaluate(payload(changed), constrained_capture_host=True)
+
+
+def test_local_workstation_rejects_live_switches_with_values():
+    for switch in ("--live=true", "--execute=1", "--place=yes", "--cancel=all", "--promote=x"):
+        command = workstation_wrapper_command(
+            "weather_heavy", ["-m", "weather.operations.nightly_retrain", switch]
+        )
+        assert HOOK.evaluate(payload(command), constrained_capture_host=False)
+
+
+def test_original_ambiguous_ssh_launch_remains_denied():
+    command = (
+        "ssh -o BatchMode=yes weather-workstation powershell -NoProfile "
+        "-ExecutionPolicy Bypass -File C:/repo/scripts/ops/workstation_heavy.ps1 "
+        "-Kind pytest -PythonPath C:/repo/venv/Scripts/python.exe "
+        "-ArgumentsBase64 WyItbSIsInB5dGVzdCIsIi1xIl0= -RepoRoot C:/repo"
+    )
+    assert "forbidden" in reason(
+        HOOK.evaluate(payload(command), constrained_capture_host=True)
+    )
+
+
+def test_remote_client_uses_the_real_windows_system_directory():
+    paths = HOOK._remote_client_paths()
+    if sys.platform == "win32":
+        assert paths is not None
+        client, key, known_hosts = paths
+        assert client.is_absolute()
+        assert client.parts[-3:] == ("System32", "OpenSSH", "ssh.exe") or tuple(
+            part.lower() for part in client.parts[-3:]
+        ) == ("system32", "openssh", "ssh.exe")
+        assert key == Path.home() / ".ssh" / "id_ed25519_workstation_codex"
+        assert known_hosts == Path.home() / ".ssh" / "known_hosts"
+    else:
+        assert paths is None
+
+
 def test_command_recognition_does_not_mistake_messages_for_python_execution():
     now = datetime(2026, 8, 23, 14, 15, tzinfo=ZONE)
     for command in (

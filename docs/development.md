@@ -88,6 +88,47 @@ base64 value in a light command, then submit the wrapper invocation as a second
 command; backtick continuations, chained commands, variables, `Join-Path`, and
 other dynamically expanded forms fail closed.
 
+### Starting workstation verification from the capture controller
+
+The capture host's hook distinguishes one literal SSH transport from local
+heavy work. The original ambient-config form (`ssh weather-workstation ...`)
+remains rejected: SSH configuration can itself start local processes through
+`Match exec`, `ProxyCommand` or `LocalCommand`.
+
+Use the Windows system OpenSSH executable, existing workstation identity key
+and known-hosts file under the controller user's `.ssh` directory, an explicitly
+reviewed RFC1918 IPv4 address, and the exact token order below. Replace every
+placeholder with a literal value. Paths use forward slashes and may contain
+only ASCII letters, digits, underscores, dots and hyphens; spaces, traversal,
+quotes, variable expansion, command chaining and additional options are refused.
+
+```text
+C:/Windows/System32/OpenSSH/ssh.exe -F none -T -n -o BatchMode=yes -o StrictHostKeyChecking=yes -o PermitLocalCommand=no -o ProxyCommand=none -o ProxyJump=none -o ClearAllForwardings=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o HostName=<workstation-ip> -i C:/Users/<controller>/.ssh/id_ed25519_workstation_codex -o UserKnownHostsFile=C:/Users/<controller>/.ssh/known_hosts -l <workstation-user> weather-workstation C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <remote-repo>/scripts/ops/workstation_heavy.ps1 -Kind pytest -PythonPath <remote-python.exe> -ArgumentsBase64 WyItbSIsInB5dGVzdCIsIi1xIl0= -RepoRoot <remote-repo>
+```
+
+This grants transport only. Independently review the exact remote checkout and
+wrapper dependency bytes before dispatch, preserve source identity evidence,
+and retain/poll the SSH executor session through terminal exit. The controller
+cannot hash remote files as though their paths were local. The remote wrapper
+must still prove the tracked non-capture Windows installation and attending
+principal, acquire its host-global mutex, and contain its full child tree in
+the Windows Job. A refused admission or uncertain remote termination remains
+fail-closed. Changing the SSH route grants no source, capture, exchange,
+Scheduler or deletion authority.
+
+`-F none` ignores both user and system SSH configuration; strict host-key
+checking uses existing trust and cannot enroll a new host in this lane. The
+hook validates the same base64/module arguments as local workstation calls.
+It still rejects every local workstation-wrapper launch on the capture host,
+unknown capture-host identity, all ambiguous remote forms, and unsupported
+remote destinations. See the official [SSH command manual](https://man.openbsd.org/ssh.1)
+and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
+
+The focused [host-load hook workflow](../.github/workflows/host-load-hook.yml)
+runs the policy tests on Windows and Linux when hook code or its tests change.
+It uses no application fixtures or credentials and provides a verification
+path while an installed hook prevents dispatch of its own proposed repair.
+
 ## Focused verification matrix
 
 | Change | Minimum focused verification |
