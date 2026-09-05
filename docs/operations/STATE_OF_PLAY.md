@@ -54,7 +54,10 @@ this preparation authority. Existing host and exact-attempt contracts bind.
    preserving 10 pUSD request / 100 pUSD wallet caps and terminal zero-state.
 4. Stage 2 economic testing follows separately reviewed current source/host
    authority, settlement-source qualification, opportunity and accounting
-   evidence. The old donor Stage 2 branch is not directly runnable on this lane.
+   evidence. The [September 5 audit](../roadmap/audits/codebase-audit-2026-09-05.md)
+   adds signed-band, quote-input and monitor evidence repairs to item 330;
+   findings are not completed fixes. The old donor Stage 2 branch is not
+   directly runnable on this lane.
 5. Continue exact-source off-site identity/reclaim, production documentation
    closeout and mixed-chain/settlement repair under their owning contracts.
    Neither a green portable branch nor an archive pilot waives host admission.
