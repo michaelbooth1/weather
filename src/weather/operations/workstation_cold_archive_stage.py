@@ -47,7 +47,9 @@ MAX_SOURCE_BYTES = 1024 * 1024 * 1024
 MAX_CIPHERTEXT_ENTRIES = 10_000
 MAX_CAPTURED_CHILD_BYTES = 64 * 1024
 CHILD_KILL_WAIT_SECONDS = 5
-RCLONE_PARTIAL_SUFFIX = ".partial.cold-stage"
+# rclone limits --partial-suffix to 16 UTF-8 bytes.
+RCLONE_PARTIAL_SUFFIX = ".partial.cold"
+RCLONE_RETAINED_PARTIAL_SUFFIXES = (RCLONE_PARTIAL_SUFFIX, ".partial.cold-stage")
 RCLONE_TIMEOUT_SECONDS = {
     "version": 15,
     "config_encryption_check": 30,
@@ -1347,7 +1349,7 @@ def stage_provisional_mirror_copy(
             checks["rclone_destination_absent"] = "PASS"
             ciphertext_before = _stable_ciphertext_inventory(inputs["ciphertext_root"])
             if any(
-                Path(relative).name.endswith(RCLONE_PARTIAL_SUFFIX)
+                Path(relative).name.endswith(RCLONE_RETAINED_PARTIAL_SUFFIXES)
                 for relative in ciphertext_before
             ):
                 raise ArchiveStageError(

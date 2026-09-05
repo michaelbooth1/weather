@@ -192,11 +192,27 @@ For each archive ID the adapter creates one normalized single-member
 `archive.tar.gz`, with zero timestamps and owner IDs, empty owner names, mode
 `0600`, and stable member name `payload`. Local paths are create-only. The
 adapter proves the logical crypt destination and mapped ciphertext path absent,
-rejects any retained staging partial, and invokes only bounded argument-array
+rejects recognized retained staging partials, and invokes only bounded argument-array
 `copy --immutable` and one-checker `cryptcheck` operations. An exact bounded
 before/after local ciphertext inventory must contain one new regular file and
 no removed or changed pre-existing file. Source size, timestamp, file identity,
 and SHA-256 are checked before and after staging.
+
+The temporary-copy suffix must fit rclone's
+[16-byte limit](https://rclone.org/docs/#partial-suffix-string). The adapter uses
+`.partial.cold` and retains refusal of physical filenames ending in the older
+`.partial.cold-stage` suffix. Crypt can encrypt the entire temporary filename,
+so a raw suffix scan is not a complete encrypted-partial detector. An occupied
+logical archive namespace is always refused, and the inventory check preserves
+all pre-existing ciphertext. Never reuse a failed attempt to test a repair.
+
+The optional `tests/operations/test_workstation_cold_archive_rclone_native.py`
+suite exercises the actual copy client against tiny temporary local crypt
+fixtures. Set `WEATHER_TEST_RCLONE_EXECUTABLE` to an explicit installed rclone
+binary and run it through the appropriate host admission wrapper. It uses no
+provisioned credentials or cloud remote and checks successful copy/cryptcheck,
+collision refusal, and the legacy invalid-suffix failure. The ordinary mock
+suite alone cannot qualify installed-rclone compatibility.
 
 Success writes create-only, self-hashed
 `workstation_cold_archive_stage_manifest_v0.1` and

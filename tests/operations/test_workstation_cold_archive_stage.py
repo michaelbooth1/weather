@@ -458,9 +458,12 @@ def test_mapped_ciphertext_and_remote_collisions_are_rejected(tmp_path: Path) ->
         _run(other, remote_fake)
 
 
-def test_preexisting_rclone_partial_is_rejected_before_copy(tmp_path: Path) -> None:
+@pytest.mark.parametrize("suffix", (".partial.cold", ".partial.cold-stage"))
+def test_preexisting_rclone_partial_is_rejected_before_copy(
+    tmp_path: Path, suffix: str
+) -> None:
     layout = _layout(tmp_path)
-    partial = layout["ciphertext"] / f"orphan.123456{stage.RCLONE_PARTIAL_SUFFIX}"
+    partial = layout["ciphertext"] / f"orphan.123456{suffix}"
     partial.write_bytes(b"retained partial")
     fake = FakeRclone(layout)
     with pytest.raises(stage.ArchiveStageError) as caught:
@@ -882,6 +885,8 @@ def test_success_never_deletes_and_writes_self_hashed_evidence(
     assert stage.CONFIG_PASS_ENV not in os.environ
     assert all("fixture-passphrase" not in token for call in fake.calls for token in call[0])
     copy_call = next(call[0] for call in fake.calls if call[0][8] == "copy")
+    partial_suffix = copy_call[copy_call.index("--partial-suffix") + 1]
+    assert 0 < len(partial_suffix.encode("utf-8")) <= 16
     for token in (
         "--immutable",
         "--ignore-times",
