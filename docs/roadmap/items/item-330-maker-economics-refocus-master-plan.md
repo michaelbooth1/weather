@@ -65,11 +65,12 @@ Do not implement that already-landed coverage a second time. Broader Windows
 lifecycle coverage still needs a gap assessment.
 
 At intake, the production checkout had existing modifications only in
-`config/locations.json` and `config/location_market_events.json`; they are
-excluded from this planning change. The state-of-play narrative still describes
-an older reconciliation. Git ancestry supersedes that narrative for landed
-source, but does not establish worker health, remote executor readiness, receipt
-validity, or current account state.
+`config/locations.json` and `config/location_market_events.json`; they were
+excluded from the original planning change. The intake state-of-play narrative
+described an older reconciliation; the current [state of play](../../operations/STATE_OF_PLAY.md)
+now records the verified baseline and next decisions. Git ancestry establishes
+landed source, but does not establish worker health, remote executor readiness,
+receipt validity, or current account state.
 
 Existing capabilities to reuse:
 
@@ -614,7 +615,7 @@ item only for independently owned work that actually needs separate tracking.
 ### Execution status — September 5, 2026
 
 The original plan branch `codex/maker-plan-20260904` at `9e445dfb8` is preserved
-and merged into the separate baseline documentation branch. Production source
+and merged into the separate baseline documentation branch. At intake, production source
 was independently matched at HEAD/local/fresh-origin master
 `0f76840cd434e0edb0fc4c3ec065476822cb8832`. Reconciliation `7480172a1` and its
 safety repair `296f8d2df`, plus portable phase repair `3f2b077b9` and topic tip
@@ -623,13 +624,14 @@ current account state, or any new live receipt.
 
 | Package | Disposition and evidence | Next non-live action / owner |
 | --- | --- | --- |
-| W0 | PARTIAL: production ancestry and current blockers refreshed in [state of play](../../operations/STATE_OF_PLAY.md). Production-local status evidence is `scratch/handoffs/maker-baseline-status-20260905.json`, SHA-256 `8496E3FA3CEBEA59A28C593C599EF42E2363DBAAF9DB991B6F5E5BDC8A3016D9`. The recurring metadata inventory covers 30 definitions with proposed owners/dispositions in `scratch/handoffs/maker-recurring-jobs-20260905.md`, sourced from `maker-scheduler-inventory-20260905.json` in the same directory, SHA-256 `709D039F6406B13E730115E7B6363E897605E8F552BBC569E2F9F3FB36DE77F5`. One optional recurrence was subsequently held as recorded below. Monitor-reported settlement holes remain unvalidated. | Operations: adopt further bounded job dispositions only after consumer review, finish mixed-chain step ownership and validate exact settlement gaps. Whole-W0 completion is not claimed. |
+| W0 | PARTIAL: production ancestry and current blockers refreshed in [state of play](../../operations/STATE_OF_PLAY.md). Production-local status evidence is `scratch/handoffs/maker-baseline-status-20260905.json`, SHA-256 `8496E3FA3CEBEA59A28C593C599EF42E2363DBAAF9DB991B6F5E5BDC8A3016D9`. The recurring metadata inventory covers 30 definitions with proposed owners/dispositions in `scratch/handoffs/maker-recurring-jobs-20260905.md`, sourced from `maker-scheduler-inventory-20260905.json` in the same directory, SHA-256 `709D039F6406B13E730115E7B6363E897605E8F552BBC569E2F9F3FB36DE77F5`. One optional recurrence was subsequently held as recorded below. The five exact Toronto settlement files for August 28-September 1 have matching dates, `settlement_source=none`, `settlement_high=null`, `quality_grade=missing_settlement` and `reconciliation_status=local_missing`. Receipt: `scratch/handoffs/maker-toronto-settlement-check-20260905.md`, SHA-256 `089018B6B2303ACA0122F4D27FDCBFC1CB94B9C9079825B0926332A24B200F2F`. Full-fleet and ledger scope remains unaudited. | Operations: adopt further bounded job dispositions only after consumer review, finish mixed-chain step ownership and establish remaining fleet/ledger gaps and source availability before repair. Whole-W0 completion is not claimed. |
 | W1 | PARTIAL: `codex/maker-governance-20260905` at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), replaces the exact warning-count ratchet with a named allowance, binds handoffs to task/host/scope, and permits documented unchanged reviews tied to committed blobs. Index/worktree edits, stale reviews and failed documentation checks still refuse. Independent review and exact-head Linux CI passed. Guarded production merge `f570f0286194a5abe516e0e73f971038074ceb0a` passed at 00:38 with all three capture workers healthy and publication acknowledged. | Integration owner: close the documentation transaction after current prose is adopted. Broader role/instruction reconciliation and findings compression remain open. |
-| W2 | PARTIAL: published `codex/maker-market-identity-20260905` at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [draft PR 17](https://github.com/michaelbooth1/weather/pull/17), rejects explicit invalid IDs, binds market/date/slug identity and validates capture identity before any status mutation. The first Linux run found three placeholder event slugs in feature-store fixtures; the follow-up uses canonical same-date Toronto/NYC identities without weakening validation. Full feature-store workstation verification and exact-head Linux CI passed. Controlled production integration, atomic paired configuration publication and generated-state migration remain open. | Market/operations: guarded 01:00-04:00 adoption, then the smallest safe consistent-publication change. Preserve the generated production config contents. |
+| W2 | PARTIAL: published `codex/maker-market-identity-20260905` at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), rejects explicit invalid IDs, binds market/date/slug identity and validates capture identity before any status mutation. The first Linux run found three placeholder event slugs in feature-store fixtures; the follow-up uses canonical same-date Toronto/NYC identities without weakening validation. Full feature-store workstation verification and topic-head Linux CI passed. Guarded production adoption completed at 01:05:39 as `dfcafc5bc175952597e1fd2cc08b9ad50db02937`, with three-worker and execution-tape recovery, publication acknowledgement and fresh HEAD/local/cached/live equality. Atomic paired configuration publication and generated-state migration remain open. | Market/operations: the smallest safe consistent-publication change. Preserve the generated production config contents. |
 | W3 | IN PROGRESS: read-only source/reader inventory is complete. No current qualifying campaign, exact-condition opportunity, incentive payout or after-cost economics is proved. | Market: build the explicit-input calculator with adjusted-midpoint provenance and competitor-score scenario ranges. Public aggregate depth cannot identify the nonlinear per-maker denominator; preserve that uncertainty in G1. |
+| W4 | PARTIAL: static source trace and bounded gap design are complete in `scratch/handoffs/maker-accounting-gap-design-20260905.md`, SHA-256 `52270F0F555DBB3D463916396CFA0A0D77383CD24F27396B2756138F16030384`. This establishes a missing accrual-to-payment attribution capability, not an observed account failure or paid incentive. | Market: implement a pure offline accrual-to-wallet-credit matcher in the existing `mm_exchange_reports` family, preserving the cash identity, scope, rounding and residual checks. Keep accrued, paid and unresolved components distinct; reject duplicate/conflicting attribution. |
 | W11 / item 325 | PARTIAL: unfinished off-site work taken over. Preserve the spent `real-pilot-clob-console-20260713-v1` failure. Repair `aea427fb7faf0b5fd67b8893b62b11fe649e71ea` is stacked on adapter `2d586da6dcfe2e0955154fd0dd0a2e5b1076af40`: encryption preflight precedes source staging and is revalidated after compression. Exact-source verification passed 51 tests and failed two genuine PowerShell protection fixtures before the loader; separate archive/ratchet verification passed 48 tests. Interactive-context diagnosis remains pending. No new upload, restore proof, deletion or reclaimed bytes. | Storage owner: diagnose the native user-context boundary, preserve all spent namespaces, then prove exact encrypted transfer and restore before manifest-bound reclaim. The paused unverified mirror is not a substitute. |
 | W5-W7 | BLOCKED for real sessions by the owner's no-live instruction. Integrated portable source and successful offline tests do not remove that boundary or qualify a new attempt. | Owning packages: continue offline lifecycle/accounting fixtures and prospective design only. Preserve the existing G2-G4 requirements. |
-| W8 / W11 optional work | PARTIAL: at September 5 00:30, disabled only the standalone `WeatherModelMarketDisagreementAnalysis` recurrence after exact task/action and no-active-process checks. XML comparison shows only Enabled=false; its Stage A rehydration producer, critical daily-learning reader and all existing reports/audit evidence remain. Receipt: `scratch/handoffs/model-disagreement-on-demand-20260905.md`, SHA-256 `A1C4DADF561A66EE61D484D003C03A740F8E818D48A373D88483FCCF2896BA34`. | Operations: observe the preserved daily producer and consumer freshness. Review paired maker-paper tasks and mixed-chain consumers before any additional reduction. No measured runtime saving is claimed. |
+| W8 / W11 optional work | PARTIAL: at September 5 00:30, disabled only the standalone `WeatherModelMarketDisagreementAnalysis` recurrence after exact task/action and no-active-process checks. XML comparison shows only Enabled=false; its Stage A rehydration producer, critical daily-learning reader and all existing reports/audit evidence remain. The status monitor recognizes this exact disabled task as an approved pause; enabled-task failures and independent freshness checks remain active. Receipt: `scratch/handoffs/model-disagreement-on-demand-20260905.md`, SHA-256 `A1C4DADF561A66EE61D484D003C03A740F8E818D48A373D88483FCCF2896BA34`. | Operations: observe the preserved daily producer and consumer freshness. Review paired maker-paper tasks and mixed-chain consumers before any additional reduction. No measured runtime saving is claimed. |
 
 W1/W2 jointly passed the actual non-capture workstation admission wrapper:
 265 tests and 72 subtests passed, loaded source paths/hashes were printed and
@@ -643,15 +645,16 @@ passed 4,201 tests and 860 subtests with 258 skips, including compilation,
 agent-document and roadmap checks. W2's fixture follow-up passed 33 workstation
 tests including the complete feature-store file and source-identity assertion;
 its [exact-head Linux CI](https://github.com/michaelbooth1/weather/actions/runs/33944457247)
-passed 4,199 tests and 921 subtests with 258 skips. W2 production adoption remains
-separate. These results
-do not validate the entire programme or prove economics.
+passed 4,199 tests and 921 subtests with 258 skips. W2's terminal adoption proof
+is recorded below; [post-merge master CI](https://github.com/michaelbooth1/weather/actions/runs/33946289480) also passed. These results do not validate
+the entire programme or prove economics.
 
 Retained production-local rollout evidence is
 `scratch/handoffs/maker-governance-roll-20260905.json` (`ROLL-FREE`) and
 `scratch/handoffs/maker-market-identity-roll-20260905.json` (`ROLL-SENSITIVE`).
-These September 5 00:07 reports precede publication; rerun the canonical verdict
-against the exact published tip and current production state before adoption.
+These September 5 00:07 reports precede publication. W1/W2's completed adoptions
+are recorded in the terminal receipts below; rerun the canonical verdict against
+the exact published tip and current production state before any future adoption.
 These ignored evidence paths are not assumed present in a clean checkout.
 
 W1 terminal adoption receipt is
@@ -662,6 +665,24 @@ The guard preserved both generated config byte hashes in commit
 300 seconds, proved all three capture workers healthy, committed and published
 through WeatherOneShotPush, then verified local/cached/live master equality.
 No live trading occurred. The full W1 package and documentation debt remain open.
+
+W2 terminal adoption receipt is
+`scratch/handoffs/maker-identity-adoption-20260905.json`, SHA-256
+`D7E57CAD53A365B1FDE439CE98290D44F514BC4938C68FC9A0C2DE920007F736`.
+The guarded ROLL-SENSITIVE adoption completed at 01:05:39 with merge
+`dfcafc5bc175952597e1fd2cc08b9ad50db02937`. All three capture workers passed
+before and after the 300-second settle; the execution-tape producer passed
+readoption from source `1934782b60ba82b1` to `38601559cb075765`.
+The guard recorded the documentation transaction and obtained WeatherOneShotPush
+acknowledgement; fresh HEAD/local/cached/live master equality and post-merge
+master CI passed. Documentation closeout remains pending. No live trading occurred.
+
+The exact status-script update for the single approved optional-task pause
+passed all 74 Windows status tests through the non-capture workstation's
+admission wrapper, including PowerShell AST parsing. The reviewed script
+SHA-256 is `16EA77ED3623106961B8935D101ED9E735C79E3CC551818243402B8699122720`;
+the test file SHA-256 is `04922A27A3A60A918F89118FF41CED2E211AEF177C1921B276FD6EA700DAD07D`.
+The run took 554 seconds and left no active verification child tree.
 
 All completion boxes remain open until their full acceptance or explicit bounded
 disposition is supported. W8-W10 and W12 retain their original dependencies and
