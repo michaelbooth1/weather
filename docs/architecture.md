@@ -46,15 +46,18 @@ snapshot loop. The observation-trigger loop can request recomputation when
 low-cost live observations change. See the
 [operations topology](operations/OPERATIONS_DESIGN.md).
 
-The Streamlit Operator Control Room is a read-only projection of persisted
-reporting and operations evidence. `weather.reporting.market.operator_control_room`
-owns its exact-target-date reduction and fail-closed `HOLD` decision; the
-`app/views/control_room.py` view only renders that result. Even a complete
-software pass stops at `READY FOR EXPLICIT APPROVAL`. The dashboard does not
-grant trading authority or expose order, cancel, credential, promotion, or
-risk-setting actions. The frontend intentionally contains only this Control
-Room and the active Roadmap; retired market, history, overview, and operations
-views are not hidden routes or retained application code.
+The Streamlit Control Room projects project context, host diagnostics and
+persisted trading evidence. `weather.reporting.market.operator_control_room`
+owns the general pilot checklist; `operator_evidence`, `operator_session` and
+`operator_trading` own bounded observation readers, while
+`weather.reporting.roadmap.project_overview` reads the canonical project note
+and workstream ledger. `app/monitor_data.py` shares caches across browser
+sessions. The host collector runs at most one bounded diagnostic at a time,
+independently of fast session refreshes. Views expose no trading, credential,
+promotion or risk-setting actions. The portable launcher's action-time gates
+remain authoritative. See [the monitor contract](operations/OPERATOR_MONITOR.md)
+for freshness, input bounds and accounting semantics. The frontend contains only
+Control Room and Roadmap; retired page modules remain removed.
 
 The paper taker writes `orders_long.csv` and its counterfactual tape by append.
 Real order evidence is permanent. Counterfactual replay detail has a specific

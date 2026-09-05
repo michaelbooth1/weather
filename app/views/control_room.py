@@ -1,20 +1,17 @@
-"""Read-only operator control room for the International live-test runway."""
+"""Project, health and trading evidence in the existing Control Room."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import re
 
 import streamlit as st
 
 from app.table_utils import arrow_safe_dataframe
-from weather.reporting.market.operator_control_room import (
-    artifact_payload,
-    attention_rows,
-    evaluate_control_room,
-)
+from weather.reporting.market.operator_control_room import attention_rows, evaluate_control_room
 
 
-def _text(value, fallback="-"):
+def _text(value, fallback="Unknown"):
     return fallback if value in (None, "") else str(value)
 
 
@@ -23,216 +20,207 @@ def _timestamp(value):
         return "not recorded"
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.astimezone(timezone.utc).strftime("%b %d, %H:%M:%S UTC")
     except ValueError:
-        return str(value)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        return "invalid timestamp"
+
+
+def _money(value):
+    return "—" if value is None else f"{value:,.6f}"
 
 
 def _load_control_room_snapshot():
-    from weather.operations.operator_host_status import host_status_snapshot
-    from weather.reporting.market.operator_control_room import collect_control_room_snapshot
+    from app.monitor_data import load_control_snapshot
 
-    return collect_control_room_snapshot(), {"host_status": host_status_snapshot()}
+    return load_control_snapshot()
 
 
-def _metric_columns(evaluation):
+def _load_monitor_extras(control):
+    from app.monitor_data import load_monitor_extras
+
+    return load_monitor_extras(control)
+
+
+def _plain(text):
+    return re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", text)
+
+
+def _project_panel(project):
+    with st.container(border=True):
+        st.subheader("Project now")
+        st.write(_plain(project.get("objective") or "Project context unavailable."))
+        steps = project.get("next_steps") or []
+        if steps:
+            st.markdown("**Next milestone**")
+            st.write(_plain(steps[0]))
+        head = (project.get("source") or {}).get("head")
+        dirty = " · local edits" if (project.get("source") or {}).get("dirty") else ""
+        st.caption(f"Project note: {_text(project.get('updated'), 'not dated')} · Dashboard source: {str(head)[:12] if head else 'unknown'}{dirty}")
+        st.caption("Code history describes this checkout. Capture runtime adoption is reported separately in host evidence.")
+        if head:
+            base = f"https://github.com/michaelbooth1/weather/blob/{head}/docs"
+            st.markdown(f"[Project note]({base}/operations/STATE_OF_PLAY.md) · [Maker plan]({base}/roadmap/items/item-330-maker-economics-refocus-master-plan.md)")
+
+
+def _health_panel(evaluation, portable):
+    st.subheader("System health")
     states = evaluation["states"]
     host = evaluation.get("host") or {}
-    tape = host.get("execution_tape") or {}
-    readiness = evaluation.get("readiness") or {}
-    columns = st.columns(6)
-    columns[0].metric(
-        "Capture",
-        states["Capture"]["status"],
-        delta=_text((host.get("streak") or {}).get("today"), "unknown"),
-        delta_color="off",
-    )
-    columns[1].metric(
-        "Host",
-        states["Host"]["status"],
-        delta=f"{len(host.get('flags') or [])} flags",
-        delta_color="off",
-    )
-    columns[2].metric(
-        "International",
-        states["International"]["status"],
-        delta="Polymarket Global",
-        delta_color="off",
-    )
-    columns[3].metric(
-        "Live readiness",
-        states["Readiness"]["status"],
-        delta=_text(readiness.get("status"), "no receipt"),
-        delta_color="off",
-    )
-    columns[4].metric(
-        "Execution tape",
-        states["Execution tape"]["status"],
-        delta=_text(tape.get("capture_state"), "unknown"),
-        delta_color="off",
-    )
-    drift = (evaluation.get("economics") or {}).get("drift", {})
-    columns[5].metric(
-        "Economics",
-        states["Economics"]["status"],
-        delta=_text(drift.get("status"), "unknown"),
-        delta_color="off",
-    )
+    columns = st.columns(3)
+    with columns[0], st.container(border=True):
+        host_current = all(row["status"] == "CURRENT" for row in evaluation.get("freshness", {}).get("Host", []))
+        st.metric("Capture host", host.get("verdict") if host and host_current else states["Host"]["status"])
+        st.caption(states["Host"]["detail"] if host else "Waiting for a host observation. Details below.")
+        st.write(f"Capture day: {_text((host.get('streak') or {}).get('today'))}")
+    with columns[1], st.container(border=True):
+        tape = host.get("execution_tape") or {}
+        tape_label = tape.get("capture_state") if host_current and tape.get("process_healthy") is True else states["Execution tape"]["status"]
+        st.metric("Execution tape", tape_label or "UNKNOWN")
+        st.caption(states["Execution tape"]["detail"] if host else "Awaiting the capture-host observation.")
+    with columns[2], st.container(border=True):
+        portable_label = portable.get("recorded_status") if portable.get("status") == "CURRENT" else portable.get("status", "UNAVAILABLE")
+        st.metric("Portable executor", portable_label or "UNKNOWN")
+        if portable.get("recorded_status"):
+            st.write(f"Recorded check: {portable['recorded_status']}")
+        st.caption(f"Observed {_timestamp(portable['observed_at'])}" if portable.get("observed_at") else portable.get("detail") or "No observation available.")
+    with st.expander("Host details and alerts"):
+        if host:
+            st.write(f"Free disk: {_text(host.get('disk_free_gb'))} GiB · Free memory: {_text(host.get('ram_free_gb'))} GiB")
+            chain = host.get("chain") or {}
+            st.write(f"Daily chain: {_text(chain.get('status'))} · Failing step: {_text(chain.get('failing_step'), 'none recorded')}")
+            st.write(f"Capture checkout: {_text((host.get('git') or {}).get('last'))}")
+            runtime = host.get("capture_runtime") or {}
+            if runtime:
+                st.write(runtime)
+        for flag in (host.get("flags") or [])[:12]:
+            st.warning(str(flag))
+        for flag in (portable.get("flags") or [])[:8]:
+            st.write(f"Portable check: {flag}")
+        if not host:
+            st.info(states["Host"]["detail"])
+        st.caption("Host collection is shared across browser sessions and cached for five minutes.")
 
 
-@st.fragment(run_every="300s")
-def render_control_room_page(refresh_seconds=300):
-    """Render a decision-first page with no live mutation controls."""
+def _session_panel(session):
+    st.subheader("Current session")
+    if not session.get("configured"):
+        st.info("No portable attempt connected. The session view will populate when an attended attempt is selected at launch.")
+        return
+    st.caption(f"Attempt: {_text(session.get('attempt'))}. {session.get('detail', '')}")
+    columns = st.columns(3)
+    for column, stage in zip(columns, session.get("stages") or []):
+        with column, st.container(border=True):
+            st.markdown(f"**{stage['label']}**")
+            if stage["state"] in {"OUTCOME UNKNOWN", "INVALID", "FINISHED · FAIL", "FINISHED · INTERRUPTED"}:
+                st.warning(stage["state"])
+            else:
+                st.write(stage["state"])
+            st.caption(stage["detail"])
+            st.caption(_timestamp(stage.get("observed_at")))
+            result = stage.get("result") or {}
+            if result:
+                st.write(f"Recorded order: {_text(result.get('order_id'))}")
+                st.write(f"Recorded notional: {_money(result.get('order_notional_usdc'))} pUSD")
+                st.caption(f"Cancellation reported: {_text(result.get('cancellation_observed'))} · Ending orders clear: {_text(result.get('zero_open_orders_verified'))}")
+            if stage.get("journal_error"):
+                st.warning(stage["journal_error"])
 
-    st.markdown(
-        """
-        <style>
-        .control-kicker {
-          letter-spacing:.08em;text-transform:uppercase;color:#5f6b7a;
-          font-size:.78rem;font-weight:700
-        }
-        .control-banner {
-          border-radius:12px;padding:1rem 1.2rem;margin:.5rem 0 1rem;
-          border:1px solid #d6a300;background:#fff8dc
-        }
-        .control-banner strong {font-size:1.45rem;color:#704f00}
-        .control-contract {
-          border-left:4px solid #176b87;padding:.55rem .9rem;
-          background:#eef8fb;margin:.5rem 0 1rem
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        '<div class="control-kicker">International Polymarket / read-only operations</div>',
-        unsafe_allow_html=True,
-    )
-    st.title("Operator Control Room")
-    st.caption(
-        "A decision surface for the first capped maker-rebate test. This page reads persisted evidence only: "
-        "it has no order, cancel, credential, promotion, or risk-setting controls."
-    )
 
+def _trading_panel(trading):
+    st.subheader("Trades and risk")
+    if not trading.get("available"):
+        st.info(trading.get("detail") or "No trading evidence connected.")
+        return
+    age = trading.get("reconciliation") or {}
+    st.caption(f"Run {trading['run_id']} · {trading.get('mode') or 'mode unknown'} · Market date {trading.get('target_date')} · {age.get('detail', '')}")
+    if age.get("status") != "CURRENT":
+        st.warning("Current orders and exposure are unknown. Any rows below are historical observations.")
+    columns = st.columns(3)
+    columns[0].metric("Recorded open orders", _text(trading.get("open_orders"), "—"))
+    columns[1].metric("Recorded reserved · pUSD", _money(trading.get("reserved")))
+    columns[2].metric("Reconciliation", _text(trading.get("recorded_status"), "NO RECEIPT"))
+    for tab, name in zip(st.tabs(["Orders", "Fills", "Positions"]), ("orders", "fills", "positions")):
+        with tab:
+            rows = trading.get(name) or []
+            if rows:
+                st.dataframe(arrow_safe_dataframe(rows), hide_index=True, width="stretch")
+            else:
+                st.caption(f"No {name} rows in the selected observation. Missing evidence does not establish a zero balance.")
+    for label, count in (trading.get("order_mismatches") or {}).items():
+        if count:
+            st.warning(f"{label}: {count:g}")
+
+
+def _results_panel(trading):
+    st.subheader("Results")
+    if not trading.get("available"):
+        st.info("Reconciled trading results will appear after a run produces accounting evidence.")
+        return
+    amounts = trading.get("amounts") or {}
+    st.caption(f"Recorded results for {trading['run_id']}; amounts in pUSD. {(trading.get('accounting') or {}).get('detail', '')}")
+    columns = st.columns(4)
+    for column, label in zip(columns, ("Net reconciled P&L", "Paid maker rebates", "Paid liquidity rewards", "Actual fees")):
+        column.metric(label, _money(amounts.get(label)))
+    if not trading.get("accounting_complete"):
+        st.info("Accounting is incomplete. Net reconciled P&L remains unknown.")
+    with st.expander("Accounting breakdown and pending evidence"):
+        st.dataframe(arrow_safe_dataframe([
+            {"Component": name, "pUSD": _money(value),
+             "Basis": "Estimate; unpaid" if name == "Estimated fill rebates" else "Recorded report"}
+            for name, value in amounts.items()
+        ]), hide_index=True, width="stretch")
+        if not trading.get("paid_verified"):
+            st.caption("Paid incentives require matched wallet credits and a verified cash basis. Estimates are never added to paid totals.")
+        for missing in (trading.get("missing_evidence") or [])[:12]:
+            st.write(f"Pending: {missing}")
+
+
+def _activity_panel(session, project):
+    st.subheader("Recent activity")
+    session_tab, code_tab = st.tabs(["Session events", "Code changes"])
+    with session_tab:
+        events = session.get("events") or []
+        if events:
+            st.dataframe(arrow_safe_dataframe([
+                {"When": _timestamp(row.get("recorded_at_utc")), "Stage": row.get("stage"),
+                 "Event": row.get("event_type"), "Order": row.get("order_id")}
+                for row in events
+            ]), hide_index=True, width="stretch")
+        else:
+            st.caption("No lifecycle events observed in the selected attempt.")
+    with code_tab:
+        for commit in (project.get("source") or {}).get("commits") or []:
+            st.write(f"{commit['date']} · {commit['sha'][:8]} · {commit['title']}")
+        st.caption("Recent committed changes in this checkout; commits alone do not prove deployment or completed milestones.")
+
+
+@st.fragment(run_every="10s")
+def render_control_room_page(refresh_seconds=10):
+    st.markdown("<style>.block-container{max-width:1440px;padding-top:4rem} [data-testid=stMetricValue]{font-size:1.5rem} [data-testid=stMetricLabel]{white-space:normal} @media(max-width:700px){.block-container{padding:4rem 1rem 1rem} [data-testid=stMetricValue]{font-size:1.25rem}}</style>", unsafe_allow_html=True)
+    st.caption("WEATHER · INTERNATIONAL POLYMARKET · READ-ONLY MONITOR")
+    st.title("Control Room")
+    st.caption("Project progress, system health and trading evidence in one place.")
     try:
         control, operations = _load_control_room_snapshot()
-    except Exception as exc:  # noqa: BLE001 - operator UI must fail closed
-        st.error(f"Control-room evidence failed safely: {type(exc).__name__}: {exc}")
+        evaluation = evaluate_control_room(control, operations)
+        extras = _load_monitor_extras(control)
+    except Exception as exc:  # noqa: BLE001 - missing evidence must not imply health
+        st.error(f"Monitoring evidence is unavailable: {type(exc).__name__}: {exc}")
         return
-    evaluation = evaluate_control_room(control, operations)
-    st.markdown(
-        f'<div class="control-banner"><span>LIVE TEST VERDICT</span><br><strong>{evaluation["verdict"]}</strong><br>'
-        f'Target date: {_text(evaluation.get("target_date"), "no current run")}</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Even READY FOR EXPLICIT APPROVAL is software evidence, not trading authority. "
-        "An operator must still explicitly authorize a specific run."
-    )
-
-    _metric_columns(evaluation)
-
-    st.subheader("Attention now")
-    attention = attention_rows(evaluation)
-    if attention:
-        st.dataframe(
-            arrow_safe_dataframe(attention),
-            hide_index=True,
-            width="stretch",
-        )
-    else:
-        st.success("No software blockers remain. Await explicit approval for a named run.")
-
-    st.subheader("Live-test runway")
-    runway = [
-        {
-            "Gate": name,
-            "Status": state["status"],
-            "Evidence-backed meaning": state["detail"],
-        }
-        for name, state in evaluation["states"].items()
-    ]
-    runway.append({
-        "Gate": "Explicit operator approval",
-        "Status": "ALWAYS MANUAL",
-        "Evidence-backed meaning": "Approval is scoped to one named run and is never inferred from this dashboard.",
-    })
-    st.dataframe(arrow_safe_dataframe(runway), hide_index=True, width="stretch")
-
-    contract = evaluation.get("pilot_contract") or {}
-    max_budget = _text(contract.get("max_budget_usdc"), "100")
-    market_count = _text(contract.get("market_count"), "1")
-    st.markdown(
-        '<div class="control-contract"><strong>Binding pilot contract</strong><br>'
-        f'International Polymarket only; finite budget at or below {max_budget} '
-        f'USDC-equivalent; exactly {market_count} market; '
-        'post-only orders; no naked sells; existing risk ceilings cannot be raised.</div>',
-        unsafe_allow_html=True,
-    )
-
-    left, right = st.columns(2)
-    run = evaluation.get("run") or {}
-    readiness = evaluation.get("readiness") or {}
-    lifecycle = run.get("order_lifecycle") or {}
-    with left:
-        st.subheader("Current maker evidence")
-        st.dataframe(
-            arrow_safe_dataframe([
-                {"Metric": "Run ID", "Value": run.get("run_id")},
-                {"Metric": "Mode", "Value": run.get("mode")},
-                {"Metric": "Target date", "Value": run.get("target_date")},
-                {"Metric": "Quote-permission rows", "Value": run.get("quote_permission_rows")},
-                {"Metric": "Live-permission rows", "Value": run.get("live_trade_permission_rows")},
-                {"Metric": "Open orders", "Value": lifecycle.get("current_open_order_count")},
-                {"Metric": "Reserved budget", "Value": lifecycle.get("current_reserved_usdc")},
-            ]),
-            hide_index=True,
-            width="stretch",
-        )
-    with right:
-        st.subheader("Current readiness receipt")
-        st.dataframe(
-            arrow_safe_dataframe([
-                {"Metric": "Status", "Value": readiness.get("status")},
-                {"Metric": "Target date", "Value": readiness.get("target_date")},
-                {"Metric": "Generated", "Value": _timestamp(readiness.get("generated_at_utc"))},
-                {"Metric": "Live capital permission", "Value": readiness.get("live_capital_permission")},
-                {
-                    "Metric": "Explicit approval required",
-                    "Value": readiness.get("requires_explicit_operator_approval"),
-                },
-                {"Metric": "Blockers", "Value": readiness.get("blocker_count")},
-                {"Metric": "Evidence mode", "Value": (readiness.get("summary") or {}).get("evidence_mode")},
-            ]),
-            hide_index=True,
-            width="stretch",
-        )
-
-    with st.expander("Evidence provenance"):
-        rows = []
-        for name in (
-            "run",
-            "readiness",
-            "platform_verification",
-            "economics_snapshot",
-            "economics_drift",
-            "economics_accepted",
-        ):
-            artifact = control.get(name) or {}
-            rows.append({
-                "Artifact": name,
-                "Available": artifact.get("available") is True,
-                "Recorded": _timestamp(artifact.get("recorded_at")),
-                "Path": artifact.get("path"),
-            })
-        host_artifact = operations.get("host_status") or {}
-        rows.append({
-            "Artifact": "canonical_host_digest",
-            "Available": host_artifact.get("available") is True,
-            "Recorded": _text(artifact_payload(host_artifact).get("ts"), "not recorded"),
-            "Path": host_artifact.get("path"),
-        })
-        st.dataframe(arrow_safe_dataframe(rows), hide_index=True, width="stretch")
-        st.caption(f"Automatic page refresh: {refresh_seconds} seconds. No artifact is modified by this view.")
+    _project_panel(extras.get("project") or {})
+    _health_panel(evaluation, extras.get("portable") or {})
+    _session_panel(extras.get("session") or {})
+    _trading_panel(extras.get("trading") or {})
+    _results_panel(extras.get("trading") or {})
+    _activity_panel(extras.get("session") or {}, extras.get("project") or {})
+    with st.expander("General pilot evidence checklist"):
+        st.caption("This general maker checklist is separate from the portable Stage 0/1 launcher's action-time checks. A dashboard status is not trading authority.")
+        st.write(evaluation["verdict"])
+        st.dataframe(arrow_safe_dataframe([
+            {"Area": name, "Status": state["status"], "Detail": state["detail"]}
+            for name, state in evaluation["states"].items()
+        ]), hide_index=True, width="stretch")
+        attention = attention_rows(evaluation)
+        if attention:
+            st.dataframe(arrow_safe_dataframe(attention), hide_index=True, width="stretch")
+    st.caption(f"Session refresh: {refresh_seconds}s while this page is open · Project: 60s · Host: 5 min · Last view update: {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}")

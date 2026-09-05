@@ -5,7 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 
-LIVE_REFRESH_SECONDS = 300
+LIVE_REFRESH_SECONDS = 10
 PAGE_LABELS = {
     "Control Room": "control",
     "Roadmap": "roadmap",
@@ -36,7 +36,7 @@ def _selected_page():
         if PAGE_LABELS[label] == default_page
     )
     st.sidebar.markdown("### Weather Operations")
-    st.sidebar.caption("International maker pilot")
+    st.sidebar.caption("Project and trading monitor")
     selected = st.sidebar.selectbox("Page", labels, index=default_index)
     st.sidebar.caption("Read-only frontend")
     return PAGE_LABELS[selected]
