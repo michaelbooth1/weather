@@ -240,7 +240,7 @@ def market_local_time(row):
     if timestamp is None:
         return None, ""
     try:
-        spec = spec_for_id(row.get("market_id") or "")
+        spec = spec_for_id(row.get("market_id"))
         zone = spec.tz
     except Exception:  # noqa: BLE001 - an unknown market should not crash policy diagnostics
         zone = timezone.utc

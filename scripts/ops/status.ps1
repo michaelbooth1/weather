@@ -3436,6 +3436,9 @@ $expNonZero = @{
 # age of the frozen copy -- one voice for the pause, not four.
 $expDisabled = @(
     "WeatherNightlyRetrainValidatePromote", "WeatherAgentQuietWindow",
+    # Item 330 holds this standalone analysis on demand; daily freshness still applies.
+    # docs/roadmap/items/item-330-maker-economics-refocus-master-plan.md
+    "WeatherModelMarketDisagreementAnalysis",
     "WeatherTakerBotDailyRoll", "WeatherTakerBotDailyRollSupervisor",
     "WeatherDataMirror", "WeatherMirrorRestoreVerify", "WeatherOneShotMirror",
     # Legacy host-local queue drivers lack immutable expected-tip bindings. They stay off

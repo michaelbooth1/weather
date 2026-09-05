@@ -160,6 +160,57 @@ class TestMarketMicrostructure(unittest.TestCase):
         self.assertEqual(yes["bin_value"], 20)
         self.assertEqual(yes["gamma_yes"], 0.12)
 
+    def test_token_rows_keep_event_identity_native_unit_and_local_timezone(self):
+        captured_at = datetime(2026, 6, 12, 6, 30, tzinfo=timezone.utc)
+        for market_id, unit, offset in (("toronto", "C", -4), ("los-angeles", "F", -7)):
+            event = sample_event()
+            event["slug"] = config_for_date("2026-06-12", market_id).event_slug
+            event["markets"][0]["groupItemTitle"] = "20 or below"
+            for requested_id in (None, market_id):
+                with self.subTest(market_id=market_id, requested_id=requested_id):
+                    rows = token_rows_from_event(event, requested_id, captured_at)
+                    self.assertEqual(len(rows), 2)
+                    for row in rows:
+                        self.assertEqual(row["market_id"], market_id)
+                        self.assertEqual(row["event_slug"], event["slug"])
+                        self.assertEqual(row["unit"], unit)
+                        local = datetime.fromisoformat(row["captured_at_local"])
+                        self.assertEqual(local.utcoffset(), timedelta(hours=offset))
+                        self.assertEqual(local.astimezone(timezone.utc), captured_at)
+
+    def test_token_rows_reject_invalid_or_conflicting_market_override(self):
+        for market_id in ("nyc", "nycc", "", " ", " toronto", 0):
+            with self.subTest(market_id=market_id):
+                with self.assertRaises(ValueError):
+                    token_rows_from_event(sample_event(), market_id=market_id)
+
+    def test_capture_entrypoints_preserve_invalid_explicit_ids_until_refusal(self):
+        def no_websocket(*_args, **_kwargs):
+            self.fail("invalid market identity must fail before websocket access")
+
+        for capture in (capture_event_books, capture_event_enrichment, record_market_websocket):
+            for market_id in ("", " ", "nyc"):
+                with self.subTest(capture=capture.__name__, market_id=market_id):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        root = Path(tmp) / "capture-must-not-exist"
+                        kwargs = {
+                            "market_id": market_id,
+                            "root": root,
+                            "websocket_factory": no_websocket,
+                        }
+                        with patch(
+                            "weather.market.market_microstructure_capture.MarketMicrostructureStore",
+                            side_effect=AssertionError("invalid identity must fail before store creation"),
+                        ) as store_factory, patch(
+                            "weather.market.market_microstructure_capture.ClobClient",
+                            side_effect=AssertionError("invalid identity must fail before client creation"),
+                        ) as client_factory:
+                            with self.assertRaises(ValueError):
+                                capture(sample_event(), **kwargs)
+                            store_factory.assert_not_called()
+                            client_factory.assert_not_called()
+                        self.assertFalse(root.exists(), "identity refusal must not create a directory or status")
+
     def test_summarize_order_book_derives_depth_and_execution_metrics(self):
         token = token_rows_from_event(sample_event())[0]
         book = {

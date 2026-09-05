@@ -35,6 +35,15 @@ class MarketConfig:
     polymarket_url: str
     market_id: str = DEFAULT_MARKET_ID
 
+    def __post_init__(self):
+        spec = spec_for_id(self.market_id)
+        target_date = ensure_date(self.target_date)
+        expected_slug = event_slug_for_date(target_date, spec.id)
+        if self.event_slug != expected_slug:
+            raise ValueError("event slug does not match market identity and target date")
+        object.__setattr__(self, "market_id", spec.id)
+        object.__setattr__(self, "target_date", target_date)
+
     @property
     def spec(self):
         return spec_for_id(self.market_id)
@@ -67,13 +76,14 @@ def polymarket_url_for_slug(event_slug):
 
 
 def config_for_date(target_date=None, market_id=DEFAULT_MARKET_ID):
-    target_date = ensure_date(target_date or default_target_date(spec_for_id(market_id).tz))
-    event_slug = event_slug_for_date(target_date, market_id)
+    spec = spec_for_id(market_id)
+    target_date = ensure_date(target_date or default_target_date(spec.tz))
+    event_slug = event_slug_for_date(target_date, spec.id)
     return MarketConfig(
         target_date=target_date,
         event_slug=event_slug,
         polymarket_url=polymarket_url_for_slug(event_slug),
-        market_id=market_id,
+        market_id=spec.id,
     )
 
 
@@ -111,10 +121,18 @@ def date_from_event(event):
 
 
 def config_from_event(event, fallback_date=None):
-    slug = (event or {}).get("slug") or (event or {}).get("eventSlug") or ""
-    market_id = market_id_from_slug(slug) or DEFAULT_MARKET_ID
-    target_date = date_from_event(event) or fallback_date or default_target_date(spec_for_id(market_id).tz)
-    return config_for_date(target_date, market_id)
+    event = event or {}
+    slugs = [event[key] for key in ("slug", "eventSlug") if event.get(key) is not None]
+    if not slugs:
+        return config_for_date(fallback_date)
+    if any(slug != slugs[0] for slug in slugs):
+        raise ValueError("conflicting event slug identities")
+    slug = slugs[0]
+    spec = spec_for_slug(slug)
+    target_date = date_from_event_slug(slug)
+    if spec is None or target_date is None or slug != event_slug_for_date(target_date, spec.id):
+        raise ValueError(f"unrecognized market event slug: {slug!r}")
+    return config_for_date(target_date, spec.id)
 
 
 def ensure_date(value):
