@@ -26,7 +26,7 @@ record that is valuable evidence but not current instruction.
 | Building the first immutable release | [Release #1 build runbook](operations/RELEASE_ONE_BUILD_RUNBOOK.md) | Canonical runbook |
 | Current active work | [Active backlog](roadmap/active-backlog.md) | Generated current view |
 | Maker economics, liquidity rewards, and audit implementation | [Master plan / Item 330](roadmap/items/item-330-maker-economics-refocus-master-plan.md) | Numbered work item |
-| Agent decision log and cross-host correspondence | `roadmap/workstation-handoff-*.md`, `roadmap/agent-report-*.md` | Dated evidence; newest is current |
+| Agent decision log and cross-host correspondence | [Roadmap agent guide](roadmap/AGENTS.md) and the task's named handoff/report | Mission-specific instructions and dated evidence |
 | Roadmap item scope/status/evidence | `roadmap/items/item-*.md` | Canonical per item |
 | Operations and runbooks | [Operations index](operations/README.md) | Canonical index |
 | Research findings | `research/` and dated roadmap audits | Historical evidence unless labeled otherwise |
@@ -69,10 +69,11 @@ specific finding.
 under `roadmap/items/` own engineering scope, status, acceptance criteria, and
 evidence. The dated `workstation-handoff-*` / `agent-report-*` pair is the
 append-only decision log of the production-host and workstation agent loop: what
-was instructed, what was measured, what was accepted or rejected, and why. Recent
-research direction lives almost entirely in that correspondence, so an agent
-asking "why are we doing this?" should read the newest handoff, not only the
-backlog. See [the roadmap agent guide](roadmap/AGENTS.md) for the convention.
+was instructed, what was measured, what was accepted or rejected, and why. Read
+the handoff bound to the user's task, assigned host/role, and scope, plus its
+explicit corrections and answering report. A newer unrelated mission does not
+supersede that task. See [the roadmap agent guide](roadmap/AGENTS.md) for the
+reading and supersession rules.
 
 ## Update this file when
 

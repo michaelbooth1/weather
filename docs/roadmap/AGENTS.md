@@ -18,7 +18,7 @@ These instructions apply to `docs/roadmap/`.
 
 Most files directly under `docs/roadmap/` are not item files. They are the
 append-only decision log between the production-host agent and the workstation
-research agent, and they are where recent direction actually lives.
+research agent. They preserve direction and results for their specific missions.
 
 | Pattern | Direction | Meaning |
 | --- | --- | --- |
@@ -27,15 +27,17 @@ research agent, and they are where recent direction actually lives.
 
 Reading rules:
 
-- **The newest `workstation-handoff-*` is live instruction.** Every older one is
-  historical evidence. Everything in `agent-report-*` is historical evidence.
-- **Sort by commit order, not by filename date.** A handoff is named for the
-  mission's nominal day, which can run ahead of the day it was written. Use
-  `git log --diff-filter=A -- docs/roadmap/` to get true order.
-- The `<letter>` suffix (`a`, `b`, `c`) orders multiple missions within one day.
+- **Bind a handoff to the user's task, assigned host/role, and scope.** Read the
+  handoff named by that task and any explicit corrections or successors for the
+  same mission. A newer unrelated handoff does not replace or expand the task.
+  Current user instructions and canonical safety contracts remain authoritative.
+- Check supersession within that mission by commit order, not filename date or
+  the `<letter>` suffix. A filename may use the mission's nominal future date.
+  Use `git log --diff-filter=A -- <relevant-handoff-paths>` for bounded history;
+  recency alone does not grant authority.
 - A handoff and its answering report form a pair; read both before concluding
-  what was decided. Acceptance or rejection is stated in the *next* handoff, not
-  in the report.
+  what was decided. A report is evidence, not self-acceptance; look for the
+  operator's decision or an explicit acceptance/rejection for the same mission.
 - **Never edit a published handoff or report.** They are the record of what was
   actually instructed and measured. Corrections go in the next one, stated
   explicitly as a correction.
