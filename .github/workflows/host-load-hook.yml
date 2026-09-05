@@ -1,0 +1,42 @@
+name: Host-load hook
+
+on:
+  push:
+    paths:
+      - .codex/hooks/pre_tool_use_host_load.py
+      - tests/operations/test_codex_host_load_hook.py
+      - .github/workflows/host-load-hook.yml
+  pull_request:
+    paths:
+      - .codex/hooks/pre_tool_use_host_load.py
+      - tests/operations/test_codex_host_load_hook.py
+      - .github/workflows/host-load-hook.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-load-hook-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hook:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install hook test dependencies
+        run: python -m pip install pytest tzdata
+      - name: Compile hook
+        run: python -m py_compile .codex/hooks/pre_tool_use_host_load.py
+      - name: Verify hook policy without application fixtures
+        run: python -m pytest --noconftest tests/operations/test_codex_host_load_hook.py -q

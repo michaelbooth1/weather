@@ -1238,6 +1238,21 @@ def test_original_ambiguous_ssh_launch_remains_denied():
     )
 
 
+def test_remote_client_uses_the_real_windows_system_directory():
+    paths = HOOK._remote_client_paths()
+    if sys.platform == "win32":
+        assert paths is not None
+        client, key, known_hosts = paths
+        assert client.is_absolute()
+        assert client.parts[-3:] == ("System32", "OpenSSH", "ssh.exe") or tuple(
+            part.lower() for part in client.parts[-3:]
+        ) == ("system32", "openssh", "ssh.exe")
+        assert key == Path.home() / ".ssh" / "id_ed25519_workstation_codex"
+        assert known_hosts == Path.home() / ".ssh" / "known_hosts"
+    else:
+        assert paths is None
+
+
 def test_command_recognition_does_not_mistake_messages_for_python_execution():
     now = datetime(2026, 8, 23, 14, 15, tzinfo=ZONE)
     for command in (

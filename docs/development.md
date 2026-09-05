@@ -124,6 +124,11 @@ unknown capture-host identity, all ambiguous remote forms, and unsupported
 remote destinations. See the official [SSH command manual](https://man.openbsd.org/ssh.1)
 and [SSH configuration manual](https://man.openbsd.org/ssh_config.5).
 
+The focused [host-load hook workflow](../.github/workflows/host-load-hook.yml)
+runs the policy tests on Windows and Linux when hook code or its tests change.
+It uses no application fixtures or credentials and provides a verification
+path while an installed hook prevents dispatch of its own proposed repair.
+
 ## Focused verification matrix
 
 | Change | Minimum focused verification |
