@@ -1179,6 +1179,48 @@ def test_remote_workstation_exception_cannot_execute_local_shell_payloads(monkey
         assert HOOK.evaluate(payload(changed), constrained_capture_host=True), changed
 
 
+def test_remote_archive_staging_is_admitted_without_local_capture_authority(monkeypatch):
+    allow_test_remote_client(monkeypatch)
+    module = "weather.operations.workstation_cold_archive_stage"
+    arguments = ["-m", module, "--provisional-mirror-copy"]
+    remote = remote_workstation_command("weather_heavy", arguments)
+    local = workstation_wrapper_command("weather_heavy", arguments)
+    for hour in (2, 14, 21):
+        now = datetime(2026, 9, 4, hour, tzinfo=ZONE)
+        assert HOOK.evaluate(
+            payload(remote), now=now, constrained_capture_host=True
+        ) is None
+        assert HOOK.evaluate(payload(local), now=now, constrained_capture_host=True)
+    for hour in (14, 21):
+        assert HOOK.evaluate(
+            payload(f"python -m {module} --provisional-mirror-copy"),
+            now=datetime(2026, 9, 4, hour, tzinfo=ZONE),
+            constrained_capture_host=True,
+        )
+    assert HOOK.evaluate(
+        payload(f"python -m {module} --provisional-mirror-copy"),
+        constrained_capture_host=False,
+    )
+
+
+def test_remote_archive_admission_does_not_admit_siblings_or_live_flags(monkeypatch):
+    allow_test_remote_client(monkeypatch)
+    module = "weather.operations.workstation_cold_archive_stage"
+    for other in (
+        "weather.operations.verified_cold_archive",
+        module + "_bulk",
+        "weather.operations",
+        "rclone",
+    ):
+        command = remote_workstation_command("weather_heavy", ["-m", other])
+        assert HOOK.evaluate(payload(command), constrained_capture_host=True)
+    for switch in ("--live", "--execute=1", "--place=yes", "--cancel=all", "--promote=x"):
+        command = remote_workstation_command(
+            "weather_heavy", ["-m", module, "--provisional-mirror-copy", switch]
+        )
+        assert HOOK.evaluate(payload(command), constrained_capture_host=True)
+
+
 def test_remote_workstation_transport_paths_and_destination_fail_closed(monkeypatch):
     allow_test_remote_client(monkeypatch)
     command = remote_workstation_command()
