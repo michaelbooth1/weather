@@ -1,4 +1,4 @@
-# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [OPEN 2026-09-04 - PLAN RECORDED; IMPLEMENTATION AND ECONOMIC PROOF OPEN]
+# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
 
 Goal: determine whether a narrowly scoped International Polymarket weather
 maker can earn worthwhile returns from trading plus realized incentives, while
@@ -43,12 +43,17 @@ protects settlement interpretation, impossible outcomes, information-event risk,
 and inventory. A new predictive model or model-promotion result is not required.
 Risk controls remain mandatory even when model probabilities are absent.
 
-This item records implementation scope and ordering. It does not execute a live
-session, raise caps, enable unattended operation, allocate new statistical alpha,
-accept an exchange baseline, or authorize deletion of runtime evidence. Existing
-exact action-time contracts govern those later actions. The current Stage 0/1
-10 pUSD request and 100 pUSD wallet ceilings remain; downstream limits may be
-tighter and must be read from their owning code and runbook.
+On September 4 the owner authorized implementation of this plan, necessary
+source-control changes and merges, and takeover of unfinished cold off-site
+storage work, with one explicit exception: **no live trading**. Continue that
+authorized work without blanket approval prompts. Existing exact host-admission,
+guarded integration, retention, manifest and restore contracts still govern
+execution; off-site authority does not make an unverified copy reclaimable.
+Real W5-W7 lifecycle/economic sessions remain blocked by the no-live instruction;
+their offline preparation may proceed. The prospective Stage 0/1 10 pUSD request
+and 100 pUSD wallet ceilings remain unchanged. No new statistical alpha allocation,
+exchange-baseline acceptance, unattended operation or positive economic verdict
+is inferred from the implementation authorization.
 
 ## 2. Starting point and what must be refreshed
 
@@ -605,6 +610,52 @@ their subsystem acceptance; link their evidence rather than copying narratives.
 Record one compact disposition per work package with commit, checks, adoption
 where applicable, evidence path/hash, and next decision. Create a new numbered
 item only for independently owned work that actually needs separate tracking.
+
+### Execution status — September 5, 2026
+
+The original plan branch `codex/maker-plan-20260904` at `9e445dfb8` is preserved
+and merged into the separate baseline documentation branch. Production source
+was independently matched at HEAD/local/fresh-origin master
+`0f76840cd434e0edb0fc4c3ec065476822cb8832`. Reconciliation `7480172a1` and its
+safety repair `296f8d2df`, plus portable phase repair `3f2b077b9` and topic tip
+`1acf9ebbc`, are ancestral. These Git facts do not qualify the portable clone,
+current account state, or any new live receipt.
+
+| Package | Disposition and evidence | Next non-live action / owner |
+| --- | --- | --- |
+| W0 | PARTIAL: production ancestry and current blockers refreshed in [state of play](../../operations/STATE_OF_PLAY.md). Production-local status evidence is `scratch/handoffs/maker-baseline-status-20260905.json`, SHA-256 `8496E3FA3CEBEA59A28C593C599EF42E2363DBAAF9DB991B6F5E5BDC8A3016D9`. The recurring metadata inventory covers 30 definitions with proposed owners/dispositions in `scratch/handoffs/maker-recurring-jobs-20260905.md`, sourced from `maker-scheduler-inventory-20260905.json` in the same directory, SHA-256 `709D039F6406B13E730115E7B6363E897605E8F552BBC569E2F9F3FB36DE77F5`. One optional recurrence was subsequently held as recorded below. Monitor-reported settlement holes remain unvalidated. | Operations: adopt further bounded job dispositions only after consumer review, finish mixed-chain step ownership and validate exact settlement gaps. Whole-W0 completion is not claimed. |
+| W1 | PARTIAL: published `codex/maker-governance-20260905` at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [draft PR 16](https://github.com/michaelbooth1/weather/pull/16), replaces the exact warning-count ratchet with a named allowance, binds handoffs to task/host/scope, and permits documented unchanged reviews tied to committed blobs. Index/worktree edits, stale reviews and failed documentation checks still refuse. Independent review and exact-head Linux CI passed; production integration remains pending. | Integration owner: guarded adoption. Broader role/instruction reconciliation and findings compression remain open. |
+| W2 | PARTIAL: published `codex/maker-market-identity-20260905` at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [draft PR 17](https://github.com/michaelbooth1/weather/pull/17), rejects explicit invalid IDs, binds market/date/slug identity and validates capture identity before any status mutation. The first Linux run found three placeholder event slugs in feature-store fixtures; the follow-up uses canonical same-date Toronto/NYC identities without weakening validation. Full feature-store workstation verification passed; new CI and production integration remain pending. Atomic paired configuration publication and generated-state migration remain open. | Market/operations: finish exact-head checks, then trace and implement the smallest safe consistent-publication change. Preserve the two generated production config modifications. |
+| W3 | IN PROGRESS: read-only source/reader inventory is complete. No current qualifying campaign, exact-condition opportunity, incentive payout or after-cost economics is proved. | Market: build the explicit-input calculator with adjusted-midpoint provenance and competitor-score scenario ranges. Public aggregate depth cannot identify the nonlinear per-maker denominator; preserve that uncertainty in G1. |
+| W11 / item 325 | PARTIAL: unfinished off-site work taken over. Preserve the spent `real-pilot-clob-console-20260713-v1` failure. Repair `aea427fb7faf0b5fd67b8893b62b11fe649e71ea` is stacked on adapter `2d586da6dcfe2e0955154fd0dd0a2e5b1076af40`: encryption preflight precedes source staging and is revalidated after compression. Exact-source verification passed 51 tests and failed two genuine PowerShell protection fixtures before the loader; separate archive/ratchet verification passed 48 tests. Interactive-context diagnosis remains pending. No new upload, restore proof, deletion or reclaimed bytes. | Storage owner: diagnose the native user-context boundary, preserve all spent namespaces, then prove exact encrypted transfer and restore before manifest-bound reclaim. The paused unverified mirror is not a substitute. |
+| W5-W7 | BLOCKED for real sessions by the owner's no-live instruction. Integrated portable source and successful offline tests do not remove that boundary or qualify a new attempt. | Owning packages: continue offline lifecycle/accounting fixtures and prospective design only. Preserve the existing G2-G4 requirements. |
+| W8 / W11 optional work | PARTIAL: at September 5 00:30, disabled only the standalone `WeatherModelMarketDisagreementAnalysis` recurrence after exact task/action and no-active-process checks. XML comparison shows only Enabled=false; its Stage A rehydration producer, critical daily-learning reader and all existing reports/audit evidence remain. Receipt: `scratch/handoffs/model-disagreement-on-demand-20260905.md`, SHA-256 `A1C4DADF561A66EE61D484D003C03A740F8E818D48A373D88483FCCF2896BA34`. | Operations: observe the preserved daily producer and consumer freshness. Review paired maker-paper tasks and mixed-chain consumers before any additional reduction. No measured runtime saving is claimed. |
+
+W1/W2 jointly passed the actual non-capture workstation admission wrapper:
+265 tests and 72 subtests passed, loaded source paths/hashes were printed and
+checked, and compileall passed. Retained production-local JUnit is
+`scratch/handoffs/maker-verification-20260905.xml`, SHA-256
+`89432819CFF595579C9E21FAB86C761F4DB68566D63DF52CD14AD23F343AE788`;
+its header records 337 testcase entries including the subtests, zero failures,
+errors or skips, and 29.248 seconds on `DESKTOP-RFCD2GH`.
+W1's [exact-head Linux CI](https://github.com/michaelbooth1/weather/actions/runs/33943912348)
+passed 4,201 tests and 860 subtests with 258 skips, including compilation,
+agent-document and roadmap checks. W2's fixture follow-up passed 33 workstation
+tests including the complete feature-store file and source-identity assertion;
+new CI remains pending. Production adoption remains separate. These results
+do not validate the entire programme or prove economics.
+
+Retained production-local rollout evidence is
+`scratch/handoffs/maker-governance-roll-20260905.json` (`ROLL-FREE`) and
+`scratch/handoffs/maker-market-identity-roll-20260905.json` (`ROLL-SENSITIVE`).
+These September 5 00:07 reports precede publication; rerun the canonical verdict
+against the exact published tip and current production state before adoption.
+These ignored evidence paths are not assumed present in a clean checkout.
+
+All completion boxes remain open until their full acceptance or explicit bounded
+disposition is supported. W8-W10 and W12 retain their original dependencies and
+gates; storage pressure advances the item-325 off-site work without declaring
+W8 or the model-retirement portion of W11 complete.
 
 - [ ] W0: current baseline and active agenda reconciled.
 - [ ] W1: contradictory/redundant rules and anti-simplification ratchets repaired.
