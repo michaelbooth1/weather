@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 from weather.reporting.market.operator_control_room import (
     attention_rows,
     collect_control_room_snapshot,
@@ -6,7 +8,7 @@ from weather.reporting.market.operator_control_room import (
 )
 
 
-TARGET_DATE = "2026-08-15"
+TARGET_DATE = datetime.now(timezone.utc).date().isoformat()
 
 
 def _artifact(payload, name):
@@ -14,7 +16,7 @@ def _artifact(payload, name):
         "available": True,
         "path": f"fixture://{name}.json",
         "recorded_at": "2026-08-15T14:05:00+00:00",
-        "payload": payload,
+        "payload": {**payload, "generated_at_utc": datetime.now(timezone.utc).isoformat()},
     }
 
 
@@ -76,6 +78,7 @@ def _operations_fixture():
             "available": True,
             "path": "fixture://status.ps1",
             "payload": {
+                "ts": datetime.now(timezone.utc).isoformat(),
                 "verdict": "OK",
                 "flags": [],
                 "streak": {"today": "ON_TRACK (100 caps, 0.0min max gap)"},
@@ -169,7 +172,7 @@ def test_stale_receipt_and_polymarket_us_identity_block():
     rows = attention_rows(evaluation)
 
     assert evaluation["verdict"] == "HOLD"
-    assert evaluation["states"]["Readiness"]["status"] == "BLOCK"
+    assert evaluation["states"]["Readiness"]["status"] == "UNAVAILABLE"
     assert "Polymarket US evidence is ineligible" in evaluation["states"]["International"]["detail"]
     assert any(row["Area"] == "International" for row in rows)
 
@@ -183,3 +186,48 @@ def test_unusable_authoritative_price_path_blocks():
     assert evaluation["verdict"] == "HOLD"
     assert evaluation["states"]["Execution tape"]["status"] == "BLOCK"
     assert "price path not usable" in evaluation["states"]["Execution tape"]["detail"]
+
+
+def test_matching_old_dates_never_renew_current_readiness():
+    control = _control_fixture()
+    now = datetime.now(timezone.utc)
+    for artifact in control.values():
+        if isinstance(artifact, dict) and "payload" in artifact:
+            artifact["payload"]["generated_at_utc"] = (now - timedelta(days=1)).isoformat()
+            artifact["recorded_at"] = now.isoformat()
+    evaluation = evaluate_control_room(control, _operations_fixture(), now=now)
+    assert evaluation["software_ready"] is False
+    assert evaluation["states"]["Readiness"]["status"] == "STALE"
+
+
+def test_future_or_expired_observations_are_not_current():
+    control = _control_fixture()
+    now = datetime.now(timezone.utc)
+    control["readiness"]["payload"]["generated_at_utc"] = (now + timedelta(hours=1)).isoformat()
+    control["platform_verification"]["payload"]["expires_at_utc"] = now.isoformat()
+    evaluation = evaluate_control_room(control, _operations_fixture(), now=now)
+    assert evaluation["states"]["Readiness"]["status"] == "CLOCK ERROR"
+    assert evaluation["states"]["International"]["status"] == "STALE"
+
+
+def test_missing_host_and_run_identity_conflict_are_explicit():
+    control = _control_fixture()
+    control["readiness"]["payload"]["run_id"] = "different-run"
+    evaluation = evaluate_control_room(control, {"host_status": {"available": False, "error": "collector failed"}})
+    assert evaluation["states"]["Host"]["status"] == "UNAVAILABLE"
+    assert evaluation["states"]["Host"]["detail"] == "collector failed"
+    assert evaluation["states"]["Readiness"]["status"] == "BLOCK"
+
+
+def test_closed_clean_capture_day_is_recognized():
+    operations = _operations_fixture()
+    operations["host_status"]["payload"]["streak"]["today"] = "CLEAN (142 caps, 0.0min max gap)"
+    assert evaluate_control_room(_control_fixture(), operations)["states"]["Capture"]["status"] == "PASS"
+
+
+def test_regenerating_receipts_does_not_make_an_old_market_current():
+    control = _control_fixture()
+    control["target_date"] = "2020-01-01"
+    result = evaluate_control_room(control, _operations_fixture())
+    assert result["states"]["Pilot envelope"]["status"] == "HISTORICAL"
+    assert result["software_ready"] is False

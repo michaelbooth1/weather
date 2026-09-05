@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime, timezone
-import json
+from datetime import date, datetime, timedelta, timezone
 import math
+from itertools import islice
 from pathlib import Path
 
 from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 from weather.paths import data_path
+from weather.reporting.market.operator_evidence import evidence_timestamp, freshness, parse_timestamp, read_artifact
 
 
 INTERNATIONAL_PLATFORM = "polymarket_global"
@@ -18,30 +19,29 @@ BACKTEST_ROOT = data_path("backtest")
 
 
 def read_json(path, default=None):
-    path = Path(path)
-    if not path.exists():
-        return default
-    try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError):
-        return default
+    return read_artifact(path).get("payload", default)
 
 
 def run_folders(runs_root=RUNS_ROOT):
     runs_root = Path(runs_root)
     if not runs_root.exists():
         return []
-    folders = [summary.parent for summary in runs_root.glob("*/*/run_summary.json")]
-    return sorted(folders, key=lambda folder: folder.stat().st_mtime, reverse=True)
+    summaries = list(islice(runs_root.glob("*/*/run_summary.json"), 1025))
+    if len(summaries) > 1024:
+        return []
+    return [path.parent for path in sorted(summaries, key=lambda path: path.stat().st_mtime, reverse=True)]
 
 
 def latest_run(runs_root=RUNS_ROOT):
     folders = run_folders(runs_root)
     if not folders:
         return None, {}
-    folder = folders[0]
-    payload = read_json(folder / "run_summary.json", {}) or {}
-    return folder, payload if isinstance(payload, dict) else {}
+    # Parse only the newest bounded candidates; unrelated folder writes must
+    # not select a historical run over a more recent producer observation.
+    candidates = [(folder, read_json(folder / "run_summary.json", {}) or {}) for folder in folders[:24]]
+    candidates = [(folder, payload) for folder, payload in candidates if isinstance(payload, dict)]
+    return max(candidates, key=lambda item: parse_timestamp(evidence_timestamp(item[1]))
+               or datetime.min.replace(tzinfo=timezone.utc), default=(None, {}))
 
 
 def latest_readiness(backtest_root=BACKTEST_ROOT, target_date=None):
@@ -50,9 +50,9 @@ def latest_readiness(backtest_root=BACKTEST_ROOT, target_date=None):
     root = Path(backtest_root)
     if not root.exists():
         return None, {}
-    candidates = [
-        path for path in root.glob("mm_live_readiness*.json") if path.is_file()
-    ]
+    candidates = list(islice((path for path in root.glob("mm_live_readiness*.json") if path.is_file()), 257))
+    if len(candidates) > 256:
+        return None, {}
     if target_date is not None:
         matching = []
         for path in candidates:
@@ -102,24 +102,7 @@ def _state(status, detail, *, evidence=None):
 
 
 def _artifact(path):
-    path = Path(path)
-    payload = read_json(path, None)
-    if not isinstance(payload, dict):
-        return {
-            "available": False,
-            "path": str(path),
-            "error": "file missing or payload is not a JSON object",
-        }
-    try:
-        recorded_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc).isoformat()
-    except OSError:
-        recorded_at = None
-    return {
-        "available": True,
-        "path": str(path),
-        "recorded_at": payload.get("generated_at_utc") or recorded_at,
-        "payload": payload,
-    }
+    return read_artifact(path)
 
 
 def collect_control_room_snapshot(runs_root=RUNS_ROOT, backtest_root=BACKTEST_ROOT):
@@ -178,9 +161,10 @@ def collect_control_room_snapshot(runs_root=RUNS_ROOT, backtest_root=BACKTEST_RO
     }
 
 
-def evaluate_control_room(control, operations):
+def evaluate_control_room(control, operations, *, now=None):
     """Reduce persisted artifacts to one conservative operator verdict."""
 
+    now = now or datetime.now(timezone.utc)
     target_date = control.get("target_date")
     host_artifact = operations.get("host_status") or {}
     host = artifact_payload(host_artifact)
@@ -202,7 +186,7 @@ def evaluate_control_room(control, operations):
 
     streak = host.get("streak") or {}
     today = _text(streak.get("today"), "UNKNOWN")
-    capture_ok = today.upper().startswith("ON_TRACK")
+    capture_ok = today.upper().split(" (", 1)[0] in {"ON_TRACK", "CLEAN"}
     capture_state = _state(
         "PASS" if capture_ok else "BLOCK",
         today,
@@ -352,12 +336,43 @@ def evaluate_control_room(control, operations):
         "Economics": economics_state,
         "Pilot envelope": envelope_state,
     }
+    # This display policy is separate from the executor's action-time gates.
+    # A copied file or matching old market date cannot renew an observation.
+    observations = {
+        "Host": [host_artifact],
+        "Capture": [host_artifact],
+        "Execution tape": [host_artifact],
+        "International": [platform_artifact],
+        "Readiness": [readiness_artifact],
+        "Economics": [current_economics_artifact, drift_artifact],
+        "Pilot envelope": [control.get("run") or {}],
+    }
+    ages = {}
+    for name, artifacts in observations.items():
+        checks = [freshness(item, now=now, max_age_seconds=600) for item in artifacts]
+        ages[name] = checks
+        invalid = next((item for item in checks if item["status"] != "CURRENT"), None)
+        if invalid:
+            states[name] = _state(invalid["status"], invalid["detail"],
+                                  evidence=states[name]["evidence"])
+    readiness_run_id = readiness.get("run_id")
+    if readiness_run_id and readiness_run_id != run.get("run_id"):
+        states["Readiness"] = _state("BLOCK", "Readiness belongs to a different run.",
+                                      evidence=readiness_artifact.get("path"))
+    try:
+        historical_target = date.fromisoformat(str(target_date)) < (now - timedelta(days=1)).date()
+    except ValueError:
+        historical_target = False
+    if historical_target:
+        states["Pilot envelope"] = _state("HISTORICAL", "The selected market date is historical.",
+                                          evidence=(control.get("run") or {}).get("path"))
     software_ready = all(item["status"] == "PASS" for item in states.values())
     verdict = "READY FOR EXPLICIT APPROVAL" if software_ready else "HOLD"
     return {
         "verdict": verdict,
         "software_ready": software_ready,
         "states": states,
+        "freshness": ages,
         "target_date": target_date,
         "host": host,
         "readiness": readiness,

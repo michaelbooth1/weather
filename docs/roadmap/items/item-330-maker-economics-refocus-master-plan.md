@@ -815,6 +815,19 @@ Git, exact-head CI and guarded receipts own publication and adoption status.
 No production config, capture, Scheduler, credential, account or order mutation
 was performed by this implementation.
 
+### September 5 — Operator monitor implementation
+
+The owner requested a project and eventual trade monitor after reviewing the
+existing frontend. The Control Room now projects the canonical project note,
+separate capture/portable observations, one selected attended Stage 0/1 attempt,
+recorded orders/fills/positions and accounting components. Roadmap puts current
+maker workstream evidence and next actions before the general backlog.
+The [monitor contract](../../operations/OPERATOR_MONITOR.md) owns configuration,
+bounded readers, freshness and paid-versus-estimated presentation. W12 remains
+PARTIAL: this UI increment does not close packaging/import simplification,
+establish a live session or prove profitability. Git, CI and the associated
+topic review own source qualification and integration status.
+
 ## Update this file when
 
 Update work-package scope, dependencies, acceptance, evidence or dispositions

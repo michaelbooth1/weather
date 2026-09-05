@@ -6,6 +6,10 @@ router; page bodies belong in `app/views/`, reusable table rendering belongs
 in `app/table_utils.py`, and domain logic belongs in its owning `weather`
 package.
 
+`app/monitor_data.py` owns shared observation caches. Keep host collection
+independent of browser/session refreshes and preserve the bounded, projected
+readers in the [monitor contract](../docs/operations/OPERATOR_MONITOR.md).
+
 - Preserve `?market=control` and `?roadmap` compatibility. Retired overview,
   city, history, operations, and market-making routes fall back to Control Room;
   do not restore their page modules without an explicit product decision.
