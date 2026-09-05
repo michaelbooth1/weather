@@ -98,6 +98,19 @@ class ArchiveStageError(RuntimeError):
         self.code = code
 
 
+class _DpapiRecoveryError(ArchiveStageError):
+    """Only the numeric Windows failure is safe to retain in a receipt."""
+
+    def __init__(self, winerror: int):
+        if type(winerror) is not int:
+            raise TypeError("DPAPI error code must be an integer")
+        self.winerror = winerror
+        super().__init__(
+            "dpapi_decryption_failed",
+            f"DPAPI CurrentUser recovery failed (winerror={winerror})",
+        )
+
+
 @dataclass(frozen=True)
 class ChildResult:
     returncode: int
@@ -440,6 +453,8 @@ def _read_stable_bytes(path: Path, *, label: str, maximum_bytes: int) -> bytearr
 
 
 def _load_dpapi_secret(path: Path) -> SecretMaterial:
+    """Recover ASCII-hex CurrentUser DPAPI over UTF-16LE, with no entropy."""
+
     if os.name != "nt":
         raise ArchiveStageError(
             "dpapi_unavailable", "DPAPI CurrentUser recovery requires Windows"
@@ -480,6 +495,7 @@ def _load_dpapi_secret(path: Path) -> SecretMaterial:
             ctypes.POINTER(DataBlob),
         ]
         crypt32.CryptUnprotectData.restype = ctypes.c_int
+        ctypes.set_last_error(0)
         if not crypt32.CryptUnprotectData(
             ctypes.byref(input_blob),
             None,
@@ -489,9 +505,10 @@ def _load_dpapi_secret(path: Path) -> SecretMaterial:
             0x1,  # CRYPTPROTECT_UI_FORBIDDEN
             ctypes.byref(output),
         ):
-            raise ArchiveStageError(
-                "dpapi_decryption_failed", "DPAPI CurrentUser recovery failed"
-            )
+            # Capture the use_last_error copy before cleanup or another Win32
+            # call can replace it. Do not include blob bytes or an OS message.
+            winerror = ctypes.get_last_error()
+            raise _DpapiRecoveryError(winerror)
         if not output.pbData or output.cbData <= 0 or output.cbData > 64 * 1024:
             raise ArchiveStageError("dpapi_secret_invalid", "DPAPI secret is invalid")
         decrypted.extend(ctypes.string_at(output.pbData, output.cbData))
@@ -1101,6 +1118,18 @@ def _validated_inputs(
     }
 
 
+def _require_stable_supporting_inputs(inputs: Mapping[str, Any]) -> None:
+    for name, label in (
+        ("rclone_config", "rclone config"),
+        ("dpapi_secret", "DPAPI secret"),
+        ("rclone_executable", "rclone executable"),
+    ):
+        if _regular_identity(inputs[name], label=label) != inputs[f"{name}_identity"]:
+            raise ArchiveStageError(
+                "supporting_input_drift", "a supporting input changed during staging"
+            )
+
+
 def _failure_ciphertext_state(
     *,
     before: Mapping[str, Mapping[str, int]] | None,
@@ -1223,6 +1252,33 @@ def stage_provisional_mirror_copy(
         "supporting_inputs_stable": "NOT_RUN",
     }
     try:
+        # Prove access to encryption before reading source content or creating
+        # plaintext staging. A matching Windows principal alone does not prove
+        # that this logon session can recover its CurrentUser DPAPI material.
+        os.environ.pop(CONFIG_PASS_ENV, None)
+        secret_material = secret_loader(inputs["dpapi_secret"])
+        passphrase = secret_material.text()
+        # Ambient remote/backend/logging overrides must not redirect this
+        # config-bound local-only operation or expose decrypted material.
+        child_environment = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.upper().startswith("RCLONE_")
+        }
+        child_environment[CONFIG_PASS_ENV] = passphrase
+        client = _RcloneClient(
+            executable=inputs["rclone_executable"],
+            config=inputs["rclone_config"],
+            remote_name=inputs["crypt_remote_name"],
+            environment=child_environment,
+            runner=runner,
+        )
+        client.check_config_encryption()
+        checks["rclone_config_encrypted"] = "PASS"
+        rclone_version = client.version()
+        client.require_local_ciphertext_root(inputs["ciphertext_root"])
+        checks["rclone_local_ciphertext_root"] = "PASS"
+
         inputs["attempt_directory"].mkdir()
         archive_path = inputs["attempt_directory"] / ARCHIVE_FILENAME
         with inputs["source_file"].open("rb") as source_handle:
@@ -1260,29 +1316,17 @@ def stage_provisional_mirror_copy(
                 )
             checks["deterministic_compression"] = "PASS"
 
-            os.environ.pop(CONFIG_PASS_ENV, None)
-            secret_material = secret_loader(inputs["dpapi_secret"])
-            passphrase = secret_material.text()
-            # Ambient remote/backend/logging overrides must not redirect this
-            # config-bound local-only operation or expose decrypted material.
-            child_environment = {
-                name: value
-                for name, value in os.environ.items()
-                if not name.upper().startswith("RCLONE_")
-            }
-            child_environment[CONFIG_PASS_ENV] = passphrase
-            client = _RcloneClient(
-                executable=inputs["rclone_executable"],
-                config=inputs["rclone_config"],
-                remote_name=inputs["crypt_remote_name"],
-                environment=child_environment,
-                runner=runner,
-            )
+            # Compression can be long. Do not reuse its earlier config/root
+            # proof for a client that will reopen mutable supporting paths.
+            _require_stable_supporting_inputs(inputs)
+            checks["rclone_config_encrypted"] = "NOT_RUN"
+            checks["rclone_local_ciphertext_root"] = "NOT_RUN"
             client.check_config_encryption()
             checks["rclone_config_encrypted"] = "PASS"
-            rclone_version = client.version()
             client.require_local_ciphertext_root(inputs["ciphertext_root"])
             checks["rclone_local_ciphertext_root"] = "PASS"
+            _require_stable_supporting_inputs(inputs)
+
             logical_relative = f"{archive_id}/{ARCHIVE_FILENAME}"
             expected_ciphertext_relative = client.encrypted_relative_path(logical_relative)
             expected_ciphertext_path = inputs["ciphertext_root"].joinpath(
@@ -1355,17 +1399,7 @@ def stage_provisional_mirror_copy(
                 )
             checks["source_post_hash_stable"] = "PASS"
 
-        if (
-            _regular_identity(inputs["rclone_config"], label="rclone config")
-            != inputs["rclone_config_identity"]
-            or _regular_identity(inputs["dpapi_secret"], label="DPAPI secret")
-            != inputs["dpapi_secret_identity"]
-            or _regular_identity(inputs["rclone_executable"], label="rclone executable")
-            != inputs["rclone_executable_identity"]
-        ):
-            raise ArchiveStageError(
-                "supporting_input_drift", "a supporting input changed during staging"
-            )
+        _require_stable_supporting_inputs(inputs)
         checks["supporting_inputs_stable"] = "PASS"
         manifest: dict[str, Any] = {
             "schema_version": MANIFEST_SCHEMA_VERSION,
@@ -1481,6 +1515,8 @@ def stage_provisional_mirror_copy(
                 "cleanup_eligible": False,
                 "deletion_authorized": False,
             }
+            if isinstance(exc, _DpapiRecoveryError):
+                failure["dpapi_winerror"] = exc.winerror
             failure["receipt_hash"] = receipt_content_hash(failure)
             try:
                 receipt_sink.write(failure)

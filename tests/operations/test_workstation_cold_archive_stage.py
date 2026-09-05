@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
+import subprocess
 import tarfile
 from pathlib import Path
 
@@ -160,6 +162,148 @@ def _receipt(layout: dict[str, Path]) -> dict:
             layout["receipts"] / f"{layout['archive_id']}.receipt.json"
         ).read_text(encoding="utf-8")
     )
+
+
+def _protect_windows_powershell_fixture(
+    tmp_path: Path, plaintext: str
+) -> Path:
+    """Use the real default PowerShell DPAPI format for synthetic text only."""
+
+    powershell = (
+        Path(os.environ["SystemRoot"])
+        / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    )
+    assert powershell.is_file(), "Windows PowerShell fixture producer is required"
+    script = tmp_path / "protect-fixture.ps1"
+    secret_path = tmp_path / "fixture-pass.dpapi"
+    script.write_text(
+        r'''
+param([string]$OutputPath, [string]$FixtureUtf16Base64)
+$ErrorActionPreference = "Stop"
+$fixtureBytes = [Convert]::FromBase64String($FixtureUtf16Base64)
+$fixtureText = [Text.Encoding]::Unicode.GetString($fixtureBytes)
+$fixtureSecure = ConvertTo-SecureString -String $fixtureText -AsPlainText -Force
+try {
+    $protected = ConvertFrom-SecureString -SecureString $fixtureSecure
+    [IO.File]::WriteAllText($OutputPath, $protected + "`r`n", [Text.Encoding]::ASCII)
+}
+finally {
+    $fixtureSecure.Dispose()
+    [Array]::Clear($fixtureBytes, 0, $fixtureBytes.Length)
+    $fixtureText = ""
+}
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            str(powershell),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+            str(secret_path),
+            base64.b64encode(plaintext.encode("utf-16-le")).decode("ascii"),
+        ],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        timeout=30,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+        env={
+            name: value
+            for name, value in os.environ.items()
+            if not name.upper().startswith("RCLONE_")
+        },
+    )
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    assert result.stdout == b""
+    return secret_path
+
+
+@pytest.mark.skipif(os.name != "nt", reason="real CurrentUser DPAPI requires Windows")
+@pytest.mark.parametrize("plaintext", ("fixture-passphrase", "fixture-\u00e9-\u96e8-\U0001f512"))
+def test_dpapi_recovers_real_windows_powershell_fixtures(
+    tmp_path: Path, plaintext: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _protect_windows_powershell_fixture(tmp_path, plaintext)
+    protected_before = path.read_bytes()
+
+    material = stage._load_dpapi_secret(path)
+    try:
+        assert material.text() == plaintext
+        assert path.read_bytes() == protected_before
+    finally:
+        material.wipe()
+    assert material.utf16_bytes == bytearray(len(plaintext.encode("utf-16-le")))
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
+@pytest.mark.skipif(os.name != "nt", reason="real CurrentUser DPAPI requires Windows")
+def test_native_dpapi_failure_retains_numeric_error_without_copy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    layout = _layout(tmp_path)
+    # Valid ASCII hex, deliberately too short to be a native DPAPI blob.
+    # This exercises CryptUnprotectData itself, not a substituted loader.
+    layout["secret"].write_text("00", encoding="ascii")
+    fake = FakeRclone(layout)
+    with pytest.raises(stage.ArchiveStageError) as caught:
+        _run(layout, fake, secret_loader=stage._load_dpapi_secret)
+
+    error = caught.value
+    assert isinstance(error, stage._DpapiRecoveryError)
+    assert error.code == "dpapi_decryption_failed"
+    assert type(error.winerror) is int and error.winerror > 0
+    assert str(error) == f"DPAPI CurrentUser recovery failed (winerror={error.winerror})"
+    receipt = _receipt(layout)
+    assert receipt["dpapi_winerror"] == error.winerror
+    assert receipt["status"] == "FAIL_CLOSED"
+    assert stage.receipt_hash_valid(receipt)
+    assert receipt["encrypted_object"]["state"] == "copy_not_attempted"
+    assert receipt["verification"]["source_initial_hash_stable"] == "NOT_RUN"
+    assert receipt["verification"]["deterministic_compression"] == "NOT_RUN"
+    assert not (layout["staging"] / layout["archive_id"]).exists()
+    assert receipt["source_retained"] is True
+    assert receipt["cleanup_eligible"] is False
+    assert receipt["deletion_authorized"] is False
+    assert layout["source"].exists()
+    assert layout["secret"].read_bytes() == b"00"
+    assert not fake.calls
+    assert "error_message" not in receipt
+    assert str(layout["secret"]) not in json.dumps(receipt)
+    captured = capsys.readouterr()
+    assert captured.out == captured.err == ""
+
+
+def test_dpapi_receipt_retains_only_allowlisted_numeric_diagnostic(
+    tmp_path: Path,
+) -> None:
+    layout = _layout(tmp_path)
+    fake = FakeRclone(layout)
+    with pytest.raises(TypeError, match="must be an integer"):
+        stage._DpapiRecoveryError("fixture-secret")  # type: ignore[arg-type]
+
+    def fail_dpapi(_path: Path) -> stage.SecretMaterial:
+        error = stage._DpapiRecoveryError(13)
+        # Even an accidental exception message must never enter public evidence.
+        error.args = ("fixture-passphrase raw-blob must-not-be-persisted",)
+        raise error
+
+    with pytest.raises(stage.ArchiveStageError):
+        _run(layout, fake, secret_loader=fail_dpapi)
+
+    receipt = _receipt(layout)
+    assert receipt["error_code"] == "dpapi_decryption_failed"
+    assert receipt["dpapi_winerror"] == 13
+    assert receipt["schema_version"] == stage.RECEIPT_SCHEMA_VERSION
+    assert stage.receipt_hash_valid(receipt)
+    assert "fixture-passphrase" not in json.dumps(receipt)
+    assert "raw-blob" not in json.dumps(receipt)
+    assert not fake.calls
 
 
 def test_default_off_and_wrapper_required(tmp_path: Path) -> None:
@@ -362,6 +506,7 @@ def test_dpapi_and_config_validation_fail_closed(tmp_path: Path) -> None:
     receipt = _receipt(layout)
     assert receipt["status"] == "FAIL_CLOSED"
     assert receipt["error_code"] == "dpapi_decryption_failed"
+    assert "dpapi_winerror" not in receipt
 
     config_layout = _layout(tmp_path / "config")
     fake = FakeRclone(config_layout)
@@ -369,6 +514,137 @@ def test_dpapi_and_config_validation_fail_closed(tmp_path: Path) -> None:
     with pytest.raises(stage.ArchiveStageError, match="encrypted-config"):
         _run(config_layout, fake)
     assert _receipt(config_layout)["error_code"] == "rclone_config_encryption_failed"
+
+
+@pytest.mark.parametrize("failure", ("dpapi", "encrypted_config", "remote_binding"))
+def test_encryption_preflight_refuses_before_any_source_content_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    layout = _layout(tmp_path)
+    fake = FakeRclone(layout)
+    material = stage.SecretMaterial.from_text("fixture-passphrase")
+    expected_code = {
+        "dpapi": "dpapi_decryption_failed",
+        "encrypted_config": "rclone_config_encryption_failed",
+        "remote_binding": "rclone_remote_not_local_crypt",
+    }[failure]
+
+    def secret_loader(_path: Path) -> stage.SecretMaterial:
+        if failure == "dpapi":
+            raise stage._DpapiRecoveryError(5)
+        return material
+
+    if failure == "encrypted_config":
+        fake.config_fails = True
+    elif failure == "remote_binding":
+        fake.config_remote = None
+
+    original_open = Path.open
+
+    def refuse_source_open(path, *args, **kwargs):
+        if path == layout["source"]:
+            pytest.fail("source was opened before encryption preflight passed")
+        return original_open(path, *args, **kwargs)
+
+    def refuse_source_work(*_args, **_kwargs):
+        pytest.fail("source hashing or compression ran before encryption preflight passed")
+
+    monkeypatch.setattr(Path, "open", refuse_source_open)
+    monkeypatch.setattr(stage, "_hash_open_handle", refuse_source_work)
+    monkeypatch.setattr(stage, "_write_deterministic_archive", refuse_source_work)
+    with pytest.raises(stage.ArchiveStageError) as caught:
+        _run(layout, fake, secret_loader=secret_loader)
+    assert caught.value.code == expected_code
+
+    receipt = _receipt(layout)
+    assert stage.receipt_hash_valid(receipt)
+    assert receipt["status"] == "FAIL_CLOSED"
+    assert receipt["verification"]["source_initial_hash_stable"] == "NOT_RUN"
+    assert receipt["verification"]["deterministic_compression"] == "NOT_RUN"
+    assert receipt["encrypted_object"]["state"] == "copy_not_attempted"
+    assert receipt["source_retained"] is True
+    assert receipt["cleanup_eligible"] is False
+    assert receipt["deletion_authorized"] is False
+    assert not (layout["staging"] / layout["archive_id"]).exists()
+    assert not any(call[0][8] == "copy" for call in fake.calls)
+    assert stage.CONFIG_PASS_ENV not in os.environ
+    if failure == "dpapi":
+        assert not fake.calls
+    else:
+        assert material.utf16_bytes == bytearray(len("fixture-passphrase") * 2)
+    # A preflight failure still spends the immutable receipt namespace.
+    with pytest.raises(stage.ArchiveStageError, match="collision"):
+        _run(layout, fake, secret_loader=secret_loader)
+
+
+@pytest.mark.parametrize("changed_input", ("config", "secret", "rclone"))
+def test_supporting_input_drift_during_compression_blocks_later_client_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_input: str
+) -> None:
+    layout = _layout(tmp_path)
+    fake = FakeRclone(layout)
+    material = stage.SecretMaterial.from_text("fixture-passphrase")
+    original_archive = stage._write_deterministic_archive
+
+    def change_supporting_input(*args, **kwargs):
+        result = original_archive(*args, **kwargs)
+        layout[changed_input].write_bytes(b"changed supporting input with a new size")
+        fake.config_remote = None
+        return result
+
+    monkeypatch.setattr(stage, "_write_deterministic_archive", change_supporting_input)
+    with pytest.raises(stage.ArchiveStageError) as caught:
+        _run(layout, fake, secret_loader=lambda _path: material)
+    assert caught.value.code == "supporting_input_drift"
+    assert [call[0][8] for call in fake.calls] == ["config", "version", "config"]
+    receipt = _receipt(layout)
+    assert receipt["status"] == "FAIL_CLOSED"
+    assert receipt["encrypted_object"]["state"] == "copy_not_attempted"
+    assert receipt["verification"]["deterministic_compression"] == "PASS"
+    assert receipt["verification"]["supporting_inputs_stable"] == "NOT_RUN"
+    assert receipt["source_retained"] is True
+    assert receipt["deletion_authorized"] is False
+    assert stage.receipt_hash_valid(receipt)
+    assert material.utf16_bytes == bytearray(len("fixture-passphrase") * 2)
+
+
+@pytest.mark.parametrize("misbinding", ("cloud", "wrong_root"))
+def test_root_binding_is_rechecked_after_compression_without_identity_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, misbinding: str
+) -> None:
+    layout = _layout(tmp_path)
+    fake = FakeRclone(layout)
+    config_before = stage._regular_identity(layout["config"], label="fixture config")
+    material = stage.SecretMaterial.from_text("fixture-passphrase")
+    other_root = tmp_path / "other-ciphertext"
+    other_root.mkdir()
+    original_archive = stage._write_deterministic_archive
+
+    def change_returned_root(*args, **kwargs):
+        result = original_archive(*args, **kwargs)
+        fake.config_remote = None if misbinding == "cloud" else other_root
+        return result
+
+    monkeypatch.setattr(stage, "_write_deterministic_archive", change_returned_root)
+    with pytest.raises(stage.ArchiveStageError) as caught:
+        _run(layout, fake, secret_loader=lambda _path: material)
+    assert caught.value.code == (
+        "rclone_remote_not_local_crypt" if misbinding == "cloud"
+        else "rclone_ciphertext_root_mismatch"
+    )
+    assert stage._regular_identity(layout["config"], label="fixture config") == config_before
+    assert [call[0][8] for call in fake.calls] == [
+        "config", "version", "config", "config", "config"
+    ]
+    receipt = _receipt(layout)
+    assert receipt["status"] == "FAIL_CLOSED"
+    assert receipt["encrypted_object"]["state"] == "copy_not_attempted"
+    assert receipt["verification"]["rclone_local_ciphertext_root"] == "NOT_RUN"
+    assert receipt["verification"]["supporting_inputs_stable"] == "NOT_RUN"
+    assert receipt["source_retained"] is True
+    assert receipt["deletion_authorized"] is False
+    assert stage.receipt_hash_valid(receipt)
+    assert material.utf16_bytes == bytearray(len("fixture-passphrase") * 2)
 
 
 @pytest.mark.parametrize("misbinding", ("cloud", "wrong_root", "wrong_type"))
@@ -566,7 +842,8 @@ def test_source_drift_during_initial_hash_fails_before_copy(
     monkeypatch.setattr(stage, "_hash_open_handle", drift_after_hash)
     with pytest.raises(stage.ArchiveStageError, match="initial hash"):
         _run(layout, fake)
-    assert not fake.calls
+    assert [call[0][8] for call in fake.calls] == ["config", "version", "config"]
+    assert not any(call[0][8] == "copy" for call in fake.calls)
     assert _receipt(layout)["status"] == "FAIL_CLOSED"
 
 
