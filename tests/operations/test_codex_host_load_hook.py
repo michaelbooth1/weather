@@ -1226,6 +1226,14 @@ def test_remote_workstation_transport_keeps_module_and_argument_gates(monkeypatc
         assert HOOK.evaluate(payload(changed), constrained_capture_host=True)
 
 
+def test_local_workstation_rejects_live_switches_with_values():
+    for switch in ("--live=true", "--execute=1", "--place=yes", "--cancel=all", "--promote=x"):
+        command = workstation_wrapper_command(
+            "weather_heavy", ["-m", "weather.operations.nightly_retrain", switch]
+        )
+        assert HOOK.evaluate(payload(command), constrained_capture_host=False)
+
+
 def test_original_ambiguous_ssh_launch_remains_denied():
     command = (
         "ssh -o BatchMode=yes weather-workstation powershell -NoProfile "

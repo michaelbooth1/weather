@@ -2991,7 +2991,7 @@ def _approved_workstation_arguments(kind: str, encoded: str) -> bool:
         return module == "compileall"
     return bool(
         module in _OFFLINE_WEATHER_MODULES
-        and not any(_LIVE_ARGUMENT.fullmatch(value) for value in arguments[2:])
+        and not any(_LIVE_ARGUMENT.match(value) for value in arguments[2:])
     )
 
 
