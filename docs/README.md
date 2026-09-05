@@ -20,6 +20,7 @@ record that is valuable evidence but not current instruction.
 | Documentation ownership and drift prevention | [Documentation maintenance](documentation-maintenance.md) | Canonical guide |
 | End-to-end project operation | [Project operating SOP](operations/PROJECT_OPERATING_SOP.md) | Canonical runbook |
 | Bounded International market-making live test | [International MM live pilot](operations/INTERNATIONAL_MM_LIVE_PILOT.md) | Canonical runbook |
+| Explicit-input maker reward and capital scenarios | [Maker incentive feasibility](operations/maker-incentive-feasibility.md) | Canonical diagnostic contract |
 | Move the attended live executor to another PC | [Portable live execution host](operations/PORTABLE_LIVE_EXECUTION_HOST.md) | Canonical runbook |
 | **Capture streak, quiet-window merges, host safety** | [Code-soak streak runbook](ops/streak-soak.md) | Canonical runbook |
 | **Overnight integration and recovery** | [Immutable integration attempts](operations/INTEGRATION_ATTEMPT_RUNBOOK.md) | Canonical runbook |
