@@ -1826,8 +1826,9 @@ arrive, and a stopped reader cannot satisfy Stage 0. The caller
 must cancel all and reconcile to zero before any new session; silent reconnect
 during an outstanding order is forbidden.
 
-Use the public official `GET /rebates/current?date=...&maker_address=...`
-response for the completed next payout cycle. Count only rows matching the
+The legacy report's rebate calculation uses the public official
+`GET /rebates/current?date=...&maker_address=...` response for the completed next
+payout cycle. It counts only rows matching the
 pilot's exact date, maker address, and condition ID; sum `rebated_fees_usdc`.
 The program document calls the payout asset pUSD while this API document calls
 that amount USDC and returns an `asset_address`. Preserve both documented terms
@@ -1872,6 +1873,112 @@ rate. Makers pay zero. For every taker or flattening fill, independently compute
 `shares * (fee_rate_bps / 10000) * price * (1 - price)` and round to five pUSD
 decimal places before summing. The reported amount and content hash must match
 that calculation exactly.
+
+### Offline paid-incentive reconciliation
+
+`weather.market.mm_exchange_reports.reconcile_incentive_payments` accepts
+supplied normalized evidence and performs no account, wallet or network read.
+Its schema IDs are registered as `mm_paid_incentive_evidence`,
+`mm_paid_incentive_reconciliation` and `mm_paid_incentive_pilot_report` in
+`weather.schema_registry`. The legacy adapter/report schema remains unchanged.
+The new path is an offline accounting contract; it does not implement a venue
+reader or grant readiness, credential, exchange or live authority.
+
+The evidence object contains `schema_version`, `scope`, `as_of_utc`, `sources`,
+`accruals`, `distributions`, `wallet_credits` and
+`excluded_external_credit_ids`. The exact `scope` keys are `maker_address`,
+`condition_id`, `cash_asset`, `accrual_start_utc`, `accrual_end_utc`,
+`cash_start_utc` and `cash_end_utc`. IDs use canonical lowercase EVM hex.
+The asset marker is the exact Polygon chain ID `137`, official pUSD collateral
+proxy address from `mm_official_adapter`, symbol `pUSD` and integer decimals
+`6`. Historical `_usdc` output suffixes retain native pUSD values; no exchange
+rate or conversion is inferred from a field name.
+
+All times must carry a UTC offset and normalize to UTC. Accrual and cash
+windows are half-open; the accrual window must end no later than the cash
+window, and the cash window must end no later than `as_of_utc`. Each of the
+three source entries records `status=OBSERVED`,
+`query_scope=exact_account_asset_period`, request/response SHA-256 hashes,
+`observed_at_utc`, `coverage_through_utc`, and strict boolean `complete`,
+`pagination_complete` and `payout_cycle_complete` markers. Its `request_scope`
+must name the exact maker and cash asset, `condition_scope=account`, and
+`period_start_utc`/`period_end_utc`: the accrual window for accruals, accrual
+start through cash end for distributions, and the cash window for wallet
+credits. Coverage cannot extend beyond observation, and observation cannot
+extend beyond the evidence's as-of time. Missing/unsupported receipts are
+invalid; partial pagination or coverage remains unresolved and cannot prove
+a cash zero. These hashes retain supplied provenance, not an independent
+authentication of a caller's completeness assertions.
+
+Every row includes maker, native asset, observed time, source-record SHA-256,
+and a decimal-string `amount`. Accrual rows name a stable `accrual_id`,
+programme (`maker_rebate` or `liquidity_reward`), condition (or explicit `null`
+for portfolio accrual), earned period and status `ESTIMATED`, `ACCRUED` or
+`COMPLETED_ZERO`. Only completed-zero rows may have zero amount.
+Distribution rows name `distribution_id`, `accrual_id`, the same programme
+and condition, and `PAID` with `credit_id` or `PENDING` with `credit_id=null`.
+Wallet rows name chain ID, transaction hash, integer log index, credited time
+and `CONFIRMED`, `PENDING` or `FAILED`. A credit ID is the canonical
+`137:<transaction_hash>:<log_index>` string. A confirmed credit must lie in
+the cash window, follow the earned period and precede its wallet observation.
+A distribution can be observed before later chain settlement; retrospective
+matching uses the explicit identity after both are observed.
+
+Match only the declared distribution-to-credit identity with exactly equal
+native micro-units. Never guess a match from equal amounts. The same credit
+cannot fund two distributions, cross both programmes or also appear among
+external-flow exclusions. Total matched distributions cannot exceed the final
+accrual. An identical normalized row is idempotent; conflicting reuse of a
+record ID is invalid. Duplicate hashes and observation times remain in result
+provenance. A missing confirmed credit, unattributed wallet credit, or paid
+portfolio/other-condition distribution keeps selected-condition cash
+unresolved. Results retain accrual, distribution and matched-payment states
+and exact amount strings separately for each programme.
+
+A positive unpaid accrual, including an amount below a payout threshold,
+does not become cash. Complete closed-window evidence can establish paid
+zero while reporting that accrual as unpaid; `accruals_fully_paid` remains
+false. Estimated accrual and unknown accrual attribution are recorded
+separately from cash completeness. A fully observed empty query can establish
+zero; an unobserved, partially covered or missing query cannot. This helper
+does not assert a current payout threshold or campaign entitlement.
+
+To include matched payments in financial reports, pass
+`incentive_schema_version=schema_version("mm_paid_incentive_reconciliation")`
+to `build_financial_reconciliation` or `build_pilot_report_payload`, with the
+evidence under `rewards.paid_incentive_evidence`. Supplying that block without
+the selector, or an unsupported selector/schema, fails closed and cannot fall
+back to the legacy rebate scalar. Old rebate-only helpers reject the new block.
+The pilot payload uses its separate schema; its renderer rejects new paid
+fields under a legacy schema and explicitly displays paid liquidity rewards
+and the pUSD asset marker.
+
+The financial identity still requires complete confirmed-trade fee evidence,
+observed zero closing positions and gross settlement P&L that excludes fees
+and incentives. Financial identity, balances, actual-fee evidence, redemption
+and position evidence must each bind the exact maker, condition, native asset
+and `cash_period={start_utc, end_utc}`. The position query's `observed_at_utc`
+must be at or after cash end and no later than the incentive evidence's as-of
+time. The identity additionally requires
+`external_cash_flows_exclude_incentives=true` and
+`external_cash_flow_credit_ids` equal to the sorted excluded credit IDs.
+
+For this explicit version, raw starting/ending cash, external flows, gross
+settlement P&L, redemption and actual fees must be decimal strings with at
+most twelve whole and six fractional digits. Signed flows and P&L are
+supported; wallet balances, fees and redemption are nonnegative. Floats, exponent notation,
+nonfinite values and excess precision/magnitude are rejected. The new identity
+uses integer native micro-units throughout and exports exact six-decimal
+strings in `native_cash_identity`:
+
+`ending_cash - starting_cash - external_flows = gross_settlement_pnl + paid_maker_rebate + paid_liquidity_reward - actual_fees`
+
+The existing ten-micro-unit (`0.00001` pUSD) residual tolerance is preserved;
+redemption is validated separately and is not added to gross P&L again.
+Legacy arithmetic and its report fields retain their compatibility behavior.
+A financial reconciliation with paid liquidity rewards and no fills may be
+complete, while the pilot still lacks live fills, markouts and paper
+counterfactual quotes. It does not establish profitable execution or readiness.
 
 `MATCHED` is not settlement. Follow every trade through the authenticated
 stream and REST reads until `CONFIRMED` or `FAILED`; a placement response may
