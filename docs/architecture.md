@@ -73,7 +73,13 @@ daily-roll liveness classification.
 
 - Runtime market behavior: built-in `MarketSpec` values in
   `weather.market.market_registry`, optionally overlaid by the configured
-  external registry.
+  external registry. ID lookup defaults only for an absent (`None`) ID;
+  explicit unknown, blank, padded or non-string IDs are errors. Market configs
+  retain the resolved ID alongside its native unit, local-date timezone and
+  canonical event slug. An explicit event slug must identify one registered
+  market/date; conflicting slug fields and capture identity overrides fail
+  before token rows are built. Absent-event date fallback remains available
+  to legacy config callers; it does not repair an explicit invalid slug.
 - Broader location/source planning: `config/locations.json`. It is not the same
   set as the built-in live market registry.
 - Volatile Gamma event metadata: generated

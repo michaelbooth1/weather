@@ -172,8 +172,10 @@ def token_rows_from_event(event, market_id=None, captured_at=None):
     to join fast book captures back to model bands.
     """
     config = config_from_event(event)
-    market_id = market_id or config.market_id
-    spec = spec_for_id(market_id)
+    spec = spec_for_id(config.market_id if market_id is None else market_id)
+    if spec.id != config.market_id:
+        raise ValueError("market id does not match event slug")
+    market_id = spec.id
     captured_at = captured_at or utc_now()
     captured_at_local = captured_at.astimezone(spec.tz)
     rows = []
@@ -1070,10 +1072,12 @@ def capture_event_books(
 ):
     captured_at = now or utc_now()
     config = config_from_event(event)
-    market_id = market_id or config.market_id
+    market_id = config.market_id if market_id is None else market_id
+    # Reject an invalid identity before allocating a store or writing failure
+    # status under an event directory that belongs to another market.
+    all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
     store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
     clob_client = clob_client or ClobClient()
-    all_token_rows = []
     token_rows = []
     summaries = []
     level_rows = []
@@ -1085,7 +1089,6 @@ def capture_event_books(
     midpoint_by_token = {}
     stage = "tokens"
     try:
-        all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
         token_rows = filter_token_rows(all_token_rows, outcomes=outcomes)
         token_lookup = {str(row["clob_token_id"]): row for row in token_rows if row.get("clob_token_id")}
         stage = "order_books"
@@ -1308,10 +1311,10 @@ def capture_event_enrichment(
 
     captured_at = now or utc_now()
     config = config_from_event(event)
-    market_id = market_id or config.market_id
+    market_id = config.market_id if market_id is None else market_id
+    all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
     store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
     clob_client = clob_client or ClobClient()
-    all_token_rows = token_rows_from_event(event, market_id=market_id, captured_at=captured_at)
     token_rows = filter_token_rows(all_token_rows, outcomes=outcomes)
     token_lookup = {
         str(row["clob_token_id"]): row
@@ -1843,12 +1846,12 @@ def record_market_websocket(
     websocket_factory=None,
 ):
     config = config_from_event(event)
-    market_id = market_id or config.market_id
-    store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
+    market_id = config.market_id if market_id is None else market_id
     token_rows = filter_token_rows(
         token_rows_from_event(event, market_id=market_id, captured_at=utc_now()),
         outcomes=outcomes,
     )
+    store = MarketMicrostructureStore(root=root, event_slug=config.event_slug)
     token_ids = [row["clob_token_id"] for row in token_rows]
     if not token_ids:
         return {"event_slug": config.event_slug, "market_id": market_id, "messages": 0, "reason": "no token ids"}
