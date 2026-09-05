@@ -468,3 +468,72 @@ passed. It has not been adopted on production, whose master remains
 `6714b77d8bb57fa36b4d2dd33675cab971ef2432`; the two generated-config changes
 remain preserved. Source publication and passing CI do not close storage
 qualification, admission, restore or whole-W11 acceptance.
+
+## 2026-09-05 10:52: signed-in v3 staging passes; cloud ciphertext transfer remains open
+
+The user completed the full **59-case native suite in 4.00 seconds**, with zero
+failures, errors or skips, then staged `real-pilot-clob-console-20260713-v3`
+successfully at `2026-09-05T14:52:24.081037Z` (10:52:24 Toronto). This supersedes
+the pending-v3 status above. The v1/v2 failures and their retained outputs stay
+unchanged. The stage used the clean reviewed repair
+`5e9b60e9d9f346346c0d8ef7de751fc43130d402`, tree
+`763479ae1cc43680e85686d5261e7ea47805a21d`, and the exact source hash recorded
+in the preceding entry.
+
+The production-local evidence copies are below. Raw file hashes identify the
+retained bytes; the manifest and receipt also carry their validated canonical
+self-hashes. These ignored paths are not assumed present in a clean checkout.
+
+| Evidence under `scratch/handoffs/` | Bytes | Raw file SHA-256 |
+| --- | ---: | --- |
+| `archive-v3-signedin-tests-20260905.xml` | 9,683 | `E37C93FFB4B5CB4CBB2B1DB87DA2B1AD82E1D4B3F43059A855742C3E14994521` |
+| `real-pilot-clob-console-20260713-v3.manifest.json` | 2,965 | `7E9E5C0A9E4B057D8FCFC1F99DCCA27D0C7FC90A04AF5D28BABE542958AA56B6` |
+| `real-pilot-clob-console-20260713-v3.receipt.json` | 1,948 | `0D807A767466B507927723D319627EE49346FFF2700FC093D4F752117A7AAA5E` |
+
+The manifest self-hash is
+`d09f992c69d0699697f38dff64b4f8ea8f1396db800f24600655dcef8ecacfbe`;
+the receipt self-hash is
+`07175b64d1da895ab5d148a03aa623db1f9b71564747924c4cb49072115ce070`.
+The exact content identities are:
+
+| Content | Bytes | SHA-256 |
+| --- | ---: | --- |
+| Retained source log | 513,522,801 | `f7ec8f220a822efd8795787f3f2e972ea30eb1a14faec1bea8ae5b6d15333a76` |
+| Normalized single-member ustar/gzip archive | 136,737,007 | `0138722280a95350a128bb6e05541b98a6260bf27215452842a6642bc86200fb` |
+| Retained ciphertext | 136,770,431 | `9c5373acdbdb0c10cc0f82724248614d836e396b94c0a525c1f17d3d8748b5c3` |
+
+The source is `clob_loop_console.20260713T145512118267Z.log`, relative to the
+frozen source root, with pinned last-write time
+`2026-07-13T14:54:56.930115700Z`. The archive member is `payload`; the manifest
+owns its normalization fields and exact relative ciphertext path. All 13
+staging checks passed, including source stability, deterministic compression,
+encrypted config/root binding, destination absence, create-only copy,
+cryptcheck and stable exact ciphertext creation. The encrypted-object state is
+`verified_retained`.
+
+A separate check through the canonical workstation admission wrapper passed
+**one test in 0.30 seconds**. It validated both self-hashes, the exact loaded
+source and repository binding, the 59-case JUnit result and the stage's evidence
+flags, and freshly hashed the 136,770,431-byte ciphertext to the value above.
+This qualifies the staged transport input; it is not an independent cloud
+download or restore proof.
+
+At September 5 15:15 UTC, the safe
+[manifest](https://drive.google.com/file/d/10scmcIM5KgzepOnTZP-Kng1c-6Chid_1/view)
+and [staging receipt](https://drive.google.com/file/d/18sSnud6DjARSr4V_JnD5JhUBuB2XRu_t/view)
+were copied to the
+[private v3 folder](https://drive.google.com/drive/folders/1yyxRgtTJlEY87ZOAoZDGwM8kzPO_y27J).
+API metadata confirmed their respective 2,965/1,948-byte sizes, exact parent
+`1yyxRgtTJlEY87ZOAoZDGwM8kzPO_y27J`, `shared=false` and owner-only access for
+Michael's account. The original stage records remain immutable pre-upload
+evidence; their `Drive_upload_performed=false` fields are not rewritten.
+
+Ciphertext transfer remains pending. No independent download, restore or
+reclaim has occurred. The stage is explicitly `provisional_mirror_copy`, with
+`production_identity_not_proved=true`, `source_retained=true`,
+`cleanup_eligible=false`, `deletion_authorized=false` and
+`restore_performed=false`. Safe JSON copies and local cryptcheck do not close
+those gates. Next is intact ciphertext transfer, independent download and
+qualification of the canonical real restore path. Preserve every attempt,
+source and output; production identity and exact-manifest reclaim remain
+separate, unproved steps under their existing admission and retention contracts.
