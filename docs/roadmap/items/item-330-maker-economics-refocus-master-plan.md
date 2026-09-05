@@ -624,8 +624,8 @@ current account state, or any new live receipt.
 | Package | Disposition and evidence | Next non-live action / owner |
 | --- | --- | --- |
 | W0 | PARTIAL: production ancestry and current blockers refreshed in [state of play](../../operations/STATE_OF_PLAY.md). Production-local status evidence is `scratch/handoffs/maker-baseline-status-20260905.json`, SHA-256 `8496E3FA3CEBEA59A28C593C599EF42E2363DBAAF9DB991B6F5E5BDC8A3016D9`. The recurring metadata inventory covers 30 definitions with proposed owners/dispositions in `scratch/handoffs/maker-recurring-jobs-20260905.md`, sourced from `maker-scheduler-inventory-20260905.json` in the same directory, SHA-256 `709D039F6406B13E730115E7B6363E897605E8F552BBC569E2F9F3FB36DE77F5`. One optional recurrence was subsequently held as recorded below. Monitor-reported settlement holes remain unvalidated. | Operations: adopt further bounded job dispositions only after consumer review, finish mixed-chain step ownership and validate exact settlement gaps. Whole-W0 completion is not claimed. |
-| W1 | PARTIAL: published `codex/maker-governance-20260905` at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [draft PR 16](https://github.com/michaelbooth1/weather/pull/16), replaces the exact warning-count ratchet with a named allowance, binds handoffs to task/host/scope, and permits documented unchanged reviews tied to committed blobs. Index/worktree edits, stale reviews and failed documentation checks still refuse. Independent review and exact-head Linux CI passed; production integration remains pending. | Integration owner: guarded adoption. Broader role/instruction reconciliation and findings compression remain open. |
-| W2 | PARTIAL: published `codex/maker-market-identity-20260905` at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [draft PR 17](https://github.com/michaelbooth1/weather/pull/17), rejects explicit invalid IDs, binds market/date/slug identity and validates capture identity before any status mutation. The first Linux run found three placeholder event slugs in feature-store fixtures; the follow-up uses canonical same-date Toronto/NYC identities without weakening validation. Full feature-store workstation verification passed; new CI and production integration remain pending. Atomic paired configuration publication and generated-state migration remain open. | Market/operations: finish exact-head checks, then trace and implement the smallest safe consistent-publication change. Preserve the two generated production config modifications. |
+| W1 | PARTIAL: `codex/maker-governance-20260905` at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), replaces the exact warning-count ratchet with a named allowance, binds handoffs to task/host/scope, and permits documented unchanged reviews tied to committed blobs. Index/worktree edits, stale reviews and failed documentation checks still refuse. Independent review and exact-head Linux CI passed. Guarded production merge `f570f0286194a5abe516e0e73f971038074ceb0a` passed at 00:38 with all three capture workers healthy and publication acknowledged. | Integration owner: close the documentation transaction after current prose is adopted. Broader role/instruction reconciliation and findings compression remain open. |
+| W2 | PARTIAL: published `codex/maker-market-identity-20260905` at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [draft PR 17](https://github.com/michaelbooth1/weather/pull/17), rejects explicit invalid IDs, binds market/date/slug identity and validates capture identity before any status mutation. The first Linux run found three placeholder event slugs in feature-store fixtures; the follow-up uses canonical same-date Toronto/NYC identities without weakening validation. Full feature-store workstation verification and exact-head Linux CI passed. Controlled production integration, atomic paired configuration publication and generated-state migration remain open. | Market/operations: guarded 01:00-04:00 adoption, then the smallest safe consistent-publication change. Preserve the generated production config contents. |
 | W3 | IN PROGRESS: read-only source/reader inventory is complete. No current qualifying campaign, exact-condition opportunity, incentive payout or after-cost economics is proved. | Market: build the explicit-input calculator with adjusted-midpoint provenance and competitor-score scenario ranges. Public aggregate depth cannot identify the nonlinear per-maker denominator; preserve that uncertainty in G1. |
 | W11 / item 325 | PARTIAL: unfinished off-site work taken over. Preserve the spent `real-pilot-clob-console-20260713-v1` failure. Repair `aea427fb7faf0b5fd67b8893b62b11fe649e71ea` is stacked on adapter `2d586da6dcfe2e0955154fd0dd0a2e5b1076af40`: encryption preflight precedes source staging and is revalidated after compression. Exact-source verification passed 51 tests and failed two genuine PowerShell protection fixtures before the loader; separate archive/ratchet verification passed 48 tests. Interactive-context diagnosis remains pending. No new upload, restore proof, deletion or reclaimed bytes. | Storage owner: diagnose the native user-context boundary, preserve all spent namespaces, then prove exact encrypted transfer and restore before manifest-bound reclaim. The paused unverified mirror is not a substitute. |
 | W5-W7 | BLOCKED for real sessions by the owner's no-live instruction. Integrated portable source and successful offline tests do not remove that boundary or qualify a new attempt. | Owning packages: continue offline lifecycle/accounting fixtures and prospective design only. Preserve the existing G2-G4 requirements. |
@@ -642,7 +642,9 @@ W1's [exact-head Linux CI](https://github.com/michaelbooth1/weather/actions/runs
 passed 4,201 tests and 860 subtests with 258 skips, including compilation,
 agent-document and roadmap checks. W2's fixture follow-up passed 33 workstation
 tests including the complete feature-store file and source-identity assertion;
-new CI remains pending. Production adoption remains separate. These results
+its [exact-head Linux CI](https://github.com/michaelbooth1/weather/actions/runs/33944457247)
+passed 4,199 tests and 921 subtests with 258 skips. W2 production adoption remains
+separate. These results
 do not validate the entire programme or prove economics.
 
 Retained production-local rollout evidence is
@@ -651,6 +653,15 @@ Retained production-local rollout evidence is
 These September 5 00:07 reports precede publication; rerun the canonical verdict
 against the exact published tip and current production state before adoption.
 These ignored evidence paths are not assumed present in a clean checkout.
+
+W1 terminal adoption receipt is
+`scratch/handoffs/maker-governance-adoption-20260905.json`, SHA-256
+`601987610A35EAE65B73DB349237ADC4977E8F28B058208B6D9A3B549D898951`.
+The guard preserved both generated config byte hashes in commit
+`19c25ad33de968e4b2c376346b192fee7eb8c9bc`, staged the reviewed merge, waited
+300 seconds, proved all three capture workers healthy, committed and published
+through WeatherOneShotPush, then verified local/cached/live master equality.
+No live trading occurred. The full W1 package and documentation debt remain open.
 
 All completion boxes remain open until their full acceptance or explicit bounded
 disposition is supported. W8-W10 and W12 retain their original dependencies and
