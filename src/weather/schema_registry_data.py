@@ -850,6 +850,20 @@ REGISTERED_SCHEMAS = (
         "Create-only restore-drill receipt with exact archive and restored-file parity.",
     ),
     SchemaSpec(
+        "workstation_cold_archive_stage_manifest",
+        "workstation_cold_archive_stage_manifest_v0.1",
+        "weather.operations.workstation_cold_archive_stage",
+        "active",
+        "Create-only provisional mirror-copy compression, encrypted staging, and exact ciphertext identity manifest.",
+    ),
+    SchemaSpec(
+        "workstation_cold_archive_stage_receipt",
+        "workstation_cold_archive_stage_receipt_v0.1",
+        "weather.operations.workstation_cold_archive_stage",
+        "active",
+        "Terminal success or fail-closed receipt for one workstation encrypted-staging attempt.",
+    ),
+    SchemaSpec(
         "event_day_manifest",
         "event_day_manifest_v0.1",
         "weather.operations.event_day_manifest",

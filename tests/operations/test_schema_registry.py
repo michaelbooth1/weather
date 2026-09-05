@@ -398,6 +398,14 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("event_day_manifest_backfill"), "event_day_manifest_backfill_v0.1")
         self.assertEqual(schema_version("event_day_manifest_writer"), "event_day_manifest_writer_v0.1")
         self.assertEqual(schema_version("cleanup_manifest"), "cleanup_manifest_v0.1")
+        self.assertEqual(
+            schema_version("workstation_cold_archive_stage_manifest"),
+            "workstation_cold_archive_stage_manifest_v0.1",
+        )
+        self.assertEqual(
+            schema_version("workstation_cold_archive_stage_receipt"),
+            "workstation_cold_archive_stage_receipt_v0.1",
+        )
         self.assertEqual(schema_version("cleanup_preflight"), "cleanup_preflight_v0.1")
         self.assertEqual(schema_version("model_artifact_externalization"), "model_artifact_externalization_v0.1")
         self.assertEqual(schema_version("model_artifact_promotion_preflight"), "model_artifact_promotion_preflight_v0.1")

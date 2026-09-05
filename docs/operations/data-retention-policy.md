@@ -120,6 +120,16 @@ and gates cleanup-plan generation on exact archive verification and a successful
 restore receipt. It contains no production transport or delete executor and
 does not change any retention period or current reader.
 
+The same contract now owns a separate provisional workstation staging adapter
+for one already-rotated mirror file. It deterministically compresses at most
+1 GiB, proves that an encrypted rclone config wraps the exact explicit local
+ciphertext root, copies with immutable/create-only flags, cryptchecks the
+result, and writes self-hashed terminal evidence. The adapter is admitted only
+as the literal `weather.operations.workstation_cold_archive_stage` module under
+the workstation-heavy wrapper. Every receipt remains
+production-identity-unproved and deletion-ineligible; no real source, key,
+cloud target, restore, or cleanup is part of the build-and-test evidence.
+
 `config/storage_pressure.json` owns the capture switch. The checked-in value
 `capture.write_order_books_long_csv=true` preserves current behavior. Missing,
 malformed, wrong-schema, duplicate-key, or non-boolean policy also fails safe

@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - VERIFIED FIXTURE FOUNDATION BUILT; PRODUCTION OFFLOAD AND DELETION NOT AUTHORIZED]
+# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - PROVISIONAL LOCAL ENCRYPTED STAGING BUILT; PRODUCTION OFFLOAD AND DELETION NOT AUTHORIZED]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -330,6 +330,41 @@ mirror-topology separation, a real restore drill, and separately reviewed prune
 ledger/execution work. Raw capture can contain sensitive request material and
 must never be uploaded unencrypted. `/E`-equivalent append-only copy semantics
 remain required; `/MIR` and destructive `rclone sync` remain forbidden.
+
+## 2026-09-11 provisional workstation encrypted staging adapter
+
+The next build-only slice adds the default-off
+`weather.operations.workstation_cold_archive_stage` module and admits only that
+literal module through the existing workstation-heavy `weather_heavy` lane.
+It accepts one regular, non-reparse, operator-pinned provisional mirror file up
+to 1 GiB; creates one deterministic normalized single-member `tar.gz`; and
+stages it through an already configured encrypted rclone config whose named
+crypt remote must wrap the exact explicit local ciphertext root.
+
+The adapter recovers the DPAPI CurrentUser-protected config password only in
+process and passes it only as `RCLONE_CONFIG_PASS` in a private bounded-child
+environment. It uses no shell or password argv, permits no destructive rclone
+verb, refuses a pre-existing local object, manifest, receipt, archive ID,
+logical remote destination, mapped ciphertext, or retained partial, and runs
+one-transfer/one-checker immutable copy plus `cryptcheck`. Exact before/after
+ciphertext inventory and source rehashing gate create-only self-hashed manifest
+and receipt publication. Failure after a copy attempt retains the encrypted
+state and writes `FAIL_CLOSED` evidence rather than retrying or cleaning it.
+
+Fixture-only adversarial tests substitute DPAPI and rclone behavior. No real
+mirror data, production data, config, key, credential, remote, Drive target,
+restore, cleanup, or delete operation was accessed. Every receipt is permanently
+`production_identity_not_proved=true`, `cleanup_eligible=false`, and
+`deletion_authorized=false`, and the module contains no deletion executor. The
+schema additions are additive-only; because `schema_registry_data.py` belongs
+to every live capture closure, this branch remains roll-sensitive at production
+merge.
+
+This does not complete a production scope checkbox. A separately authorized
+run must still bind authoritative production selection, perform real encrypted
+off-site transfer, complete and review a restore drill, split mirror semantics,
+and add the independent prune ledger/executor before any source can become
+deletion-eligible. The intended real source remains deletion-ineligible.
 
 Acceptance:
 

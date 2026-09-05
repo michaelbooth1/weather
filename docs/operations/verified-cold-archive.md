@@ -97,19 +97,82 @@ rejects duplicate or unexpected members, links, special members, traversal,
 missing members, truncation, and destination drift. A requested
 `verified_cold_archive_verification_receipt_v0.1` is written create-only.
 
-Cloud transport is a separate, still-unimplemented adapter and preflight. The
-eventual off-site adapter is `rclone` to Google Drive through an `rclone crypt`
-remote, followed by `rclone cryptcheck` or an equivalently verified encrypted
-transport. It must preserve append-only copy semantics equivalent to
-`robocopy /E`, and must never expose `/MIR`, `rclone sync`, remote deletion, or
-overwrite behavior. Archive-format code must not import or configure Drive or
-`rclone`.
+Off-site cloud transport remains unimplemented. The eventual off-site adapter
+is `rclone` to Google Drive through an `rclone crypt` remote, followed by
+`rclone cryptcheck` or an equivalently verified encrypted transport. It must
+preserve append-only copy semantics equivalent to `robocopy /E`, and must never
+expose `/MIR`, `rclone sync`, remote deletion, or overwrite behavior.
+Archive-format code must not import or configure Drive or `rclone`.
 
 Credentials, crypt passphrases, OAuth setup, remote creation, and recovery-key
 custody are operator-owned and absent from this repository and command surface.
 Raw capture may contain sensitive request material, including request URLs,
 headers, or provider secrets. It must never be uploaded to a third-party target
 without encryption, even when a content scan appears clean.
+
+## Provisional workstation encrypted staging
+
+`weather.operations.workstation_cold_archive_stage` is a separate default-off
+adapter for one already-rotated provisional mirror file. It does not change the
+fixture-only boundary of `verified_cold_archive`, establish production source
+identity, upload to Drive, restore an object, or authorize cleanup. It must run
+as the exact module admitted under `-Kind weather_heavy` by
+`scripts/ops/workstation_heavy.ps1`; the wrapper supplies the host-global mutex,
+tracked workstation identity, and kill-on-close child-tree containment.
+
+The CLI requires `--provisional-mirror-copy` plus explicit absolute
+`--source-root`, `--source-file`, `--staging-root`, `--ciphertext-root`,
+`--receipt-root`, `--rclone-config`, `--dpapi-secret`, and
+`--rclone-executable` paths. It also requires the immutable `--archive-id`, the
+local `--crypt-remote-name`, and operator-pinned `--source-size` and
+`--source-mtime-utc`. The source is limited to 1 GiB, must be a regular
+non-reparse file below the source root and outside the repository, and is read
+without requesting an exclusive writer lock. All output roots must already
+exist, be disjoint and non-reparse, and remain outside repository `data/`.
+
+The named rclone remote must pass `rclone config encryption check`. A bounded
+`rclone config redacted <remote>` inspection must then prove it is a `crypt`
+remote whose wrapped `remote` is the exact absolute local ciphertext root;
+named or cloud backing remotes fail before any destination probe or copy. The
+DPAPI CurrentUser-protected config password is recovered only in process,
+placed only in a private child `RCLONE_CONFIG_PASS`, never placed in argv or
+output, and removed and zeroed as far as the runtime permits. Every other
+ambient `RCLONE_*` override is excluded from the private child environment.
+
+For each archive ID the adapter creates one normalized single-member
+`archive.tar.gz`, with zero timestamps and owner IDs, empty owner names, mode
+`0600`, and stable member name `payload`. Local paths are create-only. The
+adapter proves the logical crypt destination and mapped ciphertext path absent,
+rejects any retained staging partial, and invokes only bounded argument-array
+`copy --immutable` and one-checker `cryptcheck` operations. An exact bounded
+before/after local ciphertext inventory must contain one new regular file and
+no removed or changed pre-existing file. Source size, timestamp, file identity,
+and SHA-256 are checked before and after staging.
+
+Success writes create-only, self-hashed
+`workstation_cold_archive_stage_manifest_v0.1` and
+`workstation_cold_archive_stage_receipt_v0.1` evidence, with exact stable byte readback and self-hash validation before PASS.
+An already-written receipt that fails readback is retained and never rewritten.
+If staging fails after copy has been attempted, it retains every object and
+writes a create-only `FAIL_CLOSED` receipt
+whose encrypted-object state is verified, unverified, or explicitly ambiguous.
+Every outcome permanently states `source_retained=true`,
+`Drive_upload_performed=false`, `restore_performed=false`,
+`production_identity_not_proved=true`, `cleanup_eligible=false`, and
+`deletion_authorized=false`. No cleanup or delete executor exists.
+
+Build the canonical UTF-8/base64 JSON argument array separately, then pass that
+literal value to the wrapper in its fixed parameter order:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File <repo>\scripts\ops\workstation_heavy.ps1 -Kind weather_heavy -PythonPath <absolute-cpython.exe> -ArgumentsBase64 <canonical-base64-json-array> -RepoRoot <repo>
+```
+
+The decoded array begins with
+`["-m","weather.operations.workstation_cold_archive_stage", ...]`. A real run
+requires separate operator authorization and provisioned local paths and keys;
+the build-and-test mission used only temporary fixtures and substituted child
+behavior.
 
 ## Restore drill
 
@@ -153,7 +216,8 @@ python -m weather.operations.verified_cold_archive cleanup-plan --fixture-root <
 
 Production enablement remains a separate reviewed mission. It must supply a
 production selection-proof adapter, prove all current shared dependencies are
-self-contained or included, implement and fixture-test the encrypted transport
-preflight, perform an operator-owned restore drill, split existing mirror
-semantics, and add an independently reviewed deletion/ledger mechanism before
-any local source byte can be reclaimed.
+self-contained or included, connect reviewed production selection to encrypted
+off-site transport, perform an operator-owned restore drill, split existing
+mirror semantics, and add an independently reviewed deletion/ledger mechanism
+before any local source byte can be reclaimed. The provisional staging adapter
+cannot be upgraded into authoritative production mode by a runtime flag.

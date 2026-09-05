@@ -119,7 +119,8 @@ Scoped agent instructions also live in `config/AGENTS.md`,
   reviewed cleanup requirements.
 - [Verified Cold-Archive Foundation](verified-cold-archive.md) defines the
   fixture-only create-only object, verification, restore-drill, and cleanup-plan
-  contracts, plus the separate encrypted transport boundary.
+  contracts, the default-off provisional workstation encrypted-staging adapter,
+  and the still-separate off-site transport boundary.
 - [Closed Market-Day Parquet Archive Contract](closed-market-day-parquet-archive-contract.md)
   defines archive eligibility, manifests, and raw-evidence boundaries.
 - [History Data Design](HISTORY_DATA_DESIGN.md) describes Weather Underground

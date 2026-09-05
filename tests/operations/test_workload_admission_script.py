@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -277,6 +278,22 @@ def test_workstation_wrapper_canonicalizes_modules_before_admission() -> None:
     assert module_path < dot_source_admission < enter_admission
     assert "Get-WeatherWorkstationOfflineModule" in text
     assert "train_serve_feature_parity" not in text
+
+
+def test_workstation_offline_allowlist_narrowly_admits_cold_archive_stage() -> None:
+    text = LEASE_SCRIPT.read_text(encoding="utf-8-sig")
+    match = re.search(
+        r"function Get-WeatherWorkstationOfflineModule\s*\{.*?@\((.*?)\)\s*\}",
+        text,
+        flags=re.DOTALL,
+    )
+    assert match is not None
+    modules = re.findall(r'"([A-Za-z0-9_.-]+)"', match.group(1))
+    assert modules.count("weather.operations.workstation_cold_archive_stage") == 1
+    assert "weather.operations.verified_cold_archive" not in modules
+    assert "weather.operations" not in modules
+    assert "rclone" not in modules
+    assert all(module.startswith("weather.") for module in modules)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows filesystem ACLs")

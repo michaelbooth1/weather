@@ -59,6 +59,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.operations.density_live_replay_parity",
         "weather.operations.nightly_retrain",
         "weather.operations.replay_status_backfill",
+        "weather.operations.workstation_cold_archive_stage",
         "weather.reporting.scorecards.train_serve_feature_parity",
     }
 )
