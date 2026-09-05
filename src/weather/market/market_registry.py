@@ -394,8 +394,18 @@ def build_registry(extra_path=None):
 REGISTRY = build_registry()
 
 
-def spec_for_id(market_id):
-    return REGISTRY.get(market_id or DEFAULT_MARKET_ID, REGISTRY[DEFAULT_MARKET_ID])
+def spec_for_id(market_id=None):
+    """Resolve an exact market ID; only an absent ID selects the default."""
+    if market_id is None:
+        market_id = DEFAULT_MARKET_ID
+    if (
+        not isinstance(market_id, str)
+        or not market_id
+        or market_id != market_id.strip()
+        or market_id not in REGISTRY
+    ):
+        raise ValueError(f"unknown market id: {market_id!r}")
+    return REGISTRY[market_id]
 
 
 def spec_for_slug(slug):

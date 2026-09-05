@@ -721,7 +721,8 @@ class TestFeatureStore(unittest.TestCase):
     def test_snapshot_store_persists_feature_vector(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store = SnapshotStore(root=root, event_slug="event")
+            event_slug = "highest-temperature-in-toronto-on-may-28-2026"
+            store = SnapshotStore(root=root, event_slug=event_slug)
             captured_at = datetime(2026, 5, 28, 12, 0, tzinfo=TORONTO_TZ)
             model_client = TorontoHighTempModel(target_date="2026-05-28")
             model = {
@@ -757,7 +758,7 @@ class TestFeatureStore(unittest.TestCase):
                         "outcomePrices": '["0.30","0.70"]',
                     },
                 ],
-                "slug": "event",
+                "slug": event_slug,
             }
 
             result = store.write(event, model, model_client, captured_at)
@@ -767,6 +768,7 @@ class TestFeatureStore(unittest.TestCase):
             self.assertEqual(result["features_path"], str(root / "features_long.csv"))
             self.assertEqual(result["components_path"], str(root / "components_long.csv"))
             self.assertEqual(rows[0]["snapshot_id"], snapshot_id_for_captured_at(captured_at))
+            self.assertEqual(rows[0]["event_slug"], event_slug)
             self.assertEqual(rows[0]["feature_schema_version"], FEATURE_SCHEMA_VERSION)
             self.assertEqual(len(component_rows), 2)
             self.assertEqual(component_rows[0]["component_schema_version"], "components-v")
@@ -778,7 +780,8 @@ class TestFeatureStore(unittest.TestCase):
     def test_snapshot_store_persists_model_explanation_tape(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store = SnapshotStore(root=root, event_slug="event")
+            event_slug = "highest-temperature-in-toronto-on-may-28-2026"
+            store = SnapshotStore(root=root, event_slug=event_slug)
             captured_at = datetime(2026, 5, 28, 12, 0, tzinfo=TORONTO_TZ)
             model_client = TorontoHighTempModel(target_date="2026-05-28")
             model = {
@@ -826,7 +829,7 @@ class TestFeatureStore(unittest.TestCase):
                         "outcomePrices": '["0.40","0.60"]',
                     }
                 ],
-                "slug": "event",
+                "slug": event_slug,
             }
 
             result = store.write(event, model, model_client, captured_at)
@@ -848,6 +851,8 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(result["observation_payloads_jsonl_path"], str(root / "observation_payloads.jsonl"))
         self.assertEqual(explanation_payload["schema_version"], "snapshot_explanations_v0.1")
         self.assertEqual(explanation_payload["snapshot_id"], snapshot_id)
+        self.assertEqual(explanation_payload["market_id"], "toronto")
+        self.assertEqual(explanation_payload["target_date"], "2026-05-28")
         self.assertIn("model_explanation", explanation_payload["sections"])
         self.assertIn("analog_search", explanation_payload["sections"])
         sections = {row["section"] for row in explanation_rows}
@@ -1048,7 +1053,8 @@ class TestFeatureStore(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            store = SnapshotStore(root=root, event_slug="event")
+            event_slug = "highest-temperature-in-nyc-on-may-28-2026"
+            store = SnapshotStore(root=root, event_slug=event_slug)
             captured_at = datetime(2026, 5, 28, 12, 0, tzinfo=TORONTO_TZ)
             model = {
                 "distribution": {90: 0.10, 91: 0.85, 92: 0.05},
@@ -1065,7 +1071,7 @@ class TestFeatureStore(unittest.TestCase):
                 },
             }
 
-            result = store.write({"slug": "event", "markets": []}, model, RangeModelClient(), captured_at)
+            result = store.write({"slug": event_slug, "markets": []}, model, RangeModelClient(), captured_at)
             long_rows = list(csv.DictReader((root / "snapshots_long.csv").open(encoding="utf-8", newline="")))
             component_rows = list(csv.DictReader((root / "components_long.csv").open(encoding="utf-8", newline="")))
             wide_header = (root / "snapshots_wide.csv").read_text(encoding="utf-8").splitlines()[0]
@@ -1079,6 +1085,7 @@ class TestFeatureStore(unittest.TestCase):
         self.assertEqual(component_rows[0]["bin_value_hi_c"], "91")
         self.assertIn("model_eq_90_91c", wide_header)
         self.assertEqual(snapshot_json["feature_schema_version"], FEATURE_SCHEMA_VERSION)
+        self.assertEqual(snapshot_json["event_slug"], event_slug)
         self.assertEqual(snapshot_json["snapshot_self_check"]["rows_checked"], 1)
 
     def test_snapshot_probability_self_check_rejects_range_metadata_mismatch(self):
