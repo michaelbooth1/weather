@@ -629,3 +629,61 @@ Source PR 23 remains fully qualified on the exact tip above. Documentation
 also passed on `615103f36db39756c62940314218b33fd47bf68b`.
 Private cloud metadata proves neither downloaded content nor a restore.
 Production identity, exact-manifest reclaim and whole-W11 acceptance remain open.
+
+## 2026-09-05 13:20: independent download verified; attended restore qualified
+
+The owner completed the ordinary browser download and confirmed it. The separate
+production Downloads file appeared after the earlier empty checks, with exactly
+136,770,431 bytes. Configuration-free, host-key-pinned SCP transferred this file
+to a freshly checked absent target in the workstation's restricted
+`Codex/archive-offload/download-inbox/v3-drive-download-v1` inbox. The original
+staged ciphertext and upload copy remain retained. No production payload hash ran.
+
+The existing stage checkout at `5e9b60e9d9f346346c0d8ef7de751fc43130d402`
+ran one canonical-admitted verification test: PASS in 0.42 seconds, with no
+failures, errors or skips. It proved the downloaded SHA-256 equals
+`9c5373acdbdb0c10cc0f82724248614d836e396b94c0a525c1f17d3d8748b5c3`
+and its file identity differs from the retained ciphertext. The JUnit is
+`scratch/handoffs/archive-v3-download-verification-20260905.xml`, SHA-256
+`2CB4583F9F85C950A9D506936F8C5420EF9F77D053FEFD56E21F6A57FEC87120`.
+After the successful test, the wrapper failed to capture native stdout for its
+identity record. The controller retained the exact observed JSON, including
+full integer nanosecond and inode precision, without rerunning or replacing the
+passing evidence. This wrapper bookkeeping failure is not a restore attempt.
+
+Fresh Drive metadata again verified exact parents, size and owner-only access.
+`scratch/handoffs/archive-v3-drive-download-permissions-20260905.json` has
+SHA-256 `2D96F4C4A96B80634503CA1084A59541F5FD42FF785F12EAA9A642C26CD87C6B`;
+the retained identity JSON in the same directory is
+`archive-v3-download-identity-20260905.json`, SHA-256
+`8077B2AABF2EC8B3C8CC756E0C78BD3FCDF7EC1BAE7220CBBC6900CD18EB1993`.
+The controller then created and transferred
+`real-pilot-clob-console-20260713-v3.download.receipt.json`, with canonical
+self-hash `c7adde2b892ec4a0f7c165c15d30636c2760977601c263c6ce6467ba4a552aff`
+and raw SHA-256 `B90DF10E81B0AF42CDA089FE59626ACEA32478B3B98A8D50E3BCB3DE7E61EB90`.
+Its source is the production-local `scratch/handoffs` directory; the matching
+workstation copy is under `Codex/archive-offload/receipts`.
+
+The remaining actual-input `CheckOnly` smoke test passed in 1.04 seconds on the
+pinned restore checkout. It validates the exact receipt, current input identity,
+source/tool bindings and restricted paths, and confirms no attempt was created.
+JUnit `scratch/handoffs/archive-restore-runner-input-smoke-20260905.xml` has
+SHA-256 `94DC5B239C1A75A3687C762EF2A3D19066755B393B1DF07A295E90D440A89A0A`.
+Together with the two earlier parser/import checks, all three runner checks pass.
+The reviewed runner and helper hashes above are unchanged.
+
+Run the following once in Michael's ordinary signed-in PowerShell session on
+`DESKTOP-RFCD2GH`. That desktop context is required for the previously verified
+DPAPI recovery; this command is not an SSH/Scheduler launch.
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:/Users/Michael/Documents/Codex/handoffs/run-archive-real-restore-v3-r1-20260905.ps1" -DownloadReceiptHash c7adde2b892ec4a0f7c165c15d30636c2760977601c263c6ce6467ba4a552aff
+```
+
+The canonical workstation wrapper owns admission and child cleanup. Preserve
+any result under `Codex/archive-offload/restore-output/v3-r1` and
+`Codex/archive-offload/receipts/v3-r1.restore.receipt.json`, including failure;
+do not reuse a spent attempt. At this checkpoint the actual restore has not run.
+Production identity, deletion authority and reclaim remain unproved.
+Documentation CI on the preceding `e0b49d8c439685aba9c3d52606f913e84f335841`
+tip passed in [run 33979960831](https://github.com/michaelbooth1/weather/actions/runs/33979960831).
