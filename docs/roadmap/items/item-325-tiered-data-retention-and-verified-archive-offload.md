@@ -313,3 +313,78 @@ Acceptance:
   a restore drill has been executed and recorded.
 - Capture, the daily chain, and barrier resumes complete unchanged for every
   date inside the hot window, and any older date can be restored on demand.
+
+## 2026-09-05: signed-in native fixtures pass; real archive stage remains unproved
+
+The owner authorized takeover of unfinished cold-storage work on September 4.
+This entry records bounded qualification progress; the historical measurements,
+commands and decisions above remain evidence of their own dates. Item 325 and
+[item 330 W11](item-330-maker-economics-refocus-master-plan.md#w11--bound-storage-and-retire-noncontributing-model-work)
+remain open. No new upload, restore proof, deletion or reclaimed bytes is
+established by these checks.
+
+At September 5 09:21:48 America/Toronto, the user ran the unchanged native
+fixtures from an ordinary signed-in PowerShell session on `DESKTOP-RFCD2GH`:
+**53 passed, zero failures, errors or skips**. The retained production-local
+JUnit is `scratch/handoffs/archive-preflight-interactive-20260905.xml`, SHA-256
+`0EFA430989BBA4E7E0ABA6F04685B1F067F173CF2C25AF4DE8E298D06A3637E6`.
+The exact source and frozen test fixture file hashes match published repair
+`aea427fb7faf0b5fd67b8893b62b11fe649e71ea`:
+
+| File | SHA-256 |
+| --- | --- |
+| `src/weather/operations/workstation_cold_archive_stage.py` | `7795308527D65FDB1260E1807DAE0E48A48CA38DFB27F93CFED240CCD19C2D27` |
+| `tests/operations/test_workstation_cold_archive_stage.py` | `DC44C46C013DA2CDE43410BDA0792E770FFC0EC7F5A515908799CB5DDD3A729C` |
+
+The earlier exact-source SSH run remains **51 passed, two failed**: both
+failures occurred in genuine PowerShell protection fixtures before the loader.
+The signed-in result clears that native fixture boundary without changing the
+source or weakening the fixtures. It does not prove loading the actual
+provisioned credential or a real stage, transfer, restore or reclaim.
+The separate 48-test archive/ratchet verification and
+[exact-source Linux CI](https://github.com/michaelbooth1/weather/actions/runs/33944568088)
+also passed. [PR 18](https://github.com/michaelbooth1/weather/pull/18) records the
+source repair and qualification scope. The repair is stacked on adapter
+`2d586da6dcfe2e0955154fd0dd0a2e5b1076af40`: encryption preflight runs before
+source staging and rechecks its binding after compression.
+
+A new clean workstation checkout is prepared at
+`C:/Users/Michael/Documents/github/weather-archive-stage-signedin-20260905`,
+at the same published repair commit and Git tree
+`97adb242ee1af173ff26938a1eafe377d408aedd`. Source remains unchanged.
+The signed-in v2 runner is prepared at
+`C:/Users/Michael/Documents/Codex/handoffs/run-archive-real-stage-v2-20260905.ps1`,
+SHA-256 `C781E1151BB986F23992B5ACD82327CE65DD5A0683132D0E5110E7DACBAE5A80`.
+Independent review passed with no remaining findings. Three bounded smoke
+checks covering parser behavior, actual metadata/ACL handling and the import
+path passed in 0.79 seconds through the canonical workstation admission wrapper.
+Their retained production-local JUnit is
+`scratch/handoffs/archive-signedin-runner-smoke-bounded-20260905.xml`, SHA-256
+`2AEB3084107455CA3DB40374D4D7F091333DDB6E66EF6EC2CCB7187AD71156D0`.
+These exact local paths identify retained evidence and prepared workstation
+files; they are not assumed to exist in a clean checkout.
+
+The user has received the runner; no actual v2 result has yet been recorded.
+Keep spent attempt `real-pilot-clob-console-20260713-v1` unchanged: it failed
+at DPAPI before ciphertext creation and must not be reused or reconstructed.
+The v2 preparation does not establish actual credential loading, ciphertext,
+upload, restore verification or local reclaim. The next evidence is the
+signed-in real-stage result, followed by exact encrypted-transfer and restore
+proof before any manifest-bound reclaim. The paused, unverified workstation
+mirror cannot substitute for that proof.
+
+Fresh production disk metadata from `Get-PSDrive -Name C` at September 5
+09:49:34 reports **40,978,989,056 free bytes (38.16 GiB)**. The retained receipt
+is `scratch/handoffs/archive-native-qualification-disk-20260905.json`, SHA-256
+`E8BB8A7095745E829CDDE5F5CE48F9DF43D3195DA7D2A4A9519411556A40E6A9`.
+The earlier 01:38 status snapshot reported 34 GiB; it remains a dated fact,
+not current capacity. No reclaim by this task or cause of the increase is
+established. Current capacity still falls below the ordinary 50 GiB reserve.
+
+Production admission remains separately binding. At this September 5
+qualification, the capture host was outside its 00:30-09:00 ad-hoc heavy-work
+window. The old 36 GiB hashing proposal has expired and binds spent v1; it is
+not executable authority for v2 even though the later capacity reading exceeds
+36 GiB. Any production hashing or subsequent heavy step needs fresh admission
+under the owning host policy; workstation fixture success changes neither the
+time nor reserve gate.
