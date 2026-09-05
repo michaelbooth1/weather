@@ -1238,6 +1238,27 @@ REGISTERED_SCHEMAS = (
         supersedes=("mm_exchange_adapter_v0.1",),
     ),
     SchemaSpec(
+        "mm_paid_incentive_evidence",
+        "mm_paid_incentive_evidence_v0.1",
+        "weather.market.mm_exchange_reports",
+        "active",
+        "Pure offline normalized account/asset/window accrual, distribution, and wallet-credit evidence.",
+    ),
+    SchemaSpec(
+        "mm_paid_incentive_reconciliation",
+        "mm_paid_incentive_reconciliation_v0.1",
+        "weather.market.mm_exchange_reports",
+        "active",
+        "Exact paid incentive attribution with globally unique wallet-credit allocation and separate unpaid accrual.",
+    ),
+    SchemaSpec(
+        "mm_paid_incentive_pilot_report",
+        "mm_paid_incentive_pilot_report_v0.1",
+        "weather.market.mm_exchange_reports",
+        "active",
+        "Explicit opt-in pilot report adding matched paid liquidity rewards in native pUSD to the existing cash identity.",
+    ),
+    SchemaSpec(
         "mm_exchange_adapter_legacy",
         "mm_exchange_adapter_v0.1",
         "weather.market.mm_exchange",
