@@ -108,7 +108,7 @@ def _row_local_hour(row):
     if parsed is None:
         return None
     try:
-        return parsed.astimezone(spec_for_id((row or {}).get("market_id") or "").tz).hour
+        return parsed.astimezone(spec_for_id((row or {}).get("market_id")).tz).hour
     except Exception:  # noqa: BLE001 - unknown market should fail closed, not crash.
         return parsed.hour
 
