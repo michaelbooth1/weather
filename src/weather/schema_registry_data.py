@@ -864,6 +864,20 @@ REGISTERED_SCHEMAS = (
         "Terminal success or fail-closed receipt for one workstation encrypted-staging attempt.",
     ),
     SchemaSpec(
+        "workstation_cold_archive_download_receipt",
+        "workstation_cold_archive_download_receipt_v0.1",
+        "weather.operations.workstation_cold_archive_restore",
+        "active",
+        "Controller evidence for one private independent ciphertext download and workstation input binding.",
+    ),
+    SchemaSpec(
+        "workstation_cold_archive_restore_receipt",
+        "workstation_cold_archive_restore_receipt_v0.1",
+        "weather.operations.workstation_cold_archive_restore",
+        "active",
+        "Create-only provisional independent restore with ciphertext, archive, and source byte parity; no cleanup authority.",
+    ),
+    SchemaSpec(
         "event_day_manifest",
         "event_day_manifest_v0.1",
         "weather.operations.event_day_manifest",
