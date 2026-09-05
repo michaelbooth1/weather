@@ -537,3 +537,57 @@ those gates. Next is intact ciphertext transfer, independent download and
 qualification of the canonical real restore path. Preserve every attempt,
 source and output; production identity and exact-manifest reclaim remain
 separate, unproved steps under their existing admission and retention contracts.
+
+## 2026-09-05: independent restore source published; intact upload awaits manual file selection
+
+The canonical provisional restore CLI is published in
+[PR 23](https://github.com/michaelbooth1/weather/pull/23), stacked on PR 22 at
+`5e9b60e9d9f346346c0d8ef7de751fc43130d402`. Its reviewed tip is
+`54da9076c10e6d109062c635211fcd273022f94e`, tree
+`9942fdad4744cbfd4af6e61f50de0838ccd57872`. Seven files add the restore owner,
+synthetic/native refusal tests, two additive schemas, the exact workstation
+and Codex-hook module entries, and the owning runbook. The fixture-only tool
+remains outside the heavy-module allowlist. No installed hook was changed.
+
+The final restore/native/source-binding run passed 29 tests in 2.54 seconds.
+Admission and architecture checks passed after the candidate's new files were
+added to its index. The native test exposed that identical existing decrypt
+output could be accepted by rclone's flags; the implementation now checks the
+fresh output directory is empty before launch, and the unchanged refusal test
+passes. Fresh restricted namespaces and the held host mutex remain required.
+Independent review found no remaining actionable findings.
+
+Initial full CI found the missing counterpart in the Codex host-load module
+list. The exact-entry repair passed 58 workstation hook/admission tests with
+15 expected environment skips in 8.822 seconds. The retained JUnit is
+`scratch/handoffs/archive-restore-hook-qualification-20260905.xml`, SHA-256
+`A642239AA8A5207981EBCB77195C2615C1173F1F7CB446C5E7E7FD9A6CF064F1`.
+Full source compilation, agent-documentation audit and generated-roadmap parity
+passed in CI. The final suite on the reviewed tip passed 4,281 tests and 860
+subtests, with 267 skips and one warning, in 323.78 seconds in
+[run 33977144209](https://github.com/michaelbooth1/weather/actions/runs/33977144209).
+The clean workstation restore checkout is pinned to that tip and tree. Only
+synthetic restore fixtures and CLI help have run; no real restore is claimed.
+
+The connector rejected the intact 136,770,431-byte encrypted object because
+its upload limit is 104,857,600 bytes. The browser file chooser also returned
+`Not allowed` after the user enabled file-URL access; browser security policy
+blocked inspection of extension settings. The operator must select the intact
+ciphertext through Drive's ordinary file-upload dialog. The September 5 12:11
+Toronto folder read still contained only the two JSON records above. There is
+no ciphertext file ID, independent download receipt or restore receipt yet.
+
+After the upload, verify the exact object's size, private parent and owner-only
+permissions; independently download it and verify its hash in a fresh restricted
+workstation inbox under canonical admission. Only then create the controller
+download receipt and freeze the attended restore invocation. Its expected hashes
+must bind actual evidence, never placeholders or a copy of the staged ciphertext.
+The real CLI permanently retains the provisional identity and no-deletion flags;
+its success would not establish production-source identity or reclaim authority.
+
+The canonical roll-verdict command on the final source tip reports
+`VERDICT: ROLL-SENSITIVE`: the additive schema registry enters the live capture
+closures. The archive modules themselves are reported free. Production adoption
+remains a separate guarded quiet-window action. Production master, generated
+configuration, the paused mirror, and all source/attempt/output evidence remain
+preserved. Item 325 and W11 remain partial; no disk reclaim has occurred.
