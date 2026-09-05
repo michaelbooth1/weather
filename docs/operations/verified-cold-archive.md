@@ -247,6 +247,8 @@ and PASS receipt. It is admitted only as the explicit `weather_heavy` module
 through `scripts/ops/workstation_heavy.ps1` under the existing workstation
 identity, host mutex, and kill-on-close Job. It has no cloud client, production
 mode, credential provisioner, or deletion executor.
+The Codex host-load hook carries the same exact offline-module entry; direct
+invocation remains subject to the capture-window and workstation-wrapper rules.
 
 The controller separately supplies a create-only, self-hashed
 `workstation_cold_archive_download_receipt_v0.1`. Required fields are `status`
