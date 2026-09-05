@@ -828,6 +828,31 @@ PARTIAL: this UI increment does not close packaging/import simplification,
 establish a live session or prove profitability. Git, CI and the associated
 topic review own source qualification and integration status.
 
+### September 5 — Repeat codebase and rules audit
+
+The owner requested another full audit and an extension of the previous
+findings. The [consolidated audit](../audits/codebase-audit-2026-09-05.md)
+retains A01–A12 with current dispositions and adds A13–A22 against source
+`06979f4a577bd20f00c9ef2606f1030d3218dd8a`. It includes dated adversarial
+witnesses, verified source anchors, rule challenges and deletion boundaries.
+This is audit completion, not implementation of the proposed repairs.
+
+The new work maps to existing owners rather than another parallel programme:
+
+| Work package | Audit follow-up |
+| --- | --- |
+| W2 / W11 | A13 exact-event resolution contract; A14 signed and ranged temperature-band parsing; A21 discovery completion together with the open atomic-publication work |
+| W3 / W5–W7 | A15 invalid input ages and A16 stale CLOB policy overrides; maintain the distinction between paper permission and the canonical live gate |
+| W4 / W12 | A17 receipt-bound monitor readiness; A18 verified cash-asset presentation; A19 history saturation and A20 malformed-input panel isolation |
+| W1 / W12 | A22 bounded mandatory orientation; retain the already completed warning-ratchet and unchanged-document-review repairs |
+
+Proposed priority is settlement/band correctness before settlement-dependent
+use, then quote-input and monitor evidence integrity, followed by the existing
+capture, scheduling, deployment and storage reductions. Stage 0/1 no-fill
+qualification remains distinct from settlement-dependent economic testing.
+The audit's synthetic checks prove source behavior, not observed account
+income, a current runtime incident or live authority.
+
 ## Update this file when
 
 Update work-package scope, dependencies, acceptance, evidence or dispositions
