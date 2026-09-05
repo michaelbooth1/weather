@@ -628,7 +628,7 @@ current account state, or any new live receipt.
 | W1 | PARTIAL: `codex/maker-governance-20260905` at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), replaces the exact warning-count ratchet with a named allowance, binds handoffs to task/host/scope, and permits documented unchanged reviews tied to committed blobs. Index/worktree edits, stale reviews and failed documentation checks still refuse. Independent review and exact-head Linux CI passed. Guarded production merge `f570f0286194a5abe516e0e73f971038074ceb0a` passed at 00:38 with all three capture workers healthy and publication acknowledged. | Integration owner: close the documentation transaction after current prose is adopted. Broader role/instruction reconciliation and findings compression remain open. |
 | W2 | PARTIAL: published `codex/maker-market-identity-20260905` at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), rejects explicit invalid IDs, binds market/date/slug identity and validates capture identity before any status mutation. The first Linux run found three placeholder event slugs in feature-store fixtures; the follow-up uses canonical same-date Toronto/NYC identities without weakening validation. Full feature-store workstation verification and topic-head Linux CI passed. Guarded production adoption completed at 01:05:39 as `dfcafc5bc175952597e1fd2cc08b9ad50db02937`, with three-worker and execution-tape recovery, publication acknowledgement and fresh HEAD/local/cached/live equality. The separate economics snapshot follow-up below closes its load/re-hash race; atomic consistent configuration publication and generated-state migration remain open. | Market/operations: stage readers for one atomically published metadata snapshot bound to the exact read-only location-registry bytes, then migrate the writer and enforce the binding. Preserve prior complete generations and the generated production config contents. |
 | W3 | PARTIAL: the [pure diagnostic calculator](../../operations/maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3` on `codex/maker-incentive-feasibility-20260905`. Independent review, 91 combined focused/import/module-size/source-binding workstation tests and compilation of both changed Python paths passed. Git, CI and guarded receipts own source-integration status. W3/G1 stay open: no real campaign/economics collection or evidence qualification, no paid or reconciled profit, and no consumer/CLI/executor integration. | Market: qualify exact current campaign, terms, books and adjusted-midpoint provenance, then use the existing calculator with competitor-score scenario ranges. Public aggregate depth cannot identify the nonlinear per-maker denominator; preserve that uncertainty in G1. |
-| W4 | PARTIAL: static source trace and bounded gap design are complete in `scratch/handoffs/maker-accounting-gap-design-20260905.md`, SHA-256 `52270F0F555DBB3D463916396CFA0A0D77383CD24F27396B2756138F16030384`. This establishes a missing accrual-to-payment attribution capability, not an observed account failure or paid incentive. | Market: implement a pure offline accrual-to-wallet-credit matcher in the existing `mm_exchange_reports` family, preserving the cash identity, scope, rounding and residual checks. Keep accrued, paid and unresolved components distinct; reject duplicate/conflicting attribution. |
+| W4 | PARTIAL: the [offline paid-incentive contract](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#offline-paid-incentive-reconciliation) is implemented on `codex/maker-paid-incentive-reconciliation-20260905` in the existing `mm_exchange_reports` family. It matches explicit distribution/confirmed-credit identities once, separates programmes and unpaid accrual, rejects unsupported report versions, and preserves cash residual checks with exact native micro-units and period-bound closing positions. Independent source review, 230 distinct workstation checks and changed-path compilation passed; the receipt below owns qualification detail. No account evidence, actual incentive payment or economic result was observed. | Market: review and implement the missing official read-only earnings/distribution normalization and request/pagination capture, then qualify exact retained account receipts. Keep portfolio allocation unknown where unsupported. Operating-cost views and real economic acceptance remain open; no live session is authorized. |
 | W11 / item 325 | PARTIAL: unfinished off-site work taken over. Preserve the spent `real-pilot-clob-console-20260713-v1` failure. Repair `aea427fb7faf0b5fd67b8893b62b11fe649e71ea` is stacked on adapter `2d586da6dcfe2e0955154fd0dd0a2e5b1076af40`: encryption preflight precedes source staging and is revalidated after compression. Exact-source verification passed 51 tests and failed two genuine PowerShell protection fixtures before the loader; separate archive/ratchet verification passed 48 tests. Interactive-context diagnosis remains pending. No new upload, restore proof, deletion or reclaimed bytes. | Storage owner: diagnose the native user-context boundary, preserve all spent namespaces, then prove exact encrypted transfer and restore before manifest-bound reclaim. The paused unverified mirror is not a substitute. |
 | W5-W7 | BLOCKED for real sessions by the owner's no-live instruction. Integrated portable source and successful offline tests do not remove that boundary or qualify a new attempt. | Owning packages: continue offline lifecycle/accounting fixtures and prospective design only. Preserve the existing G2-G4 requirements. |
 | W8 / W11 optional work | PARTIAL: at September 5 00:30, disabled only the standalone `WeatherModelMarketDisagreementAnalysis` recurrence after exact task/action and no-active-process checks. XML comparison shows only Enabled=false; its Stage A rehydration producer, critical daily-learning reader and all existing reports/audit evidence remain. The status monitor recognizes this exact disabled task as an approved pause; enabled-task failures and independent freshness checks remain active. Receipt: `scratch/handoffs/model-disagreement-on-demand-20260905.md`, SHA-256 `A1C4DADF561A66EE61D484D003C03A740F8E818D48A373D88483FCCF2896BA34`. | Operations: observe the preserved daily producer and consumer freshness. Review paired maker-paper tasks and mixed-chain consumers before any additional reduction. No measured runtime saving is claimed. |
@@ -752,6 +752,42 @@ through bounded approved collection. Targets are zero research work required
 before the primary durable write, zero unowned recurring jobs, zero routine
 generated changes to stable definitions, and zero unexplained economic cash
 residuals. Reduced file count is supporting evidence, not an acceptance target.
+
+### Offline paid-incentive qualification — September 5, 2026
+
+The pure matcher accepts versioned normalized account/asset/period evidence;
+it does not fetch or authenticate venue or wallet data. Explicit paid report
+selection is required, and its schema registration is purely additive.
+The existing fee, position, external-flow and gross settlement identity stays
+binding. The new cash calculation uses signed native micro-units and validates
+redemption separately without adding it to gross P&L twice. The
+[owning pilot contract](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#offline-paid-incentive-reconciliation)
+specifies all fields, provenance limits and compatibility rules.
+
+Independent static review passed after malformed-input, cash-scope, precision,
+closing-position and mixed-version cases were corrected. Workstation verification
+ran the new incentive tests, existing exchange/report/pilot/CLI tests, schema and
+import/module-size ratchets, roadmap tests and an actual loaded-source/hash check.
+The first run passed 229 checks and failed only the untracked-file ratchet for
+the newly copied test file. Exact-path staging fixed that checkout setup issue;
+the failed check and unchanged source identity then passed. Thus all 230 distinct
+checks passed, followed by compilation of the three changed Python paths.
+This records the initial failure rather than describing a wholly green first run.
+
+Fixtures include both paid programmes with a confirmed maker fill and taker
+cleanup fee, failed/pending fills, no-fill paid reward, delayed credit, partial
+payment, unpaid accrual with complete zero cash, duplicate/conflicting credits,
+portfolio attribution, incomplete queries, wrong asset/account/window,
+signed amounts and residual boundaries. They establish implementation behavior,
+not observed income, fee savings, profitability, a live lifecycle or readiness.
+
+Reviewed source SHA-256:
+`60cef9ced5466ec08b2f2744b24993397c0e6181c373270469f2800701e894c2`.
+Reviewed new-test SHA-256:
+`ecb4bbfd5c756ed2d189e6932c3d53a3084fbe37cddb1a35faeffc59653f59e0`.
+Git, exact-head CI and guarded receipts own publication and adoption status.
+No production config, capture, Scheduler, credential, account or order mutation
+was performed by this implementation.
 
 ## Update this file when
 
