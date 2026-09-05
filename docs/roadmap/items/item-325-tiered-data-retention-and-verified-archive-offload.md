@@ -687,3 +687,63 @@ do not reuse a spent attempt. At this checkpoint the actual restore has not run.
 Production identity, deletion authority and reclaim remain unproved.
 Documentation CI on the preceding `e0b49d8c439685aba9c3d52606f913e84f335841`
 tip passed in [run 33979960831](https://github.com/michaelbooth1/weather/actions/runs/33979960831).
+
+## 2026-09-05 13:34: real independent restore passes
+
+The owner ran the exact qualified command in Michael's ordinary signed-in
+workstation session. It returned PASS and exit 0 at
+`2026-09-05T17:34:16.317311Z`. The `v3-r1` namespace is now spent and retained;
+the earlier one-time command must not be rerun. The saved
+`workstation_cold_archive_restore_receipt_v0.1` has canonical self-hash
+`893121db86018c54e89cb62bcc2ff5591b05277d65ae27f24d2b04846163deb8`.
+Its 4,493-byte production-local copy is
+`scratch/handoffs/v3-r1.restore.receipt.json`, raw SHA-256
+`C6A06D200E43C73A60F0DCA4DD6038047CD2CD7FC5C65DA8BD202A963D3A2CAA`,
+matching the restricted regular workstation receipt.
+
+All **17 checks passed**: stage and controller-download evidence, encryption
+preflight and key mapping, downloaded ciphertext, retained archive, initial
+source hash, ciphertext copy and exact delta, cryptcheck, archive decryption,
+restored archive hash, single-payload restoration, restored payload hash,
+post-restore source hash, stable inputs and stable tool identity. The receipt
+binds the reviewed clean restore tip/tree and module hashes above. Fresh
+workstation Git metadata independently still matched that tip and tree.
+
+The restored compressed archive is 136,737,007 bytes and the payload is
+513,522,801 bytes. The canonical restore re-proved payload/source SHA-256
+`f7ec8f220a822efd8795787f3f2e972ea30eb1a14faec1bea8ae5b6d15333a76`.
+Controller validation checked all four canonical evidence self-hashes, raw
+upstream file hashes, exact tool identity, all 17 checks, timestamps and
+provisional flags. It did not reread payload bytes on production. Independent
+review of this handback found no actionable issue.
+
+The create-only controller acceptance is
+`scratch/handoffs/archive-v3-restore-controller-acceptance-20260905.json`,
+self-hash `6459294d4a76cd4f865b958dc6fea9bfa39f44c78292a3b8afd3efae7a06e037`,
+raw SHA-256 `8810124D75A225A130F72197B83932F89D8BDC170A98FFE37724654ACC768E76`.
+The three safe JSON records below were uploaded beside the existing encrypted
+archive, manifest and staging receipt, then fetched independently and compared
+byte-for-byte with the retained local records. Each new object has the exact
+v3 parent and owner-only permission. The readback report is
+`scratch/handoffs/archive-v3-cloud-receipt-readback-20260905.json`, SHA-256
+`231AD1E3DF9143B7185388C181D2655F1148D3CC855A768E05F48BD503B64665`.
+
+| Record | Private Drive object |
+| --- | --- |
+| Controller download receipt | [`1Ovi4nBpTCRKLzLeTrPSpAwr9y-wLZyPL`](https://drive.google.com/file/d/1Ovi4nBpTCRKLzLeTrPSpAwr9y-wLZyPL/view) |
+| Real restore receipt | [`1GbXD4gTiJLgi9QucIXTPjqO06gc40eMS`](https://drive.google.com/file/d/1GbXD4gTiJLgi9QucIXTPjqO06gc40eMS/view) |
+| Controller acceptance | [`1BdTYNoDEq0U1l_QdFtt7g160kkokuU5m`](https://drive.google.com/file/d/1BdTYNoDEq0U1l_QdFtt7g160kkokuU5m/view) |
+
+This accepts the one-file provisional cloud restore drill. It does not prove
+the paused mirror as a whole or the production file's content identity.
+Production metadata still reports the expected 513,522,801-byte source, but
+no production payload hash ran. The restore explicitly retains
+`production_identity_not_proved=true`, `source_retained=true`,
+`cleanup_eligible=false` and `deletion_authorized=false`.
+Next is a fresh resource-admitted production identity check and a reviewed
+exact-source retention/deletion path; neither source nor restore output was
+deleted, and no reclaimed bytes are claimed. The expired v1 hashing proposal
+cannot authorize the new step. Item 325 and whole-W11 remain partial.
+
+The preceding documentation tip `3f522ee1376bc4397afb950777aa258de95db525`
+passed [CI 33980856314](https://github.com/michaelbooth1/weather/actions/runs/33980856314).
