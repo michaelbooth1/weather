@@ -40,3 +40,5 @@ jobs:
         run: python -m py_compile .codex/hooks/pre_tool_use_host_load.py
       - name: Verify hook policy without application fixtures
         run: python -m pytest --noconftest tests/operations/test_codex_host_load_hook.py -q
+      - name: Audit canonical documentation
+        run: python -m weather.operations.agent_docs_audit
