@@ -10,6 +10,10 @@ workstation, including the 32 GB PC when it also holds the portable
 live-executor assignment, may run ordinary implementation, tests, training,
 and replay outside this timetable and without the capture-host resource/time
 admission. Recognized heavy commands use `scripts/ops/workstation_heavy.ps1`.
+The capture controller may dispatch that wrapper only through the literal,
+configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
+The hook's transport exception does not admit local heavy work or replace the
+remote wrapper's identity, mutex, and child-tree containment checks.
 Its admission-only `workstation_offline_v1` profile and the portable launcher
 are both bound to the assignment's exact non-capture Windows installation and
 attending principal. They hold the same host-global mutex and each owns its

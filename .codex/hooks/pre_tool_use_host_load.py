@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+import ctypes
 from datetime import datetime, time
 import hashlib
+import ipaddress
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import re
 import stat
 import sys
@@ -360,6 +362,26 @@ _WORKSTATION_WRAPPER_CALL = re.compile(
     r"-PythonPath\s+'(?P<python>[^'\r\n]+)'\s+"
     r"-ArgumentsBase64\s+'(?P<arguments>[A-Za-z0-9+/]*={0,2})'\s+"
     r"-RepoRoot\s+'(?P<repo_root>[^'\r\n]+)'\s*\Z"
+)
+# One literal Windows OpenSSH transport, not a general exemption for SSH text.
+# No shell expansion, ambient SSH config, local commands, proxies or forwards.
+_REMOTE_PATH_ATOM = r"[A-Za-z]:/[A-Za-z0-9_./-]+"
+_REMOTE_WORKSTATION_WRAPPER_CALL = re.compile(
+    rf"\A(?P<ssh>{_REMOTE_PATH_ATOM}) -F none -T -n "
+    r"-o BatchMode=yes -o StrictHostKeyChecking=yes "
+    r"-o PermitLocalCommand=no -o ProxyCommand=none -o ProxyJump=none "
+    r"-o ClearAllForwardings=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 "
+    r"-o HostName=(?P<host>[0-9.]+) "
+    rf"-i (?P<key>{_REMOTE_PATH_ATOM}) "
+    rf"-o UserKnownHostsFile=(?P<known_hosts>{_REMOTE_PATH_ATOM}) "
+    r"-l (?P<user>[A-Za-z_][A-Za-z0-9_.-]*) weather-workstation "
+    r"[A-Za-z]:/Windows/System32/WindowsPowerShell/v1\.0/powershell\.exe "
+    r"-NoProfile -NonInteractive -ExecutionPolicy Bypass "
+    rf"-File (?P<script>{_REMOTE_PATH_ATOM}) "
+    r"-Kind (?P<kind>pytest|compileall|weather_heavy) "
+    rf"-PythonPath (?P<python>{_REMOTE_PATH_ATOM}) "
+    r"-ArgumentsBase64 (?P<arguments>[A-Za-z0-9+/]+={0,2}) "
+    rf"-RepoRoot (?P<repo_root>{_REMOTE_PATH_ATOM})\Z"
 )
 _VARIABLE_EXECUTION = re.compile(
     r"(?is)" + _COMMAND_BOUNDARY + r"\s*&\s*\$[A-Za-z_][A-Za-z0-9_:.-]*\s+"
@@ -2935,8 +2957,15 @@ def _approved_workstation_wrapper(command: str) -> bool:
             return False
     except (OSError, ValueError):
         return False
+    return _approved_workstation_arguments(
+        match.group("kind").lower(), match.group("arguments")
+    )
+
+
+def _approved_workstation_arguments(kind: str, encoded: str) -> bool:
+    if len(encoded) > 131072:
+        return False
     try:
-        encoded = match.group("arguments")
         raw = base64.b64decode(encoded, validate=True)
         if base64.b64encode(raw).decode("ascii") != encoded:
             return False
@@ -2955,7 +2984,6 @@ def _approved_workstation_wrapper(command: str) -> bool:
         or arguments[0:1] != ["-m"]
     ):
         return False
-    kind = match.group("kind").lower()
     module = arguments[1]
     if kind == "pytest":
         return module == "pytest"
@@ -2965,6 +2993,70 @@ def _approved_workstation_wrapper(command: str) -> bool:
         module in _OFFLINE_WEATHER_MODULES
         and not any(_LIVE_ARGUMENT.fullmatch(value) for value in arguments[2:])
     )
+
+
+def _remote_client_paths() -> tuple[Path, Path, Path] | None:
+    """Resolve the OS client and existing user SSH files without running SSH."""
+    if os.name != "nt":
+        return None
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_system_directory = kernel32.GetSystemDirectoryW
+        get_system_directory.argtypes = [ctypes.c_wchar_p, ctypes.c_uint]
+        get_system_directory.restype = ctypes.c_uint
+        buffer = ctypes.create_unicode_buffer(32768)
+        length = get_system_directory(buffer, len(buffer))
+        if not 0 < length < len(buffer):
+            return None
+        ssh = Path(buffer.value) / "OpenSSH" / "ssh.exe"
+        user_ssh = Path.home() / ".ssh"
+        return ssh, user_ssh / "id_ed25519_workstation_codex", user_ssh / "known_hosts"
+    except (OSError, AttributeError):
+        return None
+
+
+def _literal_remote_path(value: str) -> PureWindowsPath | None:
+    # Reject traversal, Win32 trailing-dot aliases, alternate streams and UNC.
+    if not re.fullmatch(_REMOTE_PATH_ATOM, value):
+        return None
+    if any(part in {"", ".", ".."} or part.endswith(".") for part in value[3:].split("/")):
+        return None
+    return PureWindowsPath(value)
+
+
+def _approved_remote_workstation_wrapper(command: str) -> bool:
+    match = _REMOTE_WORKSTATION_WRAPPER_CALL.fullmatch(command)
+    if match is None:
+        return False
+    trusted = _remote_client_paths()
+    if trusted is None:
+        return False
+    for field, expected in zip(("ssh", "key", "known_hosts"), trusted):
+        actual = _literal_remote_path(match.group(field))
+        if actual is None or actual != PureWindowsPath(str(expected)):
+            return False
+    try:
+        address = ipaddress.IPv4Address(match.group("host"))
+    except ipaddress.AddressValueError:
+        return False
+    if not any(
+        address in ipaddress.IPv4Network(network)
+        for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+    ):
+        return False
+    repo = _literal_remote_path(match.group("repo_root"))
+    script = _literal_remote_path(match.group("script"))
+    python = _literal_remote_path(match.group("python"))
+    if (
+        repo is None
+        or script != repo / "scripts" / "ops" / "workstation_heavy.ps1"
+        or python is None
+        or python.name.lower() != "python.exe"
+    ):
+        return False
+    # The remote wrapper owns Windows host/principal admission and Job/mutex
+    # containment. This permits transport only, never local heavy execution.
+    return _approved_workstation_arguments(match.group("kind"), match.group("arguments"))
 
 
 def _deny(reason: str) -> dict[str, Any]:
@@ -3016,6 +3108,9 @@ def evaluate(
                 "repository-owned workstation_heavy.ps1 wrapper so it cannot overlap "
                 "a portable live lease. The capture-host time window does not apply."
             )
+        return None
+
+    if _approved_remote_workstation_wrapper(command):
         return None
 
     if "workstation_heavy.ps1" in command.lower():
