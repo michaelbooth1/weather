@@ -1185,8 +1185,9 @@ def test_remote_archive_staging_is_admitted_without_local_capture_authority(monk
     arguments = ["-m", module, "--provisional-mirror-copy"]
     remote = remote_workstation_command("weather_heavy", arguments)
     local = workstation_wrapper_command("weather_heavy", arguments)
+    # The hook evaluates the host's local clock; CI hosts need not use Toronto.
     for hour in (2, 14, 21):
-        now = datetime(2026, 9, 4, hour, tzinfo=ZONE)
+        now = datetime(2026, 9, 4, hour).astimezone()
         assert HOOK.evaluate(
             payload(remote), now=now, constrained_capture_host=True
         ) is None
@@ -1194,7 +1195,7 @@ def test_remote_archive_staging_is_admitted_without_local_capture_authority(monk
     for hour in (14, 21):
         assert HOOK.evaluate(
             payload(f"python -m {module} --provisional-mirror-copy"),
-            now=datetime(2026, 9, 4, hour, tzinfo=ZONE),
+            now=datetime(2026, 9, 4, hour).astimezone(),
             constrained_capture_host=True,
         )
     assert HOOK.evaluate(
