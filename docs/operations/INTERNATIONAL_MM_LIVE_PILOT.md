@@ -155,7 +155,7 @@ CLI uses `--test-allocation 100 --confirm-existing-wallet-allocation`;
 `--wallet-cap 100 --confirm-isolated-wallet` selects the separate isolated mode.
 Neither preparation path reads credentials or moves funds.
 
-## Pilot envelope
+## Immutable pilot envelope
 
 - The attended Stage 0/1 test may use an existing wallet with an explicit
   **100 pUSD testing allocation**. Its total cash may exceed that allocation.
@@ -364,7 +364,7 @@ All must be current for the target date and selected market:
 
 The first attended test is **Stage 0 heartbeat/account-wide cancel-all, Stage 1
 cancel-all, then Stage 1 dead-man**. Keep the exact **10 pUSD request and 100
-pUSD wallet cap**, one market, and one minimum-size, minimum-tick, post-only
+pUSD testing allocation**, one market, and one minimum-size, minimum-tick, post-only
 BUY per Stage 1 mode. All [pilot ceilings](#immutable-pilot-envelope) and
 [prerequisites](#prerequisites) remain binding. This sequence locates the full
 command blocks below; it does not grant live or Stage 2 authority.

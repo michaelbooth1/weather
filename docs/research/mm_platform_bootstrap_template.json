@@ -23,6 +23,8 @@
     "signed_order_preview_signature_retained": false,
     "consistency_verified": false
   },
+  "pilot_capital_mode": "existing_wallet_test_allocation",
+  "pilot_test_allocation_pusd": null,
   "isolated_pilot_wallet": false,
   "pilot_wallet_max_funding_usdc": null,
   "sdk_contract": {

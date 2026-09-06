@@ -108,11 +108,17 @@ whole-balance semantics. The single reviewed attempt can submit at most two
 BUY orders of at most 10 pUSD each and stops on any fill or failed cleanup;
 no repeating session or Stage 2 authority is added.
 
-Qualification and fresh portable adoption are required before creating a new
-attempt. The implementation's first focused workstation run passed 331 tests;
-two added fixtures required a refreshed snapshot hash and reading the runtime
-scope from the generated wrapper. Those failures do not qualify the repair;
-final exact-source test/CI records own acceptance. No successful Stage 0 or
+The corrected implementation at `ea2734edbe3b5c1af06b4559cc6cb91332698b37`
+passed 452 focused Windows tests and 14 subtests, compilation, agent-docs audit
+and roadmap parity. The retained JUnit report is
+`scratch/handoffs/live-test-preparation-20260906/capital-allocation-focused-02.xml`,
+SHA-256 `b4591fb55f5ca1e96096ab9c22e47e31b8a77877d49c35089fb606e0a757a110`.
+[PR 31](https://github.com/michaelbooth1/weather/pull/31) records the complete
+reviewed change. Its [full CI](https://github.com/michaelbooth1/weather/actions/runs/34040122643)
+passed 4,574 tests and 921 subtests with 259 skips; the first fixture-only
+failures remain retained in the earlier report. Later documentation commits
+retain their own exact-head CI requirement. Use Git and portable source-update
+receipts to prove adoption before a fresh attempt. No successful Stage 0 or
 Stage 1 evidence has been produced.
 
 ## 2026-09-05 preparation for the September 6 attended test
