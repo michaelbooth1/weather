@@ -137,7 +137,7 @@ def _trading_panel(trading):
         st.warning("Current orders and exposure are unknown. Any rows below are historical observations.")
     columns = st.columns(3)
     columns[0].metric("Recorded open orders", _text(trading.get("open_orders"), "—"))
-    columns[1].metric("Recorded reserved · pUSD", _money(trading.get("reserved")))
+    columns[1].metric(f"Recorded reserved · {trading.get('reserved_cash_asset_label') or 'unit unverified'}", _money(trading.get("reserved")))
     columns[2].metric("Reconciliation", _text(trading.get("recorded_status"), "NO RECEIPT"))
     for tab, name in zip(st.tabs(["Orders", "Fills", "Positions"]), ("orders", "fills", "positions")):
         with tab:
@@ -157,7 +157,7 @@ def _results_panel(trading):
         st.info("Reconciled trading results will appear after a run produces accounting evidence.")
         return
     amounts = trading.get("amounts") or {}
-    st.caption(f"Recorded results for {trading['run_id']}; amounts in pUSD. {(trading.get('accounting') or {}).get('detail', '')}")
+    st.caption(f"Recorded results for {trading['run_id']}; {trading.get('cash_asset_label') or 'unverified cash asset'}. {(trading.get('accounting') or {}).get('detail', '')}")
     columns = st.columns(4)
     for column, label in zip(columns, ("Net reconciled P&L", "Paid maker rebates", "Paid liquidity rewards", "Actual fees")):
         column.metric(label, _money(amounts.get(label)))
@@ -165,7 +165,7 @@ def _results_panel(trading):
         st.info("Accounting is incomplete. Net reconciled P&L remains unknown.")
     with st.expander("Accounting breakdown and pending evidence"):
         st.dataframe(arrow_safe_dataframe([
-            {"Component": name, "pUSD": _money(value),
+            {"Component": name, "Amount": _money(value),
              "Basis": "Estimate; unpaid" if name == "Estimated fill rebates" else "Recorded report"}
             for name, value in amounts.items()
         ]), hide_index=True, width="stretch")
@@ -202,11 +202,18 @@ def render_control_room_page(refresh_seconds=10):
     st.caption("Project progress, system health and trading evidence in one place.")
     try:
         control, operations = _load_control_room_snapshot()
+    except Exception as exc:  # noqa: BLE001 - preserve independent project/session panels
+        control, operations = {}, {"host_status": {"available": False, "error": f"Control evidence unavailable: {type(exc).__name__}: {exc}"}}
+    try:
         evaluation = evaluate_control_room(control, operations)
+    except Exception as exc:  # noqa: BLE001 - a malformed subsystem cannot erase the monitor
+        evaluation = evaluate_control_room({}, {"host_status": {"available": False, "error": f"Control evidence invalid: {type(exc).__name__}: {exc}"}})
+    try:
         extras = _load_monitor_extras(control)
-    except Exception as exc:  # noqa: BLE001 - missing evidence must not imply health
-        st.error(f"Monitoring evidence is unavailable: {type(exc).__name__}: {exc}")
-        return
+    except Exception as exc:  # noqa: BLE001 - keep the other evidence sections visible
+        extras = {"errors": [f"Additional monitoring evidence unavailable: {type(exc).__name__}: {exc}"]}
+    for error in extras.get("errors") or []:
+        st.warning(error)
     _project_panel(extras.get("project") or {})
     _health_panel(evaluation, extras.get("portable") or {})
     _session_panel(extras.get("session") or {})

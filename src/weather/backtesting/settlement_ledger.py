@@ -23,7 +23,7 @@ from weather.collection.collection_health import coverage_summary, local_window,
 from weather.market.market_config import date_from_event_slug, polymarket_url_for_slug
 from weather.market.market_registry import all_specs, spec_for_slug
 from weather.schema_registry import schema_version
-from weather.units import round_half_up
+from weather.units import parse_temperature_band, round_half_up, temperature_band_key
 
 
 LEDGER_SCHEMA_VERSION = schema_version("settlement_ledger")
@@ -569,18 +569,13 @@ def write_resolution_specs(path=DEFAULT_LEDGER_ROOT / "resolution_specs.json", s
 
 def parse_band_label(label):
     text = str(label or "")
-    low = text.lower()
-    numbers = [int(value) for value in re.findall(r"\d+", text)]
-    if not numbers:
+    band = parse_temperature_band(text)
+    if band is None:
         return {"kind": None, "value": None, "value_hi": None, "label": text}
-    if "below" in low or "under" in low:
-        return {"kind": "lte", "value": numbers[0], "value_hi": numbers[0], "label": text}
-    if "higher" in low or "above" in low:
-        return {"kind": "gte", "value": numbers[0], "value_hi": numbers[-1], "label": text}
     return {
-        "kind": "eq",
-        "value": numbers[0],
-        "value_hi": numbers[-1] if len(numbers) >= 2 else numbers[0],
+        "kind": band.kind,
+        "value": band.value,
+        "value_hi": band.value_hi,
         "label": text,
     }
 
@@ -622,12 +617,7 @@ def winning_band_from_frame(frame, settlement_bucket):
     for _, series in frame.iterrows():
         row = series.to_dict()
         label = row.get("range_label")
-        parsed = parse_band_label(label)
-        kind = row.get("bin_kind") or parsed["kind"]
-        value = safe_int(row.get("bin_value_c"))
-        if value is None:
-            value = parsed["value"]
-        value_hi = band_value_hi(label, value)
+        kind, value, value_hi = temperature_band_key(row)
         key = (str(label), kind, value, value_hi)
         if key in seen:
             continue

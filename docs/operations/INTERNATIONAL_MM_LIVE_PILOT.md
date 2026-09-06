@@ -1863,6 +1863,21 @@ Cancel all and do not resume on any of the following:
   delta, or incomplete evidence. Fix and repeat Stage 1; do not explain it away
   as a small sample.
 
+## Paper quote evidence
+
+The paper policy rejects future, negative, non-finite and contradictory model,
+book and watcher ages. Where timestamps and numeric ages coexist they must
+agree within one second of rounding tolerance; the older age is retained.
+Captured book ages advance from the book feature's observation timestamp.
+A book refresh cannot replace the model snapshot ID or renew its timestamp.
+These checks govern paper quote permission and do not replace live admission.
+
+Historical CLOB-recon suggestions no longer override policy by default.
+`clob_recon_policy_enabled=true` is an explicit research opt-in with schema and
+numeric-bound checks. Its diagnostics declare current market scope and expiry
+unverified. Automatic current-market proposal qualification remains separate
+work; a historical report is not an approved live parameter change.
+
 ## Update when
 
 Update when the approved capital envelope, platform, official SDK integration,

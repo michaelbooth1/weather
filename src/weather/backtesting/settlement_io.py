@@ -24,7 +24,7 @@ from weather.market.market_config import date_from_event_slug
 from weather.market.market_registry import spec_for_slug
 from weather.scoring.metrics import missing, safe_float
 from weather.sources.daily_summary import native_bucket
-from weather.units import round_half_up
+from weather.units import parse_temperature_band, round_half_up
 
 
 DEFAULT_SNAPSHOTS_ROOT = data_path() / "snapshots"
@@ -61,8 +61,8 @@ def band_value_hi(range_label, value, explicit=None):
     explicit_value = safe_float(explicit)
     if explicit_value is not None:
         return int(explicit_value) if abs(explicit_value - round(explicit_value)) < 1e-9 else explicit_value
-    numbers = re.findall(r"\d+", str(range_label or ""))
-    return int(numbers[-1]) if len(numbers) >= 2 else value
+    band = parse_temperature_band(range_label)
+    return band.value_hi if band is not None else value
 
 
 def row_band_value_hi(row):

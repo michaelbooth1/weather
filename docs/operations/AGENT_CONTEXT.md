@@ -22,6 +22,11 @@ generated reports for dynamic state.
 - The modeled settlement source is the highest whole-degree value printed by
   the configured Weather Underground history source for the market's local
   target date. Rounding and band parsing use the canonical unit helpers.
+- `weather.units.parse_temperature_band` preserves signed whole-degree endpoints
+  and inclusive ranges; serving, settlement and paper scorers share its grammar.
+  Malformed, mixed-unit or inverted labels are unscored. Explicit row endpoints
+  must agree with labels, except documented legacy single-value labels may omit
+  the explicit upper endpoint. Parsing never converts or rounds temperature.
 - WU history is the settlement proxy and may establish a hard observed floor.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a

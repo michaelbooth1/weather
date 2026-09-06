@@ -54,7 +54,7 @@ def collect_trading_snapshot(run_artifact, *, now=None):
     run = _object(run_artifact.get("payload"))
     path = run_artifact.get("path")
     if not run_artifact.get("available") or not path or not run.get("run_id"):
-        return {"available": False, "detail": "No maker run has been observed.", "orders": [], "fills": [], "positions": []}
+        return {"available": False, "detail": run_artifact.get("error") or "No maker run has been observed.", "orders": [], "fills": [], "positions": []}
     folder = Path(path).parent
     reconciliation = _bound_artifact(folder / "exchange_reconciliation.json", run)
     report = _bound_artifact(folder / "mm2_pilot_report.json", run)
@@ -72,10 +72,10 @@ def collect_trading_snapshot(run_artifact, *, now=None):
         pilot = {}
     financial = _object(pilot.get("financial_reconciliation"))
     paid = _object(financial.get("paid_incentive_reconciliation"))
-    paid_asset_valid = (pilot.get("cash_asset") == INCENTIVE_CASH_ASSET
-                        and financial.get("cash_asset") == INCENTIVE_CASH_ASSET)
-    if pilot.get("schema_version") == paid_schema and not paid_asset_valid:
-        report.update(available=False, error="Accounting cash asset is not the supported pUSD asset.")
+    cash_asset_valid = (pilot.get("cash_asset") == INCENTIVE_CASH_ASSET
+                       and financial.get("cash_asset") == INCENTIVE_CASH_ASSET)
+    if pilot and not cash_asset_valid:
+        report.update(available=False, error="Accounting cash asset is missing or differs from the supported pUSD asset; monetary values are unverified.")
         pilot, financial, paid = {}, {}, {}
     paid_verified = (pilot.get("schema_version") == paid_schema
                      and paid.get("schema_version") == schema_version("mm_paid_incentive_reconciliation")
@@ -101,12 +101,16 @@ def collect_trading_snapshot(run_artifact, *, now=None):
     events = events if isinstance(events, list) else []
     fills = _rows([row for row in events if isinstance(row, dict) and row.get("transition") == "filled"], FILL_FIELDS)
     lifecycle = _object(run.get("order_lifecycle"))
+    reserved_asset_valid = run.get("cash_asset") == INCENTIVE_CASH_ASSET
     return {
         "available": True, "run_id": run.get("run_id"), "target_date": run.get("target_date"),
         "mode": run.get("mode"), "orders": orders[:100], "fills": fills,
         "positions": _rows(exchange.get("positions"), POSITION_FIELDS),
         "open_orders": _number(exchange.get("exchange_open_order_count")),
-        "reserved": _number(lifecycle.get("current_reserved_usdc")),
+        "reserved": _number(lifecycle.get("current_reserved_usdc")) if reserved_asset_valid else None,
+        "reserved_cash_asset_label": "pUSD" if reserved_asset_valid else "unit unverified",
+        "cash_asset": dict(INCENTIVE_CASH_ASSET) if cash_asset_valid else None,
+        "cash_asset_label": "pUSD" if cash_asset_valid else "unverified cash asset",
         "reconciliation": freshness(reconciliation, now=now, max_age_seconds=60),
         "accounting": freshness(report, now=now, max_age_seconds=600),
         "accounting_complete": accounting_complete, "paid_verified": paid_verified,

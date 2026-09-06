@@ -87,6 +87,12 @@ daily-roll liveness classification.
   set as the built-in live market registry.
 - Volatile Gamma event metadata: generated
   `config/location_market_events.json`; refresh it rather than hand-editing it.
+  Refresh fails if pagination ends on a full final page without proving complete
+  discovery. Event and market resolution descriptions retain their exact text
+  and UTF-8 SHA-256 plus separate source URLs; those bytes do not establish
+  settlement-source equivalence or economic readiness. Each JSON publication is
+  atomic. Paired registry/event generation consistency remains separate work;
+  `--metadata-only` leaves the durable registry byte-for-byte unchanged.
 - Supervised settlement labels: per-market ledgers under local
   `data/settlements/`; folder settlement files are derived copies.
 - Schemas: `weather.schema_registry` and producer/consumer tests.

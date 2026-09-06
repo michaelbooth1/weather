@@ -104,7 +104,7 @@ class TestClobRecon(unittest.TestCase):
                 report_out=root / "clob_book_recon.md",
                 slices_out=root / "clob_book_recon_slices.csv",
             )
-            overrides, diag = policy_overrides_from_recon(root / "clob_book_recon.json")
+            overrides, diag = policy_overrides_from_recon(root / "clob_book_recon.json", enabled=True)
 
             self.assertTrue(Path(payload["outputs"]["json"]).exists())
             self.assertTrue(Path(payload["outputs"]["report"]).exists())

@@ -52,15 +52,28 @@ The portable host receipt already carries `checked_at_utc`.
   Missing, undated, expired, future and stale inputs are distinct. The general
   pilot checklist uses a ten-minute display horizon; account reconciliation uses
   sixty seconds. These display horizons do not replace executor freshness gates.
-- Maker-run discovery reads at most 1,024 summary paths and parses the newest
-  24 candidates. Readiness discovery is capped at 256 files. Exceeding discovery
-  bounds yields no selected evidence. JSON reads are capped at 2 MiB per file.
-  File mtime ranks bounded discovery candidates; it cannot make one current.
+- Maker-run discovery first reads `data/mm_runs/daily_roll_status.json` and
+  verifies its current-run pointer stays inside the selected run root and agrees
+  with the run summary's date and ID. Invalid pointers/status are explicit errors.
+  Without a pointer, discovery reads at most 1,024 summary paths and parses the
+  newest 24 candidates. Readiness prefers the target's canonical
+  `mm_live_readiness.json` before at most 256 historical files. Exceeding either
+  fallback bound is an explicit discovery error. JSON reads are capped at 2 MiB.
+  File mtime ranks bounded fallback candidates; it cannot make one current.
 - Reports must match the selected run ID and target date. Accounting and exchange
   reports from different observation times are not combined. Recognized schemas
   are required for exchange/accounting and portable receipts.
 - A copied historical result stays historical. Neither a zero count nor a finished
   session proves current account exposure. Unknown values render as an em dash.
+- The general checklist requires the readiness producer's schema, passing gates,
+  no blockers, false live-capital permission and exact run binding (including
+  its `inputs.latest_run_folder` identity). Economics uses the canonical content
+  validator and the same current/accepted/drift bindings as candidate admission.
+  Even an entirely passing recorded checklist requires fresh session validation;
+  it cannot declare the software ready to launch or grant trading authority.
+- Malformed host families are named and blocked. Project, portable-session and
+  trading collectors fail independently so an unavailable family does not erase
+  unrelated monitoring panels.
 
 ## Portable session observer
 
@@ -90,7 +103,11 @@ are not rendered.
 The existing `exchange_reconciliation.json` and `mm2_pilot_report.json` own the
 trade and financial observations. Orders, fills and positions are bounded to
 100 displayed rows per family. Results show trading P&L, fees, paid maker rebates,
-paid liquidity rewards and estimated fill rebates separately, in pUSD.
+paid liquidity rewards and estimated fill rebates separately. Every supported
+accounting schema must carry the exact pUSD asset identity in both the report
+and financial reconciliation before any monetary amount is displayed. A legacy
+`_usdc` field name proves no unit. Reserved amounts require the run's own cash
+asset identity; unidentified values stay unknown with an unverified-unit label.
 Paid incentives require the explicit paid-incentive schema, complete matched
 credit reconciliation and verified cash basis. Net reconciled P&L stays unknown
 until the report's financial reconciliation and cash identity are complete.

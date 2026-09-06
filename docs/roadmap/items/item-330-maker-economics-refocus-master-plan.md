@@ -853,6 +853,42 @@ qualification remains distinct from settlement-dependent economic testing.
 The audit's synthetic checks prove source behavior, not observed account
 income, a current runtime incident or live authority.
 
+### September 5 — Bounded audit repairs and overnight preparation
+
+The owner requested worthwhile unblocked repairs and preparation for overnight
+work. The `codex/audit-fixes-20260905` topic is explicitly stacked on the audit
+and monitor topics, ultimately depending on PR 6. The dated audit and its
+witnesses remain unchanged as evidence of the earlier source.
+
+| Finding / owner | Implemented disposition and remaining limit |
+| --- | --- |
+| A14 / W2 | Shared full-label native-band parsing and row validation now preserve signed endpoints, inclusive ranges and zero. Serving, ledger, maker and taker scorers share the interpretation and reject contradictory or malformed labels. Legacy single-value labels may retain an explicitly recorded upper endpoint. Synthetic C/F, negative-tail and probability-mass cases verify behavior; no historical tape is rewritten. |
+| A15 / W3 | Quote input validation rejects future, negative, non-finite and inconsistent ages. Captured book ages advance to decision time without replacing the model timestamp or replay ID. Paper policy version advances with its legacy versions retained in the registry. |
+| A16 / W3 | Historical recon suggestions are disabled by default. Explicit research opt-in validates schema and parameter bounds and labels current scope/expiry unverified. A current, scoped, expiring proposal protocol remains open. |
+| A17–A20 / W4, W12 | Monitor economics uses canonical content checks and shared candidate drift bindings; readiness binds the producer contract and run and cannot declare session readiness. All accounting schemas require explicit cash identity. Producer pointers avoid saturated history; fallback overflow is visible. Malformed host and independent collector failures preserve unaffected panels. |
+| A21 / W2 | A full final Gamma page at the pagination cap fails without publishing an incomplete inventory. Terminal short pages prove completion. |
+| A04, A13 / W2 | Each config JSON is atomically replaced, and event/market resolution descriptions retain exact text, SHA-256 and their separate source URLs. This is partial repair: paired registry/event publication and settlement-source semantics remain open. No change to the WU proxy/floor or Stage 2 qualification is claimed. |
+
+The initial combined workstation run passed 374 checks and 38 subtests. Its two
+repository-ratchet failures identified unstaged new tests in the copied checkout
+and a missing registry entry for the superseded policy version; both were
+corrected before final qualification. Earlier parser/policy development failures
+also exposed negative-bin sorting and captured-age observation-time handling and
+were fixed with regression coverage. Final topic Git, CI and retained JUnit
+receipts own publication and qualification; these are synthetic implementation
+proofs, not current market/account evidence.
+
+The production-local ignored status receipt
+`scratch/handoffs/audit-fixes-overnight-status-20260905.json` at 20:27 Toronto
+reports capture CLEAN and three zero-error families, but only 28.9 GiB disk free.
+The suite's 50 GiB reserve is therefore unproved. Existing tiering is separately
+scheduled for 05:00/06:00, after the 01:00–04:00 merge window. Do not schedule an
+integration suite on assumed future reclaim or reuse a spent attempt. Production
+documentation closeout, exact archive-source identity and fleet/ledger settlement
+repairs remain open; fresh admission and their owning contracts govern execution.
+The portable September 6 attended preparation path remains independently
+qualified under its named source exception; live authorization is still absent.
+
 ## Update this file when
 
 Update work-package scope, dependencies, acceptance, evidence or dispositions
