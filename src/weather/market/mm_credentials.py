@@ -8,7 +8,6 @@ be supplied directly through environment variables or command arguments.
 from __future__ import annotations
 
 import ctypes
-
 import os
 from ctypes import wintypes
 from urllib.parse import unquote, urlsplit
@@ -29,7 +28,6 @@ from weather.market.market_making_preflight import (
     pilot_wallet_signature_topology,
     valid_evm_address,
 )
-from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET_USDC
 
 
 REFERENCE_ENV = {

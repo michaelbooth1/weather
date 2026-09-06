@@ -61,6 +61,7 @@ def official_stage1_gate(adapter, snapshot_character="b"):
         "funder_address": adapter.maker_address,
         "sdk_version": adapter.sdk_version,
         "signature_type_id": 3,
+        "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 100.0,
         "account_snapshot_sha256": snapshot_character * 64,

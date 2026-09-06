@@ -1512,6 +1512,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
             bootstrap_loader=lambda *_args, **_kwargs: {
                 "ok": True,
                 "requested_budget_usdc": 10.0,
+                "isolated_pilot_wallet": True,
                 "pilot_wallet_max_funding_usdc": 100.0,
             },
             bundle_builder=lambda *_args: pytest.fail(
@@ -1537,6 +1538,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         bootstrap_loader=lambda *_args, **_kwargs: {
             "ok": True,
             "requested_budget_usdc": 10.0,
+            "isolated_pilot_wallet": True,
             "pilot_wallet_max_funding_usdc": 100.0,
         },
         bundle_builder=builder,

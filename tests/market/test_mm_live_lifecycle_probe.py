@@ -99,6 +99,7 @@ def bootstrap_gate():
         "token_id": "12345",
         "funder_address": "0x" + "a" * 40,
         "sdk_version": "0.6.0",
+        "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 10.0,
         "account_snapshot_sha256": "b" * 64,

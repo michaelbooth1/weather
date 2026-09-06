@@ -758,11 +758,11 @@ def load_platform_bootstrap_gate(
         ),
         **wallet_topology_checks,
         "pilot_capital_contract_valid": wallet_cap is not None,
-        "wallet_cap_within_operator_limit": (
+        "pilot_capital_within_operator_limit": (
             wallet_cap is not None
             and 0 < wallet_cap <= MAX_OPERATOR_PILOT_BUDGET_USDC
         ),
-        "requested_budget_within_wallet_cap": (
+        "requested_budget_within_pilot_capital_limit": (
             requested_budget is not None
             and requested_budget > 0
             and wallet_cap is not None
@@ -784,7 +784,7 @@ def load_platform_bootstrap_gate(
             and requested_budget is not None
             and collateral_balance >= requested_budget
         ),
-        "account_balance_within_wallet_cap": collateral_within_capital_scope(
+        "account_balance_within_capital_scope": collateral_within_capital_scope(
             payload, collateral_balance
         ),
         "account_allowance_backs_requested_budget": (

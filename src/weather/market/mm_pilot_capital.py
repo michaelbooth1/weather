@@ -13,15 +13,14 @@ from weather.market.market_making_run_constants import MAX_OPERATOR_PILOT_BUDGET
 
 
 EXISTING_WALLET_ALLOCATION = "existing_wallet_test_allocation"
-ISOLATED_WALLET = "isolated_wallet"
 ALLOCATION_KEYS = {"pilot_capital_mode", "pilot_test_allocation_pusd"}
 
 
-def pilot_capital_limit(payload, *, require_wallet_declaration=False):
+def pilot_capital_limit(payload, *, require_wallet_declaration=True):
     """Return the test capital limit, rejecting mixed or malformed contracts.
 
-    Legacy funding fields retain their whole-wallet meaning. Gate summaries
-    historically omit the isolation declaration; full artifacts must require it.
+    Legacy funding fields retain their whole-wallet meaning. Current identity
+    and bootstrap artifacts and gate summaries preserve the wallet declaration.
     """
 
     allocation_fields = ALLOCATION_KEYS.intersection(payload)

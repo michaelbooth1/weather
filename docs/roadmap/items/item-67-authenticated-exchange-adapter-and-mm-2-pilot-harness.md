@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-05 - SEPTEMBER 6 ATTENDED TEST PREPARATION; LIVE AUTHORITY PENDING]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - EXISTING-WALLET TEST ALLOCATION REPAIR; FRESH STAGE 0/1 EVIDENCE PENDING]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -63,6 +63,57 @@ economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-06 first Stage 0 failure and existing-wallet allocation repair
+
+The owner authorized the attended International Stage 0/1 test and access to
+up to 100 pUSD for testing, confirmed attendance and physical eligibility,
+and then explicitly requested keeping the existing wallet and fixing the code
+while preserving the 100 pUSD testing limit. This supersedes the earlier
+preparation-only authority and isolated-wallet requirement for this exact
+Stage 0/1 test. The 10 pUSD order/request limit remains.
+
+Spent attempt `pilot-20260906T132919010Z` failed September 6 at
+14:07:03.377293 UTC in Stage 0's `balance_cap` phase. The collector converted
+six-decimal collateral correctly and refused cash above the then-required
+100 pUSD isolated-wallet funding ceiling. The owner reported wallet cash of
+275.48 pUSD; that UI report is not an independently retained numeric account
+read. Do not create another wallet, transfer funds, relabel this wallet
+isolated, rewrite this attempt or rerun its launcher.
+
+The retained terminal command/wrapper/run receipts and separate hash audit
+agree: credential values were read only in memory; all signer/API-owner/
+funder/order-signer comparisons passed; an authenticated user-stream
+subscription was sent; heartbeat and cancel-all attempt counts were both zero;
+no order was submitted; cleanup passed; Stage 1 never started. The hash audit
+passes all 11 evidence-binding checks, which proves the diagnosis and retained
+lineage, not successful Stage 0. Its SHA-256 is
+`22540f3b6b525c83fee5f1e1ee962dfd406beaa33aca01f6b9d5ae9bccb0fbf2`.
+
+The portable originals remain under
+`C:/Users/Michael/AppData/Local/WLive/attempts/pilot-20260906T132919010Z`.
+Public copies, the audit and its helper are retained on the controller under
+`scratch/handoffs/live-test-preparation-20260906/failed-stage0-20260906T140703Z/`.
+The prior independent credential source file was deleted only after the
+owner confirmed a separate secure backup; the credential vault was unchanged.
+
+The repair is stacked on portable source `e82dd916a842ee8d011f9d09464978d956ab3a46`
+via `codex/live-test-capital-allocation-20260906`. It adds the explicit
+existing-wallet test allocation contract in
+[the live-pilot runbook](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#pilot-capital-contract):
+identity v0.4, bootstrap v0.6, truthful cash/funding/allocation fields, shared
+validation through the action-time and bundle boundaries, and sealed scope
+display. Existing isolated-wallet and ordinary-runner gates retain their
+whole-balance semantics. The single reviewed attempt can submit at most two
+BUY orders of at most 10 pUSD each and stops on any fill or failed cleanup;
+no repeating session or Stage 2 authority is added.
+
+Qualification and fresh portable adoption are required before creating a new
+attempt. The implementation's first focused workstation run passed 331 tests;
+two added fixtures required a refreshed snapshot hash and reading the runtime
+scope from the generated wrapper. Those failures do not qualify the repair;
+final exact-source test/CI records own acceptance. No successful Stage 0 or
+Stage 1 evidence has been produced.
 
 ## 2026-09-05 preparation for the September 6 attended test
 

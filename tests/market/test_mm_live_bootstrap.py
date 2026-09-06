@@ -871,7 +871,7 @@ def test_bootstrap_gate_rejects_us_wrong_market_over_budget_and_secret_material(
 
     assert not gate["ok"]
     assert "platform_is_international" in gate["missing"]
-    assert "requested_budget_within_wallet_cap" in gate["missing"]
+    assert "requested_budget_within_pilot_capital_limit" in gate["missing"]
     assert "market_expected_token_matches" in gate["missing"]
     assert "market_expected_condition_matches" in gate["missing"]
     assert "no_secret_material" in gate["missing"]
@@ -909,7 +909,7 @@ def test_bootstrap_gate_rejects_actual_balance_above_declared_wallet_cap(tmp_pat
     )
 
     assert not gate["ok"]
-    assert "account_balance_within_wallet_cap" in gate["missing"]
+    assert "account_balance_within_capital_scope" in gate["missing"]
 
 
 
@@ -932,6 +932,9 @@ def test_bootstrap_allocation_preserves_cash_and_backing_checks(
     )
     payload["account_snapshot"]["collateral_balance_usdc"] = balance
     payload["account_snapshot"]["collateral_allowance_usdc"] = allowance
+    payload["account_snapshot"]["snapshot_sha256"] = account_snapshot_sha256(
+        payload["account_snapshot"]
+    )
     path = write_payload(tmp_path / "bootstrap-allocation.json", payload)
     gate = load_platform_bootstrap_gate(
         path, TARGET_DATE, requested_budget_usdc=budget, now=NOW

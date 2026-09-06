@@ -2578,7 +2578,7 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
 
 
 @pytest.mark.parametrize("allocation", [100, 100.01])
-def test_stage0_seal_binds_explicit_existing_wallet_allocation(tmp_path, allocation):
+def test_stage0_seal_binds_explicit_existing_wallet_allocation(tmp_path, allocation, capsys):
     production, attempt, spec_path, spec = prepare(tmp_path)
     identity = Path(spec["inputs"]["identity"]["path"])
     payload = json.loads(identity.read_text(encoding="utf-8"))
@@ -2607,7 +2607,16 @@ def test_stage0_seal_binds_explicit_existing_wallet_allocation(tmp_path, allocat
     namespace = {
         "datetime": datetime, "timedelta": timedelta, "Path": Path,
         "hashlib": hashlib, "json": json, "STAGE_NAME": "stage0",
-        "SCOPE": result["scope"],
+        "SCOPE": ast.literal_eval(next(
+            node.value for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "SCOPE" for target in node.targets)
+        )),
     }
     exec(compile(ast.Module(body=[display_node], type_ignores=[]), "<scope-display>", "exec"), namespace)
     assert len(namespace["_display_confirmation_scope"]()) == 64
+    displayed = json.loads(capsys.readouterr().out)["confirmation_scope"]
+    assert displayed["pilot_test_allocation_pusd"] == 100
+    assert displayed["pilot_capital_limit_pusd"] == 100
+    assert displayed["pilot_wallet_max_funding_usdc"] is None
+    assert displayed["isolated_pilot_wallet"] is False
