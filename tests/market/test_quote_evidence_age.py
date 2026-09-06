@@ -73,6 +73,31 @@ def test_book_refresh_does_not_renew_model_evidence(monkeypatch, tmp_path):
     assert decide_quote(rows[0], now=NOW)["reason_code"] == "NO_QUOTE_STALE_MODEL"
 
 
+def test_run_support_preserves_model_time_and_advances_captured_book_age(tmp_path):
+    from weather.market.market_making_run_support import assemble_policy_inputs_for_market
+    model = fresh_row(captured_at_utc="2026-06-14T12:00:00+00:00")
+    book = {**model, "captured_at_utc": "2026-06-14T15:59:30+00:00",
+            "clob_book_captured_at_utc": "2026-06-14T15:59:20+00:00", "clob_book_age_seconds": 10}
+    rows = assemble_policy_inputs_for_market("atlanta", tmp_path, [model], [],
+        {"promotion_state": "SHADOW"}, {"watcher_age_seconds": 10, "heartbeat_ok": True, "fresh": True,
+                                       "last_heartbeat": "2026-06-14T15:59:50+00:00"}, clob_feature_rows=[book])
+    assert rows[0]["captured_at_utc"] == model["captured_at_utc"]
+    assert rows[0]["book_age_observed_at_utc"] == book["captured_at_utc"]
+    quote = decide_quote(rows[0], now=NOW)
+    assert quote["reason_code"] == "NO_QUOTE_STALE_MODEL"
+    assert quote["book_age_seconds"] == 40
+
+
+def test_harvest_current_age_is_not_advanced_twice():
+    from weather.market.market_making_run_support import market_harvest_clob_feature_rows
+    rows = market_harvest_clob_feature_rows([
+        {"captured_at_utc": "2026-06-14T15:59:20+00:00"}], now=NOW)
+    row = rows[0]
+    assert row["book_age_observed_at_utc"] == NOW
+    assert evidence_age_seconds(parse_datetime(NOW), timestamp=row["clob_book_captured_at_utc"],
+        reported_age=row["clob_book_age_seconds"], reported_at=row["book_age_observed_at_utc"]) == 40
+
+
 def test_historical_research_never_overrides_policy_by_default(tmp_path):
     path = tmp_path / "recon.json"
     path.write_text(json.dumps({"schema_version": "clob_book_recon_v0.1",
