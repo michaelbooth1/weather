@@ -1344,11 +1344,17 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_stage0_client_identity",
-        "mm_stage0_client_identity_v0.3",
+        "mm_stage0_client_identity_v0.4",
         "weather.market.mm_credentials",
         "active",
-        "Public International SDK, signature, funder, isolation, wallet-cap, and truthful no-order authenticated-write authorization manifest used only to construct the client that collects Stage 0 evidence.",
-        supersedes=("mm_stage0_client_identity_v0.2",),
+        "Public International Stage 0 identity with distinct isolated-wallet funding and existing-wallet test allocation contracts; never general trading authority.",
+        supersedes=("mm_stage0_client_identity_v0.3",),
+    ),
+    SchemaSpec(
+        "mm_stage0_client_identity_v0_3_legacy",
+        "mm_stage0_client_identity_v0.3",
+        "weather.market.mm_credentials",
+        "legacy",
     ),
     SchemaSpec(
         "mm_stage0_client_identity_v0_2_legacy",
@@ -1364,11 +1370,17 @@ REGISTERED_SCHEMAS = (
     ),
     SchemaSpec(
         "mm_platform_bootstrap",
-        "mm_platform_bootstrap_v0.5",
+        "mm_platform_bootstrap_v0.6",
         "weather.market.mm_live_bootstrap",
         "active",
-        "International wallet, authenticated account, non-posting signed-order topology, scope-bound neg-risk plus independently refreshed nonnegative fee-rule telemetry, stream, current heartbeat acknowledgment, cancellation, and secret-hygiene proof before the first lifecycle order.",
-        supersedes=("mm_platform_bootstrap_v0.4",),
+        "International Stage 0 account and lifecycle proof, preserving actual wallet cash separately from an explicit existing-wallet test allocation or isolated-wallet funding cap.",
+        supersedes=("mm_platform_bootstrap_v0.5",),
+    ),
+    SchemaSpec(
+        "mm_platform_bootstrap_v0_5_legacy",
+        "mm_platform_bootstrap_v0.5",
+        "weather.market.mm_live_bootstrap",
+        "legacy",
     ),
     SchemaSpec(
         "mm_platform_bootstrap_v0_4_legacy",

@@ -1,5 +1,5 @@
 {
-  "schema_version": "mm_stage0_client_identity_v0.3",
+  "schema_version": "mm_stage0_client_identity_v0.4",
   "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
   "platform": "polymarket_global",
   "international_platform_confirmed": false,

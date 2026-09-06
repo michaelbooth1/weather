@@ -192,7 +192,7 @@ All must be current for the target date and selected market:
    stage requires economics acceptance, a paper run, the portable substrate
    preflight, spread/midpoint limits, reward/rebate eligibility, or a positive
    fee; those remain Stage 2/paper evidence.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.5` passes for
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.6` passes for
    the exact token and condition. This non-order, at-most-one-hour-old artifact
    proves the isolated wallet identity, recorded cap, numeric collateral
    balance and allowance each backing the requested budget, a content-bound
@@ -412,7 +412,7 @@ receipts therefore record `order_submit_attempted=false` separately from
 `authenticated_exchange_write_attempted=true`; generic exchange mutation is
 also true. Calling Stage 0 fully read-only is incorrect.
 
-- Fill the public `mm_stage0_client_identity_v0.3` manifest. It binds only the
+- Fill the public `mm_stage0_client_identity_v0.4` manifest. It binds only the
   International platform, chain, pinned SDK, public wallet topology,
   isolated-wallet declaration, capital cap, and the literal
   `INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER`.

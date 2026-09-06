@@ -1,5 +1,5 @@
 {
-  "schema_version": "mm_platform_bootstrap_v0.5",
+  "schema_version": "mm_platform_bootstrap_v0.6",
   "status": "TEMPLATE_FAIL_SAFE",
   "verified_at_utc": null,
   "verified_for_target_date": null,

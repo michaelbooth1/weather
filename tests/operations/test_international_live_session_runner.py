@@ -194,7 +194,7 @@ def session_fixture(
     attempt.mkdir()
     identity = write(
         attempt / sealer.INPUT_LAYOUTS[stage]["identity"],
-        {"schema_version": "mm_stage0_client_identity_v0.3"},
+        {"schema_version": "mm_stage0_client_identity_v0.4"},
     )
     credential = write(tmp_path / "credential.json", {"status": "PASS"})
     references = write(
@@ -473,7 +473,7 @@ def write_execution(
         bootstrap = write(
             attempt / layout["bootstrap"],
             {
-                "schema_version": "mm_platform_bootstrap_v0.5",
+                "schema_version": "mm_platform_bootstrap_v0.6",
                 "status": "PASS",
                 "mutation_geographic_eligibility": {
                     key: geography_payload[key]
@@ -527,7 +527,7 @@ def write_execution(
                 "token_id": TOKEN,
                 "candidate_plan_sha256": sha(candidate_path),
                 "candidate_semantic_plan_sha256": candidate_payload["plan_sha256"],
-                "bootstrap_schema_version": "mm_platform_bootstrap_v0.5",
+                "bootstrap_schema_version": "mm_platform_bootstrap_v0.6",
                 "bootstrap_sha256": sha(attempt / "stage0/bootstrap.json"),
                 "heartbeat_acknowledged": True,
                 "submit_boundary_heartbeat_acknowledged": True,

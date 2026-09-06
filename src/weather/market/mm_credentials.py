@@ -8,12 +8,15 @@ be supplied directly through environment variables or command arguments.
 from __future__ import annotations
 
 import ctypes
-import math
+
 import os
 from ctypes import wintypes
 from urllib.parse import unquote, urlsplit
 
 from weather.market.mm_exchange import credential_diagnostics
+from weather.market.mm_pilot_capital import (
+    ALLOCATION_KEYS, capital_declaration, pilot_capital_limit,
+)
 from weather.market.mm_official_adapter import (
     OFFICIAL_CLOB_DISTRIBUTION,
     OFFICIAL_CLOB_VERSION,
@@ -37,7 +40,7 @@ REFERENCE_ENV = {
 }
 FUNDER_ENV = "POLYMARKET_FUNDER_ADDRESS"
 WINCRED_SCHEME = "wincred"
-STAGE0_IDENTITY_SCHEMA_VERSION = "mm_stage0_client_identity_v0.3"
+STAGE0_IDENTITY_SCHEMA_VERSION = "mm_stage0_client_identity_v0.4"
 STAGE0_AUTHORIZATION = (
     "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
 )
@@ -281,11 +284,13 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
 
     identity = dict(stage0_identity or {})
     try:
-        wallet_cap = float(identity.get("pilot_wallet_max_funding_usdc"))
+        wallet_cap = float(pilot_capital_limit(identity, require_wallet_declaration=True))
     except (TypeError, ValueError):
         wallet_cap = None
     checks = {
-        "exact_public_schema": set(identity) == STAGE0_IDENTITY_KEYS,
+        "exact_public_schema": set(identity) in (
+            STAGE0_IDENTITY_KEYS, STAGE0_IDENTITY_KEYS | ALLOCATION_KEYS
+        ),
         "secret_material_absent": not contains_secret_material(identity),
         "schema": identity.get("schema_version") == STAGE0_IDENTITY_SCHEMA_VERSION,
         "authorization": identity.get("operator_authorization") == STAGE0_AUTHORIZATION,
@@ -307,10 +312,7 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
             or str(identity.get("funder_address") or "").lower()
             == str(expected_funder).lower()
         ),
-        "isolated_wallet": identity.get("isolated_pilot_wallet") is True,
-        "wallet_cap": wallet_cap is not None
-        and math.isfinite(wallet_cap)
-        and 0 < wallet_cap <= MAX_OPERATOR_PILOT_BUDGET_USDC,
+        "capital_contract": wallet_cap is not None,
     }
     missing = [name for name, passed in checks.items() if not passed]
     return {
@@ -321,7 +323,8 @@ def stage0_client_identity_gate(stage0_identity, *, expected_funder=None, now=No
         "funder_address": identity.get("funder_address"),
         "signature_type": identity.get("signature_type"),
         "signature_type_id": identity.get("signature_type_id"),
-        "pilot_wallet_max_funding_usdc": wallet_cap,
+        **capital_declaration(identity),
+        "pilot_capital_limit_pusd": wallet_cap,
         "identity": identity,
     }
 

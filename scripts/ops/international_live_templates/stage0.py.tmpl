@@ -353,6 +353,10 @@ def _assert_mutation_reserve() -> None:
 
 
 def _display_confirmation_scope() -> str:
+    from weather.market.mm_pilot_capital import capital_declaration, pilot_capital_limit
+
+    identity = json.loads(Path(str(SCOPE["identity_path"])).read_text(encoding="utf-8-sig"))
+    capital_limit = pilot_capital_limit(identity, require_wallet_declaration=True)
     contained_end = datetime.fromisoformat(
         str(SCOPE["run_not_after_local"])
     ) + timedelta(seconds=SCOPE["cleanup_reserve_seconds"])
@@ -363,7 +367,8 @@ def _display_confirmation_scope() -> str:
         "condition_id": SCOPE["condition_id"],
         "token_id": SCOPE["token_id"],
         "requested_budget_pusd": 10,
-        "wallet_cap_pusd": 100,
+        "pilot_capital_limit_pusd": float(capital_limit),
+        **capital_declaration(identity),
         "order_submit_expected": False,
         "authenticated_heartbeat_write_expected": True,
         "cancel_all_cleanup_expected": True,

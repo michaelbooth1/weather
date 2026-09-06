@@ -63,7 +63,7 @@ def geographic_receipt(checked_at=NOW):
 
 def stage0_identity():
     return {
-        "schema_version": "mm_stage0_client_identity_v0.3",
+        "schema_version": "mm_stage0_client_identity_v0.4",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
@@ -83,7 +83,7 @@ def stage0_identity():
 
 def bootstrap_payload():
     payload = {
-        "schema_version": "mm_platform_bootstrap_v0.5",
+        "schema_version": "mm_platform_bootstrap_v0.6",
         "status": "PASS",
         "verified_at_utc": NOW,
         "verified_for_target_date": TARGET_DATE,
@@ -274,7 +274,7 @@ def test_bootstrap_gate_refuses_the_published_v03_contract(tmp_path):
         now=NOW,
     )
 
-    assert SCHEMA_VERSION == "mm_platform_bootstrap_v0.5"
+    assert SCHEMA_VERSION == "mm_platform_bootstrap_v0.6"
     assert gate["ok"] is False
     assert "schema_version_supported" in gate["missing"]
 
@@ -462,10 +462,21 @@ def test_finite_stage0_gate_rejects_a_modified_final_journal(tmp_path):
     assert "user_stream_final_journal_content_bound" in gate["missing"]
 
 
+@pytest.mark.parametrize("existing_wallet", [False, True])
 def test_collector_converts_atomic_collateral_and_produces_passing_gate(
     tmp_path,
     monkeypatch,
+    existing_wallet,
 ):
+    identity = stage0_identity()
+    expected_balance = 275.48 if existing_wallet else 100.0
+    if existing_wallet:
+        identity.update(
+            pilot_capital_mode="existing_wallet_test_allocation",
+            pilot_test_allocation_pusd=100,
+            isolated_pilot_wallet=False,
+            pilot_wallet_max_funding_usdc=None,
+        )
     boundary_events = []
     geography_validation_count = 0
     original_geography_validator = (
@@ -528,7 +539,7 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
             self.heartbeat_calls = 0
 
         def balances(self):
-            return {"balance": "100000000"}
+            return {"balance": "275480000" if existing_wallet else "100000000"}
 
         def allowances(self):
             return {"spender-a": "100000000", "spender-b": "200000000"}
@@ -633,9 +644,9 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
     payload = collect_platform_bootstrap_payload(
         Adapter(),
         user_stream,
-        stage0_identity(),
+        identity,
         target_date=TARGET_DATE,
-        requested_budget_usdc=100,
+        requested_budget_usdc=10,
         secret_hygiene={
             "credentials_by_reference_verified": True,
             "direct_secret_environment_absent_verified": True,
@@ -656,13 +667,18 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
     gate = load_platform_bootstrap_gate(
         path,
         TARGET_DATE,
-        requested_budget_usdc=100,
+        requested_budget_usdc=10,
         expected_token_id=TOKEN_ID,
         expected_condition_id=CONDITION_ID,
         now=NOW,
     )
 
-    assert payload["account_snapshot"]["collateral_balance_usdc"] == 100.0
+    assert payload["account_snapshot"]["collateral_balance_usdc"] == expected_balance
+    assert gate["pilot_capital_limit_pusd"] == 100
+    assert gate["pilot_wallet_max_funding_usdc"] == (None if existing_wallet else 100)
+    if existing_wallet:
+        assert gate["pilot_test_allocation_pusd"] == 100
+        assert gate["isolated_pilot_wallet"] is False
     assert payload["account_snapshot"]["collateral_allowance_usdc"] == 100.0
     assert payload["dead_man_heartbeat"]["two_acknowledgments_verified"] is True
     assert payload["dead_man_heartbeat"]["acknowledgment_count"] == 2
@@ -704,9 +720,9 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         collect_platform_bootstrap_payload(
             Adapter(),
             failed_clock_stream,
-            stage0_identity(),
+            identity,
             target_date=TARGET_DATE,
-            requested_budget_usdc=100,
+            requested_budget_usdc=10,
             secret_hygiene={
                 "credentials_by_reference_verified": True,
                 "direct_secret_environment_absent_verified": True,
@@ -741,9 +757,9 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         collect_platform_bootstrap_payload(
             Adapter(),
             failed_recorder_stream,
-            stage0_identity(),
+            identity,
             target_date=TARGET_DATE,
-            requested_budget_usdc=100,
+            requested_budget_usdc=10,
             secret_hygiene={
                 "credentials_by_reference_verified": True,
                 "direct_secret_environment_absent_verified": True,
@@ -894,3 +910,32 @@ def test_bootstrap_gate_rejects_actual_balance_above_declared_wallet_cap(tmp_pat
 
     assert not gate["ok"]
     assert "account_balance_within_wallet_cap" in gate["missing"]
+
+
+
+@pytest.mark.parametrize("balance,allowance,budget,allowed", [
+    (275.48, 100, 10, True),
+    (9.99, 100, 10, False),
+    (275.48, 9.99, 10, False),
+    (275.48, 1000, 100.01, False),
+    (float("inf"), 100, 10, False),
+])
+def test_bootstrap_allocation_preserves_cash_and_backing_checks(
+    tmp_path, balance, allowance, budget, allowed
+):
+    payload = finalized_bootstrap_payload(tmp_path, name="allocation")
+    payload.update(
+        pilot_capital_mode="existing_wallet_test_allocation",
+        pilot_test_allocation_pusd=100,
+        isolated_pilot_wallet=False,
+        pilot_wallet_max_funding_usdc=None,
+    )
+    payload["account_snapshot"]["collateral_balance_usdc"] = balance
+    payload["account_snapshot"]["collateral_allowance_usdc"] = allowance
+    path = write_payload(tmp_path / "bootstrap-allocation.json", payload)
+    gate = load_platform_bootstrap_gate(
+        path, TARGET_DATE, requested_budget_usdc=budget, now=NOW
+    )
+    assert gate["ok"] is allowed, gate["missing"]
+    assert gate["pilot_wallet_max_funding_usdc"] is None
+    assert gate["pilot_capital_limit_pusd"] == 100

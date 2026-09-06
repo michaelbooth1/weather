@@ -1230,8 +1230,10 @@ def _validate_identity(
     expected_reference: Mapping[str, Any],
 ) -> None:
     payload, _raw = _read_json_object(path, label="Stage 0 identity")
+    from weather.market.mm_pilot_capital import pilot_capital_limit
+
     try:
-        wallet_cap = Decimal(str(payload.get("pilot_wallet_max_funding_usdc")))
+        wallet_cap = pilot_capital_limit(payload, require_wallet_declaration=True)
     except (InvalidOperation, TypeError, ValueError):
         wallet_cap = Decimal("-1")
     from weather.market.mm_credentials import (
@@ -1257,7 +1259,7 @@ def _validate_identity(
         or payload.get("signature_type_id")
         != expected_reference.get("signature_type_id")
     ):
-        raise SealError("identity does not bind the 10 pUSD request and 100 pUSD wallet cap")
+        raise SealError("identity does not bind the 10 pUSD request and 100 pUSD capital limit")
 
 
 def _validate_stage0_lineage(
@@ -1427,7 +1429,7 @@ def _validate_stage0_lineage(
         == geography_premutation_artifact.get("path"),
         command_geography.get("sha256")
         == geography_premutation_artifact.get("sha256"),
-        bootstrap.get("schema_version") == "mm_platform_bootstrap_v0.5",
+        bootstrap.get("schema_version") == "mm_platform_bootstrap_v0.6",
         bootstrap_geography.get("status") == "PASS",
         bootstrap_geography.get("eligible") is True,
         len(str(bootstrap_geography.get("receipt_payload_sha256") or "")) == 64,

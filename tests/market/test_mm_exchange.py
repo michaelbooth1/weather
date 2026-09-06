@@ -52,7 +52,7 @@ def official_stage1_gate(adapter, snapshot_character="b"):
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.5",
+        "schema_version": "mm_platform_bootstrap_v0.6",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
@@ -709,6 +709,30 @@ class TestMMExchange(unittest.TestCase):
             oversized_budget_adapter.authorize_stage1_lifecycle(
                 oversized_budget_gate,
                 submit_deadline_utc="2099-01-01T00:00:00+00:00",
+            )
+
+        allocation_adapter = make_adapter(FakeClient())
+        allocation_gate = official_stage1_gate(allocation_adapter)
+        allocation_gate.update(
+            requested_budget_usdc=10,
+            pilot_capital_mode="existing_wallet_test_allocation",
+            pilot_test_allocation_pusd=100,
+            isolated_pilot_wallet=False,
+            pilot_wallet_max_funding_usdc=None,
+        )
+        allocation_capability = allocation_adapter.authorize_stage1_lifecycle(
+            allocation_gate, submit_deadline_utc="2099-01-01T00:00:00+00:00"
+        )
+        self.assertIsNotNone(allocation_capability)
+        with self.assertRaisesRegex(RuntimeError, "single-use"):
+            allocation_adapter.authorize_stage1_lifecycle(
+                allocation_gate, submit_deadline_utc="2099-01-01T00:00:00+00:00"
+            )
+        invalid_allocation_adapter = make_adapter(FakeClient())
+        allocation_gate["pilot_test_allocation_pusd"] = 100.01
+        with self.assertRaisesRegex(RuntimeError, "wallet_cap"):
+            invalid_allocation_adapter.authorize_stage1_lifecycle(
+                allocation_gate, submit_deadline_utc="2099-01-01T00:00:00+00:00"
             )
 
         wrong_signer_client = FakeClient()
