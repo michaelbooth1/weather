@@ -381,10 +381,11 @@ their intended paths now; create expiring plans only when ready to consume them.
 
 **At the attended session:**
 
-1. Use the prepared, unspent attempt and a fresh host/principal-bound v0.4
-   [compare-only credential receipt](#credential-provisioning-and-fresh-comparison)
-   from `weather.market.mm_credential_import_cli --verify-existing-exact`.
-   Its maximum age is two hours. Prior provisioning is not this fresh proof.
+1. Use the prepared, unspent attempt and the retained host/principal-bound v0.4
+   [credential installation receipt](#credential-provisioning-and-fresh-comparison)
+   and public reference manifest. A clean creation or exact comparison is valid
+   provenance without an age expiry. Each live stage resolves the current vault
+   entries and repeats signer/account authentication checks.
 2. Run [discovery](#event-metadata-and-stage-discovery) through
    `weather.market.mm_live_stage0_scope`, then
    `weather.market.mm_live_stage1_lifecycle_plan` for that exact condition/token.
@@ -647,8 +648,9 @@ VPN/proxy/location circumvention is not an allowed workaround.
 
 After that host audit, prepare the public identity and one target-date
 event-metadata snapshot on the selected host. The generator below may run
-before credential comparison. Then prepare the fresh public credential
-receipt/reference sources; only after those pass, discover a structural Stage
+before credential setup. Select the retained public credential receipt/reference
+sources for an existing installation, or provision a new installation as below;
+only after those pass, discover a structural Stage
 0 scope and derive a Stage 1 lifecycle plan for that exact condition/token.
 Run all three manifest builds before the discovery plans' 300-second leases
 expire. The
@@ -790,10 +792,53 @@ if ($identityPreparationExit -ne 0 -or
 
 #### Credential provisioning and fresh comparison
 
-Only after identity preparation passes, create the four secret values as
-Windows Credential Manager generic credentials. Compare-only verification of
-entries created by an earlier reviewed import is not provisioning and does not
-replace the identity gate. If an external source file is used, keep it outside
+**Normal retries require no backup file, import, or repeated comparison.**
+Select the existing public receipt
+and reference manifest for this Windows installation and token principal:
+
+```powershell
+$pilotCredentialManifestSource = Get-VerifiedPilotLocalPath "replace-with-retained-public-reference-manifest-json"
+$pilotCredentialReceiptSource = Get-VerifiedPilotLocalPath "replace-with-retained-public-installation-receipt-json"
+```
+
+Continue at [event metadata and stage discovery](#event-metadata-and-stage-discovery).
+The builder and sealers validate these files and bind their unchanged bytes to
+the new attempt. No credential value is read during this public preparation.
+
+The v0.4 receipt is **installation provenance**, not a claim about today's vault
+contents or exchange access. Both exact clean tuples below are accepted. Keep
+the original timestamp; a valid timezone-aware timestamp must not be in the
+future. Age alone never invalidates it. Earlier receipt versions lacking the
+host/principal binding remain historical audit inputs and cannot authorize
+live preparation.
+
+At every Stage 0/1 launch, the current user resolves all four vault entries.
+The private key must derive the sealed public signer, and the client must match
+the funder and wallet/signature type. Stage 0's authenticated collateral and
+open-order reads precede its heartbeat/cancel sequence. Stage 1 repeats the
+authenticated open-order query before obtaining a submission capability, and
+refreshes collateral before submission. Rejected or missing credentials cannot
+be replaced by an old PASS. Polymarket's [authentication contract](https://docs.polymarket.com/getting-started/api#authentication)
+binds private CLOB requests to the signer address and current API credentials;
+it is those requests that establish current access.
+
+The September 6 credential-rule review separates the risks as follows:
+
+| Rule | Decision and reason |
+| --- | --- |
+| Two-hour installation-receipt expiry | Removed. No protocol or measured basis was established for that interval; an old receipt cannot prove current authentication, and a recent one cannot replace it. |
+| Comparison immediately after clean creation | Removed. The successful importer already validates the source and records the complete creation result. |
+| Host/principal binding and exact creation/comparison tuple | Kept. Credential Manager storage belongs to that Windows installation/user, and partial writes, rollback or a different installation do not establish its provenance. |
+| Current signer/funder/type and authenticated account checks | Kept at each launch. They detect the wrong wallet, absent or revoked credentials and account state that changed since an earlier success. |
+| Protected secret storage and explicit recovery | Kept. Routine launches consume references; backups and credential replacement remain separate deliberate operations. |
+| New attempt, source/host binding, current market/geography, deadlines and exclusive live workload | Kept within their owning contracts. They prevent consumed authority from being replayed, stale identities/rules from being used, and execution from overlapping work that could prevent cleanup. |
+| 100 pUSD allocation, 10 pUSD order limit and stop-on-fill | Kept as the operator's explicit test envelope, not an empirical optimum. |
+
+**Setup or recovery only:** after identity preparation passes, create the four
+secret values as Windows Credential Manager generic credentials on a new
+installation, or explicitly compare a retained source when investigating an
+existing installation. Never recover by automatically overwriting vault entries.
+If an external source file is used, keep it outside
 the repository and remove inherited broad ACLs. The importer validates the
 private key/address and exact wallet/signature topology, refuses existing fixed
 targets, rolls back partial writes, rejects unrelated relayer/RPC/live-flag
@@ -888,10 +933,11 @@ if (-not $currentUserCanRead) {
 }
 ```
 
-Choose the provisioning branch before executing it. Set the Boolean below to
+The following blocks are for setup/recovery, not normal retries. Choose the
+provisioning branch before executing it. Set the Boolean below to
 `$true` only for a new host/principal whose four fixed targets are known empty.
-Set it to `$false` only when a prior reviewed clean create receipt for this same
-host/principal proves those targets were intentionally provisioned. Never turn
+Set it to `$false` for an explicitly reviewed comparison of an existing
+installation. Never turn
 a generic create failure into the reuse branch; stop and review it.
 
 ```powershell
@@ -915,16 +961,20 @@ if ($provisionNewCredentialTargets) {
       $credentialProvisioningReceipt.credential_value_count_written -ne 4) {
     throw "create-only credential import receipt did not pass exactly"
   }
+  $pilotCredentialManifestSource = $pilotCredentialProvisioningManifest
+  $pilotCredentialReceiptSource = $pilotCredentialProvisioningReceipt
 }
 ```
 
 An occupancy refusal is not permission to overwrite or delete an existing
-target. Whether the selected branch just provisioned the four entries or a
-prior reviewed import did so, use distinct new verified-output paths and opt in
-explicitly to the compare-only path required by the session builder:
+target. Clean creation can proceed directly to public receipt review and source
+cleanup; no second comparison is required. **Only for an explicitly requested
+independent comparison**, use distinct new output paths and run:
 
 ```powershell
 $ErrorActionPreference = "Stop"
+$pilotCredentialManifestSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-verified-references.json")
+$pilotCredentialReceiptSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-verified-receipt.json")
 .\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
   --source-env $credentialSource `
   --manifest-out $pilotCredentialManifestSource `
@@ -960,15 +1010,13 @@ rollback and one of these truthful tuples:
 - `credential_mode=verify_existing_exact`, zero written, four existing
   verified, and no credential-store mutation attempted.
 
-Both tuples remain valid importer evidence, so a clean installation can retain
-its create-new receipt as provisioning history. The first-session manifest
-builder and fixed-scope sealer are stricter: they accept only a v0.4
-`verify_existing_exact` tuple generated for the current execution host and
-Windows token principal within two hours, with all four existing entries
-verified, zero written, and `credential_store_mutation_attempted=false`. A
-create-new, legacy, stale, other-host, or other-principal receipt cannot be
-staged or sealed; run the attended compare-only path into a new output
-namespace first.
+Both tuples are accepted by the session manifest builder and fixed-scope
+sealer as installation provenance when the v0.4 receipt belongs to the current
+execution host and Windows token principal. Neither expires by age. Keep the
+public receipt/reference pair after deleting the temporary private source.
+Use that same retained pair for later attempts; never rewrite its timestamp or
+describe it as a new check of the vault. Missing provenance or a different
+host/principal requires explicit setup/recovery, not a fabricated replacement.
 
 The latter proves only point-in-time local vault equivalence to the validated
 source. It does not prove exchange authentication, current account state,
@@ -1024,8 +1072,8 @@ if (-not (Test-Path -LiteralPath $pilotEventListSource -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) { throw "event metadata refresh failed" }
 ```
 
-Only after fresh credential preparation passes, start the expiring selectors
-and manifest builds. The Stage 0 selector may softly rank valid books, but it
+Only after credential provenance and public identity validation pass, start the
+expiring selectors and manifest builds. The Stage 0 selector may softly rank valid books, but it
 does not reject a scope for spread, midpoint, depth, economics, paper
 permission, rewards, rebate, or fee. The Stage 1 selector stays on the exact
 Stage 0 condition/token and accepts a current official fee rate of zero:
@@ -1150,7 +1198,7 @@ or substrate-preflight copies:
 | `stage1_cancel_all` | `inputs/stage1-cancel-all-location-market-events.json` | `inputs/stage1-cancel-all-discovery-plan.json` (lifecycle safety) | `inputs/stage1_cancel_all-session-manifest.json` / `inputs/stage1-cancel-all-session-manifest-build-receipt.json` | `incoming/fresh-stage1_cancel_all-candidate.json` |
 | `stage1_dead_man` | `inputs/stage1-dead-man-location-market-events.json` | `inputs/stage1-dead-man-discovery-plan.json` (lifecycle safety) | `inputs/stage1_dead_man-session-manifest.json` / `inputs/stage1-dead-man-session-manifest-build-receipt.json` | `incoming/fresh-stage1_dead_man-candidate.json` |
 
-Identity, compare-only import receipt, and reference-manifest copies retain their
+Identity, credential installation receipt, and reference-manifest copies retain their
 existing canonical names. The `candidate` filenames and receipt fields are
 compatibility names only: Stage 0 carries an
 `mm_live_stage0_scope_plan_v0.1`; Stage 1 carries an
@@ -1239,7 +1287,7 @@ if ($LASTEXITCODE -ne 0 -or
 
 Launcher preparation derives the build-receipt path from the stage; there is no
 path override. It validates the receipt's exact manifest raw/semantic hashes,
-sidecar, production, scope, staged public-input hashes, compare-only credential
+sidecar, production, scope, staged public-input hashes, host/principal-bound credential
 evidence, canonical paths, the fixed 10 pUSD limit, and the profile-bound
 120-second colocated or 240-second portable session envelope, and
 no-credential/no-live-mutation facts. The

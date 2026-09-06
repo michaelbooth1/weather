@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; STAGE 1 EVIDENCE-COPY LINEAGE REPAIR]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; CREDENTIAL LIFECYCLE REDESIGN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -63,6 +63,62 @@ economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-06 credential lifecycle redesign
+
+The owner challenged the repeated backup-file prompt and explicitly requested
+redesign and implementation, including review of inherited rules. The previous
+evidence-copy repair is merged as [PR 32](https://github.com/michaelbooth1/weather/pull/32)
+at `f70bdf9d217e387052e94f37887fb268fcad248d`; its
+[merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34043516166)
+passed 4,584 tests/921 subtests with 259 skips. The actual portable clone
+adopted that exact clean tip at 15:57:01.057409 UTC, and the installed public
+SDK audit passed at 15:57:16.268314 UTC. These are portable-only results.
+
+The two-hour credential-receipt expiry entered with `d265af2b9`; no protocol
+or measured basis was established for that interval. It forced the operator
+to recreate a private source after that source had correctly been removed.
+The receipt only proves a past installation/comparison. Actual credentials can
+be invalid immediately afterward, or remain valid long after two hours.
+Polymarket's [authentication contract](https://docs.polymarket.com/getting-started/api#authentication)
+uses the signer and API credentials on private requests. The existing runtime
+already checks the current signer/funder/type and authenticates current account
+reads before its lifecycle writes.
+
+`codex/vault-credential-lifecycle-20260906` therefore:
+
+- accepts either exact clean v0.4 creation or comparison as retained
+  host/principal-bound installation provenance, without an age expiry;
+- preserves the original timestamp and bytes, rejecting invalid/future
+  timestamps, other hosts/users, incomplete tuples, rollback and bad checks;
+- removes mandatory post-create comparison and normal-retry backup access;
+- updates the manifest builder, launcher review, fixed sealer and both runtime
+  templates to the same contract, including the shared dead-man template;
+- keeps live vault resolution, signer/funder/type checks, current authenticated
+  account reads, single-use attempts, source/host binding, current geography and
+  market checks, deadlines, cleanup, 100 pUSD allocation and 10 pUSD order cap;
+- records each retained/removed rule's reason in the
+  [owning runbook](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#credential-provisioning-and-fresh-comparison)
+  and extends the durable operating-rule guidance to challenge procedural as
+  well as numeric requirements.
+
+Seven regression cases fail on the old code with the expected creation/age
+rejections. The revised source and templates pass 378 focused Windows tests
+with two platform skips through the admitted workstation wrapper. Tests cover
+three-hour and year-old provenance without retimestamping, both receipt modes,
+real runtime-template validation calls, wrong host/user and invalid timestamps,
+and rejected current authentication stopping Stage 0 and both Stage 1 modes
+before their collector/probe writes. Existing changed-private-signer and
+wrong-wallet/type checks remain covered. The JUnit receipts are retained under
+portable-local `WeatherPortable/prep-20260906/` as
+`vault-lifecycle-old-regression-v1.xml` and `vault-lifecycle-focused-v2.xml`.
+
+Compilation, the agent-docs audit and roadmap generation/lint also pass.
+Exact final-tip and merged-topic CI and clean portable adoption still govern
+release of this redesign. Their Git and
+host-local receipts own later qualification. No new live attempt or credential
+operation was executed by this implementation; the previous attempt remains
+spent. Stage 1 live success and economic readiness remain unproved.
 
 ## 2026-09-06 Stage 0 success and Stage 1 evidence-copy lineage repair
 

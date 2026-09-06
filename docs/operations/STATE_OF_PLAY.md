@@ -16,10 +16,11 @@ attended International Stage 1 lifecycle test with the existing wallet; then mea
 The owner authorized implementation, source-control changes and merges, and
 unfinished storage work on September 4. On September 6 the owner authorized
 the attended International Stage 0/1 test with up to 100 pUSD for testing,
-confirmed attendance and physical eligibility, and explicitly requested a code
-fix to use the existing wallet while preserving that allocation and the 10 pUSD
-order limit. Continue preparation without repeating wallet/authorization
-questions. The operator executes the reviewed attended launchers; the coding
+confirmed attendance and physical eligibility, requested the existing-wallet
+repair, and then explicitly requested redesign of the repeated backup/credential
+workflow and review of inherited rules. Keep the 100 pUSD test allocation and
+10 pUSD order limit. Continue without repeating wallet/authorization questions.
+The operator executes the reviewed attended launchers; the coding
 agent prepares source and verifies evidence. All source, host, credential,
 geographic, release and exact-attempt gates remain. No Stage 2 or unattended
 loop is authorized by this test.
@@ -29,11 +30,11 @@ loop is authorized by this test.
 | Area | Verified state / remaining limit |
 | --- | --- |
 | Production source | Guarded W3 adoption completed September 5 01:49:16 at `6714b77d8bb57fa36b4d2dd33675cab971ef2432`, with three-worker recovery and source equality. [Master CI](https://github.com/michaelbooth1/weather/actions/runs/33948191212) passed 4,277 tests and 921 subtests with 258 skips. The two current generated-config modifications remain preserved. Source adoption does not close later qualification or documentation debt. |
-| Portable source qualification | [PR 31](https://github.com/michaelbooth1/weather/pull/31) merged the existing-wallet allocation repair into the authorized topic at `02f2ee06e8ed8d3ee9a3d59f19b8bfaac8d3cd55`. [Merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34041102287) passed 4,574 tests/921 subtests with 259 skips. At September 6 15:10:44.802010 UTC the actual portable clone cleanly adopted that exact tip, with HEAD/local/cached/live topic equality and synchronized ancestral master `6714b77d8bb57fa36b4d2dd33675cab971ef2432`. This is not capture-host adoption; exact Git/CI and host-local receipts own later tips. |
-| Today's path | The owner-approved existing-wallet allocation passed live Stage 0. Stage 1 sealing then exposed a path-equality defect: the builder stages credential evidence separately per stage, but the lineage validator required identical paths. Both copies' actual bytes and hashes agree. Repair `codex/stage-evidence-lineage-20260906` binds verified file bytes while retaining all source/host/credential/money gates. [Item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md#2026-09-06-stage-0-success-and-stage-1-evidence-copy-lineage-repair) owns the retained result and repair. |
+| Portable source qualification | [PR 32](https://github.com/michaelbooth1/weather/pull/32) merged the evidence-copy repair at `f70bdf9d217e387052e94f37887fb268fcad248d`. [Merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34043516166) passed 4,584 tests/921 subtests with 259 skips. At September 6 15:57:01.057409 UTC the actual portable clone cleanly adopted that exact tip, with HEAD/local/cached/live topic equality and synchronized ancestral master `6714b77d8bb57fa36b4d2dd33675cab971ef2432`. Its installed public SDK audit passed. This is not capture-host adoption; exact Git/CI and host-local receipts own later tips. |
+| Today's path | Stage 0 passed with the existing wallet. The Stage 1 evidence-copy bug is repaired and installed. The owner rejected the repeated backup-file prompt and authorized credential-lifecycle redesign: retain installation provenance and check current vault identity/authentication at each launch. `codex/vault-credential-lifecycle-20260906` removes unsupported receipt-age and redundant post-import comparison requirements. [Item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md#2026-09-06-credential-lifecycle-redesign) owns its review and qualification. |
 | Offline verification | The reconciled source passed 485 focused workstation checks and 90 activity-bridge fixtures; SDK/architecture/roadmap checks and compilation also passed. After the PowerShell 5.1 quoting repair, the installed public SDK audit passed again from the updated portable clone at September 5 20:09:54 UTC, proving the 2,260-file overlay and 34-wheel closure without credentials, activation or exchange contact. Source-update, SDK and Windows test receipts are retained under production-local `scratch/handoffs/live-test-preparation-20260906/`, with host-local originals outside the portable repository. These are preparation receipts, not live readiness. |
 | Attended result / host | Attempt `pilot-20260906T151133217Z` is spent. Stage 0 passed September 6 at 15:23:37.810560 UTC: 100 pUSD test allocation, 275.4775 pUSD cash recorded separately, two heartbeats, one cancel-all, no submitted order, zero open orders and zero positions in the selected scope, cleanup PASS. Stage 1 cancel-all stopped at sealing before its live wrapper; dead-man never started. Read-only lineage diagnosis reproduced only two failed path comparisons out of 83 checks. A bounded subsequent host check found no portable Python process or poison record. Never rerun this attempt. |
-| Credentials | Compare-only evidence at September 6 13:46:39.777856 UTC proves the four existing vault entries without mutation and expires after two hours. The independent source file was deleted after the owner confirmed a separate backup; vault entries remain unchanged. A fresh comparison into a new namespace is required after expiry; successful Stage 0 does not retimestamp that receipt. |
+| Credentials | Retained v0.4 comparison evidence at September 6 13:46:39.777856 UTC records four verified entries and zero mutation. The source file was deleted after the owner confirmed a separate backup; vault entries and backup remain unchanged. The redesigned contract accepts this unchanged host/principal-bound record as installation provenance without expiry. Fresh runtime authentication remains mandatory. No backup prompt or credential refresh helper is needed for normal retries after the redesigned source is qualified and adopted. |
 | Market/rules | The public September 6 NYC event and its central 74-75 F book exist in retained September 5 captures. The canonical generator can select NYC from its genuine one-event Gamma list; exact condition/token discovery stays fresh. Current venue Rules name NOAA hourly data first and WU only as fallback. Preserve that difference from the WU proxy; Stage 0/1 identity binding and no-fill completion do not qualify settlement or Stage 2 economics. |
 | Capture / public tape | The retained September 5 00:02 snapshot reports three capture families healthy and public tape CONNECTED/integrity PASS, but `price_path_usable=false`. This is historical point-in-time evidence, not a new streak or price-path proof. |
 | Settlement / jobs | Five exact Toronto August 28-September 1 folder settlement views report `missing_settlement/local_missing`; fleet and ledger scope remain unaudited. Only `WeatherModelMarketDisagreementAnalysis` was disabled at September 5 00:30 after exact checks. Mixed-chain dispositions remain open; no runtime saving is measured. |
@@ -44,9 +45,9 @@ loop is authorized by this test.
 
 ## Ordered critical path
 
-1. Qualify the Stage 0-to-Stage 1 evidence-copy repair, including both Stage 1
-   modes and rejection controls. Require final-tip and authorized-topic CI;
-   verify clean portable clone/ref adoption. Preserve production configs.
+1. Qualify the credential-lifecycle redesign, including runtime wrapper calls,
+   rejection of invalid provenance and failed current authentication. Require
+   final-tip/topic CI and clean portable adoption. Preserve production configs.
 2. Finish heavy verification before sealing. Recheck credential, source and host
    evidence and create a wholly new attempt with the explicit test allocation.
    Every fresh live plan has at most 40 seconds before portable composition.

@@ -2114,12 +2114,12 @@ def test_credential_import_receipt_accepts_exact_existing_verification(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     sealer._validate_credential_import_receipt(
         receipt,
-        required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+        require_host_principal=True,
         now=NOW,
     )
 
 
-def test_fixed_scope_seal_rejects_create_new_credential_evidence(tmp_path):
+def test_fixed_scope_seal_accepts_clean_creation_without_another_comparison(tmp_path):
     production, _attempt, spec_path, spec = prepare(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     payload = json.loads(receipt.read_text(encoding="utf-8"))
@@ -2131,15 +2131,19 @@ def test_fixed_scope_seal_rejects_create_new_credential_evidence(tmp_path):
     spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
     write_json(spec_path, spec)
 
-    with pytest.raises(sealer.SealError, match="compare-only exact verification"):
-        seal(spec_path, production)
+    original = receipt.read_bytes()
+    assert seal(spec_path, production)["status"] == "PASS"
+    assert receipt.read_bytes() == original
 
 
-def test_fixed_scope_seal_rejects_credential_evidence_from_another_host(tmp_path):
+@pytest.mark.parametrize("field", ["execution_host_id", "execution_principal_id"])
+def test_fixed_scope_seal_rejects_credential_provenance_from_another_identity(
+    tmp_path, field
+):
     production, _attempt, spec_path, spec = prepare(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     payload = json.loads(receipt.read_text(encoding="utf-8"))
-    payload["execution_host_id"] = "0" * 64
+    payload[field] = "0" * 64
     write_json(receipt, payload)
     spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
     write_json(spec_path, spec)
@@ -2148,19 +2152,43 @@ def test_fixed_scope_seal_rejects_credential_evidence_from_another_host(tmp_path
         seal(spec_path, production)
 
 
-def test_fixed_scope_seal_rejects_stale_credential_verification(tmp_path):
+@pytest.mark.parametrize("age", [timedelta(hours=3), timedelta(days=365)])
+def test_fixed_scope_seal_reuses_old_credential_provenance_without_retimestamping(
+    tmp_path, age
+):
     production, _attempt, spec_path, spec = prepare(tmp_path)
     receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
     payload = json.loads(receipt.read_text(encoding="utf-8"))
     payload["prepared_at_utc"] = (
-        NOW.astimezone(timezone.utc) - timedelta(hours=3)
+        NOW.astimezone(timezone.utc) - age
     ).isoformat()
     write_json(receipt, payload)
     spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
     write_json(spec_path, spec)
 
+    original = receipt.read_bytes()
+    assert seal(spec_path, production)["status"] == "PASS"
+    assert receipt.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    ["invalid", "2026-01-01T00:00:00", (NOW + timedelta(seconds=1)).isoformat()],
+)
+def test_fixed_scope_seal_rejects_invalid_or_future_credential_provenance(
+    tmp_path, timestamp
+):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload["prepared_at_utc"] = timestamp
+    write_json(receipt, payload)
+    spec["inputs"]["credential_import_receipt"]["sha256"] = sha256(receipt)
+    write_json(spec_path, spec)
+
     with pytest.raises(sealer.SealError, match="exact clean PASS"):
         seal(spec_path, production)
+    assert not (attempt / "wrappers/stage0.py").exists()
 
 
 def test_credential_import_receipt_retains_current_create_support(tmp_path):
@@ -2192,10 +2220,10 @@ def test_credential_import_receipt_retains_strict_legacy_create_support(tmp_path
 
     sealer._validate_credential_import_receipt(receipt, now=NOW)
 
-    with pytest.raises(sealer.SealError, match="compare-only exact verification"):
+    with pytest.raises(sealer.SealError, match="current host/principal"):
         sealer._validate_credential_import_receipt(
             receipt,
-            required_mode=sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            require_host_principal=True,
             now=NOW,
         )
 
@@ -2274,6 +2302,47 @@ def test_repository_templates_refuse_before_weather_import(template_name, tmp_pa
     assert isinstance(sealed_assignments[0].value, ast.Constant)
     assert sealed_assignments[0].value.value is False
     assert source.index("_assert_sealed()") < source.index("from weather.market")
+
+
+@pytest.mark.parametrize("template_name", ["stage0.py.tmpl", "stage1_cancel_all.py.tmpl"])
+@pytest.mark.parametrize("mode", ["create_new", "verify_existing_exact"])
+def test_live_template_credential_boundary_accepts_retained_provenance(
+    tmp_path, template_name, mode
+):
+    _production, _attempt, _spec_path, spec = prepare(tmp_path)
+    receipt = Path(spec["inputs"]["credential_import_receipt"]["path"])
+    payload = json.loads(receipt.read_text(encoding="utf-8"))
+    payload.update(
+        prepared_at_utc=(NOW - timedelta(days=365)).isoformat(),
+        credential_mode=mode,
+        credential_value_count_written=4 if mode == "create_new" else 0,
+        credential_value_count_existing_exact_verified=0 if mode == "create_new" else 4,
+        credential_store_mutation_attempted=mode == "create_new",
+    )
+    write_json(receipt, payload)
+    template = sealer.REPO_ROOT / "scripts/ops/international_live_templates" / template_name
+    tree = ast.parse(template.read_text(encoding="utf-8"))
+    calls = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Attribute)
+        and node.value.func.attr == "_validate_credential_import_receipt"
+    ]
+    assert len(calls) == 1
+    # Execute the real template's public validation boundary only. Never run
+    # its main function, credential resolver or exchange command in this test.
+    boundary = compile(ast.Module(body=calls, type_ignores=[]), str(template), "exec")
+    namespace = {
+        "Path": Path, "datetime": datetime, "evidence": sealer,
+        "SCOPE": {"credential_import_receipt_path": str(receipt)},
+    }
+    original = receipt.read_bytes()
+    exec(boundary, namespace)
+    assert receipt.read_bytes() == original
+    payload["execution_principal_id"] = "0" * 64
+    write_json(receipt, payload)
+    with pytest.raises(sealer.SealError, match="exact clean PASS"):
+        exec(boundary, namespace)
 
 
 def test_inventory_is_read_only_and_reports_ancestry_state(tmp_path):
