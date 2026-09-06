@@ -116,7 +116,15 @@ See [path policy](path-policy.md),
   dedicated host. Follow the host-load and operations topology policies before
   running backfills, corpus builds, replays, or training.
 
-## Gate design and numeric thresholds
+## Gate design and operating rules
+
+Challenge inherited operating rules before imposing their cost on the operator.
+Identify the concrete failure each rule prevents, its authority or evidence,
+and whether the consuming stage already checks that risk directly. Keep rules
+with a justified purpose; remove redundant ceremony or replace unsupported
+proxies with checks of the actual condition. Record the reasoning in the owning
+contract and test the failure boundary. This applies to procedural rules as
+well as numeric thresholds; familiarity alone is not a justification.
 
 A gate must protect the stage that consumes it. Do not make a read-only or
 no-order stage depend on a later stage's profitability, quote-quality, or

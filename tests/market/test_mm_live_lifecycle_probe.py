@@ -356,6 +356,29 @@ class FakeAdapter:
         return []
 
 
+@pytest.mark.parametrize("cancellation_mode", ["cancel_all", "dead_man"])
+def test_current_authentication_failure_stops_before_any_stage1_write(
+    tmp_path, cancellation_mode
+):
+    class RejectedCredentialsAdapter(FakeAdapter):
+        def open_orders(self):
+            raise RuntimeError("current API authentication rejected")
+
+    clock = FakeClock()
+    adapter = RejectedCredentialsAdapter(clock)
+    gate = bootstrap_gate()  # A previous PASS cannot authenticate today's vault entries.
+    journal = tmp_path / "authentication-failed.jsonl"
+    with pytest.raises(RuntimeError, match="current API authentication rejected"):
+        execute_stage1_lifecycle_probe(
+            adapter, gate, confirmation=CONFIRMATION,
+            cancellation_mode=cancellation_mode, journal_path=journal,
+            monotonic_clock=clock, sleeper=clock.sleep,
+        )
+    assert adapter.capability is None
+    assert adapter.place_calls == adapter.heartbeat_calls == adapter.cancel_all_calls == 0
+    assert "submit_started" not in journal.read_text(encoding="utf-8")
+
+
 def attach_stream_journal(result, path):
     rows = [
         {

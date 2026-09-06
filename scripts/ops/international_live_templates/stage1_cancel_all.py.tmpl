@@ -1546,7 +1546,7 @@ def main() -> int:
         raise RuntimeError("credential evidence validator resolved outside reviewed source")
     evidence._validate_credential_import_receipt(
         Path(SCOPE["credential_import_receipt_path"]),
-        required_mode=evidence.FIRST_SESSION_CREDENTIAL_MODE,
+        require_host_principal=True,
         now=datetime.now().astimezone(),
     )
     EXECUTION_PHASE = "stage1_command"

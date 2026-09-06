@@ -73,8 +73,6 @@ MAX_RUN_WINDOW_SECONDS = 30 * 60
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
 FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
-FIRST_SESSION_CREDENTIAL_MODE = "verify_existing_exact"
-CREDENTIAL_RECEIPT_MAX_AGE_SECONDS = 2 * 60 * 60
 REMOTE_MASTER_REF = "refs/heads/master"
 PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH = (
     "codex/live-gate-provenance-20260831"
@@ -1079,11 +1077,17 @@ def _validate_credential_reference_manifest(path: Path) -> dict[str, Any]:
 def _validate_credential_import_receipt(
     path: Path,
     *,
-    required_mode: str | None = None,
+    require_host_principal: bool = False,
     now: datetime | None = None,
 ) -> None:
-    if required_mode not in {None, FIRST_SESSION_CREDENTIAL_MODE}:
-        raise SealError("credential import receipt mode requirement is unsupported")
+    """Validate installation provenance, not the current validity of secrets.
+
+    A clean create or exact comparison remains historical evidence for its
+    Windows host/principal. It does not expire and never authorizes a live
+    request: each stage resolves the current vault entries, checks the sealed
+    signer/funder topology and performs current authenticated account reads.
+    See the credential lifecycle contract in INTERNATIONAL_MM_LIVE_PILOT.md.
+    """
     payload, _raw = _read_json_object(path, label="credential import receipt")
     common_required = {
         "schema_version",
@@ -1146,7 +1150,7 @@ def _validate_credential_import_receipt(
             and verified == 0
             and mutation_attempted is True
         ) or (
-            mode == FIRST_SESSION_CREDENTIAL_MODE
+            mode == "verify_existing_exact"
             and type(written) is int
             and written == 0
             and type(verified) is int
@@ -1158,7 +1162,7 @@ def _validate_credential_import_receipt(
     checks = payload.get("checks")
     host_binding_ok = version not in {host_only_legacy_version, current_version}
     principal_binding_ok = version != current_version
-    freshness_ok = version not in {host_only_legacy_version, current_version}
+    timestamp_ok = version not in {host_only_legacy_version, current_version}
     if version in {host_only_legacy_version, current_version}:
         try:
             prepared_at = _parse_aware(
@@ -1166,13 +1170,13 @@ def _validate_credential_import_receipt(
                 label="credential receipt prepared_at_utc",
             )
             current = now or datetime.now().astimezone()
-            age_seconds = (
-                current.astimezone(timezone.utc)
-                - prepared_at.astimezone(timezone.utc)
-            ).total_seconds()
-            freshness_ok = -5 <= age_seconds <= CREDENTIAL_RECEIPT_MAX_AGE_SECONDS
+            # Provenance must be a real past event. Age alone says nothing
+            # about whether today's vault entries or API credentials work.
+            timestamp_ok = prepared_at.astimezone(timezone.utc) <= current.astimezone(
+                timezone.utc
+            )
         except SealError:
-            freshness_ok = False
+            timestamp_ok = False
         host_binding_ok = (
             payload.get("execution_host_id") == current_execution_host_id()
         )
@@ -1204,22 +1208,13 @@ def _validate_credential_import_receipt(
         or any(value is not True for value in checks.values())
         or not host_binding_ok
         or not principal_binding_ok
-        or not freshness_ok
+        or not timestamp_ok
     ):
         raise SealError("credential import receipt is not an exact clean PASS")
-    if required_mode == FIRST_SESSION_CREDENTIAL_MODE and not (
-        version == current_version
-        and payload.get("credential_mode") == FIRST_SESSION_CREDENTIAL_MODE
-        and type(payload.get("credential_value_count_written")) is int
-        and payload["credential_value_count_written"] == 0
-        and type(payload.get("credential_value_count_existing_exact_verified"))
-        is int
-        and payload["credential_value_count_existing_exact_verified"] == 4
-        and payload.get("credential_store_mutation_attempted") is False
-    ):
+    if require_host_principal and version != current_version:
         raise SealError(
-            "first-session credential evidence must be fresh v0.4 host/principal-bound "
-            "compare-only exact verification with four existing entries and zero mutation"
+            "live credential provenance must be v0.4 with the current host/principal "
+            "and an exact clean creation or comparison result"
         )
 
 
@@ -2299,7 +2294,7 @@ def _validate_spec(
     )
     _validate_credential_import_receipt(
         Path(normalized_inputs["credential_import_receipt"]["path"]),
-        required_mode=FIRST_SESSION_CREDENTIAL_MODE,
+        require_host_principal=True,
         now=now,
     )
     _validate_identity(

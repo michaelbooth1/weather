@@ -463,10 +463,12 @@ def test_finite_stage0_gate_rejects_a_modified_final_journal(tmp_path):
 
 
 @pytest.mark.parametrize("existing_wallet", [False, True])
-def test_collector_converts_atomic_collateral_and_produces_passing_gate(
+@pytest.mark.parametrize("authentication_rejected", [False, True])
+def test_collector_requires_current_authentication_before_bootstrap_writes(
     tmp_path,
     monkeypatch,
     existing_wallet,
+    authentication_rejected,
 ):
     identity = stage0_identity()
     expected_balance = 275.48 if existing_wallet else 100.0
@@ -539,6 +541,8 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
             self.heartbeat_calls = 0
 
         def balances(self):
+            if authentication_rejected:
+                raise RuntimeError("current API authentication rejected")
             return {"balance": "275480000" if existing_wallet else "100000000"}
 
         def allowances(self):
@@ -641,10 +645,7 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
     def record_authenticated_write(operation):
         boundary_events.append(f"{operation}_attempt")
 
-    payload = collect_platform_bootstrap_payload(
-        Adapter(),
-        user_stream,
-        identity,
+    collect_arguments = dict(
         target_date=TARGET_DATE,
         requested_budget_usdc=10,
         secret_hygiene={
@@ -660,6 +661,17 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         utc_clock=lambda: datetime.fromisoformat(NOW),
         monotonic_clock=clock,
         sleeper=clock.sleep,
+    )
+    if authentication_rejected:
+        with pytest.raises(RuntimeError, match="current API authentication rejected"):
+            collect_platform_bootstrap_payload(
+                Adapter(), user_stream, identity, **collect_arguments
+            )
+        assert bootstrap_phases[-1] == "collateral_query"
+        assert boundary_events == []
+        return
+    payload = collect_platform_bootstrap_payload(
+        Adapter(), user_stream, identity, **collect_arguments
     )
     user_stream.stop()
     payload = finalize_platform_bootstrap_payload(payload, user_stream, now=NOW)

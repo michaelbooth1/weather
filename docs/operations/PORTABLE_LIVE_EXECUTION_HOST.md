@@ -490,16 +490,19 @@ Scheduler, capture, or live-trading authority.
 Windows Credential Manager entries are per Windows user and machine. Transfer
 the independently retained source credential file through a separate private
 channel, keep it outside Git, and apply a private ACL. Follow the importer
-sequence in the live-pilot runbook on the destination. The first-session
-builder accepts only a new `mm_live_credential_import_receipt_v0.4` generated
-for this exact Windows installation and current token principal within two
-hours by compare-only verification of all four existing entries with zero
-credential-store mutation.
+sequence in the live-pilot runbook when provisioning a different installation
+or user. The session builder accepts a retained
+`mm_live_credential_import_receipt_v0.4` for this exact Windows installation
+and current token principal, with either four cleanly created entries or four
+exactly compared existing entries. The original receipt has no age expiry;
+each live stage resolves current vault entries and checks current identity and
+authenticated account access. A retry on the same installation/user uses its
+existing public receipt and references without transferring a backup file.
 
 Never copy a prior host's credential receipt, attempt root, candidate,
 manifest, launcher, seal, or predecessor receipt. Their absolute paths,
 interpreter/source identities, timestamps, and execution-host ID are
-intentionally local and expiring. Generate a completely new three-stage
+intentionally local; action-time plans and authority expire. Generate a new three-stage
 attempt on every destination host.
 
 ## Enroll one active portable host
@@ -583,7 +586,8 @@ if ($hostStatusExit -ne 0 -or
 ```
 
 After that offline audit, return to the live-pilot runbook. Fresh structural
-scope/lifecycle plans, host-local credential comparison, official geographic
+scope/lifecycle plans, host-local credential provenance and current runtime
+authentication, official geographic
 eligibility, account bootstrap, and every attended mutation literal remain
 action-time gates. The portable lane permits a session while the immutable plan's
 target is the selected market's current or immediately following local date,
@@ -604,16 +608,22 @@ paper/economics evidence does not replace or extend these Stage 0/1 leases.
 For another checkout on the same Windows installation and token principal, the
 host/principal assignment does not change. Build a clean clone and venv, prove
 Git/Git-LFS and HGB materialization, run SDK `Audit` against the existing
-current-user installation, create a fresh compare-only credential receipt, and
-create new stage plans and all three attempts. Do not re-import the already
+current-user installation, retain its existing public credential receipt and
+reference manifest, and create new stage plans and all three attempts. No
+backup or repeated credential comparison is needed for the same installation
+and user; current vault and account authentication are checked at each launch.
+Do not re-import the already
 installed SDK roots.
 
 For a different PC, Windows reinstall, or token principal, commit and publish a
 new exact host/principal assignment to a reviewed, CI-green branch with explicit
 owner authorization, then repeat clone/venv provisioning, Git/Git-LFS and HGB
 proof, SDK transfer/import under a new transfer namespace, offline host audit,
-fresh event metadata and stage plans, credential provisioning and compare-only
-verification, and all three attempt builds. The named portable-only exception
+fresh event metadata and stage plans, credential provisioning for the new
+host/principal, and all three attempt builds. A clean creation receipt is
+sufficient installation provenance; independent comparison is optional for
+explicit setup/recovery. Follow the [credential lifecycle contract](INTERNATIONAL_MM_LIVE_PILOT.md#credential-provisioning-and-fresh-comparison).
+The named portable-only exception
 above applies only to its exact branch; any different branch needs a new
 explicit operator decision, while normal production adoption still uses the
 guarded integration procedure. Do not edit an old host ID or absolute path into
@@ -623,5 +633,5 @@ block.
 ## Update when
 
 Update when the execution-host profiles or assignment, host/principal identity,
-SDK layout or pin, Python ABI, credential receipt freshness, public substrate,
+SDK layout or pin, Python ABI, credential provenance/authentication, public substrate,
 or relocation procedure changes.
