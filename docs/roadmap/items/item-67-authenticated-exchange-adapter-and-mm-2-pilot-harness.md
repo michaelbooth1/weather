@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; REVIEWED COMMAND AUTHORIZATION]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; STAGE 1 RUNTIME PARITY REPAIR]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -63,6 +63,57 @@ economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-06 Stage 1 runtime parity repair
+
+Reviewed-command authorization is merged as
+[PR 34](https://github.com/michaelbooth1/weather/pull/34) at
+`d8f038e91684cc85faf14fc25603c37d697978cd`.
+[Merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34050632945)
+passed 4,617 tests/921 subtests with 260 skips; the actual portable clone
+adopted that clean exact tip. Later Git and host receipts own subsequent tips.
+
+After the owner reported clearing intentional orders and the last position,
+fresh attempt `pilot-20260906T185946784Z` passed Stage 0 at
+19:04:31.468269 UTC: two heartbeats, one cancel-all, no submitted order,
+zero account open orders and exact-scope positions, and cleanup PASS.
+Stage 1 cancel-all then failed at `preflight` at 19:04:48.350604 UTC.
+The execution receipt has no command artifact or host attestations, records
+no live mutation/order submission and conservatively leaves credential
+activity unknown. Its parent validated the child failure. Dead-man did not
+run. Preserve this spent attempt and all earlier attempts unchanged.
+
+The Stage 1 wrapper still compared credential receipt/reference **paths**
+with Stage 0 paths, although the manifest producer intentionally creates
+stage-specific copies. Both pairs had identical reviewed hashes and bytes.
+The sealer already accepted this under PR 32; the runtime template had missed
+the repair. Its preflight now calls the same exact-byte comparator, requiring
+both original and current paths to remain regular, nonredirected and hash-valid.
+
+Review also found three remaining whole-wallet 100 pUSD checks in Stage 1
+terminal validation and cancel-all predecessor validation. Both wrapper modes
+and the sealer now use the hash-bound identity's capital contract: finite cash
+and allowance must each back the requested budget, and only isolated mode caps
+the whole balance. Existing-wallet allocation, the 10 pUSD request/order cap,
+all no-fill/zero-state/journal checks and the dead-man timing contract remain.
+
+Offline tests reproduced three expected failures on the installed old source:
+both wrappers rejected valid stage-specific copies, and dead-man sealing
+rejected 275.48 pUSD cash with a valid 100 pUSD test allocation. The repaired
+source passed 416 focused Windows checks under the shared-mutex workstation
+wrapper. New tests execute the inert validation functions from actual sealed
+templates; they never invoke live main, credentials or exchange methods.
+They cover changed/missing/redirected credential evidence, both capital modes,
+insufficient backing and nonfinite numeric evidence. JUnit receipts are retained
+under portable-local `WeatherPortable/prep-20260906/` and mirrored under
+controller-local `scratch/handoffs/live-test-preparation-20260906/` as
+`stage1-runtime-parity-old-regression-v2.xml` and
+`stage1-runtime-parity-focused-v1.xml`.
+
+Exact final-tip and merged-topic CI, clean portable adoption and a wholly new
+reviewed attempt remain release gates. This repairs preparation/runtime parity;
+neither Stage 1 mode nor economic readiness has passed live. Only the operator
+invokes the reviewed financial sequence locally.
 
 ## 2026-09-06 reviewed command authorization
 

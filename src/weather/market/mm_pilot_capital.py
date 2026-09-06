@@ -70,6 +70,26 @@ def collateral_within_capital_scope(payload, balance):
         return False
 
 
+def collateral_backs_pilot_budget(payload, *, balance, allowance, requested_budget):
+    """Check a collateral snapshot against the declared test allocation."""
+
+    try:
+        if any(isinstance(value, bool) for value in (balance, allowance, requested_budget)):
+            return False
+        cash, approved, budget = (
+            Decimal(str(value)) for value in (balance, allowance, requested_budget)
+        )
+        return (
+            all(value.is_finite() for value in (cash, approved, budget))
+            and Decimal("0") < budget <= pilot_capital_limit(payload)
+            and budget <= cash
+            and budget <= approved
+            and collateral_within_capital_scope(payload, cash)
+        )
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+
+
 def capital_declaration(payload):
     """Copy the public contract without relabelling allocation as wallet funding."""
 

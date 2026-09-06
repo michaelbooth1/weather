@@ -269,6 +269,8 @@ def prepare(
     stage: str = "stage0",
     candidate: dict | None = None,
     execution_host_profile: str = "capture_colocated_v1",
+    existing_wallet_allocation: bool = False,
+    collateral_balance: float = 100.0,
 ):
     default_candidate = (
         stage0_scope_payload() if stage == "stage0" else candidate_payload()
@@ -381,6 +383,13 @@ def prepare(
         "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100,
     }
+    if existing_wallet_allocation:
+        identity_payload.update(
+            pilot_capital_mode="existing_wallet_test_allocation",
+            pilot_test_allocation_pusd=100,
+            isolated_pilot_wallet=False,
+            pilot_wallet_max_funding_usdc=None,
+        )
     plan = fixture_candidate
     event_generated = datetime.fromisoformat(
         plan["event_metadata"]["generated_at_utc"]
@@ -734,7 +743,7 @@ def prepare(
                     "account_trades_rest_verified": True,
                     "scoped_account_trade_count": 0,
                     "post_cancel_quiescence_seconds": 2.0,
-                    "submit_collateral_balance_usdc": 100.0,
+                    "submit_collateral_balance_usdc": collateral_balance,
                     "submit_collateral_allowance_usdc": 100.0,
                     "submit_collateral_snapshot_sha256": "a" * 64,
                     "post_cancel_collateral_snapshot_sha256": "a" * 64,
@@ -900,7 +909,22 @@ def prepare(
                             "role": "candidate_plan",
                             "path": str(cancel_candidate.resolve()),
                             "sha256": sha256(cancel_candidate),
-                        }
+                        },
+                        {
+                            "role": "credential_import_receipt",
+                            "path": str(credential.resolve()),
+                            "sha256": sha256(credential),
+                        },
+                        {
+                            "role": "credential_reference_manifest",
+                            "path": str(credential_manifest.resolve()),
+                            "sha256": sha256(credential_manifest),
+                        },
+                        {
+                            "role": "identity",
+                            "path": str(identity_path.resolve()),
+                            "sha256": sha256(identity_path),
+                        },
                     ],
                 },
             )
@@ -1857,6 +1881,35 @@ def stage_public_credential_copies(attempt, spec):
     return prior_paths
 
 
+def stage1_runtime_namespace(sealed):
+    """Load only inert functions/constants; never import or execute a live main."""
+    tree = ast.parse(Path(sealed["wrapper"]["path"]).read_text(encoding="utf-8"))
+    namespace = {"Path": Path, "json": json, "hashlib": hashlib,
+                 "SHA256_RE": sealer.SHA256_RE}
+    constants = {
+        "SCOPE", "CANCELLATION_MODE", "PRODUCTION_PYTHON",
+        "PRODUCTION_PYTHON_SHA256", "PRODUCTION_PYVENV_CONFIG",
+        "PRODUCTION_PYVENV_CONFIG_SHA256", "PRODUCTION_RUNTIME_PYTHON",
+        "PRODUCTION_RUNTIME_PYTHON_SHA256",
+    }
+    for node in tree.body:
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        if not isinstance(target, ast.Name) or target.id not in constants:
+            continue
+        if isinstance(node.value, ast.Call):
+            assert isinstance(node.value.func, ast.Name) and node.value.func.id == "Path"
+            namespace[target.id] = Path(ast.literal_eval(node.value.args[0]))
+        else:
+            namespace[target.id] = ast.literal_eval(node.value)
+    functions = {"_sha256", "_assert_paths_and_stage0", "_assert_stage1_result"}
+    nodes = [node for node in tree.body
+             if isinstance(node, ast.FunctionDef) and node.name in functions]
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "<stage1-validation>", "exec"), namespace)
+    return namespace
+
+
 @pytest.mark.parametrize("stage", ["stage1_cancel_all", "stage1_dead_man"])
 def test_stage1_seal_accepts_exact_stage_specific_credential_copies(tmp_path, stage):
     production, attempt, spec_path, spec = prepare(tmp_path, stage=stage)
@@ -1874,6 +1927,100 @@ def test_stage1_seal_accepts_exact_stage_specific_credential_copies(tmp_path, st
         assert current != prior
         assert current.read_bytes() == prior.read_bytes()
         assert receipt[role] == spec["inputs"][role]
+    stage1_runtime_namespace(result)["_assert_paths_and_stage0"]()
+
+
+@pytest.mark.parametrize("existing, balance, passes", [
+    (True, 275.48, True),
+    (False, 100.0, True),
+    (False, 100.01, False),
+    (True, 9.99, False),
+])
+def test_stage1_dead_man_seal_respects_capital_contract(tmp_path, existing, balance, passes):
+    production, _attempt, spec_path, _spec = prepare(
+        tmp_path, stage="stage1_dead_man",
+        existing_wallet_allocation=existing, collateral_balance=balance,
+    )
+    if not passes:
+        with pytest.raises(sealer.SealError, match="cancel-all PASS lineage"):
+            seal(spec_path, production)
+        return
+    result = seal(spec_path, production)
+    assert result["status"] == "PASS"
+    stage1_runtime_namespace(result)["_assert_paths_and_stage0"]()
+
+
+@pytest.mark.parametrize("role", ["credential_import_receipt", "credential_reference_manifest"])
+@pytest.mark.parametrize("fault", ["prior_missing", "prior_changed", "current_changed", "prior_redirected"])
+def test_stage1_runtime_rechecks_credential_copies(tmp_path, monkeypatch, role, fault):
+    production, attempt, spec_path, spec = prepare(tmp_path, stage="stage1_cancel_all")
+    prior = stage_public_credential_copies(attempt, spec)[role]
+    current = Path(spec["inputs"][role]["path"])
+    write_json(spec_path, spec)
+    namespace = stage1_runtime_namespace(seal(spec_path, production))
+    if fault == "prior_missing":
+        prior.unlink()
+    elif fault == "prior_changed":
+        prior.write_bytes(prior.read_bytes() + b"\n")
+    elif fault == "current_changed":
+        current.write_bytes(current.read_bytes() + b"\n")
+    else:
+        validate = sealer.validate_regular_nonreparse_file
+
+        def refuse_redirected(path):
+            if Path(path) == prior:
+                raise RuntimeError("live-session path contains a redirected entry")
+            return validate(path)
+
+        monkeypatch.setattr(sealer, "validate_regular_nonreparse_file", refuse_redirected)
+    with pytest.raises(RuntimeError, match="lineage changed|input is absent or hash-mismatched"):
+        namespace["_assert_paths_and_stage0"]()
+
+
+@pytest.mark.parametrize("mode", ["cancel_all", "dead_man"])
+@pytest.mark.parametrize("existing, balance, allowance, passes", [
+    (True, 275.48, 100, True),
+    (False, 100, 100, True),
+    (False, 100.01, 100, False),
+    (True, 9.99, 100, False),
+    (True, 275.48, 9.99, False),
+    (True, "Infinity", 100, False),
+    (True, 275.48, "Infinity", False),
+])
+def test_stage1_terminal_checks_apply_declared_capital(
+    tmp_path, mode, existing, balance, allowance, passes
+):
+    production, _attempt, spec_path, spec = prepare(
+        tmp_path, stage="stage1_dead_man", existing_wallet_allocation=existing
+    )
+    namespace = stage1_runtime_namespace(seal(spec_path, production))
+    namespace["CANCELLATION_MODE"] = mode
+    scope = namespace["SCOPE"]
+    result = json.loads(Path(spec["inputs"]["cancel_all_result"]["path"]).read_bytes())
+    lifecycle = Path(scope["lifecycle_journal_out"])
+    stream = Path(scope["user_stream_journal_out"])
+    lifecycle.parent.mkdir(parents=True, exist_ok=True)
+    lifecycle.write_bytes(Path(result["journal_path"]).read_bytes())
+    stream.write_bytes(Path(result["user_stream_journal_path"]).read_bytes())
+    result.update(
+        cancellation_mode=mode,
+        cancel_response_present=mode == "cancel_all",
+        cancellation_elapsed_seconds=12,
+        candidate_plan_sha256=scope["candidate_plan_sha256"],
+        submit_collateral_balance_usdc=balance,
+        submit_collateral_allowance_usdc=allowance,
+        journal_path=str(lifecycle.resolve()),
+        journal_sha256=sha256(lifecycle),
+        user_stream_journal_path=str(stream.resolve()),
+        user_stream_journal_sha256=sha256(stream),
+        cleanup_final_user_stream_journal_sha256=sha256(stream),
+    )
+    write_json(Path(scope["result_out"]), result)
+    if passes:
+        namespace["_assert_stage1_result"]()
+    else:
+        with pytest.raises(RuntimeError, match="result failed host postconditions"):
+            namespace["_assert_stage1_result"]()
 
 
 @pytest.mark.parametrize("role", ["credential_import_receipt", "credential_reference_manifest"])
