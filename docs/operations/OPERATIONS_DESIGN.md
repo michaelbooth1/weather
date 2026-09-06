@@ -125,7 +125,11 @@ The managed worker records its PID, exact process provenance, loaded-source
 identity, and heartbeat into `execution_tape_status.json` while its writer lock
 binds the same process instance. The short-lived ensure command publishes
 `execution_tape_supervisor_status.json`, applies restart backoff/circuit
-breaking, refuses an unproven stop, and readopts changed code. While the
+breaking, refuses an unproven stop, and readopts changed code. Its status reader
+retries a briefly unavailable or non-object snapshot up to three times with
+50 ms between reads. It evaluates the recovered heartbeat against a clock
+sample taken after the read; persistent failure remains unknown and all
+process, source-identity and writer-lock checks still apply. While the
 Windows venv executable launches a distinct base-interpreter child, startup
 admits that child only when its direct parent, complete command, creation token,
 status owner, and writer-lock owner all agree; lifecycle ownership then follows

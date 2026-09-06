@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -9,7 +10,9 @@ from weather.operations.execution_tape_supervisor import (
     _worker_command,
     _validate_managed_scope,
     ensure_decision,
+    ensure_managed_capture,
     execution_tape_health,
+    read_status,
     run_managed_capture,
     start_managed_capture,
     wait_for_worker_handshake,
@@ -95,6 +98,81 @@ def test_health_restarts_stale_code_hung_and_dead_workers() -> None:
 def test_missing_writer_lock_never_noops() -> None:
     assert ensure_decision("RUNNING", True, writer_lock_healthy=False) == "restart"
     assert ensure_decision("DEAD", False, writer_lock_healthy=False) == "start"
+
+
+def test_transient_status_access_failure_recovers_current_worker(tmp_path) -> None:
+    path = tmp_path / "status.json"
+    payload = _status()
+    text = json.dumps(payload)
+    path.write_text(text, encoding="utf-8")
+    with (
+        patch("pathlib.Path.read_text", side_effect=[PermissionError("busy"), text]) as read,
+        patch("weather.operations.execution_tape_supervisor.time.sleep") as sleep,
+    ):
+        recovered = read_status(path)
+    health = execution_tape_health(
+        recovered, now=NOW, pid_alive=True, current_identity=_identity(),
+    )
+    assert recovered == payload
+    assert read.call_count == 2
+    sleep.assert_called_once_with(0.05)
+    assert ensure_decision(health["state"], True) == "noop"
+
+
+def test_persistently_unreadable_status_exhausts_bounded_retry(tmp_path) -> None:
+    path = tmp_path / "status.json"
+    path.write_text("incomplete JSON", encoding="utf-8")
+    with (
+        patch("pathlib.Path.read_text", return_value="incomplete JSON") as read,
+        patch("weather.operations.execution_tape_supervisor.time.sleep") as sleep,
+    ):
+        assert read_status(path) is None
+    assert read.call_count == 3
+    assert sleep.call_count == 2
+    assert execution_tape_health(None, now=NOW)["state"] == "UNKNOWN"
+
+
+def test_retry_does_not_make_stale_status_healthy() -> None:
+    cases = (
+        (_status(runtime_identity=_identity("old")), "STALE_CODE"),
+        (_status(last_heartbeat=(NOW - timedelta(minutes=4)).isoformat()), "HUNG"),
+    )
+    for payload, expected in cases:
+        with (
+            patch("weather.operations.execution_tape_supervisor.read_json_file", side_effect=[None, payload]),
+            patch("weather.operations.execution_tape_supervisor.time.sleep"),
+        ):
+            recovered = read_status("unused.json")
+        health = execution_tape_health(
+            recovered, now=NOW, pid_alive=True, current_identity=_identity(),
+        )
+        assert health["state"] == expected
+        assert ensure_decision(health["state"], True) == "restart"
+
+
+def test_ensure_samples_health_clock_after_recovered_status() -> None:
+    module = "weather.operations.execution_tape_supervisor."
+    payload = _status(last_heartbeat=(NOW + timedelta(milliseconds=25)).isoformat())
+    with (
+        patch(module + "utc_now", side_effect=[NOW, NOW + timedelta(milliseconds=50)]),
+        patch(module + "acquire_supervisor_lock", return_value=1),
+        patch(module + "release_file_lock"),
+        patch(module + "read_json_file", side_effect=[None, payload]),
+        patch(module + "time.sleep"),
+        patch(module + "pid_is_python", return_value=True),
+        patch(module + "runtime_identity_matches", return_value=(True, _identity())),
+        patch(module + "loop_writer_lock_health", return_value={"healthy": True}),
+        patch(module + "supervisor_recovery_guard", return_value={"allowed": True}),
+        patch(module + "persist_supervisor_status", side_effect=lambda spec, result, **kw: result),
+        patch(module + "start_managed_capture") as start,
+        patch(module + "stop_managed_capture") as stop,
+    ):
+        result = ensure_managed_capture()
+    assert result["action"] == "noop"
+    assert result["state"] == "RUNNING"
+    assert result["pid"] == payload["pid"]
+    start.assert_not_called()
+    stop.assert_not_called()
 
 
 def test_managed_command_is_public_capture_only() -> None:

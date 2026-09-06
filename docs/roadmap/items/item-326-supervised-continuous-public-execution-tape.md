@@ -72,3 +72,19 @@ recorded process and lock owner. Historical coverage gaps remain explicit and
 make the accumulated full path unusable; that is retained evidence loss, not a
 current disconnect. Keep the healthy producer running and qualify future clean
 intervals. The forward-soak checkbox stays open.
+
+## 2026-09-06 transient status-read repair
+
+The unattended non-live watch observed a supervisor failure at 07:36 Toronto
+while the original producer retained a fresh heartbeat and live writer lock.
+Its diagnostic recorded unavailable status, then correctly refused to remove
+the live owner's lock or start a duplicate. The next ordinary recurrence
+recovered without replacing the producer. The retained incident is
+`scratch/handoffs/overnight-watch-20260906-cycle21-status.json` plus its
+diagnostic and recovery receipts; it does not prove a price-path gap.
+
+The source repair adds a bounded status re-read and samples the health clock
+after the read. Persistent unreadability, stale source, stale heartbeat and
+lock disagreement retain their fail-closed behavior. Production adoption is
+separate and must use the guarded roll verdict and integration process; the
+forward-soak qualification remains open.
