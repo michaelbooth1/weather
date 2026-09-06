@@ -1262,6 +1262,40 @@ def _validate_identity(
         raise SealError("identity does not bind the 10 pUSD request and 100 pUSD capital limit")
 
 
+def _same_public_evidence(
+    prior: Mapping[str, Any], current: Mapping[str, Any]
+) -> bool:
+    """Bind stage-specific copies by their reviewed bytes, not their paths."""
+    try:
+        if any(
+            not isinstance(record, dict) or set(record) != {"path", "sha256"}
+            for record in (prior, current)
+        ):
+            return False
+        digest = prior["sha256"]
+        if (
+            not isinstance(digest, str)
+            or SHA256_RE.fullmatch(digest) is None
+            or current["sha256"] != digest
+        ):
+            return False
+        raw = []
+        for record in (prior, current):
+            if (
+                not isinstance(record["path"], str)
+                or not Path(record["path"]).is_absolute()
+            ):
+                return False
+            path = validate_regular_nonreparse_file(record["path"])
+            payload = path.read_bytes()
+            if hashlib.sha256(payload).hexdigest() != digest:
+                return False
+            raw.append(payload)
+        return raw[0] == raw[1]
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return False
+
+
 def _validate_stage0_lineage(
     inputs: Mapping[str, Mapping[str, str]],
     *,
@@ -1376,10 +1410,8 @@ def _validate_stage0_lineage(
         seal_scope.get("execution_host_id") == execution_host_id,
         seal_scope.get("market_id") == market_id,
         seal_scope.get("market_timezone") == market_timezone,
-        seal_credential.get("path") == expected_credential["path"],
-        seal_credential.get("sha256") == expected_credential["sha256"],
-        seal_reference.get("path") == expected_reference["path"],
-        seal_reference.get("sha256") == expected_reference["sha256"],
+        _same_public_evidence(seal_credential, expected_credential),
+        _same_public_evidence(seal_reference, expected_reference),
         execution.get("schema_version") == EXECUTION_SCHEMA_VERSION,
         execution.get("status") == "PASS",
         execution.get("stage") == "stage0",

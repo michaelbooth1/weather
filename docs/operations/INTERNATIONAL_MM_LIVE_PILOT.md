@@ -1082,6 +1082,11 @@ if (
 The manifest builder stages the discovery plan appropriate to each stage and
 the exact event-metadata bytes that plan binds. Discovery is preparation only:
 the fixed-scope sealer refuses a discovery artifact at the live-plan boundary.
+Each stage also has its own copies of the public credential receipt and
+reference manifest. Stage 1 binds those copies to Stage 0 by equal reviewed
+hashes and freshly verified, byte-identical regular files. Their paths may
+differ; an absent, redirected, changed or differently hashed prior copy fails
+the lineage gate. The original Stage 0 seal and execution receipts stay bound.
 After independent review of all three manifests and outer launchers, create a
 new exact-scope Stage 0 plan in its fixed inbox. After Stage 0 passes, create a
 new exact-scope Stage 1 lifecycle plan in each mode's fixed inbox immediately

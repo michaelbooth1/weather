@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - EXISTING-WALLET TEST ALLOCATION REPAIR; FRESH STAGE 0/1 EVIDENCE PENDING]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; STAGE 1 EVIDENCE-COPY LINEAGE REPAIR]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -64,6 +64,54 @@ order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
 
+## 2026-09-06 Stage 0 success and Stage 1 evidence-copy lineage repair
+
+[PR 31](https://github.com/michaelbooth1/weather/pull/31) was merged into the
+authorized portable topic at `02f2ee06e8ed8d3ee9a3d59f19b8bfaac8d3cd55`.
+Its [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34041102287)
+passed 4,574 tests and 921 subtests with 259 skips. The actual portable clone
+adopted that exact clean tip at September 6 15:10:44.802010 UTC, with synchronized
+local/cached/live refs and ancestral master. This is not capture-host adoption.
+
+The owner then executed new attempt `pilot-20260906T151133217Z` locally.
+Stage 0 passed at 15:23:37.810560 UTC with the explicit existing-wallet
+100 pUSD allocation and 10 pUSD request. The retained bootstrap reports
+275.4775 pUSD cash separately, two acknowledged heartbeats, one cancel-all,
+zero open orders and zero positions in the selected condition/token scope.
+No order was submitted. Command, wrapper and session receipts report PASS;
+cleanup passed and a subsequent bounded host check found no portable Python
+process or workload poison record. This proves the attended Stage 0 result,
+not Stage 1 order lifecycle, account-wide absence of positions or economics.
+
+Stage 1 cancel-all selected a fresh public lifecycle plan, then stopped in
+sealing before a Stage 1 wrapper, seal, run intent or terminal receipt was
+published. It did not reach the live-order launcher; dead-man never started.
+The attempt is spent and must not be rerun or rewritten.
+
+A read-only diagnostic replay of `_validate_stage0_lineage` against the retained
+public receipts reproduced `SealError`: only two of 83 checks failed. Both
+required the Stage 1 credential receipt/reference paths to equal the Stage 0
+paths. The manifest builder deliberately stages separate copies per stage;
+both pairs have equal actual bytes and correct identical SHA-256 hashes.
+The diagnostic and public copies are retained under controller-local
+`scratch/handoffs/live-test-preparation-20260906/stage0-pass-stage1-block-151133217Z/`
+and portable-local `WeatherPortable/prep-20260906/`; the original attempt is
+unchanged. No credential value or exchange endpoint was accessed by diagnosis.
+
+The repair in `codex/stage-evidence-lineage-20260906` compares both records'
+reviewed hashes and rereads their absolute, regular, non-redirected files to
+prove byte equality. It retains all Stage 0 seal/execution bindings. The same
+validator protects both Stage 1 modes; no capital, credential freshness,
+geography, order, cancellation, deadline or cleanup gate changes. Regression
+fixtures reproduce both modes' old refusal and cover missing, changed,
+rehashed or redirected public evidence. The old code failed both new mode
+regressions; the repaired source passed 226 focused Windows tests through the
+admitted workstation wrapper. An offline check of the unchanged live receipts
+with the repaired validator passed all 81 resulting checks. Those diagnostics
+did not seal or execute another stage. Exact Git/CI and retained qualification
+receipts own later publication and adoption. A new attempt still requires
+current credential comparison and fresh reviewed manifests and launchers.
+
 ## 2026-09-06 first Stage 0 failure and existing-wallet allocation repair
 
 The owner authorized the attended International Stage 0/1 test and access to
@@ -118,8 +166,9 @@ reviewed change. Its [full CI](https://github.com/michaelbooth1/weather/actions/
 passed 4,574 tests and 921 subtests with 259 skips; the first fixture-only
 failures remain retained in the earlier report. Later documentation commits
 retain their own exact-head CI requirement. Use Git and portable source-update
-receipts to prove adoption before a fresh attempt. No successful Stage 0 or
-Stage 1 evidence has been produced.
+receipts to prove adoption before a fresh attempt. At that repair's preparation
+time no successful Stage 0 or Stage 1 evidence had been produced; the later
+attended result is recorded above.
 
 ## 2026-09-05 preparation for the September 6 attended test
 
