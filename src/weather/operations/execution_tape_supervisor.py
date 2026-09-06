@@ -77,6 +77,8 @@ CONSOLE_LOG_PATH = DEFAULT_SNAPSHOTS_ROOT / "execution_tape_console.log"
 SUPERVISOR_LOCK_PATH = DEFAULT_SNAPSHOTS_ROOT / "execution_tape_supervisor.lock"
 DEFAULT_STALE_AFTER_SECONDS = 180.0
 SIDECAR_ROTATE_BYTES = 64 * 1024 * 1024
+STATUS_READ_ATTEMPTS = 3
+STATUS_READ_RETRY_SECONDS = 0.05
 
 EXECUTION_TAPE_SUPERVISOR = SupervisorSpec(
     name="execution_tape",
@@ -124,8 +126,15 @@ def utc_now() -> datetime:
 
 
 def read_status(path: str | Path = STATUS_PATH) -> dict[str, Any] | None:
-    payload = read_json_file(path)
-    return payload if isinstance(payload, dict) else None
+    # An atomic Windows status replacement can briefly deny a concurrent read.
+    # Re-read the file rather than inferring a dead worker from that one miss.
+    for attempt in range(STATUS_READ_ATTEMPTS):
+        payload = read_json_file(path)
+        if isinstance(payload, dict):
+            return payload
+        if attempt + 1 < STATUS_READ_ATTEMPTS:
+            time.sleep(STATUS_READ_RETRY_SECONDS)
+    return None
 
 
 def append_diagnostic(record: Mapping[str, Any], path: str | Path = DIAGNOSTICS_PATH) -> Path:
@@ -688,6 +697,9 @@ def ensure_managed_capture(
         )
     try:
         status = read_status()
+        if now is None:
+            # A retried read can contain a heartbeat newer than the initial clock.
+            current = utc_now().astimezone(timezone.utc)
         alive = pid_is_python((status or {}).get("pid"))
         health = execution_tape_health(
             status,
