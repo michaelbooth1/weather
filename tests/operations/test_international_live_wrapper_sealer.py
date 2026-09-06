@@ -1841,6 +1841,72 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert receipt["scope"]["cancellation_mode"] == "cancel_all"
 
 
+def stage_public_credential_copies(attempt, spec):
+    from weather.operations.international_live_session_launcher_sealer import (
+        STAGED_INPUT_LAYOUTS,
+    )
+
+    prior_paths = {}
+    for role in ("credential_import_receipt", "credential_reference_manifest"):
+        prior = Path(spec["inputs"][role]["path"])
+        current = attempt / STAGED_INPUT_LAYOUTS[spec["stage"]][role]
+        current.write_bytes(prior.read_bytes())
+        prior_paths[role] = prior
+        spec["inputs"][role] = {"path": str(current.resolve()), "sha256": sha256(current)}
+    return prior_paths
+
+
+@pytest.mark.parametrize("stage", ["stage1_cancel_all", "stage1_dead_man"])
+def test_stage1_seal_accepts_exact_stage_specific_credential_copies(tmp_path, stage):
+    production, attempt, spec_path, spec = prepare(tmp_path, stage=stage)
+    prior_paths = stage_public_credential_copies(attempt, spec)
+    write_json(spec_path, spec)
+
+    result = seal(spec_path, production)
+
+    assert result["status"] == "PASS"
+    assert result["live_mutation_attempted"] is False
+    receipt = json.loads(Path(result["seal_receipt"]["path"]).read_text(encoding="utf-8"))
+    assert receipt["scope"]["requested_budget_pusd"] == 10
+    for role, prior in prior_paths.items():
+        current = Path(spec["inputs"][role]["path"])
+        assert current != prior
+        assert current.read_bytes() == prior.read_bytes()
+        assert receipt[role] == spec["inputs"][role]
+
+
+@pytest.mark.parametrize("role", ["credential_import_receipt", "credential_reference_manifest"])
+@pytest.mark.parametrize("fault", ["prior_missing", "prior_changed", "current_rehashed", "prior_redirected"])
+def test_stage1_seal_rejects_invalid_prior_credential_copy(tmp_path, monkeypatch, role, fault):
+    production, attempt, spec_path, spec = prepare(tmp_path, stage="stage1_cancel_all")
+    prior = stage_public_credential_copies(attempt, spec)[role]
+    current = Path(spec["inputs"][role]["path"])
+    if fault == "prior_missing":
+        prior.unlink()
+    elif fault == "prior_changed":
+        prior.write_bytes(prior.read_bytes() + b"\n")
+    elif fault == "current_rehashed":
+        # The same JSON contract with different bytes is not the prior evidence.
+        current.write_bytes(current.read_bytes() + b"\n")
+        spec["inputs"][role]["sha256"] = sha256(current)
+    else:
+        validate = sealer.validate_regular_nonreparse_file
+
+        def refuse_redirected(path):
+            if Path(path) == prior:
+                raise RuntimeError("live-session path contains a redirected entry")
+            return validate(path)
+
+        monkeypatch.setattr(sealer, "validate_regular_nonreparse_file", refuse_redirected)
+    write_json(spec_path, spec)
+
+    with pytest.raises(sealer.SealError, match="Stage 0 seal/execution lineage"):
+        seal(spec_path, production)
+
+    assert not (attempt / "wrappers/stage1-cancel-all.py").exists()
+    assert not (attempt / "seal/stage1-cancel-all-seal-receipt.json").exists()
+
+
 def test_stage1_dead_man_seal_is_distinct_and_fixed(tmp_path):
     production, attempt, spec_path, _spec = prepare(
         tmp_path, stage="stage1_dead_man"
