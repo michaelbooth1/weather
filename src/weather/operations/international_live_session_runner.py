@@ -2,8 +2,8 @@
 
 The command accepts only a content-bound session manifest and one fresh public
 candidate.  It exposes no market, token, budget, wallet-cap, output, or timing
-override arguments.  The generated launcher still requires its bounded human
-confirmation before any authenticated boundary can run.
+override arguments.  The operator's reviewed local invocation authorizes the
+bounded attended sequence; each stage rechecks its automatic runtime gates.
 """
 
 from __future__ import annotations
@@ -72,6 +72,12 @@ LAUNCHER_CLEANUP_MARGIN_SECONDS = 30
 MAX_LAUNCHER_RUNTIME_SECONDS = MAX_SESSION_SECONDS
 COOPERATIVE_CLEANUP_GRACE_SECONDS = (
     live_time_window.LIVE_WINDOW_CLEANUP_RESERVE_SECONDS
+)
+PLAN_PREPARATION_REVALIDATION_MARGIN_SECONDS = 40
+DERIVED_STAGE_PLAN_TTL_SECONDS = (
+    PORTABLE_EXECUTION_SESSION_SECONDS
+    + COOPERATIVE_CLEANUP_GRACE_SECONDS
+    + PLAN_PREPARATION_REVALIDATION_MARGIN_SECONDS
 )
 
 
@@ -726,7 +732,7 @@ def _child_execution_facts(
                 stage0_mutation_geography_bound = all(
                     (
                         bootstrap_payload.get("schema_version")
-                        == "mm_platform_bootstrap_v0.4",
+                        == "mm_platform_bootstrap_v0.6",
                         bootstrap_geography.get("status") == "PASS",
                         bootstrap_geography.get("eligible") is True,
                         bootstrap_geography.get("receipt_payload_sha256")
@@ -880,7 +886,7 @@ def _child_execution_facts(
                         result.get("candidate_semantic_plan_sha256")
                         == expected_candidate["semantic_plan_sha256"],
                         result.get("bootstrap_schema_version")
-                        == "mm_platform_bootstrap_v0.4",
+                        == "mm_platform_bootstrap_v0.6",
                         result.get("bootstrap_sha256")
                         == (seal_inputs.get("bootstrap") or {}).get("sha256"),
                         result.get("heartbeat_acknowledged") is True,
@@ -962,9 +968,13 @@ def _child_execution_facts(
                             "terminal_stream_stopped_verified"
                         )
                         is True,
+                        type(result.get("user_stream_journal_row_count")) is int,
+                        result.get("user_stream_journal_row_count")
+                        == final_stream_evidence.get("row_count"),
                         type(result.get("user_stream_scoped_order_event_count"))
                         is int,
-                        result.get("user_stream_scoped_order_event_count") >= 2,
+                        result.get("user_stream_scoped_order_event_count")
+                        == final_stream_evidence.get("scoped_order_event_count"),
                         (
                             result.get("cancel_response_present") is True
                             if expected_mode == "cancel_all"
@@ -1079,22 +1089,25 @@ def compose_and_run_live_session(
         raise SessionCompositionError("reviewed session-manifest sidecar is absent") from exc
     if sidecar_text != f"{manifest_raw_sha256}  {manifest_path.name}\n":
         raise SessionCompositionError("reviewed session-manifest sidecar does not match")
+    stage = str(manifest.get("stage"))
+    if stage not in fixed_sealer.STAGES:
+        raise SessionCompositionError("session stage is unsupported")
+    expected_manifest_keys = {
+        "schema_version",
+        "manifest_sha256",
+        "stage",
+        "production",
+        "scope",
+        "inputs",
+        "reviewed_status_flags",
+        "template_sha256",
+        "source_sha256",
+        "production_python_sha256",
+        "session_bootstrap_sha256",
+    }
     _exact(
         manifest,
-        {
-            "schema_version",
-            "manifest_sha256",
-            "stage",
-            "production",
-            "scope",
-            "inputs",
-            "economics_acceptance",
-            "reviewed_status_flags",
-            "template_sha256",
-            "source_sha256",
-            "production_python_sha256",
-            "session_bootstrap_sha256",
-        },
+        expected_manifest_keys,
         "session manifest",
     )
     if (
@@ -1102,9 +1115,6 @@ def compose_and_run_live_session(
         or manifest["manifest_sha256"] != _canonical_payload_sha256(manifest)
     ):
         raise SessionCompositionError("session manifest semantic hash changed")
-    stage = str(manifest["stage"])
-    if stage not in fixed_sealer.STAGES:
-        raise SessionCompositionError("session stage is unsupported")
     scope = _exact(
         manifest["scope"],
         {
@@ -1206,13 +1216,13 @@ def compose_and_run_live_session(
     if manifest_path != expected_manifest_path.resolve():
         raise SessionCompositionError("session manifest path is not canonical")
 
+    expected_static_roles = {
+        "identity", "credential_import_receipt",
+        "credential_reference_manifest", "event_metadata",
+    }
     static_inputs = _exact(
         manifest["inputs"],
-        {
-            "identity", "credential_import_receipt",
-            "credential_reference_manifest", "accepted_economics_snapshot",
-            "economics_drift_report",
-        },
+        expected_static_roles,
         "session inputs",
     )
     input_records = {
@@ -1224,7 +1234,8 @@ def compose_and_run_live_session(
     ).resolve()
     if Path(input_records["identity"]["path"]) != expected_identity:
         raise SessionCompositionError("session identity path is not canonical")
-    for role in ("accepted_economics_snapshot", "economics_drift_report"):
+    stage_specific_roles = ("event_metadata",)
+    for role in stage_specific_roles:
         expected_path = (
             attempt_root / fixed_sealer.INPUT_LAYOUTS[stage][role]
         ).resolve()
@@ -1248,7 +1259,12 @@ def compose_and_run_live_session(
     candidate_hash = _sha256_bytes(candidate_raw)
     candidate_payload, _unused = _read_object(candidate_source, "fresh candidate")
     try:
-        candidate_gate = fixed_sealer.load_stage1_candidate_gate(
+        gate_loader = (
+            fixed_sealer.load_stage0_scope_gate
+            if stage == "stage0"
+            else fixed_sealer.load_stage1_lifecycle_plan_gate
+        )
+        candidate_gate = gate_loader(
             candidate_source,
             str(scope["target_date"]),
             expected_condition_id=str(scope["condition_id"]).lower(),
@@ -1259,47 +1275,78 @@ def compose_and_run_live_session(
         raise SessionCompositionError(
             "fresh candidate failed the canonical constrained gate"
         ) from exc
-    if candidate_payload.get("economics_acceptance") != manifest[
-        "economics_acceptance"
-    ]:
-        raise SessionCompositionError(
-            "fresh candidate economics acceptance differs from the reviewed manifest"
+    try:
+        fixed_sealer.validate_bound_stage0_event_metadata(
+            Path(input_records["event_metadata"]["path"]),
+            candidate_gate["event_metadata"],
+            target_date=str(scope["target_date"]),
+            current_gamma=candidate_gate["current_gamma"],
+            now=current,
         )
+    except RuntimeError as exc:
+        raise SessionCompositionError(
+            "fresh candidate event metadata differs from the reviewed manifest"
+        ) from exc
     candidate_selected = candidate_payload.get("selected") or {}
-    candidate_paper = candidate_selected.get("paper_quote_proof") or {}
     if (
         candidate_selected.get("location_id") != scope["market_id"]
-        or candidate_paper.get("market_id") != scope["market_id"]
         or candidate_gate.get("market_id") != scope["market_id"]
     ):
         raise SessionCompositionError(
             "fresh candidate market differs from the reviewed session scope"
         )
     expected_candidate = {
-        "intent": dict(candidate_gate["stage1_intent"]),
-        "tick_size": candidate_gate["tick_size"],
-        "order_min_size": candidate_gate["order_min_size"],
-        "fee_rate": candidate_gate["fee_rate"],
         "neg_risk": candidate_gate["neg_risk"],
         "semantic_plan_sha256": candidate_gate["semantic_plan_sha256"],
     }
+    if stage != "stage0":
+        expected_candidate.update(
+            {
+                "intent": dict(candidate_gate["stage1_intent"]),
+                "tick_size": candidate_gate["tick_size"],
+                "order_min_size": candidate_gate["order_min_size"],
+                "fee_rate": candidate_gate["fee_rate"],
+            }
+        )
     try:
+        created = datetime.fromisoformat(
+            str(candidate_payload["created_at_utc"]).replace("Z", "+00:00")
+        )
         expires = datetime.fromisoformat(
             str(candidate_payload["expires_at_utc"]).replace("Z", "+00:00")
         )
     except (KeyError, ValueError) as exc:
-        raise SessionCompositionError("fresh candidate has no valid expiry") from exc
-    if expires.tzinfo is None:
-        raise SessionCompositionError("fresh candidate expiry is not timezone-aware")
+        raise SessionCompositionError("fresh candidate has no valid lifetime") from exc
+    if created.tzinfo is None or expires.tzinfo is None:
+        raise SessionCompositionError(
+            "fresh candidate lifetime is not timezone-aware"
+        )
+    if expires - created != timedelta(seconds=DERIVED_STAGE_PLAN_TTL_SECONDS):
+        raise SessionCompositionError(
+            "fresh candidate lifetime differs from the derived "
+            f"{DERIVED_STAGE_PLAN_TTL_SECONDS}-second portable envelope"
+        )
     candidate_remaining_at_composition = (
         expires.astimezone(current.tzinfo) - current
     ).total_seconds()
-    stop = min(
-        current + timedelta(seconds=int(scope["max_session_seconds"])),
-        expires.astimezone(current.tzinfo),
-    )
-    target_date = str(scope["target_date"])
+    if (
+        execution_host_profile == PORTABLE_EXECUTION_HOST_PROFILE
+        and (
+            current - created.astimezone(current.tzinfo)
+        ).total_seconds() > PLAN_PREPARATION_REVALIDATION_MARGIN_SECONDS
+    ):
+        raise SessionCompositionError(
+            "fresh candidate has consumed the portable plan's fixed 40-second "
+            "preparation and revalidation margin"
+        )
+    stop = current + timedelta(seconds=int(scope["max_session_seconds"]))
     contained_end = stop + timedelta(seconds=COOPERATIVE_CLEANUP_GRACE_SECONDS)
+    if contained_end > expires.astimezone(current.tzinfo):
+        raise SessionCompositionError(
+            "fresh candidate does not leave the full profile-fixed session "
+            "and cleanup envelope"
+        )
+    target_date = str(scope["target_date"])
     calendar_timezone = (
         live_time_window.LIVE_WINDOW_TIMEZONE
         if execution_host_profile == CAPTURE_COLOCATED_HOST_PROFILE
@@ -1374,7 +1421,6 @@ def compose_and_run_live_session(
             "market_timezone": scope["market_timezone"],
         },
         "inputs": input_records,
-        "economics_acceptance": manifest["economics_acceptance"],
         "reviewed_status_flags": manifest["reviewed_status_flags"],
         "template_sha256": manifest["template_sha256"],
         "source_sha256": manifest["source_sha256"],
@@ -1494,7 +1540,12 @@ def compose_and_run_live_session(
         )
     if _sha256_file(candidate_destination) != candidate_hash:
         raise SessionCompositionError("sealed candidate changed before launch")
-    launch_candidate = fixed_sealer._validate_candidate(
+    launch_validator = (
+        fixed_sealer._validate_stage0_scope
+        if stage == "stage0"
+        else fixed_sealer._validate_candidate
+    )
+    launch_candidate = launch_validator(
         candidate_destination,
         target_date=str(scope["target_date"]),
         condition_id=str(scope["condition_id"]).lower(),

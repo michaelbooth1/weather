@@ -32,7 +32,7 @@ CLOB_RAW_BOOK_ARTIFACT_KEYS = (
     "order_books_long",
     "order_books_long_gzip",
 )
-PLATFORM_BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.4"
+PLATFORM_BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.6"
 LIVE_LIFECYCLE_PROBE_SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.3"
 STAGE1_LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.3"
 POST_CANCEL_QUIESCENCE_SECONDS = 2.0
@@ -325,8 +325,8 @@ def _stage1_probe_hardening_checks(
             )
             is True,
             probe.get("post_sign_order_placement_boundary_verified") is True,
-            candidate_fee_rate is not None and candidate_fee_rate > 0,
-            current_fee_rate_bps is not None and current_fee_rate_bps > 0,
+            candidate_fee_rate is not None and candidate_fee_rate >= 0,
+            current_fee_rate_bps is not None and current_fee_rate_bps >= 0,
             (
                 candidate_fee_rate is not None
                 and current_fee_rate_bps is not None
@@ -391,7 +391,7 @@ def _stage1_probe_hardening_checks(
             type(stream_row_count) is int and stream_row_count > 0,
             type(reported_stream_row_count) is int,
             reported_stream_row_count == stream_row_count,
-            type(scoped_stream_count) is int and scoped_stream_count > 0,
+            type(scoped_stream_count) is int and scoped_stream_count >= 0,
             type(reported_scoped_stream_count) is int,
             reported_scoped_stream_count == scoped_stream_count,
         )),

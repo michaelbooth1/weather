@@ -43,7 +43,7 @@ infrastructure work remains.
 
 | Item | File |
 | ---: | --- |
-| 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
+| 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - SEPTEMBER 6 LIFECYCLE PREPARATION; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
 | 1 | [Snapshot Analytics [COMPLETE]](items/item-01-snapshot-analytics.md) |
 | 2 | [Intraday Model Calibration [COMPLETE]](items/item-02-intraday-model-calibration.md) |
 | 3 | [Forecast Archive [COMPLETE]](items/item-03-forecast-archive.md) |
@@ -186,7 +186,7 @@ infrastructure work remains.
 | 60 | [Snapshot Range-Band Audit Schema And Serving Version Guard [COMPLETE 2026-06-15 - RANGE SCHEMA AND STALE-CODE GUARD LIVE]](items/item-60-snapshot-range-band-audit-schema-and-serving-version-guard.md) |
 | 63 | [Nearby Station Source-Trust And Redundant-History Features [COMPLETE 2026-06-15 - HISTORICAL-ONLY FEATURES LIVE]](items/item-63-nearby-station-source-trust-and-redundant-history-features.md) |
 | 66 | [CLOB Book Recon And Reward-Competition Analytics [COMPLETE 2026-06-16 - BOOK RECON LIVE]](items/item-66-clob-book-recon-and-reward-competition-analytics.md) |
-| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-08-30 - PORTABLE STAGE 0 FAILED CLOSED; REPAIR QUALIFIED; NEW ATTEMPT AND LIVE EVIDENCE OPEN]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
+| 67 | [Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; STAGE 1 RUNTIME PARITY REPAIR]](items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md) |
 | 68 | [Information-Event Calendar And Quote-Pull Gates [COMPLETE 2026-06-16 - EVENT GATE LIVE]](items/item-68-information-event-calendar-and-quote-pull-gates.md) |
 | 69 | [Multi-Variant Shadow Harness And Experiment Governance [COMPLETE 2026-06-15 - LONG-FORM HARNESS LIVE]](items/item-69-multi-variant-shadow-harness-and-experiment-governance.md) |
 | 70 | [Exact-Winner Catch-Up Candidate [COMPLETE 2026-06-16 - WHITELIST ALPHA GUARDRAIL PASSED]](items/item-70-exact-winner-catch-up-candidate.md) |

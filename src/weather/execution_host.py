@@ -144,6 +144,26 @@ def current_execution_principal_id() -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def current_execution_session_id() -> int:
+    """Read this process's Windows session; zero is the service session.
+
+    A nonzero session is necessary for this attended lane, not proof of human
+    presence or geographic eligibility. Those remain operator obligations.
+    """
+
+    if os.name != "nt":
+        raise RuntimeError("attended execution requires a Windows desktop session")
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.ProcessIdToSessionId.argtypes = [
+        ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32)
+    ]
+    kernel32.ProcessIdToSessionId.restype = ctypes.c_int
+    session_id = ctypes.c_uint32()
+    if not kernel32.ProcessIdToSessionId(os.getpid(), ctypes.byref(session_id)):
+        raise RuntimeError("Windows execution session is unavailable")
+    return session_id.value
+
+
 def _reject_duplicate_json_pairs(pairs):
     result = {}
     for key, value in pairs:

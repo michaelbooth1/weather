@@ -1,83 +1,83 @@
 # State of play
 
-**Last rewritten: 2026-09-05 America/Toronto.** Read this first; read
+**Last rewritten: 2026-09-06 America/Toronto.** Read this first; read
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
-> **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
-> current decision; numbered items and retained receipts own detailed evidence.
+> **REWRITTEN, never appended. Capped at about 90 lines.** Numbered items and
+> retained receipts own detailed evidence and historical dispositions.
 
-**Objectives:** protect capture and settlement evidence, recover disk headroom
-through verified off-site storage, and execute the non-live maker-economics
-refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
-**No market edge or profitable maker opportunity is proved.**
+**Objectives:** protect capture and settlement evidence; prepare the September 6
+attended International Stage 1 lifecycle test with the existing wallet; then measure maker economics under
+[item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
+**No market edge, profitable maker opportunity or paid incentive is proved.**
 
 ## Current authority
 
-The owner authorized the plan's implementation, source-control integration,
-and takeover of unfinished cold-storage work on September 4. Ordinary authorized
-work proceeds without repeated permission prompts. **The explicit exception is
-no live trading.** W5-W7 exchange lifecycle and economic sessions therefore remain
-blocked; offline implementation, fixtures, public-evidence analysis and paper
-work may continue. Existing host admission, guarded runtime adoption, evidence
-retention and restore requirements still govern their exact actions.
+The owner authorized implementation, source-control changes and merges, and
+unfinished storage work on September 4. On September 6 the owner authorized
+the attended International Stage 0/1 test with up to 100 pUSD for testing,
+confirmed attendance and physical eligibility, requested the existing-wallet
+repair, and then explicitly requested redesign of the repeated backup/credential
+workflow and review of inherited rules. The owner then explicitly stated that
+running the reviewed command authorizes the whole sequence; remove repeated
+stage/physical-location prompts. Keep the 100 pUSD test allocation and
+10 pUSD order limit. Continue without repeating wallet/authorization questions.
+The operator executes the reviewed attended launchers; the coding
+agent prepares source and verifies evidence. All source, host, credential,
+geographic, release and exact-attempt gates remain. No Stage 2 or unattended
+loop is authorized by this test.
 
 ## Current truth
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Production source | W0's guarded plan/reporting-pause adoption completed at September 5 01:31:49 as `4603a56138406a66d7f52ee8266572d4b3f80abf`, with three-worker recovery and fresh HEAD/local/cached/live equality. W1 and W2 were previously adopted at `f570f0286194a5abe516e0e73f971038074ceb0a` and `dfcafc5bc175952597e1fd2cc08b9ad50db02937`; their master CI passed. Baseline restoration is complete; generated configs were preserved byte-for-byte in separate commit `19c25ad33de968e4b2c376346b192fee7eb8c9bc`. Consult Git and guarded receipts for later integrations. |
-| Portable source versus readiness | Phase repair `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` and portable topic tip `1acf9ebbc4a9576810b99126ea5ab8764f35aa9b` are ancestors of production master. This establishes integrated source only; the portable clone, current qualification and fresh live receipts have not been re-proved. No live attempt is permitted by this task. |
-| Capture | The retained September 5 00:02 status receipt reports all three capture process families at `AboveNormal`, zero consecutive errors, and the snapshot's last clean iteration 6.3 seconds old. This is a point-in-time health observation, not a new streak or fleet-countability proof. |
-| Public execution tape | The same receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
-| Settlement / recurring work | The chain reports `settlement_source_audit` failed with `resource_budget_exceeded`. The five exact Toronto `settlement.json` files for August 28-September 1 are confirmed to report `missing_settlement` / `local_missing`, with no source or high; full-fleet and ledger scope remains unaudited. Item 330 records the bounded receipt. The initial Scheduler snapshot identified 30 recurring/boot/logon definitions (20 Ready, 10 Disabled) with proposed owners/dispositions. Further mixed-chain consumer reviews and job adoption decisions remain open; the one subsequently disabled recurrence is recorded below. |
-| Storage | The September 5 00:56 receipt `scratch/handoffs/maker-pre-identity-status-20260905.json` reports 35 GiB free; 36.6 GiB belongs to the earlier 00:02 snapshot. The mirror remains paused and not proven restorable. Resume the bounded off-site path under [item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md); no new upload or deletion has occurred in this task. |
-| Off-site blocker | Preserve spent attempt `real-pilot-clob-console-20260713-v1`, which failed at DPAPI before ciphertext creation. Repair `aea427fb7faf0b5fd67b8893b62b11fe649e71ea` checks encryption before source staging and rechecks its binding after compression. The native fixture run passed 51 tests and failed two in PowerShell protection before the loader; 48 separate archive/ratchet tests passed. An interactive-context check is pending; no new upload, restore proof or reclaim is established. |
-| Maker changes | W1 governance at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), passed full Linux CI and guarded adoption; all three capture workers passed before/after checks. W2 identity/config at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), passed workstation checks, topic-head Linux CI and guarded production adoption; all three capture workers and the public execution-tape producer passed recovery. Atomic paired configuration publication remains open. Both underwent independent review. |
-| Feasibility | W3's [pure diagnostic calculator](maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3`. Independent review, 91 workstation checks and compilation of both changed Python paths passed. W3/G1 remain open: no current campaign/economics collection, evidence qualification, paid or reconciled profit, or consumer/CLI/executor integration. Git, CI and guarded receipts own source-integration status. |
-| Accounting | W4's static source trace is complete. Next is a pure offline accrual-to-wallet-credit matcher within the existing reports family, preserving the cash identity. No account failure or paid incentive is observed; item 330 records the design receipt. |
-| Documentation debt | The status receipt still reports a pending integration-documentation transaction. A draft state rewrite or passing source suite does not close it; reconcile actual pending tips and publish the required documentation before claiming a completed transaction. |
-| First recurring-job reduction | At September 5 00:30, only `WeatherModelMarketDisagreementAnalysis` was disabled after exact task/action and python/pythonw process checks. Before/after XML differs only by task Enabled=false. Stage A rehydration and all report/audit evidence remain; daily-learning freshness still matters. The exact receipt is `scratch/handoffs/model-disagreement-on-demand-20260905.md`. No runtime savings are yet measured. |
+| Production source | Guarded W3 adoption completed September 5 01:49:16 at `6714b77d8bb57fa36b4d2dd33675cab971ef2432`, with three-worker recovery and source equality. [Master CI](https://github.com/michaelbooth1/weather/actions/runs/33948191212) passed 4,277 tests and 921 subtests with 258 skips. The two current generated-config modifications remain preserved. Source adoption does not close later qualification or documentation debt. |
+| Portable source qualification | [PR 34](https://github.com/michaelbooth1/weather/pull/34) merged reviewed-command authorization at `d8f038e91684cc85faf14fc25603c37d697978cd`. [Merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34050632945) passed 4,617 tests/921 subtests with 260 skips. The actual portable clone cleanly adopted that exact tip, with HEAD/local/cached/live topic equality and synchronized ancestral master `6714b77d8bb57fa36b4d2dd33675cab971ef2432`; its public SDK audit passed. This is not capture-host adoption; exact Git/CI and host-local receipts own later tips. |
+| Today's path | The latest Stage 0 passed. Stage 1 failed before credentials because its runtime still compared paths for deliberately stage-specific credential copies. `codex/stage1-runtime-parity-20260906` applies the sealer's verified-byte comparison to both wrappers and removes three stale whole-wallet ceilings from existing-wallet postconditions. The old-source regression reproduced both defects; 416 focused workstation checks passed with the repair. [Item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md#2026-09-06-stage-1-runtime-parity-repair) owns evidence and remaining qualification. |
+| Offline verification | The reconciled source passed 485 focused workstation checks and 90 activity-bridge fixtures; SDK/architecture/roadmap checks and compilation also passed. After the PowerShell 5.1 quoting repair, the installed public SDK audit passed again from the updated portable clone at September 5 20:09:54 UTC, proving the 2,260-file overlay and 34-wheel closure without credentials, activation or exchange contact. Source-update, SDK and Windows test receipts are retained under production-local `scratch/handoffs/live-test-preparation-20260906/`, with host-local originals outside the portable repository. These are preparation receipts, not live readiness. |
+| Attended result / host | Attempt `pilot-20260906T185946784Z` is spent: Stage 0 passed at 19:04:31.468269 UTC with two heartbeats, one cancel-all, no submitted order, zero account open orders and exact-scope positions, and cleanup PASS. Stage 1 cancel-all failed at preflight at 19:04:48.350604 UTC; dead-man did not run. A 19:14 bounded host check found no portable Python process or poison record. Preserve this and every earlier spent attempt unchanged. |
+| Credentials | Retained v0.4 comparison evidence at September 6 13:46:39.777856 UTC records four verified entries and zero mutation. The source file was deleted after the owner confirmed a separate backup; vault entries and backup remain unchanged. The redesigned contract accepts this unchanged host/principal-bound record as installation provenance without expiry. Fresh runtime authentication remains mandatory. No backup prompt or credential refresh helper is needed for normal retries after the redesigned source is qualified and adopted. |
+| Market/rules | The public September 6 NYC event and its central 74-75 F book exist in retained September 5 captures. The canonical generator can select NYC from its genuine one-event Gamma list; exact condition/token discovery stays fresh. Current venue Rules name NOAA hourly data first and WU only as fallback. Preserve that difference from the WU proxy; Stage 0/1 identity binding and no-fill completion do not qualify settlement or Stage 2 economics. |
+| Capture / public tape | The retained September 5 00:02 snapshot reports three capture families healthy and public tape CONNECTED/integrity PASS, but `price_path_usable=false`. This is historical point-in-time evidence, not a new streak or price-path proof. |
+| Settlement / jobs | Five exact Toronto August 28-September 1 folder settlement views report `missing_settlement/local_missing`; fleet and ledger scope remain unaudited. Only `WeatherModelMarketDisagreementAnalysis` was disabled at September 5 00:30 after exact checks. Mixed-chain dispositions remain open; no runtime saving is measured. |
+| Storage | The last retained September 5 09:49 disk snapshot is 38.16 GiB, below the ordinary 50 GiB suite reserve. No reclaim by this task is established. Do not schedule a production suite against an unproved reserve or reuse the expired hashing proposal. The mirror remains paused and unproved restorable. |
+| Off-site proof | Signed-in `v3-r1` restore completed September 5 13:34:16 Toronto with all 17 checks PASS on `54da9076c10e6d109062c635211fcd273022f94e` ([PR 23](https://github.com/michaelbooth1/weather/pull/23), full CI passed). The 513,522,801-byte provisional file was recovered from independently downloaded private Drive ciphertext; receipt self-hashes/upstream bindings were verified and uploaded receipts read back exactly. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) owns the proof; production identity, whole-mirror recovery and reclaim remain open. |
+| Maker/accounting | W1/W2 base repairs and W3 diagnostic calculator are adopted. [PR 24](https://github.com/michaelbooth1/weather/pull/24) closes the economics metadata load/re-hash race; [PR 25](https://github.com/michaelbooth1/weather/pull/25) adds the offline paid-incentive matcher and exact native-cash report opt-in. Both passed independent review, workstation checks and full topic CI. Atomic paired configuration publication, real accrual/payment linkage, captured account evidence, operating-cost reporting and economic proof remain open. |
+| Documentation debt | Prior production integration has a pending documentation transaction. This source-preparation branch does not itself close that production transaction. Retain the owning integration receipts and close it through the canonical workflow. |
 
-The bounded status source is the production-local ignored file
-`scratch/handoffs/maker-baseline-status-20260905.json`, timestamp September 5
-00:02, SHA-256 `8496E3FA3CEBEA59A28C593C599EF42E2363DBAAF9DB991B6F5E5BDC8A3016D9`.
-It need not exist in a clean checkout. Its warnings identify work to verify;
-historical task exit codes and copied burn-rate estimates are not fresh proofs.
+## Ordered critical path
 
-## Ordered non-live critical path
+1. Qualify the Stage 1 runtime parity repair with final-tip/topic CI and clean
+   portable adoption. Preserve production configs and spent attempts.
+2. Finish heavy verification before sealing. Recheck credential, source and host
+   evidence and create a wholly new attempt with the explicit test allocation.
+   Every fresh live plan has at most 40 seconds before portable composition.
+3. Prepare the reviewable operator sequence: Stage 0, Stage 1 cancel-all and
+   Stage 1 dead-man through fixed launchers. Keep the 100 pUSD test allocation,
+   10 pUSD request/order, two single-use submissions and stop-on-fill behavior.
+   A failed stage stops the sequence. Stage 0 passed in the spent attempt;
+   fresh Stage 0 and both Stage 1 results are needed for a new complete attempt.
+4. Stage 2 needs separate current source/host authority, settlement-source
+   qualification, opportunity and accounting evidence. Its whole-wallet
+   funding and general readiness gates remain.
+5. Continue off-site identity/reclaim, production documentation closeout and
+   mixed-chain/settlement repair under their separate owning contracts.
 
-1. Finish the bounded interactive DPAPI diagnosis. Preserve spent attempts;
-   prove credential loading, encrypted transfer and restore under item 325
-   before any exact-manifest local reclaim. Never substitute the frozen mirror.
-2. Complete exact-head CI and the documentation closeout,
-   then recheck the canonical roll verdict for each published tip and use the
-   integration/recovery path. Preserve generated config and capture evidence.
-3. Review W0's proposed recurring-job dispositions and mixed daily-chain steps,
-   and scope the remaining fleet/ledger gaps before choosing a resource-admitted
-   repair for the confirmed Toronto omissions. Do not infer ledger rows from a flag.
-4. Qualify exact current campaign, terms, books and adjusted-midpoint provenance,
-   then use the existing W3 calculator with competitor-score scenarios; aggregate
-   depth does not identify a nonlinear per-maker denominator. Continue W4 accounting
-   gaps; no assumed campaign or profit.
-5. Continue offline W5 readiness and accounting fixtures. Real W5-W7 sessions
-   stay blocked by the owner's no-live instruction; a green suite cannot remove it.
+## Standing decisions
 
-## Standing decisions that still bind
-
-- International Polymarket only; no paid weather providers or new statistical
-  alpha allocation. Models serve risk/settlement interpretation until a specific
-  measured failure justifies research. No new predictor is on the critical path.
-- Spent reconciliation, live and archive attempts remain immutable evidence;
-  never retry, rewrite or reconstruct a spent namespace as a fresh attempt.
-- Capture-host heavy work remains time-gated, admitted and serial. The separate
-  workstation uses its exact host/principal admission wrapper and shared mutex.
-- Source integration, runtime adoption, release qualification and live authority
-  are distinct. Follow the owning canonical contracts, not superseded dated prose.
-- Native units, WU effective-print cutoffs, probability mass, train/serve parity,
-  captured-input replay, release binding and evidence retention remain mandatory.
+- International Polymarket only; no paid weather provider or new alpha/model
+  allocation. WU proxy semantics, native units, effective cutoffs and model
+  parity remain intact; real venue Rules require separate exact interpretation.
+- Stage 0 structural scope and Stage 1 lifecycle safety do not require paper
+  profitability or incentive feasibility. Stage 2 retains its economics gates.
+- Source publication, production adoption, qualification and live authority
+  are separate. The portable exception grants no capture or Scheduler role.
+- Spent attempts and evidence are immutable. No retries or rewritten timestamps
+  can turn them into a fresh authority.
+- Capture-host heavy work is time-gated and admitted; workstation heavy work
+  uses its exact host/principal wrapper and the shared live/heavy mutex.
 
 ## Update this file when
 
-Rewrite after source publication/adoption, a storage/restore result or reclaim,
-validated settlement/job dispositions, an economic-feasibility result, or a
-changed owner instruction. Move superseded operational detail to its evidence owner.
+Rewrite after publication/qualification/adoption, host or live-stage results,
+storage/restore/reclaim evidence, validated job decisions or changed authority.

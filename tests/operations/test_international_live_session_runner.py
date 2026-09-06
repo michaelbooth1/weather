@@ -13,10 +13,15 @@ from pathlib import Path
 import pytest
 
 from weather.market import mm_geographic_eligibility as geography
+from weather.market.market_config import config_for_date
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
 from weather.operations import international_live_wrapper_sealer as sealer
-from tests.live_candidate_fixture import build_live_candidate_payload
+from tests.live_candidate_fixture import (
+    build_live_candidate_payload,
+    build_stage0_event_metadata_payload,
+    build_stage0_scope_payload,
+)
 
 
 NOW = datetime.fromisoformat("2026-08-23T01:00:00-04:00")
@@ -158,25 +163,20 @@ def candidate(
     now=NOW,
     *,
     target_date=None,
-    remaining_seconds=120,
-    economics_acceptance=None,
+    remaining_seconds=140,
+    event_metadata_file_sha256="2" * 64,
+    event_metadata_generated_at=None,
 ):
-    if economics_acceptance is None:
-        raise AssertionError("runner candidate fixture requires economics acceptance")
     target_date = target_date or now.date().isoformat()
     return build_live_candidate_payload(
         now=now,
         target_date=target_date,
         condition_id=CONDITION,
         token_id=TOKEN,
+        alternate_token_id="7002",
         remaining_seconds=remaining_seconds,
-        economics_hash=economics_acceptance["accepted_snapshot_sha256"],
-        accepted_snapshot_file_sha256=economics_acceptance[
-            "accepted_snapshot_file_sha256"
-        ],
-        drift_report_file_sha256=economics_acceptance[
-            "drift_report_file_sha256"
-        ],
+        event_metadata_file_sha256=event_metadata_file_sha256,
+        event_metadata_generated_at=event_metadata_generated_at,
     )
 
 
@@ -184,7 +184,7 @@ def session_fixture(
     tmp_path: Path,
     stage: str,
     *,
-    remaining_seconds=120,
+    remaining_seconds=140,
     now: datetime = NOW,
     execution_host_profile: str = "capture_colocated_v1",
     target_date: str | None = None,
@@ -194,41 +194,24 @@ def session_fixture(
     attempt.mkdir()
     identity = write(
         attempt / sealer.INPUT_LAYOUTS[stage]["identity"],
-        {"schema_version": "mm_stage0_client_identity_v0.3"},
+        {"schema_version": "mm_stage0_client_identity_v0.4"},
     )
     credential = write(tmp_path / "credential.json", {"status": "PASS"})
     references = write(
         tmp_path / "references.json",
         {"status": "PASS", "wallet_address": WALLET},
     )
-    accepted_economics = write(
-        attempt / sealer.INPUT_LAYOUTS[stage]["accepted_economics_snapshot"],
-        {"status": "PASS", "accepted": True},
+    event_metadata_generated_at = now.astimezone(timezone.utc) - timedelta(days=1)
+    event_metadata = write(
+        attempt / sealer.INPUT_LAYOUTS[stage]["event_metadata"],
+        build_stage0_event_metadata_payload(
+            generated_at=event_metadata_generated_at,
+            target_date=target_date,
+            condition_id=CONDITION,
+            token_id=TOKEN,
+            alternate_token_id="7002",
+        ),
     )
-    economics_drift = write(
-        attempt / sealer.INPUT_LAYOUTS[stage]["economics_drift_report"],
-        {"status": "PASS", "rescore_required": False},
-    )
-    acknowledgment = sealer.economics_acceptance_acknowledgment(
-        target_date,
-        CONDITION,
-        TOKEN,
-        accepted_snapshot_file_sha256=sha(accepted_economics),
-        drift_report_file_sha256=sha(economics_drift),
-    )
-    economics_acceptance = {
-        "accepted_at_utc": now.astimezone(timezone.utc).isoformat(),
-        "accepted_snapshot_file_sha256": sha(accepted_economics),
-        "accepted_snapshot_id": "xecon-" + "e" * 16,
-        "accepted_snapshot_sha256": "e" * 32,
-        "drift_generated_at_utc": now.astimezone(timezone.utc).isoformat(),
-        "drift_report_file_sha256": sha(economics_drift),
-        "drift_status": "PASS",
-        "operator_acknowledgment": acknowledgment,
-        "operator_acknowledgment_matches_candidate": True,
-        "required_operator_acknowledgment": acknowledgment,
-        "rescore_required": False,
-    }
     reviewed_source = write(tmp_path / "production/source", {"reviewed": True})
     production_python = tmp_path / "production/venv/Scripts/python.exe"
     production_python.parent.mkdir(parents=True, exist_ok=True)
@@ -311,16 +294,11 @@ def session_fixture(
                 "path": str(references.resolve()),
                 "sha256": sha(references),
             },
-            "accepted_economics_snapshot": {
-                "path": str(accepted_economics.resolve()),
-                "sha256": sha(accepted_economics),
-            },
-            "economics_drift_report": {
-                "path": str(economics_drift.resolve()),
-                "sha256": sha(economics_drift),
+            "event_metadata": {
+                "path": str(event_metadata.resolve()),
+                "sha256": sha(event_metadata),
             },
         },
-        "economics_acceptance": economics_acceptance,
         "reviewed_status_flags": [],
         "template_sha256": {"python": "c" * 64, "launcher": "d" * 64},
         "source_sha256": {"source": sha(reviewed_source)},
@@ -336,14 +314,31 @@ def session_fixture(
         f"{sha(manifest)}  {manifest.name}\n",
         encoding="ascii",
     )
-    source_candidate = write(
-        tmp_path / f"fresh-{stage}.json",
-        candidate(
+    candidate_payload = (
+        build_stage0_scope_payload(
+            now=now,
+            target_date=target_date,
+            condition_id=CONDITION,
+            token_id=TOKEN,
+            alternate_token_id="7002",
+            event_metadata_file_sha256=sha(event_metadata),
+            event_metadata_generated_at=event_metadata_generated_at,
+            remaining_seconds=min(remaining_seconds, 300),
+            best_bid=0.19,
+            best_ask=0.44,
+        )
+        if stage == "stage0"
+        else candidate(
             now=now,
             target_date=target_date,
             remaining_seconds=remaining_seconds,
-            economics_acceptance=economics_acceptance,
-        ),
+            event_metadata_file_sha256=sha(event_metadata),
+            event_metadata_generated_at=event_metadata_generated_at,
+        )
+    )
+    source_candidate = write(
+        tmp_path / f"fresh-{stage}.json",
+        candidate_payload,
     )
     return attempt, manifest, source_candidate
 
@@ -440,11 +435,6 @@ def write_execution(
                     {
                         "schema_version": "mm_user_stream_journal_v0.1",
                         "event_type": "user_event",
-                        "payload": {"orderID": order_id, "status": "live"},
-                    },
-                    {
-                        "schema_version": "mm_user_stream_journal_v0.1",
-                        "event_type": "user_event",
                         "payload": {
                             "orderID": order_id,
                             "status": "canceled",
@@ -483,7 +473,7 @@ def write_execution(
         bootstrap = write(
             attempt / layout["bootstrap"],
             {
-                "schema_version": "mm_platform_bootstrap_v0.4",
+                "schema_version": "mm_platform_bootstrap_v0.6",
                 "status": "PASS",
                 "mutation_geographic_eligibility": {
                     key: geography_payload[key]
@@ -537,7 +527,7 @@ def write_execution(
                 "token_id": TOKEN,
                 "candidate_plan_sha256": sha(candidate_path),
                 "candidate_semantic_plan_sha256": candidate_payload["plan_sha256"],
-                "bootstrap_schema_version": "mm_platform_bootstrap_v0.4",
+                "bootstrap_schema_version": "mm_platform_bootstrap_v0.6",
                 "bootstrap_sha256": sha(attempt / "stage0/bootstrap.json"),
                 "heartbeat_acknowledged": True,
                 "submit_boundary_heartbeat_acknowledged": True,
@@ -579,8 +569,8 @@ def write_execution(
                 "user_stream_journal_path": str(stream.resolve()),
                 "user_stream_journal_sha256": sha(stream),
                 "cleanup_final_user_stream_journal_sha256": sha(stream),
-                "user_stream_journal_row_count": 3,
-                "user_stream_scoped_order_event_count": 2,
+                "user_stream_journal_row_count": 2,
+                "user_stream_scoped_order_event_count": 1,
                 "secret_values_redacted": True,
                 "cancel_response_present": mode == "cancel_all",
                 "cancellation_elapsed_seconds": 0 if mode == "cancel_all" else 12,
@@ -800,6 +790,60 @@ def test_portable_execution_host_can_compose_a_daytime_session(tmp_path):
     assert result["status"] == "PASS"
 
 
+def test_portable_plan_preserves_exact_40_second_preparation_margin(tmp_path):
+    stage = "stage0"
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        stage,
+        now=current,
+        remaining_seconds=260,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    result = runner.compose_and_run_live_session(
+        manifest,
+        fresh,
+        expected_session_manifest_sha256=sha(manifest),
+        now=current,
+        seal_function=fake_sealer(attempt, stage),
+        launcher_runner=lambda path: (
+            write_execution(attempt, stage, mutation=True)
+            or subprocess.CompletedProcess([str(path)], 0, "", "")
+        ),
+    )
+
+    assert runner.DERIVED_STAGE_PLAN_TTL_SECONDS == 240 + 20 + 40 == 300
+    assert result["candidate_remaining_seconds_before_launch"] == 260
+    assert result["status"] == "PASS"
+
+
+def test_portable_plan_refuses_after_40_second_preparation_margin(tmp_path):
+    current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
+    attempt, manifest, fresh = session_fixture(
+        tmp_path,
+        "stage0",
+        now=current,
+        remaining_seconds=259,
+        execution_host_profile="portable_execution_v1",
+    )
+
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="fixed 40-second preparation and revalidation margin",
+    ):
+        runner.compose_and_run_live_session(
+            manifest,
+            fresh,
+            expected_session_manifest_sha256=sha(manifest),
+            now=current,
+            seal_function=lambda *_args, **_kwargs: pytest.fail("must not seal"),
+            launcher_runner=lambda _path: pytest.fail("must not launch"),
+        )
+
+    assert not (attempt / "inputs/stage0-scope-plan.json").exists()
+
+
 def test_portable_execution_host_can_compose_for_next_day_market(tmp_path):
     stage = "stage0"
     current = datetime.fromisoformat("2026-08-23T12:00:00-04:00")
@@ -922,15 +966,19 @@ def test_composer_refuses_fresh_candidate_for_a_different_market(tmp_path):
     attempt, manifest, fresh = session_fixture(tmp_path, "stage0")
     payload = json.loads(fresh.read_text(encoding="utf-8"))
     payload["selected"]["location_id"] = "nyc"
-    payload["selected"]["paper_quote_proof"]["market_id"] = "nyc"
-    payload["paper_quote_evidence"]["market_id"] = "nyc"
-    payload["substrate_preflight"]["market_id"] = "nyc"
+    payload["selected"]["event_slug"] = config_for_date(
+        payload["target_date"],
+        "nyc",
+    ).event_slug
     payload["plan_sha256"] = sealer._canonical_payload_sha256(
         payload, omit="plan_sha256"
     )
     write(fresh, payload)
 
-    with pytest.raises(runner.SessionCompositionError, match="candidate market"):
+    with pytest.raises(
+        runner.SessionCompositionError,
+        match="canonical constrained gate",
+    ):
         runner.compose_and_run_live_session(
             manifest,
             fresh,
@@ -1164,7 +1212,7 @@ def test_composer_refuses_candidate_without_launch_reserve(tmp_path):
 
     with pytest.raises(
         runner.SessionCompositionError,
-        match="full profile-fixed session envelope",
+        match="full profile-fixed session and cleanup envelope",
     ):
         runner.compose_and_run_live_session(
             manifest,

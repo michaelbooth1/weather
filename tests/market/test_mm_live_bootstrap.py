@@ -63,7 +63,7 @@ def geographic_receipt(checked_at=NOW):
 
 def stage0_identity():
     return {
-        "schema_version": "mm_stage0_client_identity_v0.3",
+        "schema_version": "mm_stage0_client_identity_v0.4",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
@@ -83,7 +83,7 @@ def stage0_identity():
 
 def bootstrap_payload():
     payload = {
-        "schema_version": "mm_platform_bootstrap_v0.4",
+        "schema_version": "mm_platform_bootstrap_v0.6",
         "status": "PASS",
         "verified_at_utc": NOW,
         "verified_for_target_date": TARGET_DATE,
@@ -146,9 +146,8 @@ def bootstrap_payload():
             "condition_id": CONDITION_ID,
             "token_id": TOKEN_ID,
             "book_verified": True,
-            "fee_eligibility_verified": True,
+            "fee_rule_verified": True,
             "fee_rate_bps": 500,
-            "candidate_fee_rate": 0.05,
             "min_order_size": 5,
             "tick_size": 0.01,
             "neg_risk": False,
@@ -194,7 +193,6 @@ def bootstrap_payload():
             "https://docs.polymarket.com/trading/orders/overview",
             "https://docs.polymarket.com/trading/fees",
             "https://docs.polymarket.com/api-reference/market-data/get-fee-rate",
-            "https://docs.polymarket.com/programs/maker-rebates",
             "https://docs.polymarket.com/concepts/pusd",
         ],
     }
@@ -276,7 +274,7 @@ def test_bootstrap_gate_refuses_the_published_v03_contract(tmp_path):
         now=NOW,
     )
 
-    assert SCHEMA_VERSION == "mm_platform_bootstrap_v0.4"
+    assert SCHEMA_VERSION == "mm_platform_bootstrap_v0.6"
     assert gate["ok"] is False
     assert "schema_version_supported" in gate["missing"]
 
@@ -298,35 +296,41 @@ def test_bootstrap_research_template_tracks_the_active_contract():
         "fresh_until_utc",
         "freshness_max_age_seconds",
     }
-    assert payload["market_snapshot"]["candidate_fee_rate"] is None
+    assert payload["market_snapshot"]["fee_rule_verified"] is False
+    assert "candidate_fee_rate" not in payload["market_snapshot"]
     assert payload["market_snapshot"]["candidate_neg_risk"] is None
 
 
-def test_bootstrap_gate_rejects_zero_fee_or_candidate_neg_risk_drift(tmp_path):
-    cases = (
-        ("zero-fee", {"fee_rate_bps": 0}, "market_fee_rate_positive"),
-        (
-            "neg-risk-drift",
-            {"neg_risk": True},
-            "market_candidate_neg_risk_matches_current",
-        ),
+def test_bootstrap_gate_accepts_zero_fee_but_rejects_candidate_neg_risk_drift(
+    tmp_path,
+):
+    zero_fee = finalized_bootstrap_payload(tmp_path, name="zero-fee")
+    zero_fee["market_snapshot"]["fee_rate_bps"] = 0
+    zero_fee_path = write_payload(tmp_path / "zero-fee.json", zero_fee)
+    zero_fee_gate = load_platform_bootstrap_gate(
+        zero_fee_path,
+        TARGET_DATE,
+        requested_budget_usdc=100,
+        expected_token_id=TOKEN_ID,
+        expected_condition_id=CONDITION_ID,
+        now=NOW,
     )
-    for name, change, expected_missing in cases:
-        payload = finalized_bootstrap_payload(tmp_path, name=name)
-        payload["market_snapshot"].update(change)
-        path = write_payload(tmp_path / f"{name}.json", payload)
+    assert zero_fee_gate["ok"] is True
+    assert zero_fee_gate["fee_rate_bps"] == 0
 
-        gate = load_platform_bootstrap_gate(
-            path,
-            TARGET_DATE,
-            requested_budget_usdc=100,
-            expected_token_id=TOKEN_ID,
-            expected_condition_id=CONDITION_ID,
-            now=NOW,
-        )
-
-        assert gate["ok"] is False
-        assert expected_missing in gate["missing"]
+    drift = finalized_bootstrap_payload(tmp_path, name="neg-risk-drift")
+    drift["market_snapshot"]["neg_risk"] = True
+    drift_path = write_payload(tmp_path / "neg-risk-drift.json", drift)
+    drift_gate = load_platform_bootstrap_gate(
+        drift_path,
+        TARGET_DATE,
+        requested_budget_usdc=100,
+        expected_token_id=TOKEN_ID,
+        expected_condition_id=CONDITION_ID,
+        now=NOW,
+    )
+    assert drift_gate["ok"] is False
+    assert "market_candidate_neg_risk_matches_current" in drift_gate["missing"]
 
 
 def test_persisted_active_stream_boolean_cannot_authorize_stage1(tmp_path):
@@ -458,10 +462,23 @@ def test_finite_stage0_gate_rejects_a_modified_final_journal(tmp_path):
     assert "user_stream_final_journal_content_bound" in gate["missing"]
 
 
-def test_collector_converts_atomic_collateral_and_produces_passing_gate(
+@pytest.mark.parametrize("existing_wallet", [False, True])
+@pytest.mark.parametrize("authentication_rejected", [False, True])
+def test_collector_requires_current_authentication_before_bootstrap_writes(
     tmp_path,
     monkeypatch,
+    existing_wallet,
+    authentication_rejected,
 ):
+    identity = stage0_identity()
+    expected_balance = 275.48 if existing_wallet else 100.0
+    if existing_wallet:
+        identity.update(
+            pilot_capital_mode="existing_wallet_test_allocation",
+            pilot_test_allocation_pusd=100,
+            isolated_pilot_wallet=False,
+            pilot_wallet_max_funding_usdc=None,
+        )
     boundary_events = []
     geography_validation_count = 0
     original_geography_validator = (
@@ -524,7 +541,9 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
             self.heartbeat_calls = 0
 
         def balances(self):
-            return {"balance": "100000000"}
+            if authentication_rejected:
+                raise RuntimeError("current API authentication rejected")
+            return {"balance": "275480000" if existing_wallet else "100000000"}
 
         def allowances(self):
             return {"spender-a": "100000000", "spender-b": "200000000"}
@@ -626,18 +645,14 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
     def record_authenticated_write(operation):
         boundary_events.append(f"{operation}_attempt")
 
-    payload = collect_platform_bootstrap_payload(
-        Adapter(),
-        user_stream,
-        stage0_identity(),
+    collect_arguments = dict(
         target_date=TARGET_DATE,
-        requested_budget_usdc=100,
+        requested_budget_usdc=10,
         secret_hygiene={
             "credentials_by_reference_verified": True,
             "direct_secret_environment_absent_verified": True,
             "diagnostic_redaction_verified": True,
         },
-        expected_candidate_fee_rate=0.05,
         expected_candidate_neg_risk=False,
         pre_mutation_attestor=attest_at_mutation_boundary,
         progress_recorder=bootstrap_phases.append,
@@ -647,25 +662,42 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         monotonic_clock=clock,
         sleeper=clock.sleep,
     )
+    if authentication_rejected:
+        with pytest.raises(RuntimeError, match="current API authentication rejected"):
+            collect_platform_bootstrap_payload(
+                Adapter(), user_stream, identity, **collect_arguments
+            )
+        assert bootstrap_phases[-1] == "collateral_query"
+        assert boundary_events == []
+        return
+    payload = collect_platform_bootstrap_payload(
+        Adapter(), user_stream, identity, **collect_arguments
+    )
     user_stream.stop()
     payload = finalize_platform_bootstrap_payload(payload, user_stream, now=NOW)
     path = write_payload(tmp_path / "collected-bootstrap.json", payload)
     gate = load_platform_bootstrap_gate(
         path,
         TARGET_DATE,
-        requested_budget_usdc=100,
+        requested_budget_usdc=10,
         expected_token_id=TOKEN_ID,
         expected_condition_id=CONDITION_ID,
         now=NOW,
     )
 
-    assert payload["account_snapshot"]["collateral_balance_usdc"] == 100.0
+    assert payload["account_snapshot"]["collateral_balance_usdc"] == expected_balance
+    assert gate["pilot_capital_limit_pusd"] == 100
+    assert gate["pilot_wallet_max_funding_usdc"] == (None if existing_wallet else 100)
+    if existing_wallet:
+        assert gate["pilot_test_allocation_pusd"] == 100
+        assert gate["isolated_pilot_wallet"] is False
     assert payload["account_snapshot"]["collateral_allowance_usdc"] == 100.0
     assert payload["dead_man_heartbeat"]["two_acknowledgments_verified"] is True
     assert payload["dead_man_heartbeat"]["acknowledgment_count"] == 2
     assert payload["wallet_identity"]["signed_order_preview_verified"] is True
     assert payload["wallet_identity"]["signed_order_preview_signature_retained"] is False
-    assert payload["market_snapshot"]["candidate_fee_rate"] == 0.05
+    assert payload["market_snapshot"]["fee_rate_bps"] == 500.0
+    assert "candidate_fee_rate" not in payload["market_snapshot"]
     assert payload["market_snapshot"]["candidate_neg_risk"] is False
     assert payload["mutation_geographic_eligibility"]["status"] == "PASS"
     assert boundary_events == [
@@ -700,15 +732,14 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         collect_platform_bootstrap_payload(
             Adapter(),
             failed_clock_stream,
-            stage0_identity(),
+            identity,
             target_date=TARGET_DATE,
-            requested_budget_usdc=100,
+            requested_budget_usdc=10,
             secret_hygiene={
                 "credentials_by_reference_verified": True,
                 "direct_secret_environment_absent_verified": True,
                 "diagnostic_redaction_verified": True,
             },
-            expected_candidate_fee_rate=0.05,
             expected_candidate_neg_risk=False,
             pre_mutation_attestor=attest_at_mutation_boundary,
             progress_recorder=lambda _phase: None,
@@ -738,15 +769,14 @@ def test_collector_converts_atomic_collateral_and_produces_passing_gate(
         collect_platform_bootstrap_payload(
             Adapter(),
             failed_recorder_stream,
-            stage0_identity(),
+            identity,
             target_date=TARGET_DATE,
-            requested_budget_usdc=100,
+            requested_budget_usdc=10,
             secret_hygiene={
                 "credentials_by_reference_verified": True,
                 "direct_secret_environment_absent_verified": True,
                 "diagnostic_redaction_verified": True,
             },
-            expected_candidate_fee_rate=0.05,
             expected_candidate_neg_risk=False,
             pre_mutation_attestor=attest_at_mutation_boundary,
             progress_recorder=lambda _phase: None,
@@ -853,7 +883,7 @@ def test_bootstrap_gate_rejects_us_wrong_market_over_budget_and_secret_material(
 
     assert not gate["ok"]
     assert "platform_is_international" in gate["missing"]
-    assert "requested_budget_within_wallet_cap" in gate["missing"]
+    assert "requested_budget_within_pilot_capital_limit" in gate["missing"]
     assert "market_expected_token_matches" in gate["missing"]
     assert "market_expected_condition_matches" in gate["missing"]
     assert "no_secret_material" in gate["missing"]
@@ -891,4 +921,36 @@ def test_bootstrap_gate_rejects_actual_balance_above_declared_wallet_cap(tmp_pat
     )
 
     assert not gate["ok"]
-    assert "account_balance_within_wallet_cap" in gate["missing"]
+    assert "account_balance_within_capital_scope" in gate["missing"]
+
+
+
+@pytest.mark.parametrize("balance,allowance,budget,allowed", [
+    (275.48, 100, 10, True),
+    (9.99, 100, 10, False),
+    (275.48, 9.99, 10, False),
+    (275.48, 1000, 100.01, False),
+    (float("inf"), 100, 10, False),
+])
+def test_bootstrap_allocation_preserves_cash_and_backing_checks(
+    tmp_path, balance, allowance, budget, allowed
+):
+    payload = finalized_bootstrap_payload(tmp_path, name="allocation")
+    payload.update(
+        pilot_capital_mode="existing_wallet_test_allocation",
+        pilot_test_allocation_pusd=100,
+        isolated_pilot_wallet=False,
+        pilot_wallet_max_funding_usdc=None,
+    )
+    payload["account_snapshot"]["collateral_balance_usdc"] = balance
+    payload["account_snapshot"]["collateral_allowance_usdc"] = allowance
+    payload["account_snapshot"]["snapshot_sha256"] = account_snapshot_sha256(
+        payload["account_snapshot"]
+    )
+    path = write_payload(tmp_path / "bootstrap-allocation.json", payload)
+    gate = load_platform_bootstrap_gate(
+        path, TARGET_DATE, requested_budget_usdc=budget, now=NOW
+    )
+    assert gate["ok"] is allowed, gate["missing"]
+    assert gate["pilot_wallet_max_funding_usdc"] is None
+    assert gate["pilot_capital_limit_pusd"] == 100

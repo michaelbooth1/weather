@@ -7,10 +7,14 @@ from types import SimpleNamespace
 import pytest
 
 from weather.market import mm_live_pilot_cli as cli
-from weather.market import mm_live_candidate_cli as candidate_cli
+from weather.market import mm_live_stage1_lifecycle_plan as lifecycle_plan
 from weather.market import mm_geographic_eligibility as geography
 from weather.market.mm_credentials import STAGE0_AUTHORIZATION
 from weather.market.mm_live_lifecycle_probe import CONFIRMATION as STAGE1_CONFIRMATION
+from tests.live_candidate_fixture import (
+    build_live_candidate_payload,
+    build_stage0_event_metadata_payload,
+)
 
 
 ADDRESS = "0x" + "a" * 40
@@ -193,7 +197,6 @@ def args(tmp_path, command):
             confirmation=STAGE0_AUTHORIZATION,
             bootstrap_out=str(tmp_path / "bootstrap.json"),
             geography_premutation_receipt=str(geography_premutation),
-            expected_candidate_fee_rate=0.05,
             expected_candidate_neg_risk=False,
             pre_mutation_attestor=pre_mutation_attestor,
         )
@@ -202,179 +205,35 @@ def args(tmp_path, command):
         bootstrap.write_text("{}", encoding="utf-8")
         candidate = tmp_path / "stage1-candidate.json"
         current = datetime.now(timezone.utc)
-        paper_generated = current - timedelta(seconds=2)
-        created = current - timedelta(seconds=1)
-        paper_expires = paper_generated + timedelta(seconds=120)
-        economics_hash = "c" * 32
-        economics_id = f"xecon-{economics_hash[:16]}"
-        accepted_file_hash = "a" * 64
-        drift_file_hash = "b" * 64
-        economics_acknowledgment = (
-            candidate_cli.economics_acceptance_acknowledgment(
-                "2026-08-14",
-                CONDITION_ID,
-                TOKEN_ID,
-                accepted_snapshot_file_sha256=accepted_file_hash,
-                drift_report_file_sha256=drift_file_hash,
-            )
+        event_metadata = tmp_path / "stage1-event-metadata.json"
+        event_metadata.write_text(
+            json.dumps(
+                build_stage0_event_metadata_payload(
+                    generated_at=current,
+                    target_date="2026-08-14",
+                    condition_id=CONDITION_ID,
+                    token_id=TOKEN_ID,
+                )
+            ),
+            encoding="utf-8",
         )
-        candidate_payload = {
-            "schema_version": candidate_cli.SCHEMA_VERSION,
-            "status": "PASS",
-            "created_at_utc": created.isoformat(),
-            "expires_at_utc": paper_expires.isoformat(),
-            "target_date": "2026-08-14",
-            "platform": candidate_cli.PLATFORM,
-            "settlement_unit": candidate_cli.SETTLEMENT_UNIT,
-            "exchange_economics_snapshot_id": economics_id,
-            "exchange_economics_sha256": economics_hash,
-            "economics_gate_ok": True,
-            "economics_gate_missing": [],
-            "economics_acceptance": {
-                "accepted_at_utc": (current - timedelta(seconds=3)).isoformat(),
-                "accepted_snapshot_file_sha256": accepted_file_hash,
-                "accepted_snapshot_id": economics_id,
-                "accepted_snapshot_sha256": economics_hash,
-                "drift_generated_at_utc": (
-                    current - timedelta(seconds=3)
-                ).isoformat(),
-                "drift_report_file_sha256": drift_file_hash,
-                "drift_status": "PASS",
-                "operator_acknowledgment": economics_acknowledgment,
-                "operator_acknowledgment_matches_candidate": True,
-                "required_operator_acknowledgment": economics_acknowledgment,
-                "rescore_required": False,
-            },
-            "substrate_preflight": {
-                "schema_version": candidate_cli.SUBSTRATE_PREFLIGHT_SCHEMA_VERSION,
-                "receipt_sha256": "0" * 64,
-                "checked_at_utc": (current - timedelta(seconds=3)).isoformat(),
-                "expires_at_utc": (
-                    current
-                    - timedelta(seconds=3)
-                    + timedelta(
-                        seconds=candidate_cli.MAX_SUBSTRATE_PREFLIGHT_AGE_SECONDS
-                    )
-                ).isoformat(),
-                "market_id": "toronto",
-                "target_date": "2026-08-14",
-                "event_slug": "toronto-high-temperature-test",
-                "validation_hash": "1" * 64,
-                "event_metadata_file_sha256": "2" * 64,
-                "event_metadata_validation_file_sha256": "3" * 64,
-                "observation_status_file_sha256": "4" * 64,
-                "economics_snapshot_file_sha256": "5" * 64,
-                "accepted_snapshot_file_sha256": accepted_file_hash,
-                "economics_drift_report_file_sha256": drift_file_hash,
-                "paper_run_config_file_sha256": "d" * 64,
-                "paper_preflight_file_sha256": "6" * 64,
-                "paper_quote_intents_file_sha256": "e" * 64,
-                "clob_tokens_file_sha256": "7" * 64,
-                "order_books_summary_file_sha256": "8" * 64,
-                "source_status_long_file_sha256": "9" * 64,
-                "network_access": False,
-                "credential_access": False,
-                "exchange_contact": False,
-                "exchange_mutation": False,
-            },
-            "selection_is_trading_authorization": False,
-            "secret_values_retained": False,
-            "selection_policy": {
-                "built_in_locations_only": True,
-                "positive_fee_and_rebate_required": True,
-                "midpoint_interval": [
-                    float(candidate_cli.MIN_MIDPOINT),
-                    float(candidate_cli.MAX_MIDPOINT),
-                ],
-                "max_spread": float(candidate_cli.MAX_BOOK_SPREAD),
-                "minimum_tick_buy_must_be_nonmarketable": True,
-                "book_tick_min_size_and_neg_risk_must_be_current": True,
-                "plan_max_age_seconds": candidate_cli.MAX_PLAN_AGE_SECONDS,
-                "max_single_order_notional_pusd": float(
-                    candidate_cli.MAX_SINGLE_ORDER_NOTIONAL
-                ),
-                "successful_current_market_harvest_quote_required": True,
-                "expected_bootstrap_scope": {
-                    "condition_id": CONDITION_ID,
-                    "token_id": TOKEN_ID,
-                },
-                "ranking": "spread_asc_then_best_level_depth_desc_then_midpoint_distance",
-            },
-            "paper_quote_evidence": {
-                "run_config_sha256": "d" * 64,
-                "quote_intents_sha256": "e" * 64,
-                "quote_intents_row_count": 1,
-                "run_id": "paper-run-1",
-                "market_id": "toronto",
-            },
-            "candidate_count": 1,
-            "selected": {
-                "location_id": "toronto",
-                "event_date": "2026-08-14",
-                "event_slug": "toronto-high-temperature-test",
-                "question": "Will Toronto reach the selected high-temperature range?",
-                "condition_id": CONDITION_ID,
-                "token_id": TOKEN_ID,
-                "outcome_index": 0,
-                "best_bid": 0.49,
-                "best_ask": 0.50,
-                "midpoint": 0.495,
-                "spread": 0.01,
-                "best_bid_depth": 100.0,
-                "best_ask_depth": 100.0,
-                "tick_size": 0.01,
-                "order_min_size": 5.0,
-                "neg_risk": False,
-                "fee_rate": 0.05,
-                "maker_rebate_rate": 0.25,
-                "reward_min_size": 20.0,
-                "reward_max_spread_cents": 4.5,
-                "current_book_within_reward_spread": True,
-                "lifecycle_probe_reward_min_size_met": False,
-                "book_sha256": "c" * 64,
-                "stage1_intent": {
-                    "side": "BUY",
-                    "price": 0.01,
-                    "size": 5.0,
-                    "notional_pusd": 0.05,
-                    "post_only": True,
-                },
-                "paper_quote_proof": {
-                    "run_id": "paper-run-1",
-                    "market_id": "toronto",
-                    "target_date": "2026-08-14",
-                    "condition_id": CONDITION_ID,
-                    "token_id": TOKEN_ID,
-                    "range_label": "test-range",
-                    "exchange_economics_snapshot_id": economics_id,
-                    "exchange_economics_hash": economics_hash,
-                    "policy_hash": "paper-policy-hash",
-                    "generated_at_utc": paper_generated.isoformat(),
-                    "expires_at_utc": paper_expires.isoformat(),
-                    "quote_ttl_seconds": 120,
-                    "bid_price": 0.48,
-                    "bid_size": 5.0,
-                    "ask_price": 0.51,
-                    "ask_size": 5.0,
-                    "quote_risk_pusd": 4.85,
-                    "quote_permission": True,
-                    "live_trade_permission": False,
-                    "two_sided_post_only_intent": True,
-                    "reward_and_rebate_assumed_zero": True,
-                    "quote_row_sha256": "f" * 64,
-                },
-            },
-            "alternates": [],
-            "missing": [],
-        }
-        candidate_payload["plan_sha256"] = candidate_cli.candidate_plan_sha256(
-            candidate_payload
+        candidate_payload = build_live_candidate_payload(
+            now=current,
+            target_date="2026-08-14",
+            condition_id=CONDITION_ID,
+            token_id=TOKEN_ID,
+            remaining_seconds=lifecycle_plan.MAX_PLAN_AGE_SECONDS,
+            event_metadata_file_sha256=hashlib.sha256(
+                event_metadata.read_bytes()
+            ).hexdigest(),
+            event_metadata_generated_at=current,
         )
         candidate.write_text(json.dumps(candidate_payload), encoding="utf-8")
         common.update(
             confirmation=STAGE1_CONFIRMATION,
             bootstrap=str(bootstrap),
             candidate_plan=str(candidate),
+            event_metadata=str(event_metadata),
             cancellation_mode="cancel_all",
             submit_deadline_utc=(current + timedelta(minutes=2)).isoformat(),
             pre_submit_attestor=lambda: {},
@@ -564,7 +423,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
         kwargs["authenticated_write_recorder"]("cancel_all")
         kwargs["progress_recorder"]("complete")
         return {
-            "schema_version": "mm_platform_bootstrap_v0.4",
+            "schema_version": "mm_platform_bootstrap_v0.6",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -610,7 +469,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
     assert saved_bootstrap["user_stream"]["transport_stopped_cleanly_after_collection"] is True
     assert saved_bootstrap["user_stream"]["journal_sha256_at_collection"] != final_sha256
     assert saved_bootstrap["user_stream"]["journal_sha256"] == final_sha256
-    assert seen["expected_candidate_fee_rate"] == 0.05
+    assert "expected_candidate_fee_rate" not in seen
     assert seen["expected_candidate_neg_risk"] is False
     assert callable(seen["pre_mutation_attestor"])
     assert saved_receipt["mutation_geographic_eligibility"]["path"] == str(
@@ -709,7 +568,7 @@ def test_stage0_rejects_a_passing_collector_without_exact_attempt_evidence(tmp_p
 
     def incomplete_collector(_adapter, stream, *_args, **_kwargs):
         return {
-            "schema_version": "mm_platform_bootstrap_v0.4",
+            "schema_version": "mm_platform_bootstrap_v0.6",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -750,7 +609,7 @@ def test_stage0_rejects_complete_mutation_evidence_without_stream_subscription(
         kwargs["authenticated_write_recorder"]("cancel_all")
         kwargs["progress_recorder"]("complete")
         return {
-            "schema_version": "mm_platform_bootstrap_v0.4",
+            "schema_version": "mm_platform_bootstrap_v0.6",
             "status": "PASS",
             "secret_values_redacted": True,
         }
@@ -927,9 +786,7 @@ def test_stage1_boundary_writes_result_after_exact_gate_and_final_cleanup(tmp_pa
     saved_result = json.loads(open(command_args.result_out, encoding="utf-8").read())
     assert saved_result["status"] == "PASS"
     assert len(saved_result["candidate_plan_sha256"]) == 64
-    assert saved_result["paper_run_config_sha256"] == "d" * 64
-    assert saved_result["paper_quote_intents_sha256"] == "e" * 64
-    assert saved_result["paper_quote_row_sha256"] == "f" * 64
+    assert len(saved_result["candidate_semantic_plan_sha256"]) == 64
     saved_receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
     assert saved_receipt["credential_values_read_in_memory"] is True
 
@@ -1032,7 +889,7 @@ def test_cleanup_context_continues_after_interrupting_cancel_all(tmp_path):
     assert live_context.client.closed is True
 
 
-def test_stage1_rejects_candidate_gate_before_credentials_or_mutation(tmp_path):
+def test_stage1_rejects_lifecycle_plan_gate_before_credentials_or_mutation(tmp_path):
     command_args = args(tmp_path, "stage1")
     context_called = False
 
@@ -1041,12 +898,12 @@ def test_stage1_rejects_candidate_gate_before_credentials_or_mutation(tmp_path):
         context_called = True
         return context(tmp_path)
 
-    with pytest.raises(RuntimeError, match="paper proof missing"):
+    with pytest.raises(RuntimeError, match="lifecycle plan invalid"):
         cli.run_stage1(
             command_args,
             context_builder=build,
             candidate_loader=lambda *_args, **_kwargs: (_ for _ in ()).throw(
-                RuntimeError("paper proof missing")
+                RuntimeError("lifecycle plan invalid")
             ),
             bootstrap_loader=lambda *_args, **_kwargs: {"ok": True},
         )
@@ -1055,7 +912,7 @@ def test_stage1_rejects_candidate_gate_before_credentials_or_mutation(tmp_path):
     receipt = json.loads(Path(command_args.receipt_out).read_text(encoding="utf-8"))
     assert receipt["status"] == "FAIL"
     assert receipt["exception_type"] == "RuntimeError"
-    assert "paper proof missing" not in Path(command_args.receipt_out).read_text(
+    assert "lifecycle plan invalid" not in Path(command_args.receipt_out).read_text(
         encoding="utf-8"
     )
 
@@ -1195,11 +1052,6 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                     {
                         "schema_version": "mm_user_stream_journal_v0.1",
                         "event_type": "user_event",
-                        "payload": {"orderID": order_id, "status": "live"},
-                    },
-                    {
-                        "schema_version": "mm_user_stream_journal_v0.1",
-                        "event_type": "user_event",
                         "payload": {
                             "orderID": order_id,
                             "status": "canceled",
@@ -1241,8 +1093,8 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
                     "cleanup_final_user_stream_journal_sha256": hashlib.sha256(
                         stream.read_bytes()
                     ).hexdigest(),
-                    "user_stream_journal_row_count": 3,
-                    "user_stream_scoped_order_event_count": 2,
+                    "user_stream_journal_row_count": 2,
+                    "user_stream_scoped_order_event_count": 1,
                 }
             ),
             encoding="utf-8",
@@ -1660,6 +1512,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
             bootstrap_loader=lambda *_args, **_kwargs: {
                 "ok": True,
                 "requested_budget_usdc": 10.0,
+                "isolated_pilot_wallet": True,
                 "pilot_wallet_max_funding_usdc": 100.0,
             },
             bundle_builder=lambda *_args: pytest.fail(
@@ -1685,6 +1538,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         bootstrap_loader=lambda *_args, **_kwargs: {
             "ok": True,
             "requested_budget_usdc": 10.0,
+            "isolated_pilot_wallet": True,
             "pilot_wallet_max_funding_usdc": 100.0,
         },
         bundle_builder=builder,
@@ -1897,3 +1751,50 @@ def test_main_reports_only_exception_type_not_raw_message(monkeypatch, capsys, t
     stderr = capsys.readouterr().err
     assert "RuntimeError" in stderr
     assert "RAW-SECRET-MESSAGE" not in stderr
+
+
+
+def test_prepare_existing_wallet_allocation_and_keyless_doctor(tmp_path):
+    args = prepare_args(tmp_path)
+    args.wallet_cap = None
+    args.test_allocation = 100
+    args.confirm_isolated_wallet = False
+    args.confirm_existing_wallet_allocation = True
+    receipt = cli.run_prepare_identity(args)
+    assert receipt["status"] == "PASS"
+    identity = json.loads(Path(args.identity_out).read_text(encoding="utf-8"))
+    assert identity["pilot_test_allocation_pusd"] == 100
+    assert identity["pilot_capital_mode"] == "existing_wallet_test_allocation"
+    assert identity["isolated_pilot_wallet"] is False
+    assert identity["pilot_wallet_max_funding_usdc"] is None
+    gate = cli.stage0_client_identity_gate(identity)
+    assert gate["ok"], gate["missing"]
+    doctor = cli.run_doctor(
+        doctor_args(tmp_path, args.identity_out),
+        env=credential_reference_env(),
+        platform_name="nt",
+        sdk_version_getter=lambda: cli.OFFICIAL_CLOB_VERSION,
+    )
+    assert doctor["status"] == "PASS"
+
+
+@pytest.mark.parametrize("changes", [
+    {"test_allocation": 100.01},
+    {"test_allocation": float("nan")},
+    {"test_allocation": float("inf")},
+    {"budget": 10.01},
+    {"confirm_existing_wallet_allocation": False},
+    {"confirm_isolated_wallet": True},
+    {"wallet_cap": 100},
+])
+def test_prepare_existing_wallet_refuses_changed_cap_or_ambiguous_consent(tmp_path, changes):
+    args = prepare_args(tmp_path)
+    args.wallet_cap = None
+    args.test_allocation = 100
+    args.confirm_isolated_wallet = False
+    args.confirm_existing_wallet_allocation = True
+    for key, value in changes.items():
+        setattr(args, key, value)
+    with pytest.raises(RuntimeError):
+        cli.run_prepare_identity(args)
+    assert not Path(args.identity_out).exists()
