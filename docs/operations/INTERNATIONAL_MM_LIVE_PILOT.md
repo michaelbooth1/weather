@@ -168,7 +168,8 @@ collateral balance or treating an unwrapped asset as pUSD.
 `weather.market.mm_pilot_capital` owns the shared validation used by identity
 preparation, the keyless doctor, sealing, Stage 0 collection/loading, Stage 1
 capability issuance, uncached collateral reads, lifecycle bundle validation,
-and the sealed wrapper's predecessor and terminal-result checks.
+the sealed wrapper's predecessor and terminal-result checks, and the parent
+session runner's independent result validation.
 The current identity is v0.4 and bootstrap is v0.6; older versions remain
 registered historical evidence and cannot authorize a fresh attempt.
 
@@ -184,10 +185,22 @@ Neither preparation path reads credentials or moves funds.
 
 Every Stage 1 collateral postcondition requires finite balance and allowance
 that each back the sealed requested budget, bounded by the identity's declared
-capital limit. The sealer and runtime wrappers recheck the hash-bound identity
-and use the same validator. Only an isolated-wallet identity imposes a ceiling
+capital limit. The sealer, runtime wrappers and parent session runner recheck
+the hash-bound identity and use the same validator. The parent binds the
+identity's fixed path and consumed bytes to the original session manifest and
+seal receipt before validating either Stage 1 result. Only an isolated-wallet
+identity imposes a ceiling
 on total wallet cash; cash above 100 pUSD in existing-wallet allocation mode
 does not invalidate a correctly bounded lifecycle result.
+
+The Stage 1 result's `bootstrap_sha256` hashes the canonical validated bootstrap
+gate, including its canonical path and checks; it is not the raw bootstrap file
+hash carried by the seal. The parent reconstructs that gate at the sealed
+session boundary and compares the like-for-like hash. The loader separately
+checks the original seal-bound file hash against the exact bytes it parses.
+Missing, changed, invalid or differently scoped bootstrap evidence fails closed.
+This historical result check does not replace the child's fresh bootstrap gate
+before credential access or grant authority to reuse a spent attempt.
 
 ## Immutable pilot envelope
 

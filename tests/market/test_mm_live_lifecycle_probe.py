@@ -1188,9 +1188,13 @@ def test_stage1_refuses_the_published_v03_bootstrap_contract(tmp_path):
     assert BOOTSTRAP_SCHEMA_VERSION == "mm_platform_bootstrap_v0.6"
 
 
-@pytest.mark.parametrize("existing_wallet", [False, True])
+@pytest.mark.parametrize("existing_wallet,balance,allowance", [
+    (False, "100000000", "100000000"),
+    (True, "275480000", "100000000"),
+    (True, "447013970", str(2**256 - 1)),
+])
 def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(
-    tmp_path, existing_wallet
+    tmp_path, existing_wallet, balance, allowance
 ):
     gate = bootstrap_gate()
     if existing_wallet:
@@ -1203,8 +1207,8 @@ def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(
 
     def test_adapter(clock, **kwargs):
         adapter = FakeAdapter(clock, **kwargs)
-        if existing_wallet:
-            adapter.collateral_payloads[0]["balance"] = "275480000"
+        adapter.collateral_payloads[0]["balance"] = balance
+        adapter.collateral_payloads[0]["allowances"]["exchange"] = allowance
         return adapter
 
     cancel_clock = FakeClock()

@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; STAGE 1 RUNTIME PARITY REPAIR]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - CANCEL-ALL PROBE PASSED; PARENT RESULT REPAIR]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -63,6 +63,65 @@ economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-06 Stage 1 parent result repair
+
+[PR 35](https://github.com/michaelbooth1/weather/pull/35) merged the runtime
+parity repair at `6b13ae38033d3830b0b4536862a5a0e01e7bd60e`.
+[Source CI](https://github.com/michaelbooth1/weather/actions/runs/34055033085)
+and [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34055512531)
+each passed 4,668 tests/921 subtests with 260 skips. The actual portable clone
+adopted that clean exact tip at 19:46:15.6404395 UTC; its public SDK audit passed.
+
+In spent attempt `pilot-20260906T194643245Z`, Stage 0 passed and the Stage 1
+cancel-all **probe and wrapper passed**. The command ran from
+19:52:29.929597 to 19:53:02.072813 UTC. One minimum-size post-only BUY had
+5 shares at 0.001 pUSD, or 0.005 pUSD notional. REST and the authenticated
+stream observed the order; cancellation, zero matched size, zero account open
+orders, zero exact-scope positions, zero scoped trades, two-second quiescence,
+unchanged collateral and cleanup all passed. These are lifecycle facts, not
+profitability evidence.
+
+The parent then reported `UNKNOWN` despite child exit zero because its shared
+Stage 1 result validator still imposed a 100 pUSD whole-wallet ceiling on the
+observed 447.01397 pUSD balance. This fourth stale consumer was missed in the
+preceding repair. The dead-man stage did not run. Preserve the original parent
+receipt as `UNKNOWN` and every file in the spent attempt unchanged. Read-only
+consumption of the retained result after the capital repair exposed a second
+parent defect: `bootstrap_sha256` is the canonical validated gate hash, while
+the parent compared it with the raw file hash. The producer and bundle agree
+on the gate meaning; the parent fixture had incorrectly used a raw file hash.
+
+`codex/stage1-parent-capital-20260906` replaces that ceiling with the shared
+capital validator for both Stage 1 modes. It binds the consumed identity bytes
+and fixed path to the original session manifest and seal. Finite cash and
+allowance must each back the sealed request within the declared allocation;
+the isolated-wallet whole-balance ceiling and all order, no-fill, journal,
+scope, deadline and cleanup checks remain. The remaining lifecycle bundle
+consumer already honors allocation mode; its regression now covers the
+observed cash and large finite allowance through both probes and bundling.
+The parent now reconstructs the bootstrap gate at the sealed boundary, checks
+its semantic hash using the producer's hash function, and binds the original
+file hash to the exact bytes consumed by the loader. Parent fixtures now use
+real finalized bootstrap evidence and the canonical loader, including its
+canonical path. Raw-file/gate-hash substitution and changed bytes are rejected.
+
+The new offline parent tests reproduced four valid-allocation failures against
+the installed source and six missing/changed/unbound-identity cases that the old
+parent failed to reject. Twenty controls passed. Tests call the actual composer
+with an inert launcher producing temporary receipts; no credentials or exchange
+methods are invoked. Receipts use the `stage1-parent-capital-` prefix under the
+same workstation and controller preparation directories described below.
+The capital-only repair passed 447 focused checks. The combined repair then
+passed a read-only comparison against the **real retained attempt**: the old
+parent returns FAIL, the repaired parent returns PASS for the child, and all
+17 checked evidence hashes remain unchanged. This diagnostic is retained as
+`stage1-parent-capital-retained-evidence-v1.json`; it does not rewrite the
+original UNKNOWN parent receipt. The combined repair passed 201 final Windows
+checks, including the real-loader parent regressions, bootstrap hash binding,
+lifecycle, architecture and documentation checks. Source/topic CI, portable
+adoption and a wholly fresh attempt remain qualification steps. Only the
+operator executes the financial sequence.
 
 ## 2026-09-06 Stage 1 runtime parity repair
 

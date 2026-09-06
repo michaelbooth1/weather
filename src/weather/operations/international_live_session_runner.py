@@ -27,8 +27,11 @@ from weather.market.mm_geographic_eligibility import (
     validate_geographic_eligibility_receipt,
 )
 from weather.market.mm_live_lifecycle_probe import (
+    _canonical_hash as lifecycle_payload_sha256,
     verify_stage1_user_stream_journal,
 )
+from weather.market.mm_live_bootstrap import load_platform_bootstrap_gate
+from weather.market.mm_pilot_capital import collateral_backs_pilot_budget
 from weather.market.market_registry import REGISTRY as MARKET_REGISTRY
 from weather.operations import international_live_time_window as live_time_window
 from weather.operations import international_live_wrapper_sealer as fixed_sealer
@@ -820,6 +823,46 @@ def _child_execution_facts(
             ):
                 raise SessionCompositionError("PASS command receipt is incomplete")
             if stage != "stage0":
+                identity_record = expected_lineage["identity"]
+                identity_path = Path(identity_record["path"])
+                validate_contained_regular_file(attempt_root, identity_path)
+                identity, identity_raw = _read_object(
+                    identity_path, "Stage 1 identity"
+                )
+                if (
+                    seal_inputs.get("identity")
+                    != {"role": "identity", **identity_record}
+                    or identity_path.resolve()
+                    != (
+                        attempt_root / fixed_sealer.INPUT_LAYOUTS[stage]["identity"]
+                    ).resolve()
+                    or _sha256_bytes(identity_raw) != identity_record["sha256"]
+                ):
+                    raise SessionCompositionError("Stage 1 capital identity changed")
+                bootstrap_record = expected_lineage["bootstrap"]
+                bootstrap_path = Path(bootstrap_record["path"])
+                validate_contained_regular_file(attempt_root, bootstrap_path)
+                if (
+                    seal_inputs.get("bootstrap")
+                    != {"role": "bootstrap", **bootstrap_record}
+                    or bootstrap_path.resolve()
+                    != (attempt_root / "stage0/bootstrap.json").resolve()
+                ):
+                    raise SessionCompositionError("Stage 1 bootstrap binding changed")
+                # The probe hashes the validated gate, not the raw JSON file.
+                # Reconstruct it at the sealed boundary for historical consumption;
+                # the child independently required a fresh gate before credentials.
+                bootstrap_gate = load_platform_bootstrap_gate(
+                    bootstrap_path,
+                    expected_scope["target_date"],
+                    requested_budget_usdc=expected_scope["requested_budget_pusd"],
+                    expected_token_id=expected_scope["token_id"],
+                    expected_condition_id=expected_scope["condition_id"],
+                    now=datetime.fromisoformat(seal_scope["run_not_before_local"]),
+                    expected_artifact_sha256=bootstrap_record["sha256"],
+                )
+                if not bootstrap_gate.get("ok"):
+                    raise SessionCompositionError("Stage 1 bootstrap gate is invalid")
                 result_path = (
                     attempt_root / output_layout["result"]
                 ).resolve()
@@ -850,12 +893,6 @@ def _child_execution_facts(
                     )
                     result_price = Decimal(str(result_intent.get("price")))
                     result_size = Decimal(str(result_intent.get("size")))
-                    collateral_balance = Decimal(
-                        str(result.get("submit_collateral_balance_usdc"))
-                    )
-                    collateral_allowance = Decimal(
-                        str(result.get("submit_collateral_allowance_usdc"))
-                    )
                     candidate_fee_rate = Decimal(
                         str(expected_candidate["fee_rate"])
                     )
@@ -888,7 +925,7 @@ def _child_execution_facts(
                         result.get("bootstrap_schema_version")
                         == "mm_platform_bootstrap_v0.6",
                         result.get("bootstrap_sha256")
-                        == (seal_inputs.get("bootstrap") or {}).get("sha256"),
+                        == lifecycle_payload_sha256(bootstrap_gate),
                         result.get("heartbeat_acknowledged") is True,
                         result.get("submit_boundary_heartbeat_acknowledged") is True,
                         result.get("submit_boundary_market_rules_verified") is True,
@@ -942,8 +979,12 @@ def _child_execution_facts(
                         == 64,
                         result.get("submit_collateral_snapshot_sha256")
                         == result.get("post_cancel_collateral_snapshot_sha256"),
-                        Decimal("10") <= collateral_balance <= Decimal("100"),
-                        collateral_allowance >= Decimal("10"),
+                        collateral_backs_pilot_budget(
+                            identity,
+                            balance=result.get("submit_collateral_balance_usdc"),
+                            allowance=result.get("submit_collateral_allowance_usdc"),
+                            requested_budget=expected_scope["requested_budget_pusd"],
+                        ),
                         result.get("terminal_user_event_observed") is True,
                         result.get("secret_values_redacted") is True,
                         Path(str(result.get("journal_path") or "")).resolve()
@@ -1673,6 +1714,11 @@ def compose_and_run_live_session(
         expected_production=manifest["production"],
         expected_interpreter_binding=expected_interpreter_binding,
         expected_lineage={
+            "identity": dict(manifest["inputs"]["identity"]),
+            **(
+                {"bootstrap": dict(input_records["bootstrap"])}
+                if stage != "stage0" else {}
+            ),
             "session_manifest": {
                 "path": str(manifest_path),
                 "sha256": manifest_raw_sha256,

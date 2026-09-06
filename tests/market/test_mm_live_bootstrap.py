@@ -260,6 +260,29 @@ def test_bootstrap_gate_accepts_fresh_exact_no_order_authenticated_write_proof(
     assert gate["platform"] == "polymarket_global"
 
 
+def test_bootstrap_gate_hashes_the_bytes_it_consumes(tmp_path, monkeypatch):
+    path = write_payload(
+        tmp_path / "bound-bootstrap.json", finalized_bootstrap_payload(tmp_path)
+    )
+    raw = path.read_bytes()
+    expected = hashlib.sha256(raw).hexdigest()
+    args = dict(
+        requested_budget_usdc=10, expected_token_id=TOKEN_ID,
+        expected_condition_id=CONDITION_ID, now=NOW,
+        expected_artifact_sha256=expected,
+    )
+    assert load_platform_bootstrap_gate(path, TARGET_DATE, **args)["ok"]
+
+    original_read = Path.read_bytes
+    monkeypatch.setattr(
+        Path, "read_bytes",
+        lambda self: raw + b"\n" if self == path else original_read(self),
+    )
+    gate = load_platform_bootstrap_gate(path, TARGET_DATE, **args)
+    assert not gate["ok"]
+    assert "artifact hash changed" in gate["reason"]
+
+
 def test_bootstrap_gate_refuses_the_published_v03_contract(tmp_path):
     payload = finalized_bootstrap_payload(tmp_path, name="legacy-v03")
     payload["schema_version"] = "mm_platform_bootstrap_v0.3"
