@@ -878,6 +878,16 @@ were fixed with regression coverage. Final topic Git, CI and retained JUnit
 receipts own publication and qualification; these are synthetic implementation
 proofs, not current market/account evidence.
 
+Full Linux CI on the initial repair commit passed 4,615 tests and 946 subtests
+and failed seven maker-run tests: the orchestration assemblers also needed the
+book-age observation-time binding. The follow-up carries that binding through
+model and market-harvest inputs without double-aging current computations. Its
+116 maker-run/policy tests and 19 subtests passed on the workstation. One former
+30-second assertion now correctly expects 40 seconds at decision time. Final
+exact-head CI is required; the failed initial run is not qualified evidence.
+The [overnight handoff](../agent-report-2026-09-05-workstation-audit-fixes-overnight.md)
+binds the repaired implementation and preparation sequence.
+
 The production-local ignored status receipt
 `scratch/handoffs/audit-fixes-overnight-status-20260905.json` at 20:27 Toronto
 reports capture CLEAN and three zero-error families, but only 28.9 GiB disk free.
