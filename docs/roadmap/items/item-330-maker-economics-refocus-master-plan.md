@@ -708,6 +708,22 @@ An initial architecture-only failure came from copied files being untracked;
 exact staging resolved it without a source change. These synthetic checks do
 not qualify real evidence or establish economic feasibility or payment.
 
+The September 5 overnight non-live watch reproduced a W0 observability failure:
+the watchdog's native PowerShell child exited during default-root binding, so
+the briefing reported BLIND despite healthy capture. The isolated
+`codex/overnight-watchdog-20260906` repair resolves the root after startup,
+passes it explicitly to status, and supports a reviewed script hash for a
+separate diagnostic task action. The initial native suite passed 81 tests and
+exposed two source-guard failures; moving the guard before suppressed error
+handling fixed both. All nine targeted final workstation checks passed,
+including root selection, real alerts from attention JSON, and changed-source
+refusal. Publication, CI and scheduled recovery remain separate checks. The
+watch also restored the workstation's stopped clock service and verified time
+synchronization; no live attempt or evidence reclaim was performed. Retained
+production-local evidence is under `scratch/handoffs/overnight-watch-20260906-*`;
+these ignored files are not clean-checkout dependencies. This repair does not
+close W0 or qualify the portable executor for trading.
+
 All completion boxes remain open until their full acceptance or explicit bounded
 disposition is supported. W8-W10 and W12 retain their original dependencies and
 gates; storage pressure advances the item-325 off-site work without declaring

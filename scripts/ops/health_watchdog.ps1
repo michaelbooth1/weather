@@ -20,10 +20,23 @@
 # records CRITICAL and emits a heartbeat so silence is distinguishable from a dead watchdog.
 # Pure host tooling; imports nothing from a capture loop -> roll-free.
 [CmdletBinding()]
-param()
+param(
+    [string]$RepoRoot = "",
+    [string]$ExpectedSelfSha256 = ""
+)
 
+$ErrorActionPreference = "Stop"
+if ($ExpectedSelfSha256) {
+    if ($ExpectedSelfSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256 -ErrorAction Stop).Hash -ine $ExpectedSelfSha256) {
+        throw "watchdog script differs from its reviewed source binding"
+    }
+}
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+}
+$repo = [IO.Path]::GetFullPath($RepoRoot)
 $ErrorActionPreference = "SilentlyContinue"
-$repo = "C:\Users\micha\Desktop\github\weather"
 $alertDir = Join-Path $repo "data\alerts"
 if (-not (Test-Path $alertDir)) { New-Item -ItemType Directory -Path $alertDir -Force | Out-Null }
 $log = Join-Path $alertDir "host_health_alerts.jsonl"
@@ -35,7 +48,7 @@ $HEARTBEAT_HOURS = 6
 # ---- gather (delegate all interpretation of "is this normal" to status.ps1) ----
 $statusScript = Join-Path $repo "scripts\ops\status.ps1"
 $psExe = Join-Path $PSHOME "powershell.exe"
-$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -Json 2>$null
+$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -RepoRoot $repo -Json 2>$null
 $status = $null
 try { $status = ($raw | Out-String) | ConvertFrom-Json } catch {}
 if ($null -eq $status) {
@@ -64,7 +77,7 @@ function Get-FlagClass($text) {
     if ($text -match "^RECONCILIATION_PUBLICATION_") { return "reconciliation_publication" }
     if ($text -match "capture loop DOWN|TODAY capture AT_RISK|capture alert raised") { return "capture" }
     if ($text -match "LOW RAM") { return "memory" }
-    if ($text -match "LOW DISK") { return "capacity" }
+    if ($text -match "LOW DISK|disk filling|disk headroom") { return "capacity" }
     if ($text -match "SETTLEMENT HOLE") { return "settlement" }
     if ($text -match "mirror") { return "durability" }
     if ($text -match "REBOOT PENDING|logon-dependent") { return "resilience" }
@@ -76,7 +89,7 @@ function Get-FlagAction($class) {
         reconciliation_publication = "preserve the exact marker and evidence; do not manually invoke or retry WeatherOneShotPush; obtain reviewed recovery authority"
         capture       = "NOW - the graded window is 12:00-18:00"
         memory        = "NOW - memory pressure is the streak's primary failure mode"
-        capacity      = "any time; tiering/cleanup is memory-light"
+        capacity      = "use repository-owned tiering in the admitted 00:30-09:00 window with the shared lease; preserve unverified evidence"
         settlement    = "tonight - scripts\ops\chain_recovery_run.ps1 -ResumeFrom <failed step> -TargetDate <date> -Refetch, in the quiet window"
         durability    = "any time; mirror runs nightly 04:30"
         resilience    = "any time, but a reboot must not happen before it is fixed"
