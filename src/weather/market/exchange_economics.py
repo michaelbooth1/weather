@@ -1098,6 +1098,56 @@ def _check_snapshot_payload(payload, *, path=None, target_date=None, platform=DE
     }
 
 
+def check_snapshot_payload(payload, *, path=None, target_date=None,
+                           platform=DEFAULT_PLATFORM, now=None, max_age_hours=None):
+    """Apply the canonical economics gate to an already bounded JSON object."""
+    try:
+        if not isinstance(payload, dict):
+            raise ValueError("snapshot must be an object")
+        return _check_snapshot_payload(payload, path=path, target_date=target_date,
+                                       platform=platform, now=now, max_age_hours=max_age_hours)
+    except (AttributeError, TypeError, ValueError, KeyError, OverflowError):
+        return {"required": True, "ok": False, "status": "BLOCK",
+                "missing": ["snapshot_invalid_shape"],
+                "reason": "exchange-economics snapshot has invalid structured evidence"}
+
+
+def economics_drift_receipt_checks(current, accepted, drift):
+    """Content bindings shared by candidate admission and read-only displays."""
+    invalid = {"drift_pass": False, "drift_identity": False, "drift_current_gate": False}
+    try:
+        if not all(isinstance(value, dict) for value in (current, accepted, drift)):
+            return invalid
+        current_hash, accepted_hash = snapshot_hash(current), snapshot_hash(accepted)
+        current_identifier, accepted_identifier = snapshot_id(current), snapshot_id(accepted)
+        gate = drift.get("current_gate")
+        return {
+            "drift_pass": (
+                drift.get("status") == "PASS"
+                and drift.get("rescore_required") is False
+                and drift.get("accepted_snapshot_present") is True
+                and type(drift.get("material_change_count")) is int
+                and drift.get("material_change_count") == 0
+                and drift.get("material_changes") == [] and drift.get("blockers") == []
+            ),
+            "drift_identity": (
+                drift.get("current_snapshot_id") == current_identifier
+                and drift.get("current_snapshot_hash") == current_hash
+                and drift.get("accepted_snapshot_id") == accepted_identifier
+                and drift.get("accepted_snapshot_hash") == accepted_hash
+                and current_identifier == accepted_identifier and current_hash == accepted_hash
+            ),
+            "drift_current_gate": (
+                isinstance(gate, dict) and gate.get("ok") is True
+                and gate.get("status") == "PASS" and gate.get("missing") == []
+                and gate.get("snapshot_id") == current_identifier
+                and gate.get("snapshot_hash") == current_hash
+            ),
+        }
+    except (AttributeError, TypeError, ValueError, KeyError, OverflowError):
+        return invalid
+
+
 def load_exchange_economics_gate(
     path=DEFAULT_SNAPSHOT,
     target_date=None,
@@ -1146,7 +1196,7 @@ def load_exchange_economics_gate(
             "reason": "invalid exchange-economics snapshot JSON",
             "missing": ["snapshot_invalid_json"],
         }
-    return _check_snapshot_payload(
+    return check_snapshot_payload(
         payload,
         path=path,
         target_date=target_date,

@@ -139,7 +139,7 @@ def test_control_room_route_is_read_only_and_decision_first(mock_load):
     assert app_test.title[0].value == "Control Room"
     text = _visible_text(app_test)
     assert "INTERNATIONAL POLYMARKET" in text
-    assert "READY FOR EXPLICIT APPROVAL" in text
+    assert "HOLD" in text  # incomplete legacy fixtures cannot grant readiness
     assert "never grants trading authority" not in text.lower()
     assert "not trading authority" in text
     assert [metric.label for metric in app_test.metric] == [
@@ -208,3 +208,34 @@ def test_retired_route_still_falls_back_to_control_room(mock_load):
     at.run()
     assert not at.exception
     assert at.title[0].value == "Control Room"
+
+
+@pytest.mark.parametrize("failure", ["malformed_host", "collector_error"])
+@mock.patch("app.views.control_room._load_control_room_snapshot")
+def test_control_failure_preserves_independent_panels(mock_load, failure):
+    operations = _operations_fixture()
+    operations["host_status"]["payload"]["streak"] = ["malformed"]
+    mock_load.return_value = (_control_fixture(), operations)
+    if failure == "collector_error":
+        mock_load.side_effect = ValueError("fixture collector failure")
+    at = AppTest.from_file("app/streamlit_app.py").run()
+    assert not at.exception
+    text = _visible_text(at)
+    assert "Prepare the attended lifecycle test" in text
+    assert "No portable attempt connected" in text
+    assert "Results" in text
+    assert "HOLD" in text
+
+
+def test_one_extra_collector_failure_preserves_the_others():
+    from app.monitor_data import load_monitor_extras
+    with mock.patch("app.monitor_data.cached_project", side_effect=ValueError("invalid project")), \
+         mock.patch("weather.reporting.market.operator_session.collect_portable_session", return_value={"configured": True}), \
+         mock.patch("weather.reporting.market.operator_session.portable_host_observation", return_value={"status": "CURRENT"}), \
+         mock.patch("weather.reporting.market.operator_trading.collect_trading_snapshot", return_value={"available": True}):
+        result = load_monitor_extras({})
+    assert result["session"]["configured"] is True
+    assert result["portable"]["status"] == "CURRENT"
+    assert result["trading"]["available"] is True
+    assert len(result["errors"]) == 1
+    assert "Project evidence unavailable" in result["errors"][0]

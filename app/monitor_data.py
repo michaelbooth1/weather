@@ -77,9 +77,18 @@ def load_monitor_extras(control):
     from weather.reporting.market.operator_session import collect_portable_session, portable_host_observation
     from weather.reporting.market.operator_trading import collect_trading_snapshot
 
-    return {
-        "project": cached_project(),
-        "session": collect_portable_session(os.environ.get("WEATHER_MONITOR_ATTEMPT_ROOT")),
-        "portable": portable_host_observation(os.environ.get("WEATHER_MONITOR_PORTABLE_STATUS")),
-        "trading": collect_trading_snapshot(control.get("run") or {}),
+    collectors = {
+        "project": cached_project,
+        "session": lambda: collect_portable_session(os.environ.get("WEATHER_MONITOR_ATTEMPT_ROOT")),
+        "portable": lambda: portable_host_observation(os.environ.get("WEATHER_MONITOR_PORTABLE_STATUS")),
+        "trading": lambda: collect_trading_snapshot(control.get("run") or {}),
     }
+    result = {"errors": []}
+    for name, collect in collectors.items():
+        try:
+            result[name] = collect()
+        except Exception as exc:  # noqa: BLE001 - isolate independent read-only evidence families
+            detail = f"{name.capitalize()} evidence unavailable: {type(exc).__name__}: {exc}"
+            result[name] = {"available": False, "detail": detail, "status": "UNAVAILABLE"}
+            result["errors"].append(detail)
+    return result

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import pytest
 
 from weather.reporting.market.operator_evidence import freshness, read_artifact
 from weather.reporting.market.operator_session import collect_portable_session, portable_host_observation
@@ -115,6 +116,7 @@ def trading_reports(root, *, complete=False, paid=False):
         ],
     }
     financial = {
+        "cash_asset": dict(INCENTIVE_CASH_ASSET),
         "complete": complete, "financial_identity_inputs_verified": complete,
         "missing_evidence": [] if complete else ["wallet_credit"],
         "actual_total_pnl_after_fees_incentives_usdc": 1.25,
@@ -130,6 +132,7 @@ def trading_reports(root, *, complete=False, paid=False):
             },
         )
     report = {
+        "cash_asset": dict(INCENTIVE_CASH_ASSET),
         "schema_version": schema_version("mm_paid_incentive_pilot_report" if paid else "mm_exchange_adapter"),
         "run_id": "run-1", "target_date": "2026-09-06", "generated_at_utc": NOW.isoformat(),
         "financial_reconciliation_complete": complete, "financial_reconciliation": financial,
@@ -187,3 +190,28 @@ def test_wrong_cash_asset_is_not_labeled_as_pusd(tmp_path):
     assert result["amounts"]["Paid maker rebates"] is None
     assert result["amounts"]["Net reconciled P&L"] is None
     assert result["accounting"]["status"] == "UNAVAILABLE"
+
+
+@pytest.mark.parametrize("paid", [False, True])
+@pytest.mark.parametrize("asset_error", ["missing", "wrong_chain", "nested_missing"])
+def test_all_accounting_schemas_require_complete_cash_identity(tmp_path, paid, asset_error):
+    run, _, report = trading_reports(tmp_path, complete=True, paid=paid)
+    if asset_error == "missing":
+        report.pop("cash_asset")
+    elif asset_error == "wrong_chain":
+        report["cash_asset"]["chain_id"] = 1
+    else:
+        report["financial_reconciliation"].pop("cash_asset")
+    write(tmp_path / "mm2_pilot_report.json", report)
+    result = collect_trading_snapshot(run, now=NOW)
+    assert all(value is None for value in result["amounts"].values())
+    assert result["cash_asset_label"] == "unverified cash asset"
+    assert result["accounting"]["status"] == "UNAVAILABLE"
+
+
+def test_reserved_amount_requires_its_own_cash_identity(tmp_path):
+    run, _, _ = trading_reports(tmp_path, complete=True, paid=True)
+    run["payload"]["order_lifecycle"] = {"current_reserved_usdc": 10}
+    assert collect_trading_snapshot(run, now=NOW)["reserved"] is None
+    run["payload"]["cash_asset"] = dict(INCENTIVE_CASH_ASSET)
+    assert collect_trading_snapshot(run, now=NOW)["reserved"] == 10

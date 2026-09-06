@@ -2410,7 +2410,8 @@ class TestMarketMakingRun(unittest.TestCase):
         self.assertEqual(preflight["markets"][0]["clob_feature_rows"], 2)
         self.assertNotIn("NO_QUOTE_MISSING_PREFLIGHT", payload["reason_counts"])
         self.assertTrue(all(row["snapshot_id"] == "s2" for row in quote_rows))
-        self.assertTrue(any(row.get("book_age_seconds") == "30.0" for row in quote_rows))
+        # The book is 30 seconds old at the model snapshot and 40 at decision time.
+        self.assertTrue(any(row.get("book_age_seconds") == "40.0" for row in quote_rows))
 
     def test_stale_watcher_fails_closed_as_stale_input(self):
         with tempfile.TemporaryDirectory() as tmp:

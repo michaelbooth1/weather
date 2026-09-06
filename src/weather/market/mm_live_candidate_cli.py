@@ -25,6 +25,7 @@ from weather.market.exchange_economics import (
     DRIFT_SCHEMA_VERSION,
     SNAPSHOT_SCHEMA_VERSION,
     build_drift_report,
+    economics_drift_receipt_checks,
     load_exchange_economics_gate,
     snapshot_hash,
     snapshot_id,
@@ -649,31 +650,7 @@ def load_economics_acceptance_evidence(
             and report_snapshot_path_matches
             and report_accepted_path_matches
         ),
-        "drift_pass": (
-            drift.get("status") == "PASS"
-            and drift.get("rescore_required") is False
-            and drift.get("accepted_snapshot_present") is True
-            and type(drift.get("material_change_count")) is int
-            and drift.get("material_change_count") == 0
-            and drift.get("material_changes") == []
-            and drift.get("blockers") == []
-        ),
-        "drift_identity": (
-            drift.get("current_snapshot_id") == current_identifier
-            and drift.get("current_snapshot_hash") == current_hash
-            and drift.get("accepted_snapshot_id") == accepted_identifier
-            and drift.get("accepted_snapshot_hash") == accepted_hash
-            and current_identifier == accepted_identifier
-            and current_hash == accepted_hash
-        ),
-        "drift_current_gate": (
-            isinstance(drift.get("current_gate"), dict)
-            and drift["current_gate"].get("ok") is True
-            and drift["current_gate"].get("status") == "PASS"
-            and drift["current_gate"].get("missing") == []
-            and drift["current_gate"].get("snapshot_id") == current_identifier
-            and drift["current_gate"].get("snapshot_hash") == current_hash
-        ),
+        **economics_drift_receipt_checks(current, accepted, drift),
         "recomputed_drift": (
             recomputed.get("status") == "PASS"
             and recomputed.get("rescore_required") is False
