@@ -4,6 +4,7 @@ from decimal import Decimal
 import pytest
 
 from weather.market.mm_pilot_capital import (
+    collateral_backs_pilot_budget,
     collateral_within_capital_scope,
     pilot_capital_limit,
 )
@@ -64,3 +65,33 @@ def test_isolated_wallet_keeps_its_whole_balance_ceiling():
 @pytest.mark.parametrize("balance", [True, None, -1, "NaN", "Infinity", "-Infinity"])
 def test_invalid_cash_never_passes_an_allocation_contract(balance):
     assert not collateral_within_capital_scope(allocation_contract(), balance)
+
+
+@pytest.mark.parametrize("balance, allowance, budget, passes", [
+    (275.48, 10, 10, True),
+    (10, 10, 10, True),
+    (9.99, 100, 10, False),
+    (275.48, 9.99, 10, False),
+    (275.48, 1000, 100.01, False),
+    (275.48, 1000, 0, False),
+])
+def test_snapshot_backs_the_budget_without_capping_existing_wallet_cash(
+    balance, allowance, budget, passes
+):
+    assert collateral_backs_pilot_budget(
+        allocation_contract(), balance=balance, allowance=allowance, requested_budget=budget
+    ) is passes
+
+
+@pytest.mark.parametrize("field", ["balance", "allowance", "requested_budget"])
+@pytest.mark.parametrize("invalid", [True, None, "NaN", "Infinity", "-Infinity", ""])
+def test_snapshot_rejects_invalid_numeric_evidence(field, invalid):
+    values = {"balance": 275.48, "allowance": 1000, "requested_budget": 10}
+    values[field] = invalid
+    assert not collateral_backs_pilot_budget(allocation_contract(), **values)
+
+
+def test_snapshot_keeps_the_isolated_wallet_ceiling():
+    contract = {"isolated_pilot_wallet": True, "pilot_wallet_max_funding_usdc": 100}
+    assert collateral_backs_pilot_budget(contract, balance=100, allowance=1000, requested_budget=10)
+    assert not collateral_backs_pilot_budget(contract, balance=100.01, allowance=1000, requested_budget=10)

@@ -22,6 +22,7 @@ from weather.market.mm_geographic_eligibility import (
 from weather.market.mm_live_lifecycle_probe import (
     verify_stage1_user_stream_journal,
 )
+from weather.market.mm_pilot_capital import collateral_backs_pilot_budget
 from weather.market.mm_live_stage0_scope import (
     load_stage0_scope_gate,
     validate_bound_stage0_event_metadata,
@@ -1535,6 +1536,11 @@ def _validate_cancel_all_predecessor(
     market_timezone: str,
     interpreter_binding: Mapping[str, str],
 ) -> None:
+    identity, identity_raw = _read_json_object(
+        Path(inputs["identity"]["path"]), label="Stage 1 capital identity"
+    )
+    if hashlib.sha256(identity_raw).hexdigest() != inputs["identity"]["sha256"]:
+        raise SealError("Stage 1 capital identity changed during validation")
     payloads = {}
     for role in (
         "cancel_all_seal_receipt",
@@ -1763,8 +1769,12 @@ def _validate_cancel_all_predecessor(
         len(str(result.get("submit_collateral_snapshot_sha256") or "")) == 64,
         result.get("submit_collateral_snapshot_sha256")
         == result.get("post_cancel_collateral_snapshot_sha256"),
-        10 <= float(result.get("submit_collateral_balance_usdc")) <= 100,
-        float(result.get("submit_collateral_allowance_usdc")) >= 10,
+        collateral_backs_pilot_budget(
+            identity,
+            balance=result.get("submit_collateral_balance_usdc"),
+            allowance=result.get("submit_collateral_allowance_usdc"),
+            requested_budget=budget,
+        ),
         result.get("terminal_user_event_observed") is True,
         Path(str(result.get("user_stream_journal_path") or "")).resolve()
         == Path(str(stream_artifact.get("path") or "")).resolve(),

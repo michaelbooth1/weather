@@ -502,6 +502,8 @@ def _assert_git_and_sources() -> None:
 
 
 def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
+    from weather.market.mm_pilot_capital import collateral_backs_pilot_budget
+    from weather.operations.international_live_wrapper_sealer import _same_public_evidence
     from weather.operations.live_path_security import (
         launcher_host_attestations_are_valid,
     )
@@ -579,6 +581,7 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
     ):
         raise RuntimeError("fixed Stage 1 output path already exists")
     stage0 = json.loads(inputs["stage0_receipt"][0].read_text(encoding="utf-8-sig"))
+    identity = json.loads(inputs["identity"][0].read_text(encoding="utf-8-sig"))
     stage0_topology = stage0.get("credential_topology") or {}
     reference_manifest = json.loads(
         inputs["credential_reference_manifest"][0].read_text(encoding="utf-8-sig")
@@ -731,14 +734,16 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
             == stage0_premutation_geography_artifact.get("path"),
             (stage0.get("mutation_geographic_eligibility") or {}).get("sha256")
             == stage0_premutation_geography_artifact.get("sha256"),
-            seal_credential.get("path")
-            == str(inputs["credential_import_receipt"][0]),
-            seal_credential.get("sha256")
-            == inputs["credential_import_receipt"][1],
-            seal_reference.get("path")
-            == str(inputs["credential_reference_manifest"][0]),
-            seal_reference.get("sha256")
-            == inputs["credential_reference_manifest"][1],
+            _same_public_evidence(
+                seal_credential,
+                {"path": str(inputs["credential_import_receipt"][0]),
+                 "sha256": inputs["credential_import_receipt"][1]},
+            ),
+            _same_public_evidence(
+                seal_reference,
+                {"path": str(inputs["credential_reference_manifest"][0]),
+                 "sha256": inputs["credential_reference_manifest"][1]},
+            ),
             seal_wrapper.get("path") == execution_wrapper.get("path"),
             seal_wrapper.get("sha256") == execution_wrapper.get("sha256"),
             bootstrap_artifact.get("path") == str(inputs["bootstrap"][0]),
@@ -1115,10 +1120,12 @@ def _assert_paths_and_stage0(*, doctor_may_exist: bool = False) -> None:
                 == 64,
                 prior_result.get("submit_collateral_snapshot_sha256")
                 == prior_result.get("post_cancel_collateral_snapshot_sha256"),
-                10
-                <= float(prior_result.get("submit_collateral_balance_usdc"))
-                <= 100,
-                float(prior_result.get("submit_collateral_allowance_usdc")) >= 10,
+                collateral_backs_pilot_budget(
+                    identity,
+                    balance=prior_result.get("submit_collateral_balance_usdc"),
+                    allowance=prior_result.get("submit_collateral_allowance_usdc"),
+                    requested_budget=SCOPE["requested_budget_pusd"],
+                ),
                 prior_result.get("cancel_response_present") is True,
                 Path(
                     str(prior_result.get("user_stream_journal_path") or "")
@@ -1439,6 +1446,77 @@ def _write_execution_receipt(status: str, exception_type: str | None = None) -> 
     )
 
 
+def _assert_stage1_result() -> None:
+    from weather.market.mm_live_lifecycle_probe import verify_stage1_user_stream_journal
+    from weather.market.mm_pilot_capital import collateral_backs_pilot_budget
+
+    identity_raw = Path(str(SCOPE["identity_path"])).read_bytes()
+    if hashlib.sha256(identity_raw).hexdigest() != SCOPE["identity_sha256"]:
+        raise RuntimeError("Stage 1 capital identity changed before result validation")
+    identity = json.loads(identity_raw)
+    result_path = Path(str(SCOPE["result_out"])).resolve()
+    result = json.loads(result_path.read_text(encoding="utf-8-sig"))
+    lifecycle_path = Path(str(SCOPE["lifecycle_journal_out"])).resolve()
+    stream_path = Path(str(SCOPE["user_stream_journal_out"])).resolve()
+    final_stream_evidence = verify_stage1_user_stream_journal(stream_path, result)
+    if not all(
+        (
+            result.get("status") == "PASS",
+            result.get("cancellation_mode") == CANCELLATION_MODE,
+            result.get("zero_open_orders_verified") is True,
+            result.get("zero_positions_verified") is True,
+            result.get("no_trade_lifecycle_event_observed") is True,
+            result.get("submit_boundary_heartbeat_acknowledged") is True,
+            result.get("submit_boundary_market_rules_verified") is True,
+            result.get("submit_boundary_geography_before_heartbeat_verified") is True,
+            result.get("post_sign_order_placement_boundary_verified") is True,
+            result.get("terminal_rest_order_verified") is True,
+            result.get("terminal_rest_zero_matched_verified") is True,
+            result.get("account_trades_rest_verified") is True,
+            result.get("scoped_account_trade_count") == 0,
+            result.get("post_cancel_quiescence_seconds") == 2.0,
+            result.get("collateral_no_fill_reconciliation_verified") is True,
+            len(str(result.get("submit_collateral_snapshot_sha256") or "")) == 64,
+            result.get("submit_collateral_snapshot_sha256")
+            == result.get("post_cancel_collateral_snapshot_sha256"),
+            collateral_backs_pilot_budget(
+                identity,
+                balance=result.get("submit_collateral_balance_usdc"),
+                allowance=result.get("submit_collateral_allowance_usdc"),
+                requested_budget=SCOPE["requested_budget_pusd"],
+            ),
+            result.get("candidate_plan_sha256")
+            == str(SCOPE["candidate_plan_sha256"]).lower(),
+            result.get("journal_sha256") == _sha256(lifecycle_path),
+            Path(str(result.get("user_stream_journal_path") or "")).resolve()
+            == stream_path,
+            result.get("user_stream_journal_sha256") == _sha256(stream_path),
+            result.get("cleanup_final_user_stream_journal_sha256")
+            == _sha256(stream_path),
+            final_stream_evidence.get("sha256")
+            == result.get("user_stream_journal_sha256"),
+            final_stream_evidence.get("terminal_stream_stopped_verified") is True,
+            type(result.get("user_stream_journal_row_count")) is int,
+            result.get("user_stream_journal_row_count")
+            == final_stream_evidence.get("row_count"),
+            type(result.get("user_stream_scoped_order_event_count")) is int,
+            result.get("user_stream_scoped_order_event_count")
+            == final_stream_evidence.get("scoped_order_event_count"),
+        )
+    ):
+        raise RuntimeError("fixed-scope Stage 1 result failed host postconditions")
+    if CANCELLATION_MODE == "cancel_all" and result.get("cancel_response_present") is not True:
+        raise RuntimeError("cancel-all result omitted the explicit cancellation response")
+    if CANCELLATION_MODE == "dead_man" and not all(
+        (
+            result.get("cancel_response_present") is False,
+            float(result.get("cancellation_elapsed_seconds")) >= 10,
+            float(result.get("cancellation_elapsed_seconds")) <= 15,
+        )
+    ):
+        raise RuntimeError("dead-man result failed the automatic lapse contract")
+
+
 def main() -> int:
     global CONFIRMATION_SCOPE_DISPLAY_SHA256, EXECUTION_PHASE
     if len(sys.argv) != 1:
@@ -1458,9 +1536,6 @@ def main() -> int:
         SCOPE["sdk_overlay_manifest_sha256"],
     )
     from weather.market import mm_live_pilot_cli as live_cli
-    from weather.market.mm_live_lifecycle_probe import (
-        verify_stage1_user_stream_journal,
-    )
     from weather.market.mm_live_stage0_scope import (
         validate_bound_stage0_event_metadata,
     )
@@ -1549,63 +1624,7 @@ def main() -> int:
     receipt = live_cli.run_stage1(args)
     if receipt.get("status") != "PASS" or (receipt.get("cleanup") or {}).get("ok") is not True:
         raise RuntimeError("fixed-scope Stage 1 did not finish with proved cleanup")
-    result_path = Path(str(SCOPE["result_out"])).resolve()
-    result = json.loads(result_path.read_text(encoding="utf-8-sig"))
-    lifecycle_path = Path(str(SCOPE["lifecycle_journal_out"])).resolve()
-    stream_path = Path(str(SCOPE["user_stream_journal_out"])).resolve()
-    final_stream_evidence = verify_stage1_user_stream_journal(stream_path, result)
-    if not all(
-        (
-            result.get("status") == "PASS",
-            result.get("cancellation_mode") == CANCELLATION_MODE,
-            result.get("zero_open_orders_verified") is True,
-            result.get("zero_positions_verified") is True,
-            result.get("no_trade_lifecycle_event_observed") is True,
-            result.get("submit_boundary_heartbeat_acknowledged") is True,
-            result.get("submit_boundary_market_rules_verified") is True,
-            result.get("submit_boundary_geography_before_heartbeat_verified") is True,
-            result.get("post_sign_order_placement_boundary_verified") is True,
-            result.get("terminal_rest_order_verified") is True,
-            result.get("terminal_rest_zero_matched_verified") is True,
-            result.get("account_trades_rest_verified") is True,
-            result.get("scoped_account_trade_count") == 0,
-            result.get("post_cancel_quiescence_seconds") == 2.0,
-            result.get("collateral_no_fill_reconciliation_verified") is True,
-            len(str(result.get("submit_collateral_snapshot_sha256") or "")) == 64,
-            result.get("submit_collateral_snapshot_sha256")
-            == result.get("post_cancel_collateral_snapshot_sha256"),
-            10 <= float(result.get("submit_collateral_balance_usdc")) <= 100,
-            float(result.get("submit_collateral_allowance_usdc")) >= 10,
-            result.get("candidate_plan_sha256")
-            == str(SCOPE["candidate_plan_sha256"]).lower(),
-            result.get("journal_sha256") == _sha256(lifecycle_path),
-            Path(str(result.get("user_stream_journal_path") or "")).resolve()
-            == stream_path,
-            result.get("user_stream_journal_sha256") == _sha256(stream_path),
-            result.get("cleanup_final_user_stream_journal_sha256")
-            == _sha256(stream_path),
-            final_stream_evidence.get("sha256")
-            == result.get("user_stream_journal_sha256"),
-            final_stream_evidence.get("terminal_stream_stopped_verified") is True,
-            type(result.get("user_stream_journal_row_count")) is int,
-            result.get("user_stream_journal_row_count")
-            == final_stream_evidence.get("row_count"),
-            type(result.get("user_stream_scoped_order_event_count")) is int,
-            result.get("user_stream_scoped_order_event_count")
-            == final_stream_evidence.get("scoped_order_event_count"),
-        )
-    ):
-        raise RuntimeError("fixed-scope Stage 1 result failed host postconditions")
-    if CANCELLATION_MODE == "cancel_all" and result.get("cancel_response_present") is not True:
-        raise RuntimeError("cancel-all result omitted the explicit cancellation response")
-    if CANCELLATION_MODE == "dead_man" and not all(
-        (
-            result.get("cancel_response_present") is False,
-            float(result.get("cancellation_elapsed_seconds")) >= 10,
-            float(result.get("cancellation_elapsed_seconds")) <= 15,
-        )
-    ):
-        raise RuntimeError("dead-man result failed the automatic lapse contract")
+    _assert_stage1_result()
     EXECUTION_PHASE = "complete"
     _write_execution_receipt("PASS")
     print(json.dumps({"status": "PASS", "stage": STAGE_NAME}, sort_keys=True))

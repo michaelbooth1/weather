@@ -167,7 +167,8 @@ collateral balance or treating an unwrapped asset as pUSD.
 
 `weather.market.mm_pilot_capital` owns the shared validation used by identity
 preparation, the keyless doctor, sealing, Stage 0 collection/loading, Stage 1
-capability issuance, uncached collateral reads and lifecycle bundle validation.
+capability issuance, uncached collateral reads, lifecycle bundle validation,
+and the sealed wrapper's predecessor and terminal-result checks.
 The current identity is v0.4 and bootstrap is v0.6; older versions remain
 registered historical evidence and cannot authorize a fresh attempt.
 
@@ -180,6 +181,13 @@ meaning and are never silently reinterpreted as test allocations. The keyless
 CLI uses `--test-allocation 100 --confirm-existing-wallet-allocation`;
 `--wallet-cap 100 --confirm-isolated-wallet` selects the separate isolated mode.
 Neither preparation path reads credentials or moves funds.
+
+Every Stage 1 collateral postcondition requires finite balance and allowance
+that each back the sealed requested budget, bounded by the identity's declared
+capital limit. The sealer and runtime wrappers recheck the hash-bound identity
+and use the same validator. Only an isolated-wallet identity imposes a ceiling
+on total wallet cash; cash above 100 pUSD in existing-wallet allocation mode
+does not invalidate a correctly bounded lifecycle result.
 
 ## Immutable pilot envelope
 
@@ -1163,7 +1171,8 @@ Each stage also has its own copies of the public credential receipt and
 reference manifest. Stage 1 binds those copies to Stage 0 by equal reviewed
 hashes and freshly verified, byte-identical regular files. Their paths may
 differ; an absent, redirected, changed or differently hashed prior copy fails
-the lineage gate. The original Stage 0 seal and execution receipts stay bound.
+the lineage gate. The sealer and both Stage 1 runtime modes call the same
+comparator. The original Stage 0 seal and execution receipts stay bound.
 After independent review of all three manifests and outer launchers, create a
 new exact-scope Stage 0 plan in its fixed inbox. After Stage 0 passes, create a
 new exact-scope Stage 1 lifecycle plan in each mode's fixed inbox immediately
