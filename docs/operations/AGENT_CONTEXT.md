@@ -126,6 +126,12 @@ proxies with checks of the actual condition. Record the reasoning in the owning
 contract and test the failure boundary. This applies to procedural rules as
 well as numeric thresholds; familiarity alone is not a justification.
 
+For the bounded attended International Stage 0/1 sequence, the operator's
+invocation of the reviewed local command carries authorization and the stated
+eligibility/no-circumvention attestation. Do not add repeated confirmation
+prompts. Follow the [owning authorization contract](INTERNATIONAL_MM_LIVE_PILOT.md#reviewed-command-authorization)
+for scope, attendance and the independent runtime gates.
+
 A gate must protect the stage that consumes it. Do not make a read-only or
 no-order stage depend on a later stage's profitability, quote-quality, or
 research heuristic merely because one artifact is convenient to reuse.

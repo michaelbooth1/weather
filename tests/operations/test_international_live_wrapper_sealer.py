@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -1195,7 +1196,7 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "__SEAL_" not in wrapper_text
     assert "live_cli.run_stage0(" in wrapper_text
     assert "live_cli.run_stage1(" not in wrapper_text
-    assert "_prompt_until(expected_confirmation)" in wrapper_text
+    assert "_prompt_until" not in wrapper_text
     assert (
         "INTERNATIONAL_POLYMARKET_STAGE0_"
         "HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
@@ -1226,9 +1227,9 @@ def test_stage0_seal_generates_only_fixed_artifacts_and_hash_sidecar(tmp_path):
     assert "int(owner.get(\"pid\")) == os.getppid()" not in wrapper_text
     main_body = wrapper_text.split("def main()", 1)[1]
     assert main_body.index("live_cli.run_doctor(") < main_body.index(
-        "_prompt_until(expected_confirmation)"
+        "_display_confirmation_scope()"
     )
-    assert main_body.index("_prompt_until(expected_confirmation)") < main_body.index(
+    assert main_body.index("_display_confirmation_scope()") < main_body.index(
         "live_cli.run_stage0("
     )
     assert wrapper_text.split("def main()", 1)[1].count("_assert_host_state()") == 2
@@ -1819,7 +1820,7 @@ def test_stage1_seal_is_cancel_all_only_and_binds_stage0(tmp_path):
     assert "STAGE_NAME = 'stage1_cancel_all'" in text
     assert "live_cli.run_stage0(" not in text
     assert "stage2" not in text.lower()
-    assert "_prompt_until(expected_confirmation)" in text
+    assert "_prompt_until" not in text
     assert "_assert_window_current()" in text
     assert '"cleanup_reserve_seconds": 20' in text
     assert '"contained_process_end_local"' in text
@@ -2755,3 +2756,117 @@ def test_stage0_seal_binds_explicit_existing_wallet_allocation(tmp_path, allocat
     assert displayed["pilot_capital_limit_pusd"] == 100
     assert displayed["pilot_wallet_max_funding_usdc"] is None
     assert displayed["isolated_pilot_wallet"] is False
+
+@pytest.mark.parametrize("stage", ["stage0", "stage1_cancel_all", "stage1_dead_man"])
+@pytest.mark.parametrize("session_id, blocked_check", [(1, None), (0, None), (1, 1), (1, 2)])
+def test_reviewed_command_reaches_stage_without_input_and_retains_runtime_gates(
+    tmp_path, monkeypatch, capsys, stage, session_id, blocked_check
+):
+    from weather import execution_host
+    from weather.market import live_sdk_overlay, mm_live_pilot_cli as live_cli
+    from weather.market import mm_live_stage0_scope as stage0_scope
+    from weather.market import mm_live_stage1_lifecycle_plan as stage1_plan
+    from weather.operations import live_path_security
+
+    production, attempt, spec_path, _spec = prepare(tmp_path, stage=stage)
+    sealed = seal(spec_path, production)
+    tree = ast.parse(Path(sealed["wrapper"]["path"]).read_text(encoding="utf-8"))
+    names = {"main", "_assert_attended_invocation", "_display_confirmation_scope",
+             "_run_geography_check", "_run_premutation_geography_check"}
+    nodes = [node for node in tree.body
+             if isinstance(node, ast.FunctionDef) and node.name in names]
+    scope = ast.literal_eval(next(
+        node.value for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "SCOPE" for target in node.targets)
+    ))
+    events = []
+    geography_calls = []
+
+    def no_input(*args, **kwargs):
+        raise AssertionError("reviewed command must not request confirmation input")
+
+    def official_check(path, **kwargs):
+        geography_calls.append((path, kwargs))
+        events.append("geography")
+        return {"status": "BLOCK", "eligible": False} if len(geography_calls) == blocked_check else {"status": "PASS", "eligible": True}
+
+    class ReachedWriteBoundary(Exception):
+        pass
+
+    def stage_command(args):
+        events.append("command")
+        assert args.budget == 10
+        if stage == "stage0":
+            assert args.confirmation == "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
+            args.pre_mutation_attestor()
+        else:
+            assert args.confirmation == "INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE"
+            assert args.cancellation_mode == ("cancel_all" if stage == "stage1_cancel_all" else "dead_man")
+            args.pre_submit_attestor()
+        events.append("write_boundary")
+        # This mock boundary must stop before any real SDK, vault or exchange call.
+        raise ReachedWriteBoundary
+
+    monkeypatch.setattr("builtins.input", no_input)
+    monkeypatch.setattr(execution_host, "current_execution_session_id", lambda: session_id, raising=False)
+    monkeypatch.setattr(live_sdk_overlay, "activate_live_sdk_overlay",
+                        lambda *args: events.append("sdk") or {})
+    monkeypatch.setattr(live_cli, "run_doctor", lambda args: {"status": "PASS"})
+    monkeypatch.setattr(live_cli, "run_stage0", stage_command)
+    monkeypatch.setattr(live_cli, "run_stage1", stage_command)
+    monkeypatch.setattr(stage0_scope, "load_stage0_scope_gate",
+                        lambda *args, **kwargs: {"event_metadata": {}, "neg_risk": False})
+    monkeypatch.setattr(stage0_scope, "validate_bound_stage0_event_metadata", lambda *args, **kwargs: None)
+    monkeypatch.setattr(stage1_plan, "load_stage1_lifecycle_plan_gate",
+                        lambda *args, **kwargs: {"event_metadata": {}})
+    monkeypatch.setattr(geography, "check_geographic_eligibility", official_check)
+    monkeypatch.setattr(live_path_security, "assert_no_ambient_proxy_configuration", lambda: None)
+    monkeypatch.setattr(sealer, "_validate_credential_import_receipt",
+                        lambda *args, **kwargs: events.append("credential_provenance"))
+    namespace = {
+        "datetime": datetime, "timedelta": timedelta, "Path": Path,
+        "hashlib": hashlib, "json": json, "SimpleNamespace": SimpleNamespace,
+        "sys": SimpleNamespace(argv=["sealed-stage.py"], path=[]),
+        "SCOPE": scope, "PRODUCTION": Path(sealer.REPO_ROOT), "STAGE_NAME": stage,
+        "CANCELLATION_MODE": "cancel_all" if stage == "stage1_cancel_all" else "dead_man",
+        "PRE_CREDENTIAL_RESERVE_SECONDS": 120, "PRE_MUTATION_RESERVE_SECONDS": 60,
+        "_prompt_until": no_input,
+        "_assert_sealed": lambda: None, "_assert_git_and_sources": lambda: None,
+        "_assert_paths": lambda **kwargs: None, "_assert_paths_and_stage0": lambda **kwargs: None,
+        "_assert_host_state": lambda: events.append("host"),
+        "_assert_precredential_reserve": lambda: None, "_assert_mutation_reserve": lambda: None,
+        "_assert_window_current": lambda: None,
+        "_assert_reserve": lambda reserve, **kwargs: events.append("reserve"),
+    }
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "<sealed-main>", "exec"), namespace)
+    namespace["_pre_submit_attestor"] = lambda: namespace["_run_geography_check"]("geography_presubmit_receipt_out")
+    if session_id == 0:
+        with pytest.raises(RuntimeError, match="signed-in Windows desktop"):
+            namespace["main"]()
+        assert events == ["host"]
+        assert geography_calls == []
+        return
+    if blocked_check:
+        with pytest.raises(RuntimeError, match="geographic eligibility did not pass"):
+            namespace["main"]()
+        assert len(geography_calls) == blocked_check
+        assert "write_boundary" not in events
+        if blocked_check == 1:
+            assert "credential_provenance" not in events
+            assert "command" not in events
+    else:
+        with pytest.raises(ReachedWriteBoundary):
+            namespace["main"]()
+        assert len(geography_calls) == 2
+        assert events.index("geography") < events.index("credential_provenance") < events.index("command")
+        assert events[-1] == "write_boundary"
+    for path, kwargs in geography_calls:
+        assert kwargs == {"confirmation": geography.PHYSICAL_LOCATION_CONFIRMATION,
+                          "physical_location_eligible": True, "no_circumvention": True}
+    displayed = json.loads(capsys.readouterr().out)["confirmation_scope"]
+    assert displayed["authorization_method"] == "reviewed_command_invocation"
+    assert displayed["physical_location_eligible"] is True
+    assert displayed["no_circumvention"] is True
+    assert displayed["requested_budget_pusd"] == 10
+    assert len(namespace["CONFIRMATION_SCOPE_DISPLAY_SHA256"]) == 64

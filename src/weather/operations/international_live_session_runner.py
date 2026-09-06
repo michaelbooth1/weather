@@ -2,8 +2,8 @@
 
 The command accepts only a content-bound session manifest and one fresh public
 candidate.  It exposes no market, token, budget, wallet-cap, output, or timing
-override arguments.  The generated launcher still requires its bounded human
-confirmation before any authenticated boundary can run.
+override arguments.  The operator's reviewed local invocation authorizes the
+bounded attended sequence; each stage rechecks its automatic runtime gates.
 """
 
 from __future__ import annotations

@@ -32,7 +32,7 @@ prove current execution-host qualification or a successful Stage 0/1 protocol.
 
 **Stage 0/1 execution is currently HOLD until every action-time gate below
 passes.** The explicit execution-host profile,
-truthful Stage 0 authenticated-write confirmation contract, and canonical
+truthful Stage 0 authenticated-write authorization contract, and canonical
 fixed-session manifest builder are implemented by the fixed-scope software
 described here. On adopted master, both profiles require
 `HEAD == master == cached origin/master == live canonical refs/heads/master`.
@@ -49,7 +49,7 @@ The portable exception removes only master promotion. It does not make the
 branch production-adopted or claim production-host integration, capture
 recovery, or Scheduler state, and it does not remove any money, SDK,
 credential, identity, geography, account, balance, allowance, zero-state,
-order, cancellation, deadline, cleanup, or attended-confirmation gate.
+order, cancellation, deadline, cleanup, or attended-authorization gate.
 
 ### Stage-scoped candidate-gate redesign qualification
 
@@ -125,8 +125,34 @@ official geoblock result and an attended no-circumvention attestation; an
 unblocked egress classification that disagrees with physical location is not
 authority.
 The protocol never solicits, accepts, or stores an operator-supplied city,
-state/province, or country. It uses only the exact attended eligibility and
-no-circumvention literal plus Polymarket's credential-free geoblock response.
+state/province, or country. It uses the eligibility/no-circumvention attestation
+carried by the reviewed attended command plus Polymarket's credential-free
+geoblock response.
+
+### Reviewed command authorization
+
+Running the reviewed command from the assigned signed-in Windows desktop
+authorizes its complete bounded Stage 0, Stage 1 cancel-all and Stage 1 dead-man
+sequence. The operator must remain present and physically eligible, with no
+VPN, proxy, remote-location service or other circumvention. Invocation affirms
+those conditions for the sequence. Do not ask the operator to repeat stage or
+physical-location confirmations. If the conditions change, stop the sequence.
+Each stage still displays and hashes its exact scope, including
+`authorization_method=reviewed_command_invocation` and the two attestation
+booleans. Retained fields named `confirmation` are internal contract markers;
+they do not claim that a keyboard prompt was answered.
+
+The command must state the 100 pUSD allocation/funding limit, 10 pUSD order
+limit, Stage 0 authenticated heartbeats and account-wide cancel-all, and one
+minimum-size post-only submission in each Stage 1 mode. A failure or unexpected
+fill stops the sequence. Preparing or sealing files grants no live authority.
+Every fixed wrapper rejects Windows session zero before SDK activation. It
+obtains its own process session through
+[ProcessIdToSessionId](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-processidtosessionid);
+Windows services use [session zero](https://learn.microsoft.com/en-us/windows/win32/services/interactive-services).
+A nonzero session is only a necessary technical condition: it cannot prove
+human attendance or physical location. Exact host/principal binding and fresh
+official geographic checks remain mandatory.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -269,7 +295,7 @@ All must be current for the target date and selected market:
    workload-lease health plus capture/tape/streak health when using the
    colocated profile; zero unknown open orders and zero starting
    positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
-   eligibility; and every stage-specific, hash-bound attended confirmation.
+   eligibility; and stage-specific, hash-bound reviewed-command authorization.
    This decision is not self-executing and cannot clear the HOLD until the
    complete implementation receives exact-tip reproof. For the capture profile
    that means production-adopted master. For the portable profile, only the
@@ -308,7 +334,7 @@ All must be current for the target date and selected market:
    maker-quote/economics claim; they do not block Stage 0 or Stage 1. Paper,
    economics-acceptance, drift, and substrate-preflight artifacts are
    Stage 2/paper-only and are absent from both plan schemas. Stage 0, account state,
-   current market rules, the literal confirmation, and the one-submit adapter
+   current market rules, reviewed-command authorization, and the one-submit adapter
    capability remain independent mutation gates.
 8. Select exactly one immutable execution-host profile. For
    `capture_colocated_v1`, the complete plan-derived execution window
@@ -331,8 +357,8 @@ All must be current for the target date and selected market:
    `GET https://polymarket.com/api/geoblock` endpoint, retain only
    `blocked/country/region`, observation time, and a redacted decision hash
    (never the IP or a reversible IP commitment), and require `blocked=false`.
-   Separately require the attended operator to
-   attest that the operator and execution host are physically in an eligible
+   The reviewed command's invocation also attests that the attended operator
+   and execution host are physically in an eligible
    location and that no VPN, proxy, remote-location service, or other
    circumvention is in use. An unavailable endpoint, `blocked=true`, a
    physically blocked location, or disagreement between the endpoint and the
@@ -347,9 +373,10 @@ All must be current for the target date and selected market:
    the raw response byte count, a recomputable hash of the retained
    `blocked/country/region` decision, and a self-hash over the complete receipt.
    It validates the returned source address but never retains that address.
-   The attended literal is
+   The retained internal attestation marker is
    `INTERNATIONAL_POLYMARKET_PHYSICALLY_PRESENT_IN_ELIGIBLE_JURISDICTION_NO_VPN_PROXY_REMOTE_HOST_OR_CIRCUMVENTION`.
-   Refusing or mistyping it blocks before live mutation. Stage 0 writes distinct
+   It is supplied from reviewed-command authorization without another prompt.
+   Stage 0 writes distinct
    precredential and pre-mutation receipts; each Stage 1 mode writes distinct
    precredential and submit-adjacent receipts. All are sealed output paths,
    source-hash-bound execution artifacts. Any failed check spends its receipt
@@ -398,7 +425,8 @@ their intended paths now; create expiring plans only when ready to consume them.
    [fresh Stage 0 scope and reviewed no-argument launcher](#fresh-stage-0-scope-and-attended-launch)
    as one uninterrupted block. Use only the manifest's staged metadata and
    exact selected condition/token. Stage 0 submits no order; its authenticated
-   heartbeat and account-wide cancel-all writes require the attended literals.
+   heartbeat and account-wide cancel-all writes are part of reviewed-command
+   authorization.
 4. Only after Stage 0 passes, invoke the
    [fresh Stage 1 helper](#fresh-stage-1-plans-and-attended-launches) for
    `stage1_cancel_all`, then `stage1_dead_man`. Each helper creates a separate
@@ -445,7 +473,7 @@ also true. Calling Stage 0 fully read-only is incorrect.
 - Fill the public `mm_stage0_client_identity_v0.4` manifest. It binds only the
   International platform, chain, pinned SDK, public wallet topology,
   explicit existing-wallet test allocation or isolated-wallet funding cap,
-  and the literal
+  and the internal authorization marker
   `INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER`.
   The literal means no order submit while allowing the required authenticated
   heartbeat and unconditional account-wide cancel-all cleanup writes; it does
@@ -556,7 +584,7 @@ reviewed, host-owned fixed-scope wrapper; the generic CLI cannot invoke
 them. Those library boundaries wire the prepared bootstrap collector and
 lifecycle orchestrator to credential-by-reference loading, the pinned official
 client, the account-wide user stream, and the exact position reader. Stage 1
-requires the literal confirmation
+requires the internal authorization marker
 `INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE`, a passing bootstrap bound to
 the exact adapter funder, condition, token, and SDK, zero starting orders, and
 one cancellation mode per run. Every starting, ending, and failure-cleanup
@@ -593,7 +621,8 @@ client factory. The factory accepts only the narrow public Stage 0 identity
 manifest; requiring the later observed bootstrap here would create an
 impossible dependency cycle. The returned raw SDK client is still not order
 authorization: only `weather.market.mm_live_lifecycle_probe`, with a passing
-observed bootstrap and its separate literal confirmation, may perform Stage 1.
+observed bootstrap and its stage-specific internal authorization marker, may
+perform Stage 1. The reviewed wrapper supplies this marker without a prompt.
 `weather.market.mm_credential_import_cli` is the separate one-time migration
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
@@ -1297,7 +1326,7 @@ sidecar are unsupported and cannot produce a launcher without the matching
 canonical builder receipt.
 
 The canonical keyless doctor runs inside each sealed fixed-scope wrapper before
-the supervised prompt and before credential resolution. The hash-bound
+the authorization scope display and before credential resolution. The hash-bound
 PowerShell launcher validates the public credential-reference manifest and
 stages only its reference names in the child process; the Python doctor then
 validates the exact SDK version, Windows resolver availability, reference URI
@@ -1528,19 +1557,16 @@ respectively; earlier receipt versions cannot authorize a new attempt.
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
 request, 100 pUSD capital limit and its explicit allocation/funding declaration,
 execution cutoff, cleanup reserve, and contained
-process end before its literal confirmation. The
+process end, recording reviewed-command authorization without another prompt. The
 Stage 0 display also states `order_submit_expected=false`, an authenticated
 heartbeat write is expected, and cancel-all cleanup is expected with
 `ACCOUNT_WIDE` scope so those writes cannot be mistaken for read-only
-activity. The
-prompt is bounded by the same absolute cutoff. The portable profile requires
+activity. The portable profile requires
 120 seconds remaining before entering credential context and 60 seconds
-immediately before an authenticated mutation boundary. The stage,
-physical-location/no-circumvention, and mutation-specific attended
-confirmations all consume the same plan-derived cutoff; no prompt resets
-or extends it. The fresh-plan helper must therefore flow directly into
-the reviewed launcher, and hesitation is a stop-and-refresh event. After
-confirmation it rechecks Git/source identity, profile-specific host status,
+immediately before an authenticated mutation boundary. All stage and geographic
+checks consume the same plan-derived cutoff; nothing resets or extends it.
+The fresh-plan helper must therefore flow directly into the reviewed launcher.
+After displaying authorization it rechecks Git/source identity, profile-specific host status,
 clock/reboot state, the applicable time boundary, and the plan before credential
 resolution. The window guard also runs inside every host attestation. Stage 1
 therefore repeats it submit-adjacent, checks the cutoff before the
