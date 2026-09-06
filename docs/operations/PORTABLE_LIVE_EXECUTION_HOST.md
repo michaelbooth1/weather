@@ -588,8 +588,11 @@ if ($hostStatusExit -ne 0 -or
 After that offline audit, return to the live-pilot runbook. Fresh structural
 scope/lifecycle plans, host-local credential provenance and current runtime
 authentication, official geographic
-eligibility, account bootstrap, and every attended mutation literal remain
-action-time gates. The portable lane permits a session while the immutable plan's
+eligibility, account bootstrap, and
+[reviewed-command authorization](INTERNATIONAL_MM_LIVE_PILOT.md#reviewed-command-authorization)
+remain action-time gates. The operator's local invocation authorizes the
+complete reviewed bounded sequence without repeated confirmation prompts;
+every fixed wrapper rejects Windows session zero. The portable lane permits a session while the immutable plan's
 target is the selected market's current or immediately following local date,
 outside the capture PC's `[00:30, 09:00)` timetable. Its fixed 240-second
 execution envelope plus 20-second cleanup reserve must remain within one
@@ -599,8 +602,8 @@ maximum 40-second preparation/revalidation margin. Complete manifest and
 launcher review before creating the fresh live plan, then run its selector and
 reviewed no-argument launcher as one uninterrupted sequence. The later launch
 boundary still requires 180 seconds remaining; the wrapper requires 120 before
-credential context and 60 immediately before mutation. Every attended
-confirmation consumes the same absolute cutoff; none extends it. Stage 2's
+credential context and 60 immediately before mutation. Every runtime check
+consumes the same absolute cutoff; none extends it. Stage 2's
 paper/economics evidence does not replace or extend these Stage 0/1 leases.
 
 ## Relocating again

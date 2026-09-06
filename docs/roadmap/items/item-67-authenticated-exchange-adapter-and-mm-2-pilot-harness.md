@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; CREDENTIAL LIFECYCLE REDESIGN]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - STAGE 0 PASSED; REVIEWED COMMAND AUTHORIZATION]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -63,6 +63,64 @@ economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-06 reviewed command authorization
+
+The owner explicitly stated that running the reviewed local command authorizes
+the complete sequence and rejected the repeated confirmation prompts.
+The previous credential-lifecycle redesign is merged as
+[PR 33](https://github.com/michaelbooth1/weather/pull/33) at
+`d84e0b68cad7eb81eada9e8825b324a2841bee81`.
+[Merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34046705661)
+passed 4,600 tests/921 subtests with 259 skips. The actual portable clone
+cleanly adopted that tip at 16:57:34.7901148 UTC; its public installed SDK
+audit passed. The retained original credential comparison remains unchanged.
+
+The owner then ran attempt `pilot-20260906T165758983Z`. Its keyless Stage 0
+doctor passed at 17:32:22.568907 UTC. The execution receipt failed at
+`supervised_confirmation` at 17:33:46.056846 UTC after the pasted command was
+read as the expected text literal. That control-flow boundary precedes
+credentialed Stage 0. The receipt has no command artifact and records unknown
+activity facts; preserve those facts rather than rewriting the receipt. The
+parent run receipt validated the child failure, exited 1 and reported neither
+timeout nor forced teardown. A 17:43:53.6258326 UTC bounded host check found no
+portable Python process or workload poison record. The failed attempt is spent.
+
+`codex/attended-command-authorization-20260906` removes keyboard prompts from
+Stage 0 and the shared Stage 1 cancel-all/dead-man template. Invocation of the
+reviewed local command supplies authorization and its stated physical
+eligibility/no-circumvention attestation for the bounded sequence. Each wrapper
+displays and hashes that meaning with the exact scope. Internal confirmation
+markers remain library contracts, without implying fresh keyboard input. The
+wrapper rejects Windows service session zero using the actual process session
+API before SDK activation. A desktop session cannot prove human presence;
+attendance remains an operator obligation. The
+[owning contract](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#reviewed-command-authorization)
+states these limits and the reason for each retained check.
+
+Fresh official geographic checks and ambient-proxy rejection still run before
+credentials and again at mutation/submit. Source/host/principal binding,
+retained credential provenance, current vault/account authentication, current
+market rules, shared workload exclusion, absolute deadlines, single-use
+attempts, 100 pUSD allocation, 10 pUSD order cap, minimum-size post-only orders,
+stop-on-fill and cleanup remain in force. No generic bypass flag is added.
+
+All three new positive runtime-template regressions fail at the unwanted prompt
+on the old source. The changed source passed 320 focused Windows tests through
+the admitted workstation wrapper. Twelve actual sealed-template cases cover
+all three stages with no input, session-zero refusal and failure of either
+official geographic check before the protected boundary. API tests verify
+Windows session metadata and reject API failure/non-Windows fallback. Existing
+source, host, deadline, credential and lifecycle tests are included. Public
+JUnit receipts are retained under portable-local `WeatherPortable/prep-20260906/`
+as `command-authorization-old-regression-v1.xml` and
+`command-authorization-focused-v1.xml`.
+
+Exact final-tip and merged-topic CI, clean portable adoption and a wholly new
+reviewed attempt remain release gates. Git and host-local receipts own later
+qualification. The agent prepares and verifies; only the operator invokes the
+financial sequence locally. No Stage 1 live success or economic readiness is
+claimed.
 
 ## 2026-09-06 credential lifecycle redesign
 

@@ -3,11 +3,66 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import ctypes
+import os
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from weather import execution_host
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows session API")
+def test_execution_session_matches_windows_process_metadata():
+    observed = execution_host.current_execution_session_id()
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+         f"(Get-Process -Id {os.getpid()}).SessionId"],
+        capture_output=True, text=True, check=True, timeout=10,
+    )
+    assert observed == int(result.stdout.strip())
+
+
+@pytest.mark.parametrize("session_id", [0, 1, 7])
+def test_execution_session_id_comes_from_windows_process_api(monkeypatch, session_id):
+    calls = []
+
+    def query(pid, output):
+        calls.append(pid)
+        output._obj.value = session_id
+        return 1
+
+    kernel = SimpleNamespace(ProcessIdToSessionId=query)
+    monkeypatch.setattr(execution_host, "os", SimpleNamespace(name="nt", getpid=lambda: 321))
+    monkeypatch.setattr(execution_host, "ctypes", SimpleNamespace(
+        WinDLL=lambda name, **kwargs: kernel, c_uint32=ctypes.c_uint32,
+        c_int=ctypes.c_int, POINTER=ctypes.POINTER, byref=ctypes.byref,
+    ), raising=False)
+    assert execution_host.current_execution_session_id() == session_id
+    assert calls == [321]
+
+
+def test_execution_session_query_failure_cannot_look_like_a_desktop(monkeypatch):
+    def query(pid, output):
+        output._obj.value = 1
+        return 0
+
+    monkeypatch.setattr(execution_host, "os", SimpleNamespace(name="nt", getpid=lambda: 321))
+    monkeypatch.setattr(execution_host, "ctypes", SimpleNamespace(
+        WinDLL=lambda name, **kwargs: SimpleNamespace(ProcessIdToSessionId=query),
+        c_uint32=ctypes.c_uint32, c_int=ctypes.c_int,
+        POINTER=ctypes.POINTER, byref=ctypes.byref,
+    ), raising=False)
+    with pytest.raises(RuntimeError, match="session is unavailable"):
+        execution_host.current_execution_session_id()
+
+
+def test_execution_session_has_no_non_windows_fallback(monkeypatch):
+    monkeypatch.setattr(execution_host, "os", SimpleNamespace(name="posix"))
+    with pytest.raises(RuntimeError, match="Windows desktop session"):
+        execution_host.current_execution_session_id()
 
 
 def test_execution_host_profiles_are_explicit_and_closed() -> None:

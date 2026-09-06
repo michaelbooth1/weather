@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import msvcrt
 import os
 import re
 import subprocess
 import sys
-import time
 import winreg
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -300,42 +298,11 @@ def _assert_window_current() -> None:
         raise RuntimeError("fixed-scope Stage 0 wrapper is outside its exact window")
 
 
-def _prompt_until(expected: str, reserve_seconds: int | None = None) -> str:
-    reserve = (
-        PRE_CREDENTIAL_RESERVE_SECONDS
-        if reserve_seconds is None
-        else int(reserve_seconds)
-    )
-    if reserve <= 0:
-        raise RuntimeError("supervised confirmation reserve must be positive")
-    deadline = datetime.fromisoformat(str(SCOPE["run_not_after_local"])) - timedelta(
-        seconds=reserve
-    )
-    sys.stdout.write(f"Type {expected} to continue: ")
-    sys.stdout.flush()
-    characters: list[str] = []
-    while datetime.now().astimezone() < deadline:
-        if not msvcrt.kbhit():
-            time.sleep(0.05)
-            continue
-        character = msvcrt.getwch()
-        if character in ("\r", "\n"):
-            sys.stdout.write("\n")
-            sys.stdout.flush()
-            return "".join(characters)
-        if character == "\x03":
-            raise KeyboardInterrupt()
-        if character == "\b":
-            if characters:
-                characters.pop()
-                sys.stdout.write("\b \b")
-                sys.stdout.flush()
-            continue
-        if character.isprintable():
-            characters.append(character)
-            sys.stdout.write(character)
-            sys.stdout.flush()
-    raise TimeoutError("supervised confirmation expired at the sealed deadline")
+def _assert_attended_invocation() -> None:
+    from weather.execution_host import current_execution_session_id
+
+    if current_execution_session_id() == 0:
+        raise RuntimeError("run the reviewed command from the signed-in Windows desktop")
 
 
 def _assert_reserve(reserve_seconds: int, *, label: str) -> None:
@@ -361,6 +328,9 @@ def _display_confirmation_scope() -> str:
         str(SCOPE["run_not_after_local"])
     ) + timedelta(seconds=SCOPE["cleanup_reserve_seconds"])
     payload = {
+        "authorization_method": "reviewed_command_invocation",
+        "physical_location_eligible": True,
+        "no_circumvention": True,
         "stage": "stage0",
         "cancellation_mode": "not_applicable",
         "target_date": SCOPE["target_date"],
@@ -778,8 +748,9 @@ def _run_geography_check(output_name: str) -> dict:
     if reserve_seconds is None:
         raise RuntimeError("unsupported Stage 0 geography boundary")
     confirmation = geography.PHYSICAL_LOCATION_CONFIRMATION
-    if _prompt_until(confirmation, reserve_seconds=reserve_seconds).strip() != confirmation:
-        raise RuntimeError("physical-location/no-circumvention confirmation did not match")
+    # The reviewed local command supplies the operator attestation once.
+    # Repeat the official geographic check at each action boundary, without input.
+    _assert_reserve(reserve_seconds, label="geography")
     assert_no_ambient_proxy_configuration()
     receipt = geography.check_geographic_eligibility(
         SCOPE[output_name],
@@ -909,6 +880,7 @@ def main() -> int:
     _assert_git_and_sources()
     _assert_paths()
     _assert_host_state()
+    _assert_attended_invocation()
 
     EXECUTION_PHASE = "sdk_overlay_validation"
     sys.path.insert(0, str(PRODUCTION / "src"))
@@ -952,11 +924,9 @@ def main() -> int:
     doctor = live_cli.run_doctor(doctor_args)
     if doctor.get("status") != "PASS" or doctor.get("missing"):
         raise RuntimeError("fixed-scope keyless doctor did not pass")
-    EXECUTION_PHASE = "supervised_confirmation"
+    EXECUTION_PHASE = "command_authorization"
     CONFIRMATION_SCOPE_DISPLAY_SHA256 = _display_confirmation_scope()
     expected_confirmation = "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER"
-    if _prompt_until(expected_confirmation).strip() != expected_confirmation:
-        raise RuntimeError("supervised Stage 0 confirmation did not match")
     _assert_precredential_reserve()
     _assert_window_current()
     _assert_git_and_sources()
