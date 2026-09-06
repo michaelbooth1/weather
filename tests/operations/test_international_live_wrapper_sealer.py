@@ -364,7 +364,7 @@ def prepare(
         },
     )
     identity_payload = {
-        "schema_version": "mm_stage0_client_identity_v0.3",
+        "schema_version": "mm_stage0_client_identity_v0.4",
         "operator_authorization": "INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER",
         "platform": "polymarket_global",
         "international_platform_confirmed": True,
@@ -458,7 +458,7 @@ def prepare(
         bootstrap_path = write_json(
             attempt / "stage0/bootstrap.json",
             {
-                "schema_version": "mm_platform_bootstrap_v0.5",
+                "schema_version": "mm_platform_bootstrap_v0.6",
                 "status": "PASS",
                 "mutation_geographic_eligibility": {
                     key: stage0_premutation_geography[key]
@@ -2574,3 +2574,49 @@ def test_sealed_templates_gate_before_credentials_and_immediately_before_submit(
     assert "geographic_eligibility_fresh_until_utc=(" in lifecycle[
         lifecycle_submit :
     ]
+
+
+
+@pytest.mark.parametrize("allocation", [100, 100.01])
+def test_stage0_seal_binds_explicit_existing_wallet_allocation(tmp_path, allocation, capsys):
+    production, attempt, spec_path, spec = prepare(tmp_path)
+    identity = Path(spec["inputs"]["identity"]["path"])
+    payload = json.loads(identity.read_text(encoding="utf-8"))
+    payload.update(
+        pilot_capital_mode="existing_wallet_test_allocation",
+        pilot_test_allocation_pusd=allocation,
+        isolated_pilot_wallet=False,
+        pilot_wallet_max_funding_usdc=None,
+    )
+    write_json(identity, payload)
+    spec["inputs"]["identity"]["sha256"] = sha256(identity)
+    write_json(spec_path, spec)
+    if allocation > 100:
+        with pytest.raises(sealer.SealError, match="capital limit"):
+            seal(spec_path, production)
+        assert not (attempt / "wrappers/stage0.py").exists()
+        return
+    result = seal(spec_path, production)
+    assert result["status"] == "PASS"
+    wrapper = (attempt / "wrappers/stage0.py").read_text(encoding="utf-8")
+    tree = ast.parse(wrapper)
+    display_node = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_display_confirmation_scope"
+    )
+    namespace = {
+        "datetime": datetime, "timedelta": timedelta, "Path": Path,
+        "hashlib": hashlib, "json": json, "STAGE_NAME": "stage0",
+        "SCOPE": ast.literal_eval(next(
+            node.value for node in tree.body
+            if isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "SCOPE" for target in node.targets)
+        )),
+    }
+    exec(compile(ast.Module(body=[display_node], type_ignores=[]), "<scope-display>", "exec"), namespace)
+    assert len(namespace["_display_confirmation_scope"]()) == 64
+    displayed = json.loads(capsys.readouterr().out)["confirmation_scope"]
+    assert displayed["pilot_test_allocation_pusd"] == 100
+    assert displayed["pilot_capital_limit_pusd"] == 100
+    assert displayed["pilot_wallet_max_funding_usdc"] is None
+    assert displayed["isolated_pilot_wallet"] is False

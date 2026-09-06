@@ -732,7 +732,7 @@ def _child_execution_facts(
                 stage0_mutation_geography_bound = all(
                     (
                         bootstrap_payload.get("schema_version")
-                        == "mm_platform_bootstrap_v0.5",
+                        == "mm_platform_bootstrap_v0.6",
                         bootstrap_geography.get("status") == "PASS",
                         bootstrap_geography.get("eligible") is True,
                         bootstrap_geography.get("receipt_payload_sha256")
@@ -886,7 +886,7 @@ def _child_execution_facts(
                         result.get("candidate_semantic_plan_sha256")
                         == expected_candidate["semantic_plan_sha256"],
                         result.get("bootstrap_schema_version")
-                        == "mm_platform_bootstrap_v0.5",
+                        == "mm_platform_bootstrap_v0.6",
                         result.get("bootstrap_sha256")
                         == (seal_inputs.get("bootstrap") or {}).get("sha256"),
                         result.get("heartbeat_acknowledged") is True,

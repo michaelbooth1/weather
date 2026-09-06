@@ -101,7 +101,7 @@ optimum unless a cited measurement says so:
 | Value | Owner and classification | Current authority and review trigger |
 | --- | --- | --- |
 | `0.05` selector spread, `0.20-0.80` midpoint, and `0.08` paper harvest spread | Stage 2 experimental heuristics, introduced without a measured derivation | May rank or parameterize paper experiments. They have no Stage 0/1 authority. Replace or promote only after a preregistered spread-bucket fill, markout, settlement, and reward study. |
-| 10 pUSD order/request and 100 pUSD wallet balance | Explicit owner-approved first-pilot loss/exposure envelope | Hard at every order boundary. These are chosen risk limits, not claims of optimal size; changing them requires new owner authority and a new loss/exposure review. |
+| 10 pUSD order/request and 100 pUSD test allocation | Explicit owner-approved first-test envelope; the owner authorized using the existing wallet on September 6 | Hard at every order boundary. The existing-wallet mode caps the test allocation, not total wallet cash. It authorizes only the sealed Stage 0/1 attempt: two single-submit BUY probes, each at most 10 pUSD, with a stop on any fill. The separate isolated-wallet mode retains its whole-balance ceiling. |
 | 300-second Stage 0/1 plan | Derived session-containment bound | Hard and executable: 240-second portable session + 20-second cleanup reserve + at most 40 seconds consumed by preparation/revalidation. Composition requires at least 260 seconds remaining and sealing contains cleanup before expiry. Recalculate if any envelope changes or observed preparation latency approaches 40 seconds. |
 | 15-second current-Gamma request timeout | Stage 0/1 plan-generation operational budget, not a venue rule or quote heuristic | Fail closed when exact current event identity cannot be obtained. It preserves room inside the enforced 40-second preparation margin for book/rule reads and composition; review against observed endpoint latency if it approaches the budget. |
 | 5-second heartbeat cadence, 7.5-second acknowledgment lease, and 10-second market-rule lease | First-pilot operational safety margins from the August 13 lifecycle design | Hard only while an order lifecycle is active. Re-measure when venue heartbeat behavior changes or observed network/signing/rule latency approaches a margin. |
@@ -137,12 +137,40 @@ schema fields ending in `_usdc` remain compatibility names for one-dollar
 amounts; they do not authorize reading a USDC.e balance as the trading
 collateral balance or treating an unwrapped asset as pUSD.
 
+## Pilot capital contract
+
+`weather.market.mm_pilot_capital` owns the shared validation used by identity
+preparation, the keyless doctor, sealing, Stage 0 collection/loading, Stage 1
+capability issuance, uncached collateral reads and lifecycle bundle validation.
+The current identity is v0.4 and bootstrap is v0.6; older versions remain
+registered historical evidence and cannot authorize a fresh attempt.
+
+For an existing wallet, the public declaration must contain
+`pilot_capital_mode="existing_wallet_test_allocation"`,
+`pilot_test_allocation_pusd=100`, `isolated_pilot_wallet=false`, and
+`pilot_wallet_max_funding_usdc=null`. Mixed, missing, nonfinite or over-limit
+contracts fail closed. Legacy `_usdc` funding fields retain their whole-wallet
+meaning and are never silently reinterpreted as test allocations. The keyless
+CLI uses `--test-allocation 100 --confirm-existing-wallet-allocation`;
+`--wallet-cap 100 --confirm-isolated-wallet` selects the separate isolated mode.
+Neither preparation path reads credentials or moves funds.
+
 ## Immutable pilot envelope
 
-- Dedicated isolated wallet funded with no more than **100 pUSD**
-  of the exchange-supported settlement collateral verified during preflight.
-- The first Stage 0/1 request is exactly **10 pUSD**. Any later authorized run
-  budget must remain no more than its wallet cap and no more than **100 pUSD**.
+- The attended Stage 0/1 test may use an existing wallet with an explicit
+  **100 pUSD testing allocation**. Its total cash may exceed that allocation.
+  This is a software limit on this exact test, not a segregated subaccount or
+  a claim that existing holdings are part of the test. Record actual cash
+  separately; never label the existing wallet isolated.
+- The first Stage 0/1 request is exactly **10 pUSD**. One sealed attempt permits
+  at most two single-submit BUY probes, each at most 10 pUSD (at most 20 pUSD
+  gross submitted notional across the attempt, below the 100 pUSD allocation).
+  A fill or failed reconciliation stops the sequence. This allocation grants
+  no repeat loop, general maker-run authority or Stage 2 promotion.
+- The separate isolated-wallet contract still caps total funded cash at
+  **100 pUSD**. Stage 2 and the ordinary live-pilot runner retain that contract
+  and all existing readiness/risk gates; the Stage 0/1 allocation is not a
+  substitute for those proofs.
 - Exactly one weather market per run.
 - Existing ceilings may be lowered but not raised: **25** daily loss, **25**
   event notional, **10** band notional, and **120 seconds** quote TTL.
@@ -192,9 +220,9 @@ All must be current for the target date and selected market:
    stage requires economics acceptance, a paper run, the portable substrate
    preflight, spread/midpoint limits, reward/rebate eligibility, or a positive
    fee; those remain Stage 2/paper evidence.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.5` passes for
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.6` passes for
    the exact token and condition. This non-order, at-most-one-hour-old artifact
-   proves the isolated wallet identity, recorded cap, numeric collateral
+   proves the wallet identity and explicit capital contract, numeric collateral
    balance and allowance each backing the requested budget, a content-bound
    account snapshot, an observed zero open-order count, fresh pre-mutation
    geographic eligibility, current book/min size/tick/neg-risk, the current
@@ -236,7 +264,8 @@ All must be current for the target date and selected market:
    following exact non-circular substitute gates: current exact-tip production
    inventory; public credential references; target-date generated event
    metadata and stage-specific current public book/rule evidence; fixed non-raisable
-   10 pUSD order and 100 pUSD wallet caps; execution-host, clock, reboot, and
+   10 pUSD order and 100 pUSD testing allocation (or isolated-wallet funding)
+   caps; execution-host, clock, reboot, and
    workload-lease health plus capture/tape/streak health when using the
    colocated profile; zero unknown open orders and zero starting
    positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
@@ -335,7 +364,7 @@ All must be current for the target date and selected market:
 
 The first attended test is **Stage 0 heartbeat/account-wide cancel-all, Stage 1
 cancel-all, then Stage 1 dead-man**. Keep the exact **10 pUSD request and 100
-pUSD wallet cap**, one market, and one minimum-size, minimum-tick, post-only
+pUSD testing allocation**, one market, and one minimum-size, minimum-tick, post-only
 BUY per Stage 1 mode. All [pilot ceilings](#immutable-pilot-envelope) and
 [prerequisites](#prerequisites) remain binding. This sequence locates the full
 command blocks below; it does not grant live or Stage 2 authority.
@@ -412,9 +441,10 @@ receipts therefore record `order_submit_attempted=false` separately from
 `authenticated_exchange_write_attempted=true`; generic exchange mutation is
 also true. Calling Stage 0 fully read-only is incorrect.
 
-- Fill the public `mm_stage0_client_identity_v0.3` manifest. It binds only the
+- Fill the public `mm_stage0_client_identity_v0.4` manifest. It binds only the
   International platform, chain, pinned SDK, public wallet topology,
-  isolated-wallet declaration, capital cap, and the literal
+  explicit existing-wallet test allocation or isolated-wallet funding cap,
+  and the literal
   `INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER`.
   The literal means no order submit while allowing the required authenticated
   heartbeat and unconditional account-wide cancel-all cleanup writes; it does
@@ -459,9 +489,10 @@ PASS receipt without the complete phase, user subscription fact, and exact
   notional no more than 10 pUSD. If an ask exists, the minimum tick must remain
   strictly below it; do not derive safety from midpoint or spread.
 - After the pre-submit host attestor, force an uncached authenticated collateral
-  balance/allowance read. The balance must back the exact 10 pUSD request and
-  remain at or below the isolated-wallet 100 pUSD funding cap; the minimum
-  allowance must back 10 pUSD. Record the normalized snapshot hash before
+  balance/allowance read. The balance and minimum allowance must each back the
+  exact 10 pUSD request. Only the isolated-wallet mode additionally caps the
+  entire balance; existing-wallet mode validates the separately declared
+  testing allocation without capping cash held for other purposes. Record the normalized snapshot hash before
   submit, refresh again after cancellation, and require exact balance/allowance
   hash equality for a no-fill result.
 - Require both the placement response and authenticated stream/open-order
@@ -505,7 +536,7 @@ builder rereads both lifecycle journals and both final authenticated user-stream
 journals, verifies their hashes and scoped cancellation rows, requires distinct
 journal files and order IDs, and derives the no-fill,
 cancel-all, and heartbeat-lapse facts. It independently requires the exact
-10 pUSD bootstrap request, a wallet cap no higher than 100 pUSD, and each
+10 pUSD bootstrap request, a test capital limit no higher than 100 pUSD, and each
 reported order at or below 10 pUSD; upstream PASS booleans do not substitute
 for these numeric checks. Do not hand-author those facts. The tracked bundle
 template is deliberately fail-safe.
@@ -546,7 +577,7 @@ an ambiguous response cannot call the adapter's order method directly.
 The adapter also clamps its effective per-order notional limit to **10 pUSD**
 even if a direct library caller requests more; callers may only lower it.
 Capability issuance and the lifecycle executor independently revalidate the
-finite positive requested budget, isolated-wallet cap, and 100 pUSD operator
+finite positive requested budget, explicit capital contract, and 100 pUSD operator
 ceiling before any order mutation.
 It also requires a new, non-existing journal path. Before placement it writes
 and flushes the authorization, bootstrap hash, exact intent, and budget; after
@@ -742,11 +773,11 @@ $identityPreparationOutput = .\venv\Scripts\python.exe -m weather.market.mm_live
   --wallet-type $pilotWalletType `
   --signature-type $pilotSignatureType `
   --budget 10 `
-  --wallet-cap 100 `
+  --test-allocation 100 `
   --identity-out $pilotIdentitySource `
   --receipt-out $pilotIdentityReceipt `
   --confirm-international-platform `
-  --confirm-isolated-wallet `
+  --confirm-existing-wallet-allocation `
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
 $identityPreparationExit = $LASTEXITCODE
 $identityPreparation = $identityPreparationOutput |
@@ -1442,7 +1473,8 @@ execution receipts carrying this mandatory evidence are v0.6 and v0.7,
 respectively; earlier receipt versions cannot authorize a new attempt.
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
-request, 100 pUSD wallet cap, execution cutoff, cleanup reserve, and contained
+request, 100 pUSD capital limit and its explicit allocation/funding declaration,
+execution cutoff, cleanup reserve, and contained
 process end before its literal confirmation. The
 Stage 0 display also states `order_submit_expected=false`, an authenticated
 heartbeat write is expected, and cancel-all cleanup is expected with
@@ -1527,8 +1559,8 @@ permission to retry a submit.
 
 `weather.market.mm_live_bootstrap.collect_platform_bootstrap_payload` is the
 prepared Stage 0 evidence collector. It converts the CLOB's integer atomic
-collateral balance and allowances to six-decimal settlement units, rejects a
-balance above the isolated-wallet cap, validates a public Data API position
+collateral balance and allowances to six-decimal settlement units, enforces the
+explicit capital contract and sufficient backing, validates a public Data API position
 query scoped to the exact proxy wallet and condition, content-binds that query
 and the full account snapshot, locally constructs and hashes a signed minimum
 BUY without posting it, discards the raw signature, requires a live user-stream

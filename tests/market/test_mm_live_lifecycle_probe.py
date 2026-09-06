@@ -91,7 +91,7 @@ def bootstrap_gate():
     return {
         "required": True,
         "ok": True,
-        "schema_version": "mm_platform_bootstrap_v0.5",
+        "schema_version": "mm_platform_bootstrap_v0.6",
         "status": "PASS",
         "platform": "polymarket_global",
         "settlement_unit": "pUSD",
@@ -99,6 +99,7 @@ def bootstrap_gate():
         "token_id": "12345",
         "funder_address": "0x" + "a" * 40,
         "sdk_version": "0.6.0",
+        "isolated_pilot_wallet": True,
         "pilot_wallet_max_funding_usdc": 100.0,
         "requested_budget_usdc": 10.0,
         "account_snapshot_sha256": "b" * 64,
@@ -124,7 +125,7 @@ def test_tracked_research_templates_expose_the_active_hardening_contracts():
         ).read_text(encoding="utf-8")
     )
 
-    assert bootstrap["schema_version"] == "mm_platform_bootstrap_v0.5"
+    assert bootstrap["schema_version"] == "mm_platform_bootstrap_v0.6"
     assert {
         "fee_rule_verified",
         "fee_rate_bps",
@@ -133,7 +134,7 @@ def test_tracked_research_templates_expose_the_active_hardening_contracts():
     }.issubset(bootstrap["market_snapshot"])
     assert "candidate_fee_rate" not in bootstrap["market_snapshot"]
     assert bundle["schema_version"] == "mm_stage1_lifecycle_bundle_v0.3"
-    assert bundle["bootstrap_schema_version"] == "mm_platform_bootstrap_v0.5"
+    assert bundle["bootstrap_schema_version"] == "mm_platform_bootstrap_v0.6"
     assert "user_stream_journal_evidence" in bundle
     assert {
         "terminal_order_rest_verified",
@@ -148,7 +149,7 @@ def test_tracked_research_templates_expose_the_active_hardening_contracts():
     )
     assert (
         verification["stage1_lifecycle_bundle"]["bootstrap_schema_version"]
-        == "mm_platform_bootstrap_v0.5"
+        == "mm_platform_bootstrap_v0.6"
     )
     assert "user_stream_journal_evidence" in verification["stage1_lifecycle_bundle"]
     assert {
@@ -1161,14 +1162,31 @@ def test_stage1_refuses_the_published_v03_bootstrap_contract(tmp_path):
             journal_path=tmp_path / "legacy-bootstrap.jsonl",
         )
 
-    assert BOOTSTRAP_SCHEMA_VERSION == "mm_platform_bootstrap_v0.5"
+    assert BOOTSTRAP_SCHEMA_VERSION == "mm_platform_bootstrap_v0.6"
 
 
-def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(tmp_path):
+@pytest.mark.parametrize("existing_wallet", [False, True])
+def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(
+    tmp_path, existing_wallet
+):
     gate = bootstrap_gate()
+    if existing_wallet:
+        gate.update(
+            pilot_capital_mode="existing_wallet_test_allocation",
+            pilot_test_allocation_pusd=100,
+            isolated_pilot_wallet=False,
+            pilot_wallet_max_funding_usdc=None,
+        )
+
+    def test_adapter(clock, **kwargs):
+        adapter = FakeAdapter(clock, **kwargs)
+        if existing_wallet:
+            adapter.collateral_payloads[0]["balance"] = "275480000"
+        return adapter
+
     cancel_clock = FakeClock()
     cancel_result = execute_stage1_lifecycle_probe(
-        FakeAdapter(cancel_clock, order_id="cancel-order"),
+        test_adapter(cancel_clock, order_id="cancel-order"),
         gate,
         confirmation=CONFIRMATION,
         cancellation_mode="cancel_all",
@@ -1179,7 +1197,7 @@ def test_stage1_bundle_verifies_distinct_journals_and_derives_no_fill_evidence(t
     attach_stream_journal(cancel_result, tmp_path / "cancel-all-stream.jsonl")
     dead_clock = FakeClock()
     dead_result = execute_stage1_lifecycle_probe(
-        FakeAdapter(dead_clock, dead_man=True, order_id="dead-man-order"),
+        test_adapter(dead_clock, dead_man=True, order_id="dead-man-order"),
         gate,
         confirmation=CONFIRMATION,
         cancellation_mode="dead_man",
@@ -1355,3 +1373,34 @@ def test_stage1_bundle_requires_deadline_before_submit_event_sequence(
 
     with pytest.raises(RuntimeError, match="does not bind|missing required"):
         build_stage1_lifecycle_bundle(gate, cancel_result, dead_result)
+
+
+
+@pytest.mark.parametrize("balance,allowance,allocation", [
+    ("9999999", "100000000", 100),
+    ("275480000", "9999999", 100),
+    ("275480000", "100000000", 100.01),
+    ("NaN", "100000000", 100),
+])
+def test_existing_wallet_action_time_capital_refusal_prevents_submission(
+    tmp_path, balance, allowance, allocation
+):
+    gate = bootstrap_gate()
+    gate.update(
+        pilot_capital_mode="existing_wallet_test_allocation",
+        pilot_test_allocation_pusd=allocation,
+        isolated_pilot_wallet=False,
+        pilot_wallet_max_funding_usdc=None,
+    )
+    clock = FakeClock()
+    adapter = FakeAdapter(clock)
+    adapter.collateral_payloads = [
+        {"balance": balance, "allowances": {"exchange": allowance}}
+    ]
+    with pytest.raises(RuntimeError):
+        execute_stage1_lifecycle_probe(
+            adapter, gate, confirmation=CONFIRMATION, cancellation_mode="cancel_all",
+            journal_path=tmp_path / "allocation-rejected.jsonl",
+            monotonic_clock=clock, sleeper=clock.sleep,
+        )
+    assert adapter.place_calls == 0

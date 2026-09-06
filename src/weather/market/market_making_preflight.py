@@ -32,7 +32,7 @@ CLOB_RAW_BOOK_ARTIFACT_KEYS = (
     "order_books_long",
     "order_books_long_gzip",
 )
-PLATFORM_BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.5"
+PLATFORM_BOOTSTRAP_SCHEMA_VERSION = "mm_platform_bootstrap_v0.6"
 LIVE_LIFECYCLE_PROBE_SCHEMA_VERSION = "mm_live_lifecycle_probe_v0.3"
 STAGE1_LIFECYCLE_BUNDLE_SCHEMA_VERSION = "mm_stage1_lifecycle_bundle_v0.3"
 POST_CANCEL_QUIESCENCE_SECONDS = 2.0

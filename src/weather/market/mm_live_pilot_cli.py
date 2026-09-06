@@ -36,6 +36,9 @@ from weather.market.mm_credentials import (
     stage0_client_identity_gate,
 )
 from weather.market.mm_exchange import credential_diagnostics
+from weather.market.mm_pilot_capital import (
+    EXISTING_WALLET_ALLOCATION, pilot_capital_limit,
+)
 from weather.market.mm_geographic_eligibility import (
     GeographicEligibilityError,
     validate_geographic_eligibility_receipt,
@@ -737,11 +740,18 @@ def run_prepare_identity(
     if args.confirmation != IDENTITY_CONFIRMATION:
         raise RuntimeError("identity preparation requires the exact confirmation token")
     budget = _validate_budget(args.budget)
-    wallet_cap = _validate_budget(args.wallet_cap)
-    if budget != 10.0 or wallet_cap != 100.0 or budget > wallet_cap:
-        raise RuntimeError(
-            "first identity requires a 10 pUSD request and separate 100 pUSD wallet cap"
-        )
+    allocation = getattr(args, "test_allocation", None)
+    existing_wallet = allocation is not None
+    wallet_funding = getattr(args, "wallet_cap", None)
+    if existing_wallet and wallet_funding is not None:
+        raise RuntimeError("test allocation cannot be combined with a wallet funding cap")
+    capital_limit = _validate_budget(allocation if existing_wallet else wallet_funding)
+    if budget != 10.0 or capital_limit != 100.0 or budget > capital_limit:
+        raise RuntimeError("first identity requires a 10 pUSD request and 100 pUSD capital limit")
+    if existing_wallet != bool(getattr(args, "confirm_existing_wallet_allocation", False)):
+        raise RuntimeError("existing-wallet allocation requires its explicit declaration")
+    if existing_wallet and args.confirm_isolated_wallet:
+        raise RuntimeError("an existing-wallet allocation cannot declare an isolated wallet")
     paths = _require_new_distinct_paths(
         {
             "identity": args.identity_out,
@@ -776,8 +786,13 @@ def run_prepare_identity(
             "signature_type_id": signature_type_id,
             "funder_address": str(args.funder_address).strip(),
             "isolated_pilot_wallet": bool(args.confirm_isolated_wallet),
-            "pilot_wallet_max_funding_usdc": wallet_cap,
+            "pilot_wallet_max_funding_usdc": None if existing_wallet else capital_limit,
         }
+        if existing_wallet:
+            identity.update(
+                pilot_capital_mode=EXISTING_WALLET_ALLOCATION,
+                pilot_test_allocation_pusd=capital_limit,
+            )
         gate = identity_gate(identity)
         receipt["checks"] = dict(gate.get("checks") or {})
         receipt["missing"] = list(gate.get("missing") or [])
@@ -849,7 +864,7 @@ def run_doctor(
         token_text = str(args.token_id or "").strip()
         condition_text = str(args.condition_id or "").strip().lower()
         try:
-            wallet_cap = float(identity.get("pilot_wallet_max_funding_usdc"))
+            wallet_cap = float(pilot_capital_limit(identity, require_wallet_declaration=True))
         except (TypeError, ValueError):
             wallet_cap = None
         checks = {
@@ -1281,7 +1296,7 @@ def run_bundle(
             raise RuntimeError("Stage 1 bundle bootstrap gate is not passing")
         if (
             float(gate.get("requested_budget_usdc")) != 10.0
-            or float(gate.get("pilot_wallet_max_funding_usdc")) != 100.0
+            or pilot_capital_limit(gate) != 100
         ):
             raise RuntimeError(
                 "Stage 1 bundle does not preserve the 10 pUSD request and 100 pUSD cap"
@@ -1351,11 +1366,14 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
     )
     identity.add_argument("--budget", required=True, type=float)
-    identity.add_argument("--wallet-cap", required=True, type=float)
+    capital = identity.add_mutually_exclusive_group(required=True)
+    capital.add_argument("--wallet-cap", type=float)
+    capital.add_argument("--test-allocation", type=float)
     identity.add_argument("--identity-out", required=True)
     identity.add_argument("--receipt-out", required=True)
     identity.add_argument("--confirm-international-platform", action="store_true")
     identity.add_argument("--confirm-isolated-wallet", action="store_true")
+    identity.add_argument("--confirm-existing-wallet-allocation", action="store_true")
     identity.add_argument("--confirmation", required=True)
 
     doctor = commands.add_parser(

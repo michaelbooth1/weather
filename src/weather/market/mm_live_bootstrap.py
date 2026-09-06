@@ -42,7 +42,10 @@ from weather.market.mm_official_adapter import (
 )
 from weather.market.mm_policy import bool_value, maybe_float, utc_now
 from weather.market.mm_credentials import stage0_client_identity_gate
-SCHEMA_VERSION = "mm_platform_bootstrap_v0.5"
+from weather.market.mm_pilot_capital import (
+    capital_declaration, collateral_within_capital_scope, pilot_capital_limit,
+)
+SCHEMA_VERSION = "mm_platform_bootstrap_v0.6"
 PLATFORM_ID = "polymarket_global"
 API_BASE_URL = "https://polymarket.com"
 CLOB_HOST = "https://clob.polymarket.com"
@@ -191,14 +194,14 @@ def collect_platform_bootstrap_payload(
     identity = identity_gate["identity"]
     record_phase("budget_adapter_boundary")
     requested_budget = maybe_float(requested_budget_usdc)
-    wallet_cap = identity_gate["pilot_wallet_max_funding_usdc"]
+    wallet_cap = identity_gate["pilot_capital_limit_pusd"]
     if (
         requested_budget is None
         or not math.isfinite(requested_budget)
         or requested_budget <= 0
         or requested_budget > wallet_cap
     ):
-        raise RuntimeError("requested Stage 0 budget is outside the isolated wallet cap")
+        raise RuntimeError("requested Stage 0 budget is outside the pilot capital limit")
     if not getattr(adapter, "supports_trading", False):
         raise RuntimeError("Stage 0 collector requires the verified official adapter boundary")
     if str(getattr(adapter, "maker_address", "") or "").lower() != str(
@@ -253,7 +256,7 @@ def collect_platform_bootstrap_payload(
     if collateral_balance < Decimal(str(requested_budget)):
         raise RuntimeError("collateral balance does not back the requested Stage 0 budget")
     record_phase("balance_cap")
-    if collateral_balance > Decimal(str(wallet_cap)):
+    if not collateral_within_capital_scope(identity, collateral_balance):
         raise RuntimeError("collateral balance exceeds the isolated wallet cap")
     record_phase("allowance_backing")
     if collateral_allowance < Decimal(str(requested_budget)):
@@ -477,8 +480,7 @@ def collect_platform_bootstrap_payload(
             "signed_order_preview_signature_retained": False,
             "consistency_verified": True,
         },
-        "isolated_pilot_wallet": True,
-        "pilot_wallet_max_funding_usdc": wallet_cap,
+        **capital_declaration(identity),
         "requested_budget_usdc": requested_budget,
         "sdk_contract": {
             "distribution": diagnostics.get("sdk_distribution"),
@@ -640,7 +642,10 @@ def load_platform_bootstrap_gate(
     if max_age_hours is None or not 0 < max_age_hours <= MAX_BOOTSTRAP_AGE_HOURS:
         max_age_hours = MAX_BOOTSTRAP_AGE_HOURS
     requested_budget = maybe_float(requested_budget_usdc)
-    wallet_cap = maybe_float(payload.get("pilot_wallet_max_funding_usdc"))
+    try:
+        wallet_cap = float(pilot_capital_limit(payload, require_wallet_declaration=True))
+    except (TypeError, ValueError):
+        wallet_cap = None
     wallet_identity = dict_value(payload, "wallet_identity")
     sdk = dict_value(payload, "sdk_contract")
     account = dict_value(payload, "account_snapshot")
@@ -752,12 +757,12 @@ def load_platform_bootstrap_gate(
             and wallet_identity.get("signed_order_preview_signature_retained") is False
         ),
         **wallet_topology_checks,
-        "isolated_pilot_wallet": bool_value(payload.get("isolated_pilot_wallet"), False),
-        "wallet_cap_within_operator_limit": (
+        "pilot_capital_contract_valid": wallet_cap is not None,
+        "pilot_capital_within_operator_limit": (
             wallet_cap is not None
             and 0 < wallet_cap <= MAX_OPERATOR_PILOT_BUDGET_USDC
         ),
-        "requested_budget_within_wallet_cap": (
+        "requested_budget_within_pilot_capital_limit": (
             requested_budget is not None
             and requested_budget > 0
             and wallet_cap is not None
@@ -779,10 +784,8 @@ def load_platform_bootstrap_gate(
             and requested_budget is not None
             and collateral_balance >= requested_budget
         ),
-        "account_balance_within_wallet_cap": (
-            collateral_balance is not None
-            and wallet_cap is not None
-            and collateral_balance <= wallet_cap
+        "account_balance_within_capital_scope": collateral_within_capital_scope(
+            payload, collateral_balance
         ),
         "account_allowance_backs_requested_budget": (
             collateral_allowance is not None
@@ -960,7 +963,8 @@ def load_platform_bootstrap_gate(
         "signature_type_id": payload.get("signature_type_id"),
         "funder_address": payload.get("funder_address"),
         "requested_budget_usdc": requested_budget,
-        "pilot_wallet_max_funding_usdc": wallet_cap,
+        **capital_declaration(payload),
+        "pilot_capital_limit_pusd": wallet_cap,
         "collateral_balance_usdc": collateral_balance,
         "collateral_allowance_usdc": collateral_allowance,
         "account_snapshot_sha256": account.get("snapshot_sha256"),
