@@ -14,10 +14,15 @@
 [CmdletBinding()]
 param(
     [switch]$Json,
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    [string]$RepoRoot = ""
 )
 
 $ErrorActionPreference = "SilentlyContinue"
+# Windows PowerShell -File binds parameter defaults before PSScriptRoot is set.
+# Resolve it in the script body so scheduled subprocesses use this checkout too.
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+}
 $repo = [IO.Path]::GetFullPath($RepoRoot)
 $py = Join-Path $repo "venv\Scripts\python.exe"
 if (-not (Test-Path $py)) { $py = "python" }
