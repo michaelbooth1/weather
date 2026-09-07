@@ -12,6 +12,7 @@ from tests.live_candidate_fixture import (
     build_stage0_scope_payload,
 )
 from weather.market import mm_live_stage0_scope as stage0_scope
+from weather.market.location_config import build_generation_metadata
 
 
 NOW = datetime(2026, 8, 31, 12, 0, tzinfo=timezone.utc)
@@ -34,17 +35,26 @@ def _rehash(payload):
     return payload
 
 
-def _event_file(tmp_path, *, generated_at=NOW):
-    return _write_json(
-        tmp_path / "location-market-events.json",
-        build_stage0_event_metadata_payload(
-            generated_at=generated_at,
-            target_date=TARGET_DATE,
-            condition_id=CONDITION_ID,
-            token_id=TOKEN_ID,
-            alternate_token_id=ALTERNATE_TOKEN_ID,
-        ),
+def _generation_payload(payload, *, registry_bytes=b'{"locations": []}\n'):
+    return build_generation_metadata(
+        registry_bytes,
+        payload,
+        source_input_registry_bytes=b'{"locations": []}\n',
+        source_identity="../unavailable/locations.json",
     )
+
+
+def _event_file(tmp_path, *, generated_at=NOW, generation_bound=False):
+    payload = build_stage0_event_metadata_payload(
+        generated_at=generated_at,
+        target_date=TARGET_DATE,
+        condition_id=CONDITION_ID,
+        token_id=TOKEN_ID,
+        alternate_token_id=ALTERNATE_TOKEN_ID,
+    )
+    if generation_bound:
+        payload = _generation_payload(payload)
+    return _write_json(tmp_path / "location-market-events.json", payload)
 
 
 def _book(token_id, *, bids, asks):
@@ -103,8 +113,9 @@ def _gamma_payload():
     )
 
 
-def test_wide_and_empty_books_are_structurally_eligible(tmp_path):
-    event_path = _event_file(tmp_path)
+@pytest.mark.parametrize("generation_bound", [False, True])
+def test_wide_and_empty_books_are_structurally_eligible(tmp_path, generation_bound):
+    event_path = _event_file(tmp_path, generation_bound=generation_bound)
     plan_path = tmp_path / "scope.json"
 
     payload = stage0_scope.select_stage0_scope(
@@ -133,6 +144,21 @@ def test_wide_and_empty_books_are_structurally_eligible(tmp_path):
     assert stage0_scope.load_stage0_scope_discovery_gate(plan_path, now=NOW)[
         "token_id"
     ] == TOKEN_ID
+
+    raw = event_path.read_bytes()
+    assert payload["event_metadata"]["file_sha256"] == hashlib.sha256(raw).hexdigest()
+    attempt = tmp_path / "attempt"
+    attempt.mkdir()
+    copied_metadata = attempt / event_path.name
+    copied_metadata.write_bytes(raw)
+    event_path.unlink()
+    stage0_scope.validate_bound_stage0_event_metadata(
+        copied_metadata,
+        payload["event_metadata"],
+        target_date=TARGET_DATE,
+        current_gamma=payload["current_gamma"],
+        now=NOW,
+    )
 
 
 def test_crossed_book_remains_eligible_but_ranks_after_ordinary_book(tmp_path):
@@ -548,4 +574,97 @@ def test_bound_metadata_detects_content_tamper(tmp_path):
             binding,
             target_date=TARGET_DATE,
             now=NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_root_id", "missing_envelope", "missing_envelope_field",
+        "extra_envelope_field", "unknown_schema", "invalid_source_identity",
+        "invalid_registry_base64", "registry_hash", "event_hash",
+        "generation_id", "root_generation_id", "event_content",
+        "extra_root_field",
+    ],
+)
+def test_generation_metadata_rejects_partial_corrupt_and_extra_fields(tmp_path, mutation):
+    event_path = _event_file(tmp_path, generation_bound=True)
+    payload = json.loads(event_path.read_text(encoding="utf-8"))
+    envelope = payload["location_config_generation"]
+    if mutation == "missing_root_id":
+        del payload["generation_id"]
+    elif mutation == "missing_envelope":
+        del payload["location_config_generation"]
+    elif mutation == "missing_envelope_field":
+        del envelope["source_input_registry_sha256"]
+    elif mutation == "extra_envelope_field":
+        envelope["unexpected"] = True
+    elif mutation == "unknown_schema":
+        envelope["schema_version"] = "unsupported"
+    elif mutation == "invalid_source_identity":
+        envelope["registry_source_identity"] = "C:/outside/locations.json"
+    elif mutation == "invalid_registry_base64":
+        envelope["registry_bytes_base64"] = "!"
+    elif mutation == "registry_hash":
+        envelope["registry_sha256"] = "0" * 64
+    elif mutation == "event_hash":
+        envelope["event_metadata_sha256"] = "0" * 64
+    elif mutation == "generation_id":
+        envelope["generation_id"] = "0" * 64
+    elif mutation == "root_generation_id":
+        payload["generation_id"] = "0" * 64
+    elif mutation == "event_content":
+        payload["locations"][0]["active_events"][0]["title"] = "Changed title"
+    else:
+        event_payload = {
+            key: value for key, value in payload.items()
+            if key not in {"generation_id", "location_config_generation"}
+        }
+        event_payload["unexpected"] = True
+        payload = _generation_payload(event_payload)
+    _write_json(event_path, payload)
+
+    with pytest.raises(RuntimeError, match="generation invalid|exact_file_shape"):
+        stage0_scope.load_stage0_event_metadata_gate(event_path, TARGET_DATE, now=NOW)
+
+
+def test_legacy_metadata_still_rejects_extra_root_fields(tmp_path):
+    event_path = _event_file(tmp_path)
+    payload = json.loads(event_path.read_text(encoding="utf-8"))
+    payload["unexpected"] = True
+    _write_json(event_path, payload)
+
+    with pytest.raises(RuntimeError, match="exact_file_shape"):
+        stage0_scope.load_stage0_event_metadata_gate(event_path, TARGET_DATE, now=NOW)
+
+
+@pytest.mark.parametrize("change", ["serialization", "registry_generation"])
+def test_scope_binding_covers_complete_generation_bytes(tmp_path, change):
+    event_path = _event_file(tmp_path, generation_bound=True)
+    original = stage0_scope.load_stage0_event_metadata_gate(
+        event_path, TARGET_DATE, now=NOW,
+    )
+    binding = {
+        key: original[key] for key in stage0_scope.EVENT_METADATA_BINDING_KEYS
+    }
+    payload = json.loads(event_path.read_text(encoding="utf-8"))
+    if change == "serialization":
+        event_path.write_text(json.dumps(payload), encoding="utf-8")
+    else:
+        event_payload = {
+            key: value for key, value in payload.items()
+            if key not in {"generation_id", "location_config_generation"}
+        }
+        _write_json(
+            event_path,
+            _generation_payload(event_payload, registry_bytes=b'{"locations": [], "revision": 2}\n'),
+        )
+    changed = stage0_scope.load_stage0_event_metadata_gate(
+        event_path, TARGET_DATE, now=NOW,
+    )
+    assert changed["event_contracts"] == original["event_contracts"]
+    assert changed["file_sha256"] != original["file_sha256"]
+    with pytest.raises(RuntimeError, match="differs from the scope binding"):
+        stage0_scope.validate_bound_stage0_event_metadata(
+            event_path, binding, target_date=TARGET_DATE, now=NOW,
         )

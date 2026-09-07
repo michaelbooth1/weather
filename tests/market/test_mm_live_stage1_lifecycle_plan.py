@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -9,6 +10,7 @@ import pytest
 from tests.live_candidate_fixture import build_current_gamma_event_payload
 from weather.market import mm_live_stage0_scope as stage0_scope
 from weather.market import mm_live_stage1_lifecycle_plan as lifecycle_plan
+from weather.market.location_config import build_generation_metadata
 from weather.market.market_config import config_for_date
 
 
@@ -108,11 +110,16 @@ def _event_payload(*, generated_at=NOW):
     }
 
 
-def _event_file(tmp_path, *, generated_at=NOW):
-    return _write_json(
-        tmp_path / "location-market-events.json",
-        _event_payload(generated_at=generated_at),
-    )
+def _event_file(tmp_path, *, generated_at=NOW, generation_bound=False):
+    payload = _event_payload(generated_at=generated_at)
+    if generation_bound:
+        payload = build_generation_metadata(
+            b'{"locations": []}\n',
+            payload,
+            source_input_registry_bytes=b'{"locations": []}\n',
+            source_identity="../unavailable/locations.json",
+        )
+    return _write_json(tmp_path / "location-market-events.json", payload)
 
 
 def _gamma_payload():
@@ -163,8 +170,11 @@ def _select(
     generated_at=NOW,
     now=NOW,
     output_name="lifecycle-plan.json",
+    generation_bound=False,
 ):
-    event_path = _event_file(tmp_path, generated_at=generated_at)
+    event_path = _event_file(
+        tmp_path, generated_at=generated_at, generation_bound=generation_bound,
+    )
     plan_path = tmp_path / output_name
     payload = lifecycle_plan.select_stage1_lifecycle_plan(
         event_path,
@@ -185,11 +195,13 @@ def _rehash(payload):
     return payload
 
 
-def test_wide_off_center_book_and_zero_fee_pass_without_stage2_gates(tmp_path):
+@pytest.mark.parametrize("generation_bound", [False, True])
+def test_wide_off_center_book_and_zero_fee_pass_without_stage2_gates(tmp_path, generation_bound):
     payload, plan_path = _select(
         tmp_path,
         book=_book(bids=("0.01",), asks=("0.20",)),
         rules=_rules(fee_rate_bps="0"),
+        generation_bound=generation_bound,
     )
 
     assert payload["status"] == "PASS"
@@ -228,6 +240,22 @@ def test_wide_off_center_book_and_zero_fee_pass_without_stage2_gates(tmp_path):
         plan_path,
         now=NOW,
     )["token_id"] == TOKEN_ID
+
+    event_path = tmp_path / "location-market-events.json"
+    raw = event_path.read_bytes()
+    assert payload["event_metadata"]["file_sha256"] == hashlib.sha256(raw).hexdigest()
+    attempt = tmp_path / "attempt"
+    attempt.mkdir()
+    copied_metadata = attempt / event_path.name
+    copied_metadata.write_bytes(raw)
+    event_path.unlink()
+    stage0_scope.validate_bound_stage0_event_metadata(
+        copied_metadata,
+        gate["event_metadata"],
+        target_date=TARGET_DATE,
+        current_gamma=gate["current_gamma"],
+        now=NOW,
+    )
 
 
 def test_empty_book_sides_pass_with_no_best_ask(tmp_path):

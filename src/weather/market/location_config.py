@@ -170,6 +170,15 @@ def _pair_from_metadata(metadata_bytes: bytes, *,
     return LocationConfigPair(registry_bytes, metadata_bytes, GENERATION_BOUND, expected_id, source)
 
 
+def validate_generation_metadata_bytes(
+    metadata_bytes: bytes, *, expected_source_identity: str | None = None,
+) -> LocationConfigPair | None:
+    """Validate one captured envelope without opening its registry source path."""
+    return _pair_from_metadata(
+        metadata_bytes, expected_source_identity=expected_source_identity,
+    )
+
+
 def build_generation_metadata(registry_bytes: bytes, event_payload: Mapping[str, Any], *,
                               source_input_registry_bytes: bytes,
                               source_identity: str) -> dict[str, Any]:
