@@ -11,8 +11,8 @@
 # Windows that matter (host local time, America/Toronto):
 #   12:00-18:00  GRADED CAPTURE WINDOW - the streak day is being decided; capture faults
 #                are CRITICAL and every minute counts.
-#   09:30-11:00  DAILY CHAIN - settlement/grading of yesterday runs here.
-#   01:00-04:00  QUIET WINDOW - the only safe slot for code merges and heavy steps.
+#   09:30-11:55  DAILY CHAIN - scheduled Stage A, with an absolute teardown deadline.
+#   01:00-04:00  QUIET WINDOW - roll-sensitive merges; ad-hoc heavy work is 00:30-09:00.
 #   23:30-00:45  DAY ROLLOVER - stale location config here blacks out capture (2026-06-29).
 #
 # Writes an append-only jsonl log, a latest-state file, and a regenerated human briefing.
@@ -50,7 +50,7 @@ if ($null -eq $status) {
 $now = Get-Date
 $h = $now.Hour + ($now.Minute / 60.0)
 $inCapture = ($h -ge 12 -and $h -lt 18)
-$inChain = ($h -ge 9.5 -and $h -lt 11)
+$inChain = ($h -ge 9.5 -and $h -lt (11 + 55.0 / 60.0))
 $inQuiet = ($h -ge 1 -and $h -lt 4)
 $inRollover = ($h -ge 23.5 -or $h -lt 0.75)
 $window = if ($inCapture) { "graded_capture_window" }
@@ -62,13 +62,13 @@ else { "off_peak" }
 # ---- classify each flag: what is it, how bad NOW, and when can it be acted on ----
 function Get-FlagClass($text) {
     if ($text -match "^RECONCILIATION_PUBLICATION_") { return "reconciliation_publication" }
-    if ($text -match "capture loop DOWN|TODAY capture AT_RISK|capture alert raised") { return "capture" }
-    if ($text -match "LOW RAM") { return "memory" }
+    if ($text -match "capture loop DOWN|capture loop ERRORING|TODAY capture AT_RISK|capture alert raised") { return "capture" }
+    if ($text -match "LOW RAM|HIGH COMMIT") { return "memory" }
     if ($text -match "LOW DISK") { return "capacity" }
     if ($text -match "SETTLEMENT HOLE") { return "settlement" }
     if ($text -match "mirror") { return "durability" }
     if ($text -match "REBOOT PENDING|logon-dependent") { return "resilience" }
-    if ($text -match "streak checker failed|BLIND") { return "observability" }
+    if ($text -match "streak checker failed|BLIND|MEMORY GUARD UNKNOWN") { return "observability" }
     return "scheduled_job"
 }
 function Get-FlagAction($class) {
@@ -76,9 +76,9 @@ function Get-FlagAction($class) {
         reconciliation_publication = "preserve the exact marker and evidence; do not manually invoke or retry WeatherOneShotPush; obtain reviewed recovery authority"
         capture       = "NOW - the graded window is 12:00-18:00"
         memory        = "NOW - memory pressure is the streak's primary failure mode"
-        capacity      = "any time; tiering/cleanup is memory-light"
+        capacity      = "preserve evidence; tiering/cleanup requires the 00:30-09:00 admitted heavy-work window and exact retention gates"
         settlement    = "tonight - scripts\ops\chain_recovery_run.ps1 -ResumeFrom <failed step> -TargetDate <date> -Refetch, in the quiet window"
-        durability    = "any time; mirror runs nightly 04:30"
+        durability    = "verify current archive and restore evidence; do not resume an operator-paused mirror or delete unverified source data"
         resilience    = "any time, but a reboot must not happen before it is fixed"
         observability = "NOW - nothing else is watching while this is broken"
         scheduled_job = "next scheduled run, or resume in the quiet window 01:00-04:00"

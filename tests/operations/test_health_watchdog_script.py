@@ -54,7 +54,12 @@ $flags = @(
     'RECONCILIATION_PUBLICATION_ATTEMPTED_UNACKNOWLEDGED: uncertain',
     'RECONCILIATION_PUBLICATION_EVIDENCE_INVALID: preserve',
     'RECONCILIATION_PUBLICATION_RELATED_TASK_STATE: preserve',
-    'ordinary scheduled job failed'
+    'ordinary scheduled job failed',
+    'capture loop ERRORING: snapshot_tracker has 10 consecutive errors',
+    'HIGH COMMIT: 88.4% used',
+    'MEMORY GUARD UNKNOWN: stale',
+    'LOW DISK: 23 GB free',
+    'mirror restore is unverified'
 )
 $rows = @($flags | ForEach-Object {
     $class = Get-FlagClass $_
@@ -83,3 +88,9 @@ $rows | ConvertTo-Json -Compress
         assert "resume" not in row["action"]
     assert rows[4]["class"] == "scheduled_job"
     assert "resume in the quiet window" in rows[4]["action"]
+    assert rows[5]["class"] == "capture"
+    assert rows[6]["class"] == "memory"
+    assert rows[7]["class"] == "observability"
+    assert "00:30-09:00" in rows[8]["action"]
+    assert "admitted" in rows[8]["action"]
+    assert "do not resume an operator-paused mirror" in rows[9]["action"]
