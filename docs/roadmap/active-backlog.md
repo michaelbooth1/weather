@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-07T20:48:48.724819+00:00
+Generated: 2026-09-07T20:57:55.540935+00:00
 Status: `OK`
 
 ## Summary
@@ -13,8 +13,8 @@ Status: `OK`
 | :--- | :--- |
 | Items | 327 |
 | Active items | 38 |
-| OPEN | 7 |
-| PARTIAL | 31 |
+| OPEN | 6 |
+| PARTIAL | 32 |
 | COMPLETE | 289 |
 | ROADMAP rows | 327 |
 | ROADMAP primary rows | 327 |
@@ -60,7 +60,7 @@ Status: `OK`
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
 | 330 | PARTIAL | 2026-09-07 | STAGE 0/1 PROVED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
-| 331 | OPEN | 2026-09-07 | AUDIT COMPLETE; EXECUTION PLAN PREPARED | [Post-Reclaim Model Economics And Research Plan](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
+| 331 | PARTIAL | 2026-09-07 | APPROVED; SOURCE PREPARATION IN PROGRESS | [Post-Reclaim Model Economics And Research Plan](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
 | 332 | OPEN | 2026-09-07 | SOURCE DEFECTS IDENTIFIED | [Signed Native Temperature Band Correctness](items/item-332-signed-native-temperature-band-correctness.md) |
 | 333 | OPEN | 2026-09-07 | MEASUREMENT REPAIRS SCOPED | [Reproducible Runtime And Paired Model Comparison](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
 

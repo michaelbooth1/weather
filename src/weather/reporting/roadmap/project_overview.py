@@ -34,7 +34,7 @@ def collect_project_overview(repo_root=REPO_ROOT):
     objective = re.search(r"\*\*Objectives?:\*\*\s*(.*?)(?:\n\n|\Z)", state, re.DOTALL)
     updated = re.search(r"\*\*Last rewritten:\s*(.*?)\*\*", state)
     critical = next((_section(state, heading) for heading in (
-        "Ordered non-live critical path", "Ordered critical path", "Critical path",
+        "Ordered next work", "Ordered non-live critical path", "Ordered critical path", "Critical path",
     ) if _section(state, heading)), "")
     steps = [" ".join(part.split()) for part in re.split(r"^\d+\.\s+", critical,
               flags=re.MULTILINE)[1:]]

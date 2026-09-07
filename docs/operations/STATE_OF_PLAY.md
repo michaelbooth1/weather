@@ -21,10 +21,11 @@ allocation / 10 pUSD order limit without repeating those questions.
 Stage 2, longer sessions, unattended trading, promotion and new statistical
 allocation do not follow from that completed attempt.
 
-The September 7 request is a full audit and post-reclaim plan. Another task owns
-reclaim implementation/execution. This planning change does not execute new
-live sessions, storage mutations, Scheduler changes or production adoption.
-Existing host, exact-attempt, evidence and source-control gates still apply.
+On September 7 the owner approved item 331 and fully authorized implementation,
+preparation and double-checking of the available work. Another task owns reclaim
+implementation/execution. Continue source, fixtures, review and admitted
+workstation verification now. Production adoption still uses its guarded path;
+new live exposure retains its exact Stage 2 authority and readiness gates.
 
 ## Verified starting point and limits
 

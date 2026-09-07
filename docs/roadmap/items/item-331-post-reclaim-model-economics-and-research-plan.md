@@ -1,4 +1,4 @@
-# 331. Post-Reclaim Model Economics And Research Plan [OPEN 2026-09-07 - AUDIT COMPLETE; EXECUTION PLAN PREPARED]
+# 331. Post-Reclaim Model Economics And Research Plan [PARTIAL 2026-09-07 - APPROVED; SOURCE PREPARATION IN PROGRESS]
 
 Goal: turn verified storage headroom into correct model outputs, a measurable
 maker-economics decision, and one reproducible research result without restoring
@@ -34,10 +34,13 @@ required to close the plan honestly.
 
 ## Authority and existing ownership
 
-This request authorizes audit and planning. Existing non-live implementation
-and source-control authority remains available for subsequent work; this file
-does not execute its packages. The September 6 Stage 0/1 attempt is completed
-evidence and is not rerun. Stage 2, longer live sessions, capital changes,
+On September 7 the owner approved this plan and explicitly authorized working
+now to prepare as much as possible, with independent double-checking and full
+implementation authority. Source, fixtures, documentation, review and admitted
+workstation verification proceed before reclaim where they do not depend on
+production evidence. The storage owner's execution remains separate; production
+adoption retains its guarded admission and recovery contract. The September 6
+Stage 0/1 attempt is completed evidence and is not rerun. Stage 2, longer live sessions, capital changes,
 unattended activity, statistical alpha and release promotion require their own
 operator decisions and existing gates. Preserve the already agreed 100 pUSD
 test allocation and 10 pUSD order limit as the planning starting point; any
