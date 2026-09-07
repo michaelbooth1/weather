@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-05 - SEPTEMBER 6 ATTENDED TEST PREPARATION; LIVE AUTHORITY PENDING]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - ATTENDED STAGE 0/1 PASSED; ECONOMIC PILOT OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -43,7 +43,7 @@ behavior before any size increase.
   `polymarket-client==0.6.0` source and published wheel passed the keyless
   contract audit on 2026-08-14; production wallet and exchange evidence
   remain separate open gates.
-- [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
+- [x] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
   selected exact execution host using either the capture-colocated or portable
   profile. Do not add a generic repository live mutation CLI to close this
   item.
@@ -63,6 +63,404 @@ economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-06 Attended Stage 0/1 completed
+
+**PASS: the operator completed Stage 0, both distinct Stage 1 cancellation
+modes and the offline lifecycle bundle.** Item 67 remains PARTIAL because
+two-sided economic quoting, fill/settlement handling and actual paid incentive
+evidence are separate acceptance work.
+
+[PR 36](https://github.com/michaelbooth1/weather/pull/36) merged the parent
+capital/bootstrap repair at `c6ee36147c52269ac76328aded186b2658978325`.
+[Source CI](https://github.com/michaelbooth1/weather/actions/runs/34068327086)
+and [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34068740395)
+each passed 4,706 tests and 921 subtests, with 260 skips. The portable clone
+adopted that clean exact tip at September 7 00:14:38.3949288 UTC, preserving
+HEAD/local/cached/live equality and synchronized ancestral production master.
+The installed public SDK audit passed. These are portable qualification
+facts; production capture did not adopt this topic.
+
+The successful spent attempt is `pilot-20260907T001707063Z`, bound to
+**NYC September 7, 74-75 F YES**, the existing-wallet 100 pUSD test allocation
+and the exact 10 pUSD request/order ceiling. The preceding public preparation
+`pilot-20260907T001459491Z` stopped before manifests or live execution:
+September 6's selected ask equaled the minimum tick, so its nonmarketable
+BUY gate correctly refused. A wholly new preparation selected the September 7
+event under the existing portable current-or-following-date contract. No
+selector evidence was rewritten and no safety gate was relaxed.
+
+| Stage | Verified completion and scope |
+| --- | --- |
+| Stage 0 | Parent and child PASS; no order submission. Parent finished September 7 01:06:15.259652 UTC. |
+| Stage 1 cancel-all | One distinct post-only BUY, 5 shares at 0.001 pUSD (0.005 pUSD notional); result completed 01:06:56.718487 UTC and parent PASS at 01:06:58.026785 UTC. |
+| Stage 1 dead-man | A second distinct BUY at the same minimum size/price; automatic cancellation observed after **10.359 seconds**, inside this experiment's 10-15-second observation window. Result completed 01:07:49.624794 UTC and parent PASS at 01:07:50.674143 UTC. This observation does not establish a venue-wide timeout guarantee. |
+| Offline bundle | `mm_stage1_lifecycle_bundle_v0.3` and command receipt PASS at 01:07:50.895599 UTC, September 6 21:07:50 Toronto. |
+
+Both probes proved authenticated placement/cancellation, terminal REST zero
+matched size, zero scoped account trades, zero ending account open orders,
+zero exact-scope positions, two-second post-cancel quiescence and unchanged
+collateral within each probe. The observed collateral was 489.60767 pUSD;
+the larger whole-wallet balance did not expand the declared 100 pUSD test
+allocation. Command cleanup passed, every child exited zero, and no forced
+Job teardown or launcher exception occurred. This is a **no-fill** lifecycle
+proof; it does not test fills, establish profit, or authorize Stage 2.
+
+Independent read-only review reran the canonical lineage validators, bootstrap
+loader and pure in-memory bundle builder against the retained files. The
+loader used the original bundle's clock only for retrospective validation;
+no evidence timestamp or live authority was renewed. Recomputed bundle facts
+and both lineage records exactly matched the originals. All **39** checked
+artifact hashes were unchanged before/after review. The subsequent host
+receipt at 01:14:33.5872680 UTC proved clean source at the execution tip, zero
+portable Python processes and no workload poison record.
+
+The host-local originals remain outside Git under the attempt and
+`WeatherPortable/prep-20260906/`; controller copies of the review receipts
+are retained under ignored `scratch/handoffs/live-test-preparation-20260906/`.
+They are not assumed to exist in a clean checkout. Exact review evidence:
+
+| Receipt / artifact | SHA-256 |
+| --- | --- |
+| `v7-terminal-evidence-snapshot-v1.json` | `b175a60793fdd64eeced8ac22fb09f3b8e94a6f540ac40b006edf8d8e16da442` |
+| `v7-independent-terminal-review-v1.json` | `581d9af9923fd660fc006914f475f84af6035ebd74621fae27fea65527a7a877` |
+| Lifecycle bundle semantic hash | `f500e2468bbd2678a81a05cb8494d1a22f2092cbe3c85a80f2a1bc5df9755ee5` |
+
+Preserve this completed attempt and all earlier spent attempts. The v6 parent
+UNKNOWN receipt remains historical failure evidence. The v7 command is spent;
+a new attempt is unnecessary for this completed scope. No further live action,
+unattended loop, Stage 2 promotion or economic conclusion follows from this
+review.
+
+## 2026-09-06 Stage 1 parent result repair
+
+[PR 35](https://github.com/michaelbooth1/weather/pull/35) merged the runtime
+parity repair at `6b13ae38033d3830b0b4536862a5a0e01e7bd60e`.
+[Source CI](https://github.com/michaelbooth1/weather/actions/runs/34055033085)
+and [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34055512531)
+each passed 4,668 tests/921 subtests with 260 skips. The actual portable clone
+adopted that clean exact tip at 19:46:15.6404395 UTC; its public SDK audit passed.
+
+In spent attempt `pilot-20260906T194643245Z`, Stage 0 passed and the Stage 1
+cancel-all **probe and wrapper passed**. The command ran from
+19:52:29.929597 to 19:53:02.072813 UTC. One minimum-size post-only BUY had
+5 shares at 0.001 pUSD, or 0.005 pUSD notional. REST and the authenticated
+stream observed the order; cancellation, zero matched size, zero account open
+orders, zero exact-scope positions, zero scoped trades, two-second quiescence,
+unchanged collateral and cleanup all passed. These are lifecycle facts, not
+profitability evidence.
+
+The parent then reported `UNKNOWN` despite child exit zero because its shared
+Stage 1 result validator still imposed a 100 pUSD whole-wallet ceiling on the
+observed 447.01397 pUSD balance. This fourth stale consumer was missed in the
+preceding repair. The dead-man stage did not run. Preserve the original parent
+receipt as `UNKNOWN` and every file in the spent attempt unchanged. Read-only
+consumption of the retained result after the capital repair exposed a second
+parent defect: `bootstrap_sha256` is the canonical validated gate hash, while
+the parent compared it with the raw file hash. The producer and bundle agree
+on the gate meaning; the parent fixture had incorrectly used a raw file hash.
+
+`codex/stage1-parent-capital-20260906` replaces that ceiling with the shared
+capital validator for both Stage 1 modes. It binds the consumed identity bytes
+and fixed path to the original session manifest and seal. Finite cash and
+allowance must each back the sealed request within the declared allocation;
+the isolated-wallet whole-balance ceiling and all order, no-fill, journal,
+scope, deadline and cleanup checks remain. The remaining lifecycle bundle
+consumer already honors allocation mode; its regression now covers the
+observed cash and large finite allowance through both probes and bundling.
+The parent now reconstructs the bootstrap gate at the sealed boundary, checks
+its semantic hash using the producer's hash function, and binds the original
+file hash to the exact bytes consumed by the loader. Parent fixtures now use
+real finalized bootstrap evidence and the canonical loader, including its
+canonical path. Raw-file/gate-hash substitution and changed bytes are rejected.
+
+The new offline parent tests reproduced four valid-allocation failures against
+the installed source and six missing/changed/unbound-identity cases that the old
+parent failed to reject. Twenty controls passed. Tests call the actual composer
+with an inert launcher producing temporary receipts; no credentials or exchange
+methods are invoked. Receipts use the `stage1-parent-capital-` prefix under the
+same workstation and controller preparation directories described below.
+The capital-only repair passed 447 focused checks. The combined repair then
+passed a read-only comparison against the **real retained attempt**: the old
+parent returns FAIL, the repaired parent returns PASS for the child, and all
+17 checked evidence hashes remain unchanged. This diagnostic is retained as
+`stage1-parent-capital-retained-evidence-v1.json`; it does not rewrite the
+original UNKNOWN parent receipt. The combined repair passed 201 final Windows
+checks, including the real-loader parent regressions, bootstrap hash binding,
+lifecycle, architecture and documentation checks. Source/topic CI, portable
+adoption and a wholly fresh attempt remain qualification steps. Only the
+operator executes the financial sequence.
+
+## 2026-09-06 Stage 1 runtime parity repair
+
+Reviewed-command authorization is merged as
+[PR 34](https://github.com/michaelbooth1/weather/pull/34) at
+`d8f038e91684cc85faf14fc25603c37d697978cd`.
+[Merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34050632945)
+passed 4,617 tests/921 subtests with 260 skips; the actual portable clone
+adopted that clean exact tip. Later Git and host receipts own subsequent tips.
+
+After the owner reported clearing intentional orders and the last position,
+fresh attempt `pilot-20260906T185946784Z` passed Stage 0 at
+19:04:31.468269 UTC: two heartbeats, one cancel-all, no submitted order,
+zero account open orders and exact-scope positions, and cleanup PASS.
+Stage 1 cancel-all then failed at `preflight` at 19:04:48.350604 UTC.
+The execution receipt has no command artifact or host attestations, records
+no live mutation/order submission and conservatively leaves credential
+activity unknown. Its parent validated the child failure. Dead-man did not
+run. Preserve this spent attempt and all earlier attempts unchanged.
+
+The Stage 1 wrapper still compared credential receipt/reference **paths**
+with Stage 0 paths, although the manifest producer intentionally creates
+stage-specific copies. Both pairs had identical reviewed hashes and bytes.
+The sealer already accepted this under PR 32; the runtime template had missed
+the repair. Its preflight now calls the same exact-byte comparator, requiring
+both original and current paths to remain regular, nonredirected and hash-valid.
+
+Review also found three remaining whole-wallet 100 pUSD checks in Stage 1
+terminal validation and cancel-all predecessor validation. Both wrapper modes
+and the sealer now use the hash-bound identity's capital contract: finite cash
+and allowance must each back the requested budget, and only isolated mode caps
+the whole balance. Existing-wallet allocation, the 10 pUSD request/order cap,
+all no-fill/zero-state/journal checks and the dead-man timing contract remain.
+
+Offline tests reproduced three expected failures on the installed old source:
+both wrappers rejected valid stage-specific copies, and dead-man sealing
+rejected 275.48 pUSD cash with a valid 100 pUSD test allocation. The repaired
+source passed 416 focused Windows checks under the shared-mutex workstation
+wrapper. New tests execute the inert validation functions from actual sealed
+templates; they never invoke live main, credentials or exchange methods.
+They cover changed/missing/redirected credential evidence, both capital modes,
+insufficient backing and nonfinite numeric evidence. JUnit receipts are retained
+under portable-local `WeatherPortable/prep-20260906/` and mirrored under
+controller-local `scratch/handoffs/live-test-preparation-20260906/` as
+`stage1-runtime-parity-old-regression-v2.xml` and
+`stage1-runtime-parity-focused-v1.xml`.
+
+Exact final-tip and merged-topic CI, clean portable adoption and a wholly new
+reviewed attempt remain release gates. This repairs preparation/runtime parity;
+neither Stage 1 mode nor economic readiness has passed live. Only the operator
+invokes the reviewed financial sequence locally.
+
+## 2026-09-06 reviewed command authorization
+
+The owner explicitly stated that running the reviewed local command authorizes
+the complete sequence and rejected the repeated confirmation prompts.
+The previous credential-lifecycle redesign is merged as
+[PR 33](https://github.com/michaelbooth1/weather/pull/33) at
+`d84e0b68cad7eb81eada9e8825b324a2841bee81`.
+[Merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34046705661)
+passed 4,600 tests/921 subtests with 259 skips. The actual portable clone
+cleanly adopted that tip at 16:57:34.7901148 UTC; its public installed SDK
+audit passed. The retained original credential comparison remains unchanged.
+
+The owner then ran attempt `pilot-20260906T165758983Z`. Its keyless Stage 0
+doctor passed at 17:32:22.568907 UTC. The execution receipt failed at
+`supervised_confirmation` at 17:33:46.056846 UTC after the pasted command was
+read as the expected text literal. That control-flow boundary precedes
+credentialed Stage 0. The receipt has no command artifact and records unknown
+activity facts; preserve those facts rather than rewriting the receipt. The
+parent run receipt validated the child failure, exited 1 and reported neither
+timeout nor forced teardown. A 17:43:53.6258326 UTC bounded host check found no
+portable Python process or workload poison record. The failed attempt is spent.
+
+`codex/attended-command-authorization-20260906` removes keyboard prompts from
+Stage 0 and the shared Stage 1 cancel-all/dead-man template. Invocation of the
+reviewed local command supplies authorization and its stated physical
+eligibility/no-circumvention attestation for the bounded sequence. Each wrapper
+displays and hashes that meaning with the exact scope. Internal confirmation
+markers remain library contracts, without implying fresh keyboard input. The
+wrapper rejects Windows service session zero using the actual process session
+API before SDK activation. A desktop session cannot prove human presence;
+attendance remains an operator obligation. The
+[owning contract](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#reviewed-command-authorization)
+states these limits and the reason for each retained check.
+
+Fresh official geographic checks and ambient-proxy rejection still run before
+credentials and again at mutation/submit. Source/host/principal binding,
+retained credential provenance, current vault/account authentication, current
+market rules, shared workload exclusion, absolute deadlines, single-use
+attempts, 100 pUSD allocation, 10 pUSD order cap, minimum-size post-only orders,
+stop-on-fill and cleanup remain in force. No generic bypass flag is added.
+
+All three new positive runtime-template regressions fail at the unwanted prompt
+on the old source. The changed source passed 320 focused Windows tests through
+the admitted workstation wrapper. Twelve actual sealed-template cases cover
+all three stages with no input, session-zero refusal and failure of either
+official geographic check before the protected boundary. API tests verify
+Windows session metadata and reject API failure/non-Windows fallback. Existing
+source, host, deadline, credential and lifecycle tests are included. Public
+JUnit receipts are retained under portable-local `WeatherPortable/prep-20260906/`
+as `command-authorization-old-regression-v1.xml` and
+`command-authorization-focused-v1.xml`.
+
+Exact final-tip and merged-topic CI, clean portable adoption and a wholly new
+reviewed attempt remain release gates. Git and host-local receipts own later
+qualification. The agent prepares and verifies; only the operator invokes the
+financial sequence locally. No Stage 1 live success or economic readiness is
+claimed.
+
+## 2026-09-06 credential lifecycle redesign
+
+The owner challenged the repeated backup-file prompt and explicitly requested
+redesign and implementation, including review of inherited rules. The previous
+evidence-copy repair is merged as [PR 32](https://github.com/michaelbooth1/weather/pull/32)
+at `f70bdf9d217e387052e94f37887fb268fcad248d`; its
+[merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34043516166)
+passed 4,584 tests/921 subtests with 259 skips. The actual portable clone
+adopted that exact clean tip at 15:57:01.057409 UTC, and the installed public
+SDK audit passed at 15:57:16.268314 UTC. These are portable-only results.
+
+The two-hour credential-receipt expiry entered with `d265af2b9`; no protocol
+or measured basis was established for that interval. It forced the operator
+to recreate a private source after that source had correctly been removed.
+The receipt only proves a past installation/comparison. Actual credentials can
+be invalid immediately afterward, or remain valid long after two hours.
+Polymarket's [authentication contract](https://docs.polymarket.com/getting-started/api#authentication)
+uses the signer and API credentials on private requests. The existing runtime
+already checks the current signer/funder/type and authenticates current account
+reads before its lifecycle writes.
+
+`codex/vault-credential-lifecycle-20260906` therefore:
+
+- accepts either exact clean v0.4 creation or comparison as retained
+  host/principal-bound installation provenance, without an age expiry;
+- preserves the original timestamp and bytes, rejecting invalid/future
+  timestamps, other hosts/users, incomplete tuples, rollback and bad checks;
+- removes mandatory post-create comparison and normal-retry backup access;
+- updates the manifest builder, launcher review, fixed sealer and both runtime
+  templates to the same contract, including the shared dead-man template;
+- keeps live vault resolution, signer/funder/type checks, current authenticated
+  account reads, single-use attempts, source/host binding, current geography and
+  market checks, deadlines, cleanup, 100 pUSD allocation and 10 pUSD order cap;
+- records each retained/removed rule's reason in the
+  [owning runbook](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#credential-provisioning-and-fresh-comparison)
+  and extends the durable operating-rule guidance to challenge procedural as
+  well as numeric requirements.
+
+Seven regression cases fail on the old code with the expected creation/age
+rejections. The revised source and templates pass 378 focused Windows tests
+with two platform skips through the admitted workstation wrapper. Tests cover
+three-hour and year-old provenance without retimestamping, both receipt modes,
+real runtime-template validation calls, wrong host/user and invalid timestamps,
+and rejected current authentication stopping Stage 0 and both Stage 1 modes
+before their collector/probe writes. Existing changed-private-signer and
+wrong-wallet/type checks remain covered. The JUnit receipts are retained under
+portable-local `WeatherPortable/prep-20260906/` as
+`vault-lifecycle-old-regression-v1.xml` and `vault-lifecycle-focused-v2.xml`.
+
+Compilation, the agent-docs audit and roadmap generation/lint also pass.
+Exact final-tip and merged-topic CI and clean portable adoption still govern
+release of this redesign. Their Git and
+host-local receipts own later qualification. No new live attempt or credential
+operation was executed by this implementation; the previous attempt remains
+spent. Stage 1 live success and economic readiness remain unproved.
+
+## 2026-09-06 Stage 0 success and Stage 1 evidence-copy lineage repair
+
+[PR 31](https://github.com/michaelbooth1/weather/pull/31) was merged into the
+authorized portable topic at `02f2ee06e8ed8d3ee9a3d59f19b8bfaac8d3cd55`.
+Its [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34041102287)
+passed 4,574 tests and 921 subtests with 259 skips. The actual portable clone
+adopted that exact clean tip at September 6 15:10:44.802010 UTC, with synchronized
+local/cached/live refs and ancestral master. This is not capture-host adoption.
+
+The owner then executed new attempt `pilot-20260906T151133217Z` locally.
+Stage 0 passed at 15:23:37.810560 UTC with the explicit existing-wallet
+100 pUSD allocation and 10 pUSD request. The retained bootstrap reports
+275.4775 pUSD cash separately, two acknowledged heartbeats, one cancel-all,
+zero open orders and zero positions in the selected condition/token scope.
+No order was submitted. Command, wrapper and session receipts report PASS;
+cleanup passed and a subsequent bounded host check found no portable Python
+process or workload poison record. This proves the attended Stage 0 result,
+not Stage 1 order lifecycle, account-wide absence of positions or economics.
+
+Stage 1 cancel-all selected a fresh public lifecycle plan, then stopped in
+sealing before a Stage 1 wrapper, seal, run intent or terminal receipt was
+published. It did not reach the live-order launcher; dead-man never started.
+The attempt is spent and must not be rerun or rewritten.
+
+A read-only diagnostic replay of `_validate_stage0_lineage` against the retained
+public receipts reproduced `SealError`: only two of 83 checks failed. Both
+required the Stage 1 credential receipt/reference paths to equal the Stage 0
+paths. The manifest builder deliberately stages separate copies per stage;
+both pairs have equal actual bytes and correct identical SHA-256 hashes.
+The diagnostic and public copies are retained under controller-local
+`scratch/handoffs/live-test-preparation-20260906/stage0-pass-stage1-block-151133217Z/`
+and portable-local `WeatherPortable/prep-20260906/`; the original attempt is
+unchanged. No credential value or exchange endpoint was accessed by diagnosis.
+
+The repair in `codex/stage-evidence-lineage-20260906` compares both records'
+reviewed hashes and rereads their absolute, regular, non-redirected files to
+prove byte equality. It retains all Stage 0 seal/execution bindings. The same
+validator protects both Stage 1 modes; no capital, credential freshness,
+geography, order, cancellation, deadline or cleanup gate changes. Regression
+fixtures reproduce both modes' old refusal and cover missing, changed,
+rehashed or redirected public evidence. The old code failed both new mode
+regressions; the repaired source passed 226 focused Windows tests through the
+admitted workstation wrapper. An offline check of the unchanged live receipts
+with the repaired validator passed all 81 resulting checks. Those diagnostics
+did not seal or execute another stage. Exact Git/CI and retained qualification
+receipts own later publication and adoption. A new attempt still requires
+current credential comparison and fresh reviewed manifests and launchers.
+
+## 2026-09-06 first Stage 0 failure and existing-wallet allocation repair
+
+The owner authorized the attended International Stage 0/1 test and access to
+up to 100 pUSD for testing, confirmed attendance and physical eligibility,
+and then explicitly requested keeping the existing wallet and fixing the code
+while preserving the 100 pUSD testing limit. This supersedes the earlier
+preparation-only authority and isolated-wallet requirement for this exact
+Stage 0/1 test. The 10 pUSD order/request limit remains.
+
+Spent attempt `pilot-20260906T132919010Z` failed September 6 at
+14:07:03.377293 UTC in Stage 0's `balance_cap` phase. The collector converted
+six-decimal collateral correctly and refused cash above the then-required
+100 pUSD isolated-wallet funding ceiling. The owner reported wallet cash of
+275.48 pUSD; that UI report is not an independently retained numeric account
+read. Do not create another wallet, transfer funds, relabel this wallet
+isolated, rewrite this attempt or rerun its launcher.
+
+The retained terminal command/wrapper/run receipts and separate hash audit
+agree: credential values were read only in memory; all signer/API-owner/
+funder/order-signer comparisons passed; an authenticated user-stream
+subscription was sent; heartbeat and cancel-all attempt counts were both zero;
+no order was submitted; cleanup passed; Stage 1 never started. The hash audit
+passes all 11 evidence-binding checks, which proves the diagnosis and retained
+lineage, not successful Stage 0. Its SHA-256 is
+`22540f3b6b525c83fee5f1e1ee962dfd406beaa33aca01f6b9d5ae9bccb0fbf2`.
+
+The portable originals remain under
+`C:/Users/Michael/AppData/Local/WLive/attempts/pilot-20260906T132919010Z`.
+Public copies, the audit and its helper are retained on the controller under
+`scratch/handoffs/live-test-preparation-20260906/failed-stage0-20260906T140703Z/`.
+The prior independent credential source file was deleted only after the
+owner confirmed a separate secure backup; the credential vault was unchanged.
+
+The repair is stacked on portable source `e82dd916a842ee8d011f9d09464978d956ab3a46`
+via `codex/live-test-capital-allocation-20260906`. It adds the explicit
+existing-wallet test allocation contract in
+[the live-pilot runbook](../../operations/INTERNATIONAL_MM_LIVE_PILOT.md#pilot-capital-contract):
+identity v0.4, bootstrap v0.6, truthful cash/funding/allocation fields, shared
+validation through the action-time and bundle boundaries, and sealed scope
+display. Existing isolated-wallet and ordinary-runner gates retain their
+whole-balance semantics. The single reviewed attempt can submit at most two
+BUY orders of at most 10 pUSD each and stops on any fill or failed cleanup;
+no repeating session or Stage 2 authority is added.
+
+The corrected implementation at `ea2734edbe3b5c1af06b4559cc6cb91332698b37`
+passed 452 focused Windows tests and 14 subtests, compilation, agent-docs audit
+and roadmap parity. The retained JUnit report is
+`scratch/handoffs/live-test-preparation-20260906/capital-allocation-focused-02.xml`,
+SHA-256 `b4591fb55f5ca1e96096ab9c22e47e31b8a77877d49c35089fb606e0a757a110`.
+[PR 31](https://github.com/michaelbooth1/weather/pull/31) records the complete
+reviewed change. Its [full CI](https://github.com/michaelbooth1/weather/actions/runs/34040122643)
+passed 4,574 tests and 921 subtests with 259 skips; the first fixture-only
+failures remain retained in the earlier report. Later documentation commits
+retain their own exact-head CI requirement. Use Git and portable source-update
+receipts to prove adoption before a fresh attempt. At that repair's preparation
+time no successful Stage 0 or Stage 1 evidence had been produced; the later
+attended result is recorded above.
 
 ## 2026-09-05 preparation for the September 6 attended test
 

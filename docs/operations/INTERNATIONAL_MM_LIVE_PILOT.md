@@ -32,7 +32,7 @@ prove current execution-host qualification or a successful Stage 0/1 protocol.
 
 **Stage 0/1 execution is currently HOLD until every action-time gate below
 passes.** The explicit execution-host profile,
-truthful Stage 0 authenticated-write confirmation contract, and canonical
+truthful Stage 0 authenticated-write authorization contract, and canonical
 fixed-session manifest builder are implemented by the fixed-scope software
 described here. On adopted master, both profiles require
 `HEAD == master == cached origin/master == live canonical refs/heads/master`.
@@ -49,7 +49,7 @@ The portable exception removes only master promotion. It does not make the
 branch production-adopted or claim production-host integration, capture
 recovery, or Scheduler state, and it does not remove any money, SDK,
 credential, identity, geography, account, balance, allowance, zero-state,
-order, cancellation, deadline, cleanup, or attended-confirmation gate.
+order, cancellation, deadline, cleanup, or attended-authorization gate.
 
 ### Stage-scoped candidate-gate redesign qualification
 
@@ -101,7 +101,7 @@ optimum unless a cited measurement says so:
 | Value | Owner and classification | Current authority and review trigger |
 | --- | --- | --- |
 | `0.05` selector spread, `0.20-0.80` midpoint, and `0.08` paper harvest spread | Stage 2 experimental heuristics, introduced without a measured derivation | May rank or parameterize paper experiments. They have no Stage 0/1 authority. Replace or promote only after a preregistered spread-bucket fill, markout, settlement, and reward study. |
-| 10 pUSD order/request and 100 pUSD wallet balance | Explicit owner-approved first-pilot loss/exposure envelope | Hard at every order boundary. These are chosen risk limits, not claims of optimal size; changing them requires new owner authority and a new loss/exposure review. |
+| 10 pUSD order/request and 100 pUSD test allocation | Explicit owner-approved first-test envelope; the owner authorized using the existing wallet on September 6 | Hard at every order boundary. The existing-wallet mode caps the test allocation, not total wallet cash. It authorizes only the sealed Stage 0/1 attempt: two single-submit BUY probes, each at most 10 pUSD, with a stop on any fill. The separate isolated-wallet mode retains its whole-balance ceiling. |
 | 300-second Stage 0/1 plan | Derived session-containment bound | Hard and executable: 240-second portable session + 20-second cleanup reserve + at most 40 seconds consumed by preparation/revalidation. Composition requires at least 260 seconds remaining and sealing contains cleanup before expiry. Recalculate if any envelope changes or observed preparation latency approaches 40 seconds. |
 | 15-second current-Gamma request timeout | Stage 0/1 plan-generation operational budget, not a venue rule or quote heuristic | Fail closed when exact current event identity cannot be obtained. It preserves room inside the enforced 40-second preparation margin for book/rule reads and composition; review against observed endpoint latency if it approaches the budget. |
 | 5-second heartbeat cadence, 7.5-second acknowledgment lease, and 10-second market-rule lease | First-pilot operational safety margins from the August 13 lifecycle design | Hard only while an order lifecycle is active. Re-measure when venue heartbeat behavior changes or observed network/signing/rule latency approaches a margin. |
@@ -125,8 +125,34 @@ official geoblock result and an attended no-circumvention attestation; an
 unblocked egress classification that disagrees with physical location is not
 authority.
 The protocol never solicits, accepts, or stores an operator-supplied city,
-state/province, or country. It uses only the exact attended eligibility and
-no-circumvention literal plus Polymarket's credential-free geoblock response.
+state/province, or country. It uses the eligibility/no-circumvention attestation
+carried by the reviewed attended command plus Polymarket's credential-free
+geoblock response.
+
+### Reviewed command authorization
+
+Running the reviewed command from the assigned signed-in Windows desktop
+authorizes its complete bounded Stage 0, Stage 1 cancel-all and Stage 1 dead-man
+sequence. The operator must remain present and physically eligible, with no
+VPN, proxy, remote-location service or other circumvention. Invocation affirms
+those conditions for the sequence. Do not ask the operator to repeat stage or
+physical-location confirmations. If the conditions change, stop the sequence.
+Each stage still displays and hashes its exact scope, including
+`authorization_method=reviewed_command_invocation` and the two attestation
+booleans. Retained fields named `confirmation` are internal contract markers;
+they do not claim that a keyboard prompt was answered.
+
+The command must state the 100 pUSD allocation/funding limit, 10 pUSD order
+limit, Stage 0 authenticated heartbeats and account-wide cancel-all, and one
+minimum-size post-only submission in each Stage 1 mode. A failure or unexpected
+fill stops the sequence. Preparing or sealing files grants no live authority.
+Every fixed wrapper rejects Windows session zero before SDK activation. It
+obtains its own process session through
+[ProcessIdToSessionId](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-processidtosessionid);
+Windows services use [session zero](https://learn.microsoft.com/en-us/windows/win32/services/interactive-services).
+A nonzero session is only a necessary technical condition: it cannot prove
+human attendance or physical location. Exact host/principal binding and fresh
+official geographic checks remain mandatory.
 
 Use International Polymarket only (`polymarket_global`). The live pilot must
 reject every other platform identifier.
@@ -137,12 +163,61 @@ schema fields ending in `_usdc` remain compatibility names for one-dollar
 amounts; they do not authorize reading a USDC.e balance as the trading
 collateral balance or treating an unwrapped asset as pUSD.
 
+## Pilot capital contract
+
+`weather.market.mm_pilot_capital` owns the shared validation used by identity
+preparation, the keyless doctor, sealing, Stage 0 collection/loading, Stage 1
+capability issuance, uncached collateral reads, lifecycle bundle validation,
+the sealed wrapper's predecessor and terminal-result checks, and the parent
+session runner's independent result validation.
+The current identity is v0.4 and bootstrap is v0.6; older versions remain
+registered historical evidence and cannot authorize a fresh attempt.
+
+For an existing wallet, the public declaration must contain
+`pilot_capital_mode="existing_wallet_test_allocation"`,
+`pilot_test_allocation_pusd=100`, `isolated_pilot_wallet=false`, and
+`pilot_wallet_max_funding_usdc=null`. Mixed, missing, nonfinite or over-limit
+contracts fail closed. Legacy `_usdc` funding fields retain their whole-wallet
+meaning and are never silently reinterpreted as test allocations. The keyless
+CLI uses `--test-allocation 100 --confirm-existing-wallet-allocation`;
+`--wallet-cap 100 --confirm-isolated-wallet` selects the separate isolated mode.
+Neither preparation path reads credentials or moves funds.
+
+Every Stage 1 collateral postcondition requires finite balance and allowance
+that each back the sealed requested budget, bounded by the identity's declared
+capital limit. The sealer, runtime wrappers and parent session runner recheck
+the hash-bound identity and use the same validator. The parent binds the
+identity's fixed path and consumed bytes to the original session manifest and
+seal receipt before validating either Stage 1 result. Only an isolated-wallet
+identity imposes a ceiling
+on total wallet cash; cash above 100 pUSD in existing-wallet allocation mode
+does not invalidate a correctly bounded lifecycle result.
+
+The Stage 1 result's `bootstrap_sha256` hashes the canonical validated bootstrap
+gate, including its canonical path and checks; it is not the raw bootstrap file
+hash carried by the seal. The parent reconstructs that gate at the sealed
+session boundary and compares the like-for-like hash. The loader separately
+checks the original seal-bound file hash against the exact bytes it parses.
+Missing, changed, invalid or differently scoped bootstrap evidence fails closed.
+This historical result check does not replace the child's fresh bootstrap gate
+before credential access or grant authority to reuse a spent attempt.
+
 ## Immutable pilot envelope
 
-- Dedicated isolated wallet funded with no more than **100 pUSD**
-  of the exchange-supported settlement collateral verified during preflight.
-- The first Stage 0/1 request is exactly **10 pUSD**. Any later authorized run
-  budget must remain no more than its wallet cap and no more than **100 pUSD**.
+- The attended Stage 0/1 test may use an existing wallet with an explicit
+  **100 pUSD testing allocation**. Its total cash may exceed that allocation.
+  This is a software limit on this exact test, not a segregated subaccount or
+  a claim that existing holdings are part of the test. Record actual cash
+  separately; never label the existing wallet isolated.
+- The first Stage 0/1 request is exactly **10 pUSD**. One sealed attempt permits
+  at most two single-submit BUY probes, each at most 10 pUSD (at most 20 pUSD
+  gross submitted notional across the attempt, below the 100 pUSD allocation).
+  A fill or failed reconciliation stops the sequence. This allocation grants
+  no repeat loop, general maker-run authority or Stage 2 promotion.
+- The separate isolated-wallet contract still caps total funded cash at
+  **100 pUSD**. Stage 2 and the ordinary live-pilot runner retain that contract
+  and all existing readiness/risk gates; the Stage 0/1 allocation is not a
+  substitute for those proofs.
 - Exactly one weather market per run.
 - Existing ceilings may be lowered but not raised: **25** daily loss, **25**
   event notional, **10** band notional, and **120 seconds** quote TTL.
@@ -192,9 +267,9 @@ All must be current for the target date and selected market:
    stage requires economics acceptance, a paper run, the portable substrate
    preflight, spread/midpoint limits, reward/rebate eligibility, or a positive
    fee; those remain Stage 2/paper evidence.
-3. Before the first lifecycle order, `mm_platform_bootstrap_v0.5` passes for
+3. Before the first lifecycle order, `mm_platform_bootstrap_v0.6` passes for
    the exact token and condition. This non-order, at-most-one-hour-old artifact
-   proves the isolated wallet identity, recorded cap, numeric collateral
+   proves the wallet identity and explicit capital contract, numeric collateral
    balance and allowance each backing the requested budget, a content-bound
    account snapshot, an observed zero open-order count, fresh pre-mutation
    geographic eligibility, current book/min size/tick/neg-risk, the current
@@ -236,11 +311,12 @@ All must be current for the target date and selected market:
    following exact non-circular substitute gates: current exact-tip production
    inventory; public credential references; target-date generated event
    metadata and stage-specific current public book/rule evidence; fixed non-raisable
-   10 pUSD order and 100 pUSD wallet caps; execution-host, clock, reboot, and
+   10 pUSD order and 100 pUSD testing allocation (or isolated-wallet funding)
+   caps; execution-host, clock, reboot, and
    workload-lease health plus capture/tape/streak health when using the
    colocated profile; zero unknown open orders and zero starting
    positions; successful Stage 0 bootstrap before Stage 1; fresh geographic
-   eligibility; and every stage-specific, hash-bound attended confirmation.
+   eligibility; and stage-specific, hash-bound reviewed-command authorization.
    This decision is not self-executing and cannot clear the HOLD until the
    complete implementation receives exact-tip reproof. For the capture profile
    that means production-adopted master. For the portable profile, only the
@@ -279,7 +355,7 @@ All must be current for the target date and selected market:
    maker-quote/economics claim; they do not block Stage 0 or Stage 1. Paper,
    economics-acceptance, drift, and substrate-preflight artifacts are
    Stage 2/paper-only and are absent from both plan schemas. Stage 0, account state,
-   current market rules, the literal confirmation, and the one-submit adapter
+   current market rules, reviewed-command authorization, and the one-submit adapter
    capability remain independent mutation gates.
 8. Select exactly one immutable execution-host profile. For
    `capture_colocated_v1`, the complete plan-derived execution window
@@ -302,8 +378,8 @@ All must be current for the target date and selected market:
    `GET https://polymarket.com/api/geoblock` endpoint, retain only
    `blocked/country/region`, observation time, and a redacted decision hash
    (never the IP or a reversible IP commitment), and require `blocked=false`.
-   Separately require the attended operator to
-   attest that the operator and execution host are physically in an eligible
+   The reviewed command's invocation also attests that the attended operator
+   and execution host are physically in an eligible
    location and that no VPN, proxy, remote-location service, or other
    circumvention is in use. An unavailable endpoint, `blocked=true`, a
    physically blocked location, or disagreement between the endpoint and the
@@ -318,9 +394,10 @@ All must be current for the target date and selected market:
    the raw response byte count, a recomputable hash of the retained
    `blocked/country/region` decision, and a self-hash over the complete receipt.
    It validates the returned source address but never retains that address.
-   The attended literal is
+   The retained internal attestation marker is
    `INTERNATIONAL_POLYMARKET_PHYSICALLY_PRESENT_IN_ELIGIBLE_JURISDICTION_NO_VPN_PROXY_REMOTE_HOST_OR_CIRCUMVENTION`.
-   Refusing or mistyping it blocks before live mutation. Stage 0 writes distinct
+   It is supplied from reviewed-command authorization without another prompt.
+   Stage 0 writes distinct
    precredential and pre-mutation receipts; each Stage 1 mode writes distinct
    precredential and submit-adjacent receipts. All are sealed output paths,
    source-hash-bound execution artifacts. Any failed check spends its receipt
@@ -335,7 +412,7 @@ All must be current for the target date and selected market:
 
 The first attended test is **Stage 0 heartbeat/account-wide cancel-all, Stage 1
 cancel-all, then Stage 1 dead-man**. Keep the exact **10 pUSD request and 100
-pUSD wallet cap**, one market, and one minimum-size, minimum-tick, post-only
+pUSD testing allocation**, one market, and one minimum-size, minimum-tick, post-only
 BUY per Stage 1 mode. All [pilot ceilings](#immutable-pilot-envelope) and
 [prerequisites](#prerequisites) remain binding. This sequence locates the full
 command blocks below; it does not grant live or Stage 2 authority.
@@ -352,10 +429,11 @@ their intended paths now; create expiring plans only when ready to consume them.
 
 **At the attended session:**
 
-1. Use the prepared, unspent attempt and a fresh host/principal-bound v0.4
-   [compare-only credential receipt](#credential-provisioning-and-fresh-comparison)
-   from `weather.market.mm_credential_import_cli --verify-existing-exact`.
-   Its maximum age is two hours. Prior provisioning is not this fresh proof.
+1. Use the prepared, unspent attempt and the retained host/principal-bound v0.4
+   [credential installation receipt](#credential-provisioning-and-fresh-comparison)
+   and public reference manifest. A clean creation or exact comparison is valid
+   provenance without an age expiry. Each live stage resolves the current vault
+   entries and repeats signer/account authentication checks.
 2. Run [discovery](#event-metadata-and-stage-discovery) through
    `weather.market.mm_live_stage0_scope`, then
    `weather.market.mm_live_stage1_lifecycle_plan` for that exact condition/token.
@@ -368,7 +446,8 @@ their intended paths now; create expiring plans only when ready to consume them.
    [fresh Stage 0 scope and reviewed no-argument launcher](#fresh-stage-0-scope-and-attended-launch)
    as one uninterrupted block. Use only the manifest's staged metadata and
    exact selected condition/token. Stage 0 submits no order; its authenticated
-   heartbeat and account-wide cancel-all writes require the attended literals.
+   heartbeat and account-wide cancel-all writes are part of reviewed-command
+   authorization.
 4. Only after Stage 0 passes, invoke the
    [fresh Stage 1 helper](#fresh-stage-1-plans-and-attended-launches) for
    `stage1_cancel_all`, then `stage1_dead_man`. Each helper creates a separate
@@ -412,9 +491,10 @@ receipts therefore record `order_submit_attempted=false` separately from
 `authenticated_exchange_write_attempted=true`; generic exchange mutation is
 also true. Calling Stage 0 fully read-only is incorrect.
 
-- Fill the public `mm_stage0_client_identity_v0.3` manifest. It binds only the
+- Fill the public `mm_stage0_client_identity_v0.4` manifest. It binds only the
   International platform, chain, pinned SDK, public wallet topology,
-  isolated-wallet declaration, capital cap, and the literal
+  explicit existing-wallet test allocation or isolated-wallet funding cap,
+  and the internal authorization marker
   `INTERNATIONAL_POLYMARKET_STAGE0_HEARTBEAT_AND_ACCOUNT_WIDE_CANCEL_ALL_NO_ORDER`.
   The literal means no order submit while allowing the required authenticated
   heartbeat and unconditional account-wide cancel-all cleanup writes; it does
@@ -459,9 +539,10 @@ PASS receipt without the complete phase, user subscription fact, and exact
   notional no more than 10 pUSD. If an ask exists, the minimum tick must remain
   strictly below it; do not derive safety from midpoint or spread.
 - After the pre-submit host attestor, force an uncached authenticated collateral
-  balance/allowance read. The balance must back the exact 10 pUSD request and
-  remain at or below the isolated-wallet 100 pUSD funding cap; the minimum
-  allowance must back 10 pUSD. Record the normalized snapshot hash before
+  balance/allowance read. The balance and minimum allowance must each back the
+  exact 10 pUSD request. Only the isolated-wallet mode additionally caps the
+  entire balance; existing-wallet mode validates the separately declared
+  testing allocation without capping cash held for other purposes. Record the normalized snapshot hash before
   submit, refresh again after cancellation, and require exact balance/allowance
   hash equality for a no-fill result.
 - Require both the placement response and authenticated stream/open-order
@@ -505,7 +586,7 @@ builder rereads both lifecycle journals and both final authenticated user-stream
 journals, verifies their hashes and scoped cancellation rows, requires distinct
 journal files and order IDs, and derives the no-fill,
 cancel-all, and heartbeat-lapse facts. It independently requires the exact
-10 pUSD bootstrap request, a wallet cap no higher than 100 pUSD, and each
+10 pUSD bootstrap request, a test capital limit no higher than 100 pUSD, and each
 reported order at or below 10 pUSD; upstream PASS booleans do not substitute
 for these numeric checks. Do not hand-author those facts. The tracked bundle
 template is deliberately fail-safe.
@@ -524,7 +605,7 @@ reviewed, host-owned fixed-scope wrapper; the generic CLI cannot invoke
 them. Those library boundaries wire the prepared bootstrap collector and
 lifecycle orchestrator to credential-by-reference loading, the pinned official
 client, the account-wide user stream, and the exact position reader. Stage 1
-requires the literal confirmation
+requires the internal authorization marker
 `INTERNATIONAL_POLYMARKET_STAGE1_LIFECYCLE_PROBE`, a passing bootstrap bound to
 the exact adapter funder, condition, token, and SDK, zero starting orders, and
 one cancellation mode per run. Every starting, ending, and failure-cleanup
@@ -546,7 +627,7 @@ an ambiguous response cannot call the adapter's order method directly.
 The adapter also clamps its effective per-order notional limit to **10 pUSD**
 even if a direct library caller requests more; callers may only lower it.
 Capability issuance and the lifecycle executor independently revalidate the
-finite positive requested budget, isolated-wallet cap, and 100 pUSD operator
+finite positive requested budget, explicit capital contract, and 100 pUSD operator
 ceiling before any order mutation.
 It also requires a new, non-existing journal path. Before placement it writes
 and flushes the authorization, bootstrap hash, exact intent, and budget; after
@@ -561,7 +642,8 @@ client factory. The factory accepts only the narrow public Stage 0 identity
 manifest; requiring the later observed bootstrap here would create an
 impossible dependency cycle. The returned raw SDK client is still not order
 authorization: only `weather.market.mm_live_lifecycle_probe`, with a passing
-observed bootstrap and its separate literal confirmation, may perform Stage 1.
+observed bootstrap and its stage-specific internal authorization marker, may
+perform Stage 1. The reviewed wrapper supplies this marker without a prompt.
 `weather.market.mm_credential_import_cli` is the separate one-time migration
 boundary for an already supplied external credential file. It is not imported
 by the live runner and cannot authorize an order.
@@ -616,8 +698,9 @@ VPN/proxy/location circumvention is not an allowed workaround.
 
 After that host audit, prepare the public identity and one target-date
 event-metadata snapshot on the selected host. The generator below may run
-before credential comparison. Then prepare the fresh public credential
-receipt/reference sources; only after those pass, discover a structural Stage
+before credential setup. Select the retained public credential receipt/reference
+sources for an existing installation, or provision a new installation as below;
+only after those pass, discover a structural Stage
 0 scope and derive a Stage 1 lifecycle plan for that exact condition/token.
 Run all three manifest builds before the discovery plans' 300-second leases
 expire. The
@@ -742,11 +825,11 @@ $identityPreparationOutput = .\venv\Scripts\python.exe -m weather.market.mm_live
   --wallet-type $pilotWalletType `
   --signature-type $pilotSignatureType `
   --budget 10 `
-  --wallet-cap 100 `
+  --test-allocation 100 `
   --identity-out $pilotIdentitySource `
   --receipt-out $pilotIdentityReceipt `
   --confirm-international-platform `
-  --confirm-isolated-wallet `
+  --confirm-existing-wallet-allocation `
   --confirmation INTERNATIONAL_POLYMARKET_PREPARE_STAGE0_IDENTITY
 $identityPreparationExit = $LASTEXITCODE
 $identityPreparation = $identityPreparationOutput |
@@ -759,10 +842,53 @@ if ($identityPreparationExit -ne 0 -or
 
 #### Credential provisioning and fresh comparison
 
-Only after identity preparation passes, create the four secret values as
-Windows Credential Manager generic credentials. Compare-only verification of
-entries created by an earlier reviewed import is not provisioning and does not
-replace the identity gate. If an external source file is used, keep it outside
+**Normal retries require no backup file, import, or repeated comparison.**
+Select the existing public receipt
+and reference manifest for this Windows installation and token principal:
+
+```powershell
+$pilotCredentialManifestSource = Get-VerifiedPilotLocalPath "replace-with-retained-public-reference-manifest-json"
+$pilotCredentialReceiptSource = Get-VerifiedPilotLocalPath "replace-with-retained-public-installation-receipt-json"
+```
+
+Continue at [event metadata and stage discovery](#event-metadata-and-stage-discovery).
+The builder and sealers validate these files and bind their unchanged bytes to
+the new attempt. No credential value is read during this public preparation.
+
+The v0.4 receipt is **installation provenance**, not a claim about today's vault
+contents or exchange access. Both exact clean tuples below are accepted. Keep
+the original timestamp; a valid timezone-aware timestamp must not be in the
+future. Age alone never invalidates it. Earlier receipt versions lacking the
+host/principal binding remain historical audit inputs and cannot authorize
+live preparation.
+
+At every Stage 0/1 launch, the current user resolves all four vault entries.
+The private key must derive the sealed public signer, and the client must match
+the funder and wallet/signature type. Stage 0's authenticated collateral and
+open-order reads precede its heartbeat/cancel sequence. Stage 1 repeats the
+authenticated open-order query before obtaining a submission capability, and
+refreshes collateral before submission. Rejected or missing credentials cannot
+be replaced by an old PASS. Polymarket's [authentication contract](https://docs.polymarket.com/getting-started/api#authentication)
+binds private CLOB requests to the signer address and current API credentials;
+it is those requests that establish current access.
+
+The September 6 credential-rule review separates the risks as follows:
+
+| Rule | Decision and reason |
+| --- | --- |
+| Two-hour installation-receipt expiry | Removed. No protocol or measured basis was established for that interval; an old receipt cannot prove current authentication, and a recent one cannot replace it. |
+| Comparison immediately after clean creation | Removed. The successful importer already validates the source and records the complete creation result. |
+| Host/principal binding and exact creation/comparison tuple | Kept. Credential Manager storage belongs to that Windows installation/user, and partial writes, rollback or a different installation do not establish its provenance. |
+| Current signer/funder/type and authenticated account checks | Kept at each launch. They detect the wrong wallet, absent or revoked credentials and account state that changed since an earlier success. |
+| Protected secret storage and explicit recovery | Kept. Routine launches consume references; backups and credential replacement remain separate deliberate operations. |
+| New attempt, source/host binding, current market/geography, deadlines and exclusive live workload | Kept within their owning contracts. They prevent consumed authority from being replayed, stale identities/rules from being used, and execution from overlapping work that could prevent cleanup. |
+| 100 pUSD allocation, 10 pUSD order limit and stop-on-fill | Kept as the operator's explicit test envelope, not an empirical optimum. |
+
+**Setup or recovery only:** after identity preparation passes, create the four
+secret values as Windows Credential Manager generic credentials on a new
+installation, or explicitly compare a retained source when investigating an
+existing installation. Never recover by automatically overwriting vault entries.
+If an external source file is used, keep it outside
 the repository and remove inherited broad ACLs. The importer validates the
 private key/address and exact wallet/signature topology, refuses existing fixed
 targets, rolls back partial writes, rejects unrelated relayer/RPC/live-flag
@@ -857,10 +983,11 @@ if (-not $currentUserCanRead) {
 }
 ```
 
-Choose the provisioning branch before executing it. Set the Boolean below to
+The following blocks are for setup/recovery, not normal retries. Choose the
+provisioning branch before executing it. Set the Boolean below to
 `$true` only for a new host/principal whose four fixed targets are known empty.
-Set it to `$false` only when a prior reviewed clean create receipt for this same
-host/principal proves those targets were intentionally provisioned. Never turn
+Set it to `$false` for an explicitly reviewed comparison of an existing
+installation. Never turn
 a generic create failure into the reuse branch; stop and review it.
 
 ```powershell
@@ -884,16 +1011,20 @@ if ($provisionNewCredentialTargets) {
       $credentialProvisioningReceipt.credential_value_count_written -ne 4) {
     throw "create-only credential import receipt did not pass exactly"
   }
+  $pilotCredentialManifestSource = $pilotCredentialProvisioningManifest
+  $pilotCredentialReceiptSource = $pilotCredentialProvisioningReceipt
 }
 ```
 
 An occupancy refusal is not permission to overwrite or delete an existing
-target. Whether the selected branch just provisioned the four entries or a
-prior reviewed import did so, use distinct new verified-output paths and opt in
-explicitly to the compare-only path required by the session builder:
+target. Clean creation can proceed directly to public receipt review and source
+cleanup; no second comparison is required. **Only for an explicitly requested
+independent comparison**, use distinct new output paths and run:
 
 ```powershell
 $ErrorActionPreference = "Stop"
+$pilotCredentialManifestSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-verified-references.json")
+$pilotCredentialReceiptSource = Join-Path $pilotPublicRoot ($pilotAttemptId + "-credential-verified-receipt.json")
 .\venv\Scripts\python.exe -m weather.market.mm_credential_import_cli `
   --source-env $credentialSource `
   --manifest-out $pilotCredentialManifestSource `
@@ -929,15 +1060,13 @@ rollback and one of these truthful tuples:
 - `credential_mode=verify_existing_exact`, zero written, four existing
   verified, and no credential-store mutation attempted.
 
-Both tuples remain valid importer evidence, so a clean installation can retain
-its create-new receipt as provisioning history. The first-session manifest
-builder and fixed-scope sealer are stricter: they accept only a v0.4
-`verify_existing_exact` tuple generated for the current execution host and
-Windows token principal within two hours, with all four existing entries
-verified, zero written, and `credential_store_mutation_attempted=false`. A
-create-new, legacy, stale, other-host, or other-principal receipt cannot be
-staged or sealed; run the attended compare-only path into a new output
-namespace first.
+Both tuples are accepted by the session manifest builder and fixed-scope
+sealer as installation provenance when the v0.4 receipt belongs to the current
+execution host and Windows token principal. Neither expires by age. Keep the
+public receipt/reference pair after deleting the temporary private source.
+Use that same retained pair for later attempts; never rewrite its timestamp or
+describe it as a new check of the vault. Missing provenance or a different
+host/principal requires explicit setup/recovery, not a fabricated replacement.
 
 The latter proves only point-in-time local vault equivalence to the validated
 source. It does not prove exchange authentication, current account state,
@@ -993,8 +1122,8 @@ if (-not (Test-Path -LiteralPath $pilotEventListSource -PathType Leaf)) {
 if ($LASTEXITCODE -ne 0) { throw "event metadata refresh failed" }
 ```
 
-Only after fresh credential preparation passes, start the expiring selectors
-and manifest builds. The Stage 0 selector may softly rank valid books, but it
+Only after credential provenance and public identity validation pass, start the
+expiring selectors and manifest builds. The Stage 0 selector may softly rank valid books, but it
 does not reject a scope for spread, midpoint, depth, economics, paper
 permission, rewards, rebate, or fee. The Stage 1 selector stays on the exact
 Stage 0 condition/token and accepts a current official fee rate of zero:
@@ -1051,6 +1180,12 @@ if (
 The manifest builder stages the discovery plan appropriate to each stage and
 the exact event-metadata bytes that plan binds. Discovery is preparation only:
 the fixed-scope sealer refuses a discovery artifact at the live-plan boundary.
+Each stage also has its own copies of the public credential receipt and
+reference manifest. Stage 1 binds those copies to Stage 0 by equal reviewed
+hashes and freshly verified, byte-identical regular files. Their paths may
+differ; an absent, redirected, changed or differently hashed prior copy fails
+the lineage gate. The sealer and both Stage 1 runtime modes call the same
+comparator. The original Stage 0 seal and execution receipts stay bound.
 After independent review of all three manifests and outer launchers, create a
 new exact-scope Stage 0 plan in its fixed inbox. After Stage 0 passes, create a
 new exact-scope Stage 1 lifecycle plan in each mode's fixed inbox immediately
@@ -1114,7 +1249,7 @@ or substrate-preflight copies:
 | `stage1_cancel_all` | `inputs/stage1-cancel-all-location-market-events.json` | `inputs/stage1-cancel-all-discovery-plan.json` (lifecycle safety) | `inputs/stage1_cancel_all-session-manifest.json` / `inputs/stage1-cancel-all-session-manifest-build-receipt.json` | `incoming/fresh-stage1_cancel_all-candidate.json` |
 | `stage1_dead_man` | `inputs/stage1-dead-man-location-market-events.json` | `inputs/stage1-dead-man-discovery-plan.json` (lifecycle safety) | `inputs/stage1_dead_man-session-manifest.json` / `inputs/stage1-dead-man-session-manifest-build-receipt.json` | `incoming/fresh-stage1_dead_man-candidate.json` |
 
-Identity, compare-only import receipt, and reference-manifest copies retain their
+Identity, credential installation receipt, and reference-manifest copies retain their
 existing canonical names. The `candidate` filenames and receipt fields are
 compatibility names only: Stage 0 carries an
 `mm_live_stage0_scope_plan_v0.1`; Stage 1 carries an
@@ -1203,7 +1338,7 @@ if ($LASTEXITCODE -ne 0 -or
 
 Launcher preparation derives the build-receipt path from the stage; there is no
 path override. It validates the receipt's exact manifest raw/semantic hashes,
-sidecar, production, scope, staged public-input hashes, compare-only credential
+sidecar, production, scope, staged public-input hashes, host/principal-bound credential
 evidence, canonical paths, the fixed 10 pUSD limit, and the profile-bound
 120-second colocated or 240-second portable session envelope, and
 no-credential/no-live-mutation facts. The
@@ -1213,7 +1348,7 @@ sidecar are unsupported and cannot produce a launcher without the matching
 canonical builder receipt.
 
 The canonical keyless doctor runs inside each sealed fixed-scope wrapper before
-the supervised prompt and before credential resolution. The hash-bound
+the authorization scope display and before credential resolution. The hash-bound
 PowerShell launcher validates the public credential-reference manifest and
 stages only its reference names in the child process; the Python doctor then
 validates the exact SDK version, Windows resolver availability, reference URI
@@ -1442,20 +1577,18 @@ execution receipts carrying this mandatory evidence are v0.6 and v0.7,
 respectively; earlier receipt versions cannot authorize a new attempt.
 
 The wrapper displays the exact stage/mode, target, condition, token, 10 pUSD
-request, 100 pUSD wallet cap, execution cutoff, cleanup reserve, and contained
-process end before its literal confirmation. The
+request, 100 pUSD capital limit and its explicit allocation/funding declaration,
+execution cutoff, cleanup reserve, and contained
+process end, recording reviewed-command authorization without another prompt. The
 Stage 0 display also states `order_submit_expected=false`, an authenticated
 heartbeat write is expected, and cancel-all cleanup is expected with
 `ACCOUNT_WIDE` scope so those writes cannot be mistaken for read-only
-activity. The
-prompt is bounded by the same absolute cutoff. The portable profile requires
+activity. The portable profile requires
 120 seconds remaining before entering credential context and 60 seconds
-immediately before an authenticated mutation boundary. The stage,
-physical-location/no-circumvention, and mutation-specific attended
-confirmations all consume the same plan-derived cutoff; no prompt resets
-or extends it. The fresh-plan helper must therefore flow directly into
-the reviewed launcher, and hesitation is a stop-and-refresh event. After
-confirmation it rechecks Git/source identity, profile-specific host status,
+immediately before an authenticated mutation boundary. All stage and geographic
+checks consume the same plan-derived cutoff; nothing resets or extends it.
+The fresh-plan helper must therefore flow directly into the reviewed launcher.
+After displaying authorization it rechecks Git/source identity, profile-specific host status,
 clock/reboot state, the applicable time boundary, and the plan before credential
 resolution. The window guard also runs inside every host attestation. Stage 1
 therefore repeats it submit-adjacent, checks the cutoff before the
@@ -1527,8 +1660,8 @@ permission to retry a submit.
 
 `weather.market.mm_live_bootstrap.collect_platform_bootstrap_payload` is the
 prepared Stage 0 evidence collector. It converts the CLOB's integer atomic
-collateral balance and allowances to six-decimal settlement units, rejects a
-balance above the isolated-wallet cap, validates a public Data API position
+collateral balance and allowances to six-decimal settlement units, enforces the
+explicit capital contract and sufficient backing, validates a public Data API position
 query scoped to the exact proxy wallet and condition, content-binds that query
 and the full account snapshot, locally constructs and hashes a signed minimum
 BUY without posting it, discards the raw signature, requires a live user-stream

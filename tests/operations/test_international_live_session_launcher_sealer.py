@@ -599,23 +599,34 @@ def test_manifest_builder_stages_public_inputs_and_writes_exact_hash_contract(tm
     assert launcher_receipt["session_manifest"]["sha256"] == sha(manifest_path)
 
 
-def test_manifest_builder_rejects_create_new_credential_evidence(tmp_path):
+@pytest.mark.parametrize("mode", ["create_new", "verify_existing_exact"])
+@pytest.mark.parametrize("age", [timedelta(hours=3), timedelta(days=365)])
+def test_manifest_and_launcher_reuse_host_bound_credential_provenance(
+    tmp_path, mode, age
+):
     prepared = manifest_builder_fixture(tmp_path)
     receipt_path = prepared["credential_receipt"]
     payload = json.loads(receipt_path.read_text(encoding="utf-8"))
-    payload["credential_mode"] = "create_new"
-    payload["credential_value_count_written"] = 4
-    payload["credential_value_count_existing_exact_verified"] = 0
-    payload["credential_store_mutation_attempted"] = True
+    payload["credential_mode"] = mode
+    payload["credential_value_count_written"] = 4 if mode == "create_new" else 0
+    payload["credential_value_count_existing_exact_verified"] = (
+        0 if mode == "create_new" else 4
+    )
+    payload["credential_store_mutation_attempted"] = mode == "create_new"
+    payload["prepared_at_utc"] = (NOW - age).isoformat()
     write_json(receipt_path, payload)
-
-    with pytest.raises(
-        launcher_sealer.SessionLauncherSealError,
-        match="requires compare-only credential evidence",
-    ):
-        build_manifest(prepared)
-
-    assert list((prepared["attempt"] / "inputs").iterdir()) == []
+    original = receipt_path.read_bytes()
+    build_receipt = build_manifest(prepared)
+    manifest_path = Path(build_receipt["session_manifest"]["path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    staged = Path(manifest["inputs"]["credential_import_receipt"]["path"])
+    assert staged.read_bytes() == receipt_path.read_bytes() == original
+    assert build_receipt["credential_values_read_in_memory"] is False
+    launcher_receipt = prepare(
+        prepared["production"], prepared["outer_template"], manifest_path,
+        Path(build_receipt["build_receipt_path"]),
+    )
+    assert launcher_receipt["status"] == "PASS"
 
 
 def test_manifest_builder_rejects_event_metadata_not_bound_by_discovery(tmp_path):
@@ -650,14 +661,14 @@ def test_manifest_builder_rejects_legacy_create_credential_evidence(tmp_path):
 
     with pytest.raises(
         launcher_sealer.SessionLauncherSealError,
-        match="requires compare-only credential evidence",
+        match="requires exact host/principal-bound credential provenance",
     ):
         build_manifest(prepared)
 
     assert list((prepared["attempt"] / "inputs").iterdir()) == []
 
 
-def test_launcher_revalidates_staged_compare_only_credential_evidence(tmp_path):
+def test_launcher_revalidates_staged_credential_provenance(tmp_path):
     prepared = manifest_builder_fixture(tmp_path)
     build_receipt = build_manifest(prepared)
     manifest_path = Path(build_receipt["session_manifest"]["path"])
@@ -669,10 +680,7 @@ def test_launcher_revalidates_staged_compare_only_credential_evidence(tmp_path):
     credential_payload = json.loads(
         staged_receipt_path.read_text(encoding="utf-8")
     )
-    credential_payload["credential_mode"] = "create_new"
-    credential_payload["credential_value_count_written"] = 4
-    credential_payload["credential_value_count_existing_exact_verified"] = 0
-    credential_payload["credential_store_mutation_attempted"] = True
+    credential_payload["execution_principal_id"] = "0" * 64
     write_json(staged_receipt_path, credential_payload)
     staged_receipt_sha256 = sha(staged_receipt_path)
 
@@ -704,7 +712,7 @@ def test_launcher_revalidates_staged_compare_only_credential_evidence(tmp_path):
 
     with pytest.raises(
         launcher_sealer.SessionLauncherSealError,
-        match="staged first-session credential evidence is not compare-only",
+        match="staged credential provenance is not an exact host/principal-bound result",
     ):
         prepare(
             prepared["production"],

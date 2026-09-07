@@ -54,7 +54,7 @@
     "platform": "polymarket_global",
     "settlement_unit": "pUSD",
     "bundle_sha256": null,
-    "bootstrap_schema_version": "mm_platform_bootstrap_v0.5",
+    "bootstrap_schema_version": "mm_platform_bootstrap_v0.6",
     "bootstrap_sha256": null,
     "condition_id": null,
     "token_id": null,

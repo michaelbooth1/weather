@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 
 from weather.market import mm_geographic_eligibility as geography
+from weather.market.mm_live_bootstrap import load_platform_bootstrap_gate
+from weather.market.mm_live_lifecycle_probe import _canonical_hash
 from weather.market.market_config import config_for_date
 from weather.operations import international_live_time_window as time_window
 from weather.operations import international_live_session_runner as runner
@@ -21,6 +23,11 @@ from tests.live_candidate_fixture import (
     build_live_candidate_payload,
     build_stage0_event_metadata_payload,
     build_stage0_scope_payload,
+)
+from tests.market.test_mm_live_bootstrap import (
+    bootstrap_payload,
+    finalized_bootstrap_payload,
+    geographic_receipt,
 )
 
 
@@ -188,13 +195,25 @@ def session_fixture(
     now: datetime = NOW,
     execution_host_profile: str = "capture_colocated_v1",
     target_date: str | None = None,
+    existing_wallet: bool = False,
 ):
     target_date = target_date or now.date().isoformat()
     attempt = tmp_path / "attempt"
     attempt.mkdir()
     identity = write(
         attempt / sealer.INPUT_LAYOUTS[stage]["identity"],
-        {"schema_version": "mm_stage0_client_identity_v0.3"},
+        {
+            "schema_version": "mm_stage0_client_identity_v0.4",
+            "isolated_pilot_wallet": not existing_wallet,
+            "pilot_wallet_max_funding_usdc": None if existing_wallet else 100,
+            **(
+                {
+                    "pilot_capital_mode": "existing_wallet_test_allocation",
+                    "pilot_test_allocation_pusd": 100,
+                }
+                if existing_wallet else {}
+            ),
+        },
     )
     credential = write(tmp_path / "credential.json", {"status": "PASS"})
     references = write(
@@ -255,6 +274,27 @@ def session_fixture(
             )
         for relative in lineage_paths:
             write(attempt / relative, {"status": "PASS"})
+        bootstrap = bootstrap_payload()
+        bootstrap.update(
+            verified_at_utc=now.astimezone(timezone.utc).isoformat(),
+            verified_for_target_date=target_date,
+        )
+        bootstrap["market_snapshot"].update(condition_id=CONDITION, token_id=TOKEN)
+        current_geography = geographic_receipt(now.isoformat())
+        bootstrap["mutation_geographic_eligibility"] = {
+            key: current_geography[key]
+            for key in bootstrap["mutation_geographic_eligibility"]
+        }
+        if existing_wallet:
+            bootstrap.update(
+                isolated_pilot_wallet=False, pilot_wallet_max_funding_usdc=None,
+                pilot_capital_mode="existing_wallet_test_allocation",
+                pilot_test_allocation_pusd=100,
+            )
+        write(
+            attempt / "stage0/bootstrap.json",
+            finalized_bootstrap_payload(attempt / "stage0", payload=bootstrap),
+        )
     payload = {
         "schema_version": runner.SESSION_SCHEMA_VERSION,
         "manifest_sha256": None,
@@ -413,6 +453,8 @@ def write_execution(
     mutation=False,
     credential=True,
     wrapper_override=None,
+    collateral_balance=100,
+    collateral_allowance=100,
 ):
     wrapper = attempt / sealer.OUTPUT_LAYOUTS[stage]["python_wrapper"]
     path = attempt / sealer.OUTPUT_LAYOUTS[stage]["wrapper_execution_receipt"]
@@ -473,7 +515,7 @@ def write_execution(
         bootstrap = write(
             attempt / layout["bootstrap"],
             {
-                "schema_version": "mm_platform_bootstrap_v0.5",
+                "schema_version": "mm_platform_bootstrap_v0.6",
                 "status": "PASS",
                 "mutation_geographic_eligibility": {
                     key: geography_payload[key]
@@ -515,6 +557,17 @@ def write_execution(
         journal.parent.mkdir(parents=True, exist_ok=True)
         journal.write_text('{"event_type":"probe_passed"}\n', encoding="utf-8")
         mode = "cancel_all" if stage == "stage1_cancel_all" else "dead_man"
+        current_spec = json.loads(
+            (attempt / "inputs" / f"{stage}-seal-spec.json").read_text()
+        )
+        bootstrap_gate = load_platform_bootstrap_gate(
+            (attempt / "stage0/bootstrap.json").resolve(),
+            current_spec["scope"]["target_date"],
+            requested_budget_usdc=10, expected_token_id=TOKEN,
+            expected_condition_id=CONDITION,
+            now=current_spec["scope"]["run_not_before_local"],
+        )
+        assert bootstrap_gate["ok"], bootstrap_gate["missing"]
         result = write(
             attempt / layout["result"],
             {
@@ -527,8 +580,8 @@ def write_execution(
                 "token_id": TOKEN,
                 "candidate_plan_sha256": sha(candidate_path),
                 "candidate_semantic_plan_sha256": candidate_payload["plan_sha256"],
-                "bootstrap_schema_version": "mm_platform_bootstrap_v0.5",
-                "bootstrap_sha256": sha(attempt / "stage0/bootstrap.json"),
+                "bootstrap_schema_version": "mm_platform_bootstrap_v0.6",
+                "bootstrap_sha256": _canonical_hash(bootstrap_gate),
                 "heartbeat_acknowledged": True,
                 "submit_boundary_heartbeat_acknowledged": True,
                 "submit_boundary_market_rules_verified": True,
@@ -560,8 +613,8 @@ def write_execution(
                 "account_trades_rest_verified": True,
                 "scoped_account_trade_count": 0,
                 "post_cancel_quiescence_seconds": 2.0,
-                "submit_collateral_balance_usdc": 100.0,
-                "submit_collateral_allowance_usdc": 100.0,
+                "submit_collateral_balance_usdc": collateral_balance,
+                "submit_collateral_allowance_usdc": collateral_allowance,
                 "submit_collateral_snapshot_sha256": "a" * 64,
                 "post_cancel_collateral_snapshot_sha256": "a" * 64,
                 "collateral_no_fill_reconciliation_verified": True,
@@ -731,6 +784,141 @@ def test_composer_accepts_only_manifest_and_fresh_candidate_for_each_stage(
     assert len(launched) == 1
     assert (attempt / "session" / f"{stage}-composition-receipt.json").is_file()
     assert (attempt / "session" / f"{stage}-run-receipt.json").is_file()
+
+
+@pytest.mark.parametrize("stage", ["stage1_cancel_all", "stage1_dead_man"])
+@pytest.mark.parametrize(
+    "existing_wallet,balance,allowance,accepted",
+    [
+        (True, 447.01397, 1.157920892373162e71, True),
+        (True, 275.48, 100, True),
+        (True, 10, 10, True),
+        (False, 100, 100, True),
+        (False, 100.01, 100, False),
+        (True, 9.99, 100, False),
+        (True, 447.01397, 9.99, False),
+        (True, "Infinity", 100, False),
+        (True, 447.01397, "Infinity", False),
+        (True, "NaN", 100, False),
+        (True, True, 100, False),
+        (True, 447.01397, True, False),
+    ],
+)
+def test_parent_validates_stage1_collateral_against_sealed_capital(
+    tmp_path, stage, existing_wallet, balance, allowance, accepted
+):
+    attempt, manifest, fresh = session_fixture(
+        tmp_path, stage, existing_wallet=existing_wallet
+    )
+
+    def launch(path):
+        write_execution(
+            attempt, stage, mutation=True,
+            collateral_balance=balance, collateral_allowance=allowance,
+        )
+        return subprocess.CompletedProcess([str(path)], 0, "", "")
+
+    def run():
+        return runner.compose_and_run_live_session(
+            manifest, fresh, expected_session_manifest_sha256=sha(manifest),
+            now=NOW, seal_function=fake_sealer(attempt, stage),
+            launcher_runner=launch,
+        )
+
+    if accepted:
+        result = run()
+        assert result["status"] == "PASS"
+        assert result["child_execution"]["validation"] == "PASS"
+        assert result["order_submit_attempted"] is True
+    else:
+        with pytest.raises(runner.SessionCompositionError, match="validated PASS"):
+            run()
+        receipt = json.loads(
+            (attempt / "session" / f"{stage}-run-receipt.json").read_text()
+        )
+        assert receipt["status"] == "UNKNOWN"
+        assert receipt["child_execution"]["validation"] == "FAIL"
+
+
+@pytest.mark.parametrize("stage", ["stage1_cancel_all", "stage1_dead_man"])
+@pytest.mark.parametrize("tamper", ["missing", "changed", "seal_record"])
+def test_parent_rejects_unbound_stage1_capital_identity(tmp_path, stage, tamper):
+    attempt, manifest, fresh = session_fixture(tmp_path, stage)
+    identity = attempt / sealer.INPUT_LAYOUTS[stage]["identity"]
+    seal = fake_sealer(attempt, stage)
+
+    def tampered_seal(spec_path, **kwargs):
+        result = seal(spec_path, **kwargs)
+        if tamper == "seal_record":
+            seal_path = Path(result["seal_receipt"]["path"])
+            payload = json.loads(seal_path.read_text())
+            for row in payload["inputs"]:
+                if row["role"] == "identity":
+                    row["sha256"] = "0" * 64
+            write(seal_path, payload)
+            result["seal_receipt"]["sha256"] = sha(seal_path)
+        return result
+
+    def launch(path):
+        write_execution(attempt, stage, mutation=True)
+        if tamper == "missing":
+            identity.unlink()
+        elif tamper == "changed":
+            payload = json.loads(identity.read_text())
+            payload["pilot_wallet_max_funding_usdc"] = 99
+            write(identity, payload)
+        return subprocess.CompletedProcess([str(path)], 0, "", "")
+
+    with pytest.raises(runner.SessionCompositionError, match="validated PASS"):
+        runner.compose_and_run_live_session(
+            manifest, fresh, expected_session_manifest_sha256=sha(manifest),
+            now=NOW, seal_function=tampered_seal, launcher_runner=launch,
+        )
+    receipt = json.loads(
+        (attempt / "session" / f"{stage}-run-receipt.json").read_text()
+    )
+    assert receipt["status"] == "UNKNOWN"
+    assert receipt["child_execution"]["validation"] == "FAIL"
+
+
+@pytest.mark.parametrize("stage", ["stage1_cancel_all", "stage1_dead_man"])
+@pytest.mark.parametrize("tamper", ["raw_result_hash", "gate_result_hash", "file_bytes"])
+def test_parent_binds_bootstrap_file_and_validated_gate_separately(
+    tmp_path, stage, tamper
+):
+    attempt, manifest, fresh = session_fixture(tmp_path, stage)
+    bootstrap_path = attempt / "stage0/bootstrap.json"
+
+    def launch(path):
+        write_execution(attempt, stage, mutation=True)
+        layout = sealer.OUTPUT_LAYOUTS[stage]
+        result_path = attempt / layout["result"]
+        result = json.loads(result_path.read_text())
+        assert result["bootstrap_sha256"] != sha(bootstrap_path)
+        if tamper == "file_bytes":
+            # Semantically identical JSON still differs from the sealed artifact.
+            bootstrap_path.write_bytes(bootstrap_path.read_bytes() + b"\n")
+        else:
+            result["bootstrap_sha256"] = (
+                sha(bootstrap_path) if tamper == "raw_result_hash" else "0" * 64
+            )
+            write(result_path, result)
+            execution_path = attempt / layout["wrapper_execution_receipt"]
+            execution = json.loads(execution_path.read_text())
+            execution["artifacts"]["result_out"]["sha256"] = sha(result_path)
+            write(execution_path, execution)
+        return subprocess.CompletedProcess([str(path)], 0, "", "")
+
+    with pytest.raises(runner.SessionCompositionError, match="validated PASS"):
+        runner.compose_and_run_live_session(
+            manifest, fresh, expected_session_manifest_sha256=sha(manifest),
+            now=NOW, seal_function=fake_sealer(attempt, stage), launcher_runner=launch,
+        )
+    receipt = json.loads(
+        (attempt / "session" / f"{stage}-run-receipt.json").read_text()
+    )
+    assert receipt["status"] == "UNKNOWN"
+    assert receipt["child_execution"]["validation"] == "FAIL"
 
 
 def test_composer_accepts_exact_0030_toronto_boundary_without_backdating_scope(

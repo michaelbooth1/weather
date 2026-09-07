@@ -762,12 +762,12 @@ def prepare_fixed_session_manifest(
     try:
         fixed_sealer._validate_credential_import_receipt(
             Path(staged["credential_import_receipt"]["source_path"]),
-            required_mode=fixed_sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            require_host_principal=True,
             now=current,
         )
     except fixed_sealer.SealError as exc:
         raise SessionLauncherSealError(
-            "first-session manifest requires compare-only credential evidence"
+            "session manifest requires exact host/principal-bound credential provenance"
         ) from exc
     fixed_sealer._validate_identity(
         Path(staged["identity"]["source_path"]),
@@ -1158,12 +1158,12 @@ def _validate_manifest_build_receipt(
     try:
         fixed_sealer._validate_credential_import_receipt(
             Path(str(staged["credential_import_receipt"]["path"])),
-            required_mode=fixed_sealer.FIRST_SESSION_CREDENTIAL_MODE,
+            require_host_principal=True,
             now=now,
         )
     except fixed_sealer.SealError as exc:
         raise SessionLauncherSealError(
-            "staged first-session credential evidence is not compare-only"
+            "staged credential provenance is not an exact host/principal-bound result"
         ) from exc
 
     discovery_path = Path(str(staged["discovery_plan"]["path"]))
@@ -1437,8 +1437,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--credential-import-receipt-source",
         required=True,
         help=(
-            "fresh host-and-principal-bound v0.4 compare-only receipt proving all four "
-            "existing fixed entries with zero credential-store mutation"
+            "retained v0.4 creation or exact-comparison receipt for this host/principal; "
+            "installation provenance has no age expiry, and live authentication is repeated"
         ),
     )
     manifest.add_argument("--credential-reference-manifest-source", required=True)

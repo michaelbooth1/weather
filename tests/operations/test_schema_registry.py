@@ -25,7 +25,7 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("mm_platform_bootstrap"),
-            "mm_platform_bootstrap_v0.5",
+            "mm_platform_bootstrap_v0.6",
         )
         self.assertEqual(
             schema_version("mm_platform_bootstrap_v0_4_legacy"),
@@ -459,7 +459,7 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("mm_live_readiness"), "mm_live_readiness_v0.3")
         self.assertEqual(
             schema_version("mm_stage0_client_identity"),
-            "mm_stage0_client_identity_v0.3",
+            "mm_stage0_client_identity_v0.4",
         )
         self.assertEqual(schema_version("market_making_daily_roll"), "market_making_daily_roll_v0.2")
         self.assertEqual(schema_version("early_hour_market_guardrail"), "early_hour_market_guardrail_v0.1")

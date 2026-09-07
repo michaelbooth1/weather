@@ -22,6 +22,7 @@ from weather.market.mm_geographic_eligibility import (
 from weather.market.mm_live_lifecycle_probe import (
     verify_stage1_user_stream_journal,
 )
+from weather.market.mm_pilot_capital import collateral_backs_pilot_budget
 from weather.market.mm_live_stage0_scope import (
     load_stage0_scope_gate,
     validate_bound_stage0_event_metadata,
@@ -73,8 +74,6 @@ MAX_RUN_WINDOW_SECONDS = 30 * 60
 MAX_OPERATOR_BUDGET_PUSD = Decimal("100")
 FIRST_TEST_REQUESTED_BUDGET_PUSD = Decimal("10")
 FIRST_TEST_WALLET_CAP_PUSD = Decimal("100")
-FIRST_SESSION_CREDENTIAL_MODE = "verify_existing_exact"
-CREDENTIAL_RECEIPT_MAX_AGE_SECONDS = 2 * 60 * 60
 REMOTE_MASTER_REF = "refs/heads/master"
 PORTABLE_EXECUTION_AUTHORIZED_TOPIC_BRANCH = (
     "codex/live-gate-provenance-20260831"
@@ -1079,11 +1078,17 @@ def _validate_credential_reference_manifest(path: Path) -> dict[str, Any]:
 def _validate_credential_import_receipt(
     path: Path,
     *,
-    required_mode: str | None = None,
+    require_host_principal: bool = False,
     now: datetime | None = None,
 ) -> None:
-    if required_mode not in {None, FIRST_SESSION_CREDENTIAL_MODE}:
-        raise SealError("credential import receipt mode requirement is unsupported")
+    """Validate installation provenance, not the current validity of secrets.
+
+    A clean create or exact comparison remains historical evidence for its
+    Windows host/principal. It does not expire and never authorizes a live
+    request: each stage resolves the current vault entries, checks the sealed
+    signer/funder topology and performs current authenticated account reads.
+    See the credential lifecycle contract in INTERNATIONAL_MM_LIVE_PILOT.md.
+    """
     payload, _raw = _read_json_object(path, label="credential import receipt")
     common_required = {
         "schema_version",
@@ -1146,7 +1151,7 @@ def _validate_credential_import_receipt(
             and verified == 0
             and mutation_attempted is True
         ) or (
-            mode == FIRST_SESSION_CREDENTIAL_MODE
+            mode == "verify_existing_exact"
             and type(written) is int
             and written == 0
             and type(verified) is int
@@ -1158,7 +1163,7 @@ def _validate_credential_import_receipt(
     checks = payload.get("checks")
     host_binding_ok = version not in {host_only_legacy_version, current_version}
     principal_binding_ok = version != current_version
-    freshness_ok = version not in {host_only_legacy_version, current_version}
+    timestamp_ok = version not in {host_only_legacy_version, current_version}
     if version in {host_only_legacy_version, current_version}:
         try:
             prepared_at = _parse_aware(
@@ -1166,13 +1171,13 @@ def _validate_credential_import_receipt(
                 label="credential receipt prepared_at_utc",
             )
             current = now or datetime.now().astimezone()
-            age_seconds = (
-                current.astimezone(timezone.utc)
-                - prepared_at.astimezone(timezone.utc)
-            ).total_seconds()
-            freshness_ok = -5 <= age_seconds <= CREDENTIAL_RECEIPT_MAX_AGE_SECONDS
+            # Provenance must be a real past event. Age alone says nothing
+            # about whether today's vault entries or API credentials work.
+            timestamp_ok = prepared_at.astimezone(timezone.utc) <= current.astimezone(
+                timezone.utc
+            )
         except SealError:
-            freshness_ok = False
+            timestamp_ok = False
         host_binding_ok = (
             payload.get("execution_host_id") == current_execution_host_id()
         )
@@ -1204,22 +1209,13 @@ def _validate_credential_import_receipt(
         or any(value is not True for value in checks.values())
         or not host_binding_ok
         or not principal_binding_ok
-        or not freshness_ok
+        or not timestamp_ok
     ):
         raise SealError("credential import receipt is not an exact clean PASS")
-    if required_mode == FIRST_SESSION_CREDENTIAL_MODE and not (
-        version == current_version
-        and payload.get("credential_mode") == FIRST_SESSION_CREDENTIAL_MODE
-        and type(payload.get("credential_value_count_written")) is int
-        and payload["credential_value_count_written"] == 0
-        and type(payload.get("credential_value_count_existing_exact_verified"))
-        is int
-        and payload["credential_value_count_existing_exact_verified"] == 4
-        and payload.get("credential_store_mutation_attempted") is False
-    ):
+    if require_host_principal and version != current_version:
         raise SealError(
-            "first-session credential evidence must be fresh v0.4 host/principal-bound "
-            "compare-only exact verification with four existing entries and zero mutation"
+            "live credential provenance must be v0.4 with the current host/principal "
+            "and an exact clean creation or comparison result"
         )
 
 
@@ -1230,8 +1226,10 @@ def _validate_identity(
     expected_reference: Mapping[str, Any],
 ) -> None:
     payload, _raw = _read_json_object(path, label="Stage 0 identity")
+    from weather.market.mm_pilot_capital import pilot_capital_limit
+
     try:
-        wallet_cap = Decimal(str(payload.get("pilot_wallet_max_funding_usdc")))
+        wallet_cap = pilot_capital_limit(payload, require_wallet_declaration=True)
     except (InvalidOperation, TypeError, ValueError):
         wallet_cap = Decimal("-1")
     from weather.market.mm_credentials import (
@@ -1257,7 +1255,41 @@ def _validate_identity(
         or payload.get("signature_type_id")
         != expected_reference.get("signature_type_id")
     ):
-        raise SealError("identity does not bind the 10 pUSD request and 100 pUSD wallet cap")
+        raise SealError("identity does not bind the 10 pUSD request and 100 pUSD capital limit")
+
+
+def _same_public_evidence(
+    prior: Mapping[str, Any], current: Mapping[str, Any]
+) -> bool:
+    """Bind stage-specific copies by their reviewed bytes, not their paths."""
+    try:
+        if any(
+            not isinstance(record, dict) or set(record) != {"path", "sha256"}
+            for record in (prior, current)
+        ):
+            return False
+        digest = prior["sha256"]
+        if (
+            not isinstance(digest, str)
+            or SHA256_RE.fullmatch(digest) is None
+            or current["sha256"] != digest
+        ):
+            return False
+        raw = []
+        for record in (prior, current):
+            if (
+                not isinstance(record["path"], str)
+                or not Path(record["path"]).is_absolute()
+            ):
+                return False
+            path = validate_regular_nonreparse_file(record["path"])
+            payload = path.read_bytes()
+            if hashlib.sha256(payload).hexdigest() != digest:
+                return False
+            raw.append(payload)
+        return raw[0] == raw[1]
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return False
 
 
 def _validate_stage0_lineage(
@@ -1374,10 +1406,8 @@ def _validate_stage0_lineage(
         seal_scope.get("execution_host_id") == execution_host_id,
         seal_scope.get("market_id") == market_id,
         seal_scope.get("market_timezone") == market_timezone,
-        seal_credential.get("path") == expected_credential["path"],
-        seal_credential.get("sha256") == expected_credential["sha256"],
-        seal_reference.get("path") == expected_reference["path"],
-        seal_reference.get("sha256") == expected_reference["sha256"],
+        _same_public_evidence(seal_credential, expected_credential),
+        _same_public_evidence(seal_reference, expected_reference),
         execution.get("schema_version") == EXECUTION_SCHEMA_VERSION,
         execution.get("status") == "PASS",
         execution.get("stage") == "stage0",
@@ -1427,7 +1457,7 @@ def _validate_stage0_lineage(
         == geography_premutation_artifact.get("path"),
         command_geography.get("sha256")
         == geography_premutation_artifact.get("sha256"),
-        bootstrap.get("schema_version") == "mm_platform_bootstrap_v0.5",
+        bootstrap.get("schema_version") == "mm_platform_bootstrap_v0.6",
         bootstrap_geography.get("status") == "PASS",
         bootstrap_geography.get("eligible") is True,
         len(str(bootstrap_geography.get("receipt_payload_sha256") or "")) == 64,
@@ -1506,6 +1536,11 @@ def _validate_cancel_all_predecessor(
     market_timezone: str,
     interpreter_binding: Mapping[str, str],
 ) -> None:
+    identity, identity_raw = _read_json_object(
+        Path(inputs["identity"]["path"]), label="Stage 1 capital identity"
+    )
+    if hashlib.sha256(identity_raw).hexdigest() != inputs["identity"]["sha256"]:
+        raise SealError("Stage 1 capital identity changed during validation")
     payloads = {}
     for role in (
         "cancel_all_seal_receipt",
@@ -1734,8 +1769,12 @@ def _validate_cancel_all_predecessor(
         len(str(result.get("submit_collateral_snapshot_sha256") or "")) == 64,
         result.get("submit_collateral_snapshot_sha256")
         == result.get("post_cancel_collateral_snapshot_sha256"),
-        10 <= float(result.get("submit_collateral_balance_usdc")) <= 100,
-        float(result.get("submit_collateral_allowance_usdc")) >= 10,
+        collateral_backs_pilot_budget(
+            identity,
+            balance=result.get("submit_collateral_balance_usdc"),
+            allowance=result.get("submit_collateral_allowance_usdc"),
+            requested_budget=budget,
+        ),
         result.get("terminal_user_event_observed") is True,
         Path(str(result.get("user_stream_journal_path") or "")).resolve()
         == Path(str(stream_artifact.get("path") or "")).resolve(),
@@ -2265,7 +2304,7 @@ def _validate_spec(
     )
     _validate_credential_import_receipt(
         Path(normalized_inputs["credential_import_receipt"]["path"]),
-        required_mode=FIRST_SESSION_CREDENTIAL_MODE,
+        require_host_principal=True,
         now=now,
     )
     _validate_identity(

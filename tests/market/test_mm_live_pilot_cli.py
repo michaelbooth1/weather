@@ -423,7 +423,7 @@ def test_stage0_boundary_writes_bootstrap_only_after_zero_state_cleanup(tmp_path
         kwargs["authenticated_write_recorder"]("cancel_all")
         kwargs["progress_recorder"]("complete")
         return {
-            "schema_version": "mm_platform_bootstrap_v0.5",
+            "schema_version": "mm_platform_bootstrap_v0.6",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -568,7 +568,7 @@ def test_stage0_rejects_a_passing_collector_without_exact_attempt_evidence(tmp_p
 
     def incomplete_collector(_adapter, stream, *_args, **_kwargs):
         return {
-            "schema_version": "mm_platform_bootstrap_v0.5",
+            "schema_version": "mm_platform_bootstrap_v0.6",
             "status": "PASS",
             "secret_values_redacted": True,
             "user_stream": stream.bootstrap_evidence(),
@@ -609,7 +609,7 @@ def test_stage0_rejects_complete_mutation_evidence_without_stream_subscription(
         kwargs["authenticated_write_recorder"]("cancel_all")
         kwargs["progress_recorder"]("complete")
         return {
-            "schema_version": "mm_platform_bootstrap_v0.5",
+            "schema_version": "mm_platform_bootstrap_v0.6",
             "status": "PASS",
             "secret_values_redacted": True,
         }
@@ -1512,6 +1512,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
             bootstrap_loader=lambda *_args, **_kwargs: {
                 "ok": True,
                 "requested_budget_usdc": 10.0,
+                "isolated_pilot_wallet": True,
                 "pilot_wallet_max_funding_usdc": 100.0,
             },
             bundle_builder=lambda *_args: pytest.fail(
@@ -1537,6 +1538,7 @@ def test_offline_bundle_command_binds_both_results_without_exchange_cleanup(tmp_
         bootstrap_loader=lambda *_args, **_kwargs: {
             "ok": True,
             "requested_budget_usdc": 10.0,
+            "isolated_pilot_wallet": True,
             "pilot_wallet_max_funding_usdc": 100.0,
         },
         bundle_builder=builder,
@@ -1749,3 +1751,50 @@ def test_main_reports_only_exception_type_not_raw_message(monkeypatch, capsys, t
     stderr = capsys.readouterr().err
     assert "RuntimeError" in stderr
     assert "RAW-SECRET-MESSAGE" not in stderr
+
+
+
+def test_prepare_existing_wallet_allocation_and_keyless_doctor(tmp_path):
+    args = prepare_args(tmp_path)
+    args.wallet_cap = None
+    args.test_allocation = 100
+    args.confirm_isolated_wallet = False
+    args.confirm_existing_wallet_allocation = True
+    receipt = cli.run_prepare_identity(args)
+    assert receipt["status"] == "PASS"
+    identity = json.loads(Path(args.identity_out).read_text(encoding="utf-8"))
+    assert identity["pilot_test_allocation_pusd"] == 100
+    assert identity["pilot_capital_mode"] == "existing_wallet_test_allocation"
+    assert identity["isolated_pilot_wallet"] is False
+    assert identity["pilot_wallet_max_funding_usdc"] is None
+    gate = cli.stage0_client_identity_gate(identity)
+    assert gate["ok"], gate["missing"]
+    doctor = cli.run_doctor(
+        doctor_args(tmp_path, args.identity_out),
+        env=credential_reference_env(),
+        platform_name="nt",
+        sdk_version_getter=lambda: cli.OFFICIAL_CLOB_VERSION,
+    )
+    assert doctor["status"] == "PASS"
+
+
+@pytest.mark.parametrize("changes", [
+    {"test_allocation": 100.01},
+    {"test_allocation": float("nan")},
+    {"test_allocation": float("inf")},
+    {"budget": 10.01},
+    {"confirm_existing_wallet_allocation": False},
+    {"confirm_isolated_wallet": True},
+    {"wallet_cap": 100},
+])
+def test_prepare_existing_wallet_refuses_changed_cap_or_ambiguous_consent(tmp_path, changes):
+    args = prepare_args(tmp_path)
+    args.wallet_cap = None
+    args.test_allocation = 100
+    args.confirm_isolated_wallet = False
+    args.confirm_existing_wallet_allocation = True
+    for key, value in changes.items():
+        setattr(args, key, value)
+    with pytest.raises(RuntimeError):
+        cli.run_prepare_identity(args)
+    assert not Path(args.identity_out).exists()
