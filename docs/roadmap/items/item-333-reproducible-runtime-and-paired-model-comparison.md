@@ -104,10 +104,14 @@ visible in the CLI, report and baseline.
 
 Source `4af51a1641878569d2acb115398a833739388e02`, merged into the local
 preparation branch at `ffa25125fe89e8a46fcb3c2f8d808cd480e8be54`, and its
-synthetic fixtures have undergone independent static review. Fixture execution and final combined verification are pending the
-specific private-workstation transfer authorization required by automatic
-approval review; no P6 runtime test PASS is claimed. No historical tape,
-settlement outcome, model artifact or candidate fit was consumed by this slice.
+synthetic fixtures have undergone independent static review. After the owner's
+specific transfer/publication approval, the admitted workstation focused run at
+combined source `88bacc6a0bd0e163d25b2bd7e6cf894c03637dd3` passed 535 tests and
+20 subtests, including the replay and incumbent-control fixtures. The exact
+receipt and wider file scope are recorded in [item 331](item-331-post-reclaim-model-economics-and-research-plan.md#september-7-preparation-handback).
+The wider Windows suite and its path-failure diagnosis are recorded there;
+compilation passed, and no full-suite PASS is claimed. No historical tape, settlement
+outcome, model artifact or candidate fit was consumed by this slice.
 
 ### Existing runtime foundation disposition
 

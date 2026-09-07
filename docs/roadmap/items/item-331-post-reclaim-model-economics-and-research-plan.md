@@ -265,14 +265,16 @@ The source baseline is prepared in the isolated
 retains current existing-wallet/capital and completed Stage 0/1 contracts
 alongside the signed parser, source-binding and book-observation-age repairs.
 The source overview now reads this plan's `Ordered next work` heading and
-the three earlier supported headings; its focused tests are awaiting execution.
+the three earlier supported headings; its focused tests passed in the admitted
+workstation verification below.
 
 | Package | Prepared result | Remaining dependency |
 | --- | --- | --- |
 | P0 | Reconciled the smallest existing portable/correctness/plan baseline; independent merge review passed. The [audit's queue dispositions](../audits/post-reclaim-system-audit-2026-09-07.md) remain the per-PR source inventory | Combined verification, exact-source CI, conditional guarded adoption and the actual production documentation transaction. Unselected PRs and historical branches remain preserved |
 | P2 | [Item 332](item-332-signed-native-temperature-band-correctness.md) records implemented native-band gaps, admitted workstation PASS and expected old-source failures | Bounded historical impact census and adopted-source evidence |
-| P4/P5 | New bounded reward-page validation and replayable raw response bytes at `6b6fb8e5ec2fbff8f74aaaf7be09de8e053b4aca`, merged at `ce215689696590fdf6d64a1b9757464d7697e23f`; independent review passed | Newly added fixtures still require execution. No account query, opportunity collection, accrual/payment relationship or cash cohort has been established |
-| P6 | [Item 333](item-333-reproducible-runtime-and-paired-model-comparison.md) owns the numerical incumbent control and assessment of existing runtime identity/BOM work | Execute fixtures, then reconcile the separately bounded forward runtime foundation and paired inference. No captured outcome, candidate fit or historical replay was used in preparation |
+| P3a | Generation-bound config publication/read, exact-byte freezing and both release verifiers at `54be0048481bfdf6055ef0876254377e10e73927`, followed by first-migration concurrent-read repair `8eaad1077d2349b1a06c4d0ad7a61e5d7cc0d238`; independent static review passed | Admitted runtime verification, source publication and guarded adoption. Existing generated config has not been refreshed or hand-edited |
+| P4/P5 | New bounded reward-page validation and replayable raw response bytes at `6b6fb8e5ec2fbff8f74aaaf7be09de8e053b4aca`, merged at `ce215689696590fdf6d64a1b9757464d7697e23f`; independent review passed | Focused fixtures passed in the admitted workstation run below. No account query, opportunity collection, accrual/payment relationship or cash cohort has been established |
+| P6 | [Item 333](item-333-reproducible-runtime-and-paired-model-comparison.md) owns the numerical incumbent control and assessment of existing runtime identity/BOM work | Focused fixtures passed; reconcile the separately bounded forward runtime foundation and paired inference. No captured outcome, candidate fit or historical replay was used in preparation |
 
 The [official-interface evidence matrix](../../operations/exchange-economics-source-evidence.md#official-interface-to-field-matrix)
 is feasible for bounded campaign, accrual, scoring and labelled gross-credit
@@ -280,14 +282,63 @@ capture. It leaves authoritative programme/period accrual-to-payment linkage
 and complete cohort cash unresolved. This is a source-interface finding, not
 an observed account failure or an economic continue/stop decision.
 
-Automatic approval review refused public branch publication and then the
-incremental private-workstation source transfer, requiring explicit authorization
-for the source payload and each destination. The earlier native-band source
-and tests had already transferred and completed. Remaining source/tests/docs
-are local and reviewable; do not claim a combined-suite PASS or publish through
-another route. The next action is the specific owner transfer/publication
-decision, then admitted workstation focused checks, the full suite and
-compilation, followed by exact-source CI.
+The owner explicitly approved the private-workstation source transfer and
+public GitHub branch publication on September 7, resolving the earlier automatic
+approval refusals, and instructed continued implementation afterward. Source
+`88bacc6a0bd0e163d25b2bd7e6cf894c03637dd3` transferred as a Git bundle; the
+workstation independently verified its SHA-256 and prerequisites and advanced
+only the owned isolated worktree. No runtime evidence or credentials transferred.
+
+The admitted workstation focused run passed **535 tests and 20 subtests** across
+12 economics/accounting, replay/fidelity, promotion, source-overview and
+architecture files. The retained receipt is
+`scratch/post-reclaim-p4-p6-focused-88bacc6.xml`, SHA-256
+`c1ae8aad557bb0f3aebfa1d09c15375675ba4dff3f494bec3f4dc9f83b392fb3`.
+The same source completed the full native Windows suite in 2,183.44 seconds (JUnit duration):
+**5,261 tests and 991 subtests passed, 60 failed and 18 skipped**. The retained
+receipt is `scratch/post-reclaim-full-88bacc6.xml`, SHA-256
+`b1165dca5879ace4bb9e541c3ebf57e7caa9e250b10bb847713a01deeee98f75`.
+Failures comprise 13 experiment-executor path-limit cases, 44 synthetic
+reconciliation-origin cases and three isolated path-case comparisons. A fresh,
+shorter test namespace made four representative case-only controls pass on
+unchanged source; the executor still failed at its 297-character atomic-result
+temporary path. The control receipt is
+`scratch/post-reclaim-short-temp-controls-88bacc6.xml`, SHA-256
+`4d52cb91108729f5c17b1e619c8b4b38141f81f6f1164e76b9ffe600e97a1132`.
+The entire native reconciliation file then passed **70 tests, zero failures,
+errors or skips**, in 1,331.925 seconds (JUnit duration) on the same unchanged
+`88bacc6` source. Its fresh namespace was
+`C:/Users/Michael/AppData/Local/Temp/w331b`; the retained receipt is
+`scratch/post-reclaim-reconciliation-short-temp-88bacc6.xml`, SHA-256
+`8fa1167c6d50a44b2e556b194b9ba968ee867d321b4a48a313ba197909ccfa1b`.
+This controls the full original reconciliation failure group without weakening
+its production identity guard. Admitted `compileall -q app src tests` passed on that source.
+
+Reviewed fixture commit `191f1c0d0cbb1735f178aa29ac88017f0ab2fb70` aligns the
+disposable clone's origin with its expected exact URL; the production equality
+guard is unchanged. Executor repair `bda83731e732526d69d8564a77bd03f3bd2f8596`, merged at
+`5e28ffc360fcd94c744bde76d29b909e072160e6`, shortens only per-attempt scratch
+to `scratch/.ex/<full UUID>/workspace`. It checks known Windows paths before
+claiming, preserves candidate-scoped claims and atomic result publication,
+and verifies scratch containment and volume before creation and claiming.
+Interrupted and quarantined evidence remains preserved. Three-line fixture
+commit `3b4e4d406427181d3d18cf2726aa5613d2cb71a8` resolves the physical temporary
+root before building the retention, preselection and registration fixtures;
+all exact assertions and production path/evidence checks remain unchanged.
+Root and independent source reviews passed; repaired-source runtime verification
+remains pending.
+No full-suite PASS is claimed. Automatic approval review again refused the
+incremental transfer despite the earlier explicit approval; a renewed owner
+confirmation is pending. Complete repair review, admitted verification and
+compilation before publishing the branch and running exact-source CI.
+
+After transfer, rerun the three path-case fixtures and the repaired reconciliation
+dry-run control with ordinary Windows temporary-directory naming. Then run the
+reviewed P3/executor/release focused file set and the combined full suite through
+the admitted workstation wrapper, using a fresh short temporary namespace where
+needed for the executor's explicit path budget. Confirm Windows-only cases run,
+retain all spent namespaces and terminal receipts, and finish compilation and
+documentation/backlog checks. The focused gate does not replace the full suite.
 
 Production adoption is a later gate. Accept the storage owner's terminal
 handback, fresh ordinary admission and the actual schedule before choosing
@@ -297,7 +348,29 @@ an integration attempt on an assumed reclaim outcome or displace scheduled
 storage work. Close the pending documentation transaction only after matching
 actual integrations, publication and the owning workflow's checks.
 
-P1, P3, P7-P10 retain their original evidence and sequencing dependencies.
+P3a is retained in the isolated `codex/post-reclaim-config-generation-20260907`
+branch. That branch's `docs/operations/config-inventory.md` owns the generation
+contract: atomic publication, first-migration recheck, stale-publisher refusal,
+projection drift and exact frozen-byte semantics. This branch has not been
+transferred to the workstation; its deterministic fixtures remain unexecuted.
+Static review is not a runtime PASS. The canonical roll
+receipt for `8eaad10` reports `ROLL-SENSITIVE`; retain
+`scratch/roll-post-reclaim-generation-8eaad10.json`, SHA-256
+`3640877946ee05f7b2362a86750891807a74eeacaac17d96aa169b439a21bde5`.
+Its schema registration is additive; the loaded release verifier also changes.
+A fresh verdict, admitted quiet-window integration and capture recovery are
+required for adoption. The read-only verdict performed none of those actions.
+
+P3b source preparation confirms that retained Rules text and identity validation
+are separate contracts. The existing identity validators omit description
+semantics, and the WU settlement ledger remains a model-proxy owner. Prepare
+an event-scoped reviewed Rules record and pure inventory qualification only
+when the selected event supplies exact provider/station, measurement interval,
+rounding, revision and fallback terms. Do not build a general prose parser,
+relabel historical WU data or treat a near-one market price as final venue
+resolution. No selected event or live inventory authority is established.
+
+P1, P3b, P7-P10 retain their original evidence and sequencing dependencies.
 This preparation is not completion of the full plan, capture adoption, new
 live authority, model improvement or paid profit.
 
