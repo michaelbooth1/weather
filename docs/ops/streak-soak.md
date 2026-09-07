@@ -186,6 +186,16 @@ Outputs, all under `data/alerts/`:
 
 Register or remove it with `scripts/ops/register_health_watchdog.ps1` (`-Unregister`).
 
+The status and watchdog scripts resolve their default repository after native
+PowerShell startup; `-RepoRoot` selects the checkout whose runtime state is read.
+The watchdog passes that root explicitly to its status subprocess. A status
+exit indicating attention still carries usable JSON and must preserve the real
+alerts. Low capacity directs operators to admitted tiering with the shared lease,
+never to unrestricted cleanup. A separately reviewed diagnostic deployment may
+pin the watchdog script with `-ExpectedSelfSha256`; a mismatch stops before any
+alert file is written. Record the exact source, task action and recovery receipt
+when using such a deployment; it does not adopt capture source or qualify live work.
+
 ## This host loses power (WeatherBootRecovery)
 
 Event-log forensics on 2026-07-25 found **five unexpected shutdowns in 90 days**. Four had

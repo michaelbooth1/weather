@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,73 @@ WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
     os.name != "nt",
     reason="requires Windows PowerShell",
 )
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("explicit_root", [False, True])
+def test_watchdog_native_subprocess_keeps_real_alerts_and_selected_root(
+    tmp_path: Path, explicit_root: bool
+) -> None:
+    source_root = tmp_path / "watchdog checkout"
+    runtime_root = tmp_path / "runtime checkout" if explicit_root else source_root
+    watchdog = source_root / "scripts" / "ops" / "health_watchdog.ps1"
+    watchdog.parent.mkdir(parents=True)
+    watchdog.write_bytes(SCRIPT.read_bytes())
+    status_script = runtime_root / "scripts" / "ops" / "status.ps1"
+    status_script.parent.mkdir(parents=True, exist_ok=True)
+    status_script.write_text(
+        "param([Parameter(Mandatory=$true)][string]$RepoRoot, [switch]$Json)\n"
+        "if ($RepoRoot -ne (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) { exit 7 }\n"
+        "@{verdict='ATTENTION'; flags=@('disk filling at fixture rate'); warns=@(); "
+        "streak=@{days=2;target=14;today='fixture capture'}; "
+        "reconciliation_publication=@{classification='ordinary'}} | ConvertTo-Json -Depth 4\n"
+        "exit 2\n",
+        encoding="utf-8",
+    )
+    command = [
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(watchdog),
+        "-ExpectedSelfSha256", hashlib.sha256(watchdog.read_bytes()).hexdigest(),
+    ]
+    if explicit_root:
+        command.extend(["-RepoRoot", str(runtime_root)])
+    result = subprocess.run(
+        command, cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    latest = json.loads(
+        (runtime_root / "data" / "alerts" / "host_health_latest.json").read_text(
+            encoding="utf-8-sig"
+        )
+    )
+    assert latest["today"] == "fixture capture"
+    assert latest["streak"] == "2/14"
+    assert latest["top_severity"] == "HIGH"
+    alert = latest["alerts"][0]
+    assert alert["flag"] == "disk filling at fixture rate"
+    assert alert["class"] == "capacity"
+    assert "00:30-09:00" in alert["act"]
+    assert "shared lease" in alert["act"]
+    assert "BLIND" not in (runtime_root / "data" / "alerts" / "MORNING_BRIEFING.md").read_text()
+    if explicit_root:
+        assert not (source_root / "data").exists()
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("expected_hash", ["0" * 64, "invalid"])
+def test_watchdog_rejects_changed_source_before_writing_alerts(
+    tmp_path: Path, expected_hash: str
+) -> None:
+    script = tmp_path / "health_watchdog.ps1"
+    script.write_bytes(SCRIPT.read_bytes())
+    result = subprocess.run(
+        [
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script),
+            "-RepoRoot", str(tmp_path), "-ExpectedSelfSha256", expected_hash,
+        ],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / "data").exists()
 
 
 def test_watchdog_carries_structured_reconciliation_publication_state() -> None:
