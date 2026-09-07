@@ -75,6 +75,14 @@ growth trend; use it. Retained because the *ratios* explain why the policy exist
 
 ## The 24-hour map (America/Toronto)
 
+The [bounded replay-cache compression lane](replay-cache-compression.md) has a
+reclaim-specific disk reservation: 20 GiB of capture reserve plus two 64 MiB
+file images and 1 MiB of receipts. It permits only exact cold cache paths,
+at most 64 MiB per file / 512 MiB per request, with no deletion. It preserves
+the ordinary 00:30–09:00 window, shared lease, healthy capture, 4 GiB physical
+availability and commit below 70%. It does not lower the general heavy-work
+disk threshold or authorize protected-window compression.
+
 **Load classes are policy and live here. What actually runs in each window is host state** — see
 `data/alerts/OPERATING_SCHEDULE.md` and verify current Task Scheduler state rather than relying on
 a committed timetable.

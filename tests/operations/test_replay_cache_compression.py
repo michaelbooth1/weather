@@ -180,6 +180,77 @@ def test_receipts_are_create_only_and_bounded(tmp_path):
     assert not (tmp_path / "large.json").exists()
 
 
+def test_duplicate_keys_and_oversized_requests_fail(tmp_path):
+    source = tmp_path / "request.json"
+    source.write_text('{"files": [], "files": [1]}')
+    with pytest.raises(ValueError, match="duplicate"):
+        compression.read_bounded_json(source, 32768)
+    source.write_bytes(b" " * 32769)
+    with pytest.raises(ValueError, match="bound"):
+        compression.read_bounded_json(source, 32768)
+
+
+def test_lease_requires_live_owner_and_actual_wrapper_ancestry():
+    owner = 4242
+    record = {"workload": "replay_cache_compression", "execution_host_profile": "capture_colocated_v1",
+              "pid": owner, "owner_process_creation_time_token": "win32-filetime:123"}
+    table = {os.getpid(): {"parent_pid": 4241}, 4241: {"parent_pid": owner}}
+    describe = lambda *args: {"creation_time_token": "win32-filetime:123"}
+    admission.verify_lease_owner(record, owner_pid=owner, table=table, describe=describe)
+    with pytest.raises(ValueError, match="process identity"):
+        admission.verify_lease_owner(record, owner_pid=owner, table=table,
+                                     describe=lambda *args: {"creation_time_token": "win32-filetime:999"})
+    with pytest.raises(ValueError, match="ancestor"):
+        admission.verify_lease_owner(record, owner_pid=owner,
+                                     table={os.getpid(): {"parent_pid": 3333}}, describe=describe)
+    with pytest.raises(ValueError, match="lease identity"):
+        admission.verify_lease_owner({**record, "execution_host_profile": "workstation_offline_v1"},
+                                     owner_pid=owner, table=table, describe=describe)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native full workflow with fixture-only admission")
+def test_native_run_journals_success_and_rejects_spent_attempt(tmp_path, monkeypatch):
+    from argparse import Namespace
+    from weather.paths import repo_path
+    source = tmp_path / "data" / RELATIVE
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'{"synthetic":"' + b"a" * (2 * MIB) + b'"}')
+    old = int((datetime.now(timezone.utc) - timedelta(days=45)).timestamp()) * 10**9
+    os.utime(source, ns=(old, old))
+    payload = request(tmp_path)
+    payload.update(approved_at_utc=(datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat(),
+                   expires_at_utc=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+    payload["files"][0].update(size_bytes=source.stat().st_size, mtime_ns=str(source.stat().st_mtime_ns))
+    request_path = tmp_path / "approved.json"
+    request_path.write_text(json.dumps(payload))
+    lease = tmp_path / "data/logs/heavy_workload.lock"
+    lease.parent.mkdir(parents=True)
+    lease.write_text(json.dumps({"execution_host_id": "a" * 64}))
+    output = tmp_path / "scratch/storage_reclaim/fixture-attempt"
+    output.mkdir(parents=True)
+    monkeypatch.setenv("WEATHER_CACHE_COMPRESSION_SOURCE_ROOT", str(repo_path()))
+    monkeypatch.setenv("WEATHER_CACHE_COMPRESSION_OWNER_PID", "1")
+    monkeypatch.setenv("WEATHER_CACHE_COMPRESSION_DEADLINE_UTC",
+                       (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat())
+    # Only fixture admission is replaced; native locking/hash/compression/journal
+    # code runs unchanged against this test's new synthetic temporary file.
+    monkeypatch.setattr(compression, "verify_current_lease", lambda *args: None)
+    monkeypatch.setattr(compression, "capture_admission", lambda *args: {"status": "PASS"})
+    args = Namespace(production_repo_root=str(tmp_path), output_root=str(output), request=str(request_path),
+                     request_sha256=hashlib.sha256(request_path.read_bytes()).hexdigest(),
+                     source_git_sha="a" * 40, apply=True)
+    original = hashlib.sha256(source.read_bytes()).hexdigest()
+    assert compression.run(args) == 0
+    result = json.loads((output / "result.json").read_text())
+    assert result["status"] == "PASS" and result["deleted_files"] == 0 and result["reclaimed_bytes"] > 0
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == original
+    before = json.loads((output / "00-before.json").read_text())
+    after = json.loads((output / "00-after.json").read_text())
+    assert before["sha256"] == after["sha256"] == original
+    with pytest.raises(FileExistsError): compression.run(args)
+    assert json.loads((output / "result.json").read_text()) == result
+
+
 @pytest.mark.skipif(os.name != "nt", reason="native NTFS locking and compression")
 def test_native_cache_compression_reader_parity_and_writer_exclusion(tmp_path):
     from weather.backtesting.replay_cache import ReplayCacheKey, read_entry, write_entry

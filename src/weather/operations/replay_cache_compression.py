@@ -60,11 +60,17 @@ def read_bounded_json(path, limit):
 
 
 def validate_request(payload, *, production_root, now):
+    if not isinstance(payload, dict) or set(payload) != {
+        "schema_version", "production_repo_root", "approved_by", "operation",
+        "execution_host_id", "approved_at_utc", "expires_at_utc", "files",
+    }:
+        raise ValueError("request fields must match the exact compression contract")
     if payload.get("schema_version") != schema_version("replay_cache_compression_request"):
         raise ValueError("unsupported compression request")
     if Path(payload["production_repo_root"]) != production_root:
         raise ValueError("production repository binding mismatch")
-    if not payload.get("approved_by") or payload.get("operation") != "compress_and_retain":
+    if (not isinstance(payload.get("approved_by"), str) or not payload["approved_by"].strip()
+            or len(payload["approved_by"]) > 128 or payload.get("operation") != "compress_and_retain"):
         raise ValueError("explicit compression-and-retention approval is required")
     approved, expires = _utc(payload["approved_at_utc"]), _utc(payload["expires_at_utc"])
     if not approved <= now < expires or expires - approved > timedelta(hours=72):
@@ -76,6 +82,8 @@ def validate_request(payload, *, production_root, now):
         raise ValueError("request must name between one and ten files")
     seen, total = set(), 0
     for candidate in candidates:
+        if not isinstance(candidate, dict) or set(candidate) != {"path", "size_bytes", "mtime_ns"}:
+            raise ValueError("candidate fields must match the exact file contract")
         relative = candidate.get("path", "")
         if not CACHE_PATH.fullmatch(relative) or PurePosixPath(relative).is_absolute():
             raise ValueError("candidate is outside the exact replay-cache path contract")

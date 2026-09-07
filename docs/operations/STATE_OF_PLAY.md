@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-09-05 America/Toronto.** Read this first; read
+**Last rewritten: 2026-09-07 America/Toronto.** Read this first; read
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
@@ -12,6 +12,10 @@ refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-p
 **No market edge or profitable maker opportunity is proved.**
 
 ## Current authority
+
+On September 7 the owner approved the revised disk-reclaim plan and its
+implementation. Bounded cache compression preserves files and requires fresh
+overnight admission; this does not waive capture, memory or deletion gates.
 
 The owner authorized the plan's implementation, source-control integration,
 and takeover of unfinished cold-storage work on September 4. Ordinary authorized
@@ -30,8 +34,8 @@ retention and restore requirements still govern their exact actions.
 | Capture | The retained September 5 00:02 status receipt reports all three capture process families at `AboveNormal`, zero consecutive errors, and the snapshot's last clean iteration 6.3 seconds old. This is a point-in-time health observation, not a new streak or fleet-countability proof. |
 | Public execution tape | The same receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
 | Settlement / recurring work | The chain reports `settlement_source_audit` failed with `resource_budget_exceeded`. The five exact Toronto `settlement.json` files for August 28-September 1 are confirmed to report `missing_settlement` / `local_missing`, with no source or high; full-fleet and ledger scope remains unaudited. Item 330 records the bounded receipt. The initial Scheduler snapshot identified 30 recurring/boot/logon definitions (20 Ready, 10 Disabled) with proposed owners/dispositions. Further mixed-chain consumer reviews and job adoption decisions remain open; the one subsequently disabled recurrence is recorded below. |
-| Storage | The September 5 00:56 receipt `scratch/handoffs/maker-pre-identity-status-20260905.json` reports 35 GiB free; 36.6 GiB belongs to the earlier 00:02 snapshot. The mirror remains paused and not proven restorable. Resume the bounded off-site path under [item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md); no new upload or deletion has occurred in this task. |
-| Off-site blocker | Preserve spent attempt `real-pilot-clob-console-20260713-v1`, which failed at DPAPI before ciphertext creation. Repair `aea427fb7faf0b5fd67b8893b62b11fe649e71ea` checks encryption before source staging and rechecks its binding after compression. The native fixture run passed 51 tests and failed two in PowerShell protection before the loader; 48 separate archive/ratchet tests passed. An interactive-context check is pending; no new upload, restore proof or reclaim is established. |
+| Storage | September 7 14:32 had about 27.0 GiB free. Both scheduled CLOB tiering jobs succeeded that morning and reported 15.1 GiB reclaimed. The approved [bounded cache compression lane](replay-cache-compression.md) is implemented for workstation qualification; production pilot and measured savings remain open under [item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md). At 14:40, commit was 78%, above the 70% admission ceiling. No project files were deleted or compressed by this implementation. |
+| Off-site qualification | The September 5 `v3-r1` independent restore passed 17 checks for one 513,522,801-byte provisional mirror log on source `54da9076c10e6d109062c635211fcd273022f94e` ([PR 23](https://github.com/michaelbooth1/weather/pull/23)). The one-file restore is proved; production source identity, whole-mirror recovery and production deletion eligibility remain unproved. Preserve spent attempts and the frozen mirror. |
 | Maker changes | W1 governance at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), passed full Linux CI and guarded adoption; all three capture workers passed before/after checks. W2 identity/config at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), passed workstation checks, topic-head Linux CI and guarded production adoption; all three capture workers and the public execution-tape producer passed recovery. Atomic paired configuration publication remains open. Both underwent independent review. |
 | Feasibility | W3's [pure diagnostic calculator](maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3`. Independent review, 91 workstation checks and compilation of both changed Python paths passed. W3/G1 remain open: no current campaign/economics collection, evidence qualification, paid or reconciled profit, or consumer/CLI/executor integration. Git, CI and guarded receipts own source-integration status. |
 | Accounting | W4's static source trace is complete. Next is a pure offline accrual-to-wallet-credit matcher within the existing reports family, preserving the cash identity. No account failure or paid incentive is observed; item 330 records the design receipt. |
@@ -46,9 +50,10 @@ historical task exit codes and copied burn-rate estimates are not fresh proofs.
 
 ## Ordered non-live critical path
 
-1. Finish the bounded interactive DPAPI diagnosis. Preserve spent attempts;
-   prove credential loading, encrypted transfer and restore under item 325
-   before any exact-manifest local reclaim. Never substitute the frozen mirror.
+1. Qualify and run the one-file cache-compression pilot under fresh admitted
+   overnight conditions. Expand only from measured savings. Continue production
+   archive identity and exact-manifest qualification under item 325; do not
+   repeat the completed provisional restore or substitute the frozen mirror.
 2. Complete exact-head CI and the documentation closeout,
    then recheck the canonical roll verdict for each published tip and use the
    integration/recovery path. Preserve generated config and capture evidence.

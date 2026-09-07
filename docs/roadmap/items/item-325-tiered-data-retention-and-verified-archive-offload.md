@@ -7,6 +7,57 @@ that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
 
+## 2026-09-07 approved bounded cache compression
+
+The owner approved the revised storage-reclaim plan and implementation of work
+possible now. The production-local review is retained at
+`scratch/handoffs/storage-reclaim-review-20260907.md`; it is ignored operational
+evidence and is not assumed to exist in a clean checkout.
+
+Immediate recovery now starts with the
+[bounded replay-cache compression lane](../../operations/replay-cache-compression.md),
+which preserves every path and logical byte. This does not authorize cache
+eviction: the current full-key reachability and real rebuild gates in the
+[retention policy](../../operations/data-retention-policy.md) still apply to
+deletion, superseding any looser wording in the historical design below.
+
+At September 7 14:32 Toronto, production had 29,009,707,008 bytes free (about
+27.0 GiB). The two successful scheduled tiering receipts reported about 15.1
+GiB reclaimed earlier that day; those completed candidates are not new reclaim
+capacity. The old inventory's 32.3 GiB cache size is stale logical volume,
+not measured savings. Twenty split CSV/gzip pairs remain deliberately retained.
+
+The first implementation qualifies exact-request native compression with a
+20 GiB capture reserve plus two bounded file images and receipt space, retains
+the 00:30–09:00 window, shared lease, healthy capture, 4 GiB available memory
+and commit below 70%, and caps requests at ten files / 512 MiB. Each file is at
+most 64 MiB; actual production starts with one. Before/after hash, native
+identity and allocation receipts are create-only. No directory compression,
+deletion, automatic resume or decompression is provided.
+
+Initial workstation qualification passed 69 checks including architecture,
+native cache-reader parity, file/parent replacement exclusion and a 64 MiB
+incompressible fixture. The fixture retained the same 67,108,864-byte allocation;
+compression/read took about 0.64 seconds, with the test process observed at
+about 53 MiB working set. This proves fixture compatibility, not production
+savings or capture-host qualification. Later exact-head verification and the
+pilot request are retained with the source publication evidence.
+
+- [x] Review previous archive/tiering work and native compression compatibility.
+- [x] Implement bounded plan/apply and explicit retained-byte failure handling.
+- [ ] Complete exact-head publication and native failure-path qualification.
+- [ ] Run the one-file production pilot under fresh overnight admission.
+- [ ] Measure allocated savings before approving each bounded expansion.
+- [ ] Scale verified off-site storage with production identity and dependencies;
+  the prior one-log restore proof alone grants no production deletion authority.
+
+No production reclaim was executed by this implementation entry. At 14:40,
+the memory guard reported 78% commit, still above the ordinary 70% admission
+ceiling. Time passage is not permission or proof that resource admission will
+pass. Preserve the frozen mirror, all archive attempts and all trading evidence.
+
+## Historical design and measurements
+
 Source: 2026-07-21 measurement on the production host (931 GB volume, 223 GB
 free, 24%). Repository footprint 503 GB, of which `data/` is 466 GB:
 
