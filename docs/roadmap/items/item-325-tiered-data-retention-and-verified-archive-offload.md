@@ -43,9 +43,18 @@ about 53 MiB working set. This proves fixture compatibility, not production
 savings or capture-host qualification. Later exact-head verification and the
 pilot request are retained with the source publication evidence.
 
+[Draft PR 39](https://github.com/michaelbooth1/weather/pull/39) publishes the
+implementation. Native Windows verification at `77fb583f3e7796415306128cc6493de902b4942c`
+passed 76 focused checks, including an actual NTFS plan/apply fixture with
+immutable receipts and failed-attempt handling, schema registration and docs
+audits. Production admission was simulated only in that workstation fixture;
+no fixture result represents production reclaim. The canonical September 7
+roll verdict is `ROLL-SENSITIVE` through the schema registry; production merge
+therefore requires the quiet-window integration and recovery procedure.
+
 - [x] Review previous archive/tiering work and native compression compatibility.
 - [x] Implement bounded plan/apply and explicit retained-byte failure handling.
-- [ ] Complete exact-head publication and native failure-path qualification.
+- [x] Complete exact-head publication and native failure-path qualification.
 - [ ] Run the one-file production pilot under fresh overnight admission.
 - [ ] Measure allocated savings before approving each bounded expansion.
 - [ ] Scale verified off-site storage with production identity and dependencies;
