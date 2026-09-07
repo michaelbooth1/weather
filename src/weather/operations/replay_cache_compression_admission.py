@@ -1,0 +1,114 @@
+"""Capture admission for the exact, bounded replay-cache compression lane."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import ctypes
+from ctypes import wintypes
+import math
+import os
+from pathlib import Path
+import shutil
+from zoneinfo import ZoneInfo
+
+from weather.operations.capture_resource_gate import (
+    available_memory_bytes, default_loop_specs, inspect_capture_loop,
+)
+from weather.operations.daily_refresh_resources import host_commit_percent
+from weather.operations.ntfs_file_compression import MAX_FILE_BYTES
+from weather.operations.windows_processes import describe_process, snapshot_processes
+
+
+GIB = 1024**3
+MIN_FREE_MEMORY_BYTES = 4 * GIB
+MAX_COMMIT_PERCENT = 70.0
+# Twenty GiB remain reserved for capture. The lane permits at most 64 MiB per
+# file and reserves two additional complete file images plus 1 MiB of receipts.
+# This is a compression-only reservation, never a general heavy-work override.
+MIN_FREE_DISK_BYTES = 20 * GIB + 2 * MAX_FILE_BYTES + 1024**2
+
+
+def check_resources(*, now, available, commit, free_disk, loops):
+    local = now.astimezone(ZoneInfo("America/Toronto"))
+    minute = local.hour * 60 + local.minute
+    reasons = []
+    if not 30 <= minute < 9 * 60:
+        reasons.append("outside_0030_0900_capture_window")
+    if available is None or available < MIN_FREE_MEMORY_BYTES:
+        reasons.append("physical_memory_below_4_gib")
+    if commit is None or not math.isfinite(commit) or not 0 <= commit < MAX_COMMIT_PERCENT:
+        reasons.append("commit_not_below_70_percent")
+    if free_disk is None or free_disk < MIN_FREE_DISK_BYTES:
+        reasons.append("compression_disk_reservation_unmet")
+    if len(loops) != 3 or {row.get("name") for row in loops} != {"snapshot", "clob", "observation_trigger"}:
+        reasons.append("capture_loop_evidence_missing")
+    for row in loops:
+        if (not row.get("active") or row.get("degraded") or not row.get("heartbeat_fresh")
+                or not row.get("pid_agreement")
+                or not row.get("process_diagnostics", {}).get("status_pid_alive")
+                or not row.get("process_diagnostics", {}).get("lock_pid_alive")):
+            reasons.append("capture_unhealthy:" + str(row.get("name")))
+    return {"status": "BLOCK" if reasons else "PASS", "reasons": reasons,
+            "checked_at_utc": now.isoformat(), "available_memory_bytes": available,
+            "host_commit_percent": commit, "free_disk_bytes": free_disk,
+            "minimum_free_disk_bytes": MIN_FREE_DISK_BYTES}
+
+
+def capture_admission(production_root: Path):
+    now = datetime.now(timezone.utc)
+    loops = [inspect_capture_loop(spec, now=now)
+             for spec in default_loop_specs(production_root / "data" / "snapshots")]
+    result = check_resources(now=now, available=available_memory_bytes(),
+                             commit=host_commit_percent(),
+                             free_disk=shutil.disk_usage(production_root).free, loops=loops)
+    memory = process_memory_bytes()
+    result["child_memory"] = memory
+    if memory is None or max(memory.values()) > 384 * 1024**2:
+        result["reasons"].append("child_memory_unavailable_or_over_384_mib")
+        result["status"] = "BLOCK"
+    return result
+
+
+def process_memory_bytes():
+    if os.name != "nt":
+        return None
+
+    class Counters(ctypes.Structure):
+        _fields_ = [("cb", wintypes.DWORD), ("faults", wintypes.DWORD)] + [
+            (name, ctypes.c_size_t) for name in (
+                "peak_working", "working", "peak_paged", "paged", "peak_nonpaged",
+                "nonpaged", "pagefile", "peak_pagefile", "private")]
+
+    counters = Counters()
+    counters.cb = ctypes.sizeof(counters)
+    api = ctypes.WinDLL("psapi", use_last_error=True).GetProcessMemoryInfo
+    api.argtypes = [wintypes.HANDLE, ctypes.POINTER(Counters), wintypes.DWORD]
+    api.restype = wintypes.BOOL
+    if not api(ctypes.c_void_p(-1), ctypes.byref(counters), counters.cb):
+        return None
+    return {"working_set_bytes": int(counters.working), "private_bytes": int(counters.private)}
+
+
+def verify_lease_owner(record, *, owner_pid, table, describe):
+    """Require a live wrapper ancestor, including the Windows venv redirector."""
+    if (record.get("workload") != "replay_cache_compression"
+            or record.get("execution_host_profile") != "capture_colocated_v1"
+            or record.get("pid") != owner_pid or not table):
+        raise ValueError("compression wrapper lease identity is missing")
+    process = describe(owner_pid, table)
+    if (not record.get("owner_process_creation_time_token")
+            or process.get("creation_time_token") != record["owner_process_creation_time_token"]):
+        raise ValueError("compression wrapper process identity changed")
+    current = os.getpid()
+    for _ in range(3):
+        current = (table.get(current) or {}).get("parent_pid")
+        if current == owner_pid:
+            return
+        if current is None:
+            break
+    raise ValueError("the lease owner is not this process's wrapper ancestor")
+
+
+def verify_current_lease(record, owner_pid):
+    verify_lease_owner(record, owner_pid=owner_pid, table=snapshot_processes(),
+                       describe=describe_process)
