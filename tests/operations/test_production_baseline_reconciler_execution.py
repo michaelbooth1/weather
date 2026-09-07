@@ -1186,6 +1186,9 @@ def _build_harness(
     production = root / "production"
     _git(root, "clone", "--no-checkout", str(origin), str(production))
     _configure_repo(production)
+    # Clone may normalize Windows path case; bind both synthetic checkouts to
+    # the exact fixture URL expected by the unchanged case-sensitive guard.
+    _git(production, "remote", "set-url", "origin", str(origin.resolve()))
     _git(production, "checkout", "--force", "-B", "master", LOCAL_BASELINE)
     for relative, raw_bytes in RAW_CONFIG_BYTES.items():
         destination = production / relative
