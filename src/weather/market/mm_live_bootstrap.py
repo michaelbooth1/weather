@@ -623,8 +623,9 @@ def load_platform_bootstrap_gate(
     expected_token_id=None,
     expected_condition_id=None,
     now=None,
+    expected_artifact_sha256=None,
 ):
-    """Validate a read-only bootstrap artifact for one exact pilot market."""
+    """Validate one bootstrap, optionally binding the exact bytes being parsed."""
 
     path = Path(path) if path else None
     if path is None:
@@ -632,7 +633,13 @@ def load_platform_bootstrap_gate(
     if not path.exists():
         return _fail(path, "platform-bootstrap artifact missing")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+        raw = path.read_bytes()
+        if (
+            expected_artifact_sha256 is not None
+            and hashlib.sha256(raw).hexdigest() != expected_artifact_sha256
+        ):
+            return _fail(path, "platform-bootstrap artifact hash changed")
+        payload = json.loads(raw.decode("utf-8-sig"))
     except json.JSONDecodeError as exc:
         return _fail(path, f"invalid platform-bootstrap JSON: {exc}")
 
