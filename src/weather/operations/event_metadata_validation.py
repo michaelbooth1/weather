@@ -10,6 +10,9 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.market.location_config import (
+    json_bytes, read_location_config_pair, validate_pair_bytes,
+)
 from weather.market.market_config import config_for_date, date_from_event_slug, ensure_date
 from weather.market.market_registry import all_specs, spec_for_id
 from weather.market.polymarket_client import PolymarketClient
@@ -692,6 +695,27 @@ def _market_validation_row(
     }
 
 
+def _invalid_config_row(spec, target_date: date, detail: str) -> dict[str, Any]:
+    failure = issue(
+        "location_config_generation_invalid", "configuration_generation",
+        f"location config pair is invalid: {detail}",
+        field="location_config_generation",
+        remediation_command=REFRESH_COMMAND, recoverable_same_day=True,
+    )
+    return {
+        "market_id": spec.id,
+        "city": spec.city_label,
+        "target_date": target_date.isoformat(),
+        "event_slug": config_for_date(target_date, spec.id).event_slug,
+        "status": "BLOCK", "ok": False, "active_day_evidence_countable": False,
+        "manual_review_required": False, "recoverable_same_day": True,
+        "issue_count": 1, "issue_counts": {"configuration_generation": 1},
+        "first_issue": failure, "reason": failure["detail"],
+        "remediation_command": REFRESH_COMMAND,
+        "generated_event": {}, "live_event": {}, "issues": [failure],
+    }
+
+
 def build_validation_payload(
     *,
     target_date: str | date | None = None,
@@ -710,20 +734,34 @@ def build_validation_payload(
     now_dt = utc_now(now)
     target = ensure_date(target_date or now_dt.date())
     specs = selected_specs(markets)
-    locations_payload = locations_payload if locations_payload is not None else (load_json(locations_path, {}) or {})
-    event_metadata_payload = (
-        event_metadata_payload
-        if event_metadata_payload is not None
-        else (load_json(event_metadata_path, {}) or {})
-    )
-    live_index = _event_index(live_events)
+    config_error = None
+    try:
+        if locations_payload is None or event_metadata_payload is None:
+            pair = read_location_config_pair(
+                locations_path, event_metadata_path, allow_missing_legacy=True,
+            )
+            if locations_payload is not None or event_metadata_payload is not None:
+                pair = validate_pair_bytes(
+                    pair.registry_bytes if locations_payload is None else json_bytes(locations_payload),
+                    pair.metadata_bytes if event_metadata_payload is None else json_bytes(event_metadata_payload),
+                )
+        else:
+            pair = validate_pair_bytes(json_bytes(locations_payload), json_bytes(event_metadata_payload))
+        locations_payload, event_metadata_payload = pair.locations_payload, pair.event_metadata_payload
+        pair_identity = pair.identity()
+    except (OSError, ValueError) as exc:
+        config_error = str(exc)
+        pair_identity = {"binding_status": "INVALID", "generation_id": None, "error": config_error}
+        locations_payload, event_metadata_payload = {}, {}
+    live_index = _event_index(live_events) if config_error is None else {}
     live_errors: dict[str, str] = {}
-    if fetch_live:
+    if fetch_live and config_error is None:
         fetched_index, live_errors = _fetch_live_events(specs, target, timeout_seconds)
         for slug, rows in fetched_index.items():
             live_index.setdefault(slug, []).extend(rows)
 
     rows = [
+        _invalid_config_row(spec, target, config_error) if config_error is not None else
         _market_validation_row(
             spec,
             target_date=target,
@@ -737,7 +775,7 @@ def build_validation_payload(
         )
         for spec in specs
     ]
-    status = "PASS" if all(row.get("status") == "PASS" for row in rows) else "BLOCK"
+    status = "PASS" if config_error is None and all(row.get("status") == "PASS" for row in rows) else "BLOCK"
     issues = [issue for row in rows for issue in row.get("issues") or []]
     issue_counts = Counter(issue.get("category") for issue in issues)
     summary = {
@@ -764,9 +802,12 @@ def build_validation_payload(
         "markets": [spec.id for spec in specs],
         "locations_path": str(locations_path),
         "event_metadata_path": str(event_metadata_path),
+        "location_config_pair": pair_identity,
         "max_age_hours": float(max_age_hours),
         "live_fetch": {
-            "enabled": bool(fetch_live),
+            "enabled": bool(fetch_live) and config_error is None,
+            "requested": bool(fetch_live),
+            "skipped_reason": "location_config_invalid" if config_error is not None else None,
             "timeout_seconds": float(timeout_seconds),
             "error_count": len(live_errors),
             "errors": live_errors,

@@ -171,3 +171,44 @@ def test_cli_require_pass_exits_nonzero_after_writing_block_outputs(tmp_path):
 
     assert error.value.code == 2
     assert (tmp_path / "validation.json").exists()
+
+
+
+@pytest.mark.parametrize("damage", ["partial_generation", "invalid_json"])
+def test_invalid_config_replaces_prior_pass_receipt_with_block_without_live_fetch(
+    tmp_path, monkeypatch, damage,
+):
+    json_out, report_out = tmp_path / "validation.json", tmp_path / "validation.md"
+    previous = validate([event()])
+    gate.write_outputs(previous, json_out=json_out, report_out=report_out)
+    assert gate.load_gate_for_market(json_out, "atlanta")["ok"] is True
+    locations_path, metadata_path = tmp_path / "locations.json", tmp_path / "events.json"
+    locations_path.write_text(json.dumps(locations_payload()), encoding="utf-8")
+    metadata_path.write_bytes(
+        b'{"generation_id":"partial"}' if damage == "partial_generation" else b"{partial"
+    )
+
+    def forbidden_fetch(*_args):
+        raise AssertionError("invalid generation attempted a live fetch")
+
+    monkeypatch.setattr(gate, "_fetch_live_events", forbidden_fetch)
+    with pytest.raises(SystemExit) as error:
+        gate.main([
+            "--target-date", TARGET_DATE, "--markets", "atlanta",
+            "--locations", str(locations_path), "--event-metadata", str(metadata_path),
+            "--json-out", str(json_out), "--report-out", str(report_out),
+            "--require-pass",
+        ])
+    assert error.value.code == 2
+    blocked = gate.load_validation_payload(json_out)
+    assert blocked["status"] == "BLOCK"
+    assert blocked["location_config_pair"]["binding_status"] == "INVALID"
+    assert blocked["validation_hash"] != previous["validation_hash"]
+    assert blocked["live_fetch"]["enabled"] is False
+    assert blocked["live_fetch"]["skipped_reason"] == "location_config_invalid"
+    assert blocked["market_rows"][0]["active_day_evidence_countable"] is False
+    assert "location config pair is invalid" in report_out.read_text(encoding="utf-8")
+    persisted_gate = gate.load_gate_for_market(json_out, "atlanta")
+    assert persisted_gate["ok"] is False
+    assert persisted_gate["status"] == "BLOCK"
+    assert persisted_gate["first_issue_code"] == "location_config_generation_invalid"

@@ -90,9 +90,14 @@ daily-roll liveness classification.
   Refresh fails if pagination ends on a full final page without proving complete
   discovery. Event and market resolution descriptions retain their exact text
   and UTF-8 SHA-256 plus separate source URLs; those bytes do not establish
-  settlement-source equivalence or economic readiness. Each JSON publication is
-  atomic. Paired registry/event generation consistency remains separate work;
-  `--metadata-only` leaves the durable registry byte-for-byte unchanged.
+  settlement-source equivalence or economic readiness. The metadata envelope
+  atomically binds exact registry bytes and event metadata; paired readers,
+  candidate freezing and release verification use
+  `weather.market.location_config`. The separate registry projection may lag
+  after interruption; inventory reports drift. Legacy pairs are explicitly
+  unbound, and invalid declared generations fail closed.
+  `--metadata-only` preserves original registry bytes. See the
+  [configuration generation contract](operations/config-inventory.md#location-configuration-generations).
 - Supervised settlement labels: per-market ledgers under local
   `data/settlements/`; folder settlement files are derived copies.
 - Schemas: `weather.schema_registry` and producer/consumer tests.
