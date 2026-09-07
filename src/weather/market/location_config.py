@@ -206,17 +206,18 @@ def validate_pair_bytes(registry_bytes: bytes, metadata_bytes: bytes, *,
 
 def read_location_config_pair(locations_path: str | Path, event_metadata_path: str | Path, *,
                               allow_missing_legacy: bool = False) -> LocationConfigPair:
-    """Bound reads need only one metadata buffer; legacy reads remain unbound."""
+    """Bound reads use one buffer; legacy reads recheck metadata across migration."""
     metadata_path = Path(event_metadata_path)
     try:
         metadata_bytes = metadata_path.read_bytes()
     except FileNotFoundError:
         if not allow_missing_legacy:
             raise
-        metadata_bytes = b"{}"
+        metadata_bytes = None
+    source_identity = registry_source_identity(locations_path, metadata_path)
     bound = _pair_from_metadata(
-        metadata_bytes,
-        expected_source_identity=registry_source_identity(locations_path, metadata_path),
+        metadata_bytes if metadata_bytes is not None else b"{}",
+        expected_source_identity=source_identity,
     )
     if bound is not None:
         return bound
@@ -226,7 +227,21 @@ def read_location_config_pair(locations_path: str | Path, event_metadata_path: s
         if not allow_missing_legacy:
             raise
         registry_bytes = b"{}"
-    return validate_pair_bytes(registry_bytes, metadata_bytes)
+    try:
+        latest_metadata_bytes = metadata_path.read_bytes()
+    except FileNotFoundError:
+        latest_metadata_bytes = None
+    if latest_metadata_bytes != metadata_bytes:
+        if latest_metadata_bytes is not None:
+            latest_bound = _pair_from_metadata(
+                latest_metadata_bytes, expected_source_identity=source_identity,
+            )
+            if latest_bound is not None:
+                return latest_bound
+        raise LocationConfigError("location config legacy metadata changed during read")
+    return validate_pair_bytes(
+        registry_bytes, metadata_bytes if metadata_bytes is not None else b"{}",
+    )
 
 
 def verify_frozen_config_pair(root: Path, roles: Mapping[str, Mapping[str, Any]]) -> LocationConfigPair:

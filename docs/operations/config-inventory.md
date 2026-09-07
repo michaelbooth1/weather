@@ -78,9 +78,15 @@ path. The two paths must differ.
 
 The pair reader returns `GENERATION_BOUND` only after validating the complete
 envelope and hashes. With no generation fields, historical object payloads are
-`LEGACY_UNBOUND`; inventory warns that consistency is unproved. A partial,
-malformed or mismatched generation is an error and never becomes legacy
-fallback. Missing legacy files may be treated as empty only by diagnostic
+`LEGACY_UNBOUND`; inventory warns that consistency is unproved. The legacy
+read captures the registry and then rereads metadata, including whether the
+metadata file was absent. It returns legacy only when that metadata observation
+is unchanged. If a valid first generation appeared meanwhile, it returns that
+complete embedded pair; a change to another legacy payload refuses the read.
+A partial, malformed or mismatched generation is an error and never becomes
+legacy fallback, including on this second read. This detects migration by the
+cooperating publisher; unchanged legacy files still provide no generation
+binding. Missing legacy files may be treated as empty only by diagnostic
 callers that explicitly opt in. Pair binding does not establish freshness,
 event correctness, settlement-source equivalence or economic qualification.
 

@@ -342,3 +342,107 @@ def test_registry_edit_after_envelope_commit_is_preserved(tmp_path, monkeypatch)
     assert writes == [metadata]
     assert locations.read_bytes() == edited
     assert read_location_config_pair(locations, metadata) == prepared.pair
+
+
+@pytest.mark.parametrize("interrupt_at", ["metadata", "registry"])
+@pytest.mark.parametrize("initially_missing", [False, True])
+def test_legacy_reader_selects_wholly_new_pair_when_first_generation_commits(
+    tmp_path, monkeypatch, interrupt_at, initially_missing,
+):
+    locations, metadata, _ = _inputs(tmp_path)
+    if initially_missing:
+        metadata.unlink()
+    original_read = Path.read_bytes
+    triggered = False
+    publishing = False
+    published = None
+    outer_reads = []
+
+    def publish_new_generation():
+        nonlocal triggered, publishing, published
+        triggered = True
+        publishing = True
+        try:
+            # The real producer captures its inputs and publishes both files here.
+            published = refresh.publish_refresh(_prepare(locations, metadata, marker="B"))
+        finally:
+            publishing = False
+
+    def interleaved_read(path):
+        if publishing:
+            return original_read(path)
+        outer_reads.append(path)
+        try:
+            captured = original_read(path)
+        except FileNotFoundError:
+            if path == metadata and interrupt_at == "metadata" and not triggered:
+                publish_new_generation()
+            raise
+        trigger_path = metadata if interrupt_at == "metadata" else locations
+        if path == trigger_path and not triggered:
+            publish_new_generation()
+        return captured
+
+    monkeypatch.setattr(Path, "read_bytes", interleaved_read)
+    pair = read_location_config_pair(
+        locations, metadata, allow_missing_legacy=initially_missing,
+    )
+    assert outer_reads == [metadata, locations, metadata]
+    assert triggered
+    assert pair == published
+    assert pair.binding_status == GENERATION_BOUND
+    assert pair.event_metadata_payload["locations"][0]["active_events"][0]["event_id"] == "B"
+    assert pair.registry_bytes == original_read(locations)
+    assert pair.metadata_bytes == original_read(metadata)
+
+
+@pytest.mark.parametrize("replacement", [
+    b'{"generation_id":"partial"}',
+    b'{"location_config_generation":null}',
+    b"{partial",
+    b'{"locations":[],"marker":"changed-legacy"}',
+    None,
+])
+def test_legacy_metadata_recheck_refuses_partial_or_non_generation_change(
+    tmp_path, monkeypatch, replacement,
+):
+    locations, metadata, _ = _inputs(tmp_path)
+    original_read = Path.read_bytes
+
+    def interleaved_read(path):
+        captured = original_read(path)
+        if path == locations:
+            if replacement is None:
+                metadata.unlink()
+            else:
+                metadata.write_bytes(replacement)
+        return captured
+
+    monkeypatch.setattr(Path, "read_bytes", interleaved_read)
+    with pytest.raises(LocationConfigError):
+        read_location_config_pair(locations, metadata, allow_missing_legacy=True)
+
+
+@pytest.mark.parametrize("initially_missing", [False, True])
+def test_legacy_recheck_distinguishes_missing_metadata_from_literal_empty_object(
+    tmp_path, monkeypatch, initially_missing,
+):
+    locations, metadata, _ = _inputs(tmp_path)
+    if initially_missing:
+        metadata.unlink()
+    else:
+        metadata.write_bytes(b"{}")
+    original_read = Path.read_bytes
+
+    def interleaved_read(path):
+        captured = original_read(path)
+        if path == locations:
+            if initially_missing:
+                metadata.write_bytes(b"{}")
+            else:
+                metadata.unlink()
+        return captured
+
+    monkeypatch.setattr(Path, "read_bytes", interleaved_read)
+    with pytest.raises(LocationConfigError, match="legacy metadata changed during read"):
+        read_location_config_pair(locations, metadata, allow_missing_legacy=True)
