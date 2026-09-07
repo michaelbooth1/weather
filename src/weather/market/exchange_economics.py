@@ -22,6 +22,14 @@ from weather.market.market_making_preflight import (
     recent_utc_timestamp,
 )
 from weather.market.mm_policy import maybe_float, parse_time, utc_now
+from weather.market.exchange_economics_sources import (
+    check_response_budget,
+    current_reward_page,
+    json_response_payload,
+    response_evidence,
+    response_evidence_valid,
+    response_payload_matches,
+)
 from weather.paths import config_path, data_path, docs_path
 from weather.schema_registry import schema_version
 
@@ -127,22 +135,18 @@ def _default_fetch_json(url, *, timeout_seconds=20.0):
         },
     )
     with urlopen(request, timeout=float(timeout_seconds)) as response:
-        body = response.read()
+        body = response.read(MAX_SOURCE_RESPONSE_BYTES + 1)
         status = getattr(response, "status", None) or response.getcode()
         content_type = response.headers.get("Content-Type", "")
     if int(status) != 200:
         raise ValueError(f"exchange economics source returned HTTP {status}: {url}")
-    try:
-        payload = json.loads(body.decode("utf-8-sig"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"exchange economics source returned invalid JSON: {url}") from exc
-    return payload, {
-        "url": url,
-        "http_status": int(status),
-        "content_type": content_type,
-        "response_bytes": len(body),
-        "response_sha256": _sha256_bytes(body),
-    }
+    if len(body) > MAX_SOURCE_RESPONSE_BYTES:
+        raise ValueError(f"exchange economics source exceeded size limit: {url}")
+    payload = json_response_payload(body)
+    return payload, response_evidence(
+        body, url=url, http_status=int(status), content_type=content_type,
+        origin="http_response_bytes",
+    )
 
 
 def _call_fetch_json(fetch_json, url, *, timeout_seconds):
@@ -152,18 +156,21 @@ def _call_fetch_json(fetch_json, url, *, timeout_seconds):
     else:
         payload = result
         body = _canonical_json_bytes(payload)
-        evidence = {
-            "url": url,
-            "http_status": 200,
-            "content_type": "application/json",
-            "response_bytes": len(body),
-            "response_sha256": _sha256_bytes(body),
-        }
+        # Injectable parsed fixtures remain explicitly distinct from HTTP bytes.
+        json_response_payload(body)
+        evidence = response_evidence(
+            body, url=url, http_status=200, content_type="application/json",
+            origin="caller_supplied_canonical_json",
+        )
     evidence = dict(evidence or {})
     evidence.setdefault("url", url)
     evidence.setdefault("http_status", 200)
     if not non_empty_text(str(evidence.get("response_sha256") or "")):
         evidence["response_sha256"] = _sha256_bytes(_canonical_json_bytes(payload))
+    if evidence["url"] != url or evidence["http_status"] != 200:
+        raise ValueError("exchange economics response request/status mismatch")
+    if not response_payload_matches(evidence, payload):
+        raise ValueError("exchange economics parsed response differs from captured bytes")
     return payload, evidence
 
 
@@ -187,13 +194,10 @@ def _default_fetch_text(url, *, timeout_seconds=20.0):
         text = body.decode("utf-8-sig")
     except UnicodeDecodeError as exc:
         raise ValueError(f"exchange economics rule source was not UTF-8: {url}") from exc
-    return text, {
-        "url": url,
-        "http_status": int(status),
-        "content_type": content_type,
-        "response_bytes": len(body),
-        "response_sha256": _sha256_bytes(body),
-    }
+    return text, response_evidence(
+        body, url=url, http_status=int(status), content_type=content_type,
+        origin="http_response_bytes",
+    )
 
 
 def _call_fetch_text(fetch_text, url, *, timeout_seconds):
@@ -202,18 +206,25 @@ def _call_fetch_text(fetch_text, url, *, timeout_seconds):
         source_text, evidence = result
     else:
         source_text = result
-        evidence = {}
+        evidence = None
     if not isinstance(source_text, str) or not source_text.strip():
         raise ValueError(f"exchange economics rule source returned empty text: {url}")
     body = source_text.encode("utf-8")
     if len(body) > MAX_SOURCE_RESPONSE_BYTES:
         raise ValueError(f"exchange economics rule source exceeded size limit: {url}")
-    evidence = dict(evidence or {})
+    evidence = dict(evidence) if evidence is not None else response_evidence(
+        body, url=url, http_status=200, content_type="text/markdown",
+        origin="caller_supplied_text",
+    )
     evidence.setdefault("url", url)
     evidence.setdefault("http_status", 200)
     evidence.setdefault("content_type", "text/markdown")
     evidence.setdefault("response_bytes", len(body))
     evidence.setdefault("response_sha256", _sha256_bytes(body))
+    if evidence["url"] != url or evidence["http_status"] != 200:
+        raise ValueError("exchange economics rule response request/status mismatch")
+    if not response_payload_matches(evidence, source_text, text=True):
+        raise ValueError("exchange economics rule text differs from captured bytes")
     return source_text, evidence
 
 
@@ -373,16 +384,24 @@ def _fetch_current_rewards(fetch_json, *, timeout_seconds, page_limit=500, max_p
     evidence = []
     cursor = None
     seen_cursors = set()
-    for _page in range(int(max_pages)):
+    seen_conditions = set()
+    if type(page_limit) is not int or not 1 <= page_limit <= 500:
+        raise ValueError("current rewards page limit must be between 1 and 500")
+    if type(max_pages) is not int or not 1 <= max_pages <= 50:
+        raise ValueError("current rewards page count must be between 1 and 50")
+    for _page in range(max_pages):
         query = {"limit": int(page_limit)}
         if cursor:
             query["next_cursor"] = cursor
         url = f"{CLOB_CURRENT_REWARDS_URL}?{urlencode(query)}"
         payload, proof = _call_fetch_json(fetch_json, url, timeout_seconds=timeout_seconds)
         evidence.append(proof)
-        rows.extend((payload or {}).get("data") or [])
-        next_cursor = str((payload or {}).get("next_cursor") or "").strip()
-        if not next_cursor or next_cursor in {"LTE=", "-1"}:
+        check_response_budget(evidence)
+        page_rows, next_cursor = current_reward_page(
+            payload, page_limit=page_limit, seen_conditions=seen_conditions,
+        )
+        rows.extend(page_rows)
+        if next_cursor == "LTE=":
             break
         if next_cursor in seen_cursors:
             raise ValueError(f"current rewards pagination repeated cursor {next_cursor!r}")
@@ -452,6 +471,7 @@ def collect_global_snapshot_payload(
         url = GAMMA_EVENT_BY_SLUG_URL.format(slug=quote(selected["event_slug"], safe=""))
         event_payload, proof = _call_fetch_json(fetch_json, url, timeout_seconds=timeout_seconds)
         response_evidence.append(proof)
+        check_response_budget(response_evidence + rule_documents)
         if str((event_payload or {}).get("slug") or "") != selected["event_slug"]:
             raise ValueError(f"Gamma event identity mismatch for {selected['event_slug']}")
         gamma_events.append((selected, event_payload))
@@ -461,6 +481,7 @@ def collect_global_snapshot_payload(
         timeout_seconds=timeout_seconds,
     )
     response_evidence.extend(reward_evidence)
+    check_response_budget(response_evidence + rule_documents)
     rewards_by_condition = {
         str(row.get("condition_id") or "").lower(): row
         for row in reward_rows
@@ -901,6 +922,7 @@ def _global_market_economics_checks(payload):
         int(row.get("http_status") or 0) == 200
         and non_empty_text(str(row.get("url") or ""))
         and len(str(row.get("response_sha256") or "")) == 64
+        and response_evidence_valid(row)
         for row in responses
     )
     expected_rule_urls = set(GLOBAL_SOURCE_URLS)
@@ -916,6 +938,7 @@ def _global_market_economics_checks(payload):
             and row.get("url") == GLOBAL_SOURCE_MARKDOWN_URLS.get(row.get("canonical_url"))
             and len(str(row.get("response_sha256") or "")) == 64
             and int(row.get("response_bytes") or 0) > 0
+            and response_evidence_valid(row)
             for row in rule_documents
         )
     )
