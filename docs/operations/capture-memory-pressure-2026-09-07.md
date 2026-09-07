@@ -95,3 +95,45 @@ Production-local ignored/host-local evidence, not assumed in a clean checkout:
 Source publication, tests and adoption are recorded in Git/CI and the repair
 closeout receipt. A source patch or this narrative alone does not establish
 that the new monitor has been adopted.
+
+## Follow-up: diagnostic deployment at 11:22
+
+The owner renewed authority to continue stability and technical-debt repairs.
+The combined source preserves the watchdog repair from PR 29 and archive
+qualification documentation from PR 21. It adds hash binding for both the
+watchdog and its diagnostic status child while retaining the production runtime
+root. Source `aa99048ea249536ee0920f20dd9aa5e2c64170da` passed
+[Linux CI](https://github.com/michaelbooth1/weather/actions/runs/34136242629)
+(4,278 tests, 921 subtests) and all 105 native workstation checks in 546.55 seconds.
+The native receipt has zero failures, errors or skips. An earlier stalled SSH
+run was terminated; both teardown checks proved the workload marker absent.
+
+At 11:22:22, `WeatherHostHealthWatchdog` ran the frozen diagnostic deployment
+and completed with result 0. Its 11:22:44 output reports memory guard `OK`,
+75.5% commit, the exact status-child hash, and the correct `daily_chain` window.
+It preserves the seven-date settlement flag and outstanding documentation and
+historical recovery alerts. The task's S4U principal, recurrence, timeout and
+working directory are unchanged; before/after XML differs only in arguments.
+
+The locked detached source checkout is
+`C:/Users/micha/Desktop/github/weather-watchdog-deployed-aa99048`.
+Keep it unchanged while the task references it. SHA-256 bindings are:
+
+- `health_watchdog.ps1`: `45C9271D5F1252460E51038BF2884DE51527E17533BE154BD374A439A5AB3F05`.
+- `status.ps1`: `5DC275AF957B3FD8CD7D9CA0749646CDB2A15D463A6B4D9C8808B44C17341FDA`.
+
+The retained repair directory contains `watchdog-before-20260907.xml` for
+rollback, `watchdog-after-20260907.xml` (SHA-256
+`0A9D4535AD18D3CB1FDA9C1351A6E19EB5EB02D496BE6B90F3B297FD6A0341C7`) and
+`watchdog-adoption-status-20260907.json` (SHA-256
+`85EE8CCB9AA8015A6047A710D6E8977FDDF801FF939106BC18A094C5E5601827`).
+This adopts diagnostic scripts only. Production master and its two generated
+config changes remain intact. The canonical roll verdict is ROLL-FREE, but
+master integration and the pending documentation transaction still require the
+installed admitted workflow; neither is declared complete.
+
+The storage follow-up also verified that the signed-in September 5 `v3-r1`
+one-file encrypted restore had already passed all 17 checks. Item 325 now
+preserves that evidence instead of repeating the superseded DPAPI blocker.
+Production-source identity, retention qualification and reclaim remain open;
+the one-file result does not prove whole-mirror recovery.

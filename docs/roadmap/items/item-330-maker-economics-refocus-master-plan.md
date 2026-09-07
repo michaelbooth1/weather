@@ -731,6 +731,16 @@ healthy and matching Git/source-tree evidence. Its
 passed 4,277 tests and 921 subtests with 258 skips. This closes source adoption
 for the diagnostic calculator; real evidence qualification and W3/G1 remain open.
 
+The September 7 stability follow-up adopted the diagnostic watchdog and status
+child from frozen `aa99048ea249536ee0920f20dd9aa5e2c64170da` through the existing
+S4U task after 105 native workstation checks and full Linux CI passed. The
+11:22 run completed with result 0, fresh memory evidence and retained real
+alerts. The [incident/deployment record](../../operations/capture-memory-pressure-2026-09-07.md)
+owns exact hashes and rollback XML. This closes this bounded monitoring repair;
+capture-source integration, the documentation transaction, settlement backfill
+and broader W0 acceptance remain open. Item 325 now carries the already-proved
+one-file restore and its remaining production-identity/reclaim boundary.
+
 All completion boxes remain open until their full acceptance or explicit bounded
 disposition is supported. W8-W10 and W12 retain their original dependencies and
 gates; storage pressure advances the item-325 off-site work without declaring
