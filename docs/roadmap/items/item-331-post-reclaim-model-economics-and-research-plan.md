@@ -40,7 +40,8 @@ implementation authority. Source, fixtures, documentation, review and admitted
 workstation verification proceed before reclaim where they do not depend on
 production evidence. The storage owner's execution remains separate; production
 adoption retains its guarded admission and recovery contract. The September 6
-Stage 0/1 attempt is completed evidence and is not rerun. Stage 2, longer live sessions, capital changes,
+Stage 0/1 attempt is completed evidence and is not rerun. Stage 2, longer live
+sessions, capital changes,
 unattended activity, statistical alpha and release promotion require their own
 operator decisions and existing gates. Preserve the already agreed 100 pUSD
 test allocation and 10 pUSD order limit as the planning starting point; any
@@ -253,6 +254,52 @@ Deferred: broad facade splitting, generic mission orchestration, a new dashboard
 blanket branch/worktree cleanup, inactive companion deployment, automatic
 training/release campaigns, paid providers and expanded trading capital. Reopen
 only when a selected package has a concrete unmet dependency.
+
+## September 7 preparation handback
+
+The source baseline is prepared in the isolated
+`codex/post-reclaim-ready-20260907` branch. Its original parents are PR 28
+`0a0804f0721e1e0942cd8d302b5d2b01785491e8`, current PR 6
+`ca64296fb944a65c0ccfbf0e9a17b2d913413a68`, and the approved PR 40 plan
+`2027991c1af107d6e72ffec0255c61e00e59c9af`. History is preserved. The merge
+retains current existing-wallet/capital and completed Stage 0/1 contracts
+alongside the signed parser, source-binding and book-observation-age repairs.
+The source overview now reads this plan's `Ordered next work` heading and
+the three earlier supported headings; its focused tests are awaiting execution.
+
+| Package | Prepared result | Remaining dependency |
+| --- | --- | --- |
+| P0 | Reconciled the smallest existing portable/correctness/plan baseline; independent merge review passed. The [audit's queue dispositions](../audits/post-reclaim-system-audit-2026-09-07.md) remain the per-PR source inventory | Combined verification, exact-source CI, conditional guarded adoption and the actual production documentation transaction. Unselected PRs and historical branches remain preserved |
+| P2 | [Item 332](item-332-signed-native-temperature-band-correctness.md) records implemented native-band gaps, admitted workstation PASS and expected old-source failures | Bounded historical impact census and adopted-source evidence |
+| P4/P5 | New bounded reward-page validation and replayable raw response bytes at `6b6fb8e5ec2fbff8f74aaaf7be09de8e053b4aca`, merged at `ce215689696590fdf6d64a1b9757464d7697e23f`; independent review passed | Newly added fixtures still require execution. No account query, opportunity collection, accrual/payment relationship or cash cohort has been established |
+| P6 | [Item 333](item-333-reproducible-runtime-and-paired-model-comparison.md) owns the numerical incumbent control and assessment of existing runtime identity/BOM work | Execute fixtures, then reconcile the separately bounded forward runtime foundation and paired inference. No captured outcome, candidate fit or historical replay was used in preparation |
+
+The [official-interface evidence matrix](../../operations/exchange-economics-source-evidence.md#official-interface-to-field-matrix)
+is feasible for bounded campaign, accrual, scoring and labelled gross-credit
+capture. It leaves authoritative programme/period accrual-to-payment linkage
+and complete cohort cash unresolved. This is a source-interface finding, not
+an observed account failure or an economic continue/stop decision.
+
+Automatic approval review refused public branch publication and then the
+incremental private-workstation source transfer, requiring explicit authorization
+for the source payload and each destination. The earlier native-band source
+and tests had already transferred and completed. Remaining source/tests/docs
+are local and reviewable; do not claim a combined-suite PASS or publish through
+another route. The next action is the specific owner transfer/publication
+decision, then admitted workstation focused checks, the full suite and
+compilation, followed by exact-source CI.
+
+Production adoption is a later gate. Accept the storage owner's terminal
+handback, fresh ordinary admission and the actual schedule before choosing
+an integration slot. Re-run the canonical roll verdict against the exact
+proposed tip; use the guarded quiet-window path when required. Do not register
+an integration attempt on an assumed reclaim outcome or displace scheduled
+storage work. Close the pending documentation transaction only after matching
+actual integrations, publication and the owning workflow's checks.
+
+P1, P3, P7-P10 retain their original evidence and sequencing dependencies.
+This preparation is not completion of the full plan, capture adoption, new
+live authority, model improvement or paid profit.
 
 ## Completion ledger
 

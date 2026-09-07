@@ -27,6 +27,9 @@ generated reports for dynamic state.
   Malformed, mixed-unit or inverted labels are unscored. Explicit row endpoints
   must agree with labels, except documented legacy single-value labels may omit
   the explicit upper endpoint. Parsing never converts or rounds temperature.
+  Replay and persisted snapshot bins use `temperature_band_key`; numeric zero
+  is a value, never a missing-value fallback. Invalid replay bands remain
+  unscored; invalid snapshot bins fail before sidecar publication.
 - WU history is the settlement proxy and may establish a hard observed floor.
   When the WU observation path is empty, the serving contract also promotes
   the effective observed high already admitted by feature extraction: a

@@ -1,4 +1,4 @@
-# 333. Reproducible Runtime And Paired Model Comparison [OPEN 2026-09-07 - MEASUREMENT REPAIRS SCOPED]
+# 333. Reproducible Runtime And Paired Model Comparison [PARTIAL 2026-09-07 - INCUMBENT CONTROL PREPARED; VERIFICATION OPEN]
 
 Goal: make a model comparison reproducible and capable of distinguishing an
 improvement from replay drift, label mismatch and sampling noise.
@@ -21,13 +21,14 @@ comparison required for model-versus-market claims.
 
 ## Work
 
-- [ ] Define separate claims: diagnostic current-code replay, same-environment
+- [x] Define separate claims: diagnostic current-code replay, same-environment
   paired candidate experiment, and actual served-runtime reproduction. Each
   output declares its supported claim and missing evidence.
-- [ ] Assess and reconcile PR 7's loaded-process identity v0.3, deterministic
-  BOM and release-binding implementation and its retained mutation controls.
-  Resolve its present conflicts without reviving the separately refused
-  collector. Record reusable components and exact residual gaps before coding.
+- [x] Assess PR 7's loaded-process identity v0.3, deterministic BOM and
+  release-binding implementation and its retained mutation controls. Record
+  reusable components and exact residual gaps before coding.
+- [ ] Reconcile the bounded reusable runtime foundation without reviving the
+  separately refused collector or importing unrelated PIT/release work.
 - [ ] Reuse immutable releases/CAS to preserve source, model artifacts,
   effective configuration and dependency closure once per loaded bundle.
   Bind process-loaded identities to captured inputs; do not hash changing
@@ -80,3 +81,53 @@ allow two to four engineering days for forward bundle reproduction
 and two to three for the comparison extension, with some overlap. Forward
 evidence elapsed time is unknown. Heavy work runs on the admitted workstation;
 capture changes use separate guarded adoption and measured resource budgets.
+
+## September 7 bounded source preparation
+
+The [incumbent-control contract](../../operations/replay-incumbent-control.md)
+now separates the ordinary diagnostic Brier gate from an explicitly requested
+numerical control. It requires the full nonempty pinned snapshot population,
+complete replay/tape hash maps, usable pinned label values, unique raw records
+and exact declared identities. Every distribution must have valid coordinates
+and probability mass, and every row must meet the existing L1 tolerance.
+A low mean cannot hide one bad row. Continuous Fahrenheit coordinates are
+compared without integer collapse or renormalization.
+
+Requested controls refuse missing/mutated support, reconstruction, changed or
+legacy identities and invalid distributions. Missing label pins cannot fall
+back to mutable daily summaries. The numerical check does not qualify the
+label's settlement authority. Failed controls cannot overwrite a saved baseline;
+save and comparison modes are mutually exclusive. The report and fidelity CSV
+retain per-snapshot errors and population exclusions. Intentionally changed
+candidate identities remain valid diagnostic inputs, with the weaker claim
+visible in the CLI, report and baseline.
+
+Source `4af51a1641878569d2acb115398a833739388e02`, merged into the local
+preparation branch at `ffa25125fe89e8a46fcb3c2f8d808cd480e8be54`, and its
+synthetic fixtures have undergone independent static review. Fixture execution and final combined verification are pending the
+specific private-workstation transfer authorization required by automatic
+approval review; no P6 runtime test PASS is claimed. No historical tape,
+settlement outcome, model artifact or candidate fit was consumed by this slice.
+
+### Existing runtime foundation disposition
+
+The assessed current PR 7 source is
+`2e20e59aae08e7367dc79e1b8102c0551e7f6904`, a 55-file branch. Its original
+small identity v0.2 proposal is superseded. Reusable components include the
+loaded-process identity v0.3, deterministic model BOM, loaded source-binding
+marker, release binding and mutation controls. The collector's separate
+source-contract NO-GO does not invalidate those components.
+
+A wholesale merge would also import broader PIT/release work and conflicting
+roadmap ownership. Do not treat the old three-file patch as the current
+implementation or silently import the full branch. Forward-adapt only the
+reviewed runtime components under this item, preserving their provenance and
+current capture/release contracts. They are assessed, not integrated here.
+
+Remaining acceptance work: bind complete loaded source/artifact/config/
+dependency bytes to immutable forward inputs; restore a bounded sample in a
+fresh process and reproduce distributions and served bands; measure capture
+and storage costs; implement paired crossed date-by-market inference and
+candidate-specific support/power; calibrate null, coverage and attainable
+decision controls. The numerical incumbent control alone completes none of
+those broader proofs and supports no model-improvement claim.
