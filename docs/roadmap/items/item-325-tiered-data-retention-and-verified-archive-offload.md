@@ -60,6 +60,18 @@ process-creation identity. Native launcher failure, timeout and abrupt-exit
 qualification belongs to this revision; earlier checks alone do not qualify
 the updated source or authorize the production pilot.
 
+At audit source `19be2b2737a0aaa41da01c6ecc1389301ccff5e0`, 106 native Windows
+and architecture checks passed. This includes real PowerShell launcher and
+native Job/lease tests for success, invalid result bindings, source/request
+drift, timeouts, residual children and abrupt launcher termination. The test
+clock, host assignment, mutex namespace and child payload are isolated
+fixtures; the outer workstation admission and Job remain real. The native
+compression tests separately prove bytes, plan binding and evidence-directory
+exclusion. The audit corrected metadata-only directory handles after a native
+rename negative test falsified their exclusion claim. The next production
+attempt must use the revised runbook and exact current source, not the initial
+implementation handoff's apply command.
+
 - [x] Review previous archive/tiering work and native compression compatibility.
 - [x] Implement bounded plan/apply and explicit retained-byte failure handling.
 - [x] Complete exact-head publication and native failure-path qualification.

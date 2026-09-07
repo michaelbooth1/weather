@@ -6,9 +6,7 @@ The outer workstation-heavy wrapper still owns the real workstation mutex/Job.
 A tiny child isolates launcher behavior; native compression has separate tests.
 """
 
-from datetime import datetime
 import hashlib
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -170,6 +168,45 @@ def test_wrapper_passes_exact_reviewed_plan_arguments_with_space_containing_path
     assert code == 0, log
     receipt = json.loads((output / "wrapper-result.json").read_text())
     assert receipt["apply"] is True and receipt["status"] == "PASS"
+
+
+def test_wrapper_refuses_protected_window_before_any_runtime_write(wrapper_fixture):
+    wrapper = wrapper_fixture[2]
+    source = wrapper.read_text()
+    wrapper.write_text(replace_once(source, ".AddDays(1).AddHours(1)", ".AddDays(1).AddHours(14)"))
+    process, output = launch(wrapper_fixture, "success")
+    code, log = finish(process)
+    assert code != 0 and "restricted to 00:30-09:00" in log
+    assert not output.exists()
+    assert not (wrapper_fixture[1] / "data").exists()
+
+
+def test_wrapper_refuses_wrong_windows_host_before_lease(wrapper_fixture):
+    source, production, wrapper, _head = wrapper_fixture
+    path = source / "config/international_live_execution_host.json"
+    assignment = json.loads(path.read_text())
+    assignment["dedicated_capture_execution_host_id"] = "0" * 64
+    path.write_text(json.dumps(assignment))
+    command("git", "-C", str(source), "add", "config/international_live_execution_host.json")
+    command("git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+            "-c", "commit.gpgSign=false", "commit", "-m", "Wrong-host negative fixture")
+    head = command("git", "-C", str(source), "rev-parse", "HEAD")
+    process, output = launch((source, production, wrapper, head), "success")
+    code, log = finish(process)
+    assert code != 0 and "restricted to the assigned dedicated capture host" in log
+    assert not output.exists()
+    assert not (production / "data").exists()
+
+
+def test_wrapper_does_not_reuse_or_rewrite_a_spent_attempt(wrapper_fixture):
+    process, output = launch(wrapper_fixture, "success")
+    code, log = finish(process)
+    assert code == 0, log
+    original = {path.name: path.read_bytes() for path in output.iterdir()}
+    process, output = launch(wrapper_fixture, "success")
+    code, log = finish(process)
+    assert code != 0 and "spent output attempt" in log
+    assert {path.name: path.read_bytes() for path in output.iterdir()} == original
 
 
 def test_abrupt_wrapper_exit_kills_entire_owned_tree(wrapper_fixture):
