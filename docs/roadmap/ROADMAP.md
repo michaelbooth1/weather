@@ -43,7 +43,10 @@ infrastructure work remains.
 
 | Item | File |
 | ---: | --- |
-| 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - SEPTEMBER 6 LIFECYCLE PREPARATION; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
+| 331 | [Post-Reclaim Model Economics And Research Plan [OPEN 2026-09-07 - AUDIT COMPLETE; EXECUTION PLAN PREPARED]](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
+| 332 | [Signed Native Temperature Band Correctness [OPEN 2026-09-07 - SOURCE DEFECTS IDENTIFIED]](items/item-332-signed-native-temperature-band-correctness.md) |
+| 333 | [Reproducible Runtime And Paired Model Comparison [OPEN 2026-09-07 - MEASUREMENT REPAIRS SCOPED]](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
+| 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-07 - STAGE 0/1 PROVED; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
 | 1 | [Snapshot Analytics [COMPLETE]](items/item-01-snapshot-analytics.md) |
 | 2 | [Intraday Model Calibration [COMPLETE]](items/item-02-intraday-model-calibration.md) |
 | 3 | [Forecast Archive [COMPLETE]](items/item-03-forecast-archive.md) |
