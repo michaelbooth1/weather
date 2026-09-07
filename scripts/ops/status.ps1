@@ -14,10 +14,23 @@
 [CmdletBinding()]
 param(
     [switch]$Json,
-    [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+    [string]$RepoRoot = "",
+    [string]$ExpectedSelfSha256 = ""
 )
 
+$ErrorActionPreference = "Stop"
+if ($ExpectedSelfSha256) {
+    if ($ExpectedSelfSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256 -ErrorAction Stop).Hash -ine $ExpectedSelfSha256) {
+        throw "status script differs from its reviewed source binding"
+    }
+}
 $ErrorActionPreference = "SilentlyContinue"
+# Windows PowerShell -File binds parameter defaults before PSScriptRoot is set.
+# Resolve it in the script body so scheduled subprocesses use this checkout too.
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+}
 $repo = [IO.Path]::GetFullPath($RepoRoot)
 $py = Join-Path $repo "venv\Scripts\python.exe"
 if (-not (Test-Path $py)) { $py = "python" }
@@ -1291,6 +1304,52 @@ if ($executionTapeState.armed) {
     }
 }
 
+function Get-StatusMemoryGuardEvidence {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [datetimeoffset]$Now = [datetimeoffset]::Now
+    )
+
+    $state = [ordered]@{
+        status = "UNKNOWN"; checked_at = $null; age_seconds = $null
+        commit_percent = $null; warn_percent = $null; act_percent = $null
+        detail = "memory guard status is missing or unreadable"
+    }
+    try {
+        $row = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        foreach ($name in @("checked_at", "commit_percent", "warn_percent", "act_percent")) {
+            if ($null -eq $row.PSObject.Properties[$name] -or $null -eq $row.$name) {
+                throw "memory guard status is missing $name"
+            }
+        }
+        $checkedAt = [datetimeoffset]::Parse([string]$row.checked_at)
+        $state.checked_at = $checkedAt.ToString("o")
+        $state.age_seconds = [math]::Round(($Now - $checkedAt).TotalSeconds, 1)
+        if ($state.age_seconds -lt 0 -or $state.age_seconds -gt 180) {
+            throw "memory guard status is stale or future-dated"
+        }
+        foreach ($name in @("commit_percent", "warn_percent", "act_percent")) {
+            $value = $row.$name
+            if ($value -is [bool] -or $value -is [string]) { throw "invalid memory guard $name" }
+            $number = [double]$value
+            if ([double]::IsNaN($number) -or [double]::IsInfinity($number) -or $number -lt 0 -or $number -gt 100) {
+                throw "invalid memory guard $name"
+            }
+            $state[$name] = $number
+        }
+        if ($state.warn_percent -le 0 -or $state.warn_percent -ge $state.act_percent) {
+            throw "invalid memory guard thresholds"
+        }
+        $state.status = if ($state.commit_percent -ge $state.warn_percent) { "HIGH_COMMIT" } else { "OK" }
+        $state.detail = "fresh memory-guard measurement; emergency actions remain owned by the guard"
+    }
+    catch {
+        $state.status = "UNKNOWN"
+        $state.detail = $_.Exception.Message
+    }
+    return [pscustomobject]$state
+}
+
 # ---- resources ----
 $os = Get-CimInstance Win32_OperatingSystem
 $freeRamGB = [math]::Round($os.FreePhysicalMemory / 1MB, 2)
@@ -1298,6 +1357,13 @@ $totRamGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
 $freeDiskGB = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
 if ($freeRamGB -lt 1.5) { $flags.Add("LOW RAM: $freeRamGB GB free (streak-critical)") }
 elseif ($freeRamGB -lt 2.5) { $warns.Add("RAM tightening: $freeRamGB GB free") }
+$memoryGuardState = Get-StatusMemoryGuardEvidence -Path (Join-Path $repo "data\logs\memory_commit_guard_status.json")
+if ($memoryGuardState.status -eq "HIGH_COMMIT") {
+    $flags.Add("HIGH COMMIT: $($memoryGuardState.commit_percent)% used (memory guard warning at $($memoryGuardState.warn_percent)%)")
+}
+elseif ($memoryGuardState.status -eq "UNKNOWN") {
+    $flags.Add("MEMORY GUARD UNKNOWN: $($memoryGuardState.detail)")
+}
 if ($freeDiskGB -lt 25) { $flags.Add("LOW DISK: $freeDiskGB GB free") }
 elseif ($freeDiskGB -lt 60) { $warns.Add("disk headroom low: $freeDiskGB GB free") }
 
@@ -4431,6 +4497,7 @@ if ($Json) {
         capture  = $capState; capture_runtime = $captureRuntimeState
         execution_tape = $executionTapeState
         ram_free_gb = $freeRamGB; ram_total_gb = $totRamGB; disk_free_gb = $freeDiskGB
+        memory_guard = $memoryGuardState
         disk     = @{ free_gb = $freeDiskGB; delta_gb_per_day = $diskDelta; days_left = $diskDaysLeft
             delta_48h_gb_per_day = $diskDelta48; days_left_48h = $diskDaysLeft48 }
         tiering  = $tieringState
@@ -4516,6 +4583,7 @@ elseif ($diskDelta -lt 0 -and $null -ne $diskDelta48) {
 elseif ($diskDelta -lt 0) { "  ({0} GB/day, ~{1}d left)" -f $diskDelta, $diskDaysLeft }
 else { "  (+{0} GB/day)" -f $diskDelta }
 Write-Output ("  RESOURCES : RAM {0}/{1} GB free    Disk C: {2} GB free{3}" -f $freeRamGB, $totRamGB, $freeDiskGB, $diskTrend)
+Write-Output ("  COMMIT    : {0}% used; memory guard {1}" -f $memoryGuardState.commit_percent, $memoryGuardState.status)
 $clockState = if ($clockSynchronized -eq $false) { "UNSYNCHRONIZED" }
 elseif ($null -eq $clockLastSync) { "UNKNOWN" }
 elseif ($clockService.Status -eq "Running" -and $clockSource) { "synced via $clockSource, $clockSyncAgeH h ago" }

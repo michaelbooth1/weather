@@ -14,6 +14,7 @@ The capture controller may dispatch that wrapper only through the literal,
 configuration-free SSH transport specified in [development.md](../development.md#starting-workstation-verification-from-the-capture-controller).
 The hook's transport exception does not admit local heavy work or replace the
 remote wrapper's identity, mutex, and child-tree containment checks.
+
 Its admission-only `workstation_offline_v1` profile and the portable launcher
 are both bound to the assignment's exact non-capture Windows installation and
 attending principal. They hold the same host-global mutex and each owns its
@@ -60,6 +61,21 @@ or live-order authority.
 > On 2026-08-08 the capacity figures below were three times wrong and the 24-hour map listed a
 > window as "steady-state capture only" that by then held nine scheduled jobs. A stale operations
 > document is worse than a missing one, because it gets believed.
+
+Windows automatic maintenance also competes with capture. Do not let the
+OS drive-optimization task run opportunistically during capture or Stage A;
+retain its exported task definition when holding it, and restore maintenance
+only through a reviewed resource-compatible schedule. A healthy supervisor
+process does not prove capture success: inspect consecutive errors and the
+last clean iteration after any resource repair.
+The [September 7 incident](capture-memory-pressure-2026-09-07.md) records the
+observed contention and exact reversible host changes.
+
+The main host digest consumes the memory guard's timestamped commit reading
+and its own warning threshold. A reading older than three minutes, dated in
+the future, missing, or malformed is an observability failure. Commit pressure
+and free physical RAM remain separate checks; neither substitutes for the
+capture worker's physical-memory admission requirement.
 
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 

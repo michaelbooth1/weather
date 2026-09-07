@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,132 @@ WINDOWS_POWERSHELL_REQUIRED = pytest.mark.skipif(
     os.name != "nt",
     reason="requires Windows PowerShell",
 )
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("explicit_root", [False, True])
+def test_watchdog_native_subprocess_keeps_real_alerts_and_selected_root(
+    tmp_path: Path, explicit_root: bool
+) -> None:
+    source_root = tmp_path / "watchdog checkout"
+    runtime_root = tmp_path / "runtime checkout" if explicit_root else source_root
+    watchdog = source_root / "scripts" / "ops" / "health_watchdog.ps1"
+    watchdog.parent.mkdir(parents=True)
+    watchdog.write_bytes(SCRIPT.read_bytes())
+    status_script = runtime_root / "scripts" / "ops" / "status.ps1"
+    status_script.parent.mkdir(parents=True, exist_ok=True)
+    status_script.write_text(
+        "param([Parameter(Mandatory=$true)][string]$RepoRoot, [switch]$Json)\n"
+        "if ($RepoRoot -ne (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) { exit 7 }\n"
+        "@{verdict='ATTENTION'; flags=@('disk filling at fixture rate'); warns=@(); "
+        "streak=@{days=2;target=14;today='fixture capture'}; "
+        "reconciliation_publication=@{classification='ordinary'}} | ConvertTo-Json -Depth 4\n"
+        "exit 2\n",
+        encoding="utf-8",
+    )
+    command = [
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(watchdog),
+        "-ExpectedSelfSha256", hashlib.sha256(watchdog.read_bytes()).hexdigest(),
+    ]
+    if explicit_root:
+        command.extend(["-RepoRoot", str(runtime_root)])
+    result = subprocess.run(
+        command, cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+    latest = json.loads(
+        (runtime_root / "data" / "alerts" / "host_health_latest.json").read_text(
+            encoding="utf-8-sig"
+        )
+    )
+    assert latest["today"] == "fixture capture"
+    assert latest["streak"] == "2/14"
+    assert latest["top_severity"] == "HIGH"
+    alert = latest["alerts"][0]
+    assert alert["flag"] == "disk filling at fixture rate"
+    assert alert["class"] == "capacity"
+    assert "00:30-09:00" in alert["act"]
+    assert "shared lease" in alert["act"]
+    assert "BLIND" not in (runtime_root / "data" / "alerts" / "MORNING_BRIEFING.md").read_text()
+    if explicit_root:
+        assert not (source_root / "data").exists()
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("expected_hash", ["0" * 64, "invalid"])
+def test_watchdog_rejects_changed_source_before_writing_alerts(
+    tmp_path: Path, expected_hash: str
+) -> None:
+    script = tmp_path / "health_watchdog.ps1"
+    script.write_bytes(SCRIPT.read_bytes())
+    result = subprocess.run(
+        [
+            "powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script),
+            "-RepoRoot", str(tmp_path), "-ExpectedSelfSha256", expected_hash,
+        ],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert result.returncode != 0
+    assert not (tmp_path / "data").exists()
+
+
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("binding", ["valid", "wrong_hash", "bad_hash", "path_only", "hash_only", "missing_file", "relative_path"])
+def test_watchdog_pins_diagnostic_status_source_and_keeps_runtime_root(
+    tmp_path: Path, binding: str
+) -> None:
+    source_root = tmp_path / "diagnostic checkout"
+    source_root.mkdir()
+    runtime_root = tmp_path / "runtime checkout"
+    runtime_root.mkdir()
+    watchdog = source_root / "health_watchdog.ps1"
+    watchdog.write_bytes(SCRIPT.read_bytes())
+    status_script = source_root / "status.ps1"
+    status_startup = (SCRIPT.parent / "status.ps1").read_text(encoding="utf-8-sig").split(
+        "function Get-WeatherIntegrationValidatedEvidence", 1
+    )[0]
+    status_script.write_text(
+        status_startup
+        + "[pscustomobject]@{verdict='ATTENTION';flags=@('HIGH COMMIT: fixture');"
+        "warns=@();streak=@{days=2;target=14;today=$repo};"
+        "memory_guard=@{status='HIGH_COMMIT';commit_percent=88.4}} | ConvertTo-Json -Depth 4\n"
+        "exit 2\n",
+        encoding="utf-8",
+    )
+    status_hash = hashlib.sha256(status_script.read_bytes()).hexdigest()
+    command = [
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(watchdog),
+        "-RepoRoot", str(runtime_root),
+        "-ExpectedSelfSha256", hashlib.sha256(watchdog.read_bytes()).hexdigest(),
+    ]
+    if binding != "hash_only":
+        path = (
+            str(source_root / "missing.ps1") if binding == "missing_file"
+            else "status.ps1" if binding == "relative_path"
+            else str(status_script)
+        )
+        command.extend(["-StatusScriptPath", path])
+    if binding != "path_only":
+        expected_hash = "0" * 64 if binding == "wrong_hash" else "invalid" if binding == "bad_hash" else status_hash
+        command.extend(["-ExpectedStatusScriptSha256", expected_hash])
+    result = subprocess.run(
+        command, cwd=source_root, capture_output=True, text=True, check=False, timeout=30
+    )
+    if binding != "valid":
+        assert result.returncode != 0
+        assert not (runtime_root / "data").exists()
+        assert not (source_root / "data").exists()
+        return
+    assert result.returncode in (0, 2), result.stderr
+    latest = json.loads(
+        (runtime_root / "data" / "alerts" / "host_health_latest.json").read_text(encoding="utf-8-sig")
+    )
+    assert latest["today"] == str(runtime_root)
+    assert latest["alerts"][0]["class"] == "memory"
+    assert latest["memory_guard"] == {"status": "HIGH_COMMIT", "commit_percent": 88.4}
+    assert latest["status_script_path"] == str(status_script)
+    assert latest["expected_status_script_sha256"] == status_hash
+    assert not (source_root / "data").exists()
 
 
 def test_watchdog_carries_structured_reconciliation_publication_state() -> None:
@@ -54,7 +181,12 @@ $flags = @(
     'RECONCILIATION_PUBLICATION_ATTEMPTED_UNACKNOWLEDGED: uncertain',
     'RECONCILIATION_PUBLICATION_EVIDENCE_INVALID: preserve',
     'RECONCILIATION_PUBLICATION_RELATED_TASK_STATE: preserve',
-    'ordinary scheduled job failed'
+    'ordinary scheduled job failed',
+    'capture loop ERRORING: snapshot_tracker has 10 consecutive errors',
+    'HIGH COMMIT: 88.4% used',
+    'MEMORY GUARD UNKNOWN: stale',
+    'LOW DISK: 23 GB free',
+    'mirror restore is unverified'
 )
 $rows = @($flags | ForEach-Object {
     $class = Get-FlagClass $_
@@ -83,3 +215,9 @@ $rows | ConvertTo-Json -Compress
         assert "resume" not in row["action"]
     assert rows[4]["class"] == "scheduled_job"
     assert "resume in the quiet window" in rows[4]["action"]
+    assert rows[5]["class"] == "capture"
+    assert rows[6]["class"] == "memory"
+    assert rows[7]["class"] == "observability"
+    assert "00:30-09:00" in rows[8]["action"]
+    assert "admitted" in rows[8]["action"]
+    assert "do not resume an operator-paused mirror" in rows[9]["action"]

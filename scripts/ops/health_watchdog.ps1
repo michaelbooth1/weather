@@ -11,8 +11,8 @@
 # Windows that matter (host local time, America/Toronto):
 #   12:00-18:00  GRADED CAPTURE WINDOW - the streak day is being decided; capture faults
 #                are CRITICAL and every minute counts.
-#   09:30-11:00  DAILY CHAIN - settlement/grading of yesterday runs here.
-#   01:00-04:00  QUIET WINDOW - the only safe slot for code merges and heavy steps.
+#   09:30-11:55  DAILY CHAIN - scheduled Stage A, with an absolute teardown deadline.
+#   01:00-04:00  QUIET WINDOW - roll-sensitive merges; ad-hoc heavy work is 00:30-09:00.
 #   23:30-00:45  DAY ROLLOVER - stale location config here blacks out capture (2026-06-29).
 #
 # Writes an append-only jsonl log, a latest-state file, and a regenerated human briefing.
@@ -20,10 +20,37 @@
 # records CRITICAL and emits a heartbeat so silence is distinguishable from a dead watchdog.
 # Pure host tooling; imports nothing from a capture loop -> roll-free.
 [CmdletBinding()]
-param()
+param(
+    [string]$RepoRoot = "",
+    [string]$ExpectedSelfSha256 = "",
+    [string]$StatusScriptPath = "",
+    [string]$ExpectedStatusScriptSha256 = ""
+)
 
+$ErrorActionPreference = "Stop"
+if ($ExpectedSelfSha256) {
+    if ($ExpectedSelfSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256 -ErrorAction Stop).Hash -ine $ExpectedSelfSha256) {
+        throw "watchdog script differs from its reviewed source binding"
+    }
+}
+if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
+    $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+}
+$repo = [IO.Path]::GetFullPath($RepoRoot)
+$statusScript = Join-Path $repo "scripts\ops\status.ps1"
+if ($StatusScriptPath -or $ExpectedStatusScriptSha256) {
+    if (-not [IO.Path]::IsPathRooted($StatusScriptPath) -or
+        $ExpectedStatusScriptSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        -not (Test-Path -LiteralPath $StatusScriptPath -PathType Leaf)) {
+        throw "diagnostic status source requires an absolute file and exact SHA256"
+    }
+    $statusScript = (Get-Item -LiteralPath $StatusScriptPath -ErrorAction Stop).FullName
+    if ((Get-FileHash -LiteralPath $statusScript -Algorithm SHA256 -ErrorAction Stop).Hash -ine $ExpectedStatusScriptSha256) {
+        throw "status script differs from its reviewed source binding"
+    }
+}
 $ErrorActionPreference = "SilentlyContinue"
-$repo = "C:\Users\micha\Desktop\github\weather"
 $alertDir = Join-Path $repo "data\alerts"
 if (-not (Test-Path $alertDir)) { New-Item -ItemType Directory -Path $alertDir -Force | Out-Null }
 $log = Join-Path $alertDir "host_health_alerts.jsonl"
@@ -33,9 +60,13 @@ $briefingPath = Join-Path $alertDir "MORNING_BRIEFING.md"
 $HEARTBEAT_HOURS = 6
 
 # ---- gather (delegate all interpretation of "is this normal" to status.ps1) ----
-$statusScript = Join-Path $repo "scripts\ops\status.ps1"
 $psExe = Join-Path $PSHOME "powershell.exe"
-$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -Json 2>$null
+if ($ExpectedStatusScriptSha256) {
+    $raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -RepoRoot $repo -Json -ExpectedSelfSha256 $ExpectedStatusScriptSha256 2>$null
+}
+else {
+    $raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -RepoRoot $repo -Json 2>$null
+}
 $status = $null
 try { $status = ($raw | Out-String) | ConvertFrom-Json } catch {}
 if ($null -eq $status) {
@@ -50,7 +81,7 @@ if ($null -eq $status) {
 $now = Get-Date
 $h = $now.Hour + ($now.Minute / 60.0)
 $inCapture = ($h -ge 12 -and $h -lt 18)
-$inChain = ($h -ge 9.5 -and $h -lt 11)
+$inChain = ($h -ge 9.5 -and $h -lt (11 + 55.0 / 60.0))
 $inQuiet = ($h -ge 1 -and $h -lt 4)
 $inRollover = ($h -ge 23.5 -or $h -lt 0.75)
 $window = if ($inCapture) { "graded_capture_window" }
@@ -62,13 +93,13 @@ else { "off_peak" }
 # ---- classify each flag: what is it, how bad NOW, and when can it be acted on ----
 function Get-FlagClass($text) {
     if ($text -match "^RECONCILIATION_PUBLICATION_") { return "reconciliation_publication" }
-    if ($text -match "capture loop DOWN|TODAY capture AT_RISK|capture alert raised") { return "capture" }
-    if ($text -match "LOW RAM") { return "memory" }
-    if ($text -match "LOW DISK") { return "capacity" }
+    if ($text -match "capture loop DOWN|capture loop ERRORING|TODAY capture AT_RISK|capture alert raised") { return "capture" }
+    if ($text -match "LOW RAM|HIGH COMMIT") { return "memory" }
+    if ($text -match "LOW DISK|disk filling|disk headroom") { return "capacity" }
     if ($text -match "SETTLEMENT HOLE") { return "settlement" }
     if ($text -match "mirror") { return "durability" }
     if ($text -match "REBOOT PENDING|logon-dependent") { return "resilience" }
-    if ($text -match "streak checker failed|BLIND") { return "observability" }
+    if ($text -match "streak checker failed|BLIND|MEMORY GUARD UNKNOWN") { return "observability" }
     return "scheduled_job"
 }
 function Get-FlagAction($class) {
@@ -76,9 +107,9 @@ function Get-FlagAction($class) {
         reconciliation_publication = "preserve the exact marker and evidence; do not manually invoke or retry WeatherOneShotPush; obtain reviewed recovery authority"
         capture       = "NOW - the graded window is 12:00-18:00"
         memory        = "NOW - memory pressure is the streak's primary failure mode"
-        capacity      = "any time; tiering/cleanup is memory-light"
+        capacity      = "use repository-owned tiering in the admitted 00:30-09:00 window with the shared lease and exact retention gates; preserve unverified evidence"
         settlement    = "tonight - scripts\ops\chain_recovery_run.ps1 -ResumeFrom <failed step> -TargetDate <date> -Refetch, in the quiet window"
-        durability    = "any time; mirror runs nightly 04:30"
+        durability    = "verify current archive and restore evidence; do not resume an operator-paused mirror or delete unverified source data"
         resilience    = "any time, but a reboot must not happen before it is fixed"
         observability = "NOW - nothing else is watching while this is broken"
         scheduled_job = "next scheduled run, or resume in the quiet window 01:00-04:00"
@@ -142,6 +173,9 @@ $record = [ordered]@{
     alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act } })
     notes = @($status.warns)
     reconciliation_publication = $status.reconciliation_publication
+    memory_guard = $status.memory_guard
+    status_script_path = $statusScript
+    expected_status_script_sha256 = $ExpectedStatusScriptSha256
 }
 $record | ConvertTo-Json -Depth 6 | Set-Content -Path $latestPath -Encoding utf8
 if ($shouldLog) {
