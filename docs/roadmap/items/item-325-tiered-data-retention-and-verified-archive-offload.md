@@ -72,6 +72,12 @@ rename negative test falsified their exclusion claim. The next production
 attempt must use the revised runbook and exact current source, not the initial
 implementation handoff's apply command.
 
+The audit also verified the current daily tiering triggers at 05:00 and 06:00,
+with PT31M/PT41M scheduler bounds and no late catch-up. Cache plan/apply now
+refuses 04:45–06:45 and ends early enough to release its lease before that
+reservation. This prevents the small pilot from making a larger scheduled
+reclaim skip at a busy lease. Scheduler definitions were read, not changed.
+
 - [x] Review previous archive/tiering work and native compression compatibility.
 - [x] Implement bounded plan/apply and explicit retained-byte failure handling.
 - [x] Complete exact-head publication and native failure-path qualification.

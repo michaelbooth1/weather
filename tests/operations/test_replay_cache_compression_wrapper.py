@@ -170,13 +170,15 @@ def test_wrapper_passes_exact_reviewed_plan_arguments_with_space_containing_path
     assert receipt["apply"] is True and receipt["status"] == "PASS"
 
 
-def test_wrapper_refuses_protected_window_before_any_runtime_write(wrapper_fixture):
+@pytest.mark.parametrize("hour,reason", [(14, "restricted to 00:30-09:00"),
+                                        (5, "reserved for the existing scheduled tiering jobs")])
+def test_wrapper_refuses_protected_window_before_any_runtime_write(wrapper_fixture, hour, reason):
     wrapper = wrapper_fixture[2]
     source = wrapper.read_text()
-    wrapper.write_text(replace_once(source, ".AddDays(1).AddHours(1)", ".AddDays(1).AddHours(14)"))
+    wrapper.write_text(replace_once(source, ".AddDays(1).AddHours(1)", f".AddDays(1).AddHours({hour})"))
     process, output = launch(wrapper_fixture, "success")
     code, log = finish(process)
-    assert code != 0 and "restricted to 00:30-09:00" in log
+    assert code != 0 and reason in log
     assert not output.exists()
     assert not (wrapper_fixture[1] / "data").exists()
 

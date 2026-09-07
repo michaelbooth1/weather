@@ -20,8 +20,14 @@ $minute = $localNow.Hour * 60 + $localNow.Minute
 if ($minute -lt 30 -or $minute -ge 540) {
     throw 'REFUSED: cache compression is restricted to 00:30-09:00 America/Toronto'
 }
+if ($minute -ge 285 -and $minute -lt 405) {
+    throw 'REFUSED: 04:45-06:45 is reserved for the existing scheduled tiering jobs'
+}
 # Reserve teardown time before the protected boundary, even for late starts.
 $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddHours(9), $zone)
+if ($minute -lt 285) {
+    $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddMinutes(285), $zone)
+}
 $deadline = [DateTime]::UtcNow.AddSeconds(600)
 if ($deadline -gt $windowEnd.AddSeconds(-15)) { $deadline = $windowEnd.AddSeconds(-15) }
 if (($deadline - [DateTime]::UtcNow).TotalSeconds -lt 30) {

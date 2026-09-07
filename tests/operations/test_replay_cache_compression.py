@@ -95,7 +95,9 @@ def test_batch_byte_cap(tmp_path):
         compression.validate_request(value, production_root=tmp_path, now=NOW)
 
 
-@pytest.mark.parametrize("hour,minute,allowed", [(0, 29, False), (0, 30, True), (8, 59, True), (9, 0, False), (14, 0, False), (23, 0, False)])
+@pytest.mark.parametrize("hour,minute,allowed", [(0, 29, False), (0, 30, True),
+    (4, 44, True), (4, 45, False), (5, 0, False), (6, 44, False), (6, 45, True),
+    (8, 59, True), (9, 0, False), (14, 0, False), (23, 0, False)])
 def test_protected_capture_window(hour, minute, allowed):
     instant = NOW.replace(hour=hour, minute=minute).replace(tzinfo=admission.ZoneInfo("America/Toronto"))
     row = admission.check_resources(now=instant, available=8 * admission.GIB, commit=50,

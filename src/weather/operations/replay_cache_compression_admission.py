@@ -38,6 +38,8 @@ def check_resources(*, now, available, commit, free_disk, loops):
     reasons = []
     if not 30 <= minute < 9 * 60:
         reasons.append("outside_0030_0900_capture_window")
+    if 285 <= minute < 405:
+        reasons.append("reserved_0445_0645_scheduled_tiering_window")
     if available is None or available < MIN_FREE_MEMORY_BYTES:
         reasons.append("physical_memory_below_4_gib")
     if commit is None or not math.isfinite(commit) or not 0 <= commit < MAX_COMMIT_PERCENT:

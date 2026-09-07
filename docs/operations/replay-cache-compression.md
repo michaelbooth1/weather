@@ -32,8 +32,13 @@ Git integration follows the separate canonical roll verdict and merge rules.
   verifies the live wrapper's PID/creation identity, its own ancestry and the
   actual OS-held lease file. A stale owner record cannot admit work.
 - Both entrypoint and child require 00:30–09:00 America/Toronto. The wrapper
-  reserves fifteen seconds before 09:00 for teardown; maximum child runtime is
-  ten minutes. No Stage-A or protected-window exception is provided.
+  additionally excludes **04:45–06:45**, reserving the shared lease for the
+  canonical 05:00 projection / 06:00 raw-tape tiering jobs and their teardown.
+  It reserves fifteen seconds before 04:45 or 09:00 for its own teardown;
+  maximum child runtime is ten minutes. A cache batch must not make a larger
+  scheduled reclaim skip at a busy lease. Recheck the actual tiering task
+  definitions before attended execution; a changed schedule needs review of
+  this reservation. No Stage-A or protected-window exception is provided.
 - Require all three capture loops to be active, non-degraded and bound to
   matching live status/lock PIDs and process-creation identities. Heartbeats
   must be no more than 180 seconds old and cannot be future-dated. Snapshot's
