@@ -1,4 +1,4 @@
-# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-05 - NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN]
+# 330. Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-07 - STAGE 0/1 PROVED; ECONOMIC PROOF OPEN]
 
 Goal: determine whether a narrowly scoped International Polymarket weather
 maker can earn worthwhile returns from trading plus realized incentives, while
@@ -43,17 +43,34 @@ protects settlement interpretation, impossible outcomes, information-event risk,
 and inventory. A new predictive model or model-promotion result is not required.
 Risk controls remain mandatory even when model probabilities are absent.
 
-On September 4 the owner authorized implementation of this plan, necessary
-source-control changes and merges, and takeover of unfinished cold off-site
-storage work, with one explicit exception: **no live trading**. Continue that
-authorized work without blanket approval prompts. Existing exact host-admission,
-guarded integration, retention, manifest and restore contracts still govern
-execution; off-site authority does not make an unverified copy reclaimable.
-Real W5-W7 lifecycle/economic sessions remain blocked by the no-live instruction;
-their offline preparation may proceed. The prospective Stage 0/1 10 pUSD request
-and 100 pUSD wallet ceilings remain unchanged. No new statistical alpha allocation,
-exchange-baseline acceptance, unattended operation or positive economic verdict
-is inferred from the implementation authorization.
+On September 4 the owner authorized implementation, source-control changes and
+merges, and unfinished storage work, initially excluding live trading. On
+September 6 the owner separately authorized and completed the attended
+International Stage 0/1 sequence with the existing-wallet repair, 100 pUSD test
+allocation and 10 pUSD order limit. The reviewed launcher authorizes its whole
+sequence; do not repeat stage, backup or wallet-authorization questions.
+Stage 0, both Stage 1 modes and the offline bundle passed without fills. The
+[completed item-67 record](https://github.com/michaelbooth1/weather/blob/ca64296fb944a65c0ccfbf0e9a17b2d913413a68/docs/roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md#2026-09-06-attended-stage-01-completed)
+owns the exact successful attempt; it does not need another lifecycle retry.
+
+Stage 2, longer economic sessions and unattended operation remain outside that
+completed authorization. Their source/host/capital/accounting and exact-attempt
+gates still apply. Continue authorized non-live work without blanket approval
+prompts. No positive economics, exchange-baseline acceptance, new statistical
+allocation or promotion is inferred. Storage still needs its exact retention,
+identity, restore and admission proofs.
+
+### September 7 sequencing update
+
+The [post-reclaim plan](item-331-post-reclaim-model-economics-and-research-plan.md)
+now owns cross-programme order. This item retains W0-W12 and G1-G4 ownership.
+W1/W2 and the W3 calculator are production-adopted through `6714b77d8`; current
+campaign qualification, coherent paired config, actual accrual/payment linkage,
+inventory-complete economics and the documentation transaction remain open.
+Reuse the reviewed accounting and monitor/correctness stacks before adding
+missing consumers. Preserve the completed Stage 0/1 proof and old failed
+attempts; qualify the current inventory successor separately. The September 5
+ledger below is historical evidence, not the present authority or work order.
 
 ## 2. Starting point and what must be refreshed
 
@@ -161,7 +178,7 @@ flowchart TD
     A[W0: verified baseline and narrow backlog] --> B[W1-W2: rule and correctness fixes]
     A --> C[W3: exact-market incentive feasibility]
     C --> D[W4: authoritative accounting]
-    B --> E[W5: remaining Stage 0/1 proof]
+    B --> E[W5: retain Stage 0/1; qualify inventory successor]
     C --> E
     D --> F[W6: bounded economic calibration]
     E --> F
@@ -321,14 +338,16 @@ must reject unsupported claims rather than drop the new component silently.
 If public/official evidence cannot attribute rewards, report that limitation
 and keep realized reward P&L incomplete. Rollback preserves raw receipts.
 
-### W5 — Finish only the remaining lifecycle proof
+### W5 — Preserve Stage 0/1 and qualify the inventory successor
 
 Owner: existing item 67/pilot and fixed-scope wrapper owners. Depends on: W2,
 W3, and actual G0 branch/host qualification.
 
 Verify the current integrated and portable candidate tips; do not assume a
-historically green Stage 2 branch is currently runnable. Complete missing Stage
-0/1 gates through the existing smallest-valid protocol. Preserve spent attempts,
+historically green Stage 2 branch is currently runnable. The September 6 Stage
+0/1 sequence is complete and is retained, not scheduled again. Prepare the
+current inventory successor against explicit host/capital/settlement contracts.
+Preserve spent attempts,
 one-submit capability, no retry on ambiguous mutation, authenticated cancellation,
 heartbeat-lapse proof, exact account/condition binding, and terminal cleanup.
 
@@ -612,7 +631,7 @@ Record one compact disposition per work package with commit, checks, adoption
 where applicable, evidence path/hash, and next decision. Create a new numbered
 item only for independently owned work that actually needs separate tracking.
 
-### Execution status — September 5, 2026
+### Historical execution status — September 5, 2026
 
 The original plan branch `codex/maker-plan-20260904` at `9e445dfb8` is preserved
 and merged into the separate baseline documentation branch. At intake, production source
@@ -718,7 +737,8 @@ W8 or the model-retirement portion of W11 complete.
 - [ ] W2: explicit market identity and atomic consistent configuration proved.
 - [ ] W3: exact-market incentive feasibility accepted or bounded infeasibility recorded.
 - [ ] W4: trading, rebate and liquidity-reward accounting independently reconciles.
-- [ ] W5: remaining lifecycle/host qualification proved without widening authority.
+- [ ] W5: completed Stage 0/1 retained; current inventory-successor qualification
+  and host scope explicitly resolved without inheriting live authority.
 - [ ] W6: calibration cohort closed, or specific opportunity/measurement failure recorded.
 - [ ] W7: frozen forward decision completed, or confirmation explicitly infeasible.
 - [ ] W8: primary evidence insulated from optional research; daily defaults reduced.
