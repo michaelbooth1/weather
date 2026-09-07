@@ -306,3 +306,49 @@ def test_incomplete_rewards_collection_cannot_replace_existing_snapshot(tmp_path
             event_metadata_path=metadata_path, now=NOW, fetch_json=fetch,
         )
     assert snapshot_path.read_bytes() == retained
+
+
+@pytest.mark.parametrize("kind", ["json", "text"])
+@pytest.mark.parametrize("proof_kind", ["none", "empty", "legacy", "method_only", "missing_timestamp"])
+def test_new_tuple_capture_cannot_downgrade_to_legacy_hash_only_evidence(kind, proof_kind):
+    url = "https://clob.polymarket.com/rewards/markets/current"
+    body = b'{"value": 1}' if kind == "json" else b"# Source rules\n"
+    payload = json.loads(body) if kind == "json" else body.decode("utf-8")
+    proof = sources.response_evidence(
+        body, url=url, http_status=200,
+        content_type="application/json" if kind == "json" else "text/markdown",
+        origin="http_response_bytes",
+    )
+    if proof_kind == "none":
+        proof = None
+    elif proof_kind == "empty":
+        proof = {}
+    elif proof_kind == "legacy":
+        proof = {key: value for key, value in proof.items() if key not in sources.RESPONSE_BODY_FIELDS}
+        assert sources.response_evidence_valid(proof)  # Historical reads remain supported.
+        assert not sources.response_payload_matches(proof, payload, text=kind == "text")
+    elif proof_kind == "method_only":
+        proof = {"request_method": "GET"}
+        assert not sources.response_evidence_valid(proof)
+    else:
+        del proof["retrieved_at_utc"]
+    call = core._call_fetch_json if kind == "json" else core._call_fetch_text
+    with pytest.raises(ValueError, match="requires complete captured evidence"):
+        call(lambda *args, **kwargs: (payload, proof), url, timeout_seconds=3)
+
+
+@pytest.mark.parametrize("kind", ["json", "text"])
+def test_new_tuple_capture_accepts_complete_matching_raw_evidence(kind):
+    url = "https://clob.polymarket.com/rewards/markets/current"
+    body = b'{\r\n "value": 1\r\n}' if kind == "json" else b"# Source rules\r\n"
+    payload = json.loads(body) if kind == "json" else body.decode("utf-8")
+    proof = sources.response_evidence(
+        body, url=url, http_status=200,
+        content_type="application/json" if kind == "json" else "text/markdown",
+        origin="http_response_bytes",
+    )
+    call = core._call_fetch_json if kind == "json" else core._call_fetch_text
+    observed, retained = call(lambda *args, **kwargs: (payload, proof), url, timeout_seconds=3)
+    assert observed == payload
+    assert retained == proof
+    assert base64.b64decode(retained["response_body_base64"]) == body

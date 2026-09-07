@@ -153,6 +153,8 @@ def _call_fetch_json(fetch_json, url, *, timeout_seconds):
     result = fetch_json(url, timeout_seconds=timeout_seconds)
     if isinstance(result, tuple) and len(result) == 2:
         payload, evidence = result
+        if not response_evidence_valid(evidence, require_body=True):
+            raise ValueError("exchange economics response requires complete captured evidence")
     else:
         payload = result
         body = _canonical_json_bytes(payload)
@@ -162,11 +164,7 @@ def _call_fetch_json(fetch_json, url, *, timeout_seconds):
             body, url=url, http_status=200, content_type="application/json",
             origin="caller_supplied_canonical_json",
         )
-    evidence = dict(evidence or {})
-    evidence.setdefault("url", url)
-    evidence.setdefault("http_status", 200)
-    if not non_empty_text(str(evidence.get("response_sha256") or "")):
-        evidence["response_sha256"] = _sha256_bytes(_canonical_json_bytes(payload))
+    evidence = dict(evidence)
     if evidence["url"] != url or evidence["http_status"] != 200:
         raise ValueError("exchange economics response request/status mismatch")
     if not response_payload_matches(evidence, payload):
@@ -204,6 +202,8 @@ def _call_fetch_text(fetch_text, url, *, timeout_seconds):
     result = fetch_text(url, timeout_seconds=timeout_seconds)
     if isinstance(result, tuple) and len(result) == 2:
         source_text, evidence = result
+        if not response_evidence_valid(evidence, require_body=True):
+            raise ValueError("exchange economics rule response requires complete captured evidence")
     else:
         source_text = result
         evidence = None
@@ -216,11 +216,6 @@ def _call_fetch_text(fetch_text, url, *, timeout_seconds):
         body, url=url, http_status=200, content_type="text/markdown",
         origin="caller_supplied_text",
     )
-    evidence.setdefault("url", url)
-    evidence.setdefault("http_status", 200)
-    evidence.setdefault("content_type", "text/markdown")
-    evidence.setdefault("response_bytes", len(body))
-    evidence.setdefault("response_sha256", _sha256_bytes(body))
     if evidence["url"] != url or evidence["http_status"] != 200:
         raise ValueError("exchange economics rule response request/status mismatch")
     if not response_payload_matches(evidence, source_text, text=True):

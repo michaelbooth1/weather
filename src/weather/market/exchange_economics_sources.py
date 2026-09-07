@@ -18,7 +18,7 @@ import re
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_RESPONSE_BYTES = 16 * 1024 * 1024
 RESPONSE_BODY_FIELDS = frozenset({
-    "response_body_base64", "retrieved_at_utc", "response_origin",
+    "response_body_base64", "retrieved_at_utc", "response_origin", "request_method",
 })
 CONDITION_RE = re.compile(r"0x[0-9a-fA-F]{64}\Z")
 ASSET_RE = re.compile(r"0x[0-9a-fA-F]{40}\Z")
@@ -70,11 +70,11 @@ def response_evidence(body, *, url, http_status, content_type, origin):
     }
 
 
-def response_evidence_valid(evidence):
+def response_evidence_valid(evidence, *, require_body=False):
     """Validate additive raw evidence without upgrading legacy hash-only rows."""
     if not isinstance(evidence, dict):
         return False
-    if not RESPONSE_BODY_FIELDS.intersection(evidence):
+    if not require_body and not RESPONSE_BODY_FIELDS.intersection(evidence):
         return True
     try:
         if not RESPONSE_BODY_FIELDS.issubset(evidence):
@@ -102,11 +102,9 @@ def response_evidence_valid(evidence):
 
 
 def response_payload_matches(evidence, payload, *, text=False):
-    """Check an injected parsed result against supplied raw bytes when present."""
-    if not response_evidence_valid(evidence):
+    """Check newly supplied parsed results against complete captured bytes."""
+    if not response_evidence_valid(evidence, require_body=True):
         return False
-    if "response_body_base64" not in evidence:
-        return True
     try:
         body = base64.b64decode(evidence["response_body_base64"], validate=True)
         if text:

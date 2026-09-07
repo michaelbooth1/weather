@@ -50,8 +50,10 @@ duplicate keys, invalid UTF-8, nonfinite numbers and floating overflow.
 The default HTTP reader records `response_origin=http_response_bytes`.
 Injected parsed payloads are serialized and labelled
 `caller_supplied_canonical_json`; injected text is `caller_supplied_text`.
-Those labels do not authenticate a caller's request assertions. When an
-injected parsed result also supplies raw evidence, the parser verifies agreement.
+Those labels do not authenticate a caller's request assertions. A tuple-supplied
+result must include complete valid raw evidence, and the parser verifies agreement.
+Empty, hash-only or partial tuple proofs are refused; legacy compatibility applies
+only when reading already persisted snapshots.
 No credential or authentication header belongs in this public evidence.
 
 The code bounds each raw body to 2 MiB and one successful snapshot's retained
