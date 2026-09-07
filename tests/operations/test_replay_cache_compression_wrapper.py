@@ -79,7 +79,7 @@ def wrapper_fixture(tmp_path):
     wrapper = repo_path("scripts/ops/replay_cache_compression_run.ps1").read_text(encoding="utf-8-sig")
     wrapper = replace_once(wrapper,
         "$localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)",
-        "$localNow = [DateTime]::UtcNow.Date.AddDays(1).AddHours(1)")
+        "$localNow = [DateTime]::SpecifyKind([DateTime]::UtcNow.Date.AddDays(1).AddHours(1), [DateTimeKind]::Unspecified)")
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
         "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(4)\n    # Identity, time and live lease")
     wrapper_path = scripts / "replay_cache_compression_run.ps1"

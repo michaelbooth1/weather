@@ -99,7 +99,10 @@ class LockedNtfsFile:
         return result
 
     def _open(self, path, *, directory=False):
-        access = 0x80 if directory else 0x80000000 | (0x40000000 if self.writable else 0)
+        # FILE_READ_ATTRIBUTES alone does not participate in Windows sharing
+        # checks. GENERIC_READ includes FILE_LIST_DIRECTORY, so denying DELETE
+        # actually prevents an empty evidence directory from being renamed.
+        access = 0x80000000 | (0x40000000 if self.writable and not directory else 0)
         # Directory handles permit reads/writes but never deletion/rename.
         share = 3 if directory else 1
         flags = 0x00200000 | (0x02000000 if directory else 0x08000000)
