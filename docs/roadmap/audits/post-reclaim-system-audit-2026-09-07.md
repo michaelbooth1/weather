@@ -347,3 +347,22 @@ The plan therefore seeks three concrete results: correct native-band behavior,
 a reproducible model comparison with an honest outcome, and an opportunity
 report that can reconcile real inventory and paid incentives. Any can produce
 useful progress; none is assumed profitable or statistically positive.
+
+## Closing update: the separate reclaim source review finished
+
+After the main audit, the storage owner completed its review at
+`a62ba9c3162ebf3be48da82e6548b62201537023`. The retained
+`scratch/handoffs/storage-reclaim-audit-20260907.md` records 141 native/focused
+checks and [exact-source CI 34157297426](https://github.com/michaelbooth1/weather/actions/runs/34157297426)
+with 4,348 tests and 921 subtests passing. The GitHub result was independently
+checked. This supersedes the earlier "review active" PR 39 snapshot above,
+not the requirement for production qualification.
+
+The disposition is conditional GO for an attended one-file pilot, with fresh
+admission and protection of the existing tiering window; no automatic task,
+production compression, deletion or measured pilot savings is established.
+The later bounded volume sample is 26,476,851,200 bytes free, approximately
+24.7 GiB. The older 28.76 GiB observation above remains a dated sample.
+The storage owner's revised commands supersede its initial implementation
+receipt. Item 331 still starts at the actual execution handback, with the same
+success/partial/refusal paths; source qualification alone does not reach T0.
