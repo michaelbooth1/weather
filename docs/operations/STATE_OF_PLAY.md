@@ -6,8 +6,8 @@
 > **REWRITTEN, never appended. Capped at about 90 lines.** Numbered items and
 > retained receipts own detailed evidence and historical dispositions.
 
-**Objectives:** protect capture and settlement evidence; prepare the September 6
-attended International Stage 1 lifecycle test with the existing wallet; then measure maker economics under
+**Objectives:** protect capture and settlement evidence; retain the completed
+September 6 attended International Stage 0/1 proof; then measure maker economics under
 [item 330](../roadmap/items/item-330-maker-economics-refocus-master-plan.md).
 **No market edge, profitable maker opportunity or paid incentive is proved.**
 
@@ -32,12 +32,12 @@ loop is authorized by this test.
 | Area | Verified state / remaining limit |
 | --- | --- |
 | Production source | Guarded W3 adoption completed September 5 01:49:16 at `6714b77d8bb57fa36b4d2dd33675cab971ef2432`, with three-worker recovery and source equality. [Master CI](https://github.com/michaelbooth1/weather/actions/runs/33948191212) passed 4,277 tests and 921 subtests with 258 skips. The two current generated-config modifications remain preserved. Source adoption does not close later qualification or documentation debt. |
-| Portable source qualification | [PR 35](https://github.com/michaelbooth1/weather/pull/35) merged Stage 1 runtime parity at `6b13ae38033d3830b0b4536862a5a0e01e7bd60e`. [Source CI](https://github.com/michaelbooth1/weather/actions/runs/34055033085) and [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34055512531) each passed 4,668 tests/921 subtests with 260 skips. The actual portable clone cleanly adopted that exact tip, with HEAD/local/cached/live topic equality and synchronized ancestral master `6714b77d8bb57fa36b4d2dd33675cab971ef2432`; its public SDK audit passed. This is not capture-host adoption; exact Git/CI and host-local receipts own later tips. |
-| Today's path | Stage 0 and the Stage 1 cancel-all probe/wrapper passed. The parent rejected the 447.01397 pUSD balance under a fourth stale ceiling and confused the bootstrap gate hash with the raw file hash. The parent receipt remains UNKNOWN and dead-man did not run. `codex/stage1-parent-capital-20260906` repairs both bindings; the repaired parent validates the real retained child while preserving all 17 checked artifact hashes. [Item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md#2026-09-06-stage-1-parent-result-repair) owns evidence, offline regressions and remaining qualification. |
-| Offline verification | The reconciled source passed 485 focused workstation checks and 90 activity-bridge fixtures; SDK/architecture/roadmap checks and compilation also passed. After the PowerShell 5.1 quoting repair, the installed public SDK audit passed again from the updated portable clone at September 5 20:09:54 UTC, proving the 2,260-file overlay and 34-wheel closure without credentials, activation or exchange contact. Source-update, SDK and Windows test receipts are retained under production-local `scratch/handoffs/live-test-preparation-20260906/`, with host-local originals outside the portable repository. These are preparation receipts, not live readiness. |
-| Attended result / host | Attempt `pilot-20260906T194643245Z` is spent: Stage 0 passed, and Stage 1 cancel-all completed at 19:53:02.072813 UTC with one 0.005 pUSD BUY, observed order/cancellation, zero matched size/open orders/exact-scope positions/scoped trades, unchanged collateral and cleanup PASS. Its parent stopped at UNKNOWN after child exit zero; dead-man did not run. A 23:37 bounded host check found no portable Python process or poison record. Preserve this and every earlier spent attempt unchanged. |
+| Portable source qualification | [PR 36](https://github.com/michaelbooth1/weather/pull/36) merged the parent result repair at `c6ee36147c52269ac76328aded186b2658978325`. [Source CI](https://github.com/michaelbooth1/weather/actions/runs/34068327086) and [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34068740395) each passed 4,706 tests/921 subtests with 260 skips. The actual portable clone cleanly adopted that exact tip with HEAD/local/cached/live topic equality and synchronized ancestral master `6714b77d8bb57fa36b4d2dd33675cab971ef2432`; its public SDK audit passed. This is not capture-host adoption; Git and receipts own later tips. |
+| Completed lifecycle test | On September 6 local time, the operator completed Stage 0, Stage 1 cancel-all, Stage 1 dead-man and the offline bundle, all PASS. Independent retained-evidence validation re-derived the same bundle facts and both complete lineages; all 39 checked artifact hashes remain unchanged. [Item 67](../roadmap/items/item-67-authenticated-exchange-adapter-and-mm-2-pilot-harness.md#2026-09-06-attended-stage-01-completed) owns the measured result and exact receipts. No further lifecycle retry is needed for this completed attempt. |
+| Repair verification | Parent-capital checks passed 447 focused Windows tests; the combined capital/bootstrap repair passed 201 final checks. The old implementation failed the expected negative controls, and the repaired parent validated the real v6 child without changing its evidence. The two full Linux CI runs above passed. The installed 2,260-file SDK overlay and 34-wheel closure passed public audit without activation, credentials or exchange contact. |
+| Attended result / host | Spent attempt `pilot-20260907T001707063Z` completed its bundle at September 7 01:07:50.895599 UTC (September 6 21:07:50 Toronto). Each Stage 1 mode placed one 0.005 pUSD BUY; both proved zero matched size/open orders/exact-scope positions/scoped trades, unchanged per-probe collateral and cleanup PASS. Dead-man cancellation was observed after 10.359 seconds. The 01:14:33 UTC host review found clean source, zero portable Python processes and no poison record. Preserve every completed or failed attempt unchanged. |
 | Credentials | Retained v0.4 comparison evidence at September 6 13:46:39.777856 UTC records four verified entries and zero mutation. The source file was deleted after the owner confirmed a separate backup; vault entries and backup remain unchanged. The redesigned contract accepts this unchanged host/principal-bound record as installation provenance without expiry. Fresh runtime authentication remains mandatory. No backup prompt or credential refresh helper is needed for normal retries after the redesigned source is qualified and adopted. |
-| Market/rules | The public September 6 NYC event and its central 74-75 F book exist in retained September 5 captures. The canonical generator can select NYC from its genuine one-event Gamma list; exact condition/token discovery stays fresh. Current venue Rules name NOAA hourly data first and WU only as fallback. Preserve that difference from the WU proxy; Stage 0/1 identity binding and no-fill completion do not qualify settlement or Stage 2 economics. |
+| Market / scope | The successful attempt used September 7 NYC 74-75 F YES. September 6 preparation was preserved after its selected book failed the minimum-tick nonmarketable-buy gate; the next-date event passed the existing portable contract. Retained venue Rules name NOAA hourly data first and WU as fallback. Preserve that difference from the WU proxy; this exact-scope no-fill result does not qualify settlement or Stage 2 economics. |
 | Capture / public tape | The retained September 5 00:02 snapshot reports three capture families healthy and public tape CONNECTED/integrity PASS, but `price_path_usable=false`. This is historical point-in-time evidence, not a new streak or price-path proof. |
 | Settlement / jobs | Five exact Toronto August 28-September 1 folder settlement views report `missing_settlement/local_missing`; fleet and ledger scope remain unaudited. Only `WeatherModelMarketDisagreementAnalysis` was disabled at September 5 00:30 after exact checks. Mixed-chain dispositions remain open; no runtime saving is measured. |
 | Storage | The last retained September 5 09:49 disk snapshot is 38.16 GiB, below the ordinary 50 GiB suite reserve. No reclaim by this task is established. Do not schedule a production suite against an unproved reserve or reuse the expired hashing proposal. The mirror remains paused and unproved restorable. |
@@ -47,20 +47,16 @@ loop is authorized by this test.
 
 ## Ordered critical path
 
-1. Qualify the Stage 1 parent result repair with final-tip/topic CI and clean
-   portable adoption. Preserve production configs and spent attempts.
-2. Finish heavy verification before sealing. Recheck credential, source and host
-   evidence and create a wholly new attempt with the explicit test allocation.
-   Every fresh live plan has at most 40 seconds before portable composition.
-3. Prepare the reviewable operator sequence: Stage 0, Stage 1 cancel-all and
-   Stage 1 dead-man through fixed launchers. Keep the 100 pUSD test allocation,
-   10 pUSD request/order, two single-use submissions and stop-on-fill behavior.
-   A failed stage stops the sequence. The spent attempt's cancel-all probe
-   passed, but fresh Stage 0 and both Stage 1 results must complete a new attempt.
-4. Stage 2 needs separate current source/host authority, settlement-source
-   qualification, opportunity and accounting evidence. Its whole-wallet
-   funding and general readiness gates remain.
-5. Continue off-site identity/reclaim, production documentation closeout and
+1. Retain the completed Stage 0/1 proof and this source/documentation closeout.
+   The v7 attempt is spent and successful; earlier failures remain immutable.
+2. Continue the non-live maker-economics and accounting work in item 330.
+   A no-fill cancellation experiment proves lifecycle behavior, not fill handling,
+   profitable quoting, paid incentives, settlement or a countable economic day.
+3. Any Stage 2 session needs a separate owner request, current source/host
+   authority, settlement-source qualification, opportunity and accounting
+   evidence, and its own funding/readiness gates. The completed test grants
+   no unattended loop or additional live-order authority.
+4. Continue off-site identity/reclaim, production documentation closeout and
    mixed-chain/settlement repair under their separate owning contracts.
 
 ## Standing decisions

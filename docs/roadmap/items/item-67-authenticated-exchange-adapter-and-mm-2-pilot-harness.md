@@ -1,4 +1,4 @@
-# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - CANCEL-ALL PROBE PASSED; PARENT RESULT REPAIR]
+# 67. Authenticated Exchange Adapter And MM-2 Pilot Harness [PARTIAL 2026-09-06 - ATTENDED STAGE 0/1 PASSED; ECONOMIC PILOT OPEN]
 
 Goal: implement the smallest live-order execution path that can run the MM-2
 pilot with stage-appropriate structural, account, lifecycle and risk gates;
@@ -43,7 +43,7 @@ behavior before any size increase.
   `polymarket-client==0.6.0` source and published wheel passed the keyless
   contract audit on 2026-08-14; production wallet and exchange evidence
   remain separate open gates.
-- [ ] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
+- [x] Review and bind the fixed-scope, host-owned Stage 0/1 wrapper on the
   selected exact execution host using either the capture-colocated or portable
   profile. Do not add a generic repository live mutation CLI to close this
   item.
@@ -63,6 +63,74 @@ economic quoting additionally requires its paper/economics gates. Every live
 order has a reconciled lifecycle from intent through cancel/fill/settlement;
 and MM-2 remains min-size, bounded, and auditable until its pilot evidence
 passes.
+
+## 2026-09-06 Attended Stage 0/1 completed
+
+**PASS: the operator completed Stage 0, both distinct Stage 1 cancellation
+modes and the offline lifecycle bundle.** Item 67 remains PARTIAL because
+two-sided economic quoting, fill/settlement handling and actual paid incentive
+evidence are separate acceptance work.
+
+[PR 36](https://github.com/michaelbooth1/weather/pull/36) merged the parent
+capital/bootstrap repair at `c6ee36147c52269ac76328aded186b2658978325`.
+[Source CI](https://github.com/michaelbooth1/weather/actions/runs/34068327086)
+and [merged-head CI](https://github.com/michaelbooth1/weather/actions/runs/34068740395)
+each passed 4,706 tests and 921 subtests, with 260 skips. The portable clone
+adopted that clean exact tip at September 7 00:14:38.3949288 UTC, preserving
+HEAD/local/cached/live equality and synchronized ancestral production master.
+The installed public SDK audit passed. These are portable qualification
+facts; production capture did not adopt this topic.
+
+The successful spent attempt is `pilot-20260907T001707063Z`, bound to
+**NYC September 7, 74-75 F YES**, the existing-wallet 100 pUSD test allocation
+and the exact 10 pUSD request/order ceiling. The preceding public preparation
+`pilot-20260907T001459491Z` stopped before manifests or live execution:
+September 6's selected ask equaled the minimum tick, so its nonmarketable
+BUY gate correctly refused. A wholly new preparation selected the September 7
+event under the existing portable current-or-following-date contract. No
+selector evidence was rewritten and no safety gate was relaxed.
+
+| Stage | Verified completion and scope |
+| --- | --- |
+| Stage 0 | Parent and child PASS; no order submission. Parent finished September 7 01:06:15.259652 UTC. |
+| Stage 1 cancel-all | One distinct post-only BUY, 5 shares at 0.001 pUSD (0.005 pUSD notional); result completed 01:06:56.718487 UTC and parent PASS at 01:06:58.026785 UTC. |
+| Stage 1 dead-man | A second distinct BUY at the same minimum size/price; automatic cancellation observed after **10.359 seconds**, inside this experiment's 10-15-second observation window. Result completed 01:07:49.624794 UTC and parent PASS at 01:07:50.674143 UTC. This observation does not establish a venue-wide timeout guarantee. |
+| Offline bundle | `mm_stage1_lifecycle_bundle_v0.3` and command receipt PASS at 01:07:50.895599 UTC, September 6 21:07:50 Toronto. |
+
+Both probes proved authenticated placement/cancellation, terminal REST zero
+matched size, zero scoped account trades, zero ending account open orders,
+zero exact-scope positions, two-second post-cancel quiescence and unchanged
+collateral within each probe. The observed collateral was 489.60767 pUSD;
+the larger whole-wallet balance did not expand the declared 100 pUSD test
+allocation. Command cleanup passed, every child exited zero, and no forced
+Job teardown or launcher exception occurred. This is a **no-fill** lifecycle
+proof; it does not test fills, establish profit, or authorize Stage 2.
+
+Independent read-only review reran the canonical lineage validators, bootstrap
+loader and pure in-memory bundle builder against the retained files. The
+loader used the original bundle's clock only for retrospective validation;
+no evidence timestamp or live authority was renewed. Recomputed bundle facts
+and both lineage records exactly matched the originals. All **39** checked
+artifact hashes were unchanged before/after review. The subsequent host
+receipt at 01:14:33.5872680 UTC proved clean source at the execution tip, zero
+portable Python processes and no workload poison record.
+
+The host-local originals remain outside Git under the attempt and
+`WeatherPortable/prep-20260906/`; controller copies of the review receipts
+are retained under ignored `scratch/handoffs/live-test-preparation-20260906/`.
+They are not assumed to exist in a clean checkout. Exact review evidence:
+
+| Receipt / artifact | SHA-256 |
+| --- | --- |
+| `v7-terminal-evidence-snapshot-v1.json` | `b175a60793fdd64eeced8ac22fb09f3b8e94a6f540ac40b006edf8d8e16da442` |
+| `v7-independent-terminal-review-v1.json` | `581d9af9923fd660fc006914f475f84af6035ebd74621fae27fea65527a7a877` |
+| Lifecycle bundle semantic hash | `f500e2468bbd2678a81a05cb8494d1a22f2092cbe3c85a80f2a1bc5df9755ee5` |
+
+Preserve this completed attempt and all earlier spent attempts. The v6 parent
+UNKNOWN receipt remains historical failure evidence. The v7 command is spent;
+a new attempt is unnecessary for this completed scope. No further live action,
+unattended loop, Stage 2 promotion or economic conclusion follows from this
+review.
 
 ## 2026-09-06 Stage 1 parent result repair
 
