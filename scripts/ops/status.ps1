@@ -14,9 +14,17 @@
 [CmdletBinding()]
 param(
     [switch]$Json,
-    [string]$RepoRoot = ""
+    [string]$RepoRoot = "",
+    [string]$ExpectedSelfSha256 = ""
 )
 
+$ErrorActionPreference = "Stop"
+if ($ExpectedSelfSha256) {
+    if ($ExpectedSelfSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        (Get-FileHash -LiteralPath $PSCommandPath -Algorithm SHA256 -ErrorAction Stop).Hash -ine $ExpectedSelfSha256) {
+        throw "status script differs from its reviewed source binding"
+    }
+}
 $ErrorActionPreference = "SilentlyContinue"
 # Windows PowerShell -File binds parameter defaults before PSScriptRoot is set.
 # Resolve it in the script body so scheduled subprocesses use this checkout too.

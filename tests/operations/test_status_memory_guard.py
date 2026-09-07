@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -9,6 +10,28 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "ops" / "status.ps1"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell")
+@pytest.mark.parametrize("correct_hash", [True, False])
+def test_status_checks_its_source_before_reading_runtime_state(tmp_path, correct_hash):
+    script = tmp_path / "status.ps1"
+    marker = tmp_path / "runtime-read.marker"
+    startup = SCRIPT.read_text(encoding="utf-8-sig").split(
+        "function Get-WeatherIntegrationValidatedEvidence", 1
+    )[0]
+    script.write_text(
+        startup + "Set-Content -LiteralPath (Join-Path $repo 'runtime-read.marker') -Value reached\n",
+        encoding="utf-8",
+    )
+    expected_hash = hashlib.sha256(script.read_bytes()).hexdigest() if correct_hash else "0" * 64
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(script),
+         "-RepoRoot", str(tmp_path), "-ExpectedSelfSha256", expected_hash],
+        capture_output=True, text=True, check=False, timeout=30,
+    )
+    assert (result.returncode == 0) == correct_hash, result.stderr
+    assert marker.exists() == correct_hash
 
 
 @pytest.mark.skipif(os.name != "nt", reason="requires Windows PowerShell")

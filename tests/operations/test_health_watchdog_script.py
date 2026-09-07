@@ -85,6 +85,65 @@ def test_watchdog_rejects_changed_source_before_writing_alerts(
     assert not (tmp_path / "data").exists()
 
 
+@WINDOWS_POWERSHELL_REQUIRED
+@pytest.mark.parametrize("binding", ["valid", "wrong_hash", "bad_hash", "path_only", "hash_only", "missing_file", "relative_path"])
+def test_watchdog_pins_diagnostic_status_source_and_keeps_runtime_root(
+    tmp_path: Path, binding: str
+) -> None:
+    source_root = tmp_path / "diagnostic checkout"
+    source_root.mkdir()
+    runtime_root = tmp_path / "runtime checkout"
+    runtime_root.mkdir()
+    watchdog = source_root / "health_watchdog.ps1"
+    watchdog.write_bytes(SCRIPT.read_bytes())
+    status_script = source_root / "status.ps1"
+    status_startup = (SCRIPT.parent / "status.ps1").read_text(encoding="utf-8-sig").split(
+        "function Get-WeatherIntegrationValidatedEvidence", 1
+    )[0]
+    status_script.write_text(
+        status_startup
+        + "[pscustomobject]@{verdict='ATTENTION';flags=@('HIGH COMMIT: fixture');"
+        "warns=@();streak=@{days=2;target=14;today=$repo};"
+        "memory_guard=@{status='HIGH_COMMIT';commit_percent=88.4}} | ConvertTo-Json -Depth 4\n"
+        "exit 2\n",
+        encoding="utf-8",
+    )
+    status_hash = hashlib.sha256(status_script.read_bytes()).hexdigest()
+    command = [
+        "powershell.exe", "-NoProfile", "-NonInteractive", "-File", str(watchdog),
+        "-RepoRoot", str(runtime_root),
+        "-ExpectedSelfSha256", hashlib.sha256(watchdog.read_bytes()).hexdigest(),
+    ]
+    if binding != "hash_only":
+        path = (
+            str(source_root / "missing.ps1") if binding == "missing_file"
+            else "status.ps1" if binding == "relative_path"
+            else str(status_script)
+        )
+        command.extend(["-StatusScriptPath", path])
+    if binding != "path_only":
+        expected_hash = "0" * 64 if binding == "wrong_hash" else "invalid" if binding == "bad_hash" else status_hash
+        command.extend(["-ExpectedStatusScriptSha256", expected_hash])
+    result = subprocess.run(
+        command, cwd=source_root, capture_output=True, text=True, check=False, timeout=30
+    )
+    if binding != "valid":
+        assert result.returncode != 0
+        assert not (runtime_root / "data").exists()
+        assert not (source_root / "data").exists()
+        return
+    assert result.returncode in (0, 2), result.stderr
+    latest = json.loads(
+        (runtime_root / "data" / "alerts" / "host_health_latest.json").read_text(encoding="utf-8-sig")
+    )
+    assert latest["today"] == str(runtime_root)
+    assert latest["alerts"][0]["class"] == "memory"
+    assert latest["memory_guard"] == {"status": "HIGH_COMMIT", "commit_percent": 88.4}
+    assert latest["status_script_path"] == str(status_script)
+    assert latest["expected_status_script_sha256"] == status_hash
+    assert not (source_root / "data").exists()
+
+
 def test_watchdog_carries_structured_reconciliation_publication_state() -> None:
     text = SCRIPT.read_text(encoding="utf-8-sig")
 

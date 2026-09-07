@@ -22,7 +22,9 @@
 [CmdletBinding()]
 param(
     [string]$RepoRoot = "",
-    [string]$ExpectedSelfSha256 = ""
+    [string]$ExpectedSelfSha256 = "",
+    [string]$StatusScriptPath = "",
+    [string]$ExpectedStatusScriptSha256 = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +38,18 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 }
 $repo = [IO.Path]::GetFullPath($RepoRoot)
+$statusScript = Join-Path $repo "scripts\ops\status.ps1"
+if ($StatusScriptPath -or $ExpectedStatusScriptSha256) {
+    if (-not [IO.Path]::IsPathRooted($StatusScriptPath) -or
+        $ExpectedStatusScriptSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+        -not (Test-Path -LiteralPath $StatusScriptPath -PathType Leaf)) {
+        throw "diagnostic status source requires an absolute file and exact SHA256"
+    }
+    $statusScript = (Get-Item -LiteralPath $StatusScriptPath -ErrorAction Stop).FullName
+    if ((Get-FileHash -LiteralPath $statusScript -Algorithm SHA256 -ErrorAction Stop).Hash -ine $ExpectedStatusScriptSha256) {
+        throw "status script differs from its reviewed source binding"
+    }
+}
 $ErrorActionPreference = "SilentlyContinue"
 $alertDir = Join-Path $repo "data\alerts"
 if (-not (Test-Path $alertDir)) { New-Item -ItemType Directory -Path $alertDir -Force | Out-Null }
@@ -46,9 +60,13 @@ $briefingPath = Join-Path $alertDir "MORNING_BRIEFING.md"
 $HEARTBEAT_HOURS = 6
 
 # ---- gather (delegate all interpretation of "is this normal" to status.ps1) ----
-$statusScript = Join-Path $repo "scripts\ops\status.ps1"
 $psExe = Join-Path $PSHOME "powershell.exe"
-$raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -RepoRoot $repo -Json 2>$null
+if ($ExpectedStatusScriptSha256) {
+    $raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -RepoRoot $repo -Json -ExpectedSelfSha256 $ExpectedStatusScriptSha256 2>$null
+}
+else {
+    $raw = & $psExe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $statusScript -RepoRoot $repo -Json 2>$null
+}
 $status = $null
 try { $status = ($raw | Out-String) | ConvertFrom-Json } catch {}
 if ($null -eq $status) {
@@ -155,6 +173,9 @@ $record = [ordered]@{
     alerts = @($entries | ForEach-Object { [ordered]@{ severity = $_.severity; class = $_.class; flag = $_.flag; act = $_.act } })
     notes = @($status.warns)
     reconciliation_publication = $status.reconciliation_publication
+    memory_guard = $status.memory_guard
+    status_script_path = $statusScript
+    expected_status_script_sha256 = $ExpectedStatusScriptSha256
 }
 $record | ConvertTo-Json -Depth 6 | Set-Content -Path $latestPath -Encoding utf8
 if ($shouldLog) {
