@@ -47,8 +47,8 @@ owns review coverage, source references, recent-PR dispositions and limitations.
 It is a bounded source/document review, not a new full suite or runtime census.
 Item 331 records later source preparation. The owner explicitly approved the
 private workstation transfer and public GitHub publication on September 7.
-Transfer, focused checks and compilation passed. The full suite found Windows
-path failures; fixes and renewed incremental-transfer approval are pending.
+Baseline transfer, focused checks and compilation passed. Windows suite failures
+have reviewed repairs; renewed transfer approval and verification remain pending.
 
 ## Ordered next work
 

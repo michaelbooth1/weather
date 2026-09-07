@@ -305,15 +305,40 @@ unchanged source; the executor still failed at its 297-character atomic-result
 temporary path. The control receipt is
 `scratch/post-reclaim-short-temp-controls-88bacc6.xml`, SHA-256
 `4d52cb91108729f5c17b1e619c8b4b38141f81f6f1164e76b9ffe600e97a1132`.
-Admitted `compileall -q app src tests` passed on that source.
+The entire native reconciliation file then passed **70 tests, zero failures,
+errors or skips**, in 1,331.925 seconds (JUnit duration) on the same unchanged
+`88bacc6` source. Its fresh namespace was
+`C:/Users/Michael/AppData/Local/Temp/w331b`; the retained receipt is
+`scratch/post-reclaim-reconciliation-short-temp-88bacc6.xml`, SHA-256
+`8fa1167c6d50a44b2e556b194b9ba968ee867d321b4a48a313ba197909ccfa1b`.
+This controls the full original reconciliation failure group without weakening
+its production identity guard. Admitted `compileall -q app src tests` passed on that source.
 
 Reviewed fixture commit `191f1c0d0cbb1735f178aa29ac88017f0ab2fb70` aligns the
 disposable clone's origin with its expected exact URL; the production equality
-guard is unchanged. A bounded executor workspace-path repair is being prepared.
+guard is unchanged. Executor repair `bda83731e732526d69d8564a77bd03f3bd2f8596`, merged at
+`5e28ffc360fcd94c744bde76d29b909e072160e6`, shortens only per-attempt scratch
+to `scratch/.ex/<full UUID>/workspace`. It checks known Windows paths before
+claiming, preserves candidate-scoped claims and atomic result publication,
+and verifies scratch containment and volume before creation and claiming.
+Interrupted and quarantined evidence remains preserved. Three-line fixture
+commit `3b4e4d406427181d3d18cf2726aa5613d2cb71a8` resolves the physical temporary
+root before building the retention, preselection and registration fixtures;
+all exact assertions and production path/evidence checks remain unchanged.
+Root and independent source reviews passed; repaired-source runtime verification
+remains pending.
 No full-suite PASS is claimed. Automatic approval review again refused the
 incremental transfer despite the earlier explicit approval; a renewed owner
 confirmation is pending. Complete repair review, admitted verification and
 compilation before publishing the branch and running exact-source CI.
+
+After transfer, rerun the three path-case fixtures and the repaired reconciliation
+dry-run control with ordinary Windows temporary-directory naming. Then run the
+reviewed P3/executor/release focused file set and the combined full suite through
+the admitted workstation wrapper, using a fresh short temporary namespace where
+needed for the executor's explicit path budget. Confirm Windows-only cases run,
+retain all spent namespaces and terminal receipts, and finish compilation and
+documentation/backlog checks. The focused gate does not replace the full suite.
 
 Production adoption is a later gate. Accept the storage owner's terminal
 handback, fresh ordinary admission and the actual schedule before choosing
