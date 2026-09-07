@@ -93,7 +93,8 @@ event correctness, settlement-source equivalence or economic qualification.
 Event validation and market-expansion scoring use this reader. Invalid pairs
 produce explicit per-market `BLOCK` validation results with `INVALID` binding
 and skip live fetching, so the CLI and daily chain replace any retained prior
-`PASS` receipt. Candidate freezing copies its exact captured registry and metadata buffers into the
+`PASS` receipt. The JSON retains the issue details, and the Markdown summary
+shows the first blocker reason. Candidate freezing copies its exact captured registry and metadata buffers into the
 existing two config roles without JSON reserialization. The candidate and
 independent release verifiers rehash those buffers against their trusted outer
 role inventory, validate cross-binding, and compare the declared pair identity.

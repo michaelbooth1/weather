@@ -894,6 +894,12 @@ def load_gate_for_market(path: str | Path, market_id: str) -> dict[str, Any]:
 
 def render_report(payload: dict[str, Any]) -> str:
     summary = payload.get("summary") or {}
+    first_blocker = summary.get("first_blocker") or {}
+    blocker_detail = str(first_blocker.get("reason") or (
+        payload.get("location_config_pair") or {}
+    ).get("error") or "")
+    blocker_detail = (blocker_detail.replace("\\", "\\\\").replace("|", "\\|")
+                      .replace("\r", " ").replace("\n", " "))
     lines = [
         "# Event Metadata Validation",
         "",
@@ -915,6 +921,7 @@ def render_report(payload: dict[str, Any]) -> str:
             ["Mismatch issues", summary.get("mismatch_count")],
             ["Ambiguous issues", summary.get("ambiguous_count")],
             ["Blank-token issues", summary.get("blank_token_count")],
+            ["First blocker", blocker_detail],
         ],
     ))
     lines.extend([
