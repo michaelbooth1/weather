@@ -52,6 +52,14 @@ no fixture result represents production reclaim. The canonical September 7
 roll verdict is `ROLL-SENSITIVE` through the schema registry; production merge
 therefore requires the quiet-window integration and recovery procedure.
 
+The owner's subsequent pre-execution audit identified gaps in plan-to-apply
+binding, actual-worker priority and launcher qualification. The revised lane
+requires a hash-bound completed plan, verifies the OS-held lease, pins the
+evidence directory during mutation and checks snapshot progress plus capture
+process-creation identity. Native launcher failure, timeout and abrupt-exit
+qualification belongs to this revision; earlier checks alone do not qualify
+the updated source or authorize the production pilot.
+
 - [x] Review previous archive/tiering work and native compression compatibility.
 - [x] Implement bounded plan/apply and explicit retained-byte failure handling.
 - [x] Complete exact-head publication and native failure-path qualification.

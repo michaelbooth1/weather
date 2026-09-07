@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import ctypes
 from ctypes import wintypes
 import math
+import json
 import os
 from pathlib import Path
 import shutil
@@ -17,11 +18,14 @@ from weather.operations.capture_resource_gate import (
 from weather.operations.daily_refresh_resources import host_commit_percent
 from weather.operations.ntfs_file_compression import MAX_FILE_BYTES
 from weather.operations.windows_processes import describe_process, snapshot_processes
+from weather.operations.process_lock_identity import observe_process_identity
 
 
 GIB = 1024**3
 MIN_FREE_MEMORY_BYTES = 4 * GIB
 MAX_COMMIT_PERCENT = 70.0
+MAX_HEARTBEAT_AGE_SECONDS = 180
+MAX_SNAPSHOT_CLEAN_AGE_SECONDS = 900
 # Twenty GiB remain reserved for capture. The lane permits at most 64 MiB per
 # file and reserves two additional complete file images plus 1 MiB of receipts.
 # This is a compression-only reservation, never a general heavy-work override.
@@ -45,19 +49,71 @@ def check_resources(*, now, available, commit, free_disk, loops):
     for row in loops:
         if (not row.get("active") or row.get("degraded") or not row.get("heartbeat_fresh")
                 or not row.get("pid_agreement")
+                or not row.get("process_identity_matches_lock")
+                or not _fresh_age(row.get("heartbeat_age_seconds"), MAX_HEARTBEAT_AGE_SECONDS)
                 or not row.get("process_diagnostics", {}).get("status_pid_alive")
                 or not row.get("process_diagnostics", {}).get("lock_pid_alive")):
             reasons.append("capture_unhealthy:" + str(row.get("name")))
+        if row.get("name") == "snapshot" and not _fresh_age(
+                row.get("last_clean_iteration_age_seconds"), MAX_SNAPSHOT_CLEAN_AGE_SECONDS):
+            reasons.append("snapshot_clean_iteration_missing_or_stale")
     return {"status": "BLOCK" if reasons else "PASS", "reasons": reasons,
             "checked_at_utc": now.isoformat(), "available_memory_bytes": available,
             "host_commit_percent": commit, "free_disk_bytes": free_disk,
-            "minimum_free_disk_bytes": MIN_FREE_DISK_BYTES}
+            "minimum_free_disk_bytes": MIN_FREE_DISK_BYTES,
+            "capture_loops": [{key: row.get(key) for key in (
+                "name", "status_pid", "lock_pid", "heartbeat_age_seconds",
+                "last_clean_iteration_age_seconds", "process_identity_matches_lock",
+            )} for row in loops]}
+
+
+def _fresh_age(value, maximum):
+    return type(value) in (float, int) and math.isfinite(value) and 0 <= value <= maximum
+
+
+def _age(now, stamp):
+    try:
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+        return (now - parsed).total_seconds() if parsed.tzinfo else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _bounded_status(path, limit):
+    with path.open("rb") as stream:
+        raw = stream.read(limit + 1)
+    if len(raw) > limit:
+        raise ValueError("capture status/lock exceeds its admission read bound")
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("capture status/lock must be a JSON object")
+    return value
 
 
 def capture_admission(production_root: Path):
     now = datetime.now(timezone.utc)
-    loops = [inspect_capture_loop(spec, now=now)
-             for spec in default_loop_specs(production_root / "data" / "snapshots")]
+    observed, loops = {}, []
+    def process(pid):
+        if pid not in observed:
+            observed[pid] = observe_process_identity(pid)
+        return observed[pid]
+    for spec in default_loop_specs(production_root / "data" / "snapshots"):
+        status = _bounded_status(spec.status_path, 1024 * 1024)
+        lock = _bounded_status(spec.status_path.with_name(f".{spec.status_path.name}.writer.lock"), 16384)
+        row = inspect_capture_loop(spec, now=now,
+                                   process_checker=lambda pid: process(pid).get("state") == "running")
+        if (type(status.get("consecutive_errors")) is not int or status["consecutive_errors"] != 0
+                or status.get("paused") is not False):
+            row["degraded"] = True
+        row["heartbeat_age_seconds"] = _age(now, status.get("last_heartbeat"))
+        row["last_clean_iteration_age_seconds"] = _age(now, status.get("last_clean_iteration_at"))
+        identity = lock.get("managed_process") or {}
+        row["process_identity_matches_lock"] = bool(
+            status.get("pid") == row.get("status_pid") == lock.get("pid") == identity.get("pid")
+            and identity.get("creation_time_token")
+            and identity["creation_time_token"] == process(row["status_pid"]).get("creation_time_token")
+        )
+        loops.append(row)
     result = check_resources(now=now, available=available_memory_bytes(),
                              commit=host_commit_percent(),
                              free_disk=shutil.disk_usage(production_root).free, loops=loops)
@@ -66,7 +122,24 @@ def capture_admission(production_root: Path):
     if memory is None or max(memory.values()) > 384 * 1024**2:
         result["reasons"].append("child_memory_unavailable_or_over_384_mib")
         result["status"] = "BLOCK"
+    result["worker_priority_class"] = current_process_priority()
+    if result["worker_priority_class"] != 0x4000:
+        result["reasons"].append("worker_not_below_normal_priority")
+        result["status"] = "BLOCK"
     return result
+
+
+def current_process_priority():
+    api = ctypes.WinDLL("kernel32", use_last_error=True).GetPriorityClass
+    api.argtypes, api.restype = [wintypes.HANDLE], wintypes.DWORD
+    return int(api(ctypes.c_void_p(-1)))
+
+
+def set_current_process_below_normal():
+    api = ctypes.WinDLL("kernel32", use_last_error=True).SetPriorityClass
+    api.argtypes, api.restype = [wintypes.HANDLE, wintypes.DWORD], wintypes.BOOL
+    if not api(ctypes.c_void_p(-1), 0x4000) or current_process_priority() != 0x4000:
+        raise OSError("cannot establish BelowNormal priority for the actual Python worker")
 
 
 def process_memory_bytes():
@@ -109,6 +182,22 @@ def verify_lease_owner(record, *, owner_pid, table, describe):
     raise ValueError("the lease owner is not this process's wrapper ancestor")
 
 
-def verify_current_lease(record, owner_pid):
+def verify_current_lease(record, owner_pid, path):
     verify_lease_owner(record, owner_pid=owner_pid, table=snapshot_processes(),
                        describe=describe_process)
+    verify_lease_file_locked(path)
+
+
+def verify_lease_file_locked(path):
+    """A stale owner JSON is insufficient: the live lease must exclude writers."""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                   ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CloseHandle.argtypes, kernel.CloseHandle.restype = [wintypes.HANDLE], wintypes.BOOL
+    handle = kernel.CreateFileW(str(path), 0x40000000, 7, None, 3, 0x00200000, None)
+    if handle != ctypes.c_void_p(-1).value:
+        kernel.CloseHandle(handle)
+        raise ValueError("compression lease file is not held against another writer")
+    if ctypes.get_last_error() != 32:
+        raise ValueError("compression lease ownership cannot be proved by the sharing lock")

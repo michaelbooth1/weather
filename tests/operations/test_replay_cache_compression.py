@@ -1,4 +1,5 @@
 from copy import deepcopy
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -11,7 +12,7 @@ import pytest
 
 from weather.operations import replay_cache_compression as compression
 from weather.operations import replay_cache_compression_admission as admission
-from weather.operations.ntfs_file_compression import LockedNtfsFile, MAX_FILE_BYTES, MIB
+from weather.operations.ntfs_file_compression import LockedNtfsFile, MAX_FILE_BYTES, MIB, PinnedNtfsDirectory
 from weather.schema_registry import schema_version
 
 
@@ -32,8 +33,22 @@ def request(root):
 def healthy_loops():
     return [{"name": name, "active": True, "degraded": False,
              "heartbeat_fresh": True, "pid_agreement": True,
+             "heartbeat_age_seconds": 1, "last_clean_iteration_age_seconds": 60,
+             "process_identity_matches_lock": True,
              "process_diagnostics": {"status_pid_alive": True, "lock_pid_alive": True}}
             for name in ("snapshot", "clob", "observation_trigger")]
+
+
+def finish_fixture_plan(args, payload):
+    output = Path(args.output_root)
+    wrapper = output / "wrapper-result.json"
+    compression.write_receipt(wrapper, {
+        "status": "PASS", "apply": False, "hard_stop": False, "teardown_proved": True,
+        "source_git_sha": args.source_git_sha, "request_sha256": args.request_sha256,
+        "execution_host_id": payload["execution_host_id"],
+        "child_result_sha256": hashlib.sha256((output / "result.json").read_bytes()).hexdigest(),
+    })
+    return wrapper
 
 
 def test_bounded_request_validates(tmp_path):
@@ -126,7 +141,8 @@ class FakeFile:
 def exercise(fake, *, apply=True, journal=None, guard=lambda: None):
     return compression.compress_candidate(Path("unused"), {"path": RELATIVE, "size_bytes": 100, "mtime_ns": "123"},
                                           apply=apply, guard=guard, journal=journal or (lambda *args: None),
-                                          opener=lambda *args, **kwargs: fake)
+                                          opener=lambda *args, **kwargs: fake,
+                                          baseline={"sha256": "original", "before": FakeFile().row} if apply else None)
 
 
 def test_plan_never_compresses_and_preserves_preimage():
@@ -236,10 +252,20 @@ def test_native_run_journals_success_and_rejects_spent_attempt(tmp_path, monkeyp
     # code runs unchanged against this test's new synthetic temporary file.
     monkeypatch.setattr(compression, "verify_current_lease", lambda *args: None)
     monkeypatch.setattr(compression, "capture_admission", lambda *args: {"status": "PASS"})
+    monkeypatch.setattr(compression, "set_current_process_below_normal", lambda: None)
     args = Namespace(production_repo_root=str(tmp_path), output_root=str(output), request=str(request_path),
                      request_sha256=hashlib.sha256(request_path.read_bytes()).hexdigest(),
-                     source_git_sha="a" * 40, apply=True)
+                     source_git_sha="a" * 40, apply=False, plan_receipt=None, plan_receipt_sha256=None)
     original = hashlib.sha256(source.read_bytes()).hexdigest()
+    assert compression.run(args) == 0
+    wrapper = finish_fixture_plan(args, payload)
+    apply_output = output.with_name("fixture-apply")
+    apply_output.mkdir()
+    args.output_root = str(apply_output)
+    args.apply = True
+    args.plan_receipt = str(wrapper)
+    args.plan_receipt_sha256 = hashlib.sha256(wrapper.read_bytes()).hexdigest()
+    output = apply_output
     assert compression.run(args) == 0
     result = json.loads((output / "result.json").read_text())
     assert result["status"] == "PASS" and result["deleted_files"] == 0 and result["reclaimed_bytes"] > 0
@@ -318,3 +344,147 @@ def test_wrapper_powershell_syntax():
     result = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
                             capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("field,value", [
+    ("heartbeat_age_seconds", -1), ("heartbeat_age_seconds", 181),
+    ("heartbeat_age_seconds", float("inf")), ("heartbeat_age_seconds", None),
+    ("last_clean_iteration_age_seconds", 901), ("last_clean_iteration_age_seconds", None),
+    ("process_identity_matches_lock", False),
+])
+def test_fresh_heartbeat_cannot_hide_stalled_or_replaced_snapshot(field, value):
+    loops = healthy_loops()
+    loops[0][field] = value
+    assert admission.check_resources(now=NOW, available=8 * admission.GIB, commit=50,
+                                     free_disk=30 * admission.GIB, loops=loops)["status"] == "BLOCK"
+
+
+@pytest.mark.parametrize("change", ["identity", "bytes"])
+def test_apply_rejects_replacement_with_same_size_and_timestamp(change):
+    fake = FakeFile()
+    if change == "identity": fake.row["file_index"] = 999
+    else: fake.digest = lambda **kwargs: "same-length-replacement"
+    with pytest.raises(ValueError, match="reviewed plan"):
+        exercise(fake)
+    assert not fake.compressed
+
+
+def test_apply_cannot_skip_reviewed_plan():
+    fake = FakeFile()
+    with pytest.raises(ValueError, match="requires the reviewed plan"):
+        compression.compress_candidate(Path("unused"), {}, apply=True, guard=lambda: None,
+                                       journal=lambda *args: None, opener=lambda *args, **kwargs: fake)
+    assert not fake.compressed
+
+
+@pytest.fixture
+def reviewed_plan(tmp_path, monkeypatch):
+    from argparse import Namespace
+    monkeypatch.setattr(compression, "PinnedNtfsDirectory", lambda path: nullcontext())
+    payload = request(tmp_path)
+    output = tmp_path / "scratch/storage_reclaim/plan"
+    output.mkdir(parents=True)
+    args = Namespace(output_root=str(output), request_sha256="b" * 64, source_git_sha="a" * 40,
+                     apply=True, plan_receipt=None, plan_receipt_sha256=None)
+    before = {**FakeFile().row, "mtime_ns": int(payload["files"][0]["mtime_ns"])}
+    plan = {"schema_version": schema_version("replay_cache_compression_receipt"),
+            "status": "PASS", "apply": False, "request_sha256": args.request_sha256,
+            "source_git_sha": args.source_git_sha, "deleted_files": 0, "reclaimed_bytes": 0,
+            "results": [{"path": RELATIVE, "before": before, "sha256": "c" * 64,
+                         "status": "PLANNED", "action": "PLAN_ONLY", "reclaimed_bytes": 0}]}
+    compression.write_receipt(output / "result.json", plan)
+    wrapper = finish_fixture_plan(args, payload)
+    args.plan_receipt, args.plan_receipt_sha256 = str(wrapper), hashlib.sha256(wrapper.read_bytes()).hexdigest()
+    return args, payload, tmp_path, tmp_path / "scratch/storage_reclaim/apply"
+
+
+def test_reviewed_plan_binds_complete_teardown_and_native_preimage(reviewed_plan):
+    args, payload, root, output = reviewed_plan
+    rows = compression.read_reviewed_plan(args, payload, payload["files"], root, output)
+    assert rows[0]["sha256"] == "c" * 64 and rows[0]["before"]["file_index"] == 2
+
+
+@pytest.mark.parametrize("change", ["wrapper_hash", "child_hash", "failed", "no_teardown",
+                                    "wrong_source", "wrong_request", "wrong_host", "was_apply"])
+def test_apply_rejects_unreviewed_or_unfinished_plan(reviewed_plan, change):
+    args, payload, root, output = reviewed_plan
+    path = Path(args.plan_receipt)
+    wrapper = json.loads(path.read_text())
+    if change == "wrapper_hash": args.plan_receipt_sha256 = "0" * 64
+    elif change == "child_hash": (path.parent / "result.json").write_text("{}")
+    else:
+        field, value = {"failed": ("status", "FAILED"), "no_teardown": ("teardown_proved", False),
+                        "wrong_source": ("source_git_sha", "d" * 40),
+                        "wrong_request": ("request_sha256", "d" * 64),
+                        "wrong_host": ("execution_host_id", "d" * 64), "was_apply": ("apply", True)}[change]
+        wrapper[field] = value
+        path.write_text(json.dumps(wrapper))
+        args.plan_receipt_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError):
+        compression.read_reviewed_plan(args, payload, payload["files"], root, output)
+
+
+def test_output_traversal_cannot_escape_evidence_root(tmp_path):
+    with pytest.raises(ValueError, match="evidence"):
+        compression._validate_output(tmp_path / "scratch/storage_reclaim/../../data", tmp_path)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native evidence namespace pinning")
+def test_native_evidence_directory_cannot_move_during_compression(tmp_path):
+    output = tmp_path / "evidence/attempt"
+    output.mkdir(parents=True)
+    with PinnedNtfsDirectory(output):
+        with pytest.raises(OSError): output.rename(output.with_name("replaced"))
+        with pytest.raises(OSError): output.parent.rename(tmp_path / "other")
+        compression.write_receipt(output / "before.json", {"bound": True})
+    assert json.loads((output / "before.json").read_text()) == {"bound": True}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native OS-held lease verification")
+def test_native_stale_lease_record_is_not_ownership(tmp_path):
+    path = tmp_path / "lease.json"
+    path.write_text('{"pid": 1234}')
+    with LockedNtfsFile(path, writable=True):
+        admission.verify_lease_file_locked(path)
+    with pytest.raises(ValueError, match="not held"):
+        admission.verify_lease_file_locked(path)
+    assert path.read_text() == '{"pid": 1234}'
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native priority applies to the actual worker")
+def test_native_worker_sets_its_own_below_normal_priority():
+    import sys
+    result = subprocess.run([sys.executable, "-c",
+        "from weather.operations.replay_cache_compression_admission import "
+        "set_current_process_below_normal,current_process_priority; "
+        "set_current_process_below_normal(); print(current_process_priority())"],
+        capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "16384"
+
+
+def test_capture_admission_reads_real_status_contract_and_checks_process_generation(tmp_path, monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None): return NOW
+    monkeypatch.setattr(admission, "datetime", Clock)
+    monkeypatch.setattr(admission, "observe_process_identity",
+                        lambda pid: {"state": "running", "creation_time_token": "win32-filetime:123"})
+    monkeypatch.setattr(admission, "available_memory_bytes", lambda: 8 * admission.GIB)
+    monkeypatch.setattr(admission, "host_commit_percent", lambda: 50)
+    monkeypatch.setattr(admission.shutil, "disk_usage", lambda root: type("Usage", (), {"free": 30 * admission.GIB})())
+    monkeypatch.setattr(admission, "process_memory_bytes", lambda: {"private": MIB, "working": MIB})
+    monkeypatch.setattr(admission, "current_process_priority", lambda: 0x4000)
+    specs = admission.default_loop_specs(tmp_path / "data/snapshots")
+    specs[0].status_path.parent.mkdir(parents=True)
+    for spec in specs:
+        spec.status_path.write_text(json.dumps({"pid": 1234, "consecutive_errors": 0, "paused": False,
+            "last_heartbeat": NOW.isoformat(), "last_clean_iteration_at": NOW.isoformat()}))
+        spec.status_path.with_name(f".{spec.status_path.name}.writer.lock").write_text(json.dumps({
+            "pid": 1234, "managed_process": {"pid": 1234, "creation_time_token": "win32-filetime:123"}}))
+    assert admission.capture_admission(tmp_path)["status"] == "PASS"
+    monkeypatch.setattr(admission, "observe_process_identity",
+                        lambda pid: {"state": "running", "creation_time_token": "win32-filetime:999"})
+    result = admission.capture_admission(tmp_path)
+    assert result["status"] == "BLOCK"
+    assert not result["capture_loops"][0]["process_identity_matches_lock"]

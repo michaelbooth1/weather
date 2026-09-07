@@ -194,3 +194,19 @@ class LockedNtfsFile:
             self.handle, 0x9C040, ctypes.byref(algorithm), 2,
             None, 0, ctypes.byref(returned), None))
         self._check(self._kernel.FlushFileBuffers(self.handle))
+
+
+class PinnedNtfsDirectory(LockedNtfsFile):
+    """Keep an evidence directory and every ancestor in place through mutation."""
+
+    def __init__(self, path):
+        super().__init__(path, writable=False)
+
+    def __enter__(self):
+        try:
+            for parent in reversed((self.path, *self.path.parents)):
+                self.handle = self._open(parent, directory=True)
+            return self
+        except BaseException:
+            self._stack.close()
+            raise

@@ -6,7 +6,9 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [switch]$Apply
+    [switch]$Apply,
+    [string]$PlanReceiptPath = '',
+    [ValidatePattern('^([0-9a-f]{64})?$')][string]$PlanReceiptSha256 = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -26,17 +28,50 @@ if (($deadline - [DateTime]::UtcNow).TotalSeconds -lt 30) {
     throw 'REFUSED: insufficient time for a bounded child and teardown'
 }
 
-foreach ($path in @($ProductionRepoRoot, $RequestPath, $OutputRoot)) {
+if ([bool]$Apply -ne [bool]($PlanReceiptPath -and $PlanReceiptSha256) -or
+    (-not $Apply -and ($PlanReceiptPath -or $PlanReceiptSha256))) {
+    throw 'Apply requires an exact reviewed plan wrapper receipt and SHA-256; plan does not accept them'
+}
+foreach ($path in (@($ProductionRepoRoot, $RequestPath, $OutputRoot) + @($PlanReceiptPath | Where-Object { $_ }))) {
     if (-not [IO.Path]::IsPathRooted($path) -or $path -match '["\r\n]' -or
         [IO.Path]::GetFullPath($path).TrimEnd('\') -cne $path.TrimEnd('\')) {
         throw 'absolute normalized paths without quotes or newlines are required'
     }
 }
+
+function Assert-CacheEvidenceAncestors {
+    param([string]$Path)
+    $current = $Path
+    while ($current) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force
+            if (-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                throw 'evidence ancestors must be ordinary directories without reparse points'
+            }
+        }
+        $current = Split-Path -Parent $current
+    }
+}
+
 $outputParent = Join-Path $ProductionRepoRoot 'scratch\storage_reclaim'
 if (-not $OutputRoot.StartsWith($outputParent + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'output must be a new attempt under production scratch\storage_reclaim'
 }
 if (Test-Path -LiteralPath $OutputRoot) { throw 'spent output attempt: use a new reviewed request' }
+Assert-CacheEvidenceAncestors -Path (Split-Path -Parent $OutputRoot)
+if ($Apply) {
+    if ([IO.Path]::GetFileName($PlanReceiptPath) -cne 'wrapper-result.json' -or
+        -not $PlanReceiptPath.StartsWith($outputParent + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'reviewed plan must be a wrapper-result.json in production scratch\storage_reclaim'
+    }
+    Assert-CacheEvidenceAncestors -Path (Split-Path -Parent $PlanReceiptPath)
+    $planInfo = Get-Item -LiteralPath $PlanReceiptPath
+    if ($planInfo.Length -gt 65536 -or
+        ($planInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        (Get-FileHash -LiteralPath $PlanReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $PlanReceiptSha256) {
+        throw 'reviewed plan wrapper receipt is oversized, redirected or hash-mismatched'
+    }
+}
 $requestInfo = Get-Item -LiteralPath $RequestPath
 if ($requestInfo.Length -gt 32768 -or
     ($requestInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -75,6 +110,7 @@ $oldDeadline = $env:WEATHER_CACHE_COMPRESSION_DEADLINE_UTC
 $receipt = [ordered]@{
     source_git_sha = $ExpectedSourceTip; request_sha256 = $RequestSha256
     execution_host_id = $hostIdentity; apply = [bool]$Apply
+    reviewed_plan_receipt_sha256 = $PlanReceiptSha256
     started_at_utc = [DateTime]::UtcNow.ToString('o'); status = 'FAILED'
     hard_stop = $false; teardown_proved = $false; deleted_files = 0
 }
@@ -89,7 +125,10 @@ try {
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,
         '--source-git-sha', $ExpectedSourceTip)
-    if ($Apply) { $arguments += '--apply' }
+    if ($Apply) {
+        $arguments += @('--apply', '--plan-receipt', $PlanReceiptPath,
+            '--plan-receipt-sha256', $PlanReceiptSha256)
+    }
     $job = New-WeatherKillOnCloseJob
     $process = Start-WeatherProcessInJob -Job $job -FilePath $python `
         -ArgumentString (ConvertTo-ScheduledTaskArgumentString -Tokens $arguments) `
@@ -100,6 +139,7 @@ try {
         if ([DateTime]::UtcNow -ge $deadline -or
             $process.PrivateMemorySize64 -gt 384MB -or $process.WorkingSet64 -gt 384MB) {
             $receipt.hard_stop = $true
+            $receipt.error = 'child deadline or monitored process memory ceiling reached'
             break
         }
         Start-Sleep -Milliseconds 500
@@ -117,11 +157,23 @@ try {
         if ((Get-Item -LiteralPath $resultPath).Length -gt 65536) { throw 'oversized child receipt' }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         if ($result.status -cne 'PASS' -or $result.request_sha256 -cne $RequestSha256 -or
-            $result.source_git_sha -cne $ExpectedSourceTip) { throw 'child receipt binding mismatch' }
+            $result.source_git_sha -cne $ExpectedSourceTip -or $result.apply -ne [bool]$Apply -or
+            $result.deleted_files -ne 0) { throw 'child receipt binding mismatch' }
+        $finalTip = [string](git -C $sourceRoot rev-parse HEAD)
+        if ($LASTEXITCODE -ne 0 -or $finalTip.Trim() -cne $ExpectedSourceTip) { throw 'source tip changed during operation' }
+        $finalDirty = @(git -C $sourceRoot status --porcelain)
+        if ($LASTEXITCODE -ne 0 -or $finalDirty.Count -ne 0) { throw 'source worktree changed during operation' }
+        if ((Get-FileHash -LiteralPath $RequestPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $RequestSha256) {
+            throw 'approved request changed during operation'
+        }
+        $receipt.child_result_sha256 = (Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt.status = 'PASS'
         $receipt.reclaimed_bytes = $result.reclaimed_bytes
     }
-    else { $exitCode = 1 }
+    else {
+        if (-not $receipt.Contains('error')) { $receipt.error = 'child did not produce PASS; retain attempt and inspect child receipts' }
+        $exitCode = 1
+    }
 }
 catch {
     $receipt.error = $_.Exception.Message
@@ -145,6 +197,7 @@ finally {
         if ($teardownProved) { Exit-WeatherHeavyWorkloadLease -Lease $lease }
         else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease }
         if (Test-Path -LiteralPath $OutputRoot -PathType Container) {
+            Assert-CacheEvidenceAncestors -Path $OutputRoot
             $receiptPath = Join-Path $OutputRoot 'wrapper-result.json'
             $stream = [IO.File]::Open($receiptPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::Read)
             try {

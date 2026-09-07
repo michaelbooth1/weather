@@ -16,9 +16,11 @@ from pathlib import Path, PurePosixPath
 import re
 import time
 
-from weather.operations.ntfs_file_compression import LockedNtfsFile, MAX_FILE_BYTES, MIB
+from weather.operations.ntfs_file_compression import (
+    LockedNtfsFile, MAX_FILE_BYTES, MIB, PinnedNtfsDirectory,
+)
 from weather.operations.replay_cache_compression_admission import (
-    capture_admission, verify_current_lease,
+    capture_admission, set_current_process_below_normal, verify_current_lease,
 )
 from weather.paths import repo_path
 from weather.schema_registry import schema_version
@@ -117,7 +119,9 @@ def write_receipt(path, payload):
 
 
 def compress_candidate(path, expected, *, apply, guard, journal, opener=LockedNtfsFile,
-                       bytes_per_second=8 * MIB):
+                       bytes_per_second=8 * MIB, baseline=None):
+    if apply and baseline is None:
+        raise ValueError("apply requires the reviewed plan preimage")
     guard()
     with opener(path, writable=apply) as opened:
         before = opened.metadata()
@@ -130,6 +134,11 @@ def compress_candidate(path, expected, *, apply, guard, journal, opener=LockedNt
         guard()
         if opened.metadata() != before:
             raise ValueError("candidate metadata drifted during its preimage read")
+        if baseline is not None and (
+            baseline["sha256"] != digest
+            or any(baseline["before"][field] != before[field] for field in IDENTITY_FIELDS)
+        ):
+            raise ValueError("candidate bytes or native identity changed since the reviewed plan")
         preimage = {"path": expected["path"], "before": before, "sha256": digest,
                     "action": "COMPRESS_AND_RETAIN" if apply else "PLAN_ONLY"}
         journal("before", preimage)
@@ -151,11 +160,62 @@ def compress_candidate(path, expected, *, apply, guard, journal, opener=LockedNt
 
 
 def _validate_output(root, production_root):
-    if not root.is_absolute() or not root.is_relative_to(production_root / "scratch" / "storage_reclaim"):
+    if (not root.is_absolute() or root.resolve() != root
+            or not root.is_relative_to(production_root / "scratch" / "storage_reclaim")
+            or root == production_root / "scratch" / "storage_reclaim"):
         raise ValueError("evidence must be under production scratch/storage_reclaim")
     for candidate in (root, *root.parents):
-        if candidate.exists() and (candidate.is_symlink() or candidate.stat().st_file_attributes & 0x400):
+        if candidate.exists() and (candidate.is_symlink() or getattr(candidate.stat(), "st_file_attributes", 0) & 0x400):
             raise ValueError("evidence path contains a link or reparse point")
+
+
+def read_reviewed_plan(args, request, candidates, production_root, output):
+    """Accept only a hash-bound, successfully torn-down plan for this request."""
+    path, expected_hash = getattr(args, "plan_receipt", None), getattr(args, "plan_receipt_sha256", None)
+    if not args.apply:
+        if path or expected_hash:
+            raise ValueError("a plan cannot consume another plan receipt")
+        return None
+    if not path or not re.fullmatch(r"[0-9a-f]{64}", expected_hash or ""):
+        raise ValueError("apply requires an exact reviewed plan wrapper receipt and SHA-256")
+    path = Path(path)
+    if path.name != "wrapper-result.json" or path.parent == output:
+        raise ValueError("apply requires a distinct completed plan attempt")
+    _validate_output(path.parent, production_root)
+    with PinnedNtfsDirectory(path.parent):
+        wrapper, raw = read_bounded_json(path, MAX_RECEIPT_BYTES)
+        if hashlib.sha256(raw).hexdigest() != expected_hash:
+            raise ValueError("reviewed plan wrapper SHA-256 mismatch")
+        if (wrapper.get("status") != "PASS" or wrapper.get("apply") is not False
+                or wrapper.get("teardown_proved") is not True
+                or wrapper.get("hard_stop") is not False
+                or wrapper.get("source_git_sha") != args.source_git_sha
+                or wrapper.get("request_sha256") != args.request_sha256
+                or wrapper.get("execution_host_id") != request["execution_host_id"]):
+            raise ValueError("reviewed plan wrapper is failed, incomplete or differently bound")
+        plan, raw = read_bounded_json(path.parent / "result.json", MAX_RECEIPT_BYTES)
+        if hashlib.sha256(raw).hexdigest() != wrapper.get("child_result_sha256"):
+            raise ValueError("reviewed plan child receipt SHA-256 mismatch")
+    if (plan.get("schema_version") != schema_version("replay_cache_compression_receipt")
+            or plan.get("status") != "PASS" or plan.get("apply") is not False
+            or plan.get("source_git_sha") != args.source_git_sha
+            or plan.get("request_sha256") != args.request_sha256
+            or plan.get("deleted_files") != 0 or plan.get("reclaimed_bytes") != 0):
+        raise ValueError("reviewed plan child receipt is not a successful matching plan")
+    rows = plan.get("results")
+    if not isinstance(rows, list) or len(rows) != len(candidates):
+        raise ValueError("reviewed plan candidate list mismatch")
+    for row, candidate in zip(rows, candidates):
+        before = row.get("before", {})
+        if (row.get("path") != candidate["path"] or row.get("status") != "PLANNED"
+                or row.get("action") != "PLAN_ONLY" or row.get("reclaimed_bytes") != 0
+                or not re.fullmatch(r"[0-9a-f]{64}", row.get("sha256", ""))
+                or any(type(before.get(field)) is not int for field in IDENTITY_FIELDS)
+                or before.get("compression_format") != 0
+                or before.get("size_bytes") != candidate["size_bytes"]
+                or before.get("mtime_ns") != int(candidate["mtime_ns"])):
+            raise ValueError("reviewed plan preimage does not match the approved candidate")
+    return rows
 
 
 def run(args):
@@ -166,6 +226,21 @@ def run(args):
             or not Path(args.request).is_absolute() or not output.is_absolute()):
         raise ValueError("absolute normalized paths are required")
     _validate_output(output, production_root)
+    with PinnedNtfsDirectory(output):
+        if any((output / name).exists() for name in (
+                "request.json", "result.json", "refusal.json", "wrapper-result.json")):
+            raise FileExistsError("spent output attempt; existing evidence is immutable")
+        try:
+            return _run_pinned(args, production_root, output)
+        except Exception as exc:
+            write_receipt(output / "refusal.json", {
+                "status": "REFUSED_RETAIN_AND_INSPECT", "source_git_sha": args.source_git_sha,
+                "request_sha256": args.request_sha256, "error": f"{type(exc).__name__}: {exc}",
+            })
+            raise
+
+
+def _run_pinned(args, production_root, output):
     request, raw = read_bounded_json(args.request, MAX_REQUEST_BYTES)
     if hashlib.sha256(raw).hexdigest() != args.request_sha256:
         raise ValueError("request SHA-256 mismatch")
@@ -177,7 +252,11 @@ def run(args):
     lease, _ = read_bounded_json(production_root / "data/logs/heavy_workload.lock", 16 * 1024)
     if lease.get("execution_host_id") != request["execution_host_id"]:
         raise ValueError("request does not bind the actual lease host")
-    verify_current_lease(lease, owner_pid)
+    verify_current_lease(lease, owner_pid, production_root / "data/logs/heavy_workload.lock")
+    # The venv redirector may spawn its real interpreter before the parent can
+    # lower the redirector's priority. Set and verify the worker itself.
+    set_current_process_below_normal()
+    baselines = read_reviewed_plan(args, request, candidates, production_root, output)
     deadline = _utc(os.environ["WEATHER_CACHE_COMPRESSION_DEADLINE_UTC"])
     if not 0 < (deadline - datetime.now(timezone.utc)).total_seconds() <= 600:
         raise ValueError("wrapper deadline is missing or outside the bounded interval")
@@ -201,6 +280,7 @@ def run(args):
     results = []
     receipt = {"schema_version": schema_version("replay_cache_compression_receipt"),
                "request_sha256": args.request_sha256, "source_git_sha": args.source_git_sha,
+               "reviewed_plan_receipt_sha256": getattr(args, "plan_receipt_sha256", None),
                "apply": args.apply, "deleted_files": 0, "reclaimed_bytes": 0}
     try:
         for index, candidate in enumerate(candidates):
@@ -208,7 +288,8 @@ def run(args):
                 write_receipt(output / f"{index:02d}-{phase}.json", {**receipt, **row})
             guard(force=True)
             row = compress_candidate(production_root / "data" / candidate["path"], candidate,
-                                     apply=args.apply, guard=guard, journal=journal)
+                                     apply=args.apply, guard=guard, journal=journal,
+                                     baseline=baselines[index] if baselines else None)
             results.append(row)
         guard(force=True)
         receipt.update(status="PASS", results=results,
@@ -217,6 +298,7 @@ def run(args):
         return_code = 0
     except Exception as exc:
         receipt.update(status="FAILED_RETAIN_AND_INSPECT", results=results,
+                       reclaimed_bytes=sum(row["reclaimed_bytes"] for row in results),
                        error=f"{type(exc).__name__}: {exc}", final_admission=admission)
         return_code = 1
     write_receipt(output / "result.json", receipt)
@@ -232,6 +314,8 @@ def main(argv=None):
     parser.add_argument("--output-root", required=True)
     parser.add_argument("--source-git-sha", required=True)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--plan-receipt")
+    parser.add_argument("--plan-receipt-sha256")
     args = parser.parse_args(argv)
     try:
         return run(args)

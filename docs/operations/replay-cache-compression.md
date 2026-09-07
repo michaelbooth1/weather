@@ -29,12 +29,16 @@ Git integration follows the separate canonical roll verdict and merge rules.
   points, alternate streams, non-NTFS files, and unsupported attributes fail.
 - The wrapper proves the dedicated capture host, takes the shared workload
   lease and contains its child tree in a kill-on-close Windows Job. Python
-  verifies the live wrapper's PID/creation identity and its own ancestry.
+  verifies the live wrapper's PID/creation identity, its own ancestry and the
+  actual OS-held lease file. A stale owner record cannot admit work.
 - Both entrypoint and child require 00:30–09:00 America/Toronto. The wrapper
   reserves fifteen seconds before 09:00 for teardown; maximum child runtime is
   ten minutes. No Stage-A or protected-window exception is provided.
-- Require all three capture loops to be active, fresh, non-degraded and bound
-  to matching live status/lock PIDs; at least 4 GiB physically available and
+- Require all three capture loops to be active, non-degraded and bound to
+  matching live status/lock PIDs and process-creation identities. Heartbeats
+  must be no more than 180 seconds old and cannot be future-dated. Snapshot's
+  last clean iteration must be no more than 900 seconds old; a heartbeat alone
+  cannot prove progress. Require at least 4 GiB physically available and
   host commit strictly below 70%. The child rechecks these at least once per
   second during streaming and between files. Any failure stops the batch.
 - This bounded compression lane reserves **20 GiB for capture plus two complete
@@ -43,7 +47,8 @@ Git integration follows the separate canonical roll verdict and merge rules.
   it cannot be used for training, replay, arbitrary compression or deletion.
 - Hash reads use 1 MiB buffers at 8 MiB/s. Native compression itself is a
   synchronous call over at most 64 MiB and is not claimed to be rate-limited.
-  The child runs BelowNormal; parent and child check a 384 MiB working/private
+  The actual Python worker sets and verifies its own BelowNormal priority;
+  lowering only the venv redirector is insufficient. Parent and child check a 384 MiB working/private
   memory ceiling. The native incompressible-file qualification owns measured
   allocation and timing evidence, not a claim that kernel work is zero-cost.
 
@@ -86,18 +91,30 @@ current approval times, exact source commit and the request file's SHA-256.
 ```
 
 Without `-Apply`, the operation produces a bounded hash/metadata plan and does
-not compress. Review it, then use `-Apply` with a **new output attempt**. The
-same unexpired approved request may be used if its exact source bindings still
-match. Plan and apply both need full admission; neither is a daytime scan.
+not compress. Review the child and wrapper PASS receipts, then hash the plan's
+`wrapper-result.json`. Apply requires `-Apply -PlanReceiptPath <absolute-plan-wrapper-result.json>
+-PlanReceiptSha256 <64hex>` with a **new output attempt**. The wrapper receipt
+must prove successful teardown and bind the exact child result hash. The child
+result must name precisely the approved files and the same source/request.
+Before mutation, apply rechecks each file's hash and native identity against
+that reviewed plan, including replacements that preserve size and timestamp.
+The same unexpired approved request may be used if all bindings still match.
+Plan and apply both need full admission; neither is a daytime scan. Old plan
+receipts without the child-result hash cannot authorize apply.
 
 ## Evidence, failure and completion
 
-Each attempt is create-only. `request.json` claims the child attempt; each
+Each attempt is create-only. Native directory handles keep the evidence path
+and every ancestor in place throughout the child's operation. Wrapper checks
+reject redirected evidence ancestors before dispatch and final publication.
+`request.json` claims the child attempt; each
 `NN-before.json` is flushed before mutation and binds path, native file identity,
 size, timestamp, SHA-256 and allocation. `NN-after.json` proves unchanged
 logical bytes/identity/time and native LZNT1 compression. `result.json` records
-the batch outcome. `wrapper-result.json` independently records child completion
-and proved zero-process Job teardown before success is claimed.
+the batch outcome. An early child refusal is preserved in `refusal.json`.
+`wrapper-result.json` independently records child completion, the exact child
+result hash and proved zero-process Job teardown before success is claimed.
+The wrapper rechecks source cleanliness/tip and the request hash at completion.
 
 Report native allocation deltas separately from volume free-space deltas,
 which include concurrent capture. Stop expansion on zero or negative savings.
