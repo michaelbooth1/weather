@@ -463,12 +463,17 @@ def test_collect_global_snapshot_binds_gamma_identity_fee_schedule_and_current_r
                 }],
             }
         return {
+            "limit": 500,
+            "count": 1,
             "data": [{
                 "condition_id": condition_id,
                 "total_daily_rate": 46,
                 "rewards_min_size": 20,
                 "rewards_max_spread": 4.5,
                 "rewards_config": [{
+                    "id": 123,
+                    "asset_address": "0x" + "3" * 40,
+                    "total_rewards": 0,
                     "start_date": TARGET_DATE,
                     "end_date": "2500-12-31",
                     "rate_per_day": 46,
