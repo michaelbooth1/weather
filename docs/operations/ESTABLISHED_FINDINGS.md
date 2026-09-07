@@ -2705,6 +2705,84 @@ all required gate receipts belong to the final branch's dated self-adopting
 reconciliation handoff report. That report is a handback artifact, not part of
 the safety tip adopted into the synthetic production merge.
 
+## 8y. The five-cent live-candidate spread ceiling is an unvalidated pilot heuristic
+
+**Traced 2026-08-31 through code history and the active Stage 0/1 path.** Commit
+`7fdf8649abd59216deb053f19b7942be73d12f25` introduced
+`MAX_BOOK_SPREAD = Decimal("0.05")` together with the `0.20-0.80` midpoint
+interval. Its commit, tests, roadmap entry, and runbook call the desired book
+"tight" and "central" but contain no optimization study, loss model, venue
+rule, measured comparison, or derivation of either boundary. **Five cents is
+not established as optimal and is not a protocol safety limit.** The venue's
+per-market liquidity-reward maximum spread is separately collected as current
+economics evidence and must not be conflated with this fixed selector value.
+The upstream paper policy also carries `max_harvest_spread = 0.08`, introduced
+in commit `1d64c3f76c667bc719cd8eefac31674b1ed79fd6` and reused by the later
+paper-harvest lane. Its history likewise supplies no measured derivation. Eight
+cents is an experimental Stage 2 quote-policy parameter, not a Stage 0 rule or
+an established optimum.
+
+The heuristic then acquired unrelated authority through artifact reuse. Before
+the 2026-08-31 repair, the Stage 0 input was named `scope_plan`, but both the
+outer session builder and fixed wrapper validated it with the Stage 1 candidate
+gate. That gate required a current paper quote, the fixed midpoint interval,
+and spread at most five cents. Stage 0 submits no order; it performs
+authenticated heartbeat and account-wide cancel-all. Quote profitability and a
+five-cent book therefore do not protect a Stage 0 mutation boundary.
+
+The 2026-08-31 NYC trace demonstrates the consequence, not the value of a
+different threshold. One fresh paper run and the 13-artifact substrate audit
+passed, but the selector found no candidate: the central 76-77 F and 78-79 F
+books had 0.19 and 0.25 spreads, while the paper-permitted books lay outside the
+fixed midpoint interval. No credential or exchange action occurred. This is
+evidence that the coupling blocks Stage 0; it is **not** evidence that 0.19 or
+0.25 is safe for quoting.
+
+Relaxing a maker-quote spread rule can increase exposure to thin or stale top
+levels, unstable midpoint estimates, informed flow, rapid repricing, and loss
+of venue reward eligibility. Those are Stage 2 economics and execution risks.
+For the bounded Stage 1 lifecycle order, the direct safety controls are instead
+an exact current Gamma event/condition/token rebind, fresh exact book/rule
+validation, a minimum-tick nonmarketable BUY,
+`post_only=True`, one-submit capability, the 10 pUSD cap, attended deadlines,
+and cancel/reconciliation. They remain binding.
+
+That Gamma rebind is auditable rather than a bare claimed digest: the plan
+retains the normalized event and market status/identity contract, recomputes
+both current and staged hashes, requires semantic equality with the separately
+content-bound staged metadata, permits exactly one event proof in a constrained
+plan, and bounds observation-to-plan time by the already-derived 40-second
+preparation reserve. Rehashed evidence with an arbitrary event ID, stale check,
+changed status, changed contract, or extra constrained event fails closed.
+
+A companion audit found two more assumptions with the same authority defect.
+Stage 1 required a strictly positive fee and rebate even though the current
+official fee endpoint can validly return zero, and its outer validators required
+at least two scoped user-stream events even though the semantic contract needs
+an exact zero-fill terminal cancellation rather than a venue-defined event
+count. Neither threshold came from a venue rule or measurement. The lifecycle
+contract therefore accepts an exact finite nonnegative fee and treats event
+count as telemetry while retaining the semantic stream, terminal REST order,
+account-trade, collateral, position, and zero-state proofs.
+
+The audit did **not** classify every number as disposable. The exact 10 pUSD
+order/request and 100 pUSD wallet limits are explicit owner-approved first-pilot
+loss/exposure bounds, not optima. The 300-second plan lease is derived from the
+240-second portable session, 20-second cleanup reserve, and at most 40 seconds
+of preparation/revalidation; composition enforces the margin and sealing binds
+cleanup before expiry. Heartbeat/rule/geography freshness and the
+post-cancel observation window have direct safety purposes, but their exact
+margins remain first-pilot policy or experiment parameters with documented
+remeasurement triggers; they must not be generalized into venue laws.
+
+**Decision:** do not replace five cents with another guessed ceiling. Split
+Stage 0 scope selection from Stage 1 lifecycle readiness, and keep maker-quote
+quality in Stage 2. Unmeasured midpoint/spread values may rank candidates or
+emit warnings; they cannot be described as optimal or block a stage they do
+not protect. The 2026-08-31 redesign implements this split, but remains
+non-authorizing until its own verification, review, publication, and explicit
+live qualification are complete.
+
 ---
 
 ## 9. Release #1 is not sufficient for promotion — and MM quoting is gated on promotion

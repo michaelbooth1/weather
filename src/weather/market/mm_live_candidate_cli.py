@@ -1787,12 +1787,16 @@ def load_stage1_candidate_gate(
     expected_token_id,
     now=None,
 ):
-    return _load_candidate_plan_gate(
+    del (
         plan_path,
-        target_date=target_date,
-        expected_condition_id=expected_condition_id,
-        expected_token_id=expected_token_id,
-        now=now,
+        target_date,
+        expected_condition_id,
+        expected_token_id,
+        now,
+    )
+    raise RuntimeError(
+        "the economics/paper candidate gate has no Stage 1 authority; "
+        "use mm_live_stage1_lifecycle_plan"
     )
 
 

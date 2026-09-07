@@ -423,7 +423,12 @@ def collect_global_snapshot_payload(
     now_dt = utc_now(now)
     target_text = _target_text(target_date or now_dt.date())
     event_metadata_path = Path(event_metadata_path)
-    event_metadata = _load_json(event_metadata_path)
+    # Keep the parsed input and its hash bound across concurrent metadata refreshes.
+    try:
+        registry_bytes = event_metadata_path.read_bytes()
+        event_metadata = json.loads(registry_bytes.decode("utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        event_metadata = None
     if event_metadata is None:
         raise ValueError(f"invalid or missing event metadata: {event_metadata_path}")
     event_rows, missing_locations = _event_rows_for_global_snapshot(event_metadata, target_text)
@@ -540,7 +545,6 @@ def collect_global_snapshot_payload(
         raise ValueError("Gamma events contained no selected weather conditions")
     markets.sort(key=lambda row: (row["event_date"] or "", row["location_id"], row["condition_id"]))
 
-    registry_bytes = event_metadata_path.read_bytes()
     fetched_at = now_dt.isoformat()
     fee_rate = _uniform_value(markets, ("fee_schedule", "rate"))
     rebate_rate = _uniform_value(markets, ("fee_schedule", "rebate_rate"))
