@@ -1,4 +1,4 @@
-# 331. Post-Reclaim Model Economics And Research Plan [PARTIAL 2026-09-07 - SELECTED SOURCE NATIVE VERIFIED; CI/ADOPTION OPEN]
+# 331. Post-Reclaim Model Economics And Research Plan [PARTIAL 2026-09-07 - SELECTED SOURCE NATIVE VERIFIED; ADOPTION/EVIDENCE OPEN]
 
 Goal: turn verified storage headroom into correct model outputs, a measurable
 maker-economics decision, and one reproducible research result without restoring
@@ -283,9 +283,9 @@ and scope rather than inheriting a tested ancestor's PASS.
 
 | Package | Prepared result | Remaining dependency |
 | --- | --- | --- |
-| P0 | Reconciled the smallest existing portable/correctness/plan baseline; independent merge review passed. The [audit's queue dispositions](../audits/post-reclaim-system-audit-2026-09-07.md) remain the per-PR source inventory | Exact-source CI, publication, conditional guarded adoption and the actual production documentation transaction. Unselected PRs and historical branches remain preserved |
-| P2 | [Item 332](item-332-signed-native-temperature-band-correctness.md) records the earlier native-band repair and expected old-source failures; the ledger follow-up has independent source review and the native focused proof below | Exact-source CI, bounded historical impact census and adopted-source evidence |
-| P3a | Generation-bound config publication/read, exact-byte freezing and both release verifiers at `54be0048481bfdf6055ef0876254377e10e73927`, followed by first-migration concurrent-read repair `8eaad1077d2349b1a06c4d0ad7a61e5d7cc0d238` and the compatibility/report repairs below; independent static review passed | Exact-source CI, source publication and guarded adoption. Existing generated config has not been refreshed or hand-edited |
+| P0 | Reconciled the smallest existing portable/correctness/plan baseline; independent merge review passed. The [audit's queue dispositions](../audits/post-reclaim-system-audit-2026-09-07.md) remain the per-PR source inventory | Conditional guarded adoption and the actual production documentation transaction. Unselected PRs and historical branches remain preserved |
+| P2 | [Item 332](item-332-signed-native-temperature-band-correctness.md) records the earlier native-band repair and expected old-source failures; the ledger follow-up has independent source review and the native focused proof below | Bounded historical impact census and adopted-source evidence |
+| P3a | Generation-bound config publication/read, exact-byte freezing and both release verifiers at `54be0048481bfdf6055ef0876254377e10e73927`, followed by first-migration concurrent-read repair `8eaad1077d2349b1a06c4d0ad7a61e5d7cc0d238` and the compatibility/report repairs below; independent static review passed | Guarded adoption. Existing generated config has not been refreshed or hand-edited |
 | P4/P5 | New bounded reward-page validation and replayable raw response bytes at `6b6fb8e5ec2fbff8f74aaaf7be09de8e053b4aca`, merged at `ce215689696590fdf6d64a1b9757464d7697e23f`; independent review passed | Focused fixtures passed in the admitted workstation run below. No account query, opportunity collection, accrual/payment relationship or cash cohort has been established |
 | P6 | [Item 333](item-333-reproducible-runtime-and-paired-model-comparison.md) owns the numerical incumbent control and assessment of existing runtime identity/BOM work | Focused fixtures passed; reconcile the separately bounded forward runtime foundation and paired inference. No captured outcome, candidate fit or historical replay was used in preparation |
 
@@ -451,10 +451,38 @@ The wrapper completed teardown with no poison marker; the terminal workstation
 sample had 40,550,785,024 free bytes. Standalone READY evidence remains the
 155-test gate at `e7ef9d9`; both exact sources have the compilation PASS above.
 The full result belongs to combined `7709236`, not a later documentation commit.
-Documentation/backlog closeout, publication and exact-source CI remain pending. The detailed implementation-sweep audit is retained only on the P3
-branch for the pending stacked publication. Continue through the admitted
-workstation wrapper, retain terminal receipts and failed-run diagnostics, and
-never reuse spent basenames. Focused gates do not replace the full suite.
+Public draft publication is complete:
+[PR 41 (READY)](https://github.com/michaelbooth1/weather/pull/41) initially
+published `ffa78496386953c83e32eeee03d058f97340317e` against `master` at
+`6714b77d8bb57fa36b4d2dd33675cab971ef2432`;
+[PR 42 (P3)](https://github.com/michaelbooth1/weather/pull/42) initially published
+`e8714166c326fdf59a47a04a1d493eb18f1783b0` against READY
+`ffa78496386953c83e32eeee03d058f97340317e`.
+
+The initial publication runs are
+[READY CI 34179010524](https://github.com/michaelbooth1/weather/actions/runs/34179010524)
+at `ffa78496386953c83e32eeee03d058f97340317e` and
+[P3 CI 34179026776](https://github.com/michaelbooth1/weather/actions/runs/34179026776)
+at `e8714166c326fdf59a47a04a1d493eb18f1783b0`.
+Both initial runs passed compilation, the documentation/backlog checks and
+full Linux suites: READY passed **5,140 tests and 989 subtests** in 394.11
+seconds; P3 passed **5,219 tests and 989 subtests** in 383.36 seconds. Each
+reported 262 skips and one warning. These results belong to the exact initial
+publication heads; skipped cases are not qualified by the aggregate PASS.
+The retained READY log `scratch/post-reclaim-ci-34179010524.log` has SHA-256
+`88017257522702B17221652CA71103C6BF2F04255AFD20702783BE313D61E6A4`;
+the retained P3 log `scratch/post-reclaim-ci-34179026776.log` has SHA-256
+`5D3169613E39F17749B041DBC491E1973FCD2F5A9B281808AA39A52F1C01DA6E`.
+
+GitHub checks on the two PRs own exact-tip Linux CI status. Later documentation
+commits receive their own checks. Consult the PR checks and descriptions for
+each tip's run links and result. Native proof remains bound to READY `e7ef9d9` and
+combined `7709236`, with the complete source scopes above.
+
+The detailed implementation-sweep audit is published with P3 in PR 42.
+Continue through the admitted workstation wrapper, retain terminal receipts and
+failed-run diagnostics, and never reuse spent basenames. Focused gates do not
+replace the full suite.
 
 Production adoption is a later gate. Accept the storage owner's terminal
 handback, fresh ordinary admission and the actual schedule before choosing
@@ -470,8 +498,9 @@ contract: atomic publication, first-migration recheck, stale-publisher refusal,
 projection drift and exact frozen-byte semantics. Its source bundle has reached
 the workstation; the receipts above distinguish the failed `55d6889` gate,
 the passing `8ce0a1d` and `c11c3287` gates, and the latest `7709236` fixture
-controls, compilation and full native PASS. Publication, exact-source CI and
-production adoption remain open. The canonical roll receipt for `8eaad10`
+controls, compilation and full native PASS. P3 is published in PR 42; its
+GitHub checks own exact-tip Linux CI status. Production adoption remains open.
+The canonical roll receipt for `8eaad10`
 reports `ROLL-SENSITIVE`; retain
 `scratch/roll-post-reclaim-generation-8eaad10.json`, SHA-256
 `3640877946ee05f7b2362a86750891807a74eeacaac17d96aa169b439a21bde5`.
