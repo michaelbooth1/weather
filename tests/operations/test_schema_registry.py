@@ -25,6 +25,10 @@ class TestSchemaRegistry(unittest.TestCase):
         )
         self.assertEqual(
             schema_version("mm_platform_bootstrap"),
+            "mm_platform_bootstrap_v0.6",
+        )
+        self.assertEqual(
+            schema_version("mm_platform_bootstrap_v0_4_legacy"),
             "mm_platform_bootstrap_v0.4",
         )
         self.assertEqual(
@@ -62,6 +66,22 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(
             schema_version("international_live_fixed_scope_seal_v0_5_legacy"),
             "international_live_fixed_scope_seal_v0.5",
+        )
+        self.assertEqual(
+            schema_version("mm_live_stage0_scope_plan"),
+            "mm_live_stage0_scope_plan_v0.1",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_scope_seal_spec"),
+            "international_live_fixed_scope_seal_spec_v0.5",
+        )
+        self.assertEqual(
+            schema_version("international_live_fixed_session_manifest"),
+            "international_live_fixed_session_manifest_v0.5",
+        )
+        self.assertEqual(
+            schema_version("international_live_session_manifest_build"),
+            "international_live_session_manifest_build_v0.4",
         )
         self.assertEqual(
             schema_version("international_live_fixed_scope_execution"),
@@ -439,7 +459,7 @@ class TestSchemaRegistry(unittest.TestCase):
         self.assertEqual(schema_version("mm_live_readiness"), "mm_live_readiness_v0.3")
         self.assertEqual(
             schema_version("mm_stage0_client_identity"),
-            "mm_stage0_client_identity_v0.3",
+            "mm_stage0_client_identity_v0.4",
         )
         self.assertEqual(schema_version("market_making_daily_roll"), "market_making_daily_roll_v0.2")
         self.assertEqual(schema_version("early_hour_market_guardrail"), "early_hour_market_guardrail_v0.1")

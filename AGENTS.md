@@ -61,6 +61,17 @@ machine-local state.
 - Keep ordinary work in research, shadow, dry-run, read-only, or paper modes.
   Live trading or promotion requires an explicit user request and the existing
   readiness/release gates.
+- A numeric threshold is not self-justifying because code calls it a gate.
+  Before stopping work on one or treating it as a hard block, trace and report
+  its owner, stage, source, rationale, evidence, and the risk on each side.
+  Classify it as a protocol/operational safety invariant, a current external
+  rule, an explicit owner-approved risk envelope, or an experimental heuristic.
+  A chosen risk envelope may fail closed but is not an empirical optimum. An
+  unproved heuristic may rank, warn, or parameterize an explicit reviewed
+  experiment; it must not silently become an immutable stop or block an
+  unrelated stage. Do not replace one arbitrary number with another. Follow
+  the gate-design contract in
+  [the durable domain context](docs/operations/AGENT_CONTEXT.md#gate-design-and-numeric-thresholds).
 - On the dedicated 16 GB capture host, agent-started or ad-hoc heavy work is
   allowed only from 00:30–09:00 local and must hold the shared lease from
   `scripts/ops/workload_admission.ps1`. The repository-owned Stage-A daily

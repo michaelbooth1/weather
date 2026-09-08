@@ -40,6 +40,39 @@ Unit tests should not depend on the developer's local `data/` tree. Tests may
 create temporary `data/...` fixture layouts under `tmp_path`,
 `tempfile.TemporaryDirectory`, or an equivalent temporary working directory.
 
+## Isolated Experiment Scratch
+
+The isolated experiment executor stages each new attempt at
+`<resolved repo_root>/scratch/.ex/<full UUID>/workspace`. This compact,
+repository-owned scratch location preserves the manifest's relative workspace
+layout while avoiding a repeated candidate-directory prefix. The default
+`repo_root` still comes from `weather.paths`; callers may supply an explicit
+repository root. Verified artifacts and the terminal result publish together
+to the unchanged manifest-declared candidate output directory. Exclusive claims
+remain in that candidate's `experiments/.executor_claims/` directory. Existing
+scratch components must be regular directories without reparse points, and their
+volume must match the candidate destination. This is checked before scratch
+creation and again before claiming the newly created attempt.
+
+On Windows, the executor uses a conservative compatibility floor of 259 UTF-16
+code units per file path and 247 per directory path, regardless of optional
+long-path settings. These budgets reserve the terminating NUL and directory
+creation headroom described by Microsoft's
+[maximum path limitation](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation).
+Before creating attempt scratch, acquiring a claim or starting a child, it checks
+known workspace, candidate, claim, result, declared-artifact and quarantine
+paths. Result and declared-artifact paths also reserve 36 units for the shared
+atomic writer's PID/timestamp temporary-file suffix. A refusal identifies the
+field that needs a shorter repository root or manifest path. This preflight
+does not enumerate every copied source path or predict undeclared child output;
+the existing bounded staging and output checks still apply.
+
+Cleanup remains limited to the current attempt. Interrupted scratch and
+quarantined output stay available for inspection; unrelated attempts and
+existing candidate-local `.executor_runs` evidence are not migrated or removed.
+See the [scratch preservation rules](workstation-disk-and-mirror-scope.md#the-one-large-consumer-that-is-not-mirrored-scratch)
+before any separate cleanup.
+
 ## Import Policy
 
 The primary import contract is an installed source-layout package:

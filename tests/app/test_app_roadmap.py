@@ -5,8 +5,9 @@ from streamlit.testing.v1 import AppTest
 from app.views.roadmap import _active_rows, _completion
 
 
+@mock.patch("app.views.roadmap.cached_project", return_value={"workstreams": [], "next_steps": []})
 @mock.patch("weather.reporting.roadmap.roadmap_backlog.summarize_roadmap_status")
-def test_app_roadmap_query_param_rendering(mock_summary):
+def test_app_roadmap_query_param_rendering(mock_summary, _project):
     mock_summary.return_value = {
         "generated_at_utc": "2026-06-22T00:00:00+00:00",
         "status": "OK",

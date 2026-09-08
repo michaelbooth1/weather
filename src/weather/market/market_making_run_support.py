@@ -252,6 +252,7 @@ def market_harvest_clob_feature_rows(book_rows, *, now=None):
                 if captured is not None
                 else None
             ),
+            "book_age_observed_at_utc": current.isoformat(),
             "clob_midpoint": maybe_float(book.get("midpoint")),
             "clob_spread": maybe_float(book.get("spread")),
             "clob_best_bid": maybe_float(book.get("best_bid")),
@@ -374,6 +375,7 @@ def assemble_market_harvest_inputs_for_market(
             "market_mid": feature.get("clob_midpoint") or book.get("midpoint"),
             "book_spread": feature.get("clob_spread") or book.get("spread"),
             "book_age_seconds": feature.get("clob_book_age_seconds"),
+            "book_age_observed_at_utc": feature.get("book_age_observed_at_utc") or feature.get("captured_at_utc"),
             "clob_book_captured_at_utc": captured_at,
             "clob_best_bid": feature.get("clob_best_bid") or book.get("best_bid"),
             "clob_best_ask": feature.get("clob_best_ask") or book.get("best_ask"),
@@ -403,6 +405,7 @@ def assemble_market_harvest_inputs_for_market(
             "model_variant_prediction_at_utc": captured_at,
             "model_variant_counterfactual": True,
             "watcher_age_seconds": observation_status.get("watcher_age_seconds"),
+            "watcher_last_heartbeat": observation_status.get("last_heartbeat"),
             "heartbeat_ok": observation_status.get("heartbeat_ok", False),
             "source_fresh": observation_status.get("fresh", False),
             "source_freshness_state": source_state,
@@ -441,7 +444,8 @@ def assemble_policy_inputs_for_market(
         band_key = (snapshot_row.get("snapshot_id"), kind, value, value_hi)
         clob_row = clob_by_token.get(token_key) or clob_by_band.get(band_key) or {}
         merged = dict(snapshot_row)
-        merged.update({key: value for key, value in clob_row.items() if value not in (None, "")})
+        merged.update({key: value for key, value in clob_row.items()
+                       if value not in (None, "") and key not in {"captured_at_utc", "snapshot_id"}})
         merged["market_id"] = market_id
         merged["promotion_state"] = promotion.get("promotion_state", "BLOCK")
         merged["fair_probability"] = first_present(merged, "fair_probability", "model_probability", "candidate_p")
@@ -456,7 +460,9 @@ def assemble_policy_inputs_for_market(
                 else ""
             )
         merged["book_age_seconds"] = merged.get("clob_book_age_seconds")
+        merged["book_age_observed_at_utc"] = clob_row.get("captured_at_utc")
         merged["watcher_age_seconds"] = observation_status.get("watcher_age_seconds")
+        merged["watcher_last_heartbeat"] = observation_status.get("last_heartbeat")
         merged["heartbeat_ok"] = observation_status.get("heartbeat_ok", False)
         merged["source_fresh"] = observation_status.get("fresh", False)
         merged["source_freshness_state"] = source_freshness_state

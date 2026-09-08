@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import urllib.parse
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from weather.paths import config_path
+from weather.io import write_json_atomic
 from weather.schema_registry import schema_version
 
 
@@ -61,10 +63,7 @@ def load_json(path: str | Path) -> dict:
 
 
 def write_json(path: str | Path, payload: dict) -> Path:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    return path
+    return write_json_atomic(path, payload, trailing_newline=True)
 
 
 def gamma_events_url(*, tag_slug: str, active: bool, closed: bool, limit: int, offset: int) -> str:
@@ -86,6 +85,8 @@ def fetch_gamma_events(
     timeout_seconds: float = 30.0,
     max_pages: int = 20,
 ) -> tuple[list[dict], list[int]]:
+    if type(limit) is not int or limit <= 0 or type(max_pages) is not int or max_pages <= 0:
+        raise ValueError("Gamma pagination requires positive integer limit and max_pages")
     events: list[dict] = []
     offsets: list[int] = []
     for page in range(int(max_pages)):
@@ -102,11 +103,13 @@ def fetch_gamma_events(
             page_events = json.loads(response.read().decode("utf-8"))
         if not isinstance(page_events, list):
             raise ValueError("Gamma events response must be a list")
+        if any(not isinstance(row, dict) for row in page_events):
+            raise ValueError("Gamma events page contains a non-object row")
         offsets.append(offset)
         events.extend(row for row in page_events if isinstance(row, dict))
         if len(page_events) < int(limit):
-            break
-    return events, offsets
+            return events, offsets
+    raise ValueError(f"Gamma pagination is incomplete after {max_pages} full pages; configuration was not refreshed")
 
 
 def event_date_from_slug(slug: str) -> str | None:
@@ -197,11 +200,24 @@ def normalized_market(market: dict) -> dict:
             or market.get("question")
         ),
         "question": market.get("question"),
+        **resolution_evidence(market),
         "enable_order_book": bool_value(market.get("enableOrderBook") if "enableOrderBook" in market else market.get("enable_order_book")),
         "active": bool_value(market.get("active")),
         "closed": bool_value(market.get("closed")),
         "outcomes": outcome_rows,
         "outcome_tokens": outcome_tokens,
+    }
+
+
+def resolution_evidence(payload: dict) -> dict:
+    """Retain exact source text; a digest proves bytes, not settlement semantics."""
+    description = payload.get("description")
+    if description is not None and not isinstance(description, str):
+        raise ValueError("Gamma resolution description must be text")
+    return {
+        "description": description,
+        "description_sha256": hashlib.sha256(description.encode("utf-8")).hexdigest() if description is not None else None,
+        "resolution_source_url": payload.get("resolutionSource") or payload.get("resolution_source"),
     }
 
 
@@ -219,7 +235,7 @@ def normalized_event(event: dict) -> dict:
         "event_url": f"https://polymarket.com/event/{slug}" if slug else None,
         "title": event.get("title"),
         "end_date": event.get("endDate") or event.get("end_date"),
-        "resolution_source_url": event.get("resolutionSource") or event.get("resolution_source"),
+        **resolution_evidence(event),
         "market_count": event_market_count(event),
         "markets": markets,
     }
