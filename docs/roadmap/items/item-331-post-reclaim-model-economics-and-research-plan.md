@@ -1,4 +1,4 @@
-# 331. Post-Reclaim Model Economics And Research Plan [PARTIAL 2026-09-07 - APPROVED; SOURCE PREPARATION IN PROGRESS]
+# 331. Post-Reclaim Model Economics And Research Plan [PARTIAL 2026-09-07 - SELECTED SOURCE NATIVE VERIFIED; CI/ADOPTION OPEN]
 
 Goal: turn verified storage headroom into correct model outputs, a measurable
 maker-economics decision, and one reproducible research result without restoring
@@ -268,11 +268,24 @@ The source overview now reads this plan's `Ordered next work` heading and
 the three earlier supported headings; its focused tests passed in the admitted
 workstation verification below.
 
+The reviewed READY source is `e7ef9d96234ae7cab8b2c881614982fb54f445d9`.
+The separately stacked `codex/post-reclaim-config-generation-20260907` branch
+at `77092366f180177f561ac409f40161bd0586bdbe` adds P3 generation/config work
+and its report/Stage 0 compatibility repairs to READY. Each latest delta changes
+only two test fixtures, relative to READY
+`e24bcd30bb29bff8595cc2d74aed5c8327f7c224` and combined
+`c11c3287264ea75a3264e243c15932842867b208`, respectively. Status origins borrow
+the existing base Git objects; only the merge-conflict case creates its extra
+checkout. Real publication pushes, unfetched-origin isolation and production
+identity guards remain intact. Independent source and full-blob merge reviews
+passed. READY does not contain P3; each receipt below retains its exact source
+and scope rather than inheriting a tested ancestor's PASS.
+
 | Package | Prepared result | Remaining dependency |
 | --- | --- | --- |
-| P0 | Reconciled the smallest existing portable/correctness/plan baseline; independent merge review passed. The [audit's queue dispositions](../audits/post-reclaim-system-audit-2026-09-07.md) remain the per-PR source inventory | Combined verification, exact-source CI, conditional guarded adoption and the actual production documentation transaction. Unselected PRs and historical branches remain preserved |
-| P2 | [Item 332](item-332-signed-native-temperature-band-correctness.md) records implemented native-band gaps, admitted workstation PASS and expected old-source failures | Bounded historical impact census and adopted-source evidence |
-| P3a | Generation-bound config publication/read, exact-byte freezing and both release verifiers at `54be0048481bfdf6055ef0876254377e10e73927`, followed by first-migration concurrent-read repair `8eaad1077d2349b1a06c4d0ad7a61e5d7cc0d238`; independent static review passed | Admitted runtime verification, source publication and guarded adoption. Existing generated config has not been refreshed or hand-edited |
+| P0 | Reconciled the smallest existing portable/correctness/plan baseline; independent merge review passed. The [audit's queue dispositions](../audits/post-reclaim-system-audit-2026-09-07.md) remain the per-PR source inventory | Exact-source CI, publication, conditional guarded adoption and the actual production documentation transaction. Unselected PRs and historical branches remain preserved |
+| P2 | [Item 332](item-332-signed-native-temperature-band-correctness.md) records the earlier native-band repair and expected old-source failures; the ledger follow-up has independent source review and the native focused proof below | Exact-source CI, bounded historical impact census and adopted-source evidence |
+| P3a | Generation-bound config publication/read, exact-byte freezing and both release verifiers at `54be0048481bfdf6055ef0876254377e10e73927`, followed by first-migration concurrent-read repair `8eaad1077d2349b1a06c4d0ad7a61e5d7cc0d238` and the compatibility/report repairs below; independent static review passed | Exact-source CI, source publication and guarded adoption. Existing generated config has not been refreshed or hand-edited |
 | P4/P5 | New bounded reward-page validation and replayable raw response bytes at `6b6fb8e5ec2fbff8f74aaaf7be09de8e053b4aca`, merged at `ce215689696590fdf6d64a1b9757464d7697e23f`; independent review passed | Focused fixtures passed in the admitted workstation run below. No account query, opportunity collection, accrual/payment relationship or cash cohort has been established |
 | P6 | [Item 333](item-333-reproducible-runtime-and-paired-model-comparison.md) owns the numerical incumbent control and assessment of existing runtime identity/BOM work | Focused fixtures passed; reconcile the separately bounded forward runtime foundation and paired inference. No captured outcome, candidate fit or historical replay was used in preparation |
 
@@ -325,20 +338,123 @@ Interrupted and quarantined evidence remains preserved. Three-line fixture
 commit `3b4e4d406427181d3d18cf2726aa5613d2cb71a8` resolves the physical temporary
 root before building the retention, preselection and registration fixtures;
 all exact assertions and production path/evidence checks remain unchanged.
-Root and independent source reviews passed; repaired-source runtime verification
-remains pending.
-No full-suite PASS is claimed. Automatic approval review again refused the
-incremental transfer despite the earlier explicit approval; a renewed owner
-confirmation is pending. Complete repair review, admitted verification and
-compilation before publishing the branch and running exact-source CI.
+Root and independent source reviews passed. A subsequent automatic approval
+refusal of the incremental transfer was resolved by the owner's explicit
+authorization to export both source branches and verification fixes to
+`Michael@192.168.1.106` and publish verified branches to public
+`michaelbooth1/weather`. The approved incremental bundle was transferred and
+hash-verified. No full-suite PASS is claimed for the later source.
 
-After transfer, rerun the three path-case fixtures and the repaired reconciliation
-dry-run control with ordinary Windows temporary-directory naming. Then run the
-reviewed P3/executor/release focused file set and the combined full suite through
-the admitted workstation wrapper, using a fresh short temporary namespace where
-needed for the executor's explicit path budget. Confirm Windows-only cases run,
-retain all spent namespaces and terminal receipts, and finish compilation and
-documentation/backlog checks. The focused gate does not replace the full suite.
+The five native controls at `55d688982f99b3bdc7615780b058dcb16960fe0d`
+passed in 32.90 seconds: the path-case fixtures, reconciliation dry-run control
+and import-root probe. Receipt `scratch/post-reclaim-native-controls-55d6889.xml`
+has SHA-256 `DBE74869273F6FF48E5F11022DC6863A23E7DCABD4646D5A6FE027BE330CD877`.
+The focused gate on that source stopped at **1 failed, 68 passed** in 3.51
+seconds. Receipt `scratch/post-reclaim-focused-55d6889.xml` has SHA-256
+`5C021495F0CDADFDF4A377E5A9C10388F19FBC733D6C223E8BB72C2925EB77AE`.
+JSON correctly replaced an invalid config's prior PASS with BLOCK and skipped
+live fetching; the Markdown report omitted its human-readable cause.
+
+Report repair `8ce0a1dae539d133ef398ed2de557e733792bde8` displays the first
+blocker without changing the JSON gate. The 17-file native focused gate on
+that source passed **372 tests**, with no failures, errors or skips, in
+1,750.18 seconds. Receipt `scratch/post-reclaim-focused-8ce0a1d.xml` has SHA-256
+`821305F36728D817AEFAC2FB931383F0566A4F056282E22C3872F75B11E6CCFB`.
+This verifies the report/executor/reconciliation changes before the later ledger
+and selector repairs. Later Stage 0 compatibility repair
+`0aab443d21466f802f22ae4b5808227f0a8ebc0e` validates the canonical generation
+envelope while preserving exact legacy/root shapes, full raw-file hashing and
+copied-input validation. Both repairs passed independent source review.
+
+The synthetic CSV control on unchanged `8ce0a1d` then produced the expected
+**1 failure and 27 deselections** in 0.54 seconds: a valid `90-91 C` winner
+was missing. Receipt `scratch/post-reclaim-ledger-old-control-8ce0a1d.xml` has
+SHA-256 `AD712675A71C6C7CB3943AC82D3C12E0D70A6E3291A91CD17ADC44ECBBE65EBE`.
+After both reviewed source refs were imported and the isolated checkouts
+advanced, combined `c11c3287` passed **333 focused tests** in 17.95 seconds,
+with no failures, errors or skips. Receipt
+`scratch/post-reclaim-repairs-focused-c11c328.xml` has SHA-256
+`0D03B8A749E23C7465179F3AF709FC3C737B8A784C6154BAB0D5D3D22176EF8C`.
+It covers the ledger, Stage 0/1, generation, import and roadmap fixtures and
+an exact-HEAD probe resolving nine modules inside the combined checkout.
+The combined full native suite on `c11c3287` was **INTERRUPTED / EXIT 1**.
+After failures and errors appeared, the workstation had only 0.14 GiB free.
+The verified pytest child was stopped and the wrapper completed its canonical
+child-tree teardown and lease cleanup. No final JUnit report was produced;
+individual failure causes remain unresolved. The earlier focused PASS receipts
+remain valid for their exact scopes. In particular, the 372-test and 333-test
+combined gates do not establish standalone READY verification.
+
+The reviewed fixture disk repair then passed **five native fixture/import
+controls** on combined `77092366f180177f561ac409f40161bd0586bdbe` in
+55.94 seconds (JUnit: 55.937), with no failures, errors or skips. The local P3
+receipt `scratch/post-reclaim-fixture-disk-focused-7709236.xml` has SHA-256
+`E45793B8726630E979CA199AC87D4AD93EA457270D0E899580340E926F8B7A1A`.
+The controls retain genuine merge-conflict and publication behavior, prove
+unfetched-origin isolation and bind imports to the exact combined checkout.
+
+The first standalone READY gate stopped at **one failed task-owned import
+probe** in 1.37 seconds, before owner tests ran: a probe copied from P3 imported
+`weather.market.location_config`, which is absent from READY. Retain the original
+`scratch/post-reclaim-ready-focused-e7ef9d9.xml`, SHA-256
+`B79978731AF986C8174F98ED9490FA9635D8F9E998893864BC58178E125E200F`.
+The reviewed v2 probe removes only that import; the exact HEAD assertion and
+eight remaining module-path assertions are unchanged. This corrects the
+task-owned probe's source scope and is not an owner-code defect.
+
+On unchanged READY `e7ef9d96234ae7cab8b2c881614982fb54f445d9`, the corrected
+gate passed **155 tests**, including owner fixtures and the eight-module
+exact-HEAD import probe, in 9.27 seconds (JUnit: 9.263), with no failures, errors
+or skips. The local READY receipt
+`scratch/post-reclaim-ready-focused-e7ef9d9-v2.xml` has SHA-256
+`E77FB863B34FD0DDC944536B0759FA941945F7ED333E286E84340E1101E41B9E`.
+
+Native `python -m compileall -q app src tests` passed with exit 0 on both exact
+source heads through the admitted workstation wrapper. Local copies of
+`scratch/post-reclaim-native-compilation-20260908.json` are retained in READY
+and P3, SHA-256
+`BC26B1D6570317978BA9D2038A19178866A540B8CC253792562BE71B5AD6E59F`.
+The receipt records each source head, exact wrapper command, UTC start/terminal
+observations, exit code and raw terminal output.
+
+Reviewed retirement of completed synthetic pytest fixtures `w331b` and
+`w331d` is **COMPLETE**. The former namespace root was removed; the latter
+retains its root and the two complete link fixture directories
+`test_source_symlink_is_rejecte0` and `test_bounded_folder_loader_rej0`, with
+root files excluded from deletion. The interrupted `w331f` namespace remains
+retained. The two recorded volume free-space increases were 11,595,001,856 and
+39,384,395,776 bytes: **50,979,397,632 bytes in total (about 47.5 GiB)**.
+These are summed free-space sample deltas, not logical payload measurements.
+This is disposable workstation fixture cleanup, not production evidence reclaim
+or completion of T0. All six receipts remain in local P3 `scratch/`:
+
+| Receipt | SHA-256 |
+| --- | --- |
+| `fixture-temp-retirement-20260908-w331b.started.json` | `F9918911631BCC1DA215A1A00B44AFACB89FFC56BE70C0E832F8A6869DDB7DBA` |
+| `fixture-temp-retirement-20260908-w331b.progress.jsonl` | `0DF3800D656A9D9D7F5667E117F6BDF60F4CD39B12345E4A1D57E5911A0DD20E` |
+| `fixture-temp-retirement-20260908-w331b.final.json` | `F4254E11C54A649A0C678E5DABBBB0D31FA99E119A28217EC04F1465905944CA` |
+| `fixture-temp-retirement-20260908-w331d.started.json` | `7F99E17A43E2A6A5FDC96FC6A16D0E8D467CBBF39D49770C9552B1EF8A5DAB5B` |
+| `fixture-temp-retirement-20260908-w331d.progress.jsonl` | `6D7BB0C0E40CE0190EE045B8F31B48EAA595BA0DD29AC7E55C9591C0150814D5` |
+| `fixture-temp-retirement-20260908-w331d.final.json` | `103CD8F93D178DC331C1619229F270CCA6402FEC2D39B0168285CBA58F00D495` |
+
+The fresh full native suite on combined
+`77092366f180177f561ac409f40161bd0586bdbe` completed **PASS / EXIT 0** in
+the short temporary namespace `w331j`: **5,464 tests and 991 subtests passed,
+18 skipped and 13 warnings**, in 1,945.42 seconds (JUnit: 1,945.250).
+The local and workstation P3 copies of `scratch/post-reclaim-full-7709236.xml`
+match SHA-256
+`7F6AEFC55F0DFC272B3164C9EB525C345924CFD1D8AF17A62392AC44FC39CDD6`.
+Its 6,473 JUnit cases include the 991 subtests; there are zero failures/errors
+and 18 skips. The receipt starts at `2026-09-07T21:17:38.469018-04:00` and
+binds the exact source HEAD plus nine module paths inside the combined checkout.
+The wrapper completed teardown with no poison marker; the terminal workstation
+sample had 40,550,785,024 free bytes. Standalone READY evidence remains the
+155-test gate at `e7ef9d9`; both exact sources have the compilation PASS above.
+The full result belongs to combined `7709236`, not a later documentation commit.
+Documentation/backlog closeout, publication and exact-source CI remain pending. The detailed implementation-sweep audit is retained only on the P3
+branch for the pending stacked publication. Continue through the admitted
+workstation wrapper, retain terminal receipts and failed-run diagnostics, and
+never reuse spent basenames. Focused gates do not replace the full suite.
 
 Production adoption is a later gate. Accept the storage owner's terminal
 handback, fresh ordinary admission and the actual schedule before choosing
@@ -351,13 +467,16 @@ actual integrations, publication and the owning workflow's checks.
 P3a is retained in the isolated `codex/post-reclaim-config-generation-20260907`
 branch. That branch's `docs/operations/config-inventory.md` owns the generation
 contract: atomic publication, first-migration recheck, stale-publisher refusal,
-projection drift and exact frozen-byte semantics. This branch has not been
-transferred to the workstation; its deterministic fixtures remain unexecuted.
-Static review is not a runtime PASS. The canonical roll
-receipt for `8eaad10` reports `ROLL-SENSITIVE`; retain
+projection drift and exact frozen-byte semantics. Its source bundle has reached
+the workstation; the receipts above distinguish the failed `55d6889` gate,
+the passing `8ce0a1d` and `c11c3287` gates, and the latest `7709236` fixture
+controls, compilation and full native PASS. Publication, exact-source CI and
+production adoption remain open. The canonical roll receipt for `8eaad10`
+reports `ROLL-SENSITIVE`; retain
 `scratch/roll-post-reclaim-generation-8eaad10.json`, SHA-256
 `3640877946ee05f7b2362a86750891807a74eeacaac17d96aa169b439a21bde5`.
-Its schema registration is additive; the loaded release verifier also changes.
+P3's generation schema registration is additive; the loaded release verifier
+also changes, and the broader combined source advances other schema contracts.
 A fresh verdict, admitted quiet-window integration and capture recovery are
 required for adoption. The read-only verdict performed none of those actions.
 

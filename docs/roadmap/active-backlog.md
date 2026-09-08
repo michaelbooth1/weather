@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-07T23:09:22.796317+00:00
+Generated: 2026-09-08T02:00:20.344413+00:00
 Status: `OK`
 
 ## Summary
@@ -60,9 +60,9 @@ Status: `OK`
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
 | 330 | PARTIAL | 2026-09-07 | STAGE 0/1 PROVED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |
-| 331 | PARTIAL | 2026-09-07 | APPROVED; SOURCE PREPARATION IN PROGRESS | [Post-Reclaim Model Economics And Research Plan](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
-| 332 | PARTIAL | 2026-09-07 | REPAIRED AND WORKSTATION-VERIFIED; ADOPTION OPEN | [Signed Native Temperature Band Correctness](items/item-332-signed-native-temperature-band-correctness.md) |
-| 333 | PARTIAL | 2026-09-07 | INCUMBENT CONTROL PREPARED; VERIFICATION OPEN | [Reproducible Runtime And Paired Model Comparison](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
+| 331 | PARTIAL | 2026-09-07 | SELECTED SOURCE NATIVE VERIFIED; CI/ADOPTION OPEN | [Post-Reclaim Model Economics And Research Plan](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
+| 332 | PARTIAL | 2026-09-07 | NATIVE VERIFIED; CI, IMPACT AND ADOPTION OPEN | [Signed Native Temperature Band Correctness](items/item-332-signed-native-temperature-band-correctness.md) |
+| 333 | PARTIAL | 2026-09-07 | INCUMBENT CONTROL FOCUSED-VERIFIED; RUNTIME/INFERENCE OPEN | [Reproducible Runtime And Paired Model Comparison](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
 
 ## Lint Issues
 

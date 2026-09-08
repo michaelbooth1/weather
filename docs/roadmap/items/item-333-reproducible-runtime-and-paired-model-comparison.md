@@ -1,4 +1,4 @@
-# 333. Reproducible Runtime And Paired Model Comparison [PARTIAL 2026-09-07 - INCUMBENT CONTROL PREPARED; VERIFICATION OPEN]
+# 333. Reproducible Runtime And Paired Model Comparison [PARTIAL 2026-09-07 - INCUMBENT CONTROL FOCUSED-VERIFIED; RUNTIME/INFERENCE OPEN]
 
 Goal: make a model comparison reproducible and capable of distinguishing an
 improvement from replay drift, label mismatch and sampling noise.
@@ -109,9 +109,15 @@ specific transfer/publication approval, the admitted workstation focused run at
 combined source `88bacc6a0bd0e163d25b2bd7e6cf894c03637dd3` passed 535 tests and
 20 subtests, including the replay and incumbent-control fixtures. The exact
 receipt and wider file scope are recorded in [item 331](item-331-post-reclaim-model-economics-and-research-plan.md#september-7-preparation-handback).
-The wider Windows suite and its path-failure diagnosis are recorded there;
-compilation passed, and no full-suite PASS is claimed. No historical tape, settlement
-outcome, model artifact or candidate fit was consumed by this slice.
+The wider Windows suite at `88bacc6` and its path-failure diagnosis are recorded
+there; compilation passed, but that source did not earn a full-suite PASS.
+No historical tape, settlement outcome, model artifact or candidate fit was
+consumed by this slice. Item 331 records later READY/P3 integration and the
+full native PASS at combined `77092366f180177f561ac409f40161bd0586bdbe`,
+the standalone READY 155-test gate at `e7ef9d9`, and compilation on both sources.
+Publication and exact-source CI remain pending. The `88bacc6` receipt retains
+its original scope; the combined PASS does not establish served-runtime
+reproduction or paired inference.
 
 ### Existing runtime foundation disposition
 
