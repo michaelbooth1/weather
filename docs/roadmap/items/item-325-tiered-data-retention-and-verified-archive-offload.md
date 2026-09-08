@@ -77,6 +77,47 @@ pilot. The per-file 64 MiB and all other compression bounds remain unchanged.
 
 ### Production pilot and resource-limited expansion, September 8
 
+**Latest at September 8 15:16 Toronto:** the source
+`ce1e60b6c8ac877be09188755424ce6e03a885aa` passed 337 native workstation checks
+and [full CI](https://github.com/michaelbooth1/weather/actions/runs/34260115674).
+The heartbeat observation correction is qualified. Subsequent admitted
+compression completed every eligible immediate file selected for July 1-3:
+
+| Target date | Verified files | Newly reclaimed bytes |
+| --- | ---: | ---: |
+| July 1 | 281 | 2,118,795,264 |
+| July 2 | 276 | 2,156,941,312 |
+| July 3 | 273 | 2,033,250,304 |
+
+The total is 830 files and **6,308,986,880 bytes**; prior partial completions
+were included only after exact fresh-inventory reconciliation and are counted
+once. July 4's passed pilot adds 42,745,856 bytes. At its completion, C: had
+22,590,750,720 bytes free. Every source file remains retained.
+
+The July 4 batch `capacity-july04-b00-20260908-01` stopped at 70.1453% commit
+with fresh capture and proved teardown. Its first six paired journals report
+190,939,136 additional bytes. Journal `006-before.json` names Seattle July 4
+`variant_predictions.jsonl`; compression completed before its post-hash
+verification was interrupted. The new inventory
+`capacity-immediate-july04-20260908-02` shows unchanged native file identity,
+logical size and timestamp, with allocation 51,142,656 -> 28,737,536 bytes.
+Its preimage SHA-256 is
+`681132b26379d6c70ab168feb30268629e69930497a8a69a71f07735b724061d`.
+The **22,405,120-byte difference is not yet verified or counted**.
+
+Further compression is paused until that exact retained file passes an
+independent content check. The new
+[read-only verification mode](../../operations/cold-snapshot-compression.md#read-only-verification-after-interruption)
+keeps every source file and all existing admission bounds, consumes the pinned
+failed-attempt preimage plus fresh inventory, and distinguishes prior verified
+allocation savings from zero newly reclaimed bytes during verification.
+Native qualification and the production verification remain pending.
+The 120 GiB new-reclaim / 100 GiB free objective remains open.
+
+The following earlier observations are retained as the sequence of evidence;
+the latest disposition above supersedes their then-current pause/resume state.
+
+
 At execution source `3426d5276f1d4c7db8ae70f945e2f2354bf01ed9`, the admitted
 workstation run passed 332 native checks; full CI passed 4,644 tests and 921
 subtests (321 skips). Native JUnit `scratch/capacity-scope-native-3426d5276.xml`

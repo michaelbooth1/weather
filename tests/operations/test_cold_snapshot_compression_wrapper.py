@@ -32,6 +32,7 @@ p = argparse.ArgumentParser()
 for key in ('production-repo-root', 'request', 'request-sha256', 'output-root', 'source-git-sha',
             'plan-receipt', 'plan-receipt-sha256'): p.add_argument('--' + key)
 p.add_argument('--apply', action='store_true')
+p.add_argument('--verify-retained', action='store_true')
 a = p.parse_args()
 out = Path(a.output_root)
 mode = json.loads(Path(a.request).read_text())['mode']
@@ -47,6 +48,10 @@ result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding
           'owner_approved_exception': os.environ.get('WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION', ''),
           'request_sha256': a.request_sha256, 'apply': a.apply, 'deleted_files': 0, 'reclaimed_bytes': 0, 'cleanup_eligible': False,
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
+if a.verify_retained:
+    result.update(verify_retained=mode != 'wrong_verify', source_files_changed=1 if mode == 'verify_write' else 0,
+                  verified_reclaimed_bytes=123)
+    if mode == 'verify_reclaim': result['reclaimed_bytes'] = 1
 (out / 'result.json').write_text(json.dumps(result))
 '''
 
@@ -111,7 +116,7 @@ def wrapper_fixture(tmp_path, request):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None, exception=""):
+def launch(wrapper_fixture, mode, *, apply=False, verify=False, plan_receipt=None, exception=""):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -122,6 +127,7 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None, exception="
                  "-ExpectedSourceTip", head]
     if exception: arguments += ["-OwnerApprovedException", exception]
     if apply: arguments.append("-Apply")
+    if verify: arguments.append("-VerifyRetained")
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
                       hashlib.sha256(plan_receipt.read_bytes()).hexdigest()]
@@ -188,3 +194,25 @@ def test_dated_storage_exception_is_explicit_and_expires(wrapper_fixture, except
         assert child["owner_approved_exception"] == exception
     else:
         assert not output.exists(), log
+
+
+
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("wrong_verify", False), ("verify_write", False), ("verify_reclaim", False),
+])
+def test_wrapper_binds_read_only_verification_and_prior_savings(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode, verify=True)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    receipt = json.loads((output / "wrapper-result.json").read_text())
+    assert receipt["teardown_proved"] is True
+    if success:
+        assert receipt["verify_retained"] is True and receipt["apply"] is False
+        assert receipt["reclaimed_bytes"] == receipt["source_files_changed"] == 0
+        assert receipt["verified_reclaimed_bytes"] == 123
+
+
+def test_wrapper_refuses_verification_combined_with_apply_before_attempt_creation(wrapper_fixture):
+    process, output = launch(wrapper_fixture, "success", apply=True, verify=True)
+    code, log = finish(process)
+    assert code != 0 and not output.exists(), log

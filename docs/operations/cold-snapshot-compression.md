@@ -98,6 +98,39 @@ identities must never contribute twice. All receipts keep `deleted_files=0`
 and `cleanup_eligible=false`; none is an archive restore or deletion proof.
 
 
+## Read-only verification after interruption
+
+Use the same wrapper with `-VerifyRetained`, never together with `-Apply`.
+This mode opens one exact file without write access, denies concurrent writers,
+streams its hash under the unchanged resource/capture/lease/deadline gates,
+and compares every original native identity field and timestamp. It neither
+compresses nor decompresses the source.
+
+First obtain a fresh completed inventory at the new reviewed execution source.
+The request uses schema `cold_snapshot_verification_request_v1`, operation
+`verify_retained`, the ordinary host/root/approval/expiry and inventory-wrapper
+fields, and exactly one current inventory row in `files`. Additionally bind:
+
+- `preimage_receipt`: the absolute retained `NNN-before.json` path under one
+  direct `scratch/cold_snapshot_compression` attempt.
+- `preimage_sha256`: the exact hash of that original journal.
+- `predecessor_wrapper_sha256`: the exact hash of that attempt's wrapper receipt.
+
+The predecessor must be a terminal failed apply on the same host with proved
+teardown. Its original request hash, journal ordinal, native preimage and source
+identity must agree. Its source may differ from the newly qualified verifier;
+the old approval is historical evidence, never current execution authority.
+Both uncompressed and LZNT1-compressed retained files can be verified.
+
+A new create-only attempt publishes `000-verification.json`, `result.json`
+and a wrapper receipt. `reclaimed_bytes=0` and `source_files_changed=0`
+describe this read-only operation. `verified_reclaimed_bytes` reports the
+original-to-current allocation difference separately, which must never be
+counted twice. Verification PASS proves retained content integrity; it is not
+an automatic retry, recompression, expansion, decompression or deletion grant.
+A failed verification remains immutable evidence and keeps further action
+blocked until its exact disagreement is resolved.
+
 ## Preparing expansion requests
 
 `weather.operations.storage_recovery_batch_plan` reads only completed

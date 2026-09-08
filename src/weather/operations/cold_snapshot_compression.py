@@ -244,7 +244,14 @@ def run_pinned(args, production_root, output):
     if hashlib.sha256(raw).hexdigest() != args.request_sha256:
         raise ValueError("request SHA-256 mismatch")
     now = datetime.now(timezone.utc)
-    candidates = validate_request(request, production_root=production_root, now=now)
+    verify_retained = getattr(args, "verify_retained", False)
+    if verify_retained and args.apply:
+        raise ValueError("read-only verification cannot be combined with apply")
+    if verify_retained:
+        from weather.operations import cold_snapshot_verification as verification
+        candidates = verification.validate_request(request, production_root=production_root, now=now)
+    else:
+        candidates = validate_request(request, production_root=production_root, now=now)
     source = repo_path()
     if str(source) != os.environ.get(ENV_PREFIX + "SOURCE_ROOT"):
         raise ValueError("Python imports are not bound to the wrapper source")
@@ -280,6 +287,8 @@ def run_pinned(args, production_root, output):
 
     guard(force=True)
     read_inventory(request, candidates, production_root=production_root, source_git_sha=args.source_git_sha)
+    preimage = (verification.read_preimage(request, candidates[0], production_root=production_root)
+                if verify_retained else None)
     write_receipt(output / "request.json", request)
     results = []
     receipt = {"schema_version": schema_version("cold_snapshot_compression_receipt"),
@@ -289,13 +298,23 @@ def run_pinned(args, production_root, output):
                "owner_approved_exception": exception,
                "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
                "reclaimed_bytes": 0}
+    if verify_retained:
+        receipt.update(schema_version=schema_version("cold_snapshot_verification_receipt"),
+                       verify_retained=True, source_files_changed=0, verified_reclaimed_bytes=0,
+                       preimage_sha256=request["preimage_sha256"],
+                       predecessor_wrapper_sha256=request["predecessor_wrapper_sha256"])
     try:
         for index, candidate in enumerate(candidates):
             def journal(phase, row, index=index):
                 write_receipt(output / f"{index:03d}-{phase}.json", {**receipt, **row})
             guard(force=True)
-            row = compress_candidate(production_root / "data" / candidate["path"], candidate,
-                                     apply=args.apply, guard=guard, journal=journal)
+            if verify_retained:
+                row = verification.verify_candidate(production_root / "data" / candidate["path"],
+                                                     candidate, preimage, guard=guard)
+                journal("verification", row)
+            else:
+                row = compress_candidate(production_root / "data" / candidate["path"], candidate,
+                                         apply=args.apply, guard=guard, journal=journal)
             results.append(row)
         guard(force=True)
         verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)
@@ -308,6 +327,8 @@ def run_pinned(args, production_root, output):
                        reclaimed_bytes=sum(row["reclaimed_bytes"] for row in results),
                        final_admission=admission)
         code = 1
+    if verify_retained:
+        receipt["verified_reclaimed_bytes"] = sum(row["verified_reclaimed_bytes"] for row in results)
     write_receipt(output / "result.json", receipt)
     print(json.dumps({key: receipt[key] for key in ("status", "reclaimed_bytes", "deleted_files")}))
     return code
@@ -317,7 +338,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("production-repo-root", "request", "request-sha256", "output-root", "source-git-sha"):
         parser.add_argument("--" + name, required=True)
-    parser.add_argument("--apply", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true")
+    mode.add_argument("--verify-retained", action="store_true")
     args = parser.parse_args(argv)
     try:
         return run(args)

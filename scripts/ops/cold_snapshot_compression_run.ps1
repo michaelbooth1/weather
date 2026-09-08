@@ -7,11 +7,13 @@ param(
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
     [switch]$Apply,
+    [switch]$VerifyRetained,
     [string]$OwnerApprovedException = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
+if ($Apply -and $VerifyRetained) { throw 'read-only verification cannot be combined with Apply' }
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
@@ -114,6 +116,7 @@ $receipt = [ordered]@{
     started_at_utc = [DateTime]::UtcNow.ToString('o'); status = 'FAILED'
     hard_stop = $false; teardown_proved = $false; deleted_files = 0; cleanup_eligible = $false
 }
+if ($VerifyRetained) { $receipt.verify_retained = $true; $receipt.source_files_changed = 0 }
 try {
     # Identity, time and live lease precede even create-only attempt evidence.
     $null = New-Item -ItemType Directory -Path $OutputRoot
@@ -129,6 +132,7 @@ try {
     if ($Apply) {
         $arguments += @('--apply')
     }
+    if ($VerifyRetained) { $arguments += @('--verify-retained') }
     $job = New-WeatherKillOnCloseJob
     $process = Start-WeatherProcessInJob -Job $job -FilePath $python `
         -ArgumentString (ConvertTo-ScheduledTaskArgumentString -Tokens $arguments) `
@@ -161,6 +165,10 @@ try {
             $result.owner_approved_exception -cne $OwnerApprovedException -or $result.apply -ne [bool]$Apply -or
             $result.deleted_files -ne 0 -or $result.cleanup_eligible -ne $false -or
             $result.execution_host_id -cne $hostIdentity) { throw 'child receipt binding mismatch' }
+        if ($VerifyRetained -and ($result.verify_retained -ne $true -or
+            $result.source_files_changed -ne 0 -or $result.reclaimed_bytes -ne 0)) {
+            throw 'read-only verification receipt binding mismatch'
+        }
         $finalTip = [string](git -C $sourceRoot rev-parse HEAD)
         if ($LASTEXITCODE -ne 0 -or $finalTip.Trim() -cne $ExpectedSourceTip) { throw 'source tip changed during operation' }
         $finalDirty = @(git -C $sourceRoot status --porcelain)
@@ -171,6 +179,7 @@ try {
         $receipt.child_result_sha256 = (Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt.status = 'PASS'
         $receipt.reclaimed_bytes = $result.reclaimed_bytes
+        if ($VerifyRetained) { $receipt.verified_reclaimed_bytes = $result.verified_reclaimed_bytes }
     }
     else {
         if (-not $receipt.Contains('error')) { $receipt.error = 'child did not produce PASS; retain attempt and inspect child receipts' }
