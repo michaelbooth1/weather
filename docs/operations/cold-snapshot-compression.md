@@ -85,6 +85,37 @@ Concurrent capture means the two numbers can differ. Previously counted file
 identities must never contribute twice. All receipts keep `deleted_files=0`
 and `cleanup_eligible=false`; none is an archive restore or deletion proof.
 
+
+## Preparing expansion requests
+
+`weather.operations.storage_recovery_batch_plan` reads only completed
+inventory and pilot receipts. It does not open source payloads or execute
+compression. Bind `--production-repo-root`, `--inventory-wrapper-receipt`,
+`--inventory-wrapper-sha256`, `--source-git-sha`, `--execution-host-id`,
+`--approved-by`, `--expires-at-utc`, and a new `--output-root` directly
+below the existing production `scratch/storage_recovery_plans` directory.
+
+Default `--mode pilot` prepares one exact request for the largest eligible
+file. The planner initially excludes files smaller than 1 MiB to avoid
+spending compression work on negligible allocation savings. Review its
+`plan.json` and request; run the compression wrapper first without and then
+with `-Apply`, each in its own new output attempt.
+
+`--mode expand` additionally requires `--pilot-wrapper-receipt` and
+
+`--pilot-wrapper-sha256`. It verifies the hash chain, completed apply,
+unchanged file identity and positive allocation delta for one pilot file
+from this same inventory and source. The pilot path is excluded from expansion.
+At most eight bounded request files are emitted per plan, with exact hashes
+and a deterministic `next_index`. Advance `--start-index` only after the
+previous planned batches have completed and their receipts were reviewed.
+A failed batch stops expansion; re-inventory and reconcile its exact journals.
+No cursor is permission to skip failed evidence or count savings twice.
+
+Eligible and selected allocation totals are candidate capacity. Estimated
+reclaim stays null and actual reclaim stays zero in the plan. Only the
+compression receipts can establish saved bytes.
+
 ## Update when
 
 Update when bounds, allowed files, admission, wrapper parameters, request or

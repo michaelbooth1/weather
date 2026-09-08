@@ -7,6 +7,13 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "storage_recovery_batch_plan",
+        "storage_recovery_batch_plan_v1",
+        "weather.operations.storage_recovery_batch_plan",
+        "active",
+        "Bounded receipt-only compression request plan; expansion requires a positive verified pilot.",
+    ),
+    SchemaSpec(
         "cold_snapshot_compression_request",
         "cold_snapshot_compression_request_v1",
         "weather.operations.cold_snapshot_compression",
