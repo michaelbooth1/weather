@@ -1,4 +1,4 @@
-# 332. Signed Native Temperature Band Correctness [PARTIAL 2026-09-07 - NATIVE VERIFIED; CI, IMPACT AND ADOPTION OPEN]
+# 332. Signed Native Temperature Band Correctness [PARTIAL 2026-09-07 - NATIVE VERIFIED; IMPACT AND ADOPTION OPEN]
 
 Goal: make serving, persisted band identity, settlement and replay agree for
 negative and zero temperatures in each market's native unit.
@@ -102,7 +102,8 @@ The later full native suite passed at combined
 the separate READY `e7ef9d9` focused gate and both compilation receipts' scope.
 Earlier receipts retain their original source and scope.
 
-Remaining: bounded affected-input census, publication and exact-source CI,
-canonical roll verdict and guarded adoption/recovery. No historical tape,
+Publication and exact-tip Linux CI status are linked from item 331.
+Remaining: bounded affected-input census, canonical roll verdict and guarded
+adoption/recovery. No historical tape,
 settlement evidence or model release was changed. This source correctness
 result does not measure historical affected volume or forecast improvement.

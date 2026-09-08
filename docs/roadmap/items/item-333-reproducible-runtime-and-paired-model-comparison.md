@@ -115,7 +115,8 @@ No historical tape, settlement outcome, model artifact or candidate fit was
 consumed by this slice. Item 331 records later READY/P3 integration and the
 full native PASS at combined `77092366f180177f561ac409f40161bd0586bdbe`,
 the standalone READY 155-test gate at `e7ef9d9`, and compilation on both sources.
-Publication and exact-source CI remain pending. The `88bacc6` receipt retains
+Publication is complete in PRs 41/42; their GitHub checks own exact-tip Linux CI
+status, as linked from item 331. The `88bacc6` receipt retains
 its original scope; the combined PASS does not establish served-runtime
 reproduction or paired inference.
 

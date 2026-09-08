@@ -36,7 +36,7 @@ new live exposure retains its exact Stage 2 authority and readiness gates.
 | Portable source | Cumulative [PR 6](https://github.com/michaelbooth1/weather/pull/6) at `ca64296fb944a65c0ccfbf0e9a17b2d913413a68` includes subsequent documentation; exact-tip CI passed. Preserve the difference between tested runtime, later source and production adoption. The old Stage 2 donor requires current schema/capital/host and inventory-exit work. |
 | Storage | [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) and [PR 39](https://github.com/michaelbooth1/weather/pull/39) own reclaim. Final source `a62ba9c3162ebf3be48da82e6548b62201537023` passed native checks and exact-source CI; the disposition is conditional GO for an attended one-file pilot after fresh admission, protecting scheduled tiering. The later September 7 volume sample is about 24.7 GiB free. No production compression/deletion or pilot savings is established; no automatic task is scheduled. |
 | Restore proof | September 5 independent download/restore passed 17 checks for one 513,522,801-byte provisional workstation file. Production identity, broader archive durability and reclaim do not follow. Preserve this proof and all failed attempts; the frozen mirror remains non-authoritative. |
-| Repair queue | READY `e7ef9d9` reconciles PR 6, PR 28 (including 24/25 economics/accounting and 26/27 repairs) and approved PR 40 with history preserved. Combined `7709236` adds P3 generation-consistent config and compatibility repairs. The latest two-file fixture disk repair, native focused gates and exact-source compilation passed. The full combined native suite passed; publication, exact-source CI and production adoption remain open. PR 30 status reads and PR 38 watchdog diagnostics remain separate reviewed work. |
+| Repair queue | Native-tested READY `e7ef9d9` reconciles PR 6, PR 28 (including 24/25 economics/accounting and 26/27 repairs) and approved PR 40 with history preserved. Combined `7709236` adds P3 generation-consistent config and compatibility repairs. The latest two-file fixture disk repair, native focused gates and exact-source compilation passed. The full combined native suite passed. [PR 41](https://github.com/michaelbooth1/weather/pull/41) and stacked [PR 42](https://github.com/michaelbooth1/weather/pull/42) are public drafts; their GitHub checks own exact-tip Linux CI status. Production adoption remains open. PR 30 status reads and PR 38 watchdog diagnostics remain separate reviewed work. |
 | Model measurement | [Item 332](../roadmap/items/item-332-signed-native-temperature-band-correctness.md) owns zero/legacy/native correctness and expected old-source failures; item 331 records the ledger follow-up's native verification. [Item 333](../roadmap/items/item-333-reproducible-runtime-and-paired-model-comparison.md) owns the focused-verified numerical incumbent control and PR 7 identity/BOM reuse assessment. Impact measurement, forward runtime restoration, paired crossed inference and adopted-source evidence remain open. |
 | Economics / settlement | Bounded reward-page validation and raw response retention are implemented, independently reviewed and covered by the admitted workstation focused PASS. The [interface matrix](exchange-economics-source-evidence.md) leaves authoritative accrual/payment linkage and complete cash unresolved. No opportunity is qualified. Tested NYC Rules named NOAA first/WU fallback; retain the WU model proxy and qualify exact event Rules before inventory. |
 | Capture / labels | Prior retained capture health does not establish today's continuity or usable price paths. Five Toronto August 28-September 1 folder views were missing; authoritative ledger/fleet scope still needs bounded reconciliation. Do not count raw ledger revisions as market-days. |
@@ -48,7 +48,8 @@ The owner approved both source branches and verification fixes for workstation
 transfer and public publication; source bundles were transferred and hash-verified.
 Native READY/combined gates and exact-source compilation passed after the fixture
 disk repair. The earlier `c11c3287` full suite was interrupted without final JUnit;
-the fresh `7709236` full native suite passed. Publication and exact-source CI remain pending.
+the fresh `7709236` full native suite passed. Publication is complete in PRs 41/42;
+their GitHub checks own exact-tip Linux CI status as documentation tips advance.
 Reviewed synthetic workstation fixture cleanup completed, preserving the two link
 fixtures and interrupted namespace. This is separate from production evidence
 reclaim; item 331 retains the exact cleanup scope and measured free-space change.
@@ -61,9 +62,9 @@ reclaim; item 331 retains the exact cleanup scope and measured free-space change
 2. Reconcile only the dependency-valid source needed next and close actual
    integration documentation debt. Use canonical roll verdicts and guarded
    recovery; protect scheduled reclaim and capture.
-3. Complete source publication and exact-source CI, then pursue the bounded
-   native-band impact census and exact opportunity qualification. Resolve the interface
-   matrix's payment-attribution and cash-coverage gaps before economic claims.
+3. Pursue the bounded native-band impact census and exact opportunity
+   qualification. Resolve the interface matrix's payment-attribution and
+   cash-coverage gaps before economic claims.
 4. Verify generation-consistent config and finish exact event settlement semantics;
    connect existing feasibility/accounting primitives to retained real evidence.
 5. Restore a faithful model comparison and one outcome-free support/power
