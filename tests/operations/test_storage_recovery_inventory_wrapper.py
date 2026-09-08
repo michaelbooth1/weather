@@ -44,6 +44,7 @@ if mode == 'failure': raise SystemExit(7)
 if mode == 'request_drift': Path(a.request).write_text('{}')
 if mode == 'source_drift': Path('tracked.txt').write_text('changed')
 result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding' else a.source_git_sha,
+          'owner_approved_exception': os.environ.get('WEATHER_STORAGE_INVENTORY_OWNER_APPROVED_EXCEPTION', ''),
           'request_sha256': a.request_sha256, 'deleted_files': 0, 'reclaimed_bytes': 0, 'cleanup_eligible': False,
           'payload_bytes_read': 0, 'source_files_changed': 0, 'complete_folder_allocated_bytes': 4096,
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
@@ -63,7 +64,7 @@ def replace_once(text, before, after):
 
 
 @pytest.fixture
-def wrapper_fixture(tmp_path):
+def wrapper_fixture(tmp_path, request):
     source = tmp_path / "source checkout"
     production = tmp_path / "fixture production"
     scripts = source / "scripts/ops"
@@ -77,9 +78,13 @@ def wrapper_fixture(tmp_path):
     admission += "\nfunction Get-WeatherHeavyWorkloadPolicyWindow { return 'fixture-clock-only' }\n"
     (scripts / "workload_admission.ps1").write_text(admission, encoding="utf-8")
     wrapper = repo_path("scripts/ops/storage_recovery_inventory_run.ps1").read_text(encoding="utf-8-sig")
+    fixture_clock = getattr(request, "param", None)
     wrapper = replace_once(wrapper,
         "$localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)",
-        "$localNow = [DateTime]::SpecifyKind([DateTime]::UtcNow.Date.AddDays(1).AddHours(1), [DateTimeKind]::Unspecified)")
+        ("$localNow = [DateTime]::SpecifyKind([DateTime]::UtcNow.Date.AddDays(1).AddHours(1), [DateTimeKind]::Unspecified)"
+         if fixture_clock is None else f"$localNow = [DateTime]::SpecifyKind([DateTime]'{fixture_clock}', [DateTimeKind]::Unspecified)"))
+    wrapper = replace_once(wrapper, "$deadline = [DateTime]::UtcNow.AddSeconds(",
+        "$windowEnd = [DateTime]::UtcNow.AddHours(1)\n$deadline = [DateTime]::UtcNow.AddSeconds(")
     wrapper = replace_once(wrapper, "try {\n    # Identity, time and live lease",
         "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(4)\n    # Identity, time and live lease")
     wrapper_path = scripts / "storage_recovery_inventory_run.ps1"
@@ -90,6 +95,8 @@ def wrapper_fixture(tmp_path):
                       assignment_status="UNASSIGNED")
     (source / "config").mkdir()
     (source / "config/international_live_execution_host.json").write_text(json.dumps(assignment))
+    (production / "config").mkdir()
+    (production / "config/international_live_execution_host.json").write_text(json.dumps(assignment))
     package = source / "src/weather/operations"
     package.mkdir(parents=True)
     (package.parent / "__init__.py").write_text("")
@@ -105,7 +112,7 @@ def wrapper_fixture(tmp_path):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
+def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None, exception=""):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -114,6 +121,7 @@ def launch(wrapper_fixture, mode, *, apply=False, plan_receipt=None):
                  "-File", str(wrapper), "-ProductionRepoRoot", str(production), "-RequestPath", str(request),
                  "-RequestSha256", hashlib.sha256(request.read_bytes()).hexdigest(), "-OutputRoot", str(output),
                  "-ExpectedSourceTip", head]
+    if exception: arguments += ["-OwnerApprovedException", exception]
     if apply: arguments.append("-Apply")
     if plan_receipt:
         arguments += ["-PlanReceiptPath", str(plan_receipt), "-PlanReceiptSha256",
@@ -151,3 +159,24 @@ def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper
         assert descendant.exists(), log
         for pid in json.loads(descendant.read_text()).values():
             assert observe_process_identity(pid)["state"] == "not_found"
+
+
+@pytest.mark.parametrize("wrapper_fixture,exception,success", [
+    ("2026-09-08T12:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260908", True),
+    ("2026-09-08T12:00:00", "", False),
+    ("2026-09-08T12:00:00", "wrong-token", False),
+    ("2026-09-08T18:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260908", False),
+    ("2026-09-09T12:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260908", False),
+], indirect=["wrapper_fixture"])
+def test_dated_storage_exception_is_explicit_and_expires(wrapper_fixture, exception, success):
+    process, output = launch(wrapper_fixture, "success", exception=exception)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    if success:
+        receipt = json.loads((output / "wrapper-result.json").read_text())
+        assert receipt["owner_approved_exception"] == exception
+        assert receipt["teardown_proved"] is True
+        child = json.loads((output / "result.json").read_text())
+        assert child["owner_approved_exception"] == exception
+    else:
+        assert not output.exists(), log

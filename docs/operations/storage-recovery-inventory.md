@@ -4,6 +4,12 @@ This is the metadata selection step for [verified cold archive](verified-cold-ar
 It measures candidate capacity; it grants no archive or cleanup eligibility.
 Use an isolated clean reviewed source worktree and the production interpreter.
 
+The optional `-OwnerApprovedException OWNER_APPROVED_STORAGE_RECOVERY_20260908`
+uses the [September 8 owner exception](HOST_LOAD_POLICY.md#owner-storage-exception-september-8-2026).
+It expires at 18:00 Toronto that day; all resource, lease, capture and teardown
+checks remain mandatory. Without that exact dated argument the ordinary
+overnight window and scheduled-tiering reserve apply.
+
 ## Request and execution
 
 Create an expiring `storage_recovery_inventory_request` with the exact production

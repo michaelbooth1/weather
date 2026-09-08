@@ -41,11 +41,35 @@ def check_resources(*, now, available, commit, free_disk, loops):
     return result
 
 
-def check_capture_health(*, now, available, commit, loops):
+STORAGE_DAYTIME_EXCEPTION = "OWNER_APPROVED_STORAGE_RECOVERY_20260908"
+STORAGE_DAYTIME_POLICY = "owner_approved_storage_recovery_20260908"
+
+
+def storage_daytime_authorized(now, exception):
+    local = now.astimezone(ZoneInfo("America/Toronto"))
+    return (exception == STORAGE_DAYTIME_EXCEPTION
+            and local.date().isoformat() == "2026-09-08"
+            and 540 <= local.hour * 60 + local.minute < 1080)
+
+
+def verify_storage_exception(lease, exception, now):
+    """Bind the dated owner instruction to the independently verified live lease."""
+    if exception:
+        if (not storage_daytime_authorized(now, exception)
+                or lease.get("policy_window") != STORAGE_DAYTIME_POLICY):
+            raise ValueError("storage exception is invalid, expired or differs from the lease")
+    elif lease.get("policy_window") == STORAGE_DAYTIME_POLICY:
+        raise ValueError("storage exception is missing from the wrapper environment")
+
+
+def check_capture_health(*, now, available, commit, loops, owner_approved_exception=""):
     local = now.astimezone(ZoneInfo("America/Toronto"))
     minute = local.hour * 60 + local.minute
     reasons = []
-    if not 30 <= minute < 9 * 60:
+    daytime = storage_daytime_authorized(now, owner_approved_exception)
+    if owner_approved_exception and not daytime:
+        reasons.append("invalid_or_expired_storage_exception")
+    if not 30 <= minute < 9 * 60 and not daytime:
         reasons.append("outside_0030_0900_capture_window")
     if 285 <= minute < 405:
         reasons.append("reserved_0445_0645_scheduled_tiering_window")

@@ -11,8 +11,12 @@ Owner/package: weather.operations, weather.collection
 
 The owner approved a target of at least 120 GiB newly reclaimed and at least
 100 GiB free on completion; the previous overnight 16.04 GiB is excluded.
-The target is not yet achieved. Production scanning and compression still
-require the admitted overnight window, including the scheduled-tiering reserve.
+The target is not yet achieved. At 11:47 Toronto the owner explicitly authorized
+work now unless judged excessively risky. The bounded inventory and one-file
+compression pilot are judged reasonable subject to all existing resource and
+capture checks. The [dated host-policy exception](../../operations/HOST_LOAD_POLICY.md#owner-storage-exception-september-8-2026)
+expires at 18:00 today and grants no deletion or other workload authority.
+Expansion still requires verified positive pilot savings and fresh admission.
 
 The new [metadata inventory](../../operations/storage-recovery-inventory.md)
 measures complete cold folders by native allocation without source payload reads.

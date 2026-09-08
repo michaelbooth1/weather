@@ -22,7 +22,7 @@ from weather.operations.replay_cache_compression import (
 )
 from weather.operations.replay_cache_compression_admission import (
     check_capture_health, observe_capture_admission,
-    set_current_process_below_normal, verify_current_lease,
+    set_current_process_below_normal, verify_current_lease, verify_storage_exception,
 )
 from weather.paths import repo_path
 from weather.schema_registry import schema_version
@@ -35,8 +35,9 @@ WORKLOAD = "storage_recovery_inventory"
 ENV_PREFIX = "WEATHER_STORAGE_INVENTORY_"
 
 
-def check_resources(*, now, available, commit, free_disk, loops):
-    result = check_capture_health(now=now, available=available, commit=commit, loops=loops)
+def check_resources(*, now, available, commit, free_disk, loops, owner_approved_exception=""):
+    result = check_capture_health(now=now, available=available, commit=commit, loops=loops,
+                                  owner_approved_exception=owner_approved_exception)
     result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=MIN_FREE_DISK_BYTES)
     if type(free_disk) is not int or free_disk < MIN_FREE_DISK_BYTES:
         result["reasons"].append("inventory_disk_reservation_unmet")
@@ -136,6 +137,8 @@ def run_pinned(args, production_root, output):
     if lease.get("execution_host_id") != request["execution_host_id"]:
         raise ValueError("request does not bind the actual lease host")
     verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)
+    exception = os.environ.get(ENV_PREFIX + "OWNER_APPROVED_EXCEPTION", "")
+    verify_storage_exception(lease, exception, now)
     set_current_process_below_normal()
     deadline = _utc(os.environ[ENV_PREFIX + "DEADLINE_UTC"])
     if not 0 < (deadline - now).total_seconds() <= 150:
@@ -148,7 +151,10 @@ def run_pinned(args, production_root, output):
         if current >= deadline or current >= _utc(request["expires_at_utc"]):
             raise metadata.InventoryRefused("inventory deadline or request expiry reached")
         if force or time.monotonic() - last_check >= 1:
-            admission = observe_capture_admission(production_root, check_resources)
+            verify_storage_exception(lease, exception, current)
+            admission = observe_capture_admission(
+                production_root, lambda **observed: check_resources(
+                    owner_approved_exception=exception, **observed))
             last_check = time.monotonic()
             if admission["status"] != "PASS":
                 raise metadata.InventoryRefused("capture admission refused: " + ",".join(admission["reasons"]))
@@ -164,12 +170,14 @@ def run_pinned(args, production_root, output):
     verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)
     result.update(request_sha256=args.request_sha256, source_git_sha=args.source_git_sha,
                   execution_host_id=request["execution_host_id"],
+                  owner_approved_exception=exception,
                   module_file=str(Path(metadata.__file__).resolve()))
     digest, size = write_inventory(output / "inventory.json", result)
     receipt = {
         "schema_version": schema_version("storage_recovery_inventory_receipt"),
         "status": result["status"], "request_sha256": args.request_sha256,
         "source_git_sha": args.source_git_sha, "execution_host_id": request["execution_host_id"],
+        "owner_approved_exception": exception,
         "inventory_sha256": digest, "inventory_bytes": size,
         "complete_folder_allocated_bytes": result["complete_folder_allocated_bytes"],
         "payload_bytes_read": 0, "source_files_changed": 0, "deleted_files": 0,

@@ -7,6 +7,12 @@ deletion eligibility is involved. It complements the
 [verified archive path](verified-cold-archive.md), whose independent restore
 and exact-file cleanup gates still govern any source removal.
 
+The optional `-OwnerApprovedException OWNER_APPROVED_STORAGE_RECOVERY_20260908`
+uses the [September 8 owner exception](HOST_LOAD_POLICY.md#owner-storage-exception-september-8-2026).
+It expires at 18:00 Toronto that day; all resource, lease, capture and teardown
+checks remain mandatory. Without that exact dated argument the ordinary
+overnight window and scheduled-tiering reserve apply.
+
 ## Selection and approval
 
 First obtain a completed source-bound

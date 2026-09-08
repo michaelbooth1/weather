@@ -22,7 +22,7 @@ from weather.operations.ntfs_file_compression import (
 from weather.operations.replay_cache_compression import _utc, read_bounded_json, IDENTITY_FIELDS
 from weather.operations.replay_cache_compression_admission import (
     check_capture_health, observe_capture_admission, set_current_process_below_normal,
-    verify_current_lease,
+    verify_current_lease, verify_storage_exception,
 )
 from weather.paths import repo_path
 from weather.schema_registry import schema_version
@@ -39,8 +39,9 @@ WORKLOAD = "cold_snapshot_compression"
 ENV_PREFIX = "WEATHER_COLD_SNAPSHOT_COMPRESSION_"
 
 
-def check_resources(*, now, available, commit, free_disk, loops):
-    result = check_capture_health(now=now, available=available, commit=commit, loops=loops)
+def check_resources(*, now, available, commit, free_disk, loops, owner_approved_exception=""):
+    result = check_capture_health(now=now, available=available, commit=commit, loops=loops,
+                                  owner_approved_exception=owner_approved_exception)
     result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=MIN_FREE_DISK_BYTES)
     if type(free_disk) is not int or free_disk < MIN_FREE_DISK_BYTES:
         result["reasons"].append("cold_snapshot_compression_disk_reservation_unmet")
@@ -250,6 +251,8 @@ def run_pinned(args, production_root, output):
     if lease.get("execution_host_id") != request["execution_host_id"]:
         raise ValueError("request does not bind the lease host")
     verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)
+    exception = os.environ.get(ENV_PREFIX + "OWNER_APPROVED_EXCEPTION", "")
+    verify_storage_exception(lease, exception, now)
     set_current_process_below_normal()
     deadline = _utc(os.environ[ENV_PREFIX + "DEADLINE_UTC"])
     if not 0 < (deadline - now).total_seconds() <= 600:
@@ -262,7 +265,10 @@ def run_pinned(args, production_root, output):
         if current >= deadline or current >= _utc(request["expires_at_utc"]):
             raise ValueError("compression deadline or request expiry reached")
         if force or time.monotonic() - last_check >= 1:
-            admission = observe_capture_admission(production_root, check_resources)
+            verify_storage_exception(lease, exception, current)
+            admission = observe_capture_admission(
+                production_root, lambda **observed: check_resources(
+                    owner_approved_exception=exception, **observed))
             last_check = time.monotonic()
             if admission["status"] != "PASS":
                 raise ValueError("capture admission refused: " + ",".join(admission["reasons"]))
@@ -275,6 +281,7 @@ def run_pinned(args, production_root, output):
                "source_git_sha": args.source_git_sha, "request_sha256": args.request_sha256,
                "execution_host_id": request["execution_host_id"],
                "inventory_wrapper_sha256": request["inventory_wrapper_sha256"],
+               "owner_approved_exception": exception,
                "apply": args.apply, "deleted_files": 0, "cleanup_eligible": False,
                "reclaimed_bytes": 0}
     try:

@@ -52,8 +52,8 @@ clean checkout; historical exit codes and copied burn rates are not fresh proof.
 
 1. Recover at least 120 GiB of additional capacity and finish above 100 GiB
    free under the owner's September 8 approval. Qualify the exact cold snapshot
-   compression selection and measure its retained-file savings in the next
-   admitted window. Continue archive qualification under item 325; neither
+   compression selection and measure retained-file savings under today's dated
+   storage exception. Continue archive qualification under item 325; neither
    workstation fixture savings nor the earlier 16.04 GiB meet this new target.
 2. Complete exact-head CI and the documentation closeout,
    then recheck the canonical roll verdict for each published tip and use the

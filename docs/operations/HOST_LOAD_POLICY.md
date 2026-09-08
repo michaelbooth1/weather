@@ -256,6 +256,25 @@ until the blocking input contract changes or a reviewed preflight can prove
 useful work before capture is stopped. The independent
 `WeatherTrainingWindowRestore` task stays enabled while the reservation is held.
 
+## Owner storage exception: September 8, 2026
+
+At 11:47 Toronto the owner authorized capacity recovery now rather than waiting
+another day, conditional on the agent judging the risk reasonable. The literal
+`OWNER_APPROVED_STORAGE_RECOVERY_20260908` token permits only
+`storage_recovery_inventory` and `cold_snapshot_compression` on the assigned
+dedicated capture host from 09:00 until 18:00 Toronto on that date.
+Both attended wrappers require the explicit `-OwnerApprovedException` token;
+the child must match its dated policy against the independently proved live lease.
+This is a one-date inventory/compress-and-retain exception, not archive/delete,
+cache, testing, training, merge, Stage-A, workstation, or live authority.
+
+All ordinary resource and capture checks remain: shared lease, BelowNormal
+priority, 384 MiB child ceiling, at least 4 GiB available RAM, commit below 70%,
+fresh healthy capture identities, lane-specific disk reserve, and bounded
+kill-on-close teardown. The absolute deadline reserves teardown before 18:00.
+Stop on any failed admission, changed content/identity, or nonpositive pilot
+savings. No source file is deleted. The ordinary timetable resumes at expiry.
+
 ## Rules
 
 1. **Protected window 18:00–00:30**: no ad-hoc analysis jobs, corpus builds,

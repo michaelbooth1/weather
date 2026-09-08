@@ -570,6 +570,13 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
         [string]$OwnerApprovedException = ""
     )
 
+    if ($OwnerApprovedException -ceq "OWNER_APPROVED_STORAGE_RECOVERY_20260908") {
+        $minute = $Now.Hour * 60 + $Now.Minute
+        if ($Now.ToString("yyyy-MM-dd") -cne "2026-09-08" -or $minute -lt 540 -or $minute -ge 1080) {
+            throw "owner-approved storage exception is invalid or expired"
+        }
+        return "owner_approved_storage_recovery_20260908"
+    }
     if ($OwnerApprovedException) {
         if (
             $OwnerApprovedException -cne
@@ -1441,7 +1448,15 @@ function Enter-WeatherHeavyWorkloadLease {
         ) {
             throw "capture-colocated execution-host identity does not match the sealed host binding"
         }
-        if ($OwnerApprovedException -and $Workload -cne "quiet_window_merge") {
+        if ($OwnerApprovedException -ceq "OWNER_APPROVED_STORAGE_RECOVERY_20260908") {
+            $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
+            if ($AllowStageAWindow -or
+                $Workload -cnotin @("storage_recovery_inventory", "cold_snapshot_compression") -or
+                $executionHostId -cne [string]$assignment.dedicated_capture_execution_host_id) {
+                throw "owner-approved storage exception is restricted to dedicated capture storage recovery"
+            }
+        }
+        elseif ($OwnerApprovedException -and $Workload -cne "quiet_window_merge") {
             throw "owner-approved workload exception is restricted to quiet_window_merge"
         }
         $policyWindow = Get-WeatherHeavyWorkloadPolicyWindow `

@@ -6,7 +6,8 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [switch]$Apply
+    [switch]$Apply,
+    [string]$OwnerApprovedException = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,16 +16,26 @@ $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
 $minute = $localNow.Hour * 60 + $localNow.Minute
-if ($minute -lt 30 -or $minute -ge 540) {
-    throw 'REFUSED: cold snapshot compression is restricted to 00:30-09:00 America/Toronto'
+if ($OwnerApprovedException) {
+    if ($OwnerApprovedException -cne 'OWNER_APPROVED_STORAGE_RECOVERY_20260908' -or
+        $localNow.ToString('yyyy-MM-dd') -cne '2026-09-08' -or
+        $minute -lt 540 -or $minute -ge 1080) {
+        throw 'REFUSED: owner-approved storage exception is invalid or expired'
+    }
+    $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddHours(18), $zone)
 }
-if ($minute -ge 285 -and $minute -lt 405) {
-    throw 'REFUSED: 04:45-06:45 is reserved for the existing scheduled tiering jobs'
-}
-# Reserve teardown time before the protected boundary, even for late starts.
-$windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddHours(9), $zone)
-if ($minute -lt 285) {
-    $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddMinutes(285), $zone)
+else {
+    if ($minute -lt 30 -or $minute -ge 540) {
+        throw 'REFUSED: cold snapshot compression is restricted to 00:30-09:00 America/Toronto'
+    }
+    if ($minute -ge 285 -and $minute -lt 405) {
+        throw 'REFUSED: 04:45-06:45 is reserved for the existing scheduled tiering jobs'
+    }
+    # Reserve teardown time before the protected boundary, even for late starts.
+    $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddHours(9), $zone)
+    if ($minute -lt 285) {
+        $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddMinutes(285), $zone)
+    }
 }
 $deadline = [DateTime]::UtcNow.AddSeconds(600)
 if ($deadline -gt $windowEnd.AddSeconds(-15)) { $deadline = $windowEnd.AddSeconds(-15) }
@@ -83,7 +94,8 @@ if ($hostIdentity -cne [string]$assignment.dedicated_capture_execution_host_id) 
 $python = Join-Path $ProductionRepoRoot 'venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'production project interpreter missing' }
 $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $ProductionRepoRoot `
-    -Workload 'cold_snapshot_compression' -ExpectedExecutionHostId $hostIdentity
+    -Workload 'cold_snapshot_compression' -ExpectedExecutionHostId $hostIdentity `
+    -OwnerApprovedException $OwnerApprovedException
 if ($null -eq $lease) { throw 'REFUSED: shared workload lease is busy' }
 
 $job = $null
@@ -94,9 +106,11 @@ $oldPythonPath = $env:PYTHONPATH
 $oldSource = $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_SOURCE_ROOT
 $oldOwner = $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_PID
 $oldDeadline = $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC
+$oldException = $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION
 $receipt = [ordered]@{
     source_git_sha = $ExpectedSourceTip; request_sha256 = $RequestSha256
-    execution_host_id = $hostIdentity; apply = [bool]$Apply
+    execution_host_id = $hostIdentity
+    owner_approved_exception = $OwnerApprovedException; apply = [bool]$Apply
     started_at_utc = [DateTime]::UtcNow.ToString('o'); status = 'FAILED'
     hard_stop = $false; teardown_proved = $false; deleted_files = 0; cleanup_eligible = $false
 }
@@ -107,6 +121,7 @@ try {
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_SOURCE_ROOT = $sourceRoot
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_PID = [string]$PID
     $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $deadline.ToString('o')
+    $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION = $OwnerApprovedException
     $arguments = @('-m', 'weather.operations.cold_snapshot_compression',
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,
@@ -142,7 +157,8 @@ try {
         if ((Get-Item -LiteralPath $resultPath).Length -gt 2097152) { throw 'oversized child receipt' }
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         if ($result.status -cne 'PASS' -or $result.request_sha256 -cne $RequestSha256 -or
-            $result.source_git_sha -cne $ExpectedSourceTip -or $result.apply -ne [bool]$Apply -or
+            $result.source_git_sha -cne $ExpectedSourceTip -or
+            $result.owner_approved_exception -cne $OwnerApprovedException -or $result.apply -ne [bool]$Apply -or
             $result.deleted_files -ne 0 -or $result.cleanup_eligible -ne $false -or
             $result.execution_host_id -cne $hostIdentity) { throw 'child receipt binding mismatch' }
         $finalTip = [string](git -C $sourceRoot rev-parse HEAD)
@@ -180,6 +196,7 @@ finally {
         $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_SOURCE_ROOT = $oldSource
         $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_PID = $oldOwner
         $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_DEADLINE_UTC = $oldDeadline
+        $env:WEATHER_COLD_SNAPSHOT_COMPRESSION_OWNER_APPROVED_EXCEPTION = $oldException
         if ($teardownProved) { Exit-WeatherHeavyWorkloadLease -Lease $lease }
         else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease }
         if (Test-Path -LiteralPath $OutputRoot -PathType Container) {
