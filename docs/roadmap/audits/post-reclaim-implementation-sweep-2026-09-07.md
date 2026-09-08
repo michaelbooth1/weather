@@ -2,7 +2,8 @@
 
 Historical review evidence for
 [item 331](../items/item-331-post-reclaim-model-economics-and-research-plan.md).
-**Draft: combined native full suite and compilation passed; exact-tip CI and publication pending.**
+**Source review, native verification and publication are complete. The PR checks
+linked in the publication closeout own the exact-tip Linux CI result.**
 This records the follow-up implementation sweep; the
 [initial system audit](post-reclaim-system-audit-2026-09-07.md) owns the earlier
 whole-system findings and recent-PR dispositions.
@@ -54,8 +55,8 @@ A later change limited to synthetic test fixtures advanced READY to
 `77092366f180177f561ac409f40161bd0586bdbe`. This is separate from the three
 production-code findings above. The native fixture/import gate passed on
 `7709236`; the later full native suite in session `22884` exited 0. These
-native-tested source heads remain the runtime evidence anchors; planned
-closure commits add documentation only and require their own final-tip CI.
+native-tested source heads remain the runtime evidence anchors. Subsequent
+closure commits add documentation only; each published tip requires its own CI.
 
 The first READY verification copied the nine-module P3 source probe, which
 included `weather.market.location_config`, a module absent from READY.
@@ -116,11 +117,10 @@ by the integration owner and is not a JUnit test count.
 | `pwsh` unavailable | 4; the PowerShell Core variants of state helpers, number parsing, absent-state recovery and process classification were not exercised. |
 | Outer workstation lease owns the shared mutex | 12; nested lease, wrapper and teardown scenarios requiring that mutex were not exercised by this admitted run. |
 
-The receipt therefore supports the stated native suite PASS with these skips,
-not an all-native-controls claim. Final-tip CI remains pending, including POSIX
-and `pwsh` cases as enabled by the configured test environment. Its actual
-results and skip disposition must be checked; this native receipt cannot
-substitute for them.
+The receipt supports the stated native suite PASS with these skips. It does
+not establish every native control or replace Linux CI. The PR checks own the
+configured CI result and its reported skips; no unreported POSIX or `pwsh`
+coverage is inferred from a green aggregate.
 
 The native control import probe resolved all seven checked modules under
 `C:/Users/Michael/Documents/github/weather-post-reclaim-config-generation-20260907/src/weather/`:
@@ -175,8 +175,8 @@ review worktree, with the following independently checked SHA-256 hashes:
 Both native-tested source heads passed compilation, and the full `7709236`
 suite in session `22884` exited 0 with the qualified result above. The integration
 owner reported the remote worktree clean and unchanged at `7709236`, with
-40,550,785,024 bytes free after the full suite. Final documentation commits,
-exact-tip CI and publication remain pending.
+40,550,785,024 bytes free after the full suite. The publication closeout below
+records the subsequent source-control disposition.
 
 ## Remaining limits and closure evidence
 
@@ -197,8 +197,48 @@ exact-tip CI and publication remain pending.
   existing schema contracts. Production adoption requires the canonical roll
   verdict and guarded recovery; no roll classification is inferred here.
 
-The integration owner will finalize the documentation-tip verification and
-publication record before treating this draft as complete. Native runtime
-receipts remain bound to READY `e7ef9d9` and combined P3 `7709236`; later
-documentation-only commits do not rewrite those tested source identities.
-Continuing work scope and acceptance remain in item 331 and its linked owners.
+Native runtime receipts remain bound to READY `e7ef9d9` and combined P3
+`7709236`; later documentation-only commits do not rewrite those tested source
+identities. Continuing work scope and acceptance remain in item 331 and its
+linked owners.
+
+## September 7 publication closeout
+
+The reviewed branches are public draft PRs:
+[READY #41](https://github.com/michaelbooth1/weather/pull/41) targets
+`master`; [generation config #42](https://github.com/michaelbooth1/weather/pull/42)
+targets READY. Initial publication tips were
+`ffa78496386953c83e32eeee03d058f97340317e` and
+`e8714166c326fdf59a47a04a1d493eb18f1783b0`, respectively.
+The latter contains the former with history preserved. Git tree comparisons
+confirmed no non-documentation difference from native anchors `e7ef9d9`
+and `7709236`. Later publication-note commits preserve that same boundary.
+
+Initial publication CI completed successfully on both exact heads:
+
+| Initial tip | Full Linux suite | CI run |
+| --- | --- | --- |
+| READY `ffa78496386953c83e32eeee03d058f97340317e` | 5,140 tests and 989 subtests passed; 262 skipped, one warning; 394.11 s | [34179010524](https://github.com/michaelbooth1/weather/actions/runs/34179010524) |
+| P3 `e8714166c326fdf59a47a04a1d493eb18f1783b0` | 5,219 tests and 989 subtests passed; 262 skipped, one warning; 383.36 s | [34179026776](https://github.com/michaelbooth1/weather/actions/runs/34179026776) |
+
+All workflow steps passed, including compilation and both documentation checks.
+The retained READY log `scratch/post-reclaim-ci-34179010524.log` has SHA-256
+`88017257522702B17221652CA71103C6BF2F04255AFD20702783BE313D61E6A4`;
+the P3 log `scratch/post-reclaim-ci-34179026776.log` has SHA-256
+`5D3169613E39F17749B041DBC491E1973FCD2F5A9B281808AA39A52F1C01DA6E`.
+The standard quiet CI summary reports skip counts without per-case reasons;
+it does not establish coverage of every skipped native control.
+
+Both local documentation audits and generated-backlog checks passed before
+publication. The configured Linux workflow runs compilation, the documentation
+audit, backlog validation and the full suite. The
+[READY checks](https://github.com/michaelbooth1/weather/pull/41/checks) and
+[config checks](https://github.com/michaelbooth1/weather/pull/42/checks) own
+the result for each actual PR tip. Use the PR descriptions and checks for the
+final verified head and CI evidence. A CI result qualifies only its actual head
+and reported test scope.
+
+Source preparation and the reviewed repairs are published. Production adoption,
+the storage owner's terminal handback, affected-input measurement, restored
+runtime fidelity, inference and economic qualification remain separate open
+work. These PRs neither adopt code into capture nor authorize new live exposure.
