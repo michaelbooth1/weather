@@ -50,10 +50,11 @@ clean checkout; historical exit codes and copied burn rates are not fresh proof.
 
 ## Ordered non-live critical path
 
-1. Qualify and run the one-file cache-compression pilot under fresh admitted
-   overnight conditions. Expand only from measured savings. Continue production
-   archive identity and exact-manifest qualification under item 325; do not
-   repeat the completed provisional restore or substitute the frozen mirror.
+1. Recover at least 120 GiB of additional capacity and finish above 100 GiB
+   free under the owner's September 8 approval. Qualify the exact cold snapshot
+   compression selection and measure its retained-file savings in the next
+   admitted window. Continue archive qualification under item 325; neither
+   workstation fixture savings nor the earlier 16.04 GiB meet this new target.
 2. Complete exact-head CI and the documentation closeout,
    then recheck the canonical roll verdict for each published tip and use the
    integration/recovery path. Preserve generated config and capture evidence.

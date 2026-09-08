@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-05 - ENCRYPTION PREFLIGHT REPAIRED; NATIVE CONTEXT AND RESTORE PROOF OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-08 - CAPACITY RECOVERY IMPLEMENTED; PRODUCTION TARGET OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -6,6 +6,41 @@ verified append-only archive on the workstation host, and never deleting a byte
 that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
+
+## 2026-09-08 additional capacity recovery approved
+
+The owner approved a target of at least 120 GiB newly reclaimed and at least
+100 GiB free on completion; the previous overnight 16.04 GiB is excluded.
+The target is not yet achieved. Production scanning and compression still
+require the admitted overnight window, including the scheduled-tiering reserve.
+
+The new [metadata inventory](../../operations/storage-recovery-inventory.md)
+measures complete cold folders by native allocation without source payload reads.
+Missing or invalid archive manifests still block archive eligibility; a July 1
+Toronto metadata spot-check found no event-day manifest. The archive/delete
+executor and verified destination quota remain unresolved.
+
+A supplementary [cold snapshot NTFS compression lane](../../operations/cold-snapshot-compression.md)
+preserves all paths and logical bytes, avoiding an archive-deletion dependency
+for this capacity source. It requires exact inventory receipt bindings, cold
+file/event dates, native identity, a flushed preimage hash, and identical
+post-compression content before reporting allocation savings. It is bounded to
+64 MiB per file, 256 files / 1 GiB per batch, 16 MiB/s streaming and a 600-second
+contained child. This is source qualification, not production reclaim evidence.
+
+Native Windows verification at `e8531de71f60a715518749287b90d8f55ee4a139`
+passed 134 focused checks, including an actual retained-file compression
+workflow, receipt-chain negatives, inventory allocation and the real wrapper's
+failure/teardown behavior in isolated fixtures. The preceding inventory/cache
+regression run at `804ead764` passed 164 checks. Both remote wrapper sessions
+ended at exit zero. Source changes after those tips require their own checks.
+
+Receipts are workstation-local ignored files:
+`scratch/capacity-cold-native-e8531de71.xml`, SHA-256
+`62407327c1b548a984e1d1becb22ede89712adc25fb68ef619187d9c0af53ae7`,
+and `scratch/capacity-inventory-wrapper-native-804ead764.xml`, SHA-256
+`1869fb0e3253bb214838a897bc12fc6aebf81f4a2c470fd7024f784d870ca6ca`.
+No fixture byte savings are counted toward the production target.
 
 ## 2026-09-07 approved bounded cache compression
 

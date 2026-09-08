@@ -61,6 +61,13 @@ or live-order authority.
 > window as "steady-state capture only" that by then held nine scheduled jobs. A stale operations
 > document is worse than a missing one, because it gets believed.
 
+The [bounded storage recovery inventory](storage-recovery-inventory.md) and
+[cold snapshot NTFS compression](cold-snapshot-compression.md) have dedicated
+capture wrappers and exact per-lane disk reservations. They retain the shared
+lease, protected windows, capture health and memory gates; neither permits
+source deletion or changes ordinary heavy-work admission. Direct module
+launches remain classified as heavy by the Codex launch guard.
+
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
 **Do not plan against these.** `scripts\ops\status.ps1` reports live RAM, disk, and the daily
