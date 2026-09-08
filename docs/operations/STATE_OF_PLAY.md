@@ -13,9 +13,10 @@ refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-p
 
 ## Current authority
 
-On September 7 the owner approved the revised disk-reclaim plan and its
-implementation. Bounded cache compression preserves files and requires fresh
-overnight admission; this does not waive capture, memory or deletion gates.
+On September 8 the owner approved at least 120 GiB of additional reclaim and
+100 GiB free, plus a storage-only daytime exception ending at 18:00 Toronto.
+The attended run ended before that deadline. Further work needs fresh ordinary
+overnight admission and exact requests; no memory or deletion gate is waived.
 
 The owner authorized the plan's implementation, source-control integration,
 and takeover of unfinished cold-storage work on September 4. Ordinary authorized
@@ -31,30 +32,30 @@ retention and restore requirements still govern their exact actions.
 | --- | --- |
 | Production source | W0's guarded plan/reporting-pause adoption completed at September 5 01:31:49 as `4603a56138406a66d7f52ee8266572d4b3f80abf`, with three-worker recovery and fresh HEAD/local/cached/live equality. W1 and W2 were previously adopted at `f570f0286194a5abe516e0e73f971038074ceb0a` and `dfcafc5bc175952597e1fd2cc08b9ad50db02937`; their master CI passed. Baseline restoration is complete; generated configs were preserved byte-for-byte in separate commit `19c25ad33de968e4b2c376346b192fee7eb8c9bc`. Consult Git and guarded receipts for later integrations. |
 | Portable source versus readiness | Phase repair `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` and portable topic tip `1acf9ebbc4a9576810b99126ea5ab8764f35aa9b` are ancestors of production master. This establishes integrated source only; the portable clone, current qualification and fresh live receipts have not been re-proved. No live attempt is permitted by this task. |
-| Capture | September 8 hourly checks through 08:03 report all three capture families active with zero consecutive errors and advancing snapshot clean iterations. The latest snapshot clean iteration is 77 seconds old; the watchdog is fresh. These are host-health observations, not a new graded streak or fleet-countability proof. |
-| Public execution tape | The same receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
+| Capture | The September 8 17:48 storage-admission receipt passed all three capture lock/process identity checks; their heartbeat ages were under 47 seconds and the snapshot clean iteration was 18 seconds old. These are point-in-time host-health observations, not a graded streak or fleet-countability proof. |
+| Public execution tape | The September 8 08:03 receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
 | Off-site qualification | The September 5 `v3-r1` independent restore passed 17 checks for one 513,522,801-byte provisional mirror log on source `54da9076c10e6d109062c635211fcd273022f94e` ([PR 23](https://github.com/michaelbooth1/weather/pull/23)). The one-file restore is proved; production source identity, whole-mirror recovery and production deletion eligibility remain unproved. Preserve spent attempts and the frozen mirror. |
 | Settlement / recurring work | The September 8 08:03 chain receipt is terminal and deferred at `ingest_quality_gate` by physical-memory/capture admission, with `rollup_freshness` blocked. The bounded 14-day settlement check flags August 28-31 and September 1, 4-6, affecting up to twelve markets on the worst date. The next chain run does not repair those dates automatically. Full-ledger reconciliation and resource-admitted per-date repair remain open. |
-| Storage | September 8 helper/app cleanup restored memory headroom. Qualified retained-file compression completed the eligible July 1-3 immediate files: 830 files and 6,308,986,880 newly reclaimed bytes. July 4's pilot adds 42,745,856 bytes. A subsequent memory-gated stop left six completed journals and one compressed file awaiting independent hash verification; further compression is paused while the read-only verification mode is qualified. The 120 GiB newly reclaimed / 100 GiB free target remains open. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md#production-pilot-and-resource-limited-expansion-september-8) owns exact receipts and resume requirements. |
+| Storage | The September 8 attended run verified 14,900,555,776 newly reclaimed bytes (13.88 GiB) across 2,040 retained files. C: had 25.13 GiB free at 17:48. July 1-7's eligible immediate files are complete; July 8 has 202 remaining. Repeated commit-memory stops ended the run; every interrupted file is reconciled, and no recovery process or schedule remains. The 120 GiB new-reclaim / 100 GiB free target is unmet. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md#production-pilot-and-resource-limited-expansion-september-8) owns exact evidence and resume requirements. |
 | Maker changes | W1 governance at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), passed full Linux CI and guarded adoption; all three capture workers passed before/after checks. W2 identity/config at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), passed workstation checks, topic-head Linux CI and guarded production adoption; all three capture workers and the public execution-tape producer passed recovery. Atomic paired configuration publication remains open. Both underwent independent review. |
 | Feasibility | W3's [pure diagnostic calculator](maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3`. Independent review, 91 workstation checks and compilation of both changed Python paths passed. W3/G1 remain open: no current campaign/economics collection, evidence qualification, paid or reconciled profit, or consumer/CLI/executor integration. Git, CI and guarded receipts own source-integration status. |
 | Accounting | W4's static source trace is complete. Next is a pure offline accrual-to-wallet-credit matcher within the existing reports family, preserving the cash identity. No account failure or paid incentive is observed; item 330 records the design receipt. |
 | Documentation debt | The status receipt still reports a pending integration-documentation transaction. A draft state rewrite or passing source suite does not close it; reconcile actual pending tips and publish the required documentation before claiming a completed transaction. |
 | First recurring-job reduction | At September 5 00:30, only `WeatherModelMarketDisagreementAnalysis` was disabled after exact task/action and python/pythonw process checks. Before/after XML differs only by task Enabled=false. Stage A rehydration and all report/audit evidence remain; daily-learning freshness still matters. The exact receipt is `scratch/handoffs/model-disagreement-on-demand-20260905.md`. No runtime savings are yet measured. |
 
-September 8 observations use the production-local ignored receipt
+September 8 overnight observations use the production-local ignored receipt
 `scratch/handoffs/overnight-status-20260908-0803.json`, timestamp 08:03 local,
 SHA-256 `219f6c89faa0f03bee8652ba43875f8572488fa110d493e43d163a5178d3ac4b`.
-Older entries retain their own dated evidence. These files need not exist in a
-clean checkout; historical exit codes and copied burn rates are not fresh proof.
+Item 325 binds the later storage/capture receipts; other entries retain their
+own dated evidence. These ignored files need not exist in a clean checkout.
 
 ## Ordered non-live critical path
 
-1. Recover at least 120 GiB of additional capacity and finish above 100 GiB
-   free under the owner's September 8 approval. Qualify the exact cold snapshot
-   compression selection and measure retained-file savings under today's dated
-   storage exception. Continue archive qualification under item 325; neither
-   workstation fixture savings nor the earlier 16.04 GiB meet this new target.
+1. Continue the unmet capacity target under fresh admitted overnight requests.
+   Reconcile the completed July 8 identities against fresh inventory, then select
+   its remainder and later cold dates. Today's exact requests and daytime token
+   expire at 18:00 September 8. Larger/nested files and archive deletion remain
+   separately gated; fixture savings and the earlier 16.04 GiB are excluded.
 2. Complete exact-head CI and the documentation closeout,
    then recheck the canonical roll verdict for each published tip and use the
    integration/recovery path. Preserve generated config and capture evidence.

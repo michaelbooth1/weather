@@ -77,42 +77,84 @@ pilot. The per-file 64 MiB and all other compression bounds remain unchanged.
 
 ### Production pilot and resource-limited expansion, September 8
 
-**Latest at September 8 15:16 Toronto:** the source
-`ce1e60b6c8ac877be09188755424ce6e03a885aa` passed 337 native workstation checks
-and [full CI](https://github.com/michaelbooth1/weather/actions/runs/34260115674).
-The heartbeat observation correction is qualified. Subsequent admitted
-compression completed every eligible immediate file selected for July 1-3:
+**Closeout at September 8 17:48 Toronto: PARTIAL, target unmet.** The
+attended run verified **14,900,555,776 newly reclaimed bytes (13.88 GiB)**
+across **2,040 retained files**. C: had **26,987,237,376 bytes free
+(25.13 GiB)**. The earlier overnight 16.04 GiB and all fixture savings are
+excluded. No source file was deleted.
 
-| Target date | Verified files | Newly reclaimed bytes |
-| --- | ---: | ---: |
-| July 1 | 281 | 2,118,795,264 |
-| July 2 | 276 | 2,156,941,312 |
-| July 3 | 273 | 2,033,250,304 |
+| Target date | Verified files | Newly reclaimed bytes | Eligible immediate-file selection |
+| --- | ---: | ---: | --- |
+| July 1 | 281 | 2,118,795,264 | Complete |
+| July 2 | 276 | 2,156,941,312 | Complete |
+| July 3 | 273 | 2,033,250,304 | Complete |
+| July 4 | 289 | 2,152,722,432 | Complete |
+| July 5 | 279 | 2,085,097,472 | Complete |
+| July 6 | 264 | 1,601,503,232 | Complete |
+| July 7 | 289 | 2,163,539,968 | Complete |
+| July 8 | 89 | 588,705,792 | Partial; 202 remain |
 
-The total is 830 files and **6,308,986,880 bytes**; prior partial completions
-were included only after exact fresh-inventory reconciliation and are counted
-once. July 4's passed pilot adds 42,745,856 bytes. At its completion, C: had
-22,590,750,720 bytes free. Every source file remains retained.
+Completeness refers only to the qualified selection: immediate ordinary cold
+JSON/JSONL/CSV files within the 64 MiB bound and the planner's 1 MiB floor.
+Nested raw content, larger files, recent writes and other exclusions remain
+untouched; whole-folder capacity and archive deletion eligibility are unproved.
 
-The July 4 batch `capacity-july04-b00-20260908-01` stopped at 70.1453% commit
-with fresh capture and proved teardown. Its first six paired journals report
-190,939,136 additional bytes. Journal `006-before.json` names Seattle July 4
-`variant_predictions.jsonl`; compression completed before its post-hash
-verification was interrupted. The new inventory
-`capacity-immediate-july04-20260908-02` shows unchanged native file identity,
-logical size and timestamp, with allocation 51,142,656 -> 28,737,536 bytes.
-Its preimage SHA-256 is
-`681132b26379d6c70ab168feb30268629e69930497a8a69a71f07735b724061d`.
-The **22,405,120-byte difference is not yet verified or counted**.
+Execution source `2c704c94d4acf1e5cb735a7a9d765b163cbfd6f3` passed **385
+native Windows checks**, including actual interrupted compression followed by
+read-only verification, plus [full CI](https://github.com/michaelbooth1/weather/actions/runs/34270368930)
+and [host-hook CI](https://github.com/michaelbooth1/weather/actions/runs/34270369013).
+The admitted workstation session ended at exit zero. Its ignored JUnit file
+`scratch/capacity-retained-native-2c704c94d.xml` has SHA-256
+`30325b2629376520317b8f23361f61c4d42d322d2a4a712065343af67aedeba8`.
+Later documentation commits are not the execution identity of these receipts.
 
-Further compression is paused until that exact retained file passes an
-independent content check. The new
-[read-only verification mode](../../operations/cold-snapshot-compression.md#read-only-verification-after-interruption)
-keeps every source file and all existing admission bounds, consumes the pinned
-failed-attempt preimage plus fresh inventory, and distinguishes prior verified
-allocation savings from zero newly reclaimed bytes during verification.
-Native qualification and the production verification remain pending.
-The 120 GiB new-reclaim / 100 GiB free objective remains open.
+Repeated transient host commit above the unchanged 70% gate stopped batches,
+including the final short attempt at 70.0445%. All wrapper teardowns were proved.
+Six files whose compression preceded an interrupted post-hash check passed the
+qualified [read-only verifier](../../operations/cold-snapshot-compression.md#read-only-verification-after-interruption).
+Their original allocation savings are counted once; each verification command
+reported zero newly reclaimed bytes and zero source files changed. Completed
+journals inside failed attempts were counted only after exact fresh-inventory
+identity/allocation reconciliation. No unmatched preimage or unverified
+compressed file remains, and all spent attempts are preserved.
+
+The final July 8 inventory reconciles all 89 completed file identities. Its
+immediate-file allocation fell from 4,710,765,552 to 4,122,059,760 bytes, exactly
+matching the 588,705,792 verified bytes above. At 17:48 all three capture
+lock/process identities passed, their heartbeats were under 47 seconds old,
+commit was 62.55%, and available physical memory was 6,393,008,128 bytes.
+This is a point-in-time health observation, not a graded capture-day claim.
+
+The production-local ignored evidence is:
+
+- `scratch/handoffs/capacity-recovery-closeout-20260908.json`, SHA-256
+  `deda3b5f023e131d4cd8f6ba9d3eea2c714a1900aecbc4531882ade0da842db3`: totals, per-attempt reconciliation, final admission and resume requirements.
+- `scratch/handoffs/capacity-recovery-verified-files-20260908.json`, SHA-256
+  `8fb61a1efa67620d50eb43ad28107dc246222bcc9b4334065c3d3647d29af3f1`: all 2,040 unique paths, content hashes, native identities, before/after allocations and original/verification attempt references.
+- `scratch/storage_recovery_inventory/capacity-immediate-july08-20260908-04/wrapper-result.json`,
+  SHA-256 `6cf87a944975c4f396b4dcde0692181e23d150ce306c88089a4899e246508b7a`.
+  The closeout links the individual compression and verification receipts.
+
+The owner-authorized helper cleanup was repeated at 16:03 after new idle
+computer-use helpers appeared. Twenty-nine revalidated idle parent/child pairs
+exited, accounting for 1,674,272,768 private bytes; Codex and excluded/active
+helpers remained running. The create-only receipt is
+`scratch/handoffs/codex-ram-cleanup-20260908-1600.json`. ProtonVPN's app and
+both services were stopped; both services were still stopped at closeout.
+The earlier 13:40 cleanup is retained below. These are RAM observations, not
+disk-reclaim credits.
+
+**Resume:** the target still needs 113,948,463,104 additional reclaimed bytes,
+and free space remains below 100 GiB. No recovery process or recovery schedule
+remains running. The September 8 exception and today's compression requests
+expire at 18:00 Toronto. Use fresh ordinary 00:30-09:00 admission, a reviewed
+execution source, new inventory and unexpired exact requests; recheck and
+exclude the 89 completed July 8 identities before selecting its remainder.
+Continue later cold dates through the qualified lane. Do not reuse spent
+namespaces, count prior files twice, weaken capture/resource gates, or infer
+deletion authority. The owner requested that the PR stay queued: production
+master remains `6714b77d8bb57fa36b4d2dd33675cab971ef2432`, with no production
+merge, capture restart, off-site upload or deletion from this recovery run.
 
 The following earlier observations are retained as the sequence of evidence;
 the latest disposition above supersedes their then-current pause/resume state.
