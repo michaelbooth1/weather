@@ -46,11 +46,13 @@ def check_resources(*, now, available, commit, free_disk, loops, owner_approved_
 
 
 def validate_request(payload, *, production_root, now):
-    if not isinstance(payload, dict) or set(payload) != {
+    required = {
         "schema_version", "production_repo_root", "execution_host_id", "operation",
         "approved_by", "approved_at_utc", "expires_at_utc", "folders",
-    }:
+    }
+    if not isinstance(payload, dict) or set(payload) not in (required, required | {"traversal_scope"}):
         raise ValueError("request fields must match the exact inventory contract")
+    metadata.validate_scope(payload.get("traversal_scope", "recursive"))
     if payload["schema_version"] != schema_version("storage_recovery_inventory_request"):
         raise ValueError("unsupported inventory request")
     if Path(payload["production_repo_root"]) != production_root:
@@ -164,7 +166,8 @@ def run_pinned(args, production_root, output):
     with PinnedNtfsDirectory(production_root / "data"):
         result = metadata.inventory(production_root / "data", folders,
                                     as_of=now.astimezone(ZoneInfo("America/Toronto")).date(),
-                                    guard=guard)
+                                    guard=guard,
+                                    traversal_scope=request.get("traversal_scope", "recursive"))
     # Expiry, capture failure or drift after the last row invalidates the batch.
     guard(force=True)
     verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)
@@ -180,12 +183,15 @@ def run_pinned(args, production_root, output):
         "owner_approved_exception": exception,
         "inventory_sha256": digest, "inventory_bytes": size,
         "complete_folder_allocated_bytes": result["complete_folder_allocated_bytes"],
+        "complete_selection_allocated_bytes": result["complete_selection_allocated_bytes"],
+        "traversal_scope": result["traversal_scope"],
         "payload_bytes_read": 0, "source_files_changed": 0, "deleted_files": 0,
         "reclaimed_bytes": 0, "cleanup_eligible": False, "final_admission": admission,
     }
     write_receipt(output / "result.json", receipt)
     print(json.dumps({key: receipt[key] for key in (
-        "status", "complete_folder_allocated_bytes", "reclaimed_bytes", "cleanup_eligible")}))
+        "status", "traversal_scope", "complete_selection_allocated_bytes",
+        "complete_folder_allocated_bytes", "reclaimed_bytes", "cleanup_eligible")}))
     return 0 if result["status"] == "PASS" else 1
 
 

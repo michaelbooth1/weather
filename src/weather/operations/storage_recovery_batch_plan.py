@@ -74,9 +74,14 @@ def prepare(manifest, context, *, production_root, now, mode, start_index=0,
         raise ValueError("pilot starts at the first eligible file without predecessor paths")
     if mode == "expand" and len(pilot_paths) != 1:
         raise ValueError("expansion requires the validated single-file pilot path")
-    complete = {row["path"] for row in manifest["folders"] if row["status"] == "COMPLETE"}
+    scope = metadata.validate_scope(manifest.get("traversal_scope", "recursive"))
+    complete = {row["path"] for row in manifest["folders"] if row["status"] == "COMPLETE"
+                and row.get("traversal_scope", "recursive") == scope}
     eligible, excluded = [], Counter()
     for row in manifest["files"]:
+        if scope == "immediate_files" and len(Path(row["path"]).as_posix().split("/")) != 3:
+            excluded["outside_immediate_files_scope"] += 1
+            continue
         folder = "/".join(Path(row["path"]).as_posix().split("/")[:2])
         if folder not in complete:
             excluded["incomplete_folder"] += 1
@@ -117,7 +122,7 @@ def prepare(manifest, context, *, production_root, now, mode, start_index=0,
     requests = [{**context, "files": rows} for rows in batches]
     for request in requests:
         compression.validate_request(request, production_root=production_root, now=now)
-    return {"mode": mode, "start_index": start_index,
+    return {"mode": mode, "start_index": start_index, "traversal_scope": scope,
             "next_index": cursor if mode == "expand" else 0,
             "has_more": cursor < len(eligible),
             "eligible_file_count": len(eligible),

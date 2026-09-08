@@ -192,9 +192,17 @@ def _pinned(path):
     return PinnedNtfsDirectory(path)
 
 
+def validate_scope(scope):
+    if not isinstance(scope, str) or scope not in {"recursive", "immediate_files"}:
+        raise InventoryRefused("unsupported inventory traversal scope")
+    return scope
+
+
 def inventory(data_root, folders, *, as_of, guard: Callable[[], None],
-              limits=Limits(), allocation=native_allocation, clock=time.monotonic):
-    """Inventory exact cold folders; partial or drifted folders supply no budget."""
+              limits=Limits(), allocation=native_allocation, clock=time.monotonic,
+              traversal_scope="recursive"):
+    """Inventory exact selections; partial or drifted selections supply no budget."""
+    traversal_scope = validate_scope(traversal_scope)
     limits.validate()
     selected = validate_folders(folders, as_of=as_of)
     guard()
@@ -217,6 +225,7 @@ def inventory(data_root, folders, *, as_of, guard: Callable[[], None],
         initial_row = len(rows)
         folder = root.joinpath(*PurePosixPath(name).parts)
         folder_summary = {"path": name, "target_date": target.isoformat() if target else None,
+                          "traversal_scope": traversal_scope, "unvisited_subdirectories": 0,
                           "status": "PENDING", "files": 0, "logical_bytes": 0,
                           "allocated_bytes": 0, "cleanup_eligible": False}
         summaries.append(folder_summary)
@@ -245,8 +254,10 @@ def inventory(data_root, folders, *, as_of, guard: Callable[[], None],
                         raw = path.lstat()
                         if stat.S_ISDIR(raw.st_mode):
                             checked_stat(path, directory=True)
-                            if name != "backtest":
+                            if name != "backtest" and traversal_scope == "recursive":
                                 pending.append((path, depth + 1))
+                            else:
+                                folder_summary["unvisited_subdirectories"] += 1
                             continue
                         info = checked_stat(path, directory=False)
                         allocated = allocation(path, info)
@@ -288,8 +299,13 @@ def inventory(data_root, folders, *, as_of, guard: Callable[[], None],
             "source_files_changed": 0, "deleted_files": 0, "reclaimed_bytes": 0,
             "cleanup_eligible": False, "as_of": as_of.isoformat(),
             "data_root": str(root), "requested_folders": folders,
+            "traversal_scope": traversal_scope,
             "not_visited_folders": folders[len(summaries):], "entries_observed": entries,
             "elapsed_seconds": clock() - started, "stop_reasons": stops,
-            "complete_folder_logical_bytes": sum(s["logical_bytes"] for s in complete),
-            "complete_folder_allocated_bytes": sum(s["allocated_bytes"] for s in complete),
+            "complete_selection_logical_bytes": sum(s["logical_bytes"] for s in complete),
+            "complete_selection_allocated_bytes": sum(s["allocated_bytes"] for s in complete),
+            "complete_folder_logical_bytes": (sum(s["logical_bytes"] for s in complete)
+                                              if traversal_scope == "recursive" else 0),
+            "complete_folder_allocated_bytes": (sum(s["allocated_bytes"] for s in complete)
+                                                if traversal_scope == "recursive" else 0),
             "folders": summaries, "files": rows}

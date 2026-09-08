@@ -57,7 +57,23 @@ Their retained JUnit files are `scratch/capacity-batch-native-a4eb5450e.xml`,
 SHA-256 `6d40dc950cabb360f663c51ef952d1730c5a941e8005f244fc5310bee8648f08`,
 and `scratch/capacity-guard-readers-native-f2b32194b.xml`, SHA-256
 `a7600dce40bb0817ac4c8487ca4cdbffe5e8f7a5c87c6d1acdeece39f7794bc9`.
-No production inventory or compression has run under this new lane.
+The first production attempt at 12:14 Toronto refused the unchanged commit
+memory gate before inventory; teardown was proved. After the owner approved
+closing idle Chrome and restarting Explorer, memory headroom recovered.
+Explorer was restored in its original desktop session; the completed temporary
+nonrecurring restoration launcher was removed after its exit-zero receipt.
+
+At 12:29, the second inventory passed resource/capture admission (66.59% commit)
+but hit the 15,000-entry directory limit inside Atlanta July 1's raw subtree.
+Its PARTIAL result and all observations remain retained, with zero completed
+folder capacity and no compression authority. Production attempts are
+`scratch/storage_recovery_inventory/capacity-daytime-july01-20260908-01` and
+`capacity-daytime-july01-20260908-02`. Neither reclaimed space.
+
+The next reviewed selection uses explicit `immediate_files` scope. It avoids
+entering raw subtrees, reports selected-file capacity separately from unknown
+whole-folder capacity, and requires completed scope-bound receipts before the
+pilot. The per-file 64 MiB and all other compression bounds remain unchanged.
 
 ## 2026-09-07 approved bounded cache compression
 

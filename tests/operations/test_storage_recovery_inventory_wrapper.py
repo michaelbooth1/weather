@@ -47,6 +47,7 @@ result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding
           'owner_approved_exception': os.environ.get('WEATHER_STORAGE_INVENTORY_OWNER_APPROVED_EXCEPTION', ''),
           'request_sha256': a.request_sha256, 'deleted_files': 0, 'reclaimed_bytes': 0, 'cleanup_eligible': False,
           'payload_bytes_read': 0, 'source_files_changed': 0, 'complete_folder_allocated_bytes': 4096,
+          'complete_selection_allocated_bytes': 4096, 'traversal_scope': 'recursive',
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
 (out / 'result.json').write_text(json.dumps(result))
 '''

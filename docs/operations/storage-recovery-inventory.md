@@ -10,6 +10,18 @@ It expires at 18:00 Toronto that day; all resource, lease, capture and teardown
 checks remain mandatory. Without that exact dated argument the ordinary
 overnight window and scheduled-tiering reserve apply.
 
+The optional request field `traversal_scope` is either `recursive` (the
+backward-compatible default) or `immediate_files`. The latter enumerates only
+the named directory's immediate files; it validates but never enters child
+directories, and records their omitted count. This supports complete, small
+selections when a raw-evidence subtree exceeds the unchanged directory limit.
+Receipts bind that explicit scope through the inventory hash chain.
+
+`complete_selection_*_bytes` totals cover only completed selections under the
+recorded scope. For `immediate_files`, `complete_folder_*_bytes` stays zero:
+the unvisited tree's total size is unknown. A partial selection still supplies
+no capacity budget. Existing recursive requests keep their original semantics.
+
 ## Request and execution
 
 Create an expiring `storage_recovery_inventory_request` with the exact production

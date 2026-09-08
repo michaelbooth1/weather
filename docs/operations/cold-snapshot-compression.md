@@ -18,6 +18,9 @@ overnight window and scheduled-tiering reserve apply.
 First obtain a completed source-bound
 [metadata inventory](storage-recovery-inventory.md). The same reviewed source
 tip must own both inventory and compression. Select only complete folder rows.
+An inventory may explicitly cover only immediate files. In that scope, folder
+completion means the immediate-file selection is complete; the compression
+consumer and planner reject nested candidates and mismatched folder scopes.
 The request binds the inventory wrapper receipt by absolute path and SHA-256,
 and copies each selected file record exactly. The child independently verifies
 the wrapper, result and inventory hash chain and their source/host bindings.

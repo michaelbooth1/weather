@@ -170,6 +170,8 @@ try {
         $receipt.status = 'PASS'
         $receipt.reclaimed_bytes = 0
         $receipt.complete_folder_allocated_bytes = $result.complete_folder_allocated_bytes
+        $receipt.complete_selection_allocated_bytes = $result.complete_selection_allocated_bytes
+        $receipt.traversal_scope = $result.traversal_scope
     }
     else {
         if (-not $receipt.Contains('error')) { $receipt.error = 'child did not produce PASS; retain attempt and inspect child receipts' }

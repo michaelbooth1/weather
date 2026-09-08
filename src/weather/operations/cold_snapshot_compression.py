@@ -159,13 +159,18 @@ def read_inventory(request, candidates, *, production_root, source_git_sha):
             or Path(manifest.get("data_root", "")) != production_root / "data"
             or manifest.get("cleanup_eligible") is not False):
         raise ValueError("inventory manifest is not a matching PASS")
-    complete = {row["path"] for row in manifest["folders"] if row.get("status") == "COMPLETE"}
+    scope = inventory.validate_scope(manifest.get("traversal_scope", "recursive"))
+    complete = {row["path"] for row in manifest["folders"] if row.get("status") == "COMPLETE"
+                and row.get("traversal_scope", "recursive") == scope}
     rows = manifest["files"]
     indexed = {row["path"]: row for row in rows}
     if len(indexed) != len(rows):
         raise ValueError("inventory has duplicate file rows")
     for candidate in candidates:
-        folder = "/".join(PurePosixPath(candidate["path"]).parts[:2])
+        parts = PurePosixPath(candidate["path"]).parts
+        if scope == "immediate_files" and len(parts) != 3:
+            raise ValueError("candidate is outside the completed immediate-files selection")
+        folder = "/".join(parts[:2])
         if folder not in complete or indexed.get(candidate["path"]) != candidate:
             raise ValueError("candidate is absent, incomplete or changed from the inventory")
     return manifest
