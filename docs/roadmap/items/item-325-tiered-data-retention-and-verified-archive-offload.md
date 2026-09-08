@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [OPEN 2026-07-21 - DESIGN RECORDED; NO DELETION AUTHORIZED YET]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-05 - ENCRYPTION PREFLIGHT REPAIRED; NATIVE CONTEXT AND RESTORE PROOF OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -304,6 +304,97 @@ Revised ordering for the warm tier, replacing the 07-29 framing:
 
 Automating an apply path is deliberately gated behind operator review by the design above, and it
 would touch `src/**` or `scripts/**`, making it roll-sensitive. **Not before the release-#1 lock.**
+
+## 2026-09-10 verified cold-archive foundation
+
+The workstation build adds the fixture-only
+[Verified Cold-Archive Foundation](../../operations/verified-cold-archive.md).
+It now provides a deterministic one-day planner, one create-only deterministic
+archive object plus a self-hashed sidecar, append-only object/member
+verification, a traversal/link-safe exact-parity restore drill with a durable
+receipt, and a reviewed cleanup-manifest generator with no delete executor.
+
+The selection gate requires a current event-day manifest, no shared external
+payload dependencies, a minimum 30-day hot window, final settlement and closure,
+no open barrier/queue/point-in-time reference, stable non-reparse files, no
+writer lock, and exact parity for split plain/gzip representations. Adversarial
+tests use only synthetic `tmp_path` fixtures and cover determinism, collisions,
+drift, manifest tampering, truncation, traversal, links, duplicate members,
+restore mismatch, stale/open dates, and cleanup-plan gate failures.
+
+This completes the build-and-test foundation, not the production scope checkbox.
+The command surface refuses unmarked roots and repository `data/`. Production
+still needs a source-of-truth selection-proof adapter, encrypted append-only
+`rclone crypt` transport with `cryptcheck`, operator credential/OAuth setup,
+mirror-topology separation, a real restore drill, and separately reviewed prune
+ledger/execution work. Raw capture can contain sensitive request material and
+must never be uploaded unencrypted. `/E`-equivalent append-only copy semantics
+remain required; `/MIR` and destructive `rclone sync` remain forbidden.
+
+## 2026-09-11 provisional workstation encrypted staging adapter
+
+The next build-only slice adds the default-off
+`weather.operations.workstation_cold_archive_stage` module and admits only that
+literal module through the existing workstation-heavy `weather_heavy` lane.
+It accepts one regular, non-reparse, operator-pinned provisional mirror file up
+to 1 GiB; creates one deterministic normalized single-member `tar.gz`; and
+stages it through an already configured encrypted rclone config whose named
+crypt remote must wrap the exact explicit local ciphertext root.
+
+The adapter recovers the DPAPI CurrentUser-protected config password only in
+process and passes it only as `RCLONE_CONFIG_PASS` in a private bounded-child
+environment. It uses no shell or password argv, permits no destructive rclone
+verb, refuses a pre-existing local object, manifest, receipt, archive ID,
+logical remote destination, mapped ciphertext, or retained partial, and runs
+one-transfer/one-checker immutable copy plus `cryptcheck`. Exact before/after
+ciphertext inventory and source rehashing gate create-only self-hashed manifest
+and receipt publication. Failure after a copy attempt retains the encrypted
+state and writes `FAIL_CLOSED` evidence rather than retrying or cleaning it.
+
+Fixture-only adversarial tests substitute DPAPI and rclone behavior. No real
+mirror data, production data, config, key, credential, remote, Drive target,
+restore, cleanup, or delete operation was accessed. Every receipt is permanently
+`production_identity_not_proved=true`, `cleanup_eligible=false`, and
+`deletion_authorized=false`, and the module contains no deletion executor. The
+schema additions are additive-only; because `schema_registry_data.py` belongs
+to every live capture closure, this branch remains roll-sensitive at production
+merge.
+
+This does not complete a production scope checkbox. A separately authorized
+run must still bind authoritative production selection, perform real encrypted
+off-site transfer, complete and review a restore drill, split mirror semantics,
+and add the independent prune ledger/executor before any source can become
+deletion-eligible. The intended real source remains deletion-ineligible.
+
+## 2026-09-05 takeover and encryption preflight repair
+
+The owner authorized continuation of off-site storage and necessary changes,
+with no live trading. This supersedes the historical build-only authority
+limits above; authoritative selection, host admission, immutable attempts,
+encrypted transfer, independent restore, and exact-file prune-ledger gates
+still apply before source deletion.
+
+The inherited `real-pilot-clob-console-20260713-v1` attempt is spent. It failed
+at DPAPI recovery before ciphertext creation and remains preserved with its
+source, plaintext staging and failure receipt. It proves no off-site restore
+or production-source parity, and none of its bytes is deletion-eligible.
+
+The repair checks DPAPI access and encrypted local destination binding before
+source reads or compression. It rechecks supporting identities and destination
+binding after compression, retains numeric-only native errors, and adds real
+Windows ASCII/Unicode fixtures alongside failure-ordering and drift coverage.
+Independent review found no remaining actionable issue. Exact-source admitted
+workstation verification passed 51 tests and failed two positive fixtures in
+PowerShell protection before the Python loader ran. The separate archive and
+documentation ratchets passed 48 tests; changed Python files compile and the
+agent-document audit passes. The full native positive-fixture gate remains open.
+
+Run the unchanged native fixtures from the attending user's ordinary workstation
+session to distinguish session access from loader compatibility. No real secret
+reprovisioning, new upload, restore, or source deletion was performed in this
+takeover. Do not infer a corrupt retained blob from the fixture's protection
+failure. Continue with a wholly new reviewed namespace only after that gate
+passes. The provisional adapter still has no production delete executor.
 
 Acceptance:
 
