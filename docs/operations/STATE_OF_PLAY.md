@@ -1,6 +1,6 @@
 # State of play
 
-**Last rewritten: 2026-09-05 America/Toronto.** Read this first; read
+**Last updated: 2026-09-08 America/Toronto (storage and host health).** Read this first; read
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
@@ -27,10 +27,10 @@ retention and restore requirements still govern their exact actions.
 | --- | --- |
 | Production source | W0's guarded plan/reporting-pause adoption completed at September 5 01:31:49 as `4603a56138406a66d7f52ee8266572d4b3f80abf`, with three-worker recovery and fresh HEAD/local/cached/live equality. W1 and W2 were previously adopted at `f570f0286194a5abe516e0e73f971038074ceb0a` and `dfcafc5bc175952597e1fd2cc08b9ad50db02937`; their master CI passed. Baseline restoration is complete; generated configs were preserved byte-for-byte in separate commit `19c25ad33de968e4b2c376346b192fee7eb8c9bc`. Consult Git and guarded receipts for later integrations. |
 | Portable source versus readiness | Phase repair `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` and portable topic tip `1acf9ebbc4a9576810b99126ea5ab8764f35aa9b` are ancestors of production master. This establishes integrated source only; the portable clone, current qualification and fresh live receipts have not been re-proved. No live attempt is permitted by this task. |
-| Capture | The retained September 5 00:02 status receipt reports all three capture process families at `AboveNormal`, zero consecutive errors, and the snapshot's last clean iteration 6.3 seconds old. This is a point-in-time health observation, not a new streak or fleet-countability proof. |
+| Capture | September 8 hourly checks through 08:03 report all three capture families active with zero consecutive errors and advancing snapshot clean iterations. The latest snapshot clean iteration is 77 seconds old; the watchdog is fresh. These are host-health observations, not a new graded streak or fleet-countability proof. |
 | Public execution tape | The same receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
-| Settlement / recurring work | The chain reports `settlement_source_audit` failed with `resource_budget_exceeded`. The five exact Toronto `settlement.json` files for August 28-September 1 are confirmed to report `missing_settlement` / `local_missing`, with no source or high; full-fleet and ledger scope remains unaudited. Item 330 records the bounded receipt. The initial Scheduler snapshot identified 30 recurring/boot/logon definitions (20 Ready, 10 Disabled) with proposed owners/dispositions. Further mixed-chain consumer reviews and job adoption decisions remain open; the one subsequently disabled recurrence is recorded below. |
-| Storage | The September 5 00:56 receipt `scratch/handoffs/maker-pre-identity-status-20260905.json` reports 35 GiB free; 36.6 GiB belongs to the earlier 00:02 snapshot. The mirror remains paused and not proven restorable. Resume the bounded off-site path under [item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md); no new upload or deletion has occurred in this task. |
+| Settlement / recurring work | The September 8 08:03 chain receipt is terminal and deferred at `ingest_quality_gate` by physical-memory/capture admission, with `rollup_freshness` blocked. The bounded 14-day settlement check flags August 28-31 and September 1, 4-6, affecting up to twelve markets on the worst date. The next chain run does not repair those dates automatically. Full-ledger reconciliation and resource-admitted per-date repair remain open. |
+| Storage | September 8 lossless local tiering retained the September 7 tapes in gzip form and reduced file lengths by 16.04 GiB. Free space reached 21.4 GiB after the 06:00 job, was 20.2 GiB at 08:03; sustained storage pressure remains unresolved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md#2026-09-08-overnight-local-tiering) owns exact bytes and receipts. The separate replay-cache pilot remains unexecuted because resource admission fails. The mirror is still paused and no new off-site restore proof is established. |
 | Off-site blocker | Preserve spent attempt `real-pilot-clob-console-20260713-v1`, which failed at DPAPI before ciphertext creation. Repair `aea427fb7faf0b5fd67b8893b62b11fe649e71ea` checks encryption before source staging and rechecks its binding after compression. The native fixture run passed 51 tests and failed two in PowerShell protection before the loader; 48 separate archive/ratchet tests passed. An interactive-context check is pending; no new upload, restore proof or reclaim is established. |
 | Maker changes | W1 governance at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), passed full Linux CI and guarded adoption; all three capture workers passed before/after checks. W2 identity/config at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), passed workstation checks, topic-head Linux CI and guarded production adoption; all three capture workers and the public execution-tape producer passed recovery. Atomic paired configuration publication remains open. Both underwent independent review. |
 | Feasibility | W3's [pure diagnostic calculator](maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3`. Independent review, 91 workstation checks and compilation of both changed Python paths passed. W3/G1 remain open: no current campaign/economics collection, evidence qualification, paid or reconciled profit, or consumer/CLI/executor integration. Git, CI and guarded receipts own source-integration status. |
@@ -38,11 +38,11 @@ retention and restore requirements still govern their exact actions.
 | Documentation debt | The status receipt still reports a pending integration-documentation transaction. A draft state rewrite or passing source suite does not close it; reconcile actual pending tips and publish the required documentation before claiming a completed transaction. |
 | First recurring-job reduction | At September 5 00:30, only `WeatherModelMarketDisagreementAnalysis` was disabled after exact task/action and python/pythonw process checks. Before/after XML differs only by task Enabled=false. Stage A rehydration and all report/audit evidence remain; daily-learning freshness still matters. The exact receipt is `scratch/handoffs/model-disagreement-on-demand-20260905.md`. No runtime savings are yet measured. |
 
-The bounded status source is the production-local ignored file
-`scratch/handoffs/maker-baseline-status-20260905.json`, timestamp September 5
-00:02, SHA-256 `8496E3FA3CEBEA59A28C593C599EF42E2363DBAAF9DB991B6F5E5BDC8A3016D9`.
-It need not exist in a clean checkout. Its warnings identify work to verify;
-historical task exit codes and copied burn-rate estimates are not fresh proofs.
+September 8 observations use the production-local ignored receipt
+`scratch/handoffs/overnight-status-20260908-0803.json`, timestamp 08:03 local,
+SHA-256 `219f6c89faa0f03bee8652ba43875f8572488fa110d493e43d163a5178d3ac4b`.
+Older entries retain their own dated evidence. These files need not exist in a
+clean checkout; historical exit codes and copied burn rates are not fresh proof.
 
 ## Ordered non-live critical path
 
