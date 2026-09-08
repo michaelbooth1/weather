@@ -72,6 +72,9 @@ The child streams hashes at at most 16 MiB/s. Files are processed serially.
 The wrapper owns the complete child tree in a kill-on-close Job, bounds runtime
 to 600 seconds, and clamps to the next protected boundary with teardown reserve.
 The child checks capture/resources at least every second while progressing.
+Heartbeat and clean-iteration ages use a comparison time sampled after all
+status/identity reads, so a heartbeat published during a read is not mistaken
+for future evidence. Genuinely future or stale timestamps still fail closed.
 A synchronous filesystem operation is additionally bounded by the parent Job.
 
 ## Receipts and stopping rules

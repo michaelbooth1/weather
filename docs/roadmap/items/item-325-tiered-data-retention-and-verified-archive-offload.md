@@ -127,6 +127,40 @@ The September 8 token expires at 18:00; future execution uses the ordinary
 admitted window or a new explicit owner decision. All source files remain;
 there was no deletion, off-site upload, production merge or capture restart.
 
+
+At 13:40 the owner-authorized shutdown of ProtonVPN and selective cleanup of
+26 idle computer-use helper pairs restored headroom: the stopped processes
+accounted for 2,124.4 MiB of private commit, and the 13:42 guard sampled 57.2%.
+Codex, two preserved computer-use helpers, general code REPLs and all capture
+workers remained running. The ignored receipt is
+`scratch/handoffs/codex-ram-cleanup-20260908.json`; it records exact identities,
+idle observations, retained helpers and unchanged service startup settings.
+
+The new source-bound July 1 inventory `capacity-immediate-july01-20260908-04`
+passed at source `1877039ceb60ac283e42d57ad2df4dc46f8c8a81` and reconciled the
+three compressed files' native metadata and allocation. Its wrapper SHA-256 is
+`d49db586599928414c921f3fd9813c8d70430bcd73c55b4c6f7ae70c771bd35c`.
+The new Toronto July 1 `variant_predictions.jsonl` pilot dry run and apply
+passed, recovering another 23,810,048 bytes with unchanged content and identity.
+Apply wrapper `capacity-restart-july01-pilot-apply-20260908-01` under
+`scratch/cold_snapshot_compression` has SHA-256
+`1396bd0fb1db4e0dd197816e056bd464e385975e303a8642a0ddd02e0a2db0da`.
+
+The subsequent `capacity-restart-july01-b00-20260908-01` batch verified twelve
+files and 284,864,512 more bytes of reduced allocation before refusing
+`capture_unhealthy:clob`. It has twelve complete before/after journal pairs,
+no unmatched preimage, and proved teardown. Memory admission passed at 61.09%;
+the reported CLOB heartbeat age was **-0.007398 seconds**, because the guard
+sampled its comparison time before reading concurrently updated status files.
+
+The correction samples the comparison clock after all status/identity reads
+and evaluates the retained timestamps against that completed observation.
+Future timestamps, the 180-second heartbeat and 900-second clean-iteration
+limits, all resource bounds and identity checks remain strict. Regressions
+cover publication during reads, genuinely future evidence and evidence that
+becomes stale during reads. Requalify this changed source and create a fresh
+inventory before reconciling the latest partial batch and expanding again.
+
 ## 2026-09-07 approved bounded cache compression
 
 The owner approved the revised storage-reclaim plan and implementation of work

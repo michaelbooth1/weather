@@ -128,7 +128,7 @@ def capture_admission(production_root: Path):
 
 def observe_capture_admission(production_root: Path, resource_checker):
     now = datetime.now(timezone.utc)
-    observed, loops = {}, []
+    observed, loops, statuses = {}, [], []
     def process(pid):
         if pid not in observed:
             observed[pid] = observe_process_identity(pid)
@@ -141,8 +141,6 @@ def observe_capture_admission(production_root: Path, resource_checker):
         if (type(status.get("consecutive_errors")) is not int or status["consecutive_errors"] != 0
                 or status.get("paused") is not False):
             row["degraded"] = True
-        row["heartbeat_age_seconds"] = _age(now, status.get("last_heartbeat"))
-        row["last_clean_iteration_age_seconds"] = _age(now, status.get("last_clean_iteration_at"))
         identity = lock.get("managed_process") or {}
         row["process_identity_matches_lock"] = bool(
             status.get("pid") == row.get("status_pid") == lock.get("pid") == identity.get("pid")
@@ -150,6 +148,14 @@ def observe_capture_admission(production_root: Path, resource_checker):
             and identity["creation_time_token"] == process(row["status_pid"]).get("creation_time_token")
         )
         loops.append(row)
+        statuses.append(status)
+    # Producers can publish while status/identity reads are in progress. Age all
+    # captured timestamps after those reads; a start-time clock can falsely
+    # classify a newly written heartbeat as future-dated.
+    now = datetime.now(timezone.utc)
+    for row, status in zip(loops, statuses):
+        row["heartbeat_age_seconds"] = _age(now, status.get("last_heartbeat"))
+        row["last_clean_iteration_age_seconds"] = _age(now, status.get("last_clean_iteration_at"))
     result = resource_checker(now=now, available=available_memory_bytes(),
                              commit=host_commit_percent(),
                              free_disk=shutil.disk_usage(production_root).free, loops=loops)
