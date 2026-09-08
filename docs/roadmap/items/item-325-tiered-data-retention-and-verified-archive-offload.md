@@ -70,10 +70,62 @@ folder capacity and no compression authority. Production attempts are
 `scratch/storage_recovery_inventory/capacity-daytime-july01-20260908-01` and
 `capacity-daytime-july01-20260908-02`. Neither reclaimed space.
 
-The next reviewed selection uses explicit `immediate_files` scope. It avoids
+The qualified selection uses explicit `immediate_files` scope. It avoids
 entering raw subtrees, reports selected-file capacity separately from unknown
 whole-folder capacity, and requires completed scope-bound receipts before the
 pilot. The per-file 64 MiB and all other compression bounds remain unchanged.
+
+### Production pilot and resource-limited expansion, September 8
+
+At execution source `3426d5276f1d4c7db8ae70f945e2f2354bf01ed9`, the admitted
+workstation run passed 332 native checks; full CI passed 4,644 tests and 921
+subtests (321 skips). Native JUnit `scratch/capacity-scope-native-3426d5276.xml`
+has SHA-256 `b0346b55ea7d16a19502136559e3d39068c587be681bb90c16e261985356182d`.
+[Full CI](https://github.com/michaelbooth1/weather/actions/runs/34252429048)
+and the Windows/Linux host-hook checks passed. These qualify source, not capacity.
+
+The completed July 1 immediate-file inventory selected 4,566,156,272 allocated
+bytes across twelve folders. Whole-folder capacity remains unknown. Its
+production-local wrapper is
+`scratch/storage_recovery_inventory/capacity-immediate-july01-20260908-01/wrapper-result.json`,
+SHA-256 `a37c25f322b76e009280cffc437454b0dc5eb07e34a8f2960ae313d3f24bebc5`.
+
+The Denver July 1 `replay_inputs.jsonl` dry run and apply passed. Apply reduced
+allocation from 56,561,664 to 15,134,720 bytes, recovering **41,426,944 bytes
+(39.5 MiB)**. Before/after content SHA-256 is
+`cb1daf895425d6d60ad527e703468adbb0d37e6ced34a8a9fbe0f1f3c2ea81e4`;
+native identity, timestamps and logical length were unchanged. The wrapper is
+`scratch/cold_snapshot_compression/capacity-pilot-july01-apply-20260908-01/wrapper-result.json`,
+SHA-256 `f493fb1d471df6a2cfaf7ee272d303fcdca6ddfd7637eed1b57e9a90992a26ed`.
+
+The first 21-file expansion attempt stopped before mutation at 73.0% commit.
+Its unchanged-request retry, `capacity-expand-july01-b00-20260908-02` under
+`scratch/cold_snapshot_compression`, verified Austin and Atlanta July 1
+`replay_inputs.jsonl` before stopping at **75.84% commit**. Their paired
+`000-before/after.json` and `001-before/after.json` journals prove equal hashes,
+unchanged identity/timestamps and allocation reductions of 39,391,232 and
+38,793,216 bytes respectively. There is no third preimage or unmatched journal.
+These additional **78,184,448 bytes (74.6 MiB)** are per-file verified evidence
+inside a **FAILED_RETAIN_AND_INSPECT** batch, not a passing expansion receipt.
+Do not count or select either file again without reconciling that attempt.
+
+Post-partial re-inventory attempts
+`capacity-immediate-july01-20260908-02` and `-03` both refused the unchanged
+70% commit gate before inventory; every wrapper proved teardown. A simultaneous
+native API comparison at about 13:04 measured 70.2152% with both
+GlobalMemoryStatusEx and GetPerformanceInfo. Minute-old monitor samples around
+66-68% therefore do not establish continuous admission. This is a measured
+resource block; no threshold, capture identity, lease or deadline was relaxed.
+
+At about 13:05, C: had **18,202,914,816 bytes free (16.95 GiB)**. The 120 GiB
+new-reclaim / 100 GiB free target remains open. Compression is paused; no child
+or recovery schedule remains running. Resume with fresh below-threshold
+admission and a new completed inventory, reconcile the two verified files,
+then prepare new exact requests from the same qualified execution source.
+Later documentation commits are not the execution source of these receipts.
+The September 8 token expires at 18:00; future execution uses the ordinary
+admitted window or a new explicit owner decision. All source files remain;
+there was no deletion, off-site upload, production merge or capture restart.
 
 ## 2026-09-07 approved bounded cache compression
 
