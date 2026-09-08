@@ -7,6 +7,20 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "replay_cache_compression_request",
+        "replay_cache_compression_request_v1",
+        "weather.operations.replay_cache_compression",
+        "active",
+        "Expiring host-bound approval for exact cold replay-cache file compression without deletion.",
+    ),
+    SchemaSpec(
+        "replay_cache_compression_receipt",
+        "replay_cache_compression_receipt_v1",
+        "weather.operations.replay_cache_compression",
+        "active",
+        "Create-only before/after hash, native identity, allocation and admission evidence for NTFS cache compression.",
+    ),
+    SchemaSpec(
         "capture_recovery_check",
         "capture_recovery_check_v1",
         "weather.operations.capture_recovery_check",

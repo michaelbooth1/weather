@@ -51,6 +51,10 @@ The normal daily refresh also writes the same artifacts:
   manifest when paired reports or manifests exist.
 - Prefer gzip tiering or externalization for large historical JSONL/CSV
   evidence before deleting local copies.
+- Explicitly approved cold replay-cache files may use the separate
+  [bounded NTFS compression lane](replay-cache-compression.md). It preserves
+  paths and bytes, has its own narrow disk reservation and retains all ordinary
+  capture-window, memory and lease gates. It grants no cache eviction authority.
 
 Routine provider caches may be pruned after TTL expiry when no replay,
 promotion, or incident report references them. Forecast archives used for

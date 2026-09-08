@@ -40,6 +40,7 @@ record that is valuable evidence but not current instruction.
 - [Configuration inventory](operations/config-inventory.md)
 - [Data storage classes](operations/data-storage-class-contract.md)
 - [Data retention policy](operations/data-retention-policy.md)
+- [Bounded replay-cache compression](operations/replay-cache-compression.md)
 - [Artifact storage policy](operations/artifact-storage-policy.md)
 - [Closed market-day archive contract](operations/closed-market-day-parquet-archive-contract.md)
 
