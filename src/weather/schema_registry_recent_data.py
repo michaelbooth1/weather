@@ -7,6 +7,20 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "storage_recovery_inventory_request",
+        "storage_recovery_inventory_request_v1",
+        "weather.operations.storage_recovery_inventory_cli",
+        "active",
+        "Expiring host-bound selection for a bounded metadata-only cold-folder inventory.",
+    ),
+    SchemaSpec(
+        "storage_recovery_inventory_receipt",
+        "storage_recovery_inventory_receipt_v1",
+        "weather.operations.storage_recovery_inventory_cli",
+        "active",
+        "Source-bound inventory digest and capture admission; no archive or cleanup authority.",
+    ),
+    SchemaSpec(
         "storage_recovery_inventory",
         "storage_recovery_inventory_v1",
         "weather.operations.storage_recovery_inventory",

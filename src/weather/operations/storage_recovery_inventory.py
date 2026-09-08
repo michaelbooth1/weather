@@ -8,8 +8,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
-import hashlib
+from datetime import date, timedelta
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -18,7 +17,6 @@ import stat
 import time
 from typing import Callable
 
-from weather.paths import data_path
 from weather.schema_registry import schema_version
 
 MIB = 1024**2
@@ -163,11 +161,24 @@ def native_allocation(path, expected):
         logical = (int(info.size_high) << 32) | int(info.size_low)
         written = ((int(info.written.dwHighDateTime) << 32) | int(info.written.dwLowDateTime))
         written_ns = (written - 116444736000000000) * 100
-        if (file_index != expected.st_ino or logical != expected.st_size
+        if (int(info.volume) != expected.st_dev or file_index != expected.st_ino
+                or logical != expected.st_size
                 or written_ns != expected.st_mtime_ns or info.links != 1
                 or standard.links != 1 or standard.directory or standard.delete_pending
                 or info.attributes & REPARSE_POINT or standard.allocation < 0):
             raise InventoryRefused("native allocation identity mismatch")
+        if info.attributes & (0x800 | 0x200):  # NTFS compressed or sparse.
+            class CompressionInfo(ctypes.Structure):
+                _fields_ = [("size", ctypes.c_int64), ("format", wintypes.WORD),
+                            ("unit", ctypes.c_ubyte), ("chunk", ctypes.c_ubyte),
+                            ("cluster", ctypes.c_ubyte), ("reserved", ctypes.c_ubyte * 3)]
+            compression = CompressionInfo()
+            if not kernel.GetFileInformationByHandleEx(
+                    handle, 8, ctypes.byref(compression), ctypes.sizeof(compression)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            if not 0 <= compression.size <= standard.allocation:
+                raise InventoryRefused("invalid physical allocation for compressed or sparse file")
+            return int(compression.size)
         return int(standard.allocation)
     finally:
         if not kernel.CloseHandle(handle):

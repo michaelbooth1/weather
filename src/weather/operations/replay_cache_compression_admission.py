@@ -33,6 +33,15 @@ MIN_FREE_DISK_BYTES = 20 * GIB + 2 * MAX_FILE_BYTES + 1024**2
 
 
 def check_resources(*, now, available, commit, free_disk, loops):
+    result = check_capture_health(now=now, available=available, commit=commit, loops=loops)
+    result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=MIN_FREE_DISK_BYTES)
+    if free_disk is None or free_disk < MIN_FREE_DISK_BYTES:
+        result["reasons"].append("compression_disk_reservation_unmet")
+        result["status"] = "BLOCK"
+    return result
+
+
+def check_capture_health(*, now, available, commit, loops):
     local = now.astimezone(ZoneInfo("America/Toronto"))
     minute = local.hour * 60 + local.minute
     reasons = []
@@ -44,8 +53,6 @@ def check_resources(*, now, available, commit, free_disk, loops):
         reasons.append("physical_memory_below_4_gib")
     if commit is None or not math.isfinite(commit) or not 0 <= commit < MAX_COMMIT_PERCENT:
         reasons.append("commit_not_below_70_percent")
-    if free_disk is None or free_disk < MIN_FREE_DISK_BYTES:
-        reasons.append("compression_disk_reservation_unmet")
     if len(loops) != 3 or {row.get("name") for row in loops} != {"snapshot", "clob", "observation_trigger"}:
         reasons.append("capture_loop_evidence_missing")
     for row in loops:
@@ -61,8 +68,7 @@ def check_resources(*, now, available, commit, free_disk, loops):
             reasons.append("snapshot_clean_iteration_missing_or_stale")
     return {"status": "BLOCK" if reasons else "PASS", "reasons": reasons,
             "checked_at_utc": now.isoformat(), "available_memory_bytes": available,
-            "host_commit_percent": commit, "free_disk_bytes": free_disk,
-            "minimum_free_disk_bytes": MIN_FREE_DISK_BYTES,
+            "host_commit_percent": commit,
             "capture_loops": [{key: row.get(key) for key in (
                 "name", "status_pid", "lock_pid", "heartbeat_age_seconds",
                 "last_clean_iteration_age_seconds", "process_identity_matches_lock",
@@ -93,6 +99,10 @@ def _bounded_status(path, limit):
 
 
 def capture_admission(production_root: Path):
+    return observe_capture_admission(production_root, check_resources)
+
+
+def observe_capture_admission(production_root: Path, resource_checker):
     now = datetime.now(timezone.utc)
     observed, loops = {}, []
     def process(pid):
@@ -116,7 +126,7 @@ def capture_admission(production_root: Path):
             and identity["creation_time_token"] == process(row["status_pid"]).get("creation_time_token")
         )
         loops.append(row)
-    result = check_resources(now=now, available=available_memory_bytes(),
+    result = resource_checker(now=now, available=available_memory_bytes(),
                              commit=host_commit_percent(),
                              free_disk=shutil.disk_usage(production_root).free, loops=loops)
     memory = process_memory_bytes()
@@ -164,9 +174,10 @@ def process_memory_bytes():
     return {"working_set_bytes": int(counters.working), "private_bytes": int(counters.private)}
 
 
-def verify_lease_owner(record, *, owner_pid, table, describe):
+def verify_lease_owner(record, *, owner_pid, table, describe,
+                       workload="replay_cache_compression"):
     """Require a live wrapper ancestor, including the Windows venv redirector."""
-    if (record.get("workload") != "replay_cache_compression"
+    if (record.get("workload") != workload
             or record.get("execution_host_profile") != "capture_colocated_v1"
             or record.get("pid") != owner_pid or not table):
         raise ValueError("compression wrapper lease identity is missing")
@@ -184,9 +195,9 @@ def verify_lease_owner(record, *, owner_pid, table, describe):
     raise ValueError("the lease owner is not this process's wrapper ancestor")
 
 
-def verify_current_lease(record, owner_pid, path):
+def verify_current_lease(record, owner_pid, path, *, workload="replay_cache_compression"):
     verify_lease_owner(record, owner_pid=owner_pid, table=snapshot_processes(),
-                       describe=describe_process)
+                       describe=describe_process, workload=workload)
     verify_lease_file_locked(path)
 
 
