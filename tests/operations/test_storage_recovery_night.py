@@ -190,6 +190,7 @@ class Simulation:
 
 
 def runner_fixture(root, monkeypatch, fault=None, segment="early"):
+    monkeypatch.setattr(subject, "process_memory_bytes", lambda: {"private_bytes": 64 * contract.MIB})
     monkeypatch.setattr(compression, "PinnedNtfsDirectory", lambda path: nullcontext())
     monkeypatch.setattr(planner, "PinnedNtfsDirectory", lambda path: nullcontext())
     plan = fixture_plan(root)
@@ -233,7 +234,7 @@ def test_unknown_or_uncontained_failure_stops_without_retry(tmp_path, monkeypatc
 
 def test_memory_wait_ends_without_dispatch_at_the_segment_reserve(tmp_path, monkeypatch):
     runner, simulation = runner_fixture(tmp_path, monkeypatch)
-    now = [runner.deadline - timedelta(seconds=220)]
+    now = [runner.deadline - timedelta(seconds=230)]
     runner.now = lambda: now[0]
     runner.sleep = lambda seconds: now.__setitem__(0, now[0] + timedelta(seconds=seconds))
     runner.admission = lambda: {"status": "BLOCK", "reasons": ["commit_not_below_70_percent"],

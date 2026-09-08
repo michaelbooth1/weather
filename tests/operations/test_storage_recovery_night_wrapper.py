@@ -61,7 +61,7 @@ def native_fixture(tmp_path):
     production.mkdir()
     venv.EnvBuilder(with_pip=False).create(production / "venv")
     for name in ("windows_kill_on_close_job.ps1", "workload_admission.ps1",
-                 "storage_recovery_night_contract.ps1"):
+                 "storage_recovery_night_contract.ps1", "register_storage_recovery_night.ps1"):
         shutil.copy2(repo_path("scripts/ops", name), scripts / name)
     wrapper = repo_path("scripts/ops/storage_recovery_night_run.ps1").read_text(encoding="utf-8-sig")
     wrapper = wrapper.replace("try {\n    $null = New-Item", "try {\n    $deadline = [DateTime]::UtcNow.AddSeconds(6)\n    $null = New-Item")
@@ -147,3 +147,80 @@ def test_all_night_powershell_sources_parse_without_execution():
                   + "'" + str(path).replace("'", "''") + "',[ref]$tokens,[ref]$errors); "
                   "if ($errors.Count) { $errors | Out-String | Write-Output; exit 1 }")
         command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+
+
+SCHEDULER_MOCKS = r'''
+$ErrorActionPreference = 'Stop'
+$script:storedTask = $null
+$script:mode = '__MODE__'
+$script:registrationCalls = '__CALLS__'
+function Get-ScheduledTask {
+    param($TaskName, $TaskPath, $ErrorAction)
+    if ($script:mode -eq 'exists') { return [PSCustomObject]@{TaskName=$TaskName} }
+    if ($script:storedTask) { return $script:storedTask }
+}
+function New-ScheduledTaskAction {
+    param($Execute, $Argument, $WorkingDirectory)
+    return [PSCustomObject]@{Execute=$Execute;Arguments=$Argument;WorkingDirectory=$WorkingDirectory}
+}
+function New-ScheduledTaskTrigger {
+    param([switch]$Once, [datetime]$At)
+    return [PSCustomObject]@{StartBoundary=$At.ToString('o'); Enabled=$true
+        CimClass=[PSCustomObject]@{CimClassName='MSFT_TaskTimeTrigger'}
+        Repetition=[PSCustomObject]@{Interval=''}}
+}
+function New-ScheduledTaskSettingsSet {
+    param($MultipleInstances,[switch]$Hidden,[timespan]$ExecutionTimeLimit,[switch]$WakeToRun,
+          [switch]$AllowStartIfOnBatteries,[switch]$DontStopIfGoingOnBatteries)
+    return [PSCustomObject]@{MultipleInstances=$MultipleInstances;Hidden=[bool]$Hidden
+        ExecutionTimeLimit=('PT' + [int]$ExecutionTimeLimit.TotalMinutes + 'M')
+        StartWhenAvailable=$false;WakeToRun=[bool]$WakeToRun
+        DisallowStartIfOnBatteries=(-not $AllowStartIfOnBatteries)
+        StopIfGoingOnBatteries=(-not $DontStopIfGoingOnBatteries)}
+}
+function New-ScheduledTaskPrincipal {
+    param($UserId,$LogonType,$RunLevel)
+    return [PSCustomObject]@{UserId=$UserId;LogonType=$LogonType;RunLevel=$RunLevel}
+}
+function Register-ScheduledTask {
+    param($TaskName,$TaskPath,$Action,$Trigger,$Settings,$Principal,$Description)
+    Add-Content -LiteralPath $script:registrationCalls -Value $TaskName
+    if ($script:mode -eq 'drift') { $Settings.StartWhenAvailable=$true }
+    $script:storedTask = [PSCustomObject]@{TaskName=$TaskName;TaskPath=$TaskPath;State='Ready'
+        Actions=@($Action);Triggers=@($Trigger);Settings=$Settings;Principal=$Principal}
+}
+function Export-ScheduledTask { param($TaskName,$TaskPath); return '<Task>fixture export</Task>' }
+& '__REGISTRAR__' -ProductionRepoRoot '__PRODUCTION__' -PlanPath '__PLAN__' -PlanSha256 '__SHA__' -ExpectedSourceTip '__HEAD__' -PreflightOnly
+'''
+
+
+@pytest.mark.parametrize("mode,passed,calls", [("success", True, 1), ("exists", False, 0), ("drift", False, 1)])
+def test_registrar_readback_refuses_reuse_and_settings_drift_without_real_scheduler(native_fixture, mode, passed, calls):
+    source, production, head, host = native_fixture
+    now = datetime.now(timezone.utc)
+    night = (now + timedelta(days=1)).date()
+    from zoneinfo import ZoneInfo
+    expiry = datetime.combine(night, datetime.min.time(), ZoneInfo("America/Toronto")).replace(hour=9)
+    plan = {"night_date": night.isoformat(), "plan_id": "capacity-" + night.strftime("%Y%m%d") + "-fixture",
+        "production_repo_root": str(production), "source_root": str(source), "source_git_sha": head,
+        "execution_host_id": host, "approved_at_utc": now.isoformat(),
+        "expires_at_utc": expiry.astimezone(timezone.utc).isoformat(), "allow_resource_recovery": True}
+    path = production / "plan.json"
+    path.write_text(json.dumps(plan))
+    calls_path = production / "calls.txt"
+    replacements = {"__MODE__": mode, "__CALLS__": str(calls_path),
+        "__REGISTRAR__": str(source / "scripts/ops/register_storage_recovery_night.ps1"),
+        "__PRODUCTION__": str(production), "__PLAN__": str(path),
+        "__SHA__": hashlib.sha256(path.read_bytes()).hexdigest(), "__HEAD__": head}
+    script = SCHEDULER_MOCKS
+    for key, value in replacements.items():
+        script = script.replace(key, value.replace("'", "''"))
+    harness = production / "harness.ps1"
+    harness.write_text(script, encoding="utf-8")
+    result = subprocess.run(["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass",
+                             "-File",str(harness)], capture_output=True, text=True, timeout=40)
+    assert (result.returncode == 0) is passed, result.stdout + result.stderr
+    observed_calls = calls_path.read_text().splitlines() if calls_path.exists() else []
+    assert len(observed_calls) == calls
+    receipt = production / "scratch/storage_recovery_nights" / plan["plan_id"] / "registration-preflight/preflight-result.json"
+    assert receipt.exists() is passed

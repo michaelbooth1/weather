@@ -16,7 +16,7 @@ from weather.operations import storage_recovery_night_contract as contract
 from weather.operations import storage_recovery_night_evidence as evidence
 from weather.operations import storage_recovery_night_steps as steps
 from weather.operations.replay_cache_compression_admission import (
-    observe_capture_admission, set_current_process_below_normal,
+    observe_capture_admission, set_current_process_below_normal, process_memory_bytes,
 )
 from weather.paths import repo_path
 from weather.schema_registry import schema_version
@@ -105,6 +105,10 @@ class NightRunner:
                 raise SegmentStop("BUDGET_COMPLETE")
 
     def progress(self, phase):
+        if os.name == "nt":
+            memory = process_memory_bytes()
+            if memory is None or max(memory.values()) > 256 * contract.MIB:
+                raise ValueError("actual night controller memory exceeded 256 MiB or is unavailable")
         self.current_phase = phase
         self.status_sequence += 1
         value = {"schema_version": schema_version("storage_recovery_night_receipt"),
