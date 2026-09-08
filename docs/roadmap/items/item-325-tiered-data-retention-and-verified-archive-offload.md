@@ -7,6 +7,7 @@ that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
 
+<<<<<<< HEAD
 ## 2026-09-07 approved bounded cache compression
 
 The owner approved the revised storage-reclaim plan and implementation of work
@@ -92,6 +93,69 @@ ceiling. Time passage is not permission or proof that resource admission will
 pass. Preserve the frozen mirror, all archive attempts and all trading evidence.
 
 ## Historical design and measurements
+=======
+## 2026-09-08 overnight local tiering
+
+The owner requested nine hours of hourly production audits, repairs and space
+reclaim. Production source remained at `6714b77d8bb57fa36b4d2dd33675cab971ef2432`.
+An early bounded run used the existing canonical projection-tiering wrapper
+after a reviewed plan; the existing 05:00 projection and 06:00 raw-tape jobs
+then ran on their unchanged schedule. All times below are America/Toronto.
+
+| Run | Files | Original bytes | Retained gzip bytes | File-length reduction |
+| --- | ---: | ---: | ---: | ---: |
+| 02:05:57 early projection run | 4 | 5,061,200,633 | 218,928,763 | 4,842,271,870 |
+| 05:00:02 scheduled projection run | 8 | 9,821,304,244 | 420,591,220 | 9,400,713,024 |
+| 06:00:02 scheduled raw-tape run | 12 | 3,243,194,786 | 261,572,740 | 2,981,622,046 |
+| Total | 24 | 18,125,699,663 | 901,092,723 | 17,224,606,940 |
+
+These are the September 7 projection and canonical raw-tape files across the
+twelve markets. The early plan selected Atlanta, Miami, New York and Toronto;
+the scheduled projection job handled the other eight. Every action records
+matching source/decompressed SHA-256 and line counts, passing cleanup
+preflight, retained gzip and removal of only the verified uncompressed source.
+Active or recently written files and split projection days were excluded.
+The canonical raw-tape reader accepts the retained gzip representation.
+
+The **16.0417 GiB file-length reduction** is distinct from allocation accounting
+and concurrent volume deltas. The three wrappers measured volume increases of
+4,796,256,256, 9,377,734,656 and 2,721,808,384 bytes respectively. All returned
+zero with no hard stop, in 74.4, 166.7 and 202.8 seconds. The two scheduled
+tasks independently reported successful completed runs and their next daily
+triggers. This does not establish net overnight growth or week-long stability.
+
+Production-local ignored receipt copies, relative to the repository root:
+
+- `scratch/storage_reclaim/overnight-20260908-0205-before/`: prior projection reports.
+- `scratch/storage_reclaim/overnight-20260908-0205-plan/`: early reviewed plan.
+- `scratch/storage_reclaim/overnight-20260908-0207-apply/`: early apply and capture checks.
+- `scratch/storage_reclaim/overnight-20260908-0503-projection/`: scheduled projection proof.
+- `scratch/storage_reclaim/overnight-20260908-0604-raw/`: scheduled raw-tape proof.
+- `scratch/handoffs/overnight-status-20260908-0803.json`: latest bounded host audit at this update.
+
+The three retained apply JSON files have these SHA-256 digests, respectively:
+
+- `cdf41ae7aea0acc4d236ac6651f3ba21733b6230fc37efae35cf7c43197023d4`
+- `0c9d29fa21a56ad7321c3281667fa0bb3c0d3f8bee280b9e9e507882e87260b4`
+- `c88471257f056d0982ffbc3bb1cff6e7530ca77d53011a14ac234e632b55df50`
+
+These receipts are not distributed with a clean checkout. The hourly checks
+through 08:03 show advancing snapshot clean iterations and zero consecutive
+errors in all three capture loops; the execution-tape producer is connected
+with integrity PASS, while complete price-path usability remains false.
+No capture restart, source adoption, Scheduler change or live order occurred.
+
+Free space fell to 8.7 GiB before the early intervention, reached 21.4 GiB after
+the raw job, and was 20.2 GiB at 08:03. The separate reviewed replay-cache
+compression pilot was not attempted: host commit remained above its strict
+70% ceiling. Disk headroom also failed its reservation at several earlier checks.
+No admission threshold was relaxed. This local lossless tiering does not prove
+off-site durability, authorize retention deletion, resolve settlement gaps or
+complete this item's sustained-capacity acceptance criteria. Continue the
+verified offload work and preserve the paused mirror and spent attempts.
+
+## Original design and measurements
+>>>>>>> 96d387b9d2f692c3b49e64baf7928fbd4bad438b
 
 Source: 2026-07-21 measurement on the production host (931 GB volume, 223 GB
 free, 24%). Repository footprint 503 GB, of which `data/` is 466 GB:
