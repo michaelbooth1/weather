@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
+    [ValidateRange(30, 600)][int]$MaxRuntimeSeconds = 600,
     [switch]$Apply,
     [switch]$VerifyRetained,
     [string]$OwnerApprovedException = ''
@@ -39,7 +40,7 @@ else {
         $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddMinutes(285), $zone)
     }
 }
-$deadline = [DateTime]::UtcNow.AddSeconds(600)
+$deadline = [DateTime]::UtcNow.AddSeconds($MaxRuntimeSeconds)
 if ($deadline -gt $windowEnd.AddSeconds(-15)) { $deadline = $windowEnd.AddSeconds(-15) }
 if (($deadline - [DateTime]::UtcNow).TotalSeconds -lt 30) {
     throw 'REFUSED: insufficient time for a bounded child and teardown'

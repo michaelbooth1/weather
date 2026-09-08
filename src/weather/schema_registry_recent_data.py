@@ -7,6 +7,27 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "storage_recovery_night_plan",
+        "storage_recovery_night_plan_v1",
+        "weather.operations.storage_recovery_night",
+        "active",
+        "Bounded one-night retained-file recovery plan; no deletion or live authority.",
+    ),
+    SchemaSpec(
+        "storage_recovery_night_receipt",
+        "storage_recovery_night_receipt_v1",
+        "weather.operations.storage_recovery_night",
+        "active",
+        "Bounded one-night retained-file recovery receipt; no deletion or live authority.",
+    ),
+    SchemaSpec(
+        "storage_recovery_night_ledger",
+        "storage_recovery_night_ledger_v1",
+        "weather.operations.storage_recovery_night",
+        "active",
+        "Bounded one-night retained-file recovery ledger; no deletion or live authority.",
+    ),
+    SchemaSpec(
         "cold_snapshot_verification_request",
         "cold_snapshot_verification_request_v1",
         "weather.operations.cold_snapshot_verification",
