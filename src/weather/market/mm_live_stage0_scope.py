@@ -21,6 +21,12 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from weather.market.location_config import (
+    GENERATION_FIELD,
+    GENERATION_ID_FIELD,
+    LocationConfigError,
+    validate_generation_metadata_bytes,
+)
 from weather.market.market_config import config_for_date, ensure_date
 from weather.market.market_microstructure_capture import ClobClient
 from weather.market.market_registry import BUILTIN_SPECS
@@ -109,6 +115,7 @@ EVENT_METADATA_TOP_LEVEL_KEYS = {
     "source",
     "locations",
 }
+EVENT_METADATA_GENERATION_KEYS = {GENERATION_FIELD, GENERATION_ID_FIELD}
 EVENT_METADATA_SOURCE_KEYS = {
     "category_url",
     "gamma_events_query",
@@ -718,6 +725,13 @@ def load_stage0_event_metadata_gate(event_metadata_path, target_date, *, now=Non
         event_metadata_path,
         label="Stage 0 event metadata",
     )
+    expected_metadata_keys = EVENT_METADATA_TOP_LEVEL_KEYS
+    if set(payload) & EVENT_METADATA_GENERATION_KEYS:
+        expected_metadata_keys = expected_metadata_keys | EVENT_METADATA_GENERATION_KEYS
+        try:
+            validate_generation_metadata_bytes(raw)
+        except LocationConfigError as exc:
+            raise RuntimeError(f"Stage 0 event metadata generation invalid: {exc}") from exc
     target = ensure_date(target_date).isoformat()
     current = utc_now(now)
     try:
@@ -777,7 +791,7 @@ def load_stage0_event_metadata_gate(event_metadata_path, target_date, *, now=Non
     ]
     checks = {
         "exact_file_shape": (
-            set(payload) == EVENT_METADATA_TOP_LEVEL_KEYS
+            set(payload) == expected_metadata_keys
             and set(source) == EVENT_METADATA_SOURCE_KEYS
             and isinstance(payload.get("locations"), list)
         ),

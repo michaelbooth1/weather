@@ -95,6 +95,15 @@ The replacement contract is:
   here must come from current venue evidence or a documented measured decision
   rule with explicit risks and review triggers.
 
+Both Stage 0/1 metadata readers accept exactly the legacy event root or that
+root plus the two location-generation fields. A declared generation must pass
+the canonical envelope, embedded registry and event-payload hash checks; partial,
+corrupt and extra fields fail closed. Plans bind the SHA-256 of the complete raw
+metadata file, including its generation envelope and serialization. Attempt
+copies are checked from their own bytes without following the embedded registry
+source path. This preserves copied legacy files, the stable-file reread and fresh
+Gamma comparison; generation consistency supplies no additional live authority.
+
 The first-pilot numbers are classified as follows. None is an empirical
 optimum unless a cited measurement says so:
 

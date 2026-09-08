@@ -7,6 +7,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from weather.market.location_config import (
+    GENERATION_BOUND, LocationConfigError, read_location_config_pair, sha256_bytes,
+)
 from weather.paths import config_path, data_path, relative_to_repo
 from weather.schema_registry import schema_version
 
@@ -237,6 +240,39 @@ def config_record(path: Path, *, now: datetime, policy: dict) -> dict:
     }
 
 
+def location_config_generation_record(config_root: Path) -> dict:
+    locations_path = config_root / "locations.json"
+    metadata_path = config_root / "location_market_events.json"
+    try:
+        pair = read_location_config_pair(locations_path, metadata_path)
+        try:
+            projection_bytes = locations_path.read_bytes()
+        except FileNotFoundError:
+            projection_bytes = None
+        projection = (
+            "MISSING" if projection_bytes is None else
+            "MATCH" if projection_bytes == pair.registry_bytes else "DRIFT"
+        )
+        issues = []
+        if pair.binding_status != GENERATION_BOUND:
+            issues.append("location config pair is LEGACY_UNBOUND; no shared generation is proved")
+        if projection != "MATCH":
+            issues.append(f"flat location registry projection is {projection}")
+        return {
+            **pair.identity(),
+            "projection_status": projection,
+            "projection_sha256": sha256_bytes(projection_bytes) if projection_bytes is not None else None,
+            "status": "WARN" if issues else "PASS",
+            "issues": issues,
+        }
+    except (OSError, LocationConfigError) as exc:
+        return {
+            "binding_status": "INVALID", "generation_id": None,
+            "projection_status": "UNKNOWN", "status": "WARN",
+            "issues": [f"location config pair is invalid: {exc}"],
+        }
+
+
 def build_config_inventory(
     config_root: str | Path = DEFAULT_CONFIG_ROOT,
     *,
@@ -249,6 +285,11 @@ def build_config_inventory(
         config_record(config_root / name, now=now, policy=policy)
         for name, policy in sorted(CONFIG_POLICIES.items())
     ]
+    generation = location_config_generation_record(config_root)
+    if generation["issues"]:
+        event_row = next(row for row in rows if row["path"].endswith("location_market_events.json"))
+        event_row["issues"].extend({"issue": message} for message in generation["issues"])
+        event_row["status"] = "WARN"
     warning_count = sum(1 for row in rows if row["status"] == "WARN")
     return {
         "schema_version": SCHEMA_VERSION,
@@ -258,6 +299,7 @@ def build_config_inventory(
         "config_count": len(rows),
         "warning_count": warning_count,
         "configs": rows,
+        "location_config_pair": generation,
     }
 
 
@@ -274,6 +316,8 @@ def render_report(payload: dict) -> str:
         "",
         f"Generated: {payload.get('generated_at_utc')}",
         f"Status: `{payload.get('status')}`",
+        f"Location pair: `{(payload.get('location_config_pair') or {}).get('binding_status')}`; "
+        f"projection: `{(payload.get('location_config_pair') or {}).get('projection_status')}`",
         "",
         "| Config | Classification | Owner | Freshness | Status | Issues |",
         "| :--- | :--- | :--- | :--- | :--- | :--- |",

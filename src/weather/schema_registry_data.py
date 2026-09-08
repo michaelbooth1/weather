@@ -70,6 +70,14 @@ REGISTERED_SCHEMAS = (
         "Durable high-temperature location, station, source-plan, and settlement facts.",
     ),
     SchemaSpec(
+        "location_config_generation",
+        "location_config_generation_v0.1",
+        "weather.market.location_config",
+        "active",
+        "Atomic event metadata envelope binding exact registry bytes and source identity.",
+        migration_notes="Absent envelopes remain LEGACY_UNBOUND; invalid declared generations fail closed.",
+    ),
+    SchemaSpec(
         "location_market_events",
         "location_market_events_v0.1",
         "weather.operations.location_config_refresh",
