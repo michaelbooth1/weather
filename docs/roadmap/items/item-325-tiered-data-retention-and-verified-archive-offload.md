@@ -42,6 +42,19 @@ and `scratch/capacity-inventory-wrapper-native-804ead764.xml`, SHA-256
 `1869fb0e3253bb214838a897bc12fc6aebf81f4a2c470fd7024f784d870ca6ca`.
 No fixture byte savings are counted toward the production target.
 
+The receipt-only batch planner at `a4eb5450e76141ac13ee8bd1b26c312c9a164192`
+passed 107 native checks covering the planner CLI, compressed-file verification,
+receipt tampering, schema and documentation/import contracts. Expansion requires
+a completed positive one-file pilot from the same source and inventory.
+The earlier host-guard/reader matrix at `f2b32194b` passed 208 tests and
+22 subtests. Both admitted workstation sessions ended at exit zero.
+
+Their retained JUnit files are `scratch/capacity-batch-native-a4eb5450e.xml`,
+SHA-256 `6d40dc950cabb360f663c51ef952d1730c5a941e8005f244fc5310bee8648f08`,
+and `scratch/capacity-guard-readers-native-f2b32194b.xml`, SHA-256
+`a7600dce40bb0817ac4c8487ca4cdbffe5e8f7a5c87c6d1acdeece39f7794bc9`.
+No production inventory or compression has run under this new lane.
+
 ## 2026-09-07 approved bounded cache compression
 
 The owner approved the revised storage-reclaim plan and implementation of work
