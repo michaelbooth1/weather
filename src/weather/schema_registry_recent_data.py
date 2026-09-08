@@ -7,6 +7,13 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "storage_recovery_inventory",
+        "storage_recovery_inventory_v1",
+        "weather.operations.storage_recovery_inventory",
+        "active",
+        "Bounded cold-folder metadata and allocated-byte inventory; no payload reads or cleanup eligibility.",
+    ),
+    SchemaSpec(
         "replay_cache_compression_request",
         "replay_cache_compression_request_v1",
         "weather.operations.replay_cache_compression",
