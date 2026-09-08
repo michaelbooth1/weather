@@ -7,7 +7,6 @@ that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
 
-<<<<<<< HEAD
 ## 2026-09-07 approved bounded cache compression
 
 The owner approved the revised storage-reclaim plan and implementation of work
@@ -92,8 +91,6 @@ the memory guard reported 78% commit, still above the ordinary 70% admission
 ceiling. Time passage is not permission or proof that resource admission will
 pass. Preserve the frozen mirror, all archive attempts and all trading evidence.
 
-## Historical design and measurements
-=======
 ## 2026-09-08 overnight local tiering
 
 The owner requested nine hours of hourly production audits, repairs and space
@@ -155,7 +152,6 @@ complete this item's sustained-capacity acceptance criteria. Continue the
 verified offload work and preserve the paused mirror and spent attempts.
 
 ## Original design and measurements
->>>>>>> 96d387b9d2f692c3b49e64baf7928fbd4bad438b
 
 Source: 2026-07-21 measurement on the production host (931 GB volume, 223 GB
 free, 24%). Repository footprint 503 GB, of which `data/` is 466 GB:
