@@ -36,19 +36,22 @@ new live exposure retains its exact Stage 2 authority and readiness gates.
 | Portable source | Cumulative [PR 6](https://github.com/michaelbooth1/weather/pull/6) at `ca64296fb944a65c0ccfbf0e9a17b2d913413a68` includes subsequent documentation; exact-tip CI passed. Preserve the difference between tested runtime, later source and production adoption. The old Stage 2 donor requires current schema/capital/host and inventory-exit work. |
 | Storage | [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) and [PR 39](https://github.com/michaelbooth1/weather/pull/39) own reclaim. Final source `a62ba9c3162ebf3be48da82e6548b62201537023` passed native checks and exact-source CI; the disposition is conditional GO for an attended one-file pilot after fresh admission, protecting scheduled tiering. The later September 7 volume sample is about 24.7 GiB free. No production compression/deletion or pilot savings is established; no automatic task is scheduled. |
 | Restore proof | September 5 independent download/restore passed 17 checks for one 513,522,801-byte provisional workstation file. Production identity, broader archive durability and reclaim do not follow. Preserve this proof and all failed attempts; the frozen mirror remains non-authoritative. |
-| Repair queue | The isolated item-331 preparation branch reconciles current PR 6, PR 28 (including 24/25 economics/accounting and 26/27 repairs) and approved PR 40 with history preserved. Independent merge review passed. Generation-consistent config is separately committed and reviewed, with runtime verification pending. PR 30 status reads and PR 38 watchdog diagnostics remain separate reviewed work. Production adoption and exact resulting-source verification remain open. |
-| Model measurement | [Item 332](../roadmap/items/item-332-signed-native-temperature-band-correctness.md) records the repaired zero/legacy/native replay consumers, workstation PASS and expected old-source failures. [Item 333](../roadmap/items/item-333-reproducible-runtime-and-paired-model-comparison.md) owns the strict numerical incumbent control and PR 7 identity/BOM reuse assessment. Combined tests, forward runtime restoration, paired crossed inference and adopted-source evidence remain open. |
+| Repair queue | READY `e7ef9d9` reconciles PR 6, PR 28 (including 24/25 economics/accounting and 26/27 repairs) and approved PR 40 with history preserved. Combined `7709236` adds P3 generation-consistent config and compatibility repairs. The latest two-file fixture disk repair, native focused gates and exact-source compilation passed. The full combined native suite passed; publication, exact-source CI and production adoption remain open. PR 30 status reads and PR 38 watchdog diagnostics remain separate reviewed work. |
+| Model measurement | [Item 332](../roadmap/items/item-332-signed-native-temperature-band-correctness.md) owns zero/legacy/native correctness and expected old-source failures; item 331 records the ledger follow-up's native verification. [Item 333](../roadmap/items/item-333-reproducible-runtime-and-paired-model-comparison.md) owns the focused-verified numerical incumbent control and PR 7 identity/BOM reuse assessment. Impact measurement, forward runtime restoration, paired crossed inference and adopted-source evidence remain open. |
 | Economics / settlement | Bounded reward-page validation and raw response retention are implemented, independently reviewed and covered by the admitted workstation focused PASS. The [interface matrix](exchange-economics-source-evidence.md) leaves authoritative accrual/payment linkage and complete cash unresolved. No opportunity is qualified. Tested NYC Rules named NOAA first/WU fallback; retain the WU model proxy and qualify exact event Rules before inventory. |
 | Capture / labels | Prior retained capture health does not establish today's continuity or usable price paths. Five Toronto August 28-September 1 folder views were missing; authoritative ledger/fleet scope still needs bounded reconciliation. Do not count raw ledger revisions as market-days. |
 | Recurring work / documentation | One disagreement recurrence was disabled September 5; broader consumer-based reductions and measured savings remain open. The production pending-documentation file lists integrations through `6714b77d8`; reconcile any matching completion evidence and use the canonical transaction workflow. This proposed rewrite does not clear that transaction. |
 
 The [September 7 audit](../roadmap/audits/post-reclaim-system-audit-2026-09-07.md)
-owns review coverage, source references, recent-PR dispositions and limitations.
-It is a bounded source/document review, not a new full suite or runtime census.
-Item 331 records later source preparation. The owner explicitly approved the
-private workstation transfer and public GitHub publication on September 7.
-Baseline transfer, focused checks and compilation passed. Windows suite failures
-have reviewed repairs; renewed transfer approval and verification remain pending.
+owns the bounded source review; item 331 owns later preparation and exact receipts.
+The owner approved both source branches and verification fixes for workstation
+transfer and public publication; source bundles were transferred and hash-verified.
+Native READY/combined gates and exact-source compilation passed after the fixture
+disk repair. The earlier `c11c3287` full suite was interrupted without final JUnit;
+the fresh `7709236` full native suite passed. Publication and exact-source CI remain pending.
+Reviewed synthetic workstation fixture cleanup completed, preserving the two link
+fixtures and interrupted namespace. This is separate from production evidence
+reclaim; item 331 retains the exact cleanup scope and measured free-space change.
 
 ## Ordered next work
 
@@ -58,10 +61,10 @@ have reviewed repairs; renewed transfer approval and verification remain pending
 2. Reconcile only the dependency-valid source needed next and close actual
    integration documentation debt. Use canonical roll verdicts and guarded
    recovery; protect scheduled reclaim and capture.
-3. Verify the prepared combined source, then pursue the bounded native-band
-   impact census and exact opportunity qualification. Resolve the interface
+3. Complete source publication and exact-source CI, then pursue the bounded
+   native-band impact census and exact opportunity qualification. Resolve the interface
    matrix's payment-attribution and cash-coverage gaps before economic claims.
-4. Finish generation-consistent config and exact event settlement semantics;
+4. Verify generation-consistent config and finish exact event settlement semantics;
    connect existing feasibility/accounting primitives to retained real evidence.
 5. Restore a faithful model comparison and one outcome-free support/power
    decision. Prepare an inventory successor only if the opportunity is measurable.

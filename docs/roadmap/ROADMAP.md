@@ -43,9 +43,9 @@ infrastructure work remains.
 
 | Item | File |
 | ---: | --- |
-| 331 | [Post-Reclaim Model Economics And Research Plan [PARTIAL 2026-09-07 - APPROVED; SOURCE PREPARATION IN PROGRESS]](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
-| 332 | [Signed Native Temperature Band Correctness [PARTIAL 2026-09-07 - REPAIRED AND WORKSTATION-VERIFIED; ADOPTION OPEN]](items/item-332-signed-native-temperature-band-correctness.md) |
-| 333 | [Reproducible Runtime And Paired Model Comparison [PARTIAL 2026-09-07 - INCUMBENT CONTROL PREPARED; VERIFICATION OPEN]](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
+| 331 | [Post-Reclaim Model Economics And Research Plan [PARTIAL 2026-09-07 - SELECTED SOURCE NATIVE VERIFIED; CI/ADOPTION OPEN]](items/item-331-post-reclaim-model-economics-and-research-plan.md) |
+| 332 | [Signed Native Temperature Band Correctness [PARTIAL 2026-09-07 - NATIVE VERIFIED; CI, IMPACT AND ADOPTION OPEN]](items/item-332-signed-native-temperature-band-correctness.md) |
+| 333 | [Reproducible Runtime And Paired Model Comparison [PARTIAL 2026-09-07 - INCUMBENT CONTROL FOCUSED-VERIFIED; RUNTIME/INFERENCE OPEN]](items/item-333-reproducible-runtime-and-paired-model-comparison.md) |
 | 330 | [Maker Economics And Liquidity Rewards Refocus Master Plan [PARTIAL 2026-09-07 - STAGE 0/1 PROVED; ECONOMIC PROOF OPEN]](items/item-330-maker-economics-refocus-master-plan.md) |
 | 1 | [Snapshot Analytics [COMPLETE]](items/item-01-snapshot-analytics.md) |
 | 2 | [Intraday Model Calibration [COMPLETE]](items/item-02-intraday-model-calibration.md) |
