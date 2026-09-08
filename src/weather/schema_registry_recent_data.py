@@ -7,6 +7,20 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "cold_snapshot_compression_request",
+        "cold_snapshot_compression_request_v1",
+        "weather.operations.cold_snapshot_compression",
+        "active",
+        "Expiring exact inventory-bound cold snapshot selection for lossless NTFS compression.",
+    ),
+    SchemaSpec(
+        "cold_snapshot_compression_receipt",
+        "cold_snapshot_compression_receipt_v1",
+        "weather.operations.cold_snapshot_compression",
+        "active",
+        "Retained-file preimage and verified NTFS compression hashes, identities and allocated-byte savings.",
+    ),
+    SchemaSpec(
         "storage_recovery_inventory_request",
         "storage_recovery_inventory_request_v1",
         "weather.operations.storage_recovery_inventory_cli",
