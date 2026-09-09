@@ -2707,6 +2707,12 @@ SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
     SchemaLiteralExclusion(
+        "production_sorted_ustar_gzip_level1_v1",
+        "weather.operations.production_cold_archive_stage",
+        "archive_format_identifier",
+        "Deterministic USTAR and gzip encoding contract, not a serialized JSON schema.",
+    ),
+    SchemaLiteralExclusion(
         "native_station_pressure_train_serve_v1",
         "weather.calibration.feature_training_policy",
         "training_feature_policy_id",
