@@ -54,6 +54,16 @@ teardown reserved before the window boundary. Streaming is throttled to
 The core reserves worst-case output plus 50 GiB capture headroom and 16 MiB
 evidence headroom, then checks remaining reserve on every write.
 
+Owner approval on September 9, 2026 permits 20 GiB of capture reserve only
+for the selected July 16-31 archive. The CLI pins the exact plan raw SHA-256
+and its selection digest in `APPROVED_ARCHIVE_PLAN_SHA256` and
+`APPROVED_ARCHIVE_SELECTION_SHA256`. It verifies the actual plan bytes before
+selecting the lower reserve; a different or regenerated plan keeps 50 GiB.
+The same selected reserve reaches both ongoing admission and core output
+reservation. Evidence headroom, worst-case output reservation, time, lease,
+memory, capture health and teardown guards all remain. Final admission evidence
+records `source_disk_reserve_bytes`.
+
 ## What a PASS establishes
 
 A staging PASS proves byte identity during its pinned reads and local archive

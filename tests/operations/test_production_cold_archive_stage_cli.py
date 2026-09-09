@@ -2,6 +2,8 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import copy
+import hashlib
+import json
 import pytest
 
 from weather.operations import production_cold_archive_stage_cli as subject
@@ -123,3 +125,52 @@ def test_chunk_accounting_and_ambiguous_identity_refused(tmp_path):
 def test_exact_worktree_imports():
     assert Path(subject.__file__).resolve().is_relative_to(repo_path("src/weather"))
     assert Path(subject.stage.__file__).resolve().is_relative_to(repo_path("src/weather"))
+
+
+def test_approved_reserve_requires_actual_pinned_plan_bytes(tmp_path, monkeypatch):
+    path = tmp_path / "plan.json"
+    payload = {"selection_sha256": subject.APPROVED_ARCHIVE_SELECTION_SHA256}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(subject, "APPROVED_ARCHIVE_PLAN_SHA256", digest)
+    loaded, reserve = subject.load_plan_with_reserve(path, digest)
+    assert loaded == payload
+    assert reserve == 20 * 1024**3
+
+    # Supplying the approved digest for different bytes cannot grant admission.
+    path.write_text(json.dumps({**payload, "changed": True}), encoding="utf-8")
+    with pytest.raises(ValueError, match="digest mismatch"):
+        subject.load_plan_with_reserve(path, digest)
+
+    # Even an internally valid newly hashed plan retains the general floor.
+    changed_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert subject.load_plan_with_reserve(path, changed_digest)[1] == 50 * 1024**3
+
+
+@pytest.mark.parametrize("selection", [None, "", "a" * 64])
+def test_approved_plan_without_exact_selection_keeps_general_reserve(tmp_path, monkeypatch, selection):
+    path = tmp_path / "plan.json"
+    path.write_text(json.dumps({"selection_sha256": selection}), encoding="utf-8")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(subject, "APPROVED_ARCHIVE_PLAN_SHA256", digest)
+    assert subject.load_plan_with_reserve(path, digest)[1] == 50 * 1024**3
+
+
+def test_approved_reserve_keeps_evidence_memory_and_time_guards():
+    args = resources()
+    args["source_reserve_bytes"] = 20 * 1024**3
+    args["free_disk"] = 20 * 1024**3 + subject.EVIDENCE_RESERVE_BYTES
+    result = subject.check_resources(**args)
+    assert result["status"] == "PASS"
+    assert result["source_disk_reserve_bytes"] == 20 * 1024**3
+    args["free_disk"] -= 1
+    assert subject.check_resources(**args)["status"] == "BLOCK"
+    args["free_disk"] += 1
+    args["now"] = NOW.replace(hour=17)
+    assert subject.check_resources(**args)["status"] == "BLOCK"
+    args["now"] = NOW
+    args["commit"] = 70
+    assert subject.check_resources(**args)["status"] == "BLOCK"
+    args["commit"] = 50
+    args["available"] = 4 * 1024**3 - 1
+    assert subject.check_resources(**args)["status"] == "BLOCK"

@@ -33,6 +33,10 @@ MAX_PLAN_BYTES = 8 * 1024**2
 MAX_REQUEST_BYTES = 32768
 MAX_SECONDS = 300
 SOURCE_RESERVE_BYTES = 50 * GIB
+# Owner decision 2026-09-09: only the reviewed July 16-31 archive may use 20 GiB.
+APPROVED_ARCHIVE_PLAN_SHA256 = "b2f94bbe51ff31b40b1d43d5737f96ef721a3858bd37fdd460c9dcb66adf2b30"
+APPROVED_ARCHIVE_SELECTION_SHA256 = "ba1f3a81d083db6bb85141c0a867d0afa4508c66bb0b88dfd6c18437d7c0c8db"
+APPROVED_ARCHIVE_RESERVE_BYTES = 20 * GIB
 EVIDENCE_RESERVE_BYTES = 16 * 1024**2
 MAX_CHUNK_BYTES = GIB
 
@@ -104,12 +108,14 @@ def validate_chunk(plan, chunk_id, production_root, now):
     return chunk
 
 
-def check_resources(*, now, available, commit, free_disk, loops, output_reservation):
+def check_resources(*, now, available, commit, free_disk, loops, output_reservation,
+                    source_reserve_bytes=SOURCE_RESERVE_BYTES):
     # This new payload-reading lane uses the ordinary overnight timetable.
     # Existing dated metadata/compression exceptions do not admit this workload.
     result = check_capture_health(now=now, available=available, commit=commit, loops=loops)
-    minimum = SOURCE_RESERVE_BYTES + EVIDENCE_RESERVE_BYTES + output_reservation
-    result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=minimum)
+    minimum = source_reserve_bytes + EVIDENCE_RESERVE_BYTES + output_reservation
+    result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=minimum,
+                  source_disk_reserve_bytes=source_reserve_bytes)
     if type(free_disk) is not int or free_disk < minimum:
         result["reasons"].append("archive_disk_reservation_unmet")
         result["status"] = "BLOCK"
@@ -123,6 +129,17 @@ def _read_pinned_json(path, maximum, expected_hash):
     if hashlib.sha256(raw).hexdigest() != expected_hash:
         raise ValueError("pinned metadata digest mismatch")
     return value, raw
+
+
+def load_plan_with_reserve(path, expected_hash):
+    # Verify actual bytes before granting the exception; a claimed digest is
+    # insufficient. Every different or regenerated plan retains the normal floor.
+    plan, _ = _read_pinned_json(path, MAX_PLAN_BYTES, expected_hash)
+    reserve = SOURCE_RESERVE_BYTES
+    if (expected_hash == APPROVED_ARCHIVE_PLAN_SHA256 and
+            plan.get("selection_sha256") == APPROVED_ARCHIVE_SELECTION_SHA256):
+        reserve = APPROVED_ARCHIVE_RESERVE_BYTES
+    return plan, reserve
 
 
 def run_staging(args):
@@ -177,7 +194,7 @@ def _run_pinned(args, production_root, output, request_path):
     if not 0 < (deadline - now).total_seconds() <= MAX_SECONDS:
         raise ValueError("wrapper deadline is outside its bounded interval")
     plan_path = Path(request["plan_path"])
-    plan, _ = _read_pinned_json(plan_path, MAX_PLAN_BYTES, request["plan_sha256"])
+    plan, source_reserve_bytes = load_plan_with_reserve(plan_path, request["plan_sha256"])
     chunk = validate_chunk(plan, request["chunk_id"], production_root, now)
     # The core reserves its complete worst-case output before opening a source
     # and enforces the remaining reserve on every write. Ongoing health probes
@@ -194,7 +211,8 @@ def _run_pinned(args, production_root, output, request_path):
         if force or time.monotonic() - last_check >= 1:
             last_admission = observe_capture_admission(
                 production_root,
-                lambda **observed: check_resources(output_reservation=output_reservation, **observed),
+                lambda **observed: check_resources(output_reservation=output_reservation,
+                                                  source_reserve_bytes=source_reserve_bytes, **observed),
             )
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":
@@ -213,7 +231,7 @@ def _run_pinned(args, production_root, output, request_path):
             source_root=production_root / "data", admission=guard,
             deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds(),
             rate_bytes_per_second=16 * 1024**2,
-            free_space_reserve_bytes=SOURCE_RESERVE_BYTES + EVIDENCE_RESERVE_BYTES,
+            free_space_reserve_bytes=source_reserve_bytes + EVIDENCE_RESERVE_BYTES,
         )
     guard(force=True)
     verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)

@@ -80,6 +80,23 @@ growth trend; use it. Retained because the *ratios* explain why the policy exist
 | Disk free | ~385 GB | **stale — was 124.6 GB on 2026-08-08.** Read it live |
 | data/ growth (24h sample) | snapshots 23.4 GB, taker_runs 2.7, reanalysis 2.5, backtest 1.6, wunderground 1.4 | snapshots dominate; the taker is since PAUSED |
 
+## Approved July archive disk reserve
+
+Owner decision, September 9, 2026: the selected July 16-31 cold-snapshot archive
+may retain 20 GiB of capture disk reserve plus 16 MiB of evidence headroom and
+its bounded worst-case output reservation. This exception belongs only to the
+exact plan and selection digests pinned by
+`weather.operations.production_cold_archive_stage_cli`; it verifies the raw
+plan bytes before applying the reserve. Different or regenerated plans retain
+the general floor. See [the staging runbook](production-cold-archive-staging.md).
+
+This approval keeps serial chunks of at most 1 GiB, 300-second jobs, 16 MiB/s
+throttling, the ordinary overnight window excluding scheduled tiering, the
+shared lease, healthy capture, commit below 70%, at least 4 GiB available
+physical memory and complete child-tree teardown. It does not extend the
+separate dated daytime inventory/compression exception to this archive lane
+or weaken any general heavy-work threshold.
+
 ## The 24-hour map (America/Toronto)
 
 The [bounded replay-cache compression lane](replay-cache-compression.md) has a
