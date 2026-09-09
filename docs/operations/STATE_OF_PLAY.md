@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-08 America/Toronto (storage and host health).** Read this first; read
+**Last updated: 2026-09-08 America/Toronto (September 9 recovery armed).** Read this first; read
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
@@ -14,9 +14,10 @@ refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-p
 ## Current authority
 
 On September 8 the owner approved at least 120 GiB of additional reclaim and
-100 GiB free, plus a storage-only daytime exception ending at 18:00 Toronto.
-The attended run ended before that deadline. Further work needs fresh ordinary
-overnight admission and exact requests; no memory or deletion gate is waived.
+100 GiB free. The daytime exception expired at 18:00; the evening instruction
+authorized preparation, arming and a second audit of one ordinary recovery night.
+September 9 attempt `capacity-20260909-a2` is armed under its exact immutable
+plan. Memory, capture, verification and deletion gates remain unchanged.
 
 The owner authorized the plan's implementation, source-control integration,
 and takeover of unfinished cold-storage work on September 4. Ordinary authorized
@@ -32,11 +33,11 @@ retention and restore requirements still govern their exact actions.
 | --- | --- |
 | Production source | W0's guarded plan/reporting-pause adoption completed at September 5 01:31:49 as `4603a56138406a66d7f52ee8266572d4b3f80abf`, with three-worker recovery and fresh HEAD/local/cached/live equality. W1 and W2 were previously adopted at `f570f0286194a5abe516e0e73f971038074ceb0a` and `dfcafc5bc175952597e1fd2cc08b9ad50db02937`; their master CI passed. Baseline restoration is complete; generated configs were preserved byte-for-byte in separate commit `19c25ad33de968e4b2c376346b192fee7eb8c9bc`. Consult Git and guarded receipts for later integrations. |
 | Portable source versus readiness | Phase repair `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` and portable topic tip `1acf9ebbc4a9576810b99126ea5ab8764f35aa9b` are ancestors of production master. This establishes integrated source only; the portable clone, current qualification and fresh live receipts have not been re-proved. No live attempt is permitted by this task. |
-| Capture | The September 8 17:48 storage-admission receipt passed all three capture lock/process identity checks; their heartbeat ages were under 47 seconds and the snapshot clean iteration was 18 seconds old. These are point-in-time host-health observations, not a graded streak or fleet-countability proof. |
+| Capture | The September 8 20:43 preparation audit found all three capture supervisors RUNNING, with native process creation tokens matching their healthy writer locks and workers at AboveNormal priority. Supervisor ages were under 85 seconds. This is a point-in-time health observation, not a graded streak or fleet-countability proof. |
 | Public execution tape | The September 8 08:03 receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
 | Off-site qualification | The September 5 `v3-r1` independent restore passed 17 checks for one 513,522,801-byte provisional mirror log on source `54da9076c10e6d109062c635211fcd273022f94e` ([PR 23](https://github.com/michaelbooth1/weather/pull/23)). The one-file restore is proved; production source identity, whole-mirror recovery and production deletion eligibility remain unproved. Preserve spent attempts and the frozen mirror. |
 | Settlement / recurring work | The September 8 08:03 chain receipt is terminal and deferred at `ingest_quality_gate` by physical-memory/capture admission, with `rollup_freshness` blocked. The bounded 14-day settlement check flags August 28-31 and September 1, 4-6, affecting up to twelve markets on the worst date. The next chain run does not repair those dates automatically. Full-ledger reconciliation and resource-admitted per-date repair remain open. |
-| Storage | The September 8 attended run verified 14,900,555,776 newly reclaimed bytes (13.88 GiB) across 2,040 retained files. C: had 25.13 GiB free at 17:48. July 1-7's eligible immediate files are complete; July 8 has 202 remaining. Repeated commit-memory stops ended the run; every interrupted file is reconciled, and no recovery process or schedule remains. The 120 GiB new-reclaim / 100 GiB free target is unmet. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md#production-pilot-and-resource-limited-expansion-september-8) owns exact evidence and resume requirements. |
+| Storage | September 8 verified 13.88 GiB across 2,040 retained files; the 120 GiB new-reclaim / 100 GiB free target remains unmet. September 9 attempt `capacity-20260909-a2` is armed at 00:30 and 06:45 Toronto from frozen source `1c96f162f2e9aab0afa53326173f8aec8b441a73`, after native checks, full CI, actual S4U preflight and final task/plan/source/capture audit. At 20:43 C: had 20.43 GiB free and commit was 69.36%; execution waits for stable headroom. No overnight savings are claimed yet. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md#september-9-overnight-recovery-armed) binds the plan, windows, receipts and remaining work. |
 | Maker changes | W1 governance at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), passed full Linux CI and guarded adoption; all three capture workers passed before/after checks. W2 identity/config at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), passed workstation checks, topic-head Linux CI and guarded production adoption; all three capture workers and the public execution-tape producer passed recovery. Atomic paired configuration publication remains open. Both underwent independent review. |
 | Feasibility | W3's [pure diagnostic calculator](maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3`. Independent review, 91 workstation checks and compilation of both changed Python paths passed. W3/G1 remain open: no current campaign/economics collection, evidence qualification, paid or reconciled profit, or consumer/CLI/executor integration. Git, CI and guarded receipts own source-integration status. |
 | Accounting | W4's static source trace is complete. Next is a pure offline accrual-to-wallet-credit matcher within the existing reports family, preserving the cash identity. No account failure or paid incentive is observed; item 330 records the design receipt. |
@@ -51,14 +52,14 @@ own dated evidence. These ignored files need not exist in a clean checkout.
 
 ## Ordered non-live critical path
 
-1. Continue the unmet capacity target under fresh admitted overnight requests.
-   Reconcile the completed July 8 identities against fresh inventory, then select
-   its remainder and later cold dates. Today's exact requests and daytime token
-   expire at 18:00 September 8. Larger/nested files and archive deletion remain
-   separately gated; fixture savings and the earlier 16.04 GiB are excluded.
-2. Complete exact-head CI and the documentation closeout,
-   then recheck the canonical roll verdict for each published tip and use the
-   integration/recovery path. Preserve generated config and capture evidence.
+1. Let the exact armed recovery night run under its gates. Preserve the frozen
+   source and plan; inspect both segment wrapper/result/ledger chains after
+   completion, reconcile any interrupted files, and report deduplicated savings
+   plus actual free space. The 04:45-06:45 tiering gap stays protected; larger
+   and nested files, archive deletion and unproved savings remain excluded.
+2. Keep storage [PR 44](https://github.com/michaelbooth1/weather/pull/44) queued
+   as requested. Production adoption is not authorized by the night plan.
+   Other integrations still require their canonical verdict and guarded path.
 3. Review W0's proposed recurring-job dispositions and mixed daily-chain steps,
    and scope the remaining fleet/ledger gaps before choosing a resource-admitted
    repair for the confirmed Toronto omissions. Do not infer ledger rows from a flag.

@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-08 - CAPACITY RECOVERY IMPLEMENTED; PRODUCTION TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-08 - OVERNIGHT RECOVERY ARMED; PRODUCTION TARGET OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -74,6 +74,92 @@ The qualified selection uses explicit `immediate_files` scope. It avoids
 entering raw subtrees, reports selected-file capacity separately from unknown
 whole-folder capacity, and requires completed scope-bound receipts before the
 pilot. The per-file 64 MiB and all other compression bounds remain unchanged.
+
+### September 9 overnight recovery armed
+
+**Prepared and armed at September 8 20:43 Toronto; capacity outcome pending.**
+The owner explicitly requested plan review, overnight arming and a second audit.
+The [one-night controller](../../operations/storage-recovery-night.md) now owns
+attempt `capacity-20260909-a2` through an immutable plan and two one-shot tasks.
+This supersedes the daytime closeout's then-current absence of a recovery schedule.
+
+| Segment | Start, September 9 Toronto | Absolute controller deadline | Scheduler backstop |
+| --- | --- | --- | --- |
+| Early | 00:30 | 04:42 | 254 minutes |
+| Late | 06:45 | 08:55 | 134 minutes |
+
+The 04:45-06:45 gap preserves the existing 05:00 CLOB projection and 06:00 raw-tape
+tiering tasks. Their immediate filenames `order_books_long.csv` and
+`order_books.jsonl` are excluded from this controller's planning and ledger.
+No original recurring task definition changed. Both new tasks use S4U/Limited,
+wake enabled, IgnoreNew, hidden execution, battery allowance and no late catch-up.
+
+Execution is frozen at `1c96f162f2e9aab0afa53326173f8aec8b441a73` in the
+isolated `weather-capacity-night-20260909-a2` checkout. The plan names ninety
+exact cold-date groups: July 8-August 9, June 1-30 and May 5-31, each across
+the twelve built-in event folders. Missing or incomplete inventory receives
+zero capacity credit. Inventory and compression remain bounded to the qualified
+immediate-file lane; no candidate capacity is inferred from the folder list.
+
+The complete controller/retained-file matrix passed 472 native Windows tests at
+`0faf9b8a4eb661f6aaff14d5cf4fb728b7143529`. The final registrar-only repair
+passed 22 native checks, including both segment registrations using Windows'
+normalized ISO durations, altered-limit rejection, owner identity and nested
+child-tree containment. Exact execution-source
+[full CI](https://github.com/michaelbooth1/weather/actions/runs/34295624213)
+passed 4,725 tests and 921 subtests, with 342 skips;
+[host-hook CI](https://github.com/michaelbooth1/weather/actions/runs/34295624226)
+also passed. Workstation-local ignored JUnit evidence:
+
+- `scratch/night-final-0faf9b8a4.xml`, SHA-256
+  `0ef18a42bc14db0ae96fda6d1d392ded4f9d4c6820e88f651bdac60305ad9ce8`.
+- `scratch/night-normalized-duration-1c96f162.xml`, SHA-256
+  `422b05b08c60eed8cfc56427d38e5a52ec4531f18888bae65453c8b7b0405fb2`.
+
+The actual S4U preflight passed at 20:37:29-30, validating the full source,
+plan, native owner/host, baseline hashes and all 2,040 baseline identities, with
+zero source payload reads or changes and proved complete teardown.
+The subsequent independent audit rechecked every new task against retained XML,
+future trigger times, exact source/plan bindings, untouched baseline files,
+unchanged original schedules and all three native capture process identities.
+All three workers remained AboveNormal; no recovery process was running before
+the night. Production master stayed `6714b77d8bb57fa36b4d2dd33675cab971ef2432`
+with only the two pre-existing generated-config changes.
+
+Production-local ignored evidence:
+
+- `scratch/handoffs/capacity-night-plan-20260909-a2.json`, SHA-256
+  `54730c7559c0604b1fd75f3d5939ae55210b5eacfb48a53c739b6314751ca903`.
+- `scratch/storage_recovery_nights/capacity-20260909-a2/preflight/wrapper-result.json`,
+  SHA-256 `90d040da793b162785210cf3155d6d4dfce401a7c981a42c553c7a5f2bdcf502`.
+- `scratch/handoffs/overnight-20260909-preparation-audit-03.json`, SHA-256
+  `3b89e2a247dcb3b0efa46a49b690025cb353c44838f26a3118c55365aab5154f`.
+- `scratch/handoffs/overnight-20260909-armed-bindings-a2.json`, SHA-256
+  `db8f74fc8a22154b17729b1784c526843b84c7a9ed4ac52a29ca1aea46022d16`.
+- Per-task intents, registered XML and PASS readbacks under
+  `scratch/storage_recovery_nights/capacity-20260909-a2/registration-*`.
+
+The first registration attempt, `a1`, rejected the equivalent Scheduler
+duration `PT4H14M` because its source compared text with `PT254M`. Its exact
+never-run early task is disabled, its late task was never created, and its
+plan/source/preflight remain intact. The retained
+`scratch/storage_recovery_nights/capacity-20260909-a1/failed-registration-closeout.json`
+proves that the only task-XML change was Enabled=false. The repaired registrar
+compares duration values and preserves the intended limits.
+
+At 20:43 C: had **20.43 GiB free** and commit was **69.36%**. The controller
+requires three stable samples below 66% commit with at least 4.5 GiB physical
+availability before dispatch; children retain the existing 70% / 4 GiB gates.
+Only known memory interruptions or a busy lease with safe teardown can resume
+automatically, after complete file reconciliation. Unexpected failures stop.
+This may limit throughput; preparation does not guarantee the capacity target.
+
+The baseline remains 14,900,555,776 newly reclaimed bytes. The plan seeks the
+original cumulative 120 GiB and actual 100 GiB free; **no additional overnight
+bytes are claimed by this preparation**. After execution, reconcile both segment
+results and ledgers, account for independent tiering only from its receipts,
+and publish actual free space and remaining work. PR 44 remains queued; no
+production merge, capture restart, live operation or source deletion was performed.
 
 ### Production pilot and resource-limited expansion, September 8
 
