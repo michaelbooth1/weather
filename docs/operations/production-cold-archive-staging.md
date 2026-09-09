@@ -78,6 +78,78 @@ full restore. A later deletion lane must also prove consumer closure, retained
 restore metadata and fresh exact source identity. This staging CLI exposes no
 upload or source deletion operation.
 
+
+## Encrypted transfer and independent restore
+
+The production staging module continues to expose staging only. After a
+successful staging receipt, transfer the exact archive and its manifest/receipt
+to a restricted workstation inbox. Verify their raw hashes there. Use the
+existing admitted workstation stage entrypoint with `--production-chunk` to
+encrypt this copied archive; use the restore entrypoint with that flag to
+restore an independently downloaded object. Both route to
+`weather.operations.bulk_cold_archive_crypt`. The workstation wrapper and its
+host, principal, shared-mutex and complete child-tree constraints still apply.
+
+Both commands require `--archive-file` (named `archive.tar.gz`),
+`--production-manifest`, `--production-manifest-sha256`,
+`--production-receipt`, `--production-receipt-sha256`, `--plan-sha256`,
+`--archive-id`, `--rclone-executable`, `--rclone-config`, `--dpapi-secret`,
+`--crypt-remote-name`, `--ciphertext-root` and `--output-root`.
+Restore additionally requires `--restore-id`, `--crypt-receipt`,
+`--crypt-receipt-sha256`, `--transport-receipt`,
+`--transport-receipt-sha256`, `--downloaded-file` and
+`--original-ciphertext-root`. Use short unique IDs and fresh attempt paths.
+
+Encryption checks the complete production archive, encrypted configuration,
+local crypt destination, ciphertext header/hash and cryptcheck. Native pins
+protect regular inputs and path ancestors. Supporting secrets remain local and
+must be usable by the admitted Windows principal. The 600-second bridge deadline
+includes its local hashing, encryption or restore work.
+
+Back on the capture controller, `production_cold_archive_run.ps1 -Operation
+transfer` retains the same request/source/host, lease, capture, memory, overnight
+window and 300-second teardown requirements as staging. Its new immediate output
+parent is `scratch/production_cold_archive_transfer`. The request uses
+`production_cold_archive_transfer_request` with operation
+`upload_and_independent_download`, the common staging request fields, plus
+`archive_id`, `drive_remote_name`, `drive_root_folder_id`,
+`ciphertext_path`, `crypt_receipt_path`, `crypt_receipt_sha256`,
+`production_manifest_path`, `production_manifest_sha256`,
+`production_receipt_path`, `production_receipt_sha256`,
+`rclone_executable`, `rclone_config`, and `dpapi_secret`.
+The same exact-plan reserve exception applies; another plan keeps 50 GiB.
+
+The client requires encrypted configuration and Drive's app-created-files
+scope, with the reviewed private folder ID explicitly supplied to every call.
+It creates four new objects: ciphertext and production manifest, stage receipt
+and crypt receipt sidecars. Every name must be absent first. Sidecars contain
+recovery metadata; captured payload bytes are encrypted. Each object is
+downloaded to a fresh local path, fully hashed and compared with stable remote
+ID/size/hash metadata. Network copies use one transfer at 8 MiB/s; hashes use
+16 MiB/s. Required remaining time includes two copies, input/download hashes
+and 45 seconds for startup/metadata. A chunk that cannot fit is refused before
+upload, even when it meets the staging size limit. Full-size incompressible
+chunks therefore need a separately qualified transport strategy.
+
+An attempt-local encrypted config copy is pinned throughout network operations;
+the source configuration stays immutable. Token refresh that needs to replace
+this pinned copy may refuse and must be resolved through separately reviewed
+credential preparation, never by dropping the pin. Every failed attempt and
+possible partial remote upload is retained for inspection.
+
+Transport PASS proves independent ciphertext download, not plaintext restore.
+Copy that downloaded object and the hash-bound transport receipt to the
+workstation; restore into a fresh crypt namespace and plaintext tree. Complete
+ordered archive verification, materialization and per-file rehash are required.
+Drive provenance remains controller-supplied evidence on the workstation.
+Recovery keys/configuration need separate durable custody.
+
+All phases retain production sources and set cleanup eligibility false. Neither
+transport nor restore establishes fresh production identity or consumer closure.
+In particular, historical replay-status backfills and rotating conversions can
+still reference old folders; recent date alone does not clear those consumers.
+There is no production deletion executor in this bridge.
+
 ## Update when
 
 Update when chunk format, request fields, admission, output evidence or the

@@ -1,21 +1,31 @@
-# Attended, bounded archive staging. Retains every source; no upload or deletion.
+# Attended, bounded archive staging or verified encrypted transfer. Retains every source.
 # Source may be a clean reviewed worktree; production capture source is untouched.
 param(
     [Parameter(Mandatory = $true)][string]$ProductionRepoRoot,
     [Parameter(Mandatory = $true)][string]$RequestPath,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
-    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip
+    [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
+    [ValidateSet('stage', 'transfer')][string]$Operation = 'stage'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$isTransfer = $Operation -eq 'transfer'
+$workload = 'production_cold_archive_stage'
+$module = 'weather.operations.production_cold_archive_stage_cli'
+$outputDirectory = 'scratch\production_cold_archive'
+if ($isTransfer) {
+    $workload = 'production_cold_archive_transfer'
+    $module = 'weather.operations.production_cold_archive_transfer'
+    $outputDirectory = 'scratch\production_cold_archive_transfer'
+}
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
 $minute = $localNow.Hour * 60 + $localNow.Minute
 if ($minute -lt 30 -or $minute -ge 540) {
-    throw 'REFUSED: archive staging is restricted to 00:30-09:00 America/Toronto'
+    throw 'REFUSED: archive operations are restricted to 00:30-09:00 America/Toronto'
 }
 if ($minute -ge 285 -and $minute -lt 405) {
     throw 'REFUSED: 04:45-06:45 is reserved for scheduled tiering jobs'
@@ -51,9 +61,9 @@ function Assert-ArchiveEvidenceAncestors {
     }
 }
 
-$outputParent = Join-Path $ProductionRepoRoot 'scratch\production_cold_archive'
+$outputParent = Join-Path $ProductionRepoRoot $outputDirectory
 if ((Split-Path -Parent $OutputRoot) -ine $outputParent) {
-    throw 'output must be a new attempt under production scratch\production_cold_archive'
+    throw "output must be a new attempt under production $outputDirectory"
 }
 if (Test-Path -LiteralPath $OutputRoot) { throw 'spent output attempt: use a new reviewed request' }
 Assert-ArchiveEvidenceAncestors -Path (Split-Path -Parent $OutputRoot)
@@ -81,7 +91,7 @@ if ($hostIdentity -cne [string]$assignment.dedicated_capture_execution_host_id) 
 $python = Join-Path $ProductionRepoRoot 'venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'production project interpreter missing' }
 $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $ProductionRepoRoot `
-    -Workload 'production_cold_archive_stage' -ExpectedExecutionHostId $hostIdentity
+    -Workload $workload -ExpectedExecutionHostId $hostIdentity
 if ($null -eq $lease) { throw 'REFUSED: shared workload lease is busy' }
 
 $job = $null
@@ -99,6 +109,12 @@ $receipt = [ordered]@{
     hard_stop = $false; teardown_proved = $false; deleted_files = 0
     reclaimed_bytes = 0; cleanup_eligible = $false; source_retained = $true; upload_performed = $false
 }
+if ($isTransfer) {
+    # A terminated or malformed child cannot prove that a remote upload did not occur.
+    $receipt.upload_performed = $null
+    $receipt.upload_state = 'UNKNOWN'
+    $receipt.remote_side_effect_possible = $true
+}
 try {
     # Identity, time and live lease precede even create-only attempt evidence.
     $null = New-Item -ItemType Directory -Path $OutputRoot
@@ -106,7 +122,7 @@ try {
     $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT = $sourceRoot
     $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID = [string]$PID
     $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC = $deadline.ToString('o')
-    $arguments = @('-m', 'weather.operations.production_cold_archive_stage_cli', 'stage',
+    $arguments = @('-m', $module, $Operation,
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,
         '--source-git-sha', $ExpectedSourceTip)
@@ -141,7 +157,23 @@ try {
             $result.source_git_sha -cne $ExpectedSourceTip -or
             $result.deleted_files -ne 0 -or $result.reclaimed_bytes -ne 0 -or
             $result.cleanup_eligible -ne $false -or $result.source_retained -ne $true -or
-            $result.upload_performed -ne $false -or $result.execution_host_id -cne $hostIdentity) { throw 'child receipt binding mismatch' }
+            $result.execution_host_id -cne $hostIdentity) { throw 'child receipt binding mismatch' }
+        if ($isTransfer) {
+            if ($result.upload_performed -isnot [bool] -or $result.upload_performed -ne $true -or
+                $result.independent_download -isnot [bool] -or $result.independent_download -ne $true -or
+                $result.source_retained -isnot [bool] -or $result.cleanup_eligible -isnot [bool] -or
+                $result.deleted_files -isnot [ValueType] -or $result.deleted_files -is [bool] -or
+                $result.reclaimed_bytes -isnot [ValueType] -or $result.reclaimed_bytes -is [bool] -or
+                $result.chunk_id -isnot [string] -or [string]::IsNullOrWhiteSpace($result.chunk_id) -or
+                $result.archive_id -isnot [string] -or [string]::IsNullOrWhiteSpace($result.archive_id) -or
+                ($result.ciphertext_bytes -isnot [int] -and $result.ciphertext_bytes -isnot [long]) -or
+                $result.ciphertext_bytes -le 0 -or
+                $result.crypt_receipt_sha256 -isnot [string] -or $result.crypt_receipt_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                $result.transport_receipt_sha256 -isnot [string] -or $result.transport_receipt_sha256 -cnotmatch '^[0-9a-f]{64}$') {
+                throw 'transfer child receipt verification mismatch'
+            }
+        }
+        elseif ($result.upload_performed -ne $false) { throw 'stage child receipt claimed upload' }
         $finalTip = [string](git -C $sourceRoot rev-parse HEAD)
         if ($LASTEXITCODE -ne 0 -or $finalTip.Trim() -cne $ExpectedSourceTip) { throw 'source tip changed during operation' }
         $finalDirty = @(git -C $sourceRoot status --porcelain)
@@ -151,10 +183,21 @@ try {
         }
         $receipt.child_result_sha256 = (Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt.reclaimed_bytes = 0
-        $receipt.logical_source_bytes = $result.logical_source_bytes
-        $receipt.source_file_count = $result.source_file_count
         $receipt.chunk_id = $result.chunk_id
-        $receipt.core_receipt_sha256 = $result.core_receipt_sha256
+        if ($isTransfer) {
+            $receipt.archive_id = $result.archive_id
+            $receipt.ciphertext_bytes = $result.ciphertext_bytes
+            $receipt.crypt_receipt_sha256 = $result.crypt_receipt_sha256
+            $receipt.transport_receipt_sha256 = $result.transport_receipt_sha256
+            $receipt.independent_download = $true
+            $receipt.upload_performed = $true
+            $receipt.upload_state = 'VERIFIED'
+        }
+        else {
+            $receipt.logical_source_bytes = $result.logical_source_bytes
+            $receipt.source_file_count = $result.source_file_count
+            $receipt.core_receipt_sha256 = $result.core_receipt_sha256
+        }
         $receipt.status = 'PASS'
     }
     else {
@@ -164,6 +207,7 @@ try {
 }
 catch {
     $receipt.status = 'FAILED'
+    if ($isTransfer) { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
     $receipt.error = $_.Exception.Message
     $exitCode = 1
 }
@@ -175,7 +219,10 @@ finally {
     finally {
         $receipt.teardown_proved = $teardownProved
         $receipt.completed_at_utc = [DateTime]::UtcNow.ToString('o')
-        if (-not $teardownProved) { $receipt.status = 'TEARDOWN_UNPROVED'; $exitCode = 1 }
+        if (-not $teardownProved) {
+            $receipt.status = 'TEARDOWN_UNPROVED'; $exitCode = 1
+            if ($isTransfer) { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
+        }
         if ($job) { $job.Dispose() }
         if ($process) { $process.Dispose() }
         $env:PYTHONPATH = $oldPythonPath

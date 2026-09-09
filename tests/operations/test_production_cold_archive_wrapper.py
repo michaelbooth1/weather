@@ -31,10 +31,11 @@ CHILD = '''
 import argparse, json, os, subprocess, sys, time
 from pathlib import Path
 p = argparse.ArgumentParser()
-p.add_argument('command', choices=['stage'])
+p.add_argument('command', choices=['stage', 'transfer'])
 for key in ('production-repo-root', 'request', 'request-sha256', 'output-root', 'source-git-sha'):
     p.add_argument('--' + key)
 a = p.parse_args()
+assert Path(__file__).stem == ('production_cold_archive_transfer' if a.command == 'transfer' else 'production_cold_archive_stage_cli')
 out = Path(a.output_root)
 assert os.environ['WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT'] == str(Path.cwd())
 assert int(os.environ['WEATHER_PRODUCTION_ARCHIVE_OWNER_PID']) > 0
@@ -56,6 +57,21 @@ result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
 if mode == 'malformed_receipt': result.pop('core_receipt_sha256')
 if mode == 'claim_upload': result['upload_performed'] = True
+if a.command == 'transfer':
+    result.pop('core_receipt_sha256', None)
+    result.pop('logical_source_bytes')
+    result.pop('source_file_count')
+    result.update(upload_performed=True, independent_download=True, archive_id='archive-fixture',
+                  ciphertext_bytes=6144, crypt_receipt_sha256='b' * 64, transport_receipt_sha256='c' * 64)
+    if mode.startswith('missing_'): result.pop(mode.removeprefix('missing_'))
+    if mode == 'false_independent_download': result['independent_download'] = False
+    if mode == 'false_upload': result['upload_performed'] = False
+    if mode == 'claim_deletion': result['deleted_files'] = 1
+    if mode == 'claim_reclaim': result['reclaimed_bytes'] = 4096
+    if mode == 'claim_cleanup': result['cleanup_eligible'] = True
+    if mode == 'malformed_hash': result['crypt_receipt_sha256'] = 'not-a-sha256'
+    if mode == 'string_ciphertext_bytes': result['ciphertext_bytes'] = '6144'
+    if mode == 'string_independent_download': result['independent_download'] = 'True'
 (out / 'result.json').write_text(json.dumps(result))
 '''
 
@@ -110,6 +126,7 @@ def wrapper_fixture(tmp_path, request):
     (package.parent / "__init__.py").write_text("")
     (package / "__init__.py").write_text("")
     (package / "production_cold_archive_stage_cli.py").write_text(CHILD)
+    (package / "production_cold_archive_transfer.py").write_text(CHILD)
     (source / "tracked.txt").write_text("original")
     (source / ".gitignore").write_text("__pycache__/\n")
     command("git", "init", str(source))
@@ -120,15 +137,18 @@ def wrapper_fixture(tmp_path, request):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode):
+def launch(wrapper_fixture, mode, operation=None):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
-    output = production / "scratch/production_cold_archive/attempt"
+    output_dir = "production_cold_archive_transfer" if operation == "transfer" else "production_cold_archive"
+    output = production / "scratch" / output_dir / "attempt"
     arguments = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                  "-File", str(wrapper), "-ProductionRepoRoot", str(production), "-RequestPath", str(request),
                  "-RequestSha256", hashlib.sha256(request.read_bytes()).hexdigest(), "-OutputRoot", str(output),
                  "-ExpectedSourceTip", head]
+    if operation is not None:
+        arguments.extend(["-Operation", operation])
     process = subprocess.Popen(arguments, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return process, output
 
@@ -170,6 +190,52 @@ def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper
     if mode == "hang": assert receipt["hard_stop"] is True
     descendant = output / "descendant.json"
     if mode in ("hang", "residual_success"):
+        assert descendant.exists(), log
+        for pid in json.loads(descendant.read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"
+
+
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("residual_success", True), ("failure", False),
+    ("wrong_binding", False), ("source_drift", False), ("request_drift", False), ("hang", False),
+    ("missing_chunk_id", False), ("missing_archive_id", False), ("missing_ciphertext_bytes", False),
+    ("missing_crypt_receipt_sha256", False), ("missing_transport_receipt_sha256", False),
+    ("missing_independent_download", False), ("false_independent_download", False),
+    ("false_upload", False), ("claim_deletion", False), ("claim_reclaim", False), ("claim_cleanup", False),
+    ("malformed_hash", False), ("string_ciphertext_bytes", False), ("string_independent_download", False),
+])
+def test_transfer_requires_verified_upload_and_download_and_retains_sources(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation="transfer")
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    path = output / "wrapper-result.json"
+    assert path.exists(), log
+    receipt = json.loads(path.read_text(encoding="utf-8-sig"))
+    assert (receipt["status"] == "PASS") is success
+    assert receipt["teardown_proved"] is True
+    assert receipt["source_retained"] is True
+    assert receipt["deleted_files"] == receipt["reclaimed_bytes"] == 0
+    assert receipt["cleanup_eligible"] is False
+    assert receipt["remote_side_effect_possible"] is True
+    if success:
+        assert receipt["upload_performed"] is receipt["independent_download"] is True
+        assert receipt["upload_state"] == "VERIFIED"
+        assert receipt["child_result_sha256"] == hashlib.sha256((output / "result.json").read_bytes()).hexdigest()
+        assert receipt["chunk_id"] == "chunk-00000"
+        assert receipt["archive_id"] == "archive-fixture"
+        assert receipt["ciphertext_bytes"] == 6144
+        assert receipt["crypt_receipt_sha256"] == "b" * 64
+        assert receipt["transport_receipt_sha256"] == "c" * 64
+    else:
+        assert code == 1
+        assert receipt["status"] == "FAILED"
+        assert receipt["upload_performed"] is None
+        assert receipt["upload_state"] == "UNKNOWN"
+        assert receipt.get("error")
+    if mode == "hang":
+        assert receipt["hard_stop"] is True
+    if mode in ("hang", "residual_success"):
+        descendant = output / "descendant.json"
         assert descendant.exists(), log
         for pid in json.loads(descendant.read_text()).values():
             assert observe_process_identity(pid)["state"] == "not_found"
