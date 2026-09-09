@@ -873,3 +873,56 @@ Acceptance:
   a restore drill has been executed and recorded.
 - Capture, the daily chain, and barrier resumes complete unchanged for every
   date inside the hot window, and any older date can be restored on demand.
+
+## September 9 production-chunk transfer qualification
+
+The owner requested at least 100 GB of verified Drive offload followed by local
+reclaim, and approved the exact July-plan 20 GiB reserve exception. The retained
+selection contains 5,584 files with 111,275,511,800 measured allocated bytes.
+Those historical allocations are a candidate estimate, not reclaimed space.
+
+The implementation is published at
+d8bdb7111992cf0847ba1852ff2cf51a1a4e89d0 on
+codex/bulk-cold-archive-20260909, [draft PR 45](https://github.com/michaelbooth1/weather/pull/45).
+It adds native-pinned production staging, encryption of copied archive chunks,
+private Drive transfer with independent ciphertext/metadata downloads, and
+complete workstation plaintext restoration. The
+[production archive runbook](../../operations/production-cold-archive-staging.md)
+owns commands, schemas, reservations and proof limits.
+
+Independent review corrections keep the active encrypted client configuration
+and downloaded files pinned through terminal receipt, require complete upstream
+encryption/production proof, and refuse infeasible transfers before upload.
+At 8 MiB/s network and 16 MiB/s hashing, a maximum-size incompressible object
+cannot fit the combined 300-second transfer. A separately qualified split
+transfer or other bounded strategy is still required for such objects.
+
+Native workstation evidence, retained under production scratch/handoffs/:
+
+| Receipt | Result | SHA-256 |
+| --- | --- | --- |
+| archive-transfer-qualification-a1.xml | 224 cases: 215 pass, 7 test assertion failures, 2 skips | fc29044ace24e239220c9d14cdc45819aec6bb27ea0d0d231d7302724d05e182 |
+| archive-transfer-qualification-a2.xml | 18 pass, zero failures/skips | 828130b67a51eb2bfb1ab3216da47fbed309f4f98292ae7a6295504a19e4876a |
+| bulk-transfer-source-a2.json | Exact clean source and wrapper-dependency hashes | ba8f054d9e1f9b297cae060ff17059ff579bfdaa73cc156e850e4b822ef1a806 |
+
+The seven failures were correctly rejected invalid inputs whose tests expected
+ValueError instead of the existing typed archive exception. Only those test
+assertions changed. Follow-up included every affected case plus installed-rclone
+encryption/cryptcheck/decryption, native file pins, exact source/import identity,
+compilation, PowerShell parsing and the documentation audit. The wrapper's
+workstation invocation exited zero after the follow-up.
+
+Drive setup separately proved a private app-created-files target and an 86-byte
+native upload/download hash match. This establishes client connectivity only;
+it is not production archive transfer or disaster-recovery proof. The retained
+connection receipt is archive-drive-connection-verified-20260909.json,
+SHA-256 6a4ff1e28e28165dc3d2be00d7e60928c9e2635a10d46d16c191100f77802003.
+
+Production archive payload upload, full production restore, consumer closure,
+fresh deletion identity and reclaim remain unproved. Raw token files also feed
+scheduled Parquet provenance hashing; replay backfill enumerates all history;
+settled-folder discovery can silently omit folders after required-file removal.
+Even all available older July 1-8 allocations plus the July 16-31 raw token
+family fall below 100 GB. A verified off-site availability contract must preserve
+discovery and make historical restore requirements explicit before local
+deletion. Current capture and hot-window daily behavior must remain available.

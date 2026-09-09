@@ -31,11 +31,11 @@ CHILD = '''
 import argparse, json, os, subprocess, sys, time
 from pathlib import Path
 p = argparse.ArgumentParser()
-p.add_argument('command', choices=['stage', 'transfer'])
+p.add_argument('command', choices=['stage', 'transfer', 'upload', 'download'])
 for key in ('production-repo-root', 'request', 'request-sha256', 'output-root', 'source-git-sha'):
     p.add_argument('--' + key)
 a = p.parse_args()
-assert Path(__file__).stem == ('production_cold_archive_transfer' if a.command == 'transfer' else 'production_cold_archive_stage_cli')
+assert Path(__file__).stem == ('production_cold_archive_transfer' if a.command != 'stage' else 'production_cold_archive_stage_cli')
 out = Path(a.output_root)
 assert os.environ['WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT'] == str(Path.cwd())
 assert int(os.environ['WEATHER_PRODUCTION_ARCHIVE_OWNER_PID']) > 0
@@ -57,12 +57,20 @@ result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
 if mode == 'malformed_receipt': result.pop('core_receipt_sha256')
 if mode == 'claim_upload': result['upload_performed'] = True
-if a.command == 'transfer':
+if a.command != 'stage':
     result.pop('core_receipt_sha256', None)
     result.pop('logical_source_bytes')
     result.pop('source_file_count')
-    result.update(upload_performed=True, independent_download=True, archive_id='archive-fixture',
-                  ciphertext_bytes=6144, crypt_receipt_sha256='b' * 64, transport_receipt_sha256='c' * 64)
+    result.update(upload_performed=a.command != 'download', independent_download=a.command != 'upload',
+                  operation={'transfer':'upload_and_independent_download', 'upload':'upload_only',
+                             'download':'download_and_verify'}[a.command], archive_id='archive-fixture',
+                  ciphertext_bytes=6144, crypt_receipt_sha256='b' * 64)
+    result['upload_receipt_sha256' if a.command == 'upload' else 'transport_receipt_sha256'] = 'c' * 64
+    if mode == 'flip_upload': result['upload_performed'] = not result['upload_performed']
+    if mode == 'flip_download': result['independent_download'] = not result['independent_download']
+    if mode == 'wrong_phase': result['operation'] = 'wrong'
+    if mode == 'wrong_proof_kind':
+        result['transport_receipt_sha256' if a.command == 'upload' else 'upload_receipt_sha256'] = result.pop('upload_receipt_sha256' if a.command == 'upload' else 'transport_receipt_sha256')
     if mode.startswith('missing_'): result.pop(mode.removeprefix('missing_'))
     if mode == 'false_independent_download': result['independent_download'] = False
     if mode == 'false_upload': result['upload_performed'] = False
@@ -141,7 +149,7 @@ def launch(wrapper_fixture, mode, operation=None):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
-    output_dir = "production_cold_archive_transfer" if operation == "transfer" else "production_cold_archive"
+    output_dir = "production_cold_archive_transfer" if operation in {"transfer", "upload", "download"} else "production_cold_archive"
     output = production / "scratch" / output_dir / "attempt"
     arguments = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                  "-File", str(wrapper), "-ProductionRepoRoot", str(production), "-RequestPath", str(request),
@@ -285,3 +293,35 @@ def test_busy_shared_fixture_lease_refuses_before_output(wrapper_fixture):
         if acquired:
             assert kernel.ReleaseMutex(handle)
         assert kernel.CloseHandle(handle)
+
+
+@pytest.mark.parametrize("operation", ["upload", "download"])
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("residual_success", True), ("failure", False), ("hang", False),
+    ("flip_upload", False), ("flip_download", False), ("wrong_phase", False),
+    ("wrong_proof_kind", False), ("claim_deletion", False), ("claim_cleanup", False),
+    ("missing_operation", False), ("malformed_hash", False),
+])
+def test_split_transfer_wrapper_binds_phase_and_proof(wrapper_fixture, operation, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation=operation)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+    assert (receipt["status"] == "PASS") is success
+    assert receipt["operation"] == operation
+    assert receipt["teardown_proved"] is True
+    assert receipt["source_retained"] is True
+    assert receipt["cleanup_eligible"] is False
+    assert receipt["deleted_files"] == receipt["reclaimed_bytes"] == 0
+    if success:
+        assert receipt["upload_performed"] is (operation == "upload")
+        assert receipt["independent_download"] is (operation == "download")
+        proof = "upload_receipt_sha256" if operation == "upload" else "transport_receipt_sha256"
+        assert receipt[proof] == "c" * 64
+        assert receipt["upload_state"] == ("UPLOADED_NOT_DOWNLOADED" if operation == "upload" else "NOT_PERFORMED")
+    else:
+        assert receipt["upload_performed"] is None
+        assert receipt["upload_state"] == "UNKNOWN"
+    if mode in {"hang", "residual_success"}:
+        for pid in json.loads((output / "descendant.json").read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"

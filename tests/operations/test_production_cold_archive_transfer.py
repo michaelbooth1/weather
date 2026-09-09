@@ -203,6 +203,7 @@ def test_four_object_roundtrip_retains_sources_and_clears_private_secret(transfe
     result = core.transfer_chunk(**f.args)
     assert result == retained_receipt(f)
     assert result["status"] == "PASS"
+    assert result["phase"] == "upload_and_independent_download"
     assert result["upload_performed"] is result["independent_download"] is True
     assert len(result["metadata_objects"]) == 3
     assert {item["kind"] for item in result["metadata_objects"]} == {
@@ -308,8 +309,11 @@ def test_token_refresh_fails_closed_while_source_and_attempt_configs_are_pinned(
     assert not FixturePin.active
 
 
-def test_downloads_remain_pinned_until_final_receipt_is_written(transfer_fixture, monkeypatch):
+@pytest.mark.parametrize("phase", ["upload_and_independent_download", "download_and_verify"])
+def test_downloads_remain_pinned_until_final_receipt_is_written(transfer_fixture, monkeypatch, phase):
     f = transfer_fixture
+    if phase == "download_and_verify":
+        prepare_download(f)
     original_write = core.archive._write
     observed = []
 
@@ -319,6 +323,8 @@ def test_downloads_remain_pinned_until_final_receipt_is_written(transfer_fixture
             assert len(expected) == 4
             assert expected <= FixturePin.active
             assert f.drive.config in FixturePin.active
+            if phase == "download_and_verify":
+                assert f.args["upload_receipt_path"] in FixturePin.active
             observed.append(True)
         return original_write(path, value)
 
@@ -563,3 +569,381 @@ def test_client_preflight_requires_encrypted_restricted_drive_config(tmp_path, m
     assert calls[0] == ["config", "encryption", "check"]
     if not encrypted:
         assert len(calls) == 1
+
+
+
+def prepare_download(fixture):
+    upload_args = {**fixture.args, "phase": "upload_only"}
+    uploaded = core.transfer_chunk(**upload_args)
+    path = fixture.args["output_root"] / "receipt.json"
+    fixture.args.update(phase="download_and_verify", upload_receipt_path=path,
+                        upload_receipt_sha256=sha(path),
+                        output_root=fixture.args["output_root"].parent / "download-attempt",
+                        deadline_monotonic=time.monotonic() + 250)
+    fixture.drive.calls.clear()
+    fixture.drive.preflights = 0
+    fixture.secret = FixtureSecret()
+    fixture.args["secret_loader"] = lambda path: fixture.secret
+    return uploaded, path
+
+
+def test_upload_only_commits_four_identities_without_downloading(transfer_fixture):
+    f = transfer_fixture
+    result = core.transfer_chunk(**{**f.args, "phase": "upload_only"})
+    assert result == retained_receipt(f)
+    assert result["schema_version"] == schema_version("production_cold_archive_upload_receipt")
+    assert result["phase"] == "upload_only"
+    assert result["status"] == "PASS"
+    assert result["upload_performed"] is True
+    assert result["independent_download"] is False
+    assert "downloaded_file" not in result
+    assert not list(f.args["output_root"].glob("downloaded-*"))
+    assert sum(call[0] == "upload" for call in f.drive.calls) == 4
+    assert not any(call[0] == "download" for call in f.drive.calls)
+    assert result["drive"]["bytes"] == f.paths["ciphertext_path"].stat().st_size
+    assert result["drive"]["sha256"] == sha(f.paths["ciphertext_path"])
+    assert result["drive"]["hashes"] == {}
+    assert len(result["metadata_objects"]) == 3
+    ids = {result["drive"]["object_id"], *(item["object_id"] for item in result["metadata_objects"])}
+    assert len(ids) == 4
+    for record in result["metadata_objects"]:
+        assert set(record) == {"kind", "object_id", "remote_key", "bytes", "hashes", "sha256"}
+        assert hashlib.sha256(f.drive.objects[record["remote_key"]]).hexdigest() == record["sha256"]
+        assert len(f.drive.objects[record["remote_key"]]) == record["bytes"]
+    assert not FixturePin.active
+
+
+def test_split_download_uses_bound_objects_without_reading_original_cipher(transfer_fixture, monkeypatch):
+    f = transfer_fixture
+    uploaded, upload_path = prepare_download(f)
+    original_open = Path.open
+    hash_paths = []
+    original_hash = core._sha_file
+
+    def checked_open(path, *args, **kwargs):
+        if path == f.paths["ciphertext_path"]:
+            pytest.fail("download-only opened the original ciphertext for content")
+        return original_open(path, *args, **kwargs)
+
+    def checked_hash(path, *args, **kwargs):
+        assert Path(path) != f.paths["ciphertext_path"]
+        hash_paths.append(Path(path))
+        return original_hash(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", checked_open)
+    monkeypatch.setattr(core, "_sha_file", checked_hash)
+    result = core.transfer_chunk(**f.args)
+    assert result == retained_receipt(f)
+    assert result["schema_version"] == schema_version("production_cold_archive_transport_receipt")
+    assert result["phase"] == "download_and_verify"
+    assert result["upload_performed"] is False
+    assert result["independent_download"] is True
+    assert result["upload_receipt_sha256"] == sha(upload_path)
+    assert result["drive"]["object_id"] == uploaded["drive"]["object_id"]
+    assert sum(call[0] == "download" for call in f.drive.calls) == 4
+    assert not any(call[0] in {"upload", "absence"} for call in f.drive.calls)
+    assert len(hash_paths) == 4
+    assert {path.name for path in hash_paths} == {"downloaded-" + key for key in f.drive.objects}
+    assert not FixturePin.active
+
+
+@pytest.mark.parametrize("phase", ["upload_only", "download_and_verify"])
+def test_split_phase_budget_includes_one_hash_and_one_copy(phase):
+    assert core.required_transfer_seconds(1024 * core.MIB, phase=phase) == pytest.approx(237)
+    if phase == "upload_only":
+        assert core.required_transfer_seconds(1024 * core.MIB, phase=phase,
+                                              initial_hash_done=True) == pytest.approx(173)
+    else:
+        with pytest.raises(core.TransferError, match="cannot be skipped"):
+            core.required_transfer_seconds(1024 * core.MIB, phase=phase, initial_hash_done=True)
+
+
+@pytest.mark.parametrize("phase", ["upload_only", "download_and_verify"])
+def test_split_phase_refuses_infeasible_budget_before_claim(transfer_fixture, phase):
+    f = transfer_fixture
+    if phase == "download_and_verify":
+        prepare_download(f)
+    f.args.update(phase=phase, deadline_monotonic=time.monotonic() + 44)
+    with pytest.raises(core.TransferError, match="remaining transfer deadline"):
+        core.transfer_chunk(**f.args)
+    assert not f.args["output_root"].exists()
+    assert not f.drive.calls
+
+
+@pytest.mark.parametrize("phase", ["upload_only", "download_and_verify"])
+def test_split_phase_rechecks_budget_before_any_copy(transfer_fixture, monkeypatch, phase):
+    f = transfer_fixture
+    if phase == "download_and_verify":
+        prepare_download(f)
+    f.args["phase"] = phase
+    clock = [time.monotonic()]
+    f.args["deadline_monotonic"] = clock[0] + 250
+    monkeypatch.setattr(core.time, "monotonic", lambda: clock[0])
+    original_object = f.drive.object
+
+    def slow_probe(key, *, absent=False):
+        result = original_object(key, absent=absent)
+        if key.endswith(".crypt.json"):
+            clock[0] = f.args["deadline_monotonic"] - 44
+        return result
+
+    def bounded_fixture_hash(path, admit, deadline, maximum=core.MAX_CIPHERTEXT_BYTES):
+        assert admit() is True
+        raw = Path(path).read_bytes()
+        assert len(raw) <= maximum
+        return len(raw), hashlib.sha256(raw).hexdigest()
+
+    monkeypatch.setattr(f.drive, "object", slow_probe)
+    monkeypatch.setattr(core, "_sha_file", bounded_fixture_hash)
+    with pytest.raises(core.TransferError, match="remaining transfer"):
+        core.transfer_chunk(**f.args)
+    assert not any(call[0] in {"upload", "download"} for call in f.drive.calls)
+    assert retained_receipt(f)["status"] == "FAIL_CLOSED"
+
+
+@pytest.mark.parametrize("phase,path,digest", [
+    ("download_and_verify", None, None), ("download_and_verify", "given", None),
+    ("download_and_verify", None, "a" * 64), ("upload_only", "given", "a" * 64),
+    ("upload_and_independent_download", "given", "a" * 64), ("unsupported", None, None),
+])
+def test_phase_requires_exact_upload_receipt_arguments(transfer_fixture, phase, path, digest):
+    f = transfer_fixture
+    with pytest.raises(core.TransferError):
+        core.transfer_chunk(**{**f.args, "phase": phase, "upload_receipt_path": path,
+                               "upload_receipt_sha256": digest})
+    assert not f.drive.calls
+    assert not f.args["output_root"].exists()
+
+
+def test_download_refuses_changed_raw_upload_receipt_before_client(transfer_fixture):
+    f = transfer_fixture
+    prepare_download(f)
+    f.args["upload_receipt_sha256"] = "0" * 64
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        core.transfer_chunk(**f.args)
+    assert not f.drive.calls
+    assert not f.args["output_root"].exists()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("schema_version", "unsupported"), ("phase", "upload_and_independent_download"),
+    ("status", "FAIL_CLOSED"), ("archive_id", "different-archive"), ("chunk_id", "chunk-00001"),
+    ("plan_sha256", "0" * 64), ("crypt_receipt_sha256", "0" * 64),
+    ("production_manifest_sha256", "0" * 64), ("production_receipt_sha256", "0" * 64),
+    ("source_retained", False), ("cleanup_eligible", True), ("deletion_authorized", True),
+    ("deleted_files", 1), ("reclaimed_bytes", 1), ("upload_performed", False),
+    ("independent_download", True), ("remote_side_effect_possible", False),
+])
+def test_download_upload_receipt_common_bindings_are_exact(transfer_fixture, field, value):
+    f = transfer_fixture
+    uploaded, _ = prepare_download(f)
+    changed = dict(uploaded)
+    changed[field] = value
+    path = f.paths["crypt_receipt_path"].parent / "changed-upload.json"
+    f.args.update(upload_receipt_path=path, upload_receipt_sha256=write_evidence(path, changed))
+    with pytest.raises(core.TransferError, match="upload receipt binding"):
+        core.transfer_chunk(**f.args)
+    assert not f.drive.calls
+    assert not f.args["output_root"].exists()
+
+
+@pytest.mark.parametrize("kind", [
+    "root", "cipher_size", "cipher_sha", "cipher_key", "missing_metadata",
+    "extra_metadata", "duplicate_kind", "duplicate_id", "metadata_size",
+    "metadata_sha", "metadata_key", "nonstring_id", "bad_hashes",
+])
+def test_download_requires_exact_complete_upload_object_set(transfer_fixture, kind):
+    f = transfer_fixture
+    uploaded, _ = prepare_download(f)
+    changed = json.loads(json.dumps(uploaded))
+    if kind == "root":
+        changed["drive"]["root_folder_id"] = "different_root_12345"
+    elif kind == "cipher_size":
+        changed["drive"]["bytes"] += 1
+    elif kind == "cipher_sha":
+        changed["drive"]["sha256"] = "0" * 64
+    elif kind == "cipher_key":
+        changed["drive"]["remote_key"] = "different.bin"
+    elif kind == "missing_metadata":
+        changed["metadata_objects"].pop()
+    elif kind == "extra_metadata":
+        changed["metadata_objects"].append(dict(changed["metadata_objects"][0]))
+    elif kind == "duplicate_kind":
+        changed["metadata_objects"][1]["kind"] = changed["metadata_objects"][0]["kind"]
+    elif kind == "duplicate_id":
+        changed["metadata_objects"][0]["object_id"] = changed["drive"]["object_id"]
+    elif kind == "metadata_size":
+        changed["metadata_objects"][0]["bytes"] += 1
+    elif kind == "metadata_sha":
+        changed["metadata_objects"][0]["sha256"] = "0" * 64
+    elif kind == "metadata_key":
+        changed["metadata_objects"][0]["remote_key"] = "wrong.json"
+    elif kind == "nonstring_id":
+        changed["metadata_objects"][0]["object_id"] = 12345678901
+    else:
+        changed["metadata_objects"][0]["hashes"] = ["untrusted"]
+    path = f.paths["crypt_receipt_path"].parent / "changed-upload.json"
+    f.args.update(upload_receipt_path=path, upload_receipt_sha256=write_evidence(path, changed))
+    with pytest.raises(core.TransferError):
+        core.transfer_chunk(**f.args)
+    assert not f.drive.calls
+    assert not f.args["output_root"].exists()
+
+
+@pytest.mark.parametrize("suffix", [".rclone.bin", ".manifest.json", ".stage.json", ".crypt.json"])
+def test_split_download_refuses_remote_identity_change_before_any_copy(transfer_fixture, monkeypatch, suffix):
+    f = transfer_fixture
+    prepare_download(f)
+    original_object = f.drive.object
+
+    def replaced_object(key, *, absent=False):
+        result = original_object(key, absent=absent)
+        if key.endswith(suffix):
+            result["object_id"] = "replacement_object_12345"
+        return result
+
+    monkeypatch.setattr(f.drive, "object", replaced_object)
+    with pytest.raises(core.TransferError, match="committed upload object changed"):
+        core.transfer_chunk(**f.args)
+    assert not any(call[0] in {"upload", "download"} for call in f.drive.calls)
+    assert retained_receipt(f)["status"] == "FAIL_CLOSED"
+
+
+def test_download_rechecks_committed_id_immediately_before_each_copy(transfer_fixture, monkeypatch):
+    f = transfer_fixture
+    prepare_download(f)
+    original_object = f.drive.object
+    seen = {}
+
+    def replaced_after_initial_probe(key, *, absent=False):
+        result = original_object(key, absent=absent)
+        seen[key] = seen.get(key, 0) + 1
+        if key.endswith(".manifest.json") and seen[key] == 2:
+            result["object_id"] = "replacement_object_12345"
+        return result
+
+    monkeypatch.setattr(f.drive, "object", replaced_after_initial_probe)
+    with pytest.raises(core.TransferError, match="committed upload object changed"):
+        core.transfer_chunk(**f.args)
+    assert sum(call[0] == "download" for call in f.drive.calls) == 1
+    assert not any(call[0] == "upload" for call in f.drive.calls)
+    assert retained_receipt(f)["independent_download"] is False
+
+
+@pytest.mark.parametrize("suffix", [".rclone.bin", ".manifest.json", ".stage.json", ".crypt.json"])
+def test_split_download_rejects_corrupt_bytes_without_upload(transfer_fixture, suffix):
+    f = transfer_fixture
+    prepare_download(f)
+    f.drive.corrupt_suffix = suffix
+    with pytest.raises(core.TransferError, match="independent download mismatch"):
+        core.transfer_chunk(**f.args)
+    receipt = retained_receipt(f)
+    assert receipt["upload_performed"] is None
+    assert receipt["independent_download"] is False
+    assert not any(call[0] == "upload" for call in f.drive.calls)
+
+
+def test_upload_only_network_failure_never_becomes_committed_receipt(transfer_fixture):
+    f = transfer_fixture
+    f.drive.fail_upload = True
+    with pytest.raises(core.TransferError, match="network failure"):
+        core.transfer_chunk(**{**f.args, "phase": "upload_only"})
+    receipt = retained_receipt(f)
+    assert receipt["schema_version"] == schema_version("production_cold_archive_upload_receipt")
+    assert receipt["status"] == "FAIL_CLOSED"
+    assert receipt["upload_performed"] is None
+    assert receipt["independent_download"] is False
+
+
+def test_upload_only_rejects_reused_remote_namespace_in_new_attempt(transfer_fixture):
+    f = transfer_fixture
+    core.transfer_chunk(**{**f.args, "phase": "upload_only"})
+    f.args.update(phase="upload_only", output_root=f.args["output_root"].parent / "second-attempt")
+    f.drive.calls.clear()
+    with pytest.raises(core.TransferError, match="absence"):
+        core.transfer_chunk(**f.args)
+    assert not any(call[0] == "upload" for call in f.drive.calls)
+
+
+@pytest.mark.parametrize("phase", ["upload_only", "download_and_verify"])
+def test_request_accepts_split_transfer_phase(request_fixture, phase):
+    request, root, now = request_fixture
+    request["operation"] = phase
+    if phase == "download_and_verify":
+        request.update(upload_receipt_path=str(root / "upload-receipt.json"),
+                       upload_receipt_sha256="a" * 64)
+    assert cli.validate_request(request, production_root=root, now=now,
+                                source_git_sha="f" * 40) == request
+
+
+@pytest.mark.parametrize("kind", ["missing_path", "missing_sha", "relative_path", "bad_sha", "extra"])
+def test_download_request_requires_exact_receipt_binding(request_fixture, kind):
+    request, root, now = request_fixture
+    request.update(operation="download_and_verify", upload_receipt_path=str(root / "upload.json"),
+                   upload_receipt_sha256="a" * 64)
+    if kind == "missing_path":
+        request.pop("upload_receipt_path")
+    elif kind == "missing_sha":
+        request.pop("upload_receipt_sha256")
+    elif kind == "relative_path":
+        request["upload_receipt_path"] = "upload.json"
+    elif kind == "bad_sha":
+        request["upload_receipt_sha256"] = "A" * 64
+    else:
+        request["unexpected"] = True
+    with pytest.raises(ValueError):
+        cli.validate_request(request, production_root=root, now=now, source_git_sha="f" * 40)
+
+
+def test_upload_request_rejects_download_receipt_fields(request_fixture):
+    request, root, now = request_fixture
+    request.update(operation="upload_only", upload_receipt_path=str(root / "upload.json"),
+                   upload_receipt_sha256="a" * 64)
+    with pytest.raises(ValueError):
+        cli.validate_request(request, production_root=root, now=now, source_git_sha="f" * 40)
+
+
+
+def test_upload_only_refuses_late_remote_identity_change_before_commit(transfer_fixture, monkeypatch):
+    f = transfer_fixture
+    original_object = f.drive.object
+    stats = {}
+
+    def changed_after_later_uploads(key, *, absent=False):
+        result = original_object(key, absent=absent)
+        if not absent:
+            stats[key] = stats.get(key, 0) + 1
+            if key.endswith(".rclone.bin") and stats[key] == 2:
+                result["object_id"] = "changed_before_commit_123"
+        return result
+
+    monkeypatch.setattr(f.drive, "object", changed_after_later_uploads)
+    with pytest.raises(core.TransferError, match="before upload commit"):
+        core.transfer_chunk(**{**f.args, "phase": "upload_only"})
+    receipt = retained_receipt(f)
+    assert receipt["status"] == "FAIL_CLOSED"
+    assert receipt["upload_performed"] is None
+    assert receipt["independent_download"] is False
+    assert sum(call[0] == "upload" for call in f.drive.calls) == 4
+
+
+def test_download_receipt_failure_does_not_modify_committed_remote_objects(transfer_fixture, monkeypatch):
+    f = transfer_fixture
+    prepare_download(f)
+    before = dict(f.drive.objects)
+    original_copy = f.drive.copy
+
+    def interrupted_download(source, destination, maximum):
+        assert str(source).startswith("archive_drive:")
+        original_copy(source, destination, maximum)
+        raise core.TransferError("synthetic download network interruption")
+
+    monkeypatch.setattr(f.drive, "copy", interrupted_download)
+    with pytest.raises(core.TransferError, match="download network interruption"):
+        core.transfer_chunk(**f.args)
+    assert f.drive.objects == before
+    receipt = retained_receipt(f)
+    assert receipt["status"] == "FAIL_CLOSED"
+    assert receipt["upload_performed"] is None
+    assert receipt["independent_download"] is False
+    assert not FixturePin.active

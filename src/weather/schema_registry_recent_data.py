@@ -1318,4 +1318,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Admitted bounded encrypted transfer execution result retaining all production source.",
     ),
+    SchemaSpec(
+        "production_cold_archive_upload_receipt",
+        "production_cold_archive_upload_receipt_v0.1",
+        "weather.operations.production_cold_archive_transfer_core",
+        "active",
+        "Create-only encrypted Drive upload proof; independent download remains separately required.",
+    ),
 )

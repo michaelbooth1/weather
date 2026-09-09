@@ -6,18 +6,25 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [ValidateSet('stage', 'transfer')][string]$Operation = 'stage'
+    [ValidateSet('stage', 'transfer', 'upload', 'download')][string]$Operation = 'stage'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$isTransfer = $Operation -eq 'transfer'
+$isTransfer = $Operation -ne 'stage'
+$expectedUpload = $Operation -ne 'download'
+$expectedDownload = $Operation -ne 'upload'
+$expectedPhase = 'upload_and_independent_download'
+$proofProperty = 'transport_receipt_sha256'
+if ($Operation -eq 'upload') { $expectedPhase = 'upload_only'; $proofProperty = 'upload_receipt_sha256' }
+if ($Operation -eq 'download') { $expectedPhase = 'download_and_verify' }
 $workload = 'production_cold_archive_stage'
 $module = 'weather.operations.production_cold_archive_stage_cli'
 $outputDirectory = 'scratch\production_cold_archive'
 if ($isTransfer) {
     $workload = 'production_cold_archive_transfer'
+    if ($Operation -ne 'transfer') { $workload += '_' + $Operation }
     $module = 'weather.operations.production_cold_archive_transfer'
     $outputDirectory = 'scratch\production_cold_archive_transfer'
 }
@@ -104,7 +111,7 @@ $oldOwner = $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID
 $oldDeadline = $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC
 $receipt = [ordered]@{
     source_git_sha = $ExpectedSourceTip; request_sha256 = $RequestSha256
-    execution_host_id = $hostIdentity
+    execution_host_id = $hostIdentity; operation = $Operation
     started_at_utc = [DateTime]::UtcNow.ToString('o'); status = 'FAILED'
     hard_stop = $false; teardown_proved = $false; deleted_files = 0
     reclaimed_bytes = 0; cleanup_eligible = $false; source_retained = $true; upload_performed = $false
@@ -159,8 +166,9 @@ try {
             $result.cleanup_eligible -ne $false -or $result.source_retained -ne $true -or
             $result.execution_host_id -cne $hostIdentity) { throw 'child receipt binding mismatch' }
         if ($isTransfer) {
-            if ($result.upload_performed -isnot [bool] -or $result.upload_performed -ne $true -or
-                $result.independent_download -isnot [bool] -or $result.independent_download -ne $true -or
+            if ($result.upload_performed -isnot [bool] -or $result.upload_performed -ne $expectedUpload -or
+                $result.independent_download -isnot [bool] -or $result.independent_download -ne $expectedDownload -or
+                $result.operation -cne $expectedPhase -or
                 $result.source_retained -isnot [bool] -or $result.cleanup_eligible -isnot [bool] -or
                 $result.deleted_files -isnot [ValueType] -or $result.deleted_files -is [bool] -or
                 $result.reclaimed_bytes -isnot [ValueType] -or $result.reclaimed_bytes -is [bool] -or
@@ -169,7 +177,7 @@ try {
                 ($result.ciphertext_bytes -isnot [int] -and $result.ciphertext_bytes -isnot [long]) -or
                 $result.ciphertext_bytes -le 0 -or
                 $result.crypt_receipt_sha256 -isnot [string] -or $result.crypt_receipt_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
-                $result.transport_receipt_sha256 -isnot [string] -or $result.transport_receipt_sha256 -cnotmatch '^[0-9a-f]{64}$') {
+                $result.$proofProperty -isnot [string] -or $result.$proofProperty -cnotmatch '^[0-9a-f]{64}$') {
                 throw 'transfer child receipt verification mismatch'
             }
         }
@@ -188,10 +196,12 @@ try {
             $receipt.archive_id = $result.archive_id
             $receipt.ciphertext_bytes = $result.ciphertext_bytes
             $receipt.crypt_receipt_sha256 = $result.crypt_receipt_sha256
-            $receipt.transport_receipt_sha256 = $result.transport_receipt_sha256
-            $receipt.independent_download = $true
-            $receipt.upload_performed = $true
+            $receipt[$proofProperty] = $result.$proofProperty
+            $receipt.independent_download = $expectedDownload
+            $receipt.upload_performed = $expectedUpload
             $receipt.upload_state = 'VERIFIED'
+            if ($Operation -eq 'upload') { $receipt.upload_state = 'UPLOADED_NOT_DOWNLOADED' }
+            if ($Operation -eq 'download') { $receipt.upload_state = 'NOT_PERFORMED' }
         }
         else {
             $receipt.logical_source_bytes = $result.logical_source_bytes

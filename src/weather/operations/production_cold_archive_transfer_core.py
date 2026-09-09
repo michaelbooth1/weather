@@ -30,6 +30,7 @@ MAX_CLIENT_OUTPUT = 65536
 MAX_CONFIG_BYTES = MIB
 REMOTE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,62}")
 ID_RE = re.compile(r"[A-Za-z0-9_-]{10,160}")
+PHASES = ("upload_and_independent_download", "upload_only", "download_and_verify")
 
 
 class TransferError(ValueError):
@@ -67,11 +68,17 @@ def _sha_file(path, admit, deadline, maximum=MAX_CIPHERTEXT_BYTES):
     return count, digest.hexdigest()
 
 
-def required_transfer_seconds(total_bytes, *, initial_hash_done=False):
-    """Conservative rate budget plus bounded metadata/client startup allowance."""
+def required_transfer_seconds(total_bytes, *, initial_hash_done=False,
+                              phase="upload_and_independent_download"):
+    """Conservative phase-specific rate budget plus client/teardown allowance."""
     _require(type(total_bytes) is int and total_bytes >= 0, "invalid transfer byte budget")
-    hash_passes = 1 if initial_hash_done else 2
-    return hash_passes * total_bytes / (16 * MIB) + 2 * total_bytes / (8 * MIB) + 45
+    _require(phase in PHASES, "invalid transfer phase")
+    copies = 2 if phase == "upload_and_independent_download" else 1
+    hash_passes = copies
+    if initial_hash_done:
+        _require(phase != "download_and_verify", "download hash cannot be skipped")
+        hash_passes -= 1
+    return hash_passes * total_bytes / (16 * MIB) + copies * total_bytes / (8 * MIB) + 45
 
 
 def _client_memory_ok(process):
@@ -242,20 +249,87 @@ def validate_crypt_receipt(receipt, *, plan_sha256, archive_id, manifest_sha256,
     return cipher
 
 
+def _remote_record(value, *, key, expected_bytes):
+    _require(isinstance(value, dict)
+             and set(value) == {"object_id", "remote_key", "bytes", "hashes"}
+             and isinstance(value["object_id"], str)
+             and ID_RE.fullmatch(value["object_id"]) is not None
+             and value["remote_key"] == key and type(value["bytes"]) is int
+             and value["bytes"] == expected_bytes
+             and isinstance(value["hashes"], dict)
+             and all(isinstance(k, str) and isinstance(v, str)
+                     for k, v in value["hashes"].items()), "remote object identity mismatch")
+    return dict(value)
+
+
+def _validate_upload_receipt(receipt, *, bindings, root_folder_id, files):
+    archive._check_seal(receipt, "receipt_hash")
+    expected = {
+        "schema_version": schema_version("production_cold_archive_upload_receipt"),
+        "phase": "upload_only", "status": "PASS", **bindings,
+        "source_retained": True, "cleanup_eligible": False, "deletion_authorized": False,
+        "deleted_files": 0, "reclaimed_bytes": 0, "upload_performed": True,
+        "independent_download": False, "remote_side_effect_possible": True}
+    _require(set(receipt) == set(expected) | {"drive", "metadata_objects", "completed_at_utc", "receipt_hash"}
+             and isinstance(receipt.get("completed_at_utc"), str)
+             and bool(receipt["completed_at_utc"]), "upload receipt fields mismatch")
+    for key, value in expected.items():
+        _require(receipt.get(key) == value and type(receipt.get(key)) is type(value),
+                 "upload receipt binding mismatch")
+    drive = receipt.get("drive")
+    _require(isinstance(drive, dict)
+             and set(drive) == {"root_folder_id", "object_id", "remote_key", "bytes", "hashes", "sha256"}
+             and drive["root_folder_id"] == root_folder_id, "upload Drive binding mismatch")
+    metadata = receipt.get("metadata_objects")
+    _require(isinstance(metadata, list) and len(metadata) == 3, "upload metadata identity count mismatch")
+    objects = {"ciphertext": {key: value for key, value in drive.items() if key != "root_folder_id"}}
+    for value in metadata:
+        _require(isinstance(value, dict)
+                 and set(value) == {"kind", "object_id", "remote_key", "bytes", "hashes", "sha256"}
+                 and isinstance(value["kind"], str)
+                 and value["kind"] in {"production_manifest", "production_receipt", "crypt_receipt"}
+                 and value["kind"] not in objects, "upload metadata identity mismatch")
+        objects[value["kind"]] = {key: item for key, item in value.items() if key != "kind"}
+    result, ids = {}, set()
+    for name, key, expected_sha, expected_bytes in files:
+        value = objects[name]
+        _require(value["sha256"] == expected_sha, "upload object SHA-256 binding mismatch")
+        remote = _remote_record({k: v for k, v in value.items() if k != "sha256"},
+                                key=key, expected_bytes=expected_bytes)
+        _require(remote["object_id"] not in ids, "upload object IDs must be distinct")
+        ids.add(remote["object_id"])
+        result[name] = remote
+    return result
+
+
 def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
                    production_manifest_path, production_manifest_sha256,
                    production_receipt_path, production_receipt_sha256,
                    plan_sha256, archive_id, rclone_executable, rclone_config, dpapi_secret,
                    drive_remote_name, drive_root_folder_id, output_root, protected_root,
                    admission, deadline_monotonic, free_space_reserve_bytes,
+                   phase="upload_and_independent_download",
+                   upload_receipt_path=None, upload_receipt_sha256=None,
                    client_factory=GuardedClient, secret_loader=crypt._load_dpapi_secret):
-    """Upload one encrypted chunk + recovery metadata, then download each afresh."""
+    """Transfer one encrypted chunk in a roundtrip or separately bounded phases."""
+    _require(phase in PHASES, "invalid transfer phase")
+    upload_needed = phase != "download_and_verify"
+    download_needed = phase != "upload_only"
+    if upload_needed:
+        _require(upload_receipt_path is None and upload_receipt_sha256 is None,
+                 "upload receipt is only accepted by download phase")
+    else:
+        _require(upload_receipt_path is not None and upload_receipt_sha256 is not None,
+                 "download requires an explicitly bound upload receipt")
+        archive._require_sha256(upload_receipt_sha256)
     archive._require_sha256(plan_sha256)
     _require(crypt.ARCHIVE_ID_RE.fullmatch(archive_id) is not None, "invalid archive ID")
     inputs = {name: archive._safe_path(Path(value)) for name, value in {
         "ciphertext": ciphertext_path, "crypt_receipt": crypt_receipt_path,
         "production_manifest": production_manifest_path, "production_receipt": production_receipt_path,
         "executable": rclone_executable, "config": rclone_config, "secret": dpapi_secret}.items()}
+    if not upload_needed:
+        inputs["upload_receipt"] = archive._safe_path(Path(upload_receipt_path))
     protected = archive._safe_path(Path(protected_root), directory=True)
     output = Path(output_root)
     archive._safe_path(output.parent, directory=True)
@@ -280,16 +354,35 @@ def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
              and manifest["archive_sha256"] == evidence.get("archive_sha256")
              and manifest["archive_bytes"] == evidence.get("archive_bytes"),
              "production evidence differs from encrypted archive")
+    files = [
+        ("ciphertext", f"{archive_id}.rclone.bin", cipher["sha256"], cipher["bytes"]),
+        ("production_manifest", f"{archive_id}.manifest.json", production_manifest_sha256,
+         inputs["production_manifest"].stat().st_size),
+        ("production_receipt", f"{archive_id}.stage.json", production_receipt_sha256,
+         inputs["production_receipt"].stat().st_size),
+        ("crypt_receipt", f"{archive_id}.crypt.json", crypt_receipt_sha256,
+         inputs["crypt_receipt"].stat().st_size)]
+    bindings = {"archive_id": archive_id, "chunk_id": evidence["chunk_id"],
+                "plan_sha256": plan_sha256, "crypt_receipt_sha256": crypt_receipt_sha256,
+                "production_manifest_sha256": production_manifest_sha256,
+                "production_receipt_sha256": production_receipt_sha256,
+                "ciphertext": {"bytes": cipher["bytes"], "sha256": cipher["sha256"]}}
+    committed = None
+    if not upload_needed:
+        committed = _validate_upload_receipt(
+            _read_bound(inputs["upload_receipt"], upload_receipt_sha256),
+            bindings=bindings, root_folder_id=drive_root_folder_id, files=files)
     reserve = archive._integer(free_space_reserve_bytes, "disk reserve")
-    needed = cipher["bytes"] + sum(inputs[name].stat().st_size for name in
-                                  ("crypt_receipt", "production_manifest", "production_receipt"))
-    _require(shutil.disk_usage(output.parent).free >= reserve + needed + 2 * MIB,
-             "download would breach capture reserve")
-
-    _require(deadline_monotonic - time.monotonic() >= required_transfer_seconds(needed),
+    needed = sum(row[3] for row in files)
+    reservation = needed if download_needed else 0
+    _require(shutil.disk_usage(output.parent).free >= reserve + reservation + 2 * MIB,
+             "transfer evidence would breach capture reserve")
+    _require(deadline_monotonic - time.monotonic() >= required_transfer_seconds(needed, phase=phase),
              "chunk cannot fit the remaining transfer deadline")
 
-    result = {"schema_version": schema_version("production_cold_archive_transport_receipt"),
+    receipt_schema = ("production_cold_archive_upload_receipt" if phase == "upload_only"
+                      else "production_cold_archive_transport_receipt")
+    result = {"schema_version": schema_version(receipt_schema), "phase": phase,
               "status": "FAIL_CLOSED", "archive_id": archive_id, "chunk_id": evidence["chunk_id"],
               "plan_sha256": plan_sha256, "crypt_receipt_sha256": crypt_receipt_sha256,
               "production_manifest_sha256": production_manifest_sha256,
@@ -299,6 +392,8 @@ def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
               "source_retained": True, "cleanup_eligible": False, "deletion_authorized": False,
               "deleted_files": 0, "reclaimed_bytes": 0, "upload_performed": False,
               "independent_download": False, "remote_side_effect_possible": False}
+    if not upload_needed:
+        result["upload_receipt_sha256"] = upload_receipt_sha256
     secret, environment = None, None
     with ExitStack() as stack:
         stack.enter_context(archive._directory_pin(output.parent))
@@ -308,6 +403,8 @@ def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
         _read_bound(inputs["crypt_receipt"], crypt_receipt_sha256)
         _read_bound(inputs["production_manifest"], production_manifest_sha256)
         _read_bound(inputs["production_receipt"], production_receipt_sha256)
+        if not upload_needed:
+            _read_bound(inputs["upload_receipt"], upload_receipt_sha256)
         output.mkdir()
         stack.enter_context(archive._directory_pin(output))
         archive._write(output / "claim.json", _seal(dict(result)))
@@ -348,57 +445,78 @@ def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
 
             client = client_factory(inputs["executable"], active_config, drive_remote_name,
                                     drive_root_folder_id, environment, guard, deadline_monotonic)
-            client.preflight()
-            with inputs["ciphertext"].open("rb") as source:
-                _require(source.read(8) == b"RCLONE\x00\x00", "plaintext or invalid ciphertext refused")
-            count, digest = _sha_file(inputs["ciphertext"], guard, deadline_monotonic)
-            _require((count, digest) == (cipher["bytes"], cipher["sha256"]), "ciphertext input mismatch")
-            files = [
-                ("ciphertext", f"{archive_id}.rclone.bin", cipher["sha256"], cipher["bytes"]),
-                ("production_manifest", f"{archive_id}.manifest.json", production_manifest_sha256,
-                 inputs["production_manifest"].stat().st_size),
-                ("production_receipt", f"{archive_id}.stage.json", production_receipt_sha256,
-                 inputs["production_receipt"].stat().st_size),
-                ("crypt_receipt", f"{archive_id}.crypt.json", crypt_receipt_sha256,
-                 inputs["crypt_receipt"].stat().st_size)]
-            # Prove every fresh name absent before publishing the first byte.
-            for _, key, _, _ in files:
-                client.object(key, absent=True)
-            _require(deadline_monotonic - time.monotonic() >=
-                     required_transfer_seconds(needed, initial_hash_done=True),
-                     "remaining transfer cannot fit deadline before upload")
-            for name, key, expected_sha, expected_bytes in files:
-                guard()
+            if not upload_needed:
+                # This read-only phase still reports uncertainty if interrupted;
+                # only its terminal PASS states that this invocation uploaded nothing.
                 result["remote_side_effect_possible"] = True
                 result["upload_performed"] = None
-                client.copy(inputs[name], f"{drive_remote_name}:{key}", expected_bytes)
-                remote = client.object(key)
-                _require(remote["bytes"] == expected_bytes, "uploaded object size mismatch")
-                downloaded = output / ("downloaded-" + key)
-                _require(not downloaded.exists(), "download destination collision")
-                client.copy(f"{drive_remote_name}:{key}", downloaded, expected_bytes)
-                archive._safe_path(downloaded)
-                pin_name = "downloaded_" + name
-                pins[pin_name] = stack.enter_context(bridge._file_pin(downloaded))
-                identities[pin_name] = pins[pin_name].metadata()
-                actual = _sha_file(downloaded, guard, deadline_monotonic,
-                                   maximum=max(expected_bytes, 1))
-                _require(actual == (expected_bytes, expected_sha), "independent download mismatch")
-                after = client.object(key)
-                _require(after == remote, "remote object changed across download")
-                detail = {**remote, "sha256": expected_sha,
-                          "downloaded_path": str(downloaded)}
+            client.preflight()
+            if upload_needed:
+                with inputs["ciphertext"].open("rb") as source:
+                    _require(source.read(8) == b"RCLONE\x00\x00", "plaintext or invalid ciphertext refused")
+                count, digest = _sha_file(inputs["ciphertext"], guard, deadline_monotonic)
+                _require((count, digest) == (cipher["bytes"], cipher["sha256"]), "ciphertext input mismatch")
+                # Every new namespace is proved absent before the first upload.
+                for _, key, _, _ in files:
+                    client.object(key, absent=True)
+            else:
+                # Bind every object before materializing any independent local copy.
+                for name, key, _, expected_bytes in files:
+                    remote = _remote_record(client.object(key), key=key, expected_bytes=expected_bytes)
+                    _require(remote == committed[name], "committed upload object changed")
+            _require(deadline_monotonic - time.monotonic() >=
+                     required_transfer_seconds(needed, initial_hash_done=upload_needed, phase=phase),
+                     "remaining transfer cannot fit deadline before copy")
+            uploaded, object_ids = {}, set()
+            for name, key, expected_sha, expected_bytes in files:
+                guard()
+                if upload_needed:
+                    result["remote_side_effect_possible"] = True
+                    result["upload_performed"] = None
+                    client.copy(inputs[name], f"{drive_remote_name}:{key}", expected_bytes)
+                    remote = _remote_record(client.object(key), key=key, expected_bytes=expected_bytes)
+                    _require(remote["object_id"] not in object_ids, "remote object IDs must be distinct")
+                    object_ids.add(remote["object_id"])
+                    uploaded[name] = remote
+                else:
+                    remote = _remote_record(client.object(key), key=key, expected_bytes=expected_bytes)
+                    _require(remote == committed[name], "committed upload object changed")
+                detail = {**remote, "sha256": expected_sha}
+                if download_needed:
+                    downloaded = output / ("downloaded-" + key)
+                    _require(not downloaded.exists(), "download destination collision")
+                    client.copy(f"{drive_remote_name}:{key}", downloaded, expected_bytes)
+                    archive._safe_path(downloaded)
+                    pin_name = "downloaded_" + name
+                    pins[pin_name] = stack.enter_context(bridge._file_pin(downloaded))
+                    identities[pin_name] = pins[pin_name].metadata()
+                    actual = _sha_file(downloaded, guard, deadline_monotonic,
+                                       maximum=max(expected_bytes, 1))
+                    _require(actual == (expected_bytes, expected_sha), "independent download mismatch")
+                    after = client.object(key)
+                    _require(after == remote, "remote object changed across download")
+                    detail["downloaded_path"] = str(downloaded)
+                    if name == "ciphertext":
+                        result["downloaded_file"] = {"path": str(downloaded), "bytes": actual[0],
+                                                     "sha256": actual[1]}
                 if name == "ciphertext":
-                    result["drive"].update(object_id=remote["object_id"], remote_key=key)
-                    result["downloaded_file"] = {"path": str(downloaded), "bytes": actual[0],
-                                                 "sha256": actual[1]}
+                    if phase == "upload_only":
+                        result["drive"].update(detail)
+                    else:
+                        result["drive"].update(object_id=remote["object_id"], remote_key=key)
                 else:
                     result["metadata_objects"].append({"kind": name, **detail})
+            if phase == "upload_only":
+                # An upload receipt commits all four identities as one complete set.
+                for name, key, _, expected_bytes in files:
+                    remote = _remote_record(client.object(key), key=key, expected_bytes=expected_bytes)
+                    _require(remote == uploaded[name], "remote object changed before upload commit")
             client.preflight()
             _require(all(pin.metadata() == identities[name] for name, pin in pins.items()),
                      "pinned transfer input changed")
             guard()
-            result.update(status="PASS", upload_performed=True, independent_download=True,
+            result.update(status="PASS", upload_performed=upload_needed,
+                          independent_download=download_needed,
                           completed_at_utc=datetime.now(timezone.utc).isoformat())
         except BaseException as exc:
             result.update(status="FAIL_CLOSED", error_type=type(exc).__name__)
@@ -411,4 +529,3 @@ def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
                 secret.wipe()
         archive._write(output / "receipt.json", _seal(result))
         return result
-

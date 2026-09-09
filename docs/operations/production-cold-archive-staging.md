@@ -128,8 +128,8 @@ downloaded to a fresh local path, fully hashed and compared with stable remote
 ID/size/hash metadata. Network copies use one transfer at 8 MiB/s; hashes use
 16 MiB/s. Required remaining time includes two copies, input/download hashes
 and 45 seconds for startup/metadata. A chunk that cannot fit is refused before
-upload, even when it meets the staging size limit. Full-size incompressible
-chunks therefore need a separately qualified transport strategy.
+upload, even when it meets the staging size limit. Use the separately bounded upload/download phases below for full-size
+incompressible chunks.
 
 An attempt-local encrypted config copy is pinned throughout network operations;
 the source configuration stays immutable. Token refresh that needs to replace
@@ -149,6 +149,34 @@ transport nor restore establishes fresh production identity or consumer closure.
 In particular, historical replay-status backfills and rotating conversions can
 still reference old folders; recent date alone does not clear those consumers.
 There is no production deletion executor in this bridge.
+
+
+### Separate upload and download jobs
+
+For a ciphertext object that cannot fit the combined operation, run
+`production_cold_archive_run.ps1 -Operation upload` first. Its request uses
+operation `upload_only` and the same exact bound inputs. The create-only
+`production_cold_archive_upload_receipt` records all four remote object
+identities and hashes, sets `upload_performed=true`, and keeps
+`independent_download=false`.
+
+Then issue a fresh request with operation `download_and_verify`, additional
+`upload_receipt_path` and `upload_receipt_sha256`, and run the wrapper with
+`-Operation download`. The raw upload-receipt digest binds the exact original
+object IDs, names, sizes and hashes; every object is checked before downloading
+to a new local attempt and hashing it. This phase never uploads. Its transport
+receipt sets `upload_performed=false` and `independent_download=true`.
+Restoration still requires that transport receipt and the complete plaintext
+verification described above.
+
+Both phases use the same transfer output parent and independent 300-second
+Jobs. Their leases are `production_cold_archive_transfer_upload` and
+`production_cold_archive_transfer_download`. Each budgets one ciphertext hash,
+one network copy and metadata allowance at the unchanged rates. The download
+phase relies on hash-bound upstream ciphertext evidence, then hashes the fresh
+download; it does not spend another pass reading the original local ciphertext.
+A successful upload is never presented as independent recovery. The existing
+`transfer` operation retains its stricter combined two-way budget.
 
 ## Update when
 
