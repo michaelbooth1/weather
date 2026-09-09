@@ -21,6 +21,9 @@ def validate_request(payload, *, production_root, now):
     for key in ("preimage_sha256", "predecessor_wrapper_sha256"):
         if not isinstance(payload[key], str) or not re.fullmatch(r"[0-9a-f]{64}", payload[key]):
             raise ValueError("verification evidence hashes must be exact SHA-256")
+    if "predecessor_request" in payload:
+        predecessor_request_path(payload, production_root)
+        extra.add("predecessor_request")
     rows = payload.get("files")
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
         raise ValueError("verification is restricted to one exact file")
@@ -37,6 +40,38 @@ def validate_request(payload, *, production_root, now):
     return rows
 
 
+def predecessor_request_path(request, production_root):
+    value = request["predecessor_request"]
+    if not isinstance(value, str) or not value:
+        raise ValueError("predecessor request must be an exact retained original")
+    path = Path(value)
+    if (not path.is_absolute() or str(path) != value
+            or path.parent != production_root / "scratch/handoffs"
+            or path.suffix != ".json" or path.name.startswith(".")):
+        raise ValueError("predecessor request must name a direct scratch/handoffs JSON file")
+    return path
+
+
+def read_predecessor_request(request, wrapper, attempt, production_root):
+    """Bind legacy reformatted copies to the still-retained, hash-exact approval."""
+    retained = attempt / "request.json"
+    expected_hash = wrapper.get("request_sha256")
+    if "predecessor_request" not in request:
+        return compression._read_receipt(retained, expected_hash, compression.MAX_REQUEST_BYTES)
+    original = predecessor_request_path(request, production_root)
+    with PinnedNtfsDirectory(original.parent):
+        payload = compression._read_receipt(original, expected_hash, compression.MAX_REQUEST_BYTES)
+    compression.inventory.validate_root(retained.parent)
+    compression.inventory.checked_stat(retained, directory=False)
+    _, retained_raw = compression.read_bounded_json(retained, compression.MAX_REQUEST_BYTES)
+    canonical = (compression.json.dumps(payload, sort_keys=True, indent=2,
+                                         allow_nan=False) + "\n").encode()
+    if (compression.hashlib.sha256(retained_raw).hexdigest() != expected_hash
+            and retained_raw != canonical):
+        raise ValueError("retained request differs from hash-bound original approval")
+    return payload
+
+
 def read_preimage(request, candidate, *, production_root):
     path = Path(request["preimage_receipt"])
     if (not path.is_absolute()
@@ -47,9 +82,7 @@ def read_preimage(request, candidate, *, production_root):
         preimage = compression._read_receipt(path, request["preimage_sha256"])
         wrapper = compression._read_receipt(path.parent / "wrapper-result.json",
                                              request["predecessor_wrapper_sha256"])
-        old_request = compression._read_receipt(path.parent / "request.json",
-                                                 wrapper.get("request_sha256"),
-                                                 compression.MAX_REQUEST_BYTES)
+        old_request = read_predecessor_request(request, wrapper, path.parent, production_root)
     old_source = wrapper.get("source_git_sha", "")
     if (wrapper.get("status") != "FAILED" or wrapper.get("teardown_proved") is not True
             or wrapper.get("apply") is not True or wrapper.get("deleted_files") != 0

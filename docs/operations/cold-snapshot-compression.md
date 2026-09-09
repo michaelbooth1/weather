@@ -119,6 +119,16 @@ fields, and exactly one current inventory row in `files`. Additionally bind:
 - `preimage_sha256`: the exact hash of that original journal.
 - `predecessor_wrapper_sha256`: the exact hash of that attempt's wrapper receipt.
 
+New attempts retain the approved request bytes exactly, preserving the wrapper's
+request hash across key order, whitespace and encoding. Older attempts may have
+saved a sorted, formatted request copy instead. For such an attempt, additionally
+name `predecessor_request`: the absolute normalized path to its still-retained
+original approval JSON directly under production `scratch/handoffs`. The verifier
+checks that original against the predecessor wrapper's request hash and requires
+the attempt copy to equal either those exact hashed bytes or the exact legacy
+serialization of the same original. It never rewrites a spent receipt. A missing,
+changed or differently bound original or copy blocks verification.
+
 The predecessor must be a terminal failed apply on the same host with proved
 teardown. Its original request hash, journal ordinal, native preimage and source
 identity must agree. Its source may differ from the newly qualified verifier;

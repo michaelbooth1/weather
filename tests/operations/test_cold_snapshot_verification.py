@@ -224,7 +224,9 @@ def test_lost_admission_stops_read_only_verification(tmp_path):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="native NTFS interrupted-compression recovery")
-def test_native_interruption_after_compression_is_verified_without_new_file_mutation(tmp_path, monkeypatch):
+@pytest.mark.parametrize("legacy_request_copy", [False, True])
+def test_native_interruption_after_compression_is_verified_without_new_file_mutation(
+        tmp_path, monkeypatch, legacy_request_copy):
     now = datetime.now(timezone.utc)
     source = tmp_path / "data" / RELATIVE
     source.parent.mkdir(parents=True)
@@ -252,6 +254,8 @@ def test_native_interruption_after_compression_is_verified_without_new_file_muta
     assert observed["compression_format"] == 2 and observed["allocation_bytes"] < before["allocation_bytes"]
     request, preimage, _ = chain(tmp_path, before=before, observed=observed, now=now,
                                  digest=hashlib.sha256(original).hexdigest())
+    if legacy_request_copy:
+        bind_legacy_request(tmp_path, request)
     assert journals[0][1]["sha256"] == preimage["sha256"]
     common = {"status": "PASS", "source_git_sha": NEW_SHA, "request_sha256": "1" * 64,
               "execution_host_id": HOST, "cleanup_eligible": False}
@@ -299,3 +303,66 @@ def test_normal_attribute_is_replaced_when_a_retained_file_is_compressed(tmp_pat
     request, preimage, _ = chain(tmp_path, before=before, observed=observed)
     subject.validate_request(request, production_root=tmp_path, now=NOW)
     assert verify(request, preimage, FakeFile(observed))["verified_reclaimed_bytes"] == 3072
+
+
+def bind_legacy_request(root, request):
+    retained = Path(request["preimage_receipt"]).with_name("request.json")
+    original = root / "scratch/handoffs/original-approved.json"
+    original.parent.mkdir(parents=True, exist_ok=True)
+    original.write_bytes(retained.read_bytes())
+    payload = json.loads(retained.read_bytes())
+    retained.unlink()  # Fixture construction only: simulate the old formatter.
+    compression.write_receipt(retained, payload)
+    request["predecessor_request"] = str(original)
+    return original, retained
+
+
+def test_legacy_formatter_mismatch_requires_exact_retained_original(tmp_path, monkeypatch):
+    monkeypatch.setattr(subject, "PinnedNtfsDirectory", lambda p: nullcontext())
+    request, preimage, _ = chain(tmp_path)
+    original, retained = bind_legacy_request(tmp_path, request)
+    assert original.read_bytes() != retained.read_bytes()
+    subject.validate_request(request, production_root=tmp_path, now=NOW)
+    assert subject.read_preimage(request, request["files"][0], production_root=tmp_path) == preimage
+    del request["predecessor_request"]
+    with pytest.raises(ValueError, match="hash"):
+        subject.read_preimage(request, request["files"][0], production_root=tmp_path)
+
+
+@pytest.mark.parametrize("target", ["original", "retained"])
+def test_legacy_binding_rejects_changed_original_or_reformatted_copy(tmp_path, monkeypatch, target):
+    monkeypatch.setattr(subject, "PinnedNtfsDirectory", lambda p: nullcontext())
+    request, _, _ = chain(tmp_path)
+    original, retained = bind_legacy_request(tmp_path, request)
+    changed = original if target == "original" else retained
+    changed.write_bytes(changed.read_bytes() + b" ")
+    with pytest.raises(ValueError, match="hash|differs"):
+        subject.read_preimage(request, request["files"][0], production_root=tmp_path)
+
+
+def test_legacy_binding_rejects_semantic_tampering_in_retained_copy(tmp_path, monkeypatch):
+    monkeypatch.setattr(subject, "PinnedNtfsDirectory", lambda p: nullcontext())
+    request, _, _ = chain(tmp_path)
+    _, retained = bind_legacy_request(tmp_path, request)
+    payload = json.loads(retained.read_bytes())
+    payload["approved_by"] = "different approval"
+    retained.unlink()
+    compression.write_receipt(retained, payload)
+    with pytest.raises(ValueError, match="differs"):
+        subject.read_preimage(request, request["files"][0], production_root=tmp_path)
+
+
+@pytest.mark.parametrize("value", [None, "", "relative.json", "../original.json", 123])
+def test_legacy_original_path_must_be_exact_and_bounded(tmp_path, value):
+    request, _, _ = chain(tmp_path)
+    request["predecessor_request"] = value
+    with pytest.raises(ValueError, match="predecessor request"):
+        subject.validate_request(request, production_root=tmp_path, now=NOW)
+
+
+@pytest.mark.parametrize("suffix", ["nested/original.json", ".hidden.json", "original.txt"])
+def test_legacy_original_is_restricted_to_direct_handoff_json(tmp_path, suffix):
+    request, _, _ = chain(tmp_path)
+    request["predecessor_request"] = str(tmp_path / "scratch/handoffs" / suffix)
+    with pytest.raises(ValueError, match="predecessor request"):
+        subject.validate_request(request, production_root=tmp_path, now=NOW)

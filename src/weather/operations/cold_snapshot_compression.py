@@ -113,7 +113,12 @@ def validate_request(payload, *, production_root, now):
 
 def write_receipt(path, payload):
     raw = (json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()
-    if len(raw) > MAX_RECEIPT_BYTES:
+    write_receipt_bytes(path, raw)
+
+
+def write_receipt_bytes(path, raw, maximum=MAX_RECEIPT_BYTES):
+    """Create and flush exact bytes; request hashes bind their original encoding."""
+    if len(raw) > maximum:
         raise ValueError("receipt exceeds its hard bound")
     with Path(path).open("xb") as stream:
         stream.write(raw)
@@ -289,7 +294,7 @@ def run_pinned(args, production_root, output):
     read_inventory(request, candidates, production_root=production_root, source_git_sha=args.source_git_sha)
     preimage = (verification.read_preimage(request, candidates[0], production_root=production_root)
                 if verify_retained else None)
-    write_receipt(output / "request.json", request)
+    write_receipt_bytes(output / "request.json", raw, MAX_REQUEST_BYTES)
     results = []
     receipt = {"schema_version": schema_version("cold_snapshot_compression_receipt"),
                "source_git_sha": args.source_git_sha, "request_sha256": args.request_sha256,

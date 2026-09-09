@@ -256,6 +256,8 @@ def test_native_run_retains_exact_bytes_and_receipts(tmp_path, monkeypatch):
     args = Namespace(production_repo_root=str(tmp_path), output_root=str(output),
                      request=str(request_path), request_sha256=digest, source_git_sha=SHA, apply=True)
     assert subject.run(args) == 0
+    assert (output / "request.json").read_bytes() == request_path.read_bytes()
+    assert hashlib.sha256((output / "request.json").read_bytes()).hexdigest() == digest
     result = json.loads((output / "result.json").read_text())
     assert result["status"] == "PASS" and result["deleted_files"] == 0
     assert result["cleanup_eligible"] is False and result["reclaimed_bytes"] > 0
