@@ -22,6 +22,8 @@ MAX_RECOVERIES = 48
 MAX_INPUT_BYTES = 256 * GIB
 MAX_EVIDENCE_BYTES = 256 * MIB
 ENV = "WEATHER_STORAGE_RECOVERY_NIGHT_"
+# Existing gzip jobs own these two immediate filenames during the tiering gap.
+SCHEDULED_TIERING_FILENAMES = frozenset({"order_books.jsonl", "order_books_long.csv"})
 SEGMENTS = (("early", time(0, 30), time(4, 42)), ("late", time(6, 45), time(8, 55)))
 SAFE_TERMINALS = frozenset({"TARGET_MET", "WINDOW_COMPLETE", "CANDIDATES_EXHAUSTED",
                            "RESOURCE_LIMITED", "BUDGET_COMPLETE"})
@@ -188,7 +190,8 @@ def validate_ledger(rows):
         path = row.get("path")
         if (not isinstance(path, str) or len(PurePosixPath(path).parts) != 3
                 or not path.startswith("snapshots/") or PurePosixPath(path).as_posix() != path
-                or any(p.startswith(".") for p in PurePosixPath(path).parts)):
+                or any(p.startswith(".") for p in PurePosixPath(path).parts)
+                or PurePosixPath(path).name.casefold() in SCHEDULED_TIERING_FILENAMES):
             raise ValueError("invalid retained-file ledger path")
         digest(row.get("sha256"))
         saved = row.get("allocation_saving_bytes")

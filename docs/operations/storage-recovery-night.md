@@ -26,6 +26,10 @@ Name at most ninety exact cold-date groups, each containing one to twelve
 built-in snapshot event directories. Inventory examines their immediate files.
 Missing directories receive zero capacity credit; a partial inventory cannot
 authorize compression. No recursive discovery or hot-file selection is allowed.
+The two filenames `order_books.jsonl` and `order_books_long.csv` belong
+exclusively to the existing scheduled gzip jobs and are excluded even when small
+enough for NTFS compression. A baseline ledger containing either requires separate
+reconciliation before this controller can be armed.
 The planner retains the 1 MiB minimum, 64 MiB maximum file size, 256-file /
 1 GiB batch bounds, dry-run pilot and positive verified pilot before expansion.
 

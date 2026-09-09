@@ -300,8 +300,12 @@ class NightRunner:
         while True:
             context, manifest = self.inventory(group)
             self.verify_pending(context, manifest)
+            # The scheduled gzip jobs may replace their original paths in the
+            # 04:45-06:45 gap. Leave those filenames exclusively to their owner.
+            planning_manifest = {**manifest, "files": [row for row in manifest["files"]
+                if row["path"].rsplit("/", 1)[-1].casefold() not in contract.SCHEDULED_TIERING_FILENAMES]}
             try:
-                pilot_plan = planner.prepare(manifest, context, production_root=self.root,
+                pilot_plan = planner.prepare(planning_manifest, context, production_root=self.root,
                                              now=self.now(), mode="pilot")
             except ValueError as exc:
                 if str(exc) != "no eligible candidates at the requested cursor":
@@ -338,7 +342,7 @@ class NightRunner:
                 if self.target_met():
                     return
                 try:
-                    expansion = planner.prepare(manifest, context, production_root=self.root, now=self.now(),
+                    expansion = planner.prepare(planning_manifest, context, production_root=self.root, now=self.now(),
                                                 mode="expand", start_index=cursor, pilot_paths=pilot_paths)
                 except ValueError as exc:
                     if str(exc) != "no eligible candidates at the requested cursor":
@@ -405,7 +409,9 @@ class NightRunner:
             "verified_ledger_sha256": ledger_sha, "pending": self.pending, "reconcile_rows": self.reconcile_rows,
             "unverified_files": None if status == "BLOCKED" else int(self.pending is not None),
             "free_disk_bytes": shutil.disk_usage(self.root).free, "target_met": self.target_met(),
-            "final_admission": self.last_admission, "deleted_files": 0, "cleanup_eligible": False,
+            "final_admission": self.last_admission,
+            "excluded_scheduled_tiering_filenames": sorted(contract.SCHEDULED_TIERING_FILENAMES),
+            "deleted_files": 0, "cleanup_eligible": False,
         }
         contract.write_json(self.output / "result.json", result)
         self.progress(status)

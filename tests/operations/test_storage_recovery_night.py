@@ -324,3 +324,27 @@ def test_late_reconciles_an_interrupted_early_file_before_any_new_compression(tm
     assert simulation.calls[before:] == ["inventory", "verify"]
     assert last["verified_file_count"] == 2 and last["pending"] is None
     assert last["night_verified_reclaimed_bytes"] == 2 * contract.MIB
+
+
+def test_scheduled_gzip_filenames_are_never_selected_even_when_largest(tmp_path, monkeypatch):
+    runner, simulation = runner_fixture(tmp_path, monkeypatch)
+    for i, name in enumerate(sorted(contract.SCHEDULED_TIERING_FILENAMES)):
+        path = FOLDER + "/" + name
+        native = {**next(iter(simulation.before.values())), "size_bytes": 64 * contract.MIB,
+                  "allocation_bytes": 64 * contract.MIB, "file_index": 100 + i, "creation_filetime": 1000 + i}
+        simulation.before[path] = native
+        simulation.current[path] = dict(native)
+    assert runner.run() == 0
+    assert len(runner.rows) == 2
+    for name in contract.SCHEDULED_TIERING_FILENAMES:
+        assert simulation.current[FOLDER + "/" + name]["compression_format"] == 0
+    assert all(row["path"].rsplit("/", 1)[-1] not in contract.SCHEDULED_TIERING_FILENAMES for row in runner.rows)
+
+
+def test_a_baseline_overlapping_scheduled_tiering_must_be_reconciled_separately(tmp_path, monkeypatch):
+    runner, _ = runner_fixture(tmp_path, monkeypatch)
+    assert runner.run() == 0
+    row = deepcopy(runner.rows[0])
+    row["path"] = FOLDER + "/order_books.jsonl"
+    with pytest.raises(ValueError, match="ledger path"):
+        contract.validate_ledger([row])
