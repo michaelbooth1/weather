@@ -926,3 +926,24 @@ Even all available older July 1-8 allocations plus the July 16-31 raw token
 family fall below 100 GB. A verified off-site availability contract must preserve
 discovery and make historical restore requirements explicit before local
 deletion. Current capture and hot-window daily behavior must remain available.
+
+The split transfer implementation at 05188a2fe3c5bf4af58fbc13aa4f0451cba26ace
+was subsequently checked on the workstation: 224 checks passed, covering both
+phases, remote-object identity changes, source/plan membership, wrapper teardown,
+schemas, compilation and documentation. The one remaining harness assertion
+expected roadmap regeneration to leave Git clean; the generated file changed
+only its timestamp. That generated update is included, and final validation
+uses the generator's check mode. The retained archive-transfer-qualification-a3.xml
+has SHA-256 96dcae13e48f806bf1e36e2541832c9489f003c9ccf6bb34b96d489aaba50340.
+
+Separate upload and download jobs retain the 300-second limit, 8 MiB/s network
+rate and 16 MiB/s hash rate. Each split job budgets one hash and one copy;
+upload-only can never satisfy independent recovery. The reviewed staged
+manifest must match the actual plan's exact source-member identities.
+
+A read-only Drive metadata probe also succeeded with its encrypted config
+pinned against replacement. Both source and attempt configs stayed unchanged;
+the client reported a config-save warning but the lookup succeeded. No remote
+object was created. The receipt archive-drive-pinned-config-check-20260909.json
+has SHA-256 2db846d9e5255b32aa7aaaace09bb57aaa2c896b3cdb5f8bd27002d14df93957.
+This is one observed client behavior, not production payload or restore proof.
