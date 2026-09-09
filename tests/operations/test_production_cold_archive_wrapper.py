@@ -54,6 +54,8 @@ result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding
           'logical_source_bytes': 4096, 'source_file_count': 1, 'chunk_id': 'chunk-00000',
           'core_receipt_sha256': 'a' * 64,
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
+if mode == 'malformed_receipt': result.pop('core_receipt_sha256')
+if mode == 'claim_upload': result['upload_performed'] = True
 (out / 'result.json').write_text(json.dumps(result))
 '''
 
@@ -142,7 +144,8 @@ def finish(process):
 
 
 @pytest.mark.parametrize("mode,success", [("success", True), ("residual_success", True),
-    ("failure", False), ("wrong_binding", False), ("source_drift", False), ("request_drift", False), ("hang", False)])
+    ("failure", False), ("wrong_binding", False), ("source_drift", False), ("request_drift", False), ("hang", False),
+    ("malformed_receipt", False), ("claim_upload", False)])
 def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper_fixture, mode, success):
     process, output = launch(wrapper_fixture, mode)
     code, log = finish(process)
@@ -152,6 +155,10 @@ def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper
     receipt = json.loads(path.read_text(encoding="utf-8-sig"))
     assert (receipt["status"] == "PASS") is success
     assert receipt["teardown_proved"] is True
+    if mode in ("malformed_receipt", "claim_upload"):
+        assert code == 1
+        assert receipt["status"] == "FAILED"
+        assert receipt.get("error")
     if success:
         assert receipt["child_result_sha256"] == hashlib.sha256((output / "result.json").read_bytes()).hexdigest()
         assert receipt["source_retained"] is True
@@ -212,3 +219,4 @@ def test_busy_shared_fixture_lease_refuses_before_output(wrapper_fixture):
         if acquired:
             assert kernel.ReleaseMutex(handle)
         assert kernel.CloseHandle(handle)
+

@@ -78,7 +78,7 @@ def test_resources_do_not_double_reserve_written_output():
 @pytest.mark.parametrize("key,value", [
     ("now", NOW.replace(hour=17)), ("now", NOW.replace(hour=9)),
     ("commit", 70), ("commit", float("nan")), ("available", 4 * 1024**3 - 1),
-    ("free_disk", None), ("free_disk", True), ("loops", []),
+    ("free_disk", None), ("free_disk", True), ("free_disk", 21 * 1024**3), ("loops", []),
 ])
 def test_capture_time_and_resources_refuse(key, value):
     args = resources()

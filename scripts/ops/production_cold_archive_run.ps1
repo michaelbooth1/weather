@@ -150,12 +150,12 @@ try {
             throw 'approved request changed during operation'
         }
         $receipt.child_result_sha256 = (Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash.ToLowerInvariant()
-        $receipt.status = 'PASS'
         $receipt.reclaimed_bytes = 0
         $receipt.logical_source_bytes = $result.logical_source_bytes
         $receipt.source_file_count = $result.source_file_count
         $receipt.chunk_id = $result.chunk_id
         $receipt.core_receipt_sha256 = $result.core_receipt_sha256
+        $receipt.status = 'PASS'
     }
     else {
         if (-not $receipt.Contains('error')) { $receipt.error = 'child did not produce PASS; retain attempt and inspect child receipts' }
@@ -163,6 +163,7 @@ try {
     }
 }
 catch {
+    $receipt.status = 'FAILED'
     $receipt.error = $_.Exception.Message
     $exitCode = 1
 }

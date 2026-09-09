@@ -51,7 +51,7 @@ child tree in a kill-on-close Windows Job, and stops within 300 seconds with
 teardown reserved before the window boundary. Streaming is throttled to
 16 MiB/s; admission requires healthy capture, commit below 70%, at least
 4 GiB physical memory available, and the bounded process memory checks.
-The core reserves worst-case output plus 20 GiB capture headroom and 16 MiB
+The core reserves worst-case output plus 50 GiB capture headroom and 16 MiB
 evidence headroom, then checks remaining reserve on every write.
 
 ## What a PASS establishes
