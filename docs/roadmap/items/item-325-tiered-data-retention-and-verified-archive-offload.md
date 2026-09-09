@@ -947,3 +947,83 @@ the client reported a config-save warning but the lookup succeeded. No remote
 object was created. The receipt archive-drive-pinned-config-check-20260909.json
 has SHA-256 2db846d9e5255b32aa7aaaace09bb57aaa2c896b3cdb5f8bd27002d14df93957.
 This is one observed client behavior, not production payload or restore proof.
+
+## September 9 revised target for owner validation
+
+After accepting restore on demand, the owner required selection of the least
+frequently needed practical archive target and an explanation for validation
+before any upload. The blanket July 16-31 selection above is superseded as the
+current recommendation, while its plans and receipts remain historical evidence.
+
+The preferred target is specific June 15-July 30 files across twelve markets:
+2,154 paths with 101,760,323,584 recorded allocated bytes (101.8 decimal GB).
+Market-detail history contributes 79.1 GB and full variant prediction JSONL
+22.7 GB. The seven actual primary families are clob_tokens.jsonl,
+variant_predictions.jsonl, order_books_long.csv.gz, price_history.csv,
+market_ws.jsonl, order_books_long.csv and order_books.jsonl. Each original is
+retained independently; CSV, JSONL and gzip representations are not assumed
+interchangeable or safely rebuildable.
+
+The separately bound reserve contains 552 snapshot_explanations_long.csv files,
+10,238,812,160 recorded allocated bytes. Retain it unless final primary
+allocation or protected-input exclusions leave the verified reclaim below
+100,000,000,000 bytes; use only the oldest qualified reserve needed and only
+after the owner validates that reserve. Primary validation does not authorize
+the whole 112.0 GB pool. The original July plan's 20 GiB reserve exception does
+not automatically apply to this replacement; staging/headroom feasibility must
+be reviewed under the applicable floor.
+
+Keep original weather/source payloads and their shared dependencies, snapshot
+records, replay inputs, components, settlement/labels/control metadata, snapshot
+tables, permanent token-map CSVs, book summaries, compact variant CSVs and raw
+explanation JSONL local. Keep existing Parquet/reports, all July 31 onward data,
+maker/taker/execution evidence and replay caches. Protect any current selected
+event, repair or explicit research dependency even if its date is older.
+
+This ranks likely demand from source readers and inspected Scheduler/config
+state, not measured per-file access frequency. Stage-A legacy historical
+scoring reads retained snapshot tables; current-day scoring uses retained
+variant CSVs. Full variant JSONL still supports residual/parity research,
+and the reserve explanation CSV has a direct historical root-cause reader.
+Parquet provenance and all-history maintenance also need archive handling.
+Neither age nor retention of a related format proves reader compatibility.
+
+The comparison covers 18,058 immediate files in 564 complete market-day
+selections, with 249.0 GB of recorded allocation. June 15-30 and July 9-15
+received new admitted metadata inventories; the other July observations date
+from September 8/9. The proposal excludes 520 recently modified book gzip
+files (8.3 GB). All selected files meet the retained modification cutoff and
+1 GiB whole-file bound. A later refresh was refused by snapshot-health
+admission; it contributes no new capacity. An incomplete June 3 sample is
+excluded. No production source payload was read for this target comparison.
+
+The implementation must preserve a local availability catalog and resolve a
+job's complete dependencies before execution. Archive by market/date/file
+family in bounded parts; restore only required inputs with full verification,
+reuse a bounded protected cache, and make housekeeping preserve valid complete
+projections. Never silently skip archived history, repair it repeatedly, or
+publish a partial historical population. Fresh source identity/allocation,
+current consumer selections, complete independent restore and a qualified
+exact-file deletion executor remain prerequisites to reclaim.
+
+Bound proposal artifacts are production-local ignored review evidence under
+scratch/handoffs/; they need not exist in a clean checkout. Their status is
+PROPOSED_FOR_OWNER_VALIDATION_NOT_UPLOAD_AUTHORITY and every mutation gate is
+false:
+
+| Proposal | Files / recorded allocation | SHA-256 |
+| --- | --- | --- |
+| archive-target-primary-20260909.json | 2,154 / 101,760,323,584 bytes | d47eec8ff7fbd500c720a273339729cb9f8f75eb84be615082d9d39e2b22b927 |
+| archive-target-standby-20260909.json | 552 / 10,238,812,160 bytes | f9053f2acca392ddad37d3afb72a2643dbf1b727dcc297c0cde329de8ddb034c |
+
+Both bind parent archive-target-proposal-a2-20260909.json,
+SHA-256 05da0e19623530f93382d4f8c6ea8757e85090d69c441025119de1f29b6011f1,
+and comparison archive-target-metadata-comparison-a3-20260909.json,
+SHA-256 95522eec2630f1ea5a2c071245121038f6a2e0d6511e19f6278745162e3d3d1e.
+The owner-facing explanation is archive-target-recommendation-20260909.md.
+
+Source qualification at 3160122d1c09c76a8aea0074e0d0e65dc36b76b5 passed final
+workstation checks, CI 660 and host-load hook 27. These prove the existing
+bridge, not the proposed reader workflow. The revised target awaits owner
+validation. Production payload uploaded, files deleted and space reclaimed
+remain zero.
