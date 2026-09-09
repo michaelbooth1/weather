@@ -102,7 +102,7 @@ foreach ($segment in $segments) {
         [string]$triggers[0].CimClass.CimClassName -ne 'MSFT_TaskTimeTrigger' -or
         ([DateTimeOffset]::Parse($triggers[0].StartBoundary).UtcDateTime - $at).Duration().TotalSeconds -ge 1 -or
         -not [bool]$triggers[0].Enabled -or -not [string]::IsNullOrWhiteSpace([string]$triggers[0].Repetition.Interval) -or
-        [string]$task.Settings.ExecutionTimeLimit -ne $intent.execution_time_limit -or
+        [Xml.XmlConvert]::ToTimeSpan([string]$task.Settings.ExecutionTimeLimit) -ne (New-TimeSpan -Minutes $runtimeMinutes) -or
         [bool]$task.Settings.StartWhenAvailable -or -not [bool]$task.Settings.WakeToRun -or
         [string]$task.Settings.MultipleInstances -ne 'IgnoreNew' -or -not [bool]$task.Settings.Hidden -or
         [bool]$task.Settings.DisallowStartIfOnBatteries -or [bool]$task.Settings.StopIfGoingOnBatteries -or

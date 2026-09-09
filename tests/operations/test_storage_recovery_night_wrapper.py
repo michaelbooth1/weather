@@ -243,3 +243,71 @@ def test_registrar_readback_refuses_reuse_and_settings_drift_without_real_schedu
     assert len(observed_calls) == calls
     receipt = production / "scratch/storage_recovery_nights" / plan["plan_id"] / "registration-preflight/preflight-result.json"
     assert receipt.exists() is passed
+
+
+@pytest.mark.parametrize("wrong_duration,passed,expected_calls", [(False, True, 2), (True, False, 1)])
+def test_both_segments_accept_scheduler_normalized_durations_and_reject_changed_limits(
+        native_fixture, wrong_duration, passed, expected_calls):
+    source, production, head, host = native_fixture
+    now = datetime.now(timezone.utc)
+    night = (now + timedelta(days=1)).date()
+    from zoneinfo import ZoneInfo
+    expiry = datetime.combine(night, datetime.min.time(), ZoneInfo("America/Toronto")).replace(hour=9)
+    plan = {"night_date": night.isoformat(), "plan_id": "capacity-" + night.strftime("%Y%m%d") + "-fixture",
+        "production_repo_root": str(production), "source_root": str(source), "source_git_sha": head,
+        "execution_host_id": host, "approved_at_utc": now.isoformat(),
+        "expires_at_utc": expiry.astimezone(timezone.utc).isoformat(), "allow_resource_recovery": True}
+    path = production / "plan.json"
+    path.write_text(json.dumps(plan))
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    night_root = production / "scratch/storage_recovery_nights" / plan["plan_id"]
+    preflight = night_root / "preflight"
+    preflight.mkdir(parents=True)
+    result = preflight / "result.json"
+    result.write_text("{}")
+    (preflight / "wrapper-result.json").write_text(json.dumps({
+        "status": "PASS", "child_status": "PREFLIGHT_PASS", "teardown_proved": True, "hard_stop": False,
+        "plan_sha256": sha, "source_git_sha": head, "execution_host_id": host, "segment": "preflight",
+        "deleted_files": 0, "cleanup_eligible": False, "started_at_utc": now.isoformat(),
+        "child_result_sha256": hashlib.sha256(result.read_bytes()).hexdigest()}))
+    registration = night_root / "registration-preflight"
+    registration.mkdir()
+    (registration / "preflight-result.json").write_text(json.dumps({
+        "status": "PASS", "plan_sha256": sha, "source_git_sha": head,
+        "task_name": "WeatherStorageRecovery-" + plan["plan_id"] + "-preflight",
+        "task_xml_sha256": hashlib.sha256(b"<Task>fixture export</Task>").hexdigest()}))
+    calls = production / "calls.txt"
+    script = SCHEDULER_MOCKS.replace(" -PreflightOnly\n", "\n")
+    script = script.replace("$global:weatherNightStoredTask = $null", "$global:weatherNightStoredTasks = @{}")
+    script = script.replace(
+        "if ($global:weatherNightStoredTask) { return $global:weatherNightStoredTask }",
+        """if ($TaskName.EndsWith('-preflight')) {
+        return [PSCustomObject]@{State='Ready';Principal=[PSCustomObject]@{
+            UserId=$env:USERNAME;LogonType='S4U';RunLevel='Limited'}}
+    }
+    if ($global:weatherNightStoredTasks.ContainsKey($TaskName)) { return $global:weatherNightStoredTasks[$TaskName] }""")
+    script = script.replace("$global:weatherNightStoredTask = [PSCustomObject]",
+                            "$global:weatherNightStoredTasks[$TaskName] = [PSCustomObject]")
+    script = script.replace("ExecutionTimeLimit=('PT' + [int]$ExecutionTimeLimit.TotalMinutes + 'M')",
+                            "ExecutionTimeLimit=[Xml.XmlConvert]::ToString($ExecutionTimeLimit)")
+    if wrong_duration:
+        script = script.replace("ExecutionTimeLimit=[Xml.XmlConvert]::ToString($ExecutionTimeLimit)",
+                                "ExecutionTimeLimit=[Xml.XmlConvert]::ToString($ExecutionTimeLimit.Add([TimeSpan]::FromMinutes(1)))")
+    script = script.replace("function Export-ScheduledTask",
+        "function Get-ScheduledTaskInfo { [CmdletBinding()]param([Parameter(ValueFromPipeline=$true)]$InputObject)\n"
+        " return [PSCustomObject]@{LastTaskResult=0;LastRunTime=[DateTimeOffset]::Parse('__NOW__').LocalDateTime}\n}\n"
+        "function Export-ScheduledTask")
+    replacements = {"__MODE__": "success", "__CALLS__": str(calls), "__NOW__": now.isoformat(),
+        "__REGISTRAR__": str(source / "scripts/ops/register_storage_recovery_night.ps1"),
+        "__PRODUCTION__": str(production), "__PLAN__": str(path), "__SHA__": sha, "__HEAD__": head}
+    for key, value in replacements.items():
+        script = script.replace(key, value.replace("'", "''"))
+    harness = production / "harness.ps1"
+    harness.write_text(script, encoding="utf-8")
+    observed = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                              "-File", str(harness)], capture_output=True, text=True, timeout=40)
+    assert (observed.returncode == 0) is passed, observed.stdout + observed.stderr
+    assert len(calls.read_text().splitlines()) == expected_calls
+    for segment in ("early", "late"):
+        receipt = night_root / "registration-segments" / (segment + "-result.json")
+        assert receipt.exists() is passed
