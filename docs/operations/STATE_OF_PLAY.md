@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-09 America/Toronto (archive target review).** Read this first; read
+**Last updated: 2026-09-09 America/Toronto (archive target approved).** Read this first; read
 `ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
@@ -13,11 +13,11 @@ refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-p
 
 ## Current authority
 
-On September 9 the owner requested at least 100 GB of verified Google Drive
-offload and local reclaim, then required target validation before any upload.
-Restore on demand is accepted; the revised selection and consumer handling are
-pending. The 20 GiB reserve exception belongs to the original exact July plan,
-not its proposed replacement. Host, restore and exact-file deletion gates remain.
+On September 9 the owner approved the revised 101.8 GB primary archive target
+and conditional 10.2 GB reserve, requiring documentation of every data location.
+Implement selective restore and consumer handling before reclaim. The 20 GiB
+reserve exception remains bound to the original exact July plan; this approval
+does not change host, headroom, full-restore or exact-file deletion gates.
 
 The owner authorized the plan's implementation, source-control integration,
 and takeover of unfinished cold-storage work on September 4. Ordinary authorized
@@ -37,7 +37,7 @@ retention and restore requirements still govern their exact actions.
 | Public execution tape | The September 8 08:03 receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
 | Off-site qualification | Source 3160122d1c09c76a8aea0074e0d0e65dc36b76b5 is published in [draft PR 45](https://github.com/michaelbooth1/weather/pull/45), stacked on queued PR 44. Split transfer and native restore checks passed; CI 660 and host-load hook 27 passed. Private Drive connectivity has an 86-byte synthetic roundtrip only. No production archive transfer, restore or reclaim is proved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds receipts. |
 | Settlement / recurring work | The September 8 08:03 chain receipt is terminal and deferred at `ingest_quality_gate` by physical-memory/capture admission, with `rollup_freshness` blocked. The bounded 14-day settlement check flags August 28-31 and September 1, 4-6, affecting up to twelve markets on the worst date. The next chain run does not repair those dates automatically. Full-ledger reconciliation and resource-admitted per-date repair remain open. |
-| Storage | The revised proposal selects June 15-July 30 market detail and full prediction JSONL: 2,154 files / 101.8 GB of recorded allocation. A separately bound 10.2 GB explanation-CSV reserve is conditional only. Weather, replay inputs, settlements, local summary tables and July 31 onward stay local. These estimates require fresh identity/allocation and protected-input checks. Owner validation, selective restore/cache, reader and housekeeping handling, headroom feasibility and exact-file reclaim remain open; item 325 owns the proposal. |
+| Storage | The revised proposal selects June 15-July 30 market detail and full prediction JSONL: 2,154 files / 101.8 GB of recorded allocation. A separately bound 10.2 GB explanation-CSV reserve is conditional only. Weather, replay inputs, settlements, local summary tables and July 31 onward stay local. These estimates require fresh identity/allocation and protected-input checks. The owner approved primary plus conditional reserve. Catalog, restore-cache, reader and housekeeping source changes passed workstation qualification. Publication/CI, production adoption, headroom feasibility, managed cache cleanup and exact-file reclaim remain on the critical path; item 325 binds approval and proof. |
 | Maker changes | W1 governance at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), passed full Linux CI and guarded adoption; all three capture workers passed before/after checks. W2 identity/config at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), passed workstation checks, topic-head Linux CI and guarded production adoption; all three capture workers and the public execution-tape producer passed recovery. Atomic paired configuration publication remains open. Both underwent independent review. |
 | Feasibility | W3's [pure diagnostic calculator](maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3`. Independent review, 91 workstation checks and compilation of both changed Python paths passed. W3/G1 remain open: no current campaign/economics collection, evidence qualification, paid or reconciled profit, or consumer/CLI/executor integration. Git, CI and guarded receipts own source-integration status. |
 | Accounting | W4's static source trace is complete. Next is a pure offline accrual-to-wallet-credit matcher within the existing reports family, preserving the cash identity. No account failure or paid incentive is observed; item 330 records the design receipt. |
@@ -52,10 +52,10 @@ own dated evidence. These ignored files need not exist in a clean checkout.
 
 ## Ordered non-live critical path
 
-1. Obtain the owner's validation of the revised exact archive target, then
-   qualify selective historical restore and consumer/housekeeping handling.
-   Recheck protected inputs and headroom before admitted encrypted transfer,
-   independent complete restore and exact-file reclaim. Upload remains on hold.
+1. Publish and finish the qualified selective archive workflow, location records
+   and historical consumer changes. Recheck protected inputs and
+   headroom before admitted encrypted transfer, independent complete restore
+   and exact-file reclaim. No production payload has been uploaded or deleted.
 2. Keep storage [PR 44](https://github.com/michaelbooth1/weather/pull/44) queued
    as requested. Production adoption is not authorized by the night plan.
    Other integrations still require their canonical verdict and guarded path.

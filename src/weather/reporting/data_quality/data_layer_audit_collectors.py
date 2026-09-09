@@ -8,6 +8,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from weather.cold_archive_locations import archived_inputs
 from weather.collection.collection_health import summarize_folder
 from weather.collection.forecast_payload_cas import (
     ForecastPayloadCASIntegrityError,
@@ -646,6 +647,7 @@ def sidecar_backfill_commands(folder, artifact_presence):
 
 def sidecar_eligibility_for_folder(row, *, settled_scope_ready=False, active_day=False):
     artifact_presence = row.get("artifact_presence") or {}
+    artifact_locations = row.get("artifact_locations") or {}
     replay = row.get("replay_input_status") or {}
     feature_quality = row.get("feature_quality") or {}
     feature_quality_training_excluded_rows = int(feature_quality.get("training_excluded_row_count") or 0)
@@ -705,6 +707,8 @@ def sidecar_eligibility_for_folder(row, *, settled_scope_ready=False, active_day
         artifact_presence,
         ("clob_tokens", "order_books_summary", "price_history", "market_ws_events", "variant_predictions"),
     ):
+        if name in artifact_locations:
+            continue
         non_reconstructable.append({
             "artifact": name,
             "reason": "live_capture_only_or_not_serialized_in_legacy_snapshot_jsonl",
@@ -725,11 +729,22 @@ def sidecar_eligibility_for_folder(row, *, settled_scope_ready=False, active_day
         "missing_market_aware_artifacts": market_missing,
         "promotion_exclusion_reasons": [] if labels["training_ready"] else sorted(set(evaluation_only_reasons)),
         "market_aware_exclusion_reasons": [
-            f"missing_{name}" for name in market_missing
+            f"archived_restore_required_{name}" if name in artifact_locations else f"missing_{name}"
+            for name in market_missing
         ],
         "evaluation_only_reasons": sorted(set(evaluation_only_reasons)),
         "non_reconstructable_gaps": non_reconstructable,
-        "backfill_commands": sidecar_backfill_commands(row.get("folder"), artifact_presence),
+        "archived_artifacts": artifact_locations,
+        "restore_commands": [
+            {"artifact": name, "archive_id": location["archive_id"],
+             "command": 'python -m weather.operations.cold_archive_catalog locate --source-path '
+                        f'"{Path(row.get("folder")) / SNAPSHOT_OPTIONAL_ARTIFACTS[name]}"'}
+            for name, location in sorted(artifact_locations.items())
+        ],
+        "backfill_commands": [
+            command for command in sidecar_backfill_commands(row.get("folder"), artifact_presence)
+            if command["artifact"] not in artifact_locations
+        ],
         "active_day_sidecar_regression": bool(active_missing),
         "active_day_missing_sidecars": active_missing,
     }
@@ -755,6 +770,11 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
         name: (folder / filename).exists()
         for name, filename in SNAPSHOT_OPTIONAL_ARTIFACTS.items()
     }
+    offsite = {record["path"]: record for record in archived_inputs(folder)}
+    artifact_locations = {
+        name: {"status": "ARCHIVED_RESTORE_REQUIRED", **offsite[filename]}
+        for name, filename in SNAPSHOT_OPTIONAL_ARTIFACTS.items() if filename in offsite
+    }
     source_status = source_status_summary_for_folder(folder)
     forecast_payloads = forecast_payload_summary_for_folder(folder)
     clob_features = clob_feature_summary_for_folder(folder)
@@ -778,6 +798,7 @@ def snapshot_folder_audit(folder, interval_minutes=10.0, tolerance=1.5):
         "coverage_reason": coverage.get("reason"),
         "capture_ratio": coverage.get("capture_ratio"),
         "artifact_presence": artifact_presence,
+        "artifact_locations": artifact_locations,
         "source_status": source_status,
         "forecast_payloads": forecast_payloads,
         "clob_features": clob_features,
@@ -898,6 +919,7 @@ def snapshot_audit(snapshots_root=DEFAULT_SNAPSHOTS_ROOT, interval_minutes=10.0,
                 "promotion_exclusion_reasons": eligibility.get("promotion_exclusion_reasons") or [],
                 "market_aware_exclusion_reasons": eligibility.get("market_aware_exclusion_reasons") or [],
                 "backfill_commands": eligibility.get("backfill_commands") or [],
+                "restore_commands": eligibility.get("restore_commands") or [],
             })
         feature_quality = row.get("feature_quality") or {}
         quarantine_count = int(feature_quality.get("quarantine_row_count") or 0)

@@ -302,7 +302,7 @@ def _validate_upload_receipt(receipt, *, bindings, root_folder_id, files):
     return result
 
 
-def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
+def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sha256,
                    production_manifest_path, production_manifest_sha256,
                    production_receipt_path, production_receipt_sha256,
                    plan_sha256, archive_id, rclone_executable, rclone_config, dpapi_secret,
@@ -325,10 +325,13 @@ def transfer_chunk(*, ciphertext_path, crypt_receipt_path, crypt_receipt_sha256,
     archive._require_sha256(plan_sha256)
     _require(crypt.ARCHIVE_ID_RE.fullmatch(archive_id) is not None, "invalid archive ID")
     inputs = {name: archive._safe_path(Path(value)) for name, value in {
-        "ciphertext": ciphertext_path, "crypt_receipt": crypt_receipt_path,
+        "crypt_receipt": crypt_receipt_path,
         "production_manifest": production_manifest_path, "production_receipt": production_receipt_path,
         "executable": rclone_executable, "config": rclone_config, "secret": dpapi_secret}.items()}
-    if not upload_needed:
+    if upload_needed:
+        _require(ciphertext_path is not None, "upload requires local ciphertext")
+        inputs["ciphertext"] = archive._safe_path(Path(ciphertext_path))
+    else:
         inputs["upload_receipt"] = archive._safe_path(Path(upload_receipt_path))
     protected = archive._safe_path(Path(protected_root), directory=True)
     output = Path(output_root)

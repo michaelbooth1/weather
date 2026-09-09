@@ -268,13 +268,15 @@ def main(argv=None):
     plan = sub.add_parser("plan", help="Build deterministic chunks from retained metadata only.")
     for name in ("selection", "selection-sha256", "output-path"):
         plan.add_argument("--" + name, required=True)
+    plan.add_argument("--chunk-grouping", choices=stage.CHUNK_GROUPINGS, default=stage.LEGACY_GROUPING)
     run = sub.add_parser("stage", help="Stage one request-bound chunk through the production wrapper.")
     for name in ("production-repo-root", "request", "request-sha256", "output-root", "source-git-sha"):
         run.add_argument("--" + name, required=True)
     args = parser.parse_args(argv)
     try:
         if args.operation == "plan":
-            result = stage.plan_selection(Path(args.selection), args.selection_sha256, Path(args.output_path))
+            result = stage.plan_selection(Path(args.selection), args.selection_sha256,
+                                          Path(args.output_path), chunk_grouping=args.chunk_grouping)
             print(json.dumps({"status": "PLANNED", "chunks": len(result["chunks"]),
                               "files": result["file_count"], "cleanup_eligible": False}))
             return 0

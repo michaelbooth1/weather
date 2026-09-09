@@ -7,6 +7,31 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "cold_archive_recovery_export", "cold_archive_recovery_export_v0.1",
+        "weather.operations.cold_archive_catalog", "active",
+        "Exact recovered proof bytes and object IDs exported from an immutable archive catalog.",
+    ),
+    SchemaSpec(
+        "cold_archive_location", "cold_archive_location_v0.1",
+        "weather.operations.cold_archive_catalog", "active",
+        "Original snapshot path bound to its immutable cloud catalog entry.",
+    ),
+    SchemaSpec(
+        "cold_archive_catalog_entry", "cold_archive_catalog_entry_v0.1",
+        "weather.operations.cold_archive_catalog", "active",
+        "Exact archive members, cloud object identities and retained upload proof bytes.",
+    ),
+    SchemaSpec(
+        "cold_archive_catalog_restore", "cold_archive_catalog_restore_v0.1",
+        "weather.operations.cold_archive_catalog", "active",
+        "Independent download and complete materialized restore bound to a catalog upload.",
+    ),
+    SchemaSpec(
+        "cold_archive_cache", "cold_archive_cache_v0.1",
+        "weather.operations.cold_archive_catalog", "active",
+        "Verified local restore-cache members and identities; no original deletion authority.",
+    ),
+    SchemaSpec(
         "production_cold_archive_request",
         "production_cold_archive_request_v0.1",
         "weather.operations.production_cold_archive_stage_cli",

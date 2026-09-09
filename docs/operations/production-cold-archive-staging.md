@@ -11,6 +11,10 @@ identity, sizes, timestamps and allocated bytes. Planning reads this retained
 metadata only. It validates accounting and creates deterministic whole-file
 chunks of at most 1 GiB and 256 files. Files larger than 1 GiB are refused.
 Plain CSV and compressed CSV halves are independent selected objects.
+For selective historical retrieval, choose `--chunk-grouping
+market_day_file_family_v1`: chunks do not mix event folders or file families.
+The default `sorted_whole_files_v1` preserves existing plan bytes and grouping.
+Unknown grouping policies are refused. The grouping is included in the plan hash.
 
 The production CLI admits only immediate files of recognized market-day
 snapshot folders strictly older than thirty days. Each source is pinned on
@@ -90,15 +94,18 @@ restore an independently downloaded object. Both route to
 `weather.operations.bulk_cold_archive_crypt`. The workstation wrapper and its
 host, principal, shared-mutex and complete child-tree constraints still apply.
 
-Both commands require `--archive-file` (named `archive.tar.gz`),
+Encryption requires `--archive-file` (named `archive.tar.gz`). Both commands require
 `--production-manifest`, `--production-manifest-sha256`,
 `--production-receipt`, `--production-receipt-sha256`, `--plan-sha256`,
 `--archive-id`, `--rclone-executable`, `--rclone-config`, `--dpapi-secret`,
 `--crypt-remote-name`, `--ciphertext-root` and `--output-root`.
 Restore additionally requires `--restore-id`, `--crypt-receipt`,
 `--crypt-receipt-sha256`, `--transport-receipt`,
-`--transport-receipt-sha256`, `--downloaded-file` and
-`--original-ciphertext-root`. Use short unique IDs and fresh attempt paths.
+`--transport-receipt-sha256` and `--downloaded-file`. The original plaintext
+`--archive-file` and `--original-ciphertext-root` are optional on restore:
+recovery uses the bound source manifest and independent download after local
+originals have been reclaimed. Supplied originals retain their extra checks.
+Use short unique IDs and fresh attempt paths.
 
 Encryption checks the complete production archive, encrypted configuration,
 local crypt destination, ciphertext header/hash and cryptcheck. Native pins
@@ -158,7 +165,13 @@ For a ciphertext object that cannot fit the combined operation, run
 operation `upload_only` and the same exact bound inputs. The create-only
 `production_cold_archive_upload_receipt` records all four remote object
 identities and hashes, sets `upload_performed=true`, and keeps
-`independent_download=false`.
+`independent_download=false`. A snapshot archive upload may additionally set
+`publish_catalog=true`: after upload receipt readback, the same admitted job
+publishes the exact source locations and refreshes `data/cold_archive/WHERE_DATA_IS.md`.
+The flag requires Boolean true and `upload_only`; other phases reject it. Catalog
+publication failure retains the completed upload and sources for inspection;
+finish location metadata through the catalog repair API, not another upload into
+the spent namespace.
 
 Then issue a fresh request with operation `download_and_verify`, additional
 `upload_receipt_path` and `upload_receipt_sha256`, and run the wrapper with
@@ -166,6 +179,8 @@ Then issue a fresh request with operation `download_and_verify`, additional
 object IDs, names, sizes and hashes; every object is checked before downloading
 to a new local attempt and hashing it. This phase never uploads. Its transport
 receipt sets `upload_performed=false` and `independent_download=true`.
+The download request may omit `ciphertext_path`; this phase does not require
+the original local ciphertext to remain present.
 Restoration still requires that transport receipt and the complete plaintext
 verification described above.
 
@@ -177,6 +192,14 @@ phase relies on hash-bound upstream ciphertext evidence, then hashes the fresh
 download; it does not spend another pass reading the original local ciphertext.
 A successful upload is never presented as independent recovery. The existing
 `transfer` operation retains its stricter combined two-way budget.
+
+## Location and recovery records
+
+Keep each original discoverable through the [cold archive location catalog](cold-archive-locations.md).
+Publish exact cloud object identities and upstream proof bytes while original
+source identities still match; retain independent full restore receipts
+separately from temporary cache copies. These records do not grant deletion
+authority or prove historical consumer closure.
 
 ## Update when
 

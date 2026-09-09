@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import time
 
+from weather.operations import cold_archive_catalog as catalog
 from weather.operations import production_cold_archive_stage_cli as staging
 from weather.operations import production_cold_archive_transfer_core as transfer
 from weather.operations import storage_recovery_inventory as metadata
@@ -39,6 +40,12 @@ def validate_request(payload, *, production_root, now, source_git_sha):
                 *PATH_FIELDS, *HASH_FIELDS}
     if isinstance(payload, dict) and payload.get("operation") == MODES["download"]:
         required.update({"upload_receipt_path", "upload_receipt_sha256"})
+        if "ciphertext_path" not in payload:
+            required.remove("ciphertext_path")
+    if isinstance(payload, dict) and "publish_catalog" in payload:
+        required.add("publish_catalog")
+        if payload["publish_catalog"] is not True or payload.get("operation") != MODES["upload"]:
+            raise ValueError("catalog publication requires an explicit upload-only request")
     if not isinstance(payload, dict) or set(payload) != required:
         raise ValueError("request fields differ from the archive-transfer contract")
     if (payload["schema_version"] != schema_version("production_cold_archive_transfer_request")
@@ -62,7 +69,7 @@ def validate_request(payload, *, production_root, now, source_git_sha):
     if not approved <= now < expires or expires - approved > timedelta(hours=72):
         raise ValueError("transfer request is expired, future-dated or overlong")
     extra_paths = ("upload_receipt_path",) if payload["operation"] == MODES["download"] else ()
-    for field in (*PATH_FIELDS, "plan_path", *extra_paths):
+    for field in (*(name for name in PATH_FIELDS if name in payload), "plan_path", *extra_paths):
         if not isinstance(payload[field], str) or not Path(payload[field]).is_absolute():
             raise ValueError("transfer paths must be absolute")
     return payload
@@ -75,6 +82,28 @@ def validate_manifest_plan(manifest, plan, chunk):
             or manifest.get("chunk_id") != chunk.get("chunk_id")
             or transfer.archive._rows(manifest.get("files")) != chunk["files"]):
         raise ValueError("staged manifest does not match the approved chunk")
+
+
+def publish_upload_location(request, receipt_path, receipt_sha256, *, source_root,
+                            admission, deadline_monotonic):
+    """Publish location metadata inside the upload job's unchanged admission."""
+    if request.get("publish_catalog") is not True:
+        return None
+    if request.get("operation") != MODES["upload"]:
+        raise ValueError("catalog publication is bound to upload-only")
+    result = catalog.publish_upload(
+        source_root=source_root,
+        production_manifest=request["production_manifest_path"],
+        production_manifest_sha256=request["production_manifest_sha256"],
+        production_receipt=request["production_receipt_path"],
+        production_receipt_sha256=request["production_receipt_sha256"],
+        crypt_receipt=request["crypt_receipt_path"],
+        crypt_receipt_sha256=request["crypt_receipt_sha256"],
+        upload_receipt=receipt_path, upload_receipt_sha256=receipt_sha256,
+        admission=admission, deadline_monotonic=deadline_monotonic)
+    inventory = catalog.write_inventory(source_root=source_root, admission=admission,
+                                        deadline_monotonic=deadline_monotonic)
+    return {**result, "inventory": inventory}
 
 
 def run_transfer(args):
@@ -113,7 +142,8 @@ def _run_pinned(args, root, output, request_path):
     if str(source) != os.environ.get(staging.ENV_PREFIX + "SOURCE_ROOT"):
         raise ValueError("Python import root is not wrapper-bound")
     for module in (__file__, staging.__file__, transfer.__file__, transfer.archive.__file__,
-                   transfer.bridge.__file__, transfer.crypt.__file__, metadata.__file__):
+                   transfer.bridge.__file__, transfer.crypt.__file__, metadata.__file__,
+                   catalog.__file__, catalog.locations.__file__):
         if not Path(module).resolve().is_relative_to(source / "src" / "weather"):
             raise ValueError("transfer module escaped the exact source checkout")
     owner = int(os.environ.get(staging.ENV_PREFIX + "OWNER_PID", "0"))
@@ -157,11 +187,12 @@ def _run_pinned(args, root, output, request_path):
         os.fsync(stream.fileno())
     result = transfer.transfer_chunk(
         **{key: request[key] for key in (
-            "ciphertext_path", "crypt_receipt_path", "crypt_receipt_sha256",
+            "crypt_receipt_path", "crypt_receipt_sha256",
             "production_manifest_path", "production_manifest_sha256",
             "production_receipt_path", "production_receipt_sha256",
             "plan_sha256", "archive_id", "rclone_executable", "rclone_config", "dpapi_secret",
             "drive_remote_name", "drive_root_folder_id")},
+        ciphertext_path=request.get("ciphertext_path"),
         output_root=output / "transfer", protected_root=root / "data", admission=guard,
         deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds(),
         free_space_reserve_bytes=reserve + staging.EVIDENCE_RESERVE_BYTES,
@@ -180,6 +211,12 @@ def _run_pinned(args, root, output, request_path):
             or result.get("independent_download") is not expected_download
             or result.get("upload_performed") is not expected_upload):
         raise ValueError("transfer receipt readback mismatch")
+    catalog_result = publish_upload_location(
+        request, receipt_path, hashlib.sha256(receipt_raw).hexdigest(),
+        source_root=root / "data", admission=guard,
+        deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds())
+    guard(force=True)
+    verify_current_lease(lease, owner, lease_path, workload=workload)
     proof_kind = "upload" if args.operation == "upload" else "transport"
     final = {"schema_version": schema_version("production_cold_archive_transfer_execution_receipt"),
              "status": "PASS", "operation": request["operation"], "source_git_sha": args.source_git_sha,
@@ -192,6 +229,8 @@ def _run_pinned(args, root, output, request_path):
              "deleted_files": 0, "reclaimed_bytes": 0, "cleanup_eligible": False,
              "upload_performed": expected_upload, "independent_download": expected_download,
              "final_admission": last_admission}
+    if catalog_result is not None:
+        final["catalog"] = catalog_result
     write_receipt(output / "result.json", final)
     print(json.dumps({key: final[key] for key in
                       ("status", "chunk_id", "archive_id", "ciphertext_bytes",

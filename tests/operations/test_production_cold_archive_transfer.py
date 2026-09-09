@@ -587,6 +587,44 @@ def prepare_download(fixture):
     return uploaded, path
 
 
+@pytest.mark.parametrize("omit_path", [False, True])
+def test_download_survives_original_ciphertext_removal(transfer_fixture, omit_path):
+    f = transfer_fixture
+    uploaded, _ = prepare_download(f)
+    f.paths["ciphertext_path"].unlink()
+    if omit_path:
+        f.args.pop("ciphertext_path")
+    result = core.transfer_chunk(**f.args)
+    assert result["status"] == "PASS"
+    assert result["independent_download"] is True and result["upload_performed"] is False
+    assert sha(Path(result["downloaded_file"]["path"])) == uploaded["ciphertext"]["sha256"]
+    assert not any(call[0] == "upload" for call in f.drive.calls)
+
+
+def test_download_without_original_still_rejects_corruption(transfer_fixture):
+    f = transfer_fixture
+    prepare_download(f)
+    f.args.pop("ciphertext_path").unlink()
+    f.drive.corrupt_suffix = ".rclone.bin"
+    with pytest.raises(core.TransferError, match="independent download mismatch"):
+        core.transfer_chunk(**f.args)
+    assert retained_receipt(f)["status"] == "FAIL_CLOSED"
+
+
+def test_download_request_can_omit_original_ciphertext(request_fixture):
+    request, root, now = request_fixture
+    request.update(operation="download_and_verify", upload_receipt_path=str(root / "upload.json"),
+                   upload_receipt_sha256="a" * 64)
+    request.pop("ciphertext_path")
+    assert cli.validate_request(request, production_root=root, now=now,
+                                source_git_sha="f" * 40) == request
+    request.update(operation="upload_only")
+    request.pop("upload_receipt_path")
+    request.pop("upload_receipt_sha256")
+    with pytest.raises(ValueError, match="fields"):
+        cli.validate_request(request, production_root=root, now=now, source_git_sha="f" * 40)
+
+
 def test_upload_only_commits_four_identities_without_downloading(transfer_fixture):
     f = transfer_fixture
     result = core.transfer_chunk(**{**f.args, "phase": "upload_only"})
@@ -893,6 +931,21 @@ def test_download_request_requires_exact_receipt_binding(request_fixture, kind):
         request["unexpected"] = True
     with pytest.raises(ValueError):
         cli.validate_request(request, production_root=root, now=now, source_git_sha="f" * 40)
+
+
+@pytest.mark.parametrize("value,phase,accepted", [
+    (True, "upload_only", True), (False, "upload_only", False),
+    (1, "upload_only", False), ("true", "upload_only", False),
+    (True, "upload_and_independent_download", False)])
+def test_catalog_publication_requires_explicit_upload_request(request_fixture, value, phase, accepted):
+    request, root, now = request_fixture
+    request.update(operation=phase, publish_catalog=value)
+    if accepted:
+        assert cli.validate_request(request, production_root=root, now=now,
+                                    source_git_sha="f" * 40) == request
+    else:
+        with pytest.raises(ValueError, match="catalog publication"):
+            cli.validate_request(request, production_root=root, now=now, source_git_sha="f" * 40)
 
 
 def test_upload_request_rejects_download_receipt_fields(request_fixture):

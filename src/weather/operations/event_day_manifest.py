@@ -16,6 +16,10 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.cold_archive_locations import (
+    ArchivedInputRequired, CatalogIntegrityError, archived_inputs,
+    load_location, registered_sources, resolve_local_path,
+)
 from weather.io import sha256_file
 from weather.forecast_payload_contracts import (
     NBM_NBP_ENCODING,
@@ -490,6 +494,7 @@ def _iter_family_files(folder: Path, family: EventDayArtifactFamily) -> list[Pat
     files: set[Path] = set()
     for pattern in family.patterns:
         files.update(path for path in folder.glob(pattern) if path.is_file())
+        files.update(registered_sources(folder, pattern))
     return sorted(files)
 
 
@@ -500,7 +505,10 @@ def _file_record(
     snapshots_root: Path,
     previous_record: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    stat = path.stat()
+    physical = resolve_local_path(path)
+    stat = physical.stat()
+    location = load_location(path) if physical != path else None
+    modified_ns = int(location.member["mtime_ns"]) if location else int(stat.st_mtime_ns)
     data_rel = _data_relative_path(path, snapshots_root)
     classification = classification_payload(data_rel)
     if (
@@ -508,7 +516,7 @@ def _file_record(
         and previous_record.get("path") == _folder_relative_path(path, folder)
         and previous_record.get("data_path") == data_rel
         and int(previous_record.get("bytes") or -1) == int(stat.st_size)
-        and int(previous_record.get("modified_at_ns") or -1) == int(stat.st_mtime_ns)
+        and int(previous_record.get("modified_at_ns") or -1) == modified_ns
         and previous_record.get("storage_class") == classification["storage_class"]
         and previous_record.get("artifact_family") == classification["artifact_family"]
         and previous_record.get("validation_status") != "BLOCK"
@@ -517,7 +525,7 @@ def _file_record(
         # Fast incremental mode trusts nanosecond mtime + size for unchanged
         # local append-only tapes.  A non-incremental audit always re-hashes.
         return dict(previous_record)
-    inspection = _inspect_file(path)
+    inspection = _inspect_file(physical)
     return {
         "path": _folder_relative_path(path, folder),
         "data_path": data_rel,
@@ -535,9 +543,9 @@ def _file_record(
         "runtime_identities": inspection["runtime_identities"],
         "metadata_scan_truncated": inspection["metadata_scan_truncated"],
         "bytes": int(stat.st_size),
-        "sha256": sha256_file(path),
-        "modified_at_utc": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
-        "modified_at_ns": int(stat.st_mtime_ns),
+        "sha256": sha256_file(physical),
+        "modified_at_utc": datetime.fromtimestamp(modified_ns / 1_000_000_000, timezone.utc).isoformat(),
+        "modified_at_ns": modified_ns,
         "retention_class": classification["retention_class"],
         "rebuild_source": classification["rebuild_source"],
         "protected": classification["protected"],
@@ -1650,7 +1658,17 @@ def validate_event_day_manifest(
     manifest_paths = {row.get("path") for row in records if row.get("path")}
     for record in records:
         rel = record.get("path")
-        path = folder / str(rel or "")
+        logical = folder / str(rel or "")
+        try:
+            path = resolve_local_path(logical)
+        except ArchivedInputRequired as exc:
+            checks.append({"check": "archived_restore_required", "status": "BLOCK",
+                           "path": rel, "archive_id": exc.archive_id, "detail": str(exc)})
+            continue
+        except CatalogIntegrityError as exc:
+            checks.append({"check": "archive_integrity", "status": "BLOCK",
+                           "path": rel, "detail": str(exc)})
+            continue
         if not rel or not path.exists():
             checks.append({"check": "file_exists", "status": "BLOCK", "path": rel})
             continue
@@ -1670,7 +1688,7 @@ def validate_event_day_manifest(
                 "expected": record.get("row_count"),
                 "actual": current_row_count,
             })
-        current_classification = classification_payload(_data_relative_path(path, snapshots_root))
+        current_classification = classification_payload(_data_relative_path(logical, snapshots_root))
         if current_classification["storage_class"] != record.get("storage_class"):
             checks.append({
                 "check": "storage_class",
@@ -1697,6 +1715,8 @@ def validate_event_day_manifest(
             for path in folder.rglob("*")
             if path.is_file() and path.name != MANIFEST_FILENAME and not any(part.startswith(".") for part in path.relative_to(folder).parts)
         }
+        current_paths.update(path.relative_to(folder).as_posix()
+                             for path in registered_sources(folder))
         extra = sorted(current_paths - manifest_paths)
         if extra:
             checks.append({"check": "extra_files", "status": "BLOCK", "paths": extra[:20], "count": len(extra)})
@@ -2102,6 +2122,27 @@ def build_backfill_payload(
         proof_path = _restore_proof_path_for_folder(restore_proof_root, folder)
         path = event_day_manifest_path(folder)
         existing = read_event_day_manifest(path)
+        offsite = archived_inputs(folder)
+        if offsite:
+            summary = (existing or {}).get("summary") or {}
+            rows.append({
+                "event_slug": folder.name, "folder": str(folder), "path": str(path),
+                "target_date": ((existing or {}).get("identity") or {}).get("target_date"),
+                "status": "BLOCK" if effective_mode == "audit" else "SKIPPED_ARCHIVED",
+                "manifest_state": "ARCHIVED_NOT_REVALIDATED",
+                "manifest_hash": (existing or {}).get("manifest_hash"),
+                "inventory_hash": (existing or {}).get("inventory_hash"),
+                "candidate_validation_status": "NOT_RUN",
+                "existing_validation_status": "NOT_REVALIDATED",
+                "archived_inputs": offsite, "written": False,
+                "action": "preserve_original_manifest",
+                "reason": "restore archived inputs before rebuilding or auditing",
+                **{key: summary.get(key) for key in (
+                    "file_count", "total_bytes", "canonical_evidence_files",
+                    "canonical_evidence_bytes", "analysis_projection_files",
+                    "unclassified_files", "backup_status", "restore_status")},
+            })
+            continue
         manifest = build_event_day_manifest(
             folder,
             snapshots_root=root,
@@ -2182,6 +2223,7 @@ def build_backfill_payload(
         "summary": {
             "folder_count": len(rows),
             "pass_count": sum(1 for row in rows if row.get("status") == "PASS"),
+            "archived_preserved_count": sum(1 for row in rows if row.get("status") == "SKIPPED_ARCHIVED"),
             "block_count": sum(1 for row in rows if row.get("status") == "BLOCK"),
             "missing_manifest_count": sum(1 for row in rows if row.get("manifest_state") == "MISSING"),
             "changed_manifest_count": sum(1 for row in rows if row.get("manifest_state") == "CHANGED"),

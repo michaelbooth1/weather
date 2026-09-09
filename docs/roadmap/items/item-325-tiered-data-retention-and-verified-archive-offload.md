@@ -1024,6 +1024,73 @@ The owner-facing explanation is archive-target-recommendation-20260909.md.
 
 Source qualification at 3160122d1c09c76a8aea0074e0d0e65dc36b76b5 passed final
 workstation checks, CI 660 and host-load hook 27. These prove the existing
-bridge, not the proposed reader workflow. The revised target awaits owner
-validation. Production payload uploaded, files deleted and space reclaimed
+bridge, not the proposed reader workflow. At this review the revised target
+awaited owner validation. Production payload uploaded, files deleted and space
+reclaimed remained zero.
+
+## September 9 owner approval and location contract
+
+The owner approved the revised target and conditional reserve: "Yes I approve
+of this plan. Just make sure we keep documented where data is". The exact
+approval record is production-local scratch/handoffs/archive-target-owner-approved-20260909.json,
+SHA-256 2878ff1c2e673a539a74f1939a15682c9f624c7f54184ddee63dfb522fc34d7e.
+It binds both proposal digests above and preserves their original proposed
+status as historical evidence. Target validation is closed; no repeated target
+approval is needed. The reserve remains conditional on actual verified primary
+reclaim falling below 100,000,000,000 bytes.
+
+[Cold archive locations and restore cache](../../operations/cold-archive-locations.md)
+owns the durable locations, exact object identities, original hashes, proof
+retention and reader/cache behavior. Every archived original must remain
+discoverable through local metadata. A local or cloud copy may not be called
+restorable from an upload receipt alone.
+
+Implementation adds explicit event/file-family chunk grouping and removes
+dependencies on original local payload copies from subsequent download/restore.
+Catalog entries retain exact upstream metadata bytes, all four cloud object IDs,
+source member hashes, and separate complete restore receipts. Managed cache
+population verifies every member during copying and readback, enforces its
+byte quota and disk reserve, and retains partial attempts. Cache resolution
+hashes content; Windows creation time and a restored mtime cannot safely memoize
+a previously checked hash.
+
+Workstation qualification retained three source-bound suites:
+- `scratch/handoffs/archive-reader-qualification-a2.xml`: 162 passed, covering
+  readers, maintenance preservation, archive discovery, audits and original
+  timestamp/provenance preservation. SHA-256
+  `3c805bedd13ee6964f4e79dbaae43b2264d4153384029629881ef86370007591`.
+- `scratch/handoffs/archive-reader-qualification-a3.xml`: 368 passed and one
+  expected platform skip. This includes a real local rclone encryption/full
+  restore through native file pins after deleting both original synthetic
+  archive copies; every materialized member matched. Controller transport and
+  DPAPI material in that fixture are synthetic. SHA-256
+  `6102a1a3fbe3960fe420f65b44b6b65182e615015f4bb360dbfbfe5af4530ff1`.
+- `scratch/handoffs/archive-reader-qualification-a4.xml`: 62 passed, including
+  interrupted-marker repair, reconstruction of original proof bytes, persistent
+  inventory publication and cache recovery into a separate local data layout.
+  SHA-256 `7cbfb5716a79a03fb6a385aa8346ece8c6b15304dd814734fce03851fd37fe23`.
+
+`scratch/handoffs/archive-reader-docs-a1.xml` records 18 passing documentation
+and roadmap checks, including the repository agent-doc audit and regenerated
+backlog parity; SHA-256
+`9e87bc8e17817b141b4f0670f64214c46f56ed59a29072ed9271d0e9fc3c3f5c`.
+The admitted workstation compilation of `app`, `src` and `tests` exited zero.
+
+The suites overlap and their counts must not be added as unique tests. All ran
+through the workstation wrapper against the PR 45 worktree rooted at a98f8432.
+The final source bundle `scratch/handoffs/archive-reader-source-a4.json`,
+SHA-256 `03f5cd6cf7bb1b586e369d3cfc982e503ee2220168d3fcdadbd913f666abddb9`,
+records exact qualified file hashes; it is ignored local evidence. The five
+catalog schema registrations are additive only.
+
+Catalog-enabled uploads now publish locations and `WHERE_DATA_IS.md` inside
+their existing admitted job. Historical readers require verified local/cache
+bytes; housekeeping preserves existing Parquet and manifests when raw inputs
+are off-site. Strict audits do not upgrade off-site presence to a fresh PASS.
+
+Source publication/CI, production consumer adoption, concrete headroom, durable
+key custody, production full-restore qualification, managed cache cleanup and
+exact-file reclaim remain open.
+The original exact July plan's reserve exception and the queued-PR-44 adoption
+boundary remain unchanged. Production archive upload, deletion and reclaim
 remain zero.

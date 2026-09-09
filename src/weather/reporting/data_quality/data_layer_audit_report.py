@@ -162,7 +162,8 @@ def write_report(path, payload):
             row.get("primary_label"),
             ", ".join(row.get("promotion_exclusion_reasons") or []) or "-",
             ", ".join(row.get("market_aware_exclusion_reasons") or []) or "-",
-            " ; ".join(command.get("command") for command in row.get("backfill_commands") or []) or "-",
+            " ; ".join(command.get("command") for command in
+                       [*(row.get("backfill_commands") or []), *(row.get("restore_commands") or [])]) or "-",
         ])
     lines = [
         "# Data Layer Audit",
@@ -263,9 +264,20 @@ def write_report(path, payload):
             ["Feature-quality dispositions", _count_summary(feature_quality.get("disposition_counts"))],
         ],
     )
+    archived_rows = [
+        [folder.get("market_id"), folder.get("target_date"), name,
+         location.get("archive_id"), location.get("source_path")]
+        for folder in snapshot.get("folders") or []
+        for name, location in (folder.get("artifact_locations") or {}).items()
+    ]
+    if archived_rows:
+        lines += ["", "### Archived inputs", "",
+                  "Originals are off-site. Restore and verify the required archive before analysis.", ""]
+        lines += markdown_table(
+            ["Market", "Date", "Artifact", "Archive ID", "Original relative path"], archived_rows)
     lines += ["", "### Eligibility Exclusion Sample", ""]
     lines += markdown_table(
-        ["Market", "Date", "Label", "Promotion Exclusions", "Market-Aware Exclusions", "Backfill Commands"],
+        ["Market", "Date", "Label", "Promotion Exclusions", "Market-Aware Exclusions", "Backfill or Restore Commands"],
         sidecar_sample_rows,
     )
     if feature_quality.get("sample_rows"):
