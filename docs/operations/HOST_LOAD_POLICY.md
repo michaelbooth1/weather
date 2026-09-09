@@ -300,6 +300,27 @@ Incident-bearing watchdog samples append to
 `data/logs/memory_commit_guard_history.jsonl` without raw command lines. The
 mutable latest JSON remains the monitor input; it is not incident history.
 
+## Occasional Codex backend restart
+
+Check retained Codex private memory occasionally during long sessions and before
+maintenance. When it remains large after owned commands finish, an attended
+backend restart can recover RAM. Save a durable checkpoint and finish or stop
+owned jobs first. Record the exact backend PID, creation time, executable and
+verified children; use the supported client lifecycle when available. Any
+separate helper must be reviewed and restricted to that exact generation.
+Never terminate processes by a broad name match or restart capture for this.
+
+Reconnecting can reuse the same backend. Verify a new PID and creation time,
+remeasure memory, and confirm unchanged capture identities and fresh health.
+Keep existing admission thresholds. This is occasional attended maintenance
+based on measured memory, not an automatic restart schedule.
+
+The September 9, 2026 reset reduced the measured tree from 5.09 GiB to 293 MiB
+(about 4.81 GiB recovered); four capture process identities were unchanged.
+This dated result is retained in production-local ignored evidence at
+`scratch/handoffs/codex-memory-reduction-verified-20260909.md`; it need not exist
+in a clean checkout. Update this guidance when the supported lifecycle changes.
+
 ## Incident 2026-08-23: concurrent Codex verification and unclean reset
 
 The prior session issued 387 shell calls in 39 minutes across concurrent
