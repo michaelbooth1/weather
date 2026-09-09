@@ -25,8 +25,7 @@ if (Test-Path -LiteralPath $registrationRoot) { throw 'spent registration namesp
 if (-not $PreflightOnly) {
     $preflightRoot = Join-Path $nightRoot 'preflight'
     $wrapperPath = Join-Path $preflightRoot 'wrapper-result.json'
-    if ((Get-Item -LiteralPath $wrapperPath).Length -gt 2097152) { throw 'oversized preflight receipt' }
-    $wrapper = Get-Content -LiteralPath $wrapperPath -Raw | ConvertFrom-Json
+    $wrapper = Read-WeatherNightRetainedJson $wrapperPath
     $resultPath = Join-Path $preflightRoot 'result.json'
     if ($wrapper.status -cne 'PASS' -or $wrapper.child_status -cne 'PREFLIGHT_PASS' -or
         $wrapper.teardown_proved -ne $true -or $wrapper.hard_stop -ne $false -or
@@ -36,11 +35,25 @@ if (-not $PreflightOnly) {
         (Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $wrapper.child_result_sha256) {
         throw 'a successful exact S4U preflight is required before arming'
     }
+    $null = Read-WeatherNightRetainedJson $resultPath $wrapper.child_result_sha256
+    $registration = Read-WeatherNightRetainedJson (Join-Path $nightRoot 'registration-preflight\preflight-result.json')
+    if ($registration.status -cne 'PASS' -or $registration.plan_sha256 -cne $PlanSha256 -or
+        $registration.source_git_sha -cne $ExpectedSourceTip -or
+        $registration.task_name -cne ('WeatherStorageRecovery-' + $plan.plan_id + '-preflight')) {
+        throw 'preflight registration receipt binding mismatch'
+    }
+    $currentXml = Export-ScheduledTask -TaskName $registration.task_name -TaskPath '\'
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $xmlHash = [BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($currentXml))).Replace('-','').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+    if ($xmlHash -cne $registration.task_xml_sha256) { throw 'preflight task changed since verified registration' }
     $preflightTask = Get-ScheduledTask -TaskName ('WeatherStorageRecovery-' + $plan.plan_id + '-preflight') -TaskPath '\'
     $preflightInfo = $preflightTask | Get-ScheduledTaskInfo
     if ([string]$preflightTask.State -ne 'Ready' -or $preflightInfo.LastTaskResult -ne 0 -or
         [string]$preflightTask.Principal.UserId -ine $env:USERNAME -or
-        [string]$preflightTask.Principal.LogonType -ne 'S4U') { throw 'S4U preflight has not closed successfully' }
+        [string]$preflightTask.Principal.LogonType -ne 'S4U' -or
+        [string]$preflightTask.Principal.RunLevel -ne 'Limited' -or
+        ([DateTimeOffset]::Parse($wrapper.started_at_utc).UtcDateTime - $preflightInfo.LastRunTime.ToUniversalTime()).Duration().TotalSeconds -gt 60) { throw 'S4U preflight has not closed successfully' }
 }
 $segments = @('early','late')
 if ($PreflightOnly) { $segments = @('preflight') }

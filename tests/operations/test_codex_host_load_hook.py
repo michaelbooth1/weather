@@ -59,6 +59,15 @@ def assignment_payload(dedicated_id: str) -> dict:
     }
 
 
+def test_night_controller_direct_launch_is_heavy_in_the_protected_window():
+    now = datetime(2026, 9, 8, 20, 0, tzinfo=ZONE)
+    for arguments in ("-m weather.operations.storage_recovery_night",
+                      "-Bmweather.operations.storage_recovery_night"):
+        result = HOOK.evaluate(payload("python " + arguments),
+                               now=now, constrained_capture_host=True)
+        assert "00:30-09:00" in reason(result)
+
+
 def test_hook_installer_covers_unified_exec_at_the_user_layer():
     text = INSTALL_PATH.read_text(encoding="utf-8-sig")
     assert '$hookPath = Join-Path $CodexRoot "hooks.json"' in text

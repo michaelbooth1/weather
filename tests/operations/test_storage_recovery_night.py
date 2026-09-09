@@ -125,6 +125,9 @@ class Simulation:
 
     def __call__(self, plan, *, segment, index, kind, request, output_dir, plan_sha256, deadline):
         self.calls.append(kind)
+        if self.fault == "busy" and not self.failed:
+            self.failed = True
+            return {"busy": True, "output_bytes": 1024}
         request_sha = hashlib.sha256(json.dumps(request).encode()).hexdigest()
         family = "storage_recovery_inventory" if kind == "inventory" else "cold_snapshot_compression"
         attempt = self.root / "scratch" / family / f"fixture-{segment}-{index}-{kind}"
@@ -138,6 +141,10 @@ class Simulation:
                     "data_root": str(self.root / "data"), "traversal_scope": "immediate_files",
                     "folders": [{"path": FOLDER, "status": "COMPLETE", "traversal_scope": "immediate_files"}],
                     "files": [self.candidate(path) for path in self.current]}
+            if self.fault == "partial":
+                data["status"] = result["status"] = "PARTIAL"
+                data["folders"][0]["status"] = "PARTIAL"
+                wrapper["status"] = "FAILED"
             result.update(schema_version=schema_version("storage_recovery_inventory_receipt"),
                           inventory_sha256=save(attempt / "inventory.json", data))
         else:
@@ -207,7 +214,7 @@ def runner_fixture(root, monkeypatch, fault=None, segment="early"):
     return runner, simulation
 
 
-@pytest.mark.parametrize("fault", [None, "memory", "completed_memory"])
+@pytest.mark.parametrize("fault", [None, "memory", "completed_memory", "busy"])
 def test_success_and_memory_recovery_count_each_identity_once(tmp_path, monkeypatch, fault):
     runner, simulation = runner_fixture(tmp_path, monkeypatch, fault)
     assert runner.run() == 0
@@ -275,3 +282,45 @@ def test_late_reads_only_a_hash_bound_safe_early_ledger(tmp_path, monkeypatch):
     (runner.output / "verified-files.json").write_text("{}")
     with pytest.raises(ValueError, match="SHA-256"):
         late.resume()
+
+
+def test_partial_inventory_has_zero_compression_authority(tmp_path, monkeypatch):
+    runner, simulation = runner_fixture(tmp_path, monkeypatch, "partial")
+    assert runner.run() == 0
+    result = json.loads((runner.output / "result.json").read_text())
+    assert simulation.calls == ["inventory"]
+    assert result["verified_file_count"] == result["night_verified_reclaimed_bytes"] == 0
+    assert result["events"][-1]["event"] == "GROUP_SKIPPED"
+
+
+def test_late_reconciles_an_interrupted_early_file_before_any_new_compression(tmp_path, monkeypatch):
+    early, simulation = runner_fixture(tmp_path, monkeypatch, "memory")
+    now = [NOW]
+    early.now = lambda: now[0]
+    def stop_after_interruption(*args, **kwargs):
+        outcome = simulation(*args, **kwargs)
+        if outcome.get("wrapper", {}).get("status") == "FAILED":
+            now[0] = early.deadline - timedelta(seconds=100)
+        return outcome
+    early.dispatch = stop_after_interruption
+    assert early.run() == 0
+    first = json.loads((early.output / "result.json").read_text())
+    assert first["pending"] is not None and first["verified_file_count"] == 1
+    assert first["status"] in {"WINDOW_COMPLETE", "RESOURCE_LIMITED"}
+    save(early.output / "wrapper-result.json", {"status": "PASS", "teardown_proved": True, "hard_stop": False,
+        "plan_sha256": early.plan_sha, "source_git_sha": SOURCE, "execution_host_id": HOST, "segment": "early",
+        "deleted_files": 0, "cleanup_eligible": False,
+        "child_result_sha256": hashlib.sha256((early.output / "result.json").read_bytes()).hexdigest()})
+    output = contract.night_root(early.plan) / "late"
+    (output / "requests").mkdir(parents=True)
+    (output / "steps").mkdir()
+    now[0] = NOW.replace(hour=11)
+    late = subject.NightRunner(early.plan, plan_path=early.plan_path, plan_sha=early.plan_sha,
+        segment="late", output=output, now=lambda: now[0], sleep=lambda seconds: None,
+        admission=early.admission, dispatch=simulation)
+    before = len(simulation.calls)
+    assert late.run() == 0
+    last = json.loads((output / "result.json").read_text())
+    assert simulation.calls[before:] == ["inventory", "verify"]
+    assert last["verified_file_count"] == 2 and last["pending"] is None
+    assert last["night_verified_reclaimed_bytes"] == 2 * contract.MIB

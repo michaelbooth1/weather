@@ -34,7 +34,23 @@ if mode in ('hang','residual'):
     child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)'],
                              creationflags=subprocess.CREATE_NO_WINDOW)
     (out / 'descendant.json').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
-if mode == 'hang': time.sleep(300)
+if mode == 'nested_hang':
+    helper = str(Path.cwd() / 'scripts/ops/windows_kill_on_close_job.ps1').replace("'", "''")
+    executable = sys.executable.replace("'", "''")
+    directory = str(Path.cwd()).replace("'", "''")
+    marker = str(out / 'nested-child.json').replace("'", "''")
+    nested_script = out / 'nested.ps1'
+    nested_script.write_text(
+        ". '" + helper + "'\\n$job = New-WeatherKillOnCloseJob\\n"
+        "$p = Start-WeatherProcessInJob -Job $job -FilePath '" + executable +
+        "' -WorkingDirectory '" + directory +
+        "' -ArgumentString '-c \\"import time; time.sleep(300)\\"'\\n"
+        "@{pid=$p.Id} | ConvertTo-Json | Set-Content -LiteralPath '" + marker +
+        "' -Encoding utf8\\nStart-Sleep -Seconds 300\\n")
+    child = subprocess.Popen(['powershell.exe','-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+                              '-File',str(nested_script)], creationflags=subprocess.CREATE_NO_WINDOW)
+    (out / 'descendant.json').write_text(json.dumps({'pid': child.pid, 'worker_pid': os.getpid()}))
+if mode in ('hang','nested_hang'): time.sleep(300)
 if mode == 'failure': raise SystemExit(7)
 if mode == 'source_drift': Path('tracked.txt').write_text('changed')
 if mode == 'plan_drift': Path(a.plan).write_text('{}')
@@ -98,7 +114,7 @@ def native_fixture(tmp_path):
 
 
 @pytest.mark.parametrize("mode,passed", [
-    ("success", True), ("residual", True), ("hang", False), ("failure", False),
+    ("success", True), ("residual", True), ("hang", False), ("nested_hang", False), ("failure", False),
     ("wrong_binding", False), ("source_drift", False), ("plan_drift", False), ("preflight_write", False),
 ])
 def test_native_outer_wrapper_binds_preflight_and_contains_descendants(native_fixture, mode, passed):
@@ -131,11 +147,14 @@ def test_native_outer_wrapper_binds_preflight_and_contains_descendants(native_fi
     receipt = json.loads((output / "wrapper-result.json").read_text())
     assert (receipt["status"] == "PASS") is passed
     assert receipt["teardown_proved"] is True
-    if mode == "hang":
+    if mode in {"hang", "nested_hang"}:
         assert receipt["hard_stop"] is True
-    if mode in {"residual", "hang"}:
+    if mode in {"residual", "hang", "nested_hang"}:
         for pid in json.loads((output / "descendant.json").read_text()).values():
             assert observe_process_identity(pid)["state"] == "not_found"
+    if mode == "nested_hang":
+        nested_pid = json.loads((output / "nested-child.json").read_text(encoding="utf-8-sig"))["pid"]
+        assert observe_process_identity(nested_pid)["state"] == "not_found"
 
 
 def test_all_night_powershell_sources_parse_without_execution():
@@ -151,13 +170,13 @@ def test_all_night_powershell_sources_parse_without_execution():
 
 SCHEDULER_MOCKS = r'''
 $ErrorActionPreference = 'Stop'
-$script:storedTask = $null
-$script:mode = '__MODE__'
-$script:registrationCalls = '__CALLS__'
+$global:weatherNightStoredTask = $null
+$global:weatherNightFixtureMode = '__MODE__'
+$global:weatherNightRegistrationCalls = '__CALLS__'
 function Get-ScheduledTask {
     param($TaskName, $TaskPath, $ErrorAction)
-    if ($script:mode -eq 'exists') { return [PSCustomObject]@{TaskName=$TaskName} }
-    if ($script:storedTask) { return $script:storedTask }
+    if ($global:weatherNightFixtureMode -eq 'exists') { return [PSCustomObject]@{TaskName=$TaskName} }
+    if ($global:weatherNightStoredTask) { return $global:weatherNightStoredTask }
 }
 function New-ScheduledTaskAction {
     param($Execute, $Argument, $WorkingDirectory)
@@ -184,9 +203,9 @@ function New-ScheduledTaskPrincipal {
 }
 function Register-ScheduledTask {
     param($TaskName,$TaskPath,$Action,$Trigger,$Settings,$Principal,$Description)
-    Add-Content -LiteralPath $script:registrationCalls -Value $TaskName
-    if ($script:mode -eq 'drift') { $Settings.StartWhenAvailable=$true }
-    $script:storedTask = [PSCustomObject]@{TaskName=$TaskName;TaskPath=$TaskPath;State='Ready'
+    Add-Content -LiteralPath $global:weatherNightRegistrationCalls -Value $TaskName
+    if ($global:weatherNightFixtureMode -eq 'drift') { $Settings.StartWhenAvailable=$true }
+    $global:weatherNightStoredTask = [PSCustomObject]@{TaskName=$TaskName;TaskPath=$TaskPath;State='Ready'
         Actions=@($Action);Triggers=@($Trigger);Settings=$Settings;Principal=$Principal}
 }
 function Export-ScheduledTask { param($TaskName,$TaskPath); return '<Task>fixture export</Task>' }

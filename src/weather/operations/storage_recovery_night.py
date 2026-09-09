@@ -128,9 +128,10 @@ class NightRunner:
 
     def wait_ready(self, required_seconds):
         stable = 0
+        waited_for_resources = False
         while True:
             if (self.deadline - self.now()).total_seconds() < required_seconds:
-                raise SegmentStop("RESOURCE_LIMITED" if stable == 0 and self.last_admission else "WINDOW_COMPLETE")
+                raise SegmentStop("RESOURCE_LIMITED" if waited_for_resources else "WINDOW_COMPLETE")
             observed = self.admission()
             self.last_admission = observed
             reasons = set(observed.get("reasons", []))
@@ -138,6 +139,7 @@ class NightRunner:
                 raise ValueError("capture or non-memory admission failure: " + ",".join(sorted(reasons)))
             ready = (observed.get("status") == "PASS" and observed["host_commit_percent"] < 66
                      and observed["available_memory_bytes"] >= int(4.5 * contract.GIB))
+            waited_for_resources = waited_for_resources or not ready
             stable = stable + 1 if ready else 0
             if stable >= 3:
                 return

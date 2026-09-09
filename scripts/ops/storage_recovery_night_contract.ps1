@@ -83,3 +83,18 @@ function Write-WeatherNightJson {
     try { $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($true) }
     finally { $stream.Dispose() }
 }
+
+function Read-WeatherNightRetainedJson {
+    param([string]$Path, [string]$ExpectedHash = '')
+    Assert-WeatherNightDirectory (Split-Path -Parent $Path)
+    $info = Get-Item -LiteralPath $Path -Force
+    if ($info.PSIsContainer -or $info.Length -gt 2097152 -or
+        ($info.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'invalid retained night receipt' }
+    $before = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($ExpectedHash -and $before -cne $ExpectedHash) { throw 'retained night receipt SHA-256 mismatch' }
+    $value = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
+    if ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $before) {
+        throw 'retained night receipt changed while reading'
+    }
+    return $value
+}
