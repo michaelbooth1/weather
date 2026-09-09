@@ -219,4 +219,3 @@ def test_busy_shared_fixture_lease_refuses_before_output(wrapper_fixture):
         if acquired:
             assert kernel.ReleaseMutex(handle)
         assert kernel.CloseHandle(handle)
-
