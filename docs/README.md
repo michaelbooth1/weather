@@ -42,6 +42,7 @@ record that is valuable evidence but not current instruction.
 - [Data retention policy](operations/data-retention-policy.md)
 - [Bounded replay-cache compression](operations/replay-cache-compression.md)
 - [Bounded storage recovery inventory](operations/storage-recovery-inventory.md)
+- [Production cold-archive staging](operations/production-cold-archive-staging.md)
 - [Cold snapshot NTFS compression](operations/cold-snapshot-compression.md)
 - [One-night retained-file recovery](operations/storage-recovery-night.md)
 - [Artifact storage policy](operations/artifact-storage-policy.md)

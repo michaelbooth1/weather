@@ -6,6 +6,10 @@ folder. The current command surface is deliberately restricted to marked
 synthetic fixture roots. It does not authorize a production plan, transfer, or
 cleanup, and it contains no source-delete executor.
 
+The separate [production staging lane](production-cold-archive-staging.md)
+accepts exact measured selections under capture-host admission. Its local
+byte-preservation receipt grants no transport, restore or deletion authority.
+
 This contract complements the existing event-day manifest and storage-class
 contracts. It preserves every selected source byte in one deterministic
 `tar.gz` object, rather than replacing canonical evidence with the Parquet

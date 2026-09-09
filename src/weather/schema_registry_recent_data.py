@@ -7,6 +7,48 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "production_cold_archive_request",
+        "production_cold_archive_request_v0.1",
+        "weather.operations.production_cold_archive_stage_cli",
+        "active",
+        "Expiring exact host, code, plan and chunk binding for source-retaining archive staging.",
+    ),
+    SchemaSpec(
+        "production_cold_archive_execution_receipt",
+        "production_cold_archive_execution_receipt_v0.1",
+        "weather.operations.production_cold_archive_stage_cli",
+        "active",
+        "Capture-admitted archive staging execution evidence; no upload or deletion authority.",
+    ),
+    SchemaSpec(
+        "large_archive_candidate_selection",
+        "large_archive_candidate_selection_v1",
+        "weather.operations.production_cold_archive_stage",
+        "active",
+        "Measured metadata-only candidate inventory; no source content or cleanup proof.",
+    ),
+    SchemaSpec(
+        "production_cold_archive_plan",
+        "production_cold_archive_plan_v0.1",
+        "weather.operations.production_cold_archive_stage",
+        "active",
+        "Bounded production-byte archive plan; source retained and no cleanup authority.",
+    ),
+    SchemaSpec(
+        "production_cold_archive_manifest",
+        "production_cold_archive_manifest_v0.1",
+        "weather.operations.production_cold_archive_stage",
+        "active",
+        "Bounded production-byte archive manifest; source retained and no cleanup authority.",
+    ),
+    SchemaSpec(
+        "production_cold_archive_receipt",
+        "production_cold_archive_receipt_v0.1",
+        "weather.operations.production_cold_archive_stage",
+        "active",
+        "Bounded production-byte archive receipt; source retained and no cleanup authority.",
+    ),
+    SchemaSpec(
         "storage_recovery_night_plan",
         "storage_recovery_night_plan_v1",
         "weather.operations.storage_recovery_night",
