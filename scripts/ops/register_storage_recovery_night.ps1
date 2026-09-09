@@ -92,8 +92,8 @@ foreach ($segment in $segments) {
                 prior_task_absent=$true; mutation='REGISTER_ONCE'; created_at_utc=[DateTime]::UtcNow.ToString('o')}
     Write-WeatherNightJson (Join-Path $registrationRoot ($segment + '-intent.json')) $intent
     $registration = @{TaskName=$name; TaskPath='\'; Action=$action; Trigger=$trigger; Settings=$settings
-                      Principal=$principal; Description='One approved bounded retained-file recovery segment; no deletion or live authority.'}
-    $null = Register-ScheduledTask @registration
+                      Description='One approved bounded retained-file recovery segment; no deletion or live authority.'}
+    $null = Register-ScheduledTask @registration -Principal $principal
     $task = Get-ScheduledTask -TaskName $name -TaskPath '\'
     $actions, $triggers = @($task.Actions), @($task.Triggers)
     if ([string]$task.State -eq 'Disabled' -or $actions.Count -ne 1 -or $triggers.Count -ne 1 -or
