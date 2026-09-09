@@ -168,6 +168,13 @@ def test_real_wrapper_completion_binding_failure_and_child_tree_teardown(wrapper
     ("2026-09-08T12:00:00", "wrong-token", False),
     ("2026-09-08T18:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260908", False),
     ("2026-09-09T12:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260908", False),
+    ("2026-09-09T09:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", True),
+    ("2026-09-09T17:59:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", True),
+    ("2026-09-09T08:59:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", False),
+    ("2026-09-09T18:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", False),
+    ("2026-09-10T12:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", False),
+    ("2026-09-08T12:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", False),
+    ("2026-09-09T12:00:00", "owner_approved_storage_recovery_20260909", False),
 ], indirect=["wrapper_fixture"])
 def test_dated_storage_exception_is_explicit_and_expires(wrapper_fixture, exception, success):
     process, output = launch(wrapper_fixture, "success", exception=exception)

@@ -275,6 +275,24 @@ kill-on-close teardown. The absolute deadline reserves teardown before 18:00.
 Stop on any failed admission, changed content/identity, or nonpositive pilot
 savings. No source file is deleted. The ordinary timetable resumes at expiry.
 
+## Owner storage exception: September 9, 2026
+
+After reviewing the failed overnight attempt and a verified attended pilot,
+the owner explicitly authorized bounded storage work on September 9 until
+18:00 Toronto. The literal `OWNER_APPROVED_STORAGE_RECOVERY_20260909` token
+permits only `storage_recovery_inventory` and `cold_snapshot_compression`
+on the assigned dedicated capture host from 09:00 until 18:00 that date.
+It is independent of the expired September 8 token; neither token authorizes
+another date.
+
+Both wrappers require the explicit token, and the child independently binds
+it to the matching live lease policy. The shared lease, healthy capture,
+commit below 70%, at least 4 GiB available RAM, BelowNormal priority, child
+memory ceiling, disk reservation, retained-file verification and complete
+bounded teardown remain unchanged. The absolute deadline reserves teardown
+before 18:00. No source deletion, archive export, training, test, merge,
+Stage-A, workstation or live authority is added.
+
 ## Rules
 
 1. **Protected window 18:00–00:30**: no ad-hoc analysis jobs, corpus builds,

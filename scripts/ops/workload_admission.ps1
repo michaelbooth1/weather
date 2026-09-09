@@ -570,12 +570,17 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
         [string]$OwnerApprovedException = ""
     )
 
-    if ($OwnerApprovedException -ceq "OWNER_APPROVED_STORAGE_RECOVERY_20260908") {
+    $storageExceptionDates = @{
+        'OWNER_APPROVED_STORAGE_RECOVERY_20260908' = '2026-09-08'
+        'OWNER_APPROVED_STORAGE_RECOVERY_20260909' = '2026-09-09'
+    }
+    if ($OwnerApprovedException -cin @($storageExceptionDates.Keys)) {
         $minute = $Now.Hour * 60 + $Now.Minute
-        if ($Now.ToString("yyyy-MM-dd") -cne "2026-09-08" -or $minute -lt 540 -or $minute -ge 1080) {
+        if ($Now.ToString("yyyy-MM-dd") -cne $storageExceptionDates[$OwnerApprovedException] -or
+            $minute -lt 540 -or $minute -ge 1080) {
             throw "owner-approved storage exception is invalid or expired"
         }
-        return "owner_approved_storage_recovery_20260908"
+        return $OwnerApprovedException.ToLowerInvariant()
     }
     if ($OwnerApprovedException) {
         if (
@@ -1448,7 +1453,9 @@ function Enter-WeatherHeavyWorkloadLease {
         ) {
             throw "capture-colocated execution-host identity does not match the sealed host binding"
         }
-        if ($OwnerApprovedException -ceq "OWNER_APPROVED_STORAGE_RECOVERY_20260908") {
+        if ($OwnerApprovedException -cin @(
+            "OWNER_APPROVED_STORAGE_RECOVERY_20260908", "OWNER_APPROVED_STORAGE_RECOVERY_20260909"
+        )) {
             $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
             if ($AllowStageAWindow -or
                 $Workload -cnotin @("storage_recovery_inventory", "cold_snapshot_compression") -or

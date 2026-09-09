@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -32,6 +33,37 @@ class GroupSkipped(Exception):
     pass
 
 
+def night_resources(**kwargs):
+    """Classify recoverable timestamp staleness without changing admission."""
+    result = compression.check_resources(**kwargs)
+    reasons = set(result["reasons"]) - contract.MEMORY_REASONS
+    allowed = {"capture_unhealthy:snapshot", "capture_unhealthy:clob",
+               "capture_unhealthy:observation_trigger",
+               "snapshot_clean_iteration_missing_or_stale"}
+    if not reasons or not reasons <= allowed:
+        return result
+    # Re-evaluate only to classify the refusal. Never return this hypothetical
+    # PASS as actual admission. Missing/future clocks and every non-clock health
+    # or native-identity disagreement remain terminal.
+    refreshed = []
+    for row in kwargs["loops"]:
+        probe = dict(row)
+        keys = ["heartbeat_age_seconds"]
+        if row.get("name") == "snapshot":
+            keys.append("last_clean_iteration_age_seconds")
+        for key in keys:
+            age = row.get(key)
+            if type(age) not in (int, float) or not math.isfinite(age) or age < 0:
+                return result
+            probe[key] = 0
+        probe["heartbeat_fresh"] = True
+        refreshed.append(probe)
+    probe = compression.check_resources(**{**kwargs, "loops": refreshed})
+    if not set(probe["reasons"]) - contract.MEMORY_REASONS:
+        result["waitable_capture_reasons"] = sorted(reasons)
+    return result
+
+
 class NightRunner:
     def __init__(self, plan, *, plan_path, plan_sha, segment, output,
                  now=lambda: datetime.now(timezone.utc), sleep=time.sleep,
@@ -40,7 +72,7 @@ class NightRunner:
         self.root, self.source = Path(plan["production_repo_root"]), Path(plan["source_root"])
         self.segment, self.output = segment, Path(output)
         self.now, self.sleep, self.dispatch = now, sleep, dispatch
-        self.admission = admission or (lambda: observe_capture_admission(self.root, compression.check_resources))
+        self.admission = admission or (lambda: observe_capture_admission(self.root, night_resources))
         self.deadline = contract.segment_times(datetime.fromisoformat(plan["night_date"]).date(), segment)[1]
         self.baseline, self.baseline_bytes = contract.read_baseline(plan)
         self.rows, self.pending, self.reconcile_rows = [], None, []
@@ -63,7 +95,7 @@ class NightRunner:
                 or wrapper.get("execution_host_id") != self.plan["execution_host_id"]
                 or wrapper.get("segment") != "early" or wrapper.get("deleted_files") != 0
                 or wrapper.get("cleanup_eligible") is not False):
-            raise ValueError("early segment lacks a complete matching teardown; no automatic restart")
+            raise ValueError("early segment is not a matching PASS wrapper with proved teardown; no automatic restart")
         result, _ = contract.read_json(previous / "result.json", 2 * contract.MIB,
                                        contract.digest(wrapper.get("child_result_sha256")))
         if (result.get("status") not in contract.SAFE_TERMINALS or result.get("segment") != "early"
@@ -118,7 +150,8 @@ class NightRunner:
                  "night_verified_reclaimed_bytes": sum(r["allocation_saving_bytes"] for r in self.rows),
                  "free_disk_bytes": shutil.disk_usage(self.root).free,
                  "pending_verification": self.pending is not None,
-                 "uncredited_completed_files": len(self.reconcile_rows), "deleted_files": 0}
+                 "uncredited_completed_files": len(self.reconcile_rows), "deleted_files": 0,
+                 "last_admission": self.last_admission}
         temporary = self.output / f"progress-{self.status_sequence:06d}.tmp"
         contract.write_json(temporary, value)
         target = self.output / "progress.json"
@@ -129,14 +162,27 @@ class NightRunner:
     def wait_ready(self, required_seconds):
         stable = 0
         waited_for_resources = False
+        stale_since = None
         while True:
             if (self.deadline - self.now()).total_seconds() < required_seconds:
                 raise SegmentStop("RESOURCE_LIMITED" if waited_for_resources else "WINDOW_COMPLETE")
             observed = self.admission()
             self.last_admission = observed
             reasons = set(observed.get("reasons", []))
-            if reasons - contract.MEMORY_REASONS:
+            non_memory = reasons - contract.MEMORY_REASONS
+            waitable = set(observed.get("waitable_capture_reasons", []))
+            if non_memory and (observed.get("status") != "BLOCK" or non_memory != waitable):
                 raise ValueError("capture or non-memory admission failure: " + ",".join(sorted(reasons)))
+            if non_memory:
+                stable = 0
+                waited_for_resources = True
+                stale_since = stale_since or self.now()
+                if (self.now() - stale_since).total_seconds() >= 300:
+                    raise SegmentStop("RESOURCE_LIMITED")
+                self.progress("WAITING_FOR_FRESH_CAPTURE")
+                self.sleep(5)
+                continue
+            stale_since = None
             ready = (observed.get("status") == "PASS" and observed["host_commit_percent"] < 66
                      and observed["available_memory_bytes"] >= int(4.5 * contract.GIB))
             waited_for_resources = waited_for_resources or not ready

@@ -20,8 +20,12 @@ $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
 $minute = $localNow.Hour * 60 + $localNow.Minute
 if ($OwnerApprovedException) {
-    if ($OwnerApprovedException -cne 'OWNER_APPROVED_STORAGE_RECOVERY_20260908' -or
-        $localNow.ToString('yyyy-MM-dd') -cne '2026-09-08' -or
+    $exceptionDate = @{
+        'OWNER_APPROVED_STORAGE_RECOVERY_20260908' = '2026-09-08'
+        'OWNER_APPROVED_STORAGE_RECOVERY_20260909' = '2026-09-09'
+    }
+    if ($OwnerApprovedException -cnotin @($exceptionDate.Keys) -or
+        $localNow.ToString('yyyy-MM-dd') -cne $exceptionDate[$OwnerApprovedException] -or
         $minute -lt 540 -or $minute -ge 1080) {
         throw 'REFUSED: owner-approved storage exception is invalid or expired'
     }

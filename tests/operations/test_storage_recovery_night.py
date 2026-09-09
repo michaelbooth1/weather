@@ -348,3 +348,85 @@ def test_a_baseline_overlapping_scheduled_tiering_must_be_reconciled_separately(
     row["path"] = FOLDER + "/order_books.jsonl"
     with pytest.raises(ValueError, match="ledger path"):
         contract.validate_ledger([row])
+
+def capture_sample(age=181):
+    loops = [{"name": name, "active": True, "degraded": False, "heartbeat_fresh": True,
+              "pid_agreement": True, "process_identity_matches_lock": True,
+              "heartbeat_age_seconds": age if name == "snapshot" else 5,
+              "last_clean_iteration_age_seconds": age if name == "snapshot" else None,
+              "process_diagnostics": {"status_pid_alive": True, "lock_pid_alive": True}}
+             for name in ("snapshot", "clob", "observation_trigger")]
+    return dict(now=NOW, available=6 * contract.GIB, commit=60,
+                free_disk=30 * contract.GIB, loops=loops)
+
+
+def test_timestamp_wait_classification_never_changes_actual_block():
+    sample = capture_sample()
+    before = deepcopy(sample)
+    observed = subject.night_resources(**sample)
+    assert observed["status"] == "BLOCK"
+    assert observed["reasons"] == ["capture_unhealthy:snapshot"]
+    assert observed["waitable_capture_reasons"] == ["capture_unhealthy:snapshot"]
+    assert sample == before
+
+
+@pytest.mark.parametrize("field,value", [
+    ("active", False), ("degraded", True), ("pid_agreement", False),
+    ("process_identity_matches_lock", False), ("heartbeat_age_seconds", None),
+    ("heartbeat_age_seconds", -1), ("heartbeat_age_seconds", float("nan")),
+    ("last_clean_iteration_age_seconds", None),
+    ("process_diagnostics", {"status_pid_alive": False, "lock_pid_alive": True}),
+])
+def test_timestamp_wait_rejects_non_clock_capture_faults(field, value):
+    sample = capture_sample()
+    sample["loops"][0][field] = value
+    observed = subject.night_resources(**sample)
+    assert observed["status"] == "BLOCK"
+    assert "waitable_capture_reasons" not in observed
+
+
+def test_timestamp_wait_does_not_mask_disk_or_window_refusal():
+    for change in ({"free_disk": 0}, {"now": NOW.replace(hour=18)}):
+        observed = subject.night_resources(**{**capture_sample(), **change})
+        assert observed["status"] == "BLOCK"
+        assert "waitable_capture_reasons" not in observed
+
+
+def test_stale_capture_waits_without_dispatch_then_requires_three_fresh_samples(tmp_path, monkeypatch):
+    runner, simulation = runner_fixture(tmp_path, monkeypatch)
+    now, calls, phases = [NOW], [], []
+    runner.now = lambda: now[0]
+    runner.sleep = lambda seconds: now.__setitem__(0, now[0] + timedelta(seconds=seconds))
+    def admission():
+        calls.append(now[0])
+        return subject.night_resources(**capture_sample(181 if len(calls) <= 2 else 5))
+    runner.admission = admission
+    progress = runner.progress
+    runner.progress = lambda phase: (phases.append(phase), progress(phase))[-1]
+    runner.wait_ready(195)
+    assert not simulation.calls and len(calls) == 5
+    assert (now[0] - NOW).total_seconds() == 20
+    assert phases.count("WAITING_FOR_FRESH_CAPTURE") == 2
+    progress = json.loads((runner.output / "progress.json").read_text())
+    assert "last_admission" in progress
+
+
+def test_persistent_timestamp_staleness_ends_safe_without_work(tmp_path, monkeypatch):
+    runner, simulation = runner_fixture(tmp_path, monkeypatch)
+    now = [NOW]
+    runner.now = lambda: now[0]
+    runner.sleep = lambda seconds: now.__setitem__(0, now[0] + timedelta(seconds=seconds))
+    runner.admission = lambda: subject.night_resources(**capture_sample())
+    assert runner.run() == 0
+    result = json.loads((runner.output / "result.json").read_text())
+    assert result["status"] == "RESOURCE_LIMITED"
+    assert result["attempts"] == 0 and not simulation.calls
+    assert (now[0] - NOW).total_seconds() == 300
+    assert result["pending"] is None and result["night_verified_reclaimed_bytes"] == 0
+
+
+def test_unclassified_capture_refusal_still_blocks_without_retry(tmp_path, monkeypatch):
+    runner, simulation = runner_fixture(tmp_path, monkeypatch)
+    runner.admission = lambda: {"status": "BLOCK", "reasons": ["capture_unhealthy:snapshot"]}
+    assert runner.run() == 1
+    assert not simulation.calls

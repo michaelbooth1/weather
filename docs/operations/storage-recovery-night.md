@@ -79,12 +79,21 @@ retain the harder existing commit-below-70%, 4 GiB physical, capture health,
 disk reservation, rate and deadline checks. No consumer may weaken those checks
 to make a batch pass.
 
-Only a busy lease before dispatch or explicit memory-only admission failure
-with proved complete teardown may pause and resume automatically. Reconcile all
+Before dispatch, stale but valid capture timestamps may wait up to five minutes
+when all non-timestamp health and native-identity checks still pass. No child or
+heavy lease is held during this wait. Actual capture must recover and all three
+stable headroom samples must pass before dispatch. Missing/future timestamps,
+degraded or dead capture, identity disagreement and other admission failures
+remain terminal. A persistent timestamp-only refusal ends RESOURCE_LIMITED,
+allowing the separately scheduled late segment to recheck fresh admission.
+Progress records the latest admission and distinguishes capture from memory waits.
+
+A busy lease before dispatch or explicit memory-only admission failure
+with proved complete teardown may also pause and resume automatically. Reconcile all
 completed journals against fresh inventory before crediting interrupted work.
 An unmatched durable preimage requires fresh inventory and the qualified
 read-only verifier before further compression. Hash, native identity, source,
-request, missing-receipt, hard-stop, capture-health, unexpected failure and
+request, missing-receipt, hard-stop, capture-health failure during a child, unexpected failure and
 unproved-teardown disagreements stop the night. Spent attempts remain intact.
 
 Late continuation requires a complete hash-bound safe early result and ledger,

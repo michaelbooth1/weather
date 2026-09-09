@@ -43,12 +43,17 @@ def check_resources(*, now, available, commit, free_disk, loops):
 
 STORAGE_DAYTIME_EXCEPTION = "OWNER_APPROVED_STORAGE_RECOVERY_20260908"
 STORAGE_DAYTIME_POLICY = "owner_approved_storage_recovery_20260908"
+STORAGE_DAYTIME_EXCEPTIONS = {
+    STORAGE_DAYTIME_EXCEPTION: ("2026-09-08", STORAGE_DAYTIME_POLICY),
+    "OWNER_APPROVED_STORAGE_RECOVERY_20260909":
+        ("2026-09-09", "owner_approved_storage_recovery_20260909"),
+}
 
 
 def storage_daytime_authorized(now, exception):
     local = now.astimezone(ZoneInfo("America/Toronto"))
-    return (exception == STORAGE_DAYTIME_EXCEPTION
-            and local.date().isoformat() == "2026-09-08"
+    authorization = STORAGE_DAYTIME_EXCEPTIONS.get(exception)
+    return (authorization is not None and local.date().isoformat() == authorization[0]
             and 540 <= local.hour * 60 + local.minute < 1080)
 
 
@@ -56,9 +61,9 @@ def verify_storage_exception(lease, exception, now):
     """Bind the dated owner instruction to the independently verified live lease."""
     if exception:
         if (not storage_daytime_authorized(now, exception)
-                or lease.get("policy_window") != STORAGE_DAYTIME_POLICY):
+                or lease.get("policy_window") != STORAGE_DAYTIME_EXCEPTIONS[exception][1]):
             raise ValueError("storage exception is invalid, expired or differs from the lease")
-    elif lease.get("policy_window") == STORAGE_DAYTIME_POLICY:
+    elif lease.get("policy_window") in {row[1] for row in STORAGE_DAYTIME_EXCEPTIONS.values()}:
         raise ValueError("storage exception is missing from the wrapper environment")
 
 
