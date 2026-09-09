@@ -386,7 +386,7 @@ def test_crypt_requires_complete_checks_and_recorded_tool_and_cipher_identity(tr
     else:
         receipt["ciphertext"]["path_relative_to_ciphertext_root"] = "../escape"
     f.args["crypt_receipt_sha256"] = write_evidence(path, receipt)
-    with pytest.raises(ValueError):
+    with pytest.raises((core.TransferError, core.crypt.ArchiveStageError)):
         core.transfer_chunk(**f.args)
     assert not f.drive.calls
 
@@ -410,7 +410,7 @@ def test_production_evidence_schema_and_proof_are_required(transfer_fixture, kin
     crypt.update(production_manifest_sha256=manifest_sha, production_receipt_sha256=stage_sha)
     f.args.update(production_manifest_sha256=manifest_sha, production_receipt_sha256=stage_sha,
                   crypt_receipt_sha256=write_evidence(crypt_path, crypt))
-    with pytest.raises(ValueError):
+    with pytest.raises((core.TransferError, core.crypt.ArchiveStageError)):
         core.transfer_chunk(**f.args)
     assert not f.drive.calls
 
