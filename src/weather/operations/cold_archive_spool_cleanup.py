@@ -34,16 +34,11 @@ def _removal_pin(path):
 
 
 def prepare_spool(inventory, *, entry, entry_sha256, restore_record, production_root, stack, guard):
-    """Pin all three reviewed payloads and prove their exact recovery bindings."""
+    """Pin every reviewed local payload and prove its exact recovery bindings."""
     _require(inventory.get("schema_version") == schema_version("cold_archive_spool_inventory")
              and inventory.get("archive_id") == entry["archive_id"]
              and inventory.get("entry_sha256") == entry_sha256,
              "temporary inventory belongs to a different archive")
-    rows = inventory.get("files")
-    _require(isinstance(rows, list) and len(rows) == len(ROLES)
-             and all(isinstance(row, dict) for row in rows)
-             and [row.get("role") for row in rows] == list(ROLES),
-             "temporary inventory requires exactly the three ordered payload roles")
     docs, _, _ = catalog._validated_upload(entry["proofs"], Path(entry["source_root"]))
     manifest, receipt = docs["production_manifest"], docs["production_receipt"]
     transport = catalog._unpack(restore_record["transport"])
@@ -62,19 +57,45 @@ def prepare_spool(inventory, *, entry, entry_sha256, restore_record, production_
              "temporary stage path is outside its fixed production layout")
     locations.archive_id(stage_relative.parts[2])
     download_path = Path(downloaded.get("path", ""))
-    download_relative = download_path.relative_to(root)
+    if download_path.is_relative_to(root):
+        download_root, layout, roles = root, "production_cold_archive_transfer", ROLES
+    else:
+        # The caller has verified complete restore and custody on the separate
+        # host. Derive its root from that successful restore, never a supplied
+        # cleanup destination. No workstation path is accessed or selected here.
+        restored = catalog._unpack(restore_record["restore"])
+        restored_path = Path(restored.get("restored_archive", ""))
+        _require(restored_path.is_absolute() and ".." not in restored_path.parts
+                 and len(restored_path.parents) >= 5,
+                 "temporary cleanup workstation restore path is invalid")
+        download_root = restored_path.parents[4]
+        restore_id = locations.archive_id(restored.get("restore_id"))
+        _require(restored_path == download_root / "scratch" / "ac-rest" / restore_id / "archive" / "archive.tar.gz"
+                 and download_root != root,
+                 "temporary cleanup requires the fixed separate workstation restore layout")
+        layout, roles = "production_cold_archive_transport", ROLES[:2]
+    _require(download_path.is_absolute() and ".." not in download_path.parts
+             and download_path.is_relative_to(download_root),
+             "temporary cleanup download does not match its recovery host")
+    download_relative = download_path.relative_to(download_root)
     _require(len(download_relative.parts) == 5
-             and download_relative.parts[:2] == ("scratch", "production_cold_archive_transfer")
+             and download_relative.parts[:2] == ("scratch", layout)
              and download_relative.parts[-2:] == ("transfer", "downloaded-" + entry["archive_id"] + ".rclone.bin"),
-             "temporary download path is outside its fixed production layout")
+             "temporary download path is outside its fixed recovery layout")
     locations.archive_id(download_relative.parts[2])
+    rows = inventory.get("files")
+    _require(isinstance(rows, list) and len(rows) == len(roles)
+             and all(isinstance(row, dict) for row in rows)
+             and [row.get("role") for row in rows] == list(roles),
+             "temporary inventory requires exactly the ordered payload roles on this production host")
     cipher_path = (root / "scratch" / "production_cold_archive_ingress"
                    / entry["archive_id"] / "archive.rclone.bin")
     expected = (
         (stage_path, manifest["archive_bytes"], manifest["archive_sha256"]),
         (cipher_path, entry["ciphertext"]["bytes"], entry["ciphertext"]["sha256"]),
-        (download_path, downloaded["bytes"], downloaded["sha256"]),
     )
+    if len(roles) == 3:
+        expected += ((download_path, downloaded["bytes"], downloaded["sha256"]),)
     maximum = archive.MAX_CHUNK_BYTES + archive.MAX_CHUNK_BYTES // 100 + 4 * archive.MIB
     pins, planned = [], []
     for row, (expected_path, expected_bytes, expected_sha) in zip(rows, expected):

@@ -252,8 +252,12 @@ staging/transfer evidence remain retained.
 
 For a reclaim batch that also releases its temporary payload space, include a
 sealed `cold_archive_spool_inventory` bound to the same archive ID and entry
-SHA-256. Its three ordered rows are `staged_archive`, `upload_ciphertext` and
-`downloaded_ciphertext`. Each row records its repository-relative path, full
+SHA-256. For a production-host download its three ordered rows are
+`staged_archive`, `upload_ciphertext` and `downloaded_ciphertext`. A successful
+workstation transport instead requires exactly the first two local rows. The
+complete restore binds that separate workstation's fixed download layout; its
+payloads stay outside this production inventory and use the workstation
+cleanup lane below. Each row records its repository-relative path, full
 SHA-256, size, modification time, native device/file ID and allocated bytes.
 
 Only these exact payload paths can be selected:
