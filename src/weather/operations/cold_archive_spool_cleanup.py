@@ -84,12 +84,19 @@ def prepare_spool(inventory, *, entry, entry_sha256, restore_record, production_
              "temporary download path is outside its fixed recovery layout")
     locations.archive_id(download_relative.parts[2])
     rows = inventory.get("files")
+    cipher_path = (root / "scratch" / "production_cold_archive_ingress"
+                   / entry["archive_id"] / "archive.rclone.bin")
+    if download_root != root and isinstance(rows, list) and len(rows) == 1:
+        # A workstation upload need not copy ciphertext back to production.
+        # Preserve the two-spool contract whenever a local ciphertext exists.
+        try:
+            cipher_path.lstat()
+        except FileNotFoundError:
+            roles = ROLES[:1]
     _require(isinstance(rows, list) and len(rows) == len(roles)
              and all(isinstance(row, dict) for row in rows)
              and [row.get("role") for row in rows] == list(roles),
              "temporary inventory requires exactly the ordered payload roles on this production host")
-    cipher_path = (root / "scratch" / "production_cold_archive_ingress"
-                   / entry["archive_id"] / "archive.rclone.bin")
     expected = (
         (stage_path, manifest["archive_bytes"], manifest["archive_sha256"]),
         (cipher_path, entry["ciphertext"]["bytes"], entry["ciphertext"]["sha256"]),
