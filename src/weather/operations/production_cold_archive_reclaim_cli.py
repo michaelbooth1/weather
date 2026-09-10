@@ -26,6 +26,15 @@ EVIDENCE_FIELDS = ("catalog_entry", "owner_approval", "proposal", "selection", "
                    "source_review", "restore_record", "custody_record")
 
 
+def _failure_locations(exc):
+    trace, frames = exc.__traceback__, []
+    while trace is not None and len(frames) < 16:
+        frames.append({"module": Path(trace.tb_frame.f_code.co_filename).name,
+                       "line": trace.tb_lineno})
+        trace = trace.tb_next
+    return frames
+
+
 def validate_request(payload, *, production_root, now, source_git_sha):
     required = {"schema_version", "production_repo_root", "execution_host_id", "operation",
                 "approved_by", "approved_at_utc", "expires_at_utc", "source_git_sha",
@@ -81,6 +90,7 @@ def run_reclaim(args):
             # An interrupted child cannot prove how many dispositions completed.
             write_receipt(output / "refusal.json", {
                 "status": "REFUSED_RECONCILE_EXACT_ATTEMPT", "error_type": type(exc).__name__,
+                "failure_locations": _failure_locations(exc),
                 "source_git_sha": args.source_git_sha, "request_sha256": args.request_sha256,
                 "source_retained": None, "deleted_files": None, "reclaimed_bytes": None,
                 "cleanup_eligible": False, "upload_performed": False})
@@ -140,6 +150,7 @@ def _run_pinned(args, root, output, request_path, stack):
             last_admission = observe_capture_admission(root, resource_check)
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":
+                write_receipt(output / "admission-refusal.json", last_admission)
                 raise ValueError("capture resource admission refused")
         return True
 

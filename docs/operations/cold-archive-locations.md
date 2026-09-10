@@ -269,3 +269,8 @@ the net result before proceeding to another batch.
 
 Update when catalog paths or schemas, location states, chunk grouping, proof
 requirements, consumer behavior, cache bounds or cleanup authority change.
+
+Reclaim refusals retain bounded module/line locations without exception text or
+absolute traceback paths. A failed resource check also retains the exact
+`admission-refusal.json` sample. These diagnostics do not establish zero deletion;
+reconcile the immutable attempt and per-file records before a new attempt.
