@@ -177,6 +177,7 @@ def _run_pinned(args, root, output, request_path):
                     output_reservation=0, source_reserve_bytes=reserve, **observed))
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":
+                write_receipt(output / "admission-refusal.json", last_admission)
                 raise ValueError("capture resource admission refused")
         return True
 

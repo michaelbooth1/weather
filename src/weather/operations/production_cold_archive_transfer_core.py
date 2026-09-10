@@ -523,6 +523,12 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
                           completed_at_utc=datetime.now(timezone.utc).isoformat())
         except BaseException as exc:
             result.update(status="FAIL_CLOSED", error_type=type(exc).__name__)
+            trace, frames = exc.__traceback__, []
+            while trace is not None and len(frames) < 16:
+                frames.append({"module": Path(trace.tb_frame.f_code.co_filename).name,
+                               "line": trace.tb_lineno})
+                trace = trace.tb_next
+            result["failure_locations"] = frames
             archive._write(output / "receipt.json", _seal(result))
             raise
         finally:

@@ -91,7 +91,9 @@ the actual backup and verification evidence.
 Exact-file transport uses `copyto` with its hard transfer-byte cap. It must not
 add rclone size filters: rclone 1.75 rejects filters for single-file copies.
 Pinned source size/hash and the independently checked remote size retain the
-per-object bounds.
+per-object bounds. Failed transfers retain only source module/line locations,
+never exception messages or client output; a capture refusal also retains its
+bounded resource observation.
 
 ## What a PASS establishes
 
