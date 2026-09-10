@@ -1423,4 +1423,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Create-only encrypted Drive upload proof; independent download remains separately required.",
     ),
+    SchemaSpec(
+        "workstation_cold_archive_transfer_execution",
+        "workstation_cold_archive_transfer_execution_v0.1",
+        "weather.operations.workstation_cold_archive_transfer",
+        "active",
+        "Exact-source workstation transfer execution; capture data and mirrors remain untouched.",
+    ),
 )

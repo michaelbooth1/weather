@@ -238,6 +238,30 @@ download; it does not spend another pass reading the original local ciphertext.
 A successful upload is never presented as independent recovery. The existing
 `transfer` operation retains its stricter combined two-way budget.
 
+## Transfer from an already staged workstation copy
+
+The admitted workstation stage entrypoint accepts `--production-transfer`,
+followed by `upload_only` or `download_and_verify`. It routes to
+`weather.operations.workstation_cold_archive_transfer` under the existing
+workstation host/principal lease and Windows Job. Supply `--attempt-id`,
+`--expected-source-tip` and the transfer core's explicit paths, hashes, archive,
+plan and private Drive bindings. Inputs must be outside data and mirror trees;
+only already copied archive inputs are eligible.
+
+Each phase has a 300-second deadline, 20 GiB of workstation reserve, native
+input/config/source pins, the unchanged bounded transfer client, and a fresh
+attempt beneath `scratch/production_cold_archive_transport`. Its parent and
+the checkout's empty protected `data` directory must exist. Never populate
+that data directory from a mirror. Exact name lookups must be complete and
+unambiguous before upload; subsequent reads use immutable object IDs.
+
+The core upload and independent-download receipts retain their existing
+schemas. A separate workstation execution receipt binds the clean source tip,
+module hashes, host and assignment to the core receipt. It proves no fresh
+production identity and publishes no production location markers. Production
+catalog publication/reclaim still requires its own fresh admitted operation;
+preserve the new upload instead of repeating it to obtain a catalog entry.
+
 ## Location and recovery records
 
 Keep each original discoverable through the [cold archive location catalog](cold-archive-locations.md).
