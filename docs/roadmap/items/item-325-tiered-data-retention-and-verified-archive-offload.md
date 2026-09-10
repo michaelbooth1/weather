@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-09 - ARCHIVE SOURCE QUALIFIED; PRODUCTION TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - RELIABILITY REPAIR IN PROGRESS]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -6,6 +6,35 @@ verified append-only archive on the workstation host, and never deleting a byte
 that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
+
+## September 10 archive reliability repair
+
+The owner approved the implementation plan at 19:37 UTC after requesting an
+archive-only 80% system-commit threshold. The
+[resumable campaign runbook](../../operations/cold-archive-campaign.md) owns the
+new orchestration, resource, credential, qualification and resume contracts.
+
+Four archives completed by 18:59 UTC, reclaiming 13 originals and exactly
+453,414,912 allocated bytes. The 100 decimal GB original-data target remains
+open. Their complete restore/custody/catalog/reclaim records were retained on
+both PCs and independently byte-verified in a private Drive recovery bundle.
+Workstation and production-spool cleanup bytes are excluded from this count.
+
+The approved packed plan has 107 untouched chunks with 99,602,452,480 bytes of
+recorded allocation. Four overlapping chunks are isolated; their residual
+1,704,456,192 bytes are not counted as available capacity. This is metadata
+planning, not fresh native identity, allocation or protected-input qualification.
+
+Archive resource-policy checks passed 182 focused workstation tests. The
+subsequent memory/rate/deadline/credential matrix passed 301 tests with three
+optional skips, including a native process-memory-limited Windows Job check.
+Retained workstation JUnit paths are `scratch/archive-resource-policy-a1.xml`
+and `scratch/archive-reliability-a2.xml`. The controller's interruption,
+argument and native metadata-RPC matrix passed 33 workstation checks in 4.84 seconds
+(`scratch/archive-reliability-a3.xml`) after the owner-authorized source transfer.
+Final timing and repository checks remain in progress.
+Three real large batches and a measured whole-campaign ETA remain outstanding;
+no new archive payload work ran during this implementation pass.
 
 ## 2026-09-08 additional capacity recovery approved
 

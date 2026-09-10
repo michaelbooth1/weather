@@ -276,11 +276,13 @@ def _directory_pin(path):
 
 
 class _Guard:
+    MAX_RATE = 16 * MIB
+
     def __init__(self, admission, deadline, rate):
         if not callable(admission) or not math.isfinite(deadline):
             raise ArchiveStageError("admission callback and finite deadline required")
-        if not isinstance(rate, int) or isinstance(rate, bool) or not 0 < rate <= 16 * MIB:
-            raise ArchiveStageError("rate must be positive and at most 16 MiB/s")
+        if not isinstance(rate, int) or isinstance(rate, bool) or not 0 < rate <= self.MAX_RATE:
+            raise ArchiveStageError("rate exceeds this host profile")
         self.admission, self.deadline, self.rate = admission, deadline, rate
         self.start, self.bytes = time.monotonic(), 0
         self.admit()
@@ -352,9 +354,11 @@ def _hash(path, guard):
     return reader.bytes, reader.digest.hexdigest()
 
 
-def verify_archive(archive_path, manifest, *, admission, deadline_monotonic):
+def verify_archive(archive_path, manifest, *, admission, deadline_monotonic,
+                   guard_factory=None):
     """Stream exact ordered member/size/hash parity; never extract files."""
-    guard = _Guard(admission, deadline_monotonic, 16 * MIB)
+    guard = (_Guard(admission, deadline_monotonic, 16 * MIB) if guard_factory is None
+             else guard_factory(admission, deadline_monotonic))
     _check_seal(manifest, "manifest_hash")
     if (manifest.get("schema_version") != schema_version("production_cold_archive_manifest")
             or manifest.get("format") != FORMAT):

@@ -6,6 +6,8 @@ the shared workstation/live mutex and complete child Job through cleanup.
 """
 from __future__ import annotations
 
+from weather.operations import workstation_cold_archive_io as local_io
+
 import argparse
 from contextlib import ExitStack
 from datetime import datetime, timezone
@@ -29,7 +31,7 @@ from weather.paths import repo_path
 from weather.schema_registry import schema_version
 
 TOOL = "weather.operations.workstation_cold_archive_cleanup"
-DEADLINE_SECONDS = 300
+DEADLINE_SECONDS = 600
 EVIDENCE_RESERVE_BYTES = 64 * archive.MIB
 
 
@@ -178,7 +180,7 @@ def cleanup_payloads(*, entry_path, entry_sha256, restore_record, restore_record
             root = _scratch(ciphertext_root, repo, directory=True)
             stack.enter_context(archive._directory_pin(root))
             rows = _expected_payloads(repo, entry, docs, record, root)
-            guard = archive._Guard(admission, deadline_monotonic, 16 * archive.MIB)
+            guard = local_io.ReadGuard(admission, deadline_monotonic)
             held, planned = [], []
             for role, path, proof, identity in rows:
                 guard.admit()
@@ -231,7 +233,7 @@ def run_cleanup(args):
         _require(identity["git_commit"] == args.expected_source_tip and identity["git_dirty"] is False,
                  "cleanup requires the exact reviewed clean source")
         paths = [Path(module.__file__) for module in (bridge, catalog, reclaim, spool, archive, locations,
-                                                     native_removal, workstation, bridge.stage)]
+                                                     native_removal, workstation, bridge.stage, local_io)]
         paths.append(Path(__file__))
         pins = [(stack.enter_context(bridge._file_pin(path)), path) for path in paths]
         before = [pin.metadata() for pin, _ in pins]

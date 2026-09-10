@@ -16,13 +16,14 @@ import time
 from zoneinfo import ZoneInfo
 
 from weather.operations import production_cold_archive_stage as stage
+from weather.operations import cold_archive_resource_policy as resource_policy
 from weather.operations import storage_recovery_inventory as metadata
 from weather.operations.ntfs_file_compression import PinnedNtfsDirectory
 from weather.operations.replay_cache_compression import _utc, read_bounded_json, write_receipt
 from weather.operations.replay_cache_compression_admission import (
     check_capture_health, observe_capture_admission, set_current_process_below_normal,
     verify_current_lease, verify_storage_exception, storage_daytime_authorized,
-    ARCHIVE_DAYTIME_EXCEPTION, ARCHIVE_DAYTIME_END,
+    ARCHIVE_DAYTIME_EXCEPTION, ARCHIVE_DAYTIME_END, ARCHIVE_EXCEPTION_ENDS,
 )
 from weather.paths import repo_path
 from weather.schema_registry import schema_version
@@ -117,10 +118,11 @@ def validate_chunk(plan, chunk_id, production_root, now):
 
 def check_resources(*, now, available, commit, free_disk, loops, output_reservation,
                     source_reserve_bytes=SOURCE_RESERVE_BYTES, owner_approved_exception=""):
-    if owner_approved_exception and owner_approved_exception != ARCHIVE_DAYTIME_EXCEPTION:
+    if owner_approved_exception and owner_approved_exception not in ARCHIVE_EXCEPTION_ENDS:
         raise ValueError("archive lane cannot claim another workload exception")
     result = check_capture_health(now=now, available=available, commit=commit, loops=loops,
-                                  owner_approved_exception=owner_approved_exception)
+                                  owner_approved_exception=owner_approved_exception,
+                                  maximum_commit_percent=resource_policy.MAX_COMMIT_PERCENT)
     minimum = source_reserve_bytes + EVIDENCE_RESERVE_BYTES + output_reservation
     result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=minimum,
                   source_disk_reserve_bytes=source_reserve_bytes)
@@ -159,7 +161,7 @@ def load_plan_with_reserve(path, expected_hash, *, now=None, owner_approved_exce
             )):
         reserve = OVERNIGHT_RESERVE_BYTES
     if owner_approved_exception:
-        if (owner_approved_exception != ARCHIVE_DAYTIME_EXCEPTION
+        if (owner_approved_exception not in ARCHIVE_EXCEPTION_ENDS
                 or not storage_daytime_authorized(current, owner_approved_exception)
                 or expected_hash not in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256,
                                         OVERNIGHT_PACKED_PLAN_SHA256)
@@ -174,7 +176,7 @@ def verify_archive_exception(lease, now, *, exception=None):
     if exception is None:
         exception = os.environ.get(ENV_PREFIX + "OWNER_EXCEPTION", "")
     if exception:
-        if exception != ARCHIVE_DAYTIME_EXCEPTION:
+        if exception not in ARCHIVE_EXCEPTION_ENDS:
             raise ValueError("archive exception is not authorized")
         verify_storage_exception(lease, exception, now)
     elif lease.get("policy_window") != "agent_heavy":
@@ -185,7 +187,7 @@ def verify_archive_exception(lease, now, *, exception=None):
 def verify_archive_deadline(deadline, now, exception):
     if not 0 < (deadline - now).total_seconds() <= MAX_SECONDS:
         raise ValueError("wrapper deadline is outside its bounded interval")
-    if exception and deadline > ARCHIVE_DAYTIME_END - timedelta(seconds=15):
+    if exception and deadline > ARCHIVE_EXCEPTION_ENDS[exception] - timedelta(seconds=15):
         raise ValueError("archive exception deadline does not reserve teardown")
 
 
@@ -269,6 +271,7 @@ def _run_pinned(args, production_root, output, request_path):
                 lambda **observed: check_resources(output_reservation=output_reservation,
                                                   source_reserve_bytes=source_reserve_bytes,
                                                   owner_approved_exception=exception, **observed),
+                memory_reader=resource_policy.read_host_memory,
             )
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":

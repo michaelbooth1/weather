@@ -79,7 +79,7 @@ def test_resources_do_not_double_reserve_written_output():
 
 @pytest.mark.parametrize("key,value", [
     ("now", NOW.replace(hour=17)), ("now", NOW.replace(hour=9)),
-    ("commit", 70), ("commit", float("nan")), ("available", 4 * 1024**3 - 1),
+    ("commit", 80), ("commit", float("nan")), ("available", 4 * 1024**3 - 1),
     ("free_disk", None), ("free_disk", True), ("free_disk", 21 * 1024**3), ("loops", []),
 ])
 def test_capture_time_and_resources_refuse(key, value):
@@ -224,7 +224,7 @@ def test_approved_reserve_keeps_evidence_memory_and_time_guards():
     args["now"] = NOW.replace(hour=17)
     assert subject.check_resources(**args)["status"] == "BLOCK"
     args["now"] = NOW
-    args["commit"] = 70
+    args["commit"] = 80
     assert subject.check_resources(**args)["status"] == "BLOCK"
     args["commit"] = 50
     args["available"] = 4 * 1024**3 - 1
@@ -245,7 +245,7 @@ def test_archive_daytime_resources_require_dated_explicit_authority(stamp, allow
     args["owner_approved_exception"] = subject.ARCHIVE_DAYTIME_EXCEPTION
     assert (subject.check_resources(**args)["status"] == "PASS") is allowed
     if allowed:
-        for key, value in (("commit", 70), ("available", 4 * 1024**3 - 1),
+        for key, value in (("commit", 80), ("available", 4 * 1024**3 - 1),
                            ("loops", []), ("free_disk", 0)):
             assert subject.check_resources(**{**args, key: value})["status"] == "BLOCK"
 

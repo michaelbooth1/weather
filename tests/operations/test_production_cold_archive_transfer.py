@@ -528,7 +528,7 @@ def test_budget_rechecked_after_hash_and_all_absence_checks(transfer_fixture, mo
 
     monkeypatch.setattr(f.drive, "object", slow_absence)
     # Avoid a stationary fake clock inside the real bandwidth sleeping loop.
-    def fixture_hash(path, admit, deadline, maximum=core.MAX_CIPHERTEXT_BYTES):
+    def fixture_hash(path, admit, deadline, maximum=core.MAX_CIPHERTEXT_BYTES, **kwargs):
         assert admit() is True
         raw = Path(path).read_bytes()
         assert len(raw) <= maximum
@@ -793,7 +793,7 @@ def test_split_phase_rechecks_budget_before_any_copy(transfer_fixture, monkeypat
             clock[0] = f.args["deadline_monotonic"] - 44
         return result
 
-    def bounded_fixture_hash(path, admit, deadline, maximum=core.MAX_CIPHERTEXT_BYTES):
+    def bounded_fixture_hash(path, admit, deadline, maximum=core.MAX_CIPHERTEXT_BYTES, **kwargs):
         assert admit() is True
         raw = Path(path).read_bytes()
         assert len(raw) <= maximum

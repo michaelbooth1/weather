@@ -570,6 +570,13 @@ function Get-WeatherHeavyWorkloadPolicyWindow {
         [string]$OwnerApprovedException = ""
     )
 
+    if ($OwnerApprovedException -ceq 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING') {
+        if ($Now -lt [datetime]'2026-09-10T19:43:24' -or
+            $Now -ge [datetime]'2026-09-11T00:30:00' -or $AllowStageAWindow) {
+            throw 'owner-approved archive exception is invalid or expired'
+        }
+        return 'owner_approved_archive_recovery_20260910_evening'
+    }
     if ($OwnerApprovedException -ceq 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910') {
         if ($Now -lt [datetime]'2026-09-10T13:10:38' -or
             $Now -ge [datetime]'2026-09-10T18:00:00' -or $AllowStageAWindow) {
@@ -1470,7 +1477,7 @@ function Enter-WeatherHeavyWorkloadLease {
                 throw "owner-approved storage exception is restricted to dedicated capture storage recovery"
             }
         }
-        elseif ($OwnerApprovedException -ceq 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910') {
+        elseif ($OwnerApprovedException -cin @('OWNER_APPROVED_ARCHIVE_RECOVERY_20260910', 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING')) {
             $assignment = Get-WeatherExecutionHostAssignment -RepoRoot $RepoRoot
             if ($AllowStageAWindow -or $Workload -cnotin @(
                 'production_cold_archive_stage', 'production_cold_archive_transfer',

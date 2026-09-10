@@ -149,7 +149,8 @@ def _run_pinned(args, root, output, request_path, stack):
             raise ValueError("reclaim deadline or request expiry reached")
         if force or time.monotonic() - last_check >= 1:
             verify_current_lease(lease, owner, lease_path, workload=WORKLOAD)
-            last_admission = observe_capture_admission(root, resource_check)
+            last_admission = observe_capture_admission(
+                root, resource_check, memory_reader=staging.resource_policy.read_host_memory)
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":
                 write_receipt(output / "admission-refusal.json", last_admission)
