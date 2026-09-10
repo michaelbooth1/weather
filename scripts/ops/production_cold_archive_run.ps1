@@ -6,13 +6,14 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [ValidateSet('stage', 'transfer', 'upload', 'download', 'publish', 'reclaim')][string]$Operation = 'stage',
+    [ValidateSet('stage', 'transfer', 'upload', 'download', 'publish', 'reclaim', 'copy')][string]$Operation = 'stage',
     [string]$OwnerApprovedException = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$isCopy = $Operation -eq 'copy'
 $isReclaim = $Operation -eq 'reclaim'
 $isTransfer = $Operation -in @('transfer', 'upload', 'download', 'publish')
 $expectedUpload = $Operation -notin @('download', 'publish')
@@ -35,6 +36,11 @@ if ($isReclaim) {
     $workload = 'production_cold_archive_reclaim'
     $module = 'weather.operations.production_cold_archive_reclaim_cli'
     $outputDirectory = 'scratch\production_cold_archive_reclaim'
+}
+if ($isCopy) {
+    $workload = 'production_cold_archive_copy'
+    $module = 'weather.operations.production_cold_archive_copy'
+    $outputDirectory = 'scratch\production_cold_archive_copy'
 }
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
@@ -139,6 +145,10 @@ $receipt = [ordered]@{
     hard_stop = $false; teardown_proved = $false; deleted_files = 0
     reclaimed_bytes = 0; cleanup_eligible = $false; source_retained = $true; upload_performed = $false
 }
+if ($isCopy) {
+    $receipt.copied_files = $null; $receipt.copied_bytes = $null
+    $receipt.remote_side_effect_possible = $true
+}
 if ($isReclaim) {
     $receipt.deleted_files = $null
     $receipt.reclaimed_bytes = $null
@@ -225,6 +235,19 @@ try {
                 $result.source_retained -ne $true) {
             throw 'retaining operation reported source deletion'
         }
+        if ($isCopy) {
+            if ($result.operation -cne 'copy' -or $result.direction -cne 'to_workstation' -or
+                $result.upload_performed -isnot [bool] -or $result.upload_performed -ne $false -or
+                $result.source_retained -isnot [bool] -or $result.source_retained -ne $true -or
+                $result.copied_files -isnot [int] -or $result.copied_files -ne 3 -or
+                ($result.copied_bytes -isnot [int] -and $result.copied_bytes -isnot [long]) -or
+                $result.copied_bytes -le 0 -or $result.copied_bytes -gt 1100MB -or
+                $result.archive_id -isnot [string] -or $result.archive_id -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$' -or
+                $result.chunk_id -cnotmatch '^chunk-[0-9]{5}$' -or
+                $result.remote_side_effect_possible -ne $true -or $result.destination_hash_verified -ne $false) {
+                throw 'copy child receipt verification mismatch'
+            }
+        }
         if ($isTransfer) {
             if ($result.upload_performed -isnot [bool] -or $result.upload_performed -ne $expectedUpload -or
                 $result.independent_download -isnot [bool] -or $result.independent_download -ne $expectedDownload -or
@@ -281,6 +304,12 @@ try {
                 $receipt.catalog_entry_sha256 = $result.catalog.entry_sha256
                 $receipt.committed_upload_reused = $true
             }
+        }
+        elseif ($isCopy) {
+            $receipt.archive_id = $result.archive_id
+            $receipt.copied_files = $result.copied_files
+            $receipt.copied_bytes = $result.copied_bytes
+            $receipt.destination_hash_verified = $false
         }
         elseif (-not $isReclaim) {
             $receipt.logical_source_bytes = $result.logical_source_bytes

@@ -338,6 +338,36 @@ The wrapper records the token, forwards it explicitly, and restores the prior
 environment after teardown. The independent child rejects a missing, wrong or
 expired token, mismatched live lease, different plan, or overlong deadline.
 
+## Copying a staged archive to the workstation
+
+Use the same native wrapper with `-Operation copy`. The
+`production_cold_archive_copy_request` binds the ordinary expiring production
+approval, exact plan/chunk/source identity, an archive ID, direction
+`to_workstation`, and three exact files derived from its sealed stage evidence.
+It also binds the manifest and stage receipt paths and raw hashes, an isolated
+workstation root, literal private IPv4 address and principal, explicit native
+OpenSSH executable/key paths, and the known-hosts file and its SHA-256.
+The `files` rows contain only `local`, `remote`, `bytes` and `sha256`.
+
+The only outbound files are `archive.tar.gz`, `manifest.json` and
+`receipt.json` from that archive's immediate production staging attempt.
+The remote destination is a new `scratch/ac-in/<archive-id>` directory beneath
+the approved workstation root. Existing namespaces, redirected ancestors,
+different files, hashes or plan members refuse; interrupted destinations remain
+spent evidence. The native production lease, current capture checks, 384 MiB
+process limits and 300-second complete-child Job remain mandatory. Source
+hashing is limited to 16 MiB/s and SCP to 8 MiB/s. No ambient SSH configuration,
+proxy, forwarding or unpinned host-key acceptance is allowed.
+
+A successful copy retains every source and reports
+`destination_hash_verified=false`. The existing workstation cryptographic
+bridge must independently verify all three received files before encryption.
+Upload, independent download, full restore, custody and exact original reclaim
+remain separate evidence gates. Prefer the approved packed plan for sustained
+batching; small per-day chunks serve only bounded qualification or isolated
+exceptions. Copy receipts live under a fresh immediate
+`scratch/production_cold_archive_copy/<attempt>` directory.
+
 ## Update when
 
 Update when chunk format, request fields, admission, output evidence or the

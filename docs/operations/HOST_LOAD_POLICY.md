@@ -326,8 +326,8 @@ Stage-A, workstation or live authority is added.
 At September 10 13:10:38 Toronto the owner explicitly instructed immediate
 upload and cleanup after being told the ordinary archive window had closed.
 The dated token `OWNER_APPROVED_ARCHIVE_RECOVERY_20260910` admits only the
-production archive stage, transfer, upload, download, publication and exact
-verified reclaim workloads from that instant until 18:00 Toronto that day.
+production archive stage, bound PC scratch copy, transfer, upload, download,
+publication and exact verified reclaim workloads from that instant until 18:00 Toronto that day.
 The wrapper requires `-OwnerApprovedException`; the child independently binds
 the token to the actual live lease and exact approved plan and selection.
 The three already pinned primary-plan layouts retain the authorized 6 GiB
