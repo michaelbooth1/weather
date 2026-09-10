@@ -325,6 +325,19 @@ requires the existing reviewed location-repair path. The new result reports
 `committed_upload_reused=true`; prior remote upload evidence remains in its
 original receipt. Publication is not restore, custody or reclaim authority.
 
+## September 10 attended daytime authority
+
+The owner's immediate archive instruction has a separate dated execution
+token described in [Host Load Policy](HOST_LOAD_POLICY.md#owner-archive-exception-september-10-afternoon).
+Pass `-OwnerApprovedException OWNER_APPROVED_ARCHIVE_RECOVERY_20260910` to the
+same production wrapper. It is valid only September 10 13:10:38–18:00 Toronto,
+for the already pinned primary plans, with the same 6 GiB reserve and complete
+capture, lease, bounded-child and recovery checks. Requests remain exact,
+fresh and source-bound; this token cannot revive expired or spent attempts.
+The wrapper records the token, forwards it explicitly, and restores the prior
+environment after teardown. The independent child rejects a missing, wrong or
+expired token, mismatched live lease, different plan, or overlong deadline.
+
 ## Update when
 
 Update when chunk format, request fields, admission, output evidence or the

@@ -183,7 +183,7 @@ def wrapper_fixture(tmp_path, request):
     return source, production, wrapper_path, head
 
 
-def launch(wrapper_fixture, mode, operation=None):
+def launch(wrapper_fixture, mode, operation=None, exception=None):
     source, production, wrapper, head = wrapper_fixture
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
@@ -197,6 +197,8 @@ def launch(wrapper_fixture, mode, operation=None):
                  "-ExpectedSourceTip", head]
     if operation is not None:
         arguments.extend(["-Operation", operation])
+    if exception is not None:
+        arguments.extend(["-OwnerApprovedException", exception])
     process = subprocess.Popen(arguments, cwd=source, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return process, output
 
@@ -365,3 +367,23 @@ def test_split_transfer_wrapper_binds_phase_and_proof(wrapper_fixture, operation
     if mode in {"hang", "residual_success"}:
         for pid in json.loads((output / "descendant.json").read_text()).values():
             assert observe_process_identity(pid)["state"] == "not_found"
+
+
+@pytest.mark.parametrize("wrapper_fixture,exception,success", [
+    ("2026-09-10T13:10:38", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", True),
+    ("2026-09-10T13:10:38", None, False),
+    ("2026-09-10T13:10:37", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", False),
+    ("2026-09-10T18:00:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", False),
+    ("2026-09-11T13:30:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910", False),
+    ("2026-09-10T14:00:00", "OWNER_APPROVED_STORAGE_RECOVERY_20260909", False),
+], indirect=["wrapper_fixture"])
+def test_archive_daytime_wrapper_requires_explicit_unexpired_token(wrapper_fixture, exception, success):
+    process, output = launch(wrapper_fixture, "success", exception=exception)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    if success:
+        receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+        assert receipt["owner_approved_exception"] == exception
+        assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
+    else:
+        assert not output.exists()

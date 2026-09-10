@@ -21,7 +21,8 @@ from weather.operations.ntfs_file_compression import PinnedNtfsDirectory
 from weather.operations.replay_cache_compression import _utc, read_bounded_json, write_receipt
 from weather.operations.replay_cache_compression_admission import (
     check_capture_health, observe_capture_admission, set_current_process_below_normal,
-    verify_current_lease,
+    verify_current_lease, verify_storage_exception, storage_daytime_authorized,
+    ARCHIVE_DAYTIME_EXCEPTION, ARCHIVE_DAYTIME_END,
 )
 from weather.paths import repo_path
 from weather.schema_registry import schema_version
@@ -115,10 +116,11 @@ def validate_chunk(plan, chunk_id, production_root, now):
 
 
 def check_resources(*, now, available, commit, free_disk, loops, output_reservation,
-                    source_reserve_bytes=SOURCE_RESERVE_BYTES):
-    # This new payload-reading lane uses the ordinary overnight timetable.
-    # Existing dated metadata/compression exceptions do not admit this workload.
-    result = check_capture_health(now=now, available=available, commit=commit, loops=loops)
+                    source_reserve_bytes=SOURCE_RESERVE_BYTES, owner_approved_exception=""):
+    if owner_approved_exception and owner_approved_exception != ARCHIVE_DAYTIME_EXCEPTION:
+        raise ValueError("archive lane cannot claim another workload exception")
+    result = check_capture_health(now=now, available=available, commit=commit, loops=loops,
+                                  owner_approved_exception=owner_approved_exception)
     minimum = source_reserve_bytes + EVIDENCE_RESERVE_BYTES + output_reservation
     result.update(free_disk_bytes=free_disk, minimum_free_disk_bytes=minimum,
                   source_disk_reserve_bytes=source_reserve_bytes)
@@ -137,7 +139,7 @@ def _read_pinned_json(path, maximum, expected_hash):
     return value, raw
 
 
-def load_plan_with_reserve(path, expected_hash, *, now=None):
+def load_plan_with_reserve(path, expected_hash, *, now=None, owner_approved_exception=""):
     # Verify actual bytes before granting the exception; a claimed digest is
     # insufficient. Every different or regenerated plan retains the normal floor.
     plan, _ = _read_pinned_json(path, MAX_PLAN_BYTES, expected_hash)
@@ -156,7 +158,35 @@ def load_plan_with_reserve(path, expected_hash, *, now=None):
                 < datetime(2026, 9, 11, 13, tzinfo=timezone.utc)
             )):
         reserve = OVERNIGHT_RESERVE_BYTES
+    if owner_approved_exception:
+        if (owner_approved_exception != ARCHIVE_DAYTIME_EXCEPTION
+                or not storage_daytime_authorized(current, owner_approved_exception)
+                or expected_hash not in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256,
+                                        OVERNIGHT_PACKED_PLAN_SHA256)
+                or plan.get("selection_sha256") != OVERNIGHT_SELECTION_SHA256):
+            raise ValueError("daytime archive authority requires the exact approved plan and selection")
+        reserve = OVERNIGHT_RESERVE_BYTES
     return plan, reserve
+
+
+def verify_archive_exception(lease, now, *, exception=None):
+    """Require the explicit wrapper token and its independently verified live lease."""
+    if exception is None:
+        exception = os.environ.get(ENV_PREFIX + "OWNER_EXCEPTION", "")
+    if exception:
+        if exception != ARCHIVE_DAYTIME_EXCEPTION:
+            raise ValueError("archive exception is not authorized")
+        verify_storage_exception(lease, exception, now)
+    elif lease.get("policy_window") != "agent_heavy":
+        raise ValueError("archive requires its ordinary overnight lease or explicit dated exception")
+    return exception
+
+
+def verify_archive_deadline(deadline, now, exception):
+    if not 0 < (deadline - now).total_seconds() <= MAX_SECONDS:
+        raise ValueError("wrapper deadline is outside its bounded interval")
+    if exception and deadline > ARCHIVE_DAYTIME_END - timedelta(seconds=15):
+        raise ValueError("archive exception deadline does not reserve teardown")
 
 
 def staging_reserve(chunk, source_reserve_bytes):
@@ -213,14 +243,13 @@ def _run_pinned(args, production_root, output, request_path):
     if lease.get("execution_host_id") != request["execution_host_id"]:
         raise ValueError("request does not bind the actual lease host")
     verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)
-    if lease.get("policy_window") != "agent_heavy":
-        raise ValueError("archive staging requires the ordinary overnight lease")
+    exception = verify_archive_exception(lease, now)
     set_current_process_below_normal()
     deadline = _utc(os.environ[ENV_PREFIX + "DEADLINE_UTC"])
-    if not 0 < (deadline - now).total_seconds() <= MAX_SECONDS:
-        raise ValueError("wrapper deadline is outside its bounded interval")
+    verify_archive_deadline(deadline, now, exception)
     plan_path = Path(request["plan_path"])
-    plan, source_reserve_bytes = load_plan_with_reserve(plan_path, request["plan_sha256"])
+    plan, source_reserve_bytes = load_plan_with_reserve(
+        plan_path, request["plan_sha256"], owner_approved_exception=exception)
     chunk = validate_chunk(plan, request["chunk_id"], production_root, now)
     # The core reserves its complete worst-case output before opening a source
     # and enforces the remaining reserve on every write. Ongoing health probes
@@ -238,7 +267,8 @@ def _run_pinned(args, production_root, output, request_path):
             last_admission = observe_capture_admission(
                 production_root,
                 lambda **observed: check_resources(output_reservation=output_reservation,
-                                                  source_reserve_bytes=source_reserve_bytes, **observed),
+                                                  source_reserve_bytes=source_reserve_bytes,
+                                                  owner_approved_exception=exception, **observed),
             )
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":

@@ -321,6 +321,28 @@ bounded teardown remain unchanged. The absolute deadline reserves teardown
 before 18:00. No source deletion, archive export, training, test, merge,
 Stage-A, workstation or live authority is added.
 
+## Owner archive exception: September 10 afternoon
+
+At September 10 13:10:38 Toronto the owner explicitly instructed immediate
+upload and cleanup after being told the ordinary archive window had closed.
+The dated token `OWNER_APPROVED_ARCHIVE_RECOVERY_20260910` admits only the
+production archive stage, transfer, upload, download, publication and exact
+verified reclaim workloads from that instant until 18:00 Toronto that day.
+The wrapper requires `-OwnerApprovedException`; the child independently binds
+the token to the actual live lease and exact approved plan and selection.
+The three already pinned primary-plan layouts retain the authorized 6 GiB
+capture reserve plus evidence and complete output reservations.
+
+All capture identities and freshness, commit below 70%, 4 GiB physical
+availability, serial lease, 384 MiB child limit, BelowNormal priority,
+16 MiB/s payload limit, 1 GiB chunk limit and 300-second job bound remain.
+The absolute deadline reserves 15 seconds for teardown before 18:00.
+Full independent restore and exact-file identity, content, settlement,
+protection and custody checks still precede source reclaim. Failed attempts
+remain immutable. This does not authorize other plans or workloads, merge,
+capture restart, hook/watchdog changes, or live trading. The ordinary
+timetable applies automatically at expiry.
+
 ## Rules
 
 1. **Protected window 18:00–00:30**: no ad-hoc analysis jobs, corpus builds,

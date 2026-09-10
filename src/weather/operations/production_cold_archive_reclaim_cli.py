@@ -123,22 +123,24 @@ def _run_pinned(args, root, output, request_path, stack):
     owner = int(os.environ.get(staging.ENV_PREFIX + "OWNER_PID", "0"))
     lease_path = root / "data" / "logs" / "heavy_workload.lock"
     lease, _ = read_bounded_json(lease_path, 16384)
-    if lease.get("execution_host_id") != request["execution_host_id"] or lease.get("policy_window") != "agent_heavy":
-        raise ValueError("reclaim requires its exact overnight host lease")
+    if lease.get("execution_host_id") != request["execution_host_id"]:
+        raise ValueError("reclaim requires its exact host lease")
     verify_current_lease(lease, owner, lease_path, workload=WORKLOAD)
+    exception = staging.verify_archive_exception(lease, now)
     set_current_process_below_normal()
     deadline = _utc(os.environ[staging.ENV_PREFIX + "DEADLINE_UTC"])
-    if not 0 < (deadline - now).total_seconds() <= staging.MAX_SECONDS:
-        raise ValueError("wrapper deadline is outside its bounded interval")
+    staging.verify_archive_deadline(deadline, now, exception)
     plan_spec = request["plan"]
     stack.enter_context(reclaim.bridge._file_pin(reclaim.locations.safe_path(plan_spec["path"])))
-    _, reserve = staging.load_plan_with_reserve(Path(plan_spec["path"]), plan_spec["sha256"])
+    _, reserve = staging.load_plan_with_reserve(
+        Path(plan_spec["path"]), plan_spec["sha256"], owner_approved_exception=exception)
     last_check, last_admission, capture_loops = 0.0, {}, []
 
     def resource_check(**observed):
         nonlocal capture_loops
         capture_loops = observed["loops"]
-        return staging.check_resources(output_reservation=0, source_reserve_bytes=reserve, **observed)
+        return staging.check_resources(output_reservation=0, source_reserve_bytes=reserve,
+                                               owner_approved_exception=exception, **observed)
 
     def guard(force=False):
         nonlocal last_check, last_admission
