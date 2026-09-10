@@ -298,6 +298,33 @@ and deadline guards. This avoids repeated filename listings against the shared
 client quota. Credential refresh remains a separate preparation step; no
 plaintext credential is written into an archive receipt.
 
+## Publishing an already committed upload
+
+When a reviewed workstation transfer has already uploaded the four bound objects,
+use `production_cold_archive_run.ps1 -Operation publish` with a fresh attempt
+under `scratch/production_cold_archive_transfer`. This registers the existing
+upload and source locations without starting a cloud client, reading ciphertext,
+or uploading again. It remains inside the production window, tiering exclusion,
+lease, exact source, capture, resource, owner-expiry and 300-second Job gates.
+
+The request uses `production_cold_archive_transfer_request` with operation
+`publish_uploaded` and `publish_catalog=true`. Include the ordinary production
+root, host, named approval, source tip, expiry, plan/chunk/archive and four upstream
+hash bindings; the manifest, stage and crypt receipt paths; the exact
+`drive_root_folder_id`; and `upload_receipt_path` / `upload_receipt_sha256`.
+Omit `ciphertext_path`, `rclone_executable`, `rclone_config`, `dpapi_secret`
+and `drive_remote_name`: these are rejected for publication. The supplied upload
+must be a sealed, successful upload-only receipt for those exact bindings.
+
+Publication validates the full catalog proof chain and pins every original native
+identity against its stage manifest. It retains the prior upload receipt bytes,
+records the existing object IDs, and updates the location inventory. A changed
+original or existing location refuses publication; an interrupted marker write
+requires the existing reviewed location-repair path. The new result reports
+`upload_performed=false`, `independent_download=false` and
+`committed_upload_reused=true`; prior remote upload evidence remains in its
+original receipt. Publication is not restore, custody or reclaim authority.
+
 ## Update when
 
 Update when chunk format, request fields, admission, output evidence or the

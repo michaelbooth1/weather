@@ -1068,3 +1068,41 @@ def test_download_receipt_failure_does_not_modify_committed_remote_objects(trans
     assert receipt["upload_performed"] is None
     assert receipt["independent_download"] is False
     assert not FixturePin.active
+
+
+def publication_request(request):
+    value = dict(request, operation="publish_uploaded", publish_catalog=True,
+                 upload_receipt_path=str(Path(request["plan_path"]).parent / "upload.json"),
+                 upload_receipt_sha256="1" * 64)
+    for key in ("ciphertext_path", "rclone_executable", "rclone_config", "dpapi_secret", "drive_remote_name"):
+        value.pop(key)
+    return value
+
+
+def test_publish_request_requires_no_payload_or_credentials(request_fixture):
+    request, root, now = request_fixture
+    value = publication_request(request)
+    assert cli.validate_request(value, production_root=root, now=now, source_git_sha="f" * 40) == value
+
+
+@pytest.mark.parametrize("field", [
+    "ciphertext_path", "rclone_executable", "rclone_config", "dpapi_secret", "drive_remote_name",
+])
+def test_publish_request_refuses_payload_and_client_fields(request_fixture, field):
+    request, root, now = request_fixture
+    value = publication_request(request)
+    value[field] = request[field]
+    with pytest.raises(ValueError, match="fields differ"):
+        cli.validate_request(value, production_root=root, now=now, source_git_sha="f" * 40)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("publish_catalog", False), ("publish_catalog", 1), ("upload_receipt_sha256", "x"),
+    ("upload_receipt_path", "relative.json"), ("drive_root_folder_id", "short"),
+])
+def test_publish_request_refuses_missing_or_invalid_binding(request_fixture, field, value):
+    request, root, now = request_fixture
+    published = publication_request(request)
+    published[field] = value
+    with pytest.raises(ValueError):
+        cli.validate_request(published, production_root=root, now=now, source_git_sha="f" * 40)

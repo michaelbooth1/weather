@@ -26,7 +26,8 @@ from weather.schema_registry import schema_version
 
 WORKLOAD = "production_cold_archive_transfer"
 MODES = {"transfer": "upload_and_independent_download",
-         "upload": "upload_only", "download": "download_and_verify"}
+         "upload": "upload_only", "download": "download_and_verify",
+         "publish": "publish_uploaded"}
 PATH_FIELDS = ("ciphertext_path", "crypt_receipt_path", "production_manifest_path",
                "production_receipt_path", "rclone_executable", "rclone_config", "dpapi_secret")
 HASH_FIELDS = ("plan_sha256", "crypt_receipt_sha256", "production_manifest_sha256",
@@ -34,18 +35,23 @@ HASH_FIELDS = ("plan_sha256", "crypt_receipt_sha256", "production_manifest_sha25
 
 
 def validate_request(payload, *, production_root, now, source_git_sha):
+    publication = isinstance(payload, dict) and payload.get("operation") == MODES["publish"]
     required = {"schema_version", "production_repo_root", "execution_host_id", "operation",
                 "approved_by", "approved_at_utc", "expires_at_utc", "plan_path", "chunk_id",
                 "source_git_sha", "archive_id", "drive_remote_name", "drive_root_folder_id",
                 *PATH_FIELDS, *HASH_FIELDS}
-    if isinstance(payload, dict) and payload.get("operation") == MODES["download"]:
+    if publication:
+        required.difference_update({"ciphertext_path", "rclone_executable", "rclone_config",
+                                    "dpapi_secret", "drive_remote_name"})
+        required.add("publish_catalog")
+    if isinstance(payload, dict) and payload.get("operation") in (MODES["download"], MODES["publish"]):
         required.update({"upload_receipt_path", "upload_receipt_sha256"})
         if "ciphertext_path" not in payload:
-            required.remove("ciphertext_path")
+            required.discard("ciphertext_path")
     if isinstance(payload, dict) and "publish_catalog" in payload:
         required.add("publish_catalog")
-        if payload["publish_catalog"] is not True or payload.get("operation") != MODES["upload"]:
-            raise ValueError("catalog publication requires an explicit upload-only request")
+        if payload["publish_catalog"] is not True or payload.get("operation") not in (MODES["upload"], MODES["publish"]):
+            raise ValueError("catalog publication requires an explicit upload-only or publish-uploaded request")
     if not isinstance(payload, dict) or set(payload) != required:
         raise ValueError("request fields differ from the archive-transfer contract")
     if (payload["schema_version"] != schema_version("production_cold_archive_transfer_request")
@@ -55,7 +61,7 @@ def validate_request(payload, *, production_root, now, source_git_sha):
         raise ValueError("request source or production root mismatch")
     if not isinstance(payload["approved_by"], str) or not 0 < len(payload["approved_by"].strip()) <= 128:
         raise ValueError("named owner approval is required")
-    extra_hashes = ("upload_receipt_sha256",) if payload["operation"] == MODES["download"] else ()
+    extra_hashes = ("upload_receipt_sha256",) if payload["operation"] in (MODES["download"], MODES["publish"]) else ()
     for field in (*HASH_FIELDS, *extra_hashes):
         transfer.archive._require_sha256(payload[field])
     for field, pattern in (("execution_host_id", r"[0-9a-f]{64}"),
@@ -63,12 +69,14 @@ def validate_request(payload, *, production_root, now, source_git_sha):
                            ("archive_id", r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}"),
                            ("drive_remote_name", transfer.REMOTE_RE.pattern),
                            ("drive_root_folder_id", transfer.ID_RE.pattern)):
+        if publication and field == "drive_remote_name":
+            continue
         if not isinstance(payload[field], str) or re.fullmatch(pattern, payload[field]) is None:
             raise ValueError("invalid transfer request " + field)
     approved, expires = _utc(payload["approved_at_utc"]), _utc(payload["expires_at_utc"])
     if not approved <= now < expires or expires - approved > timedelta(hours=72):
         raise ValueError("transfer request is expired, future-dated or overlong")
-    extra_paths = ("upload_receipt_path",) if payload["operation"] == MODES["download"] else ()
+    extra_paths = ("upload_receipt_path",) if payload["operation"] in (MODES["download"], MODES["publish"]) else ()
     for field in (*(name for name in PATH_FIELDS if name in payload), "plan_path", *extra_paths):
         if not isinstance(payload[field], str) or not Path(payload[field]).is_absolute():
             raise ValueError("transfer paths must be absolute")
@@ -89,8 +97,8 @@ def publish_upload_location(request, receipt_path, receipt_sha256, *, source_roo
     """Publish location metadata inside the upload job's unchanged admission."""
     if request.get("publish_catalog") is not True:
         return None
-    if request.get("operation") != MODES["upload"]:
-        raise ValueError("catalog publication is bound to upload-only")
+    if request.get("operation") not in (MODES["upload"], MODES["publish"]):
+        raise ValueError("catalog publication is bound to upload-only or publish-uploaded")
     result = catalog.publish_upload(
         source_root=source_root,
         production_manifest=request["production_manifest_path"],
@@ -104,6 +112,23 @@ def publish_upload_location(request, receipt_path, receipt_sha256, *, source_roo
     inventory = catalog.write_inventory(source_root=source_root, admission=admission,
                                         deadline_monotonic=deadline_monotonic)
     return {**result, "inventory": inventory}
+
+
+def committed_upload(request):
+    """Read an exact prior upload; never initialize a client or open payloads."""
+    result, raw = staging._read_pinned_json(
+        Path(request["upload_receipt_path"]), staging.MAX_PLAN_BYTES,
+        request["upload_receipt_sha256"])
+    transfer.archive._check_seal(result, "receipt_hash")
+    if (result.get("schema_version") != schema_version("production_cold_archive_upload_receipt")
+            or result.get("status") != "PASS" or result.get("phase") != MODES["upload"]
+            or result.get("upload_performed") is not True
+            or result.get("independent_download") is not False
+            or result.get("drive", {}).get("root_folder_id") != request["drive_root_folder_id"]
+            or any(result.get(key) != request[key] for key in
+                   ("archive_id", "chunk_id", *HASH_FIELDS))):
+        raise ValueError("committed upload differs from the publication request")
+    return result, raw
 
 
 def run_transfer(args):
@@ -126,8 +151,8 @@ def run_transfer(args):
                 "status": "REFUSED_RETAIN_AND_INSPECT", "error_type": type(exc).__name__,
                 "source_git_sha": args.source_git_sha, "request_sha256": args.request_sha256,
                 "source_retained": True, "deleted_files": 0, "reclaimed_bytes": 0,
-                "cleanup_eligible": False, "upload_performed": None,
-                "remote_side_effect_possible": True})
+                "cleanup_eligible": False, "upload_performed": False if args.operation == "publish" else None,
+                "remote_side_effect_possible": args.operation != "publish"})
             raise
 
 
@@ -186,39 +211,48 @@ def _run_pinned(args, root, output, request_path):
         stream.write(raw)
         stream.flush()
         os.fsync(stream.fileno())
-    result = transfer.transfer_chunk(
-        **{key: request[key] for key in (
-            "crypt_receipt_path", "crypt_receipt_sha256",
-            "production_manifest_path", "production_manifest_sha256",
-            "production_receipt_path", "production_receipt_sha256",
-            "plan_sha256", "archive_id", "rclone_executable", "rclone_config", "dpapi_secret",
-            "drive_remote_name", "drive_root_folder_id")},
-        ciphertext_path=request.get("ciphertext_path"),
-        output_root=output / "transfer", protected_root=root / "data", admission=guard,
-        deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds(),
-        free_space_reserve_bytes=reserve + staging.EVIDENCE_RESERVE_BYTES,
-        phase=request["operation"],
-        **({key: request[key] for key in ("upload_receipt_path", "upload_receipt_sha256")}
-           if args.operation == "download" else {}))
+    expected_upload = args.operation not in ("download", "publish")
+    expected_download = args.operation not in ("upload", "publish")
+    if args.operation == "publish":
+        result, receipt_raw = committed_upload(request)
+        receipt_path = Path(request["upload_receipt_path"])
+    else:
+        result = transfer.transfer_chunk(
+            **{key: request[key] for key in (
+                "crypt_receipt_path", "crypt_receipt_sha256",
+                "production_manifest_path", "production_manifest_sha256",
+                "production_receipt_path", "production_receipt_sha256",
+                "plan_sha256", "archive_id", "rclone_executable", "rclone_config", "dpapi_secret",
+                "drive_remote_name", "drive_root_folder_id")},
+            ciphertext_path=request.get("ciphertext_path"),
+            output_root=output / "transfer", protected_root=root / "data", admission=guard,
+            deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds(),
+            free_space_reserve_bytes=reserve + staging.EVIDENCE_RESERVE_BYTES,
+            phase=request["operation"],
+            **({key: request[key] for key in ("upload_receipt_path", "upload_receipt_sha256")}
+               if args.operation == "download" else {}))
+        guard(force=True)
+        verify_current_lease(lease, owner, lease_path, workload=workload)
+        staging._read_pinned_json(request_path, staging.MAX_REQUEST_BYTES, args.request_sha256)
+        staging._read_pinned_json(plan_path, staging.MAX_PLAN_BYTES, request["plan_sha256"])
+        receipt_path = output / "transfer" / "receipt.json"
+        reread, receipt_raw = read_bounded_json(receipt_path, staging.MAX_PLAN_BYTES)
+        if (reread != result or result.get("status") != "PASS"
+                or result.get("phase") != request["operation"]
+                or result.get("independent_download") is not expected_download
+                or result.get("upload_performed") is not expected_upload):
+            raise ValueError("transfer receipt readback mismatch")
     guard(force=True)
     verify_current_lease(lease, owner, lease_path, workload=workload)
     staging._read_pinned_json(request_path, staging.MAX_REQUEST_BYTES, args.request_sha256)
     staging._read_pinned_json(plan_path, staging.MAX_PLAN_BYTES, request["plan_sha256"])
-    receipt_path = output / "transfer" / "receipt.json"
-    reread, receipt_raw = read_bounded_json(receipt_path, staging.MAX_PLAN_BYTES)
-    expected_upload, expected_download = args.operation != "download", args.operation != "upload"
-    if (reread != result or result.get("status") != "PASS"
-            or result.get("phase") != request["operation"]
-            or result.get("independent_download") is not expected_download
-            or result.get("upload_performed") is not expected_upload):
-        raise ValueError("transfer receipt readback mismatch")
     catalog_result = publish_upload_location(
         request, receipt_path, hashlib.sha256(receipt_raw).hexdigest(),
         source_root=root / "data", admission=guard,
         deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds())
     guard(force=True)
     verify_current_lease(lease, owner, lease_path, workload=workload)
-    proof_kind = "upload" if args.operation == "upload" else "transport"
+    proof_kind = "upload" if args.operation in ("upload", "publish") else "transport"
     final = {"schema_version": schema_version("production_cold_archive_transfer_execution_receipt"),
              "status": "PASS", "operation": request["operation"], "source_git_sha": args.source_git_sha,
              "request_sha256": args.request_sha256, "execution_host_id": request["execution_host_id"],
@@ -232,6 +266,9 @@ def _run_pinned(args, root, output, request_path):
              "final_admission": last_admission}
     if catalog_result is not None:
         final["catalog"] = catalog_result
+    if args.operation == "publish":
+        final["remote_side_effect_possible"] = False
+        final["committed_upload_reused"] = True
     write_receipt(output / "result.json", final)
     print(json.dumps({key: final[key] for key in
                       ("status", "chunk_id", "archive_id", "ciphertext_bytes",
