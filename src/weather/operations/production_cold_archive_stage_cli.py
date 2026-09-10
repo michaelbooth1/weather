@@ -148,8 +148,13 @@ def load_plan_with_reserve(path, expected_hash, *, now=None):
     current = now or datetime.now(timezone.utc)
     if (expected_hash in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256, OVERNIGHT_PACKED_PLAN_SHA256)
             and plan.get("selection_sha256") == OVERNIGHT_SELECTION_SHA256
-            and datetime(2026, 9, 10, 4, tzinfo=timezone.utc) <= current
-            < datetime(2026, 9, 10, 13, tzinfo=timezone.utc)):
+            and (
+                datetime(2026, 9, 10, 4, tzinfo=timezone.utc) <= current
+                < datetime(2026, 9, 10, 13, tzinfo=timezone.utc)
+                # Owner renewal: the same plans, September 11 only.
+                or datetime(2026, 9, 11, 4, 30, tzinfo=timezone.utc) <= current
+                < datetime(2026, 9, 11, 13, tzinfo=timezone.utc)
+            )):
         reserve = OVERNIGHT_RESERVE_BYTES
     return plan, reserve
 

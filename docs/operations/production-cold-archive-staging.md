@@ -79,7 +79,11 @@ records `source_disk_reserve_bytes`.
 For the owner's September 10 overnight recovery using only the existing PCs
 and Drive, the exact approved primary plan or its identical-selection same-day
 or isolated-event regroupings use a 6 GiB capture
-reserve between 04:00 and 13:00 UTC on September 10 only. The CLI binds each exact plan
+reserve between 04:00 and 13:00 UTC on September 10. The owner renewed the
+same three exact plans for September 11, 04:30-13:00 UTC only. The gap between
+these dated windows and all later dates keep the ordinary reserve. The
+04:45-06:45 Toronto tiering exclusion and every capture, lease, restore and
+deletion gate remain unchanged. The CLI binds each exact plan
 digest and verifies the actual plan bytes; other plans keep their existing
 reserve. Each chunk remains at most 1 GiB, with evidence and worst-case output
 reserved separately. The controller must also reserve ingress and download
@@ -273,7 +277,7 @@ complete recovery and custody checks; retaining them indefinitely defeats net
 headroom recovery. These records do not grant deletion
 authority or prove historical consumer closure.
 
-The September 10 staging path additionally reserves two complete worst-case
+The dated overnight staging path additionally reserves two complete worst-case
 encrypted payload copies before opening any original: the ingress copy and the
 independent download. The archive writer separately reserves its own complete
 worst-case output. Thus the lower fixed reserve includes explicit working-space
