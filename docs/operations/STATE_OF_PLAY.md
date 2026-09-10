@@ -1,7 +1,7 @@
 # State of play
 
-**Last updated: 2026-09-09 America/Toronto (archive target approved).** Read this first; read
-`ESTABLISHED_FINDINGS.md` and `RETRACTED_AND_FALSE_LEADS.md` before research.
+**Last updated: 2026-09-10 America/Toronto (verified archive pilot; campaign active).**
+Read this first, then the established findings and retractions before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
 > current decision; numbered items and retained receipts own detailed evidence.
@@ -13,78 +13,61 @@ refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-p
 
 ## Current authority
 
-At September 10 03:57 UTC the owner fully authorized preparing and executing
-the overnight archive, saving its recovery keys, and using only existing PC
-storage and Google Drive. This extends the approved 101.8 GB primary target
-and conditional 10.2 GB reserve. Prepare a bounded low-space plan and unattended
-credential handling; retain full restore, exact-file deletion and capture gates.
+At September 10 03:57 UTC the owner fully authorized the overnight archive,
+saving its recovery keys, and using only existing PC storage and Google Drive.
+The approved selection is 101.8 GB of June 15-July 30 market detail and full
+prediction JSONL, with a conditional 10.2 GB explanation-CSV reserve. Every
+archive still needs full restore, exact-file reclaim and capture admission.
 
-The owner authorized the plan's implementation, source-control integration,
-and takeover of unfinished cold-storage work on September 4. Ordinary authorized
-work proceeds without repeated permission prompts. **The explicit exception is
-no live trading.** W5-W7 exchange lifecycle and economic sessions therefore remain
-blocked; offline implementation, fixtures, public-evidence analysis and paper
-work may continue. Existing host admission, guarded runtime adoption, evidence
-retention and restore requirements still govern their exact actions.
+The September 4 implementation/integration authority and subsequent full archive
+authorization cover ordinary commits, publication, guarded adoption and recovery
+work without repeated permission prompts. **No live trading is authorized.**
+W5-W7 exchange lifecycle/economic sessions remain blocked; offline and paper work
+may continue. Source integration, runtime adoption and live authority are separate.
 
 ## Current truth
 
 | Area | Verified state / remaining limit |
 | --- | --- |
-| Production source | W0's guarded plan/reporting-pause adoption completed at September 5 01:31:49 as `4603a56138406a66d7f52ee8266572d4b3f80abf`, with three-worker recovery and fresh HEAD/local/cached/live equality. W1 and W2 were previously adopted at `f570f0286194a5abe516e0e73f971038074ceb0a` and `dfcafc5bc175952597e1fd2cc08b9ad50db02937`; their master CI passed. Baseline restoration is complete; generated configs were preserved byte-for-byte in separate commit `19c25ad33de968e4b2c376346b192fee7eb8c9bc`. Consult Git and guarded receipts for later integrations. |
-| Portable source versus readiness | Phase repair `3f2b077b95f5dcabbeba8995ac24fb2e4ca85659` and portable topic tip `1acf9ebbc4a9576810b99126ea5ab8764f35aa9b` are ancestors of production master. This establishes integrated source only; the portable clone, current qualification and fresh live receipts have not been re-proved. No live attempt is permitted by this task. |
-| Capture | The September 8 20:43 preparation audit found all three capture supervisors RUNNING, with native process creation tokens matching their healthy writer locks and workers at AboveNormal priority. Supervisor ages were under 85 seconds. This is a point-in-time health observation, not a graded streak or fleet-countability proof. |
-| Public execution tape | The September 8 08:03 receipt reports `CONNECTED` and integrity `PASS`, with `price_path_usable=false`. Do not count a healthy producer as complete price-path evidence. |
-| Off-site qualification | Catalog, historical-reader and native cache-cleanup source 8f4a7cad31ded55805edd986074a0d3fa0fe2991 is published in [draft PR 45](https://github.com/michaelbooth1/weather/pull/45), stacked on queued PR 44. CI 663 passed after the narrow schema audit repair; 98 workstation checks qualified that source. Original-source reclaim e665d42ac63918e348182405ebe272c8169f358c is published and CI 664 passed. Recovery-handback publication and exact temporary-payload cleanup are published at b9d7146cc92bbc03dfe082c7fd8ed49a8148fde2; corrected native workstation checks, changed-file compilation and CI 665 passed. Private Drive connectivity has an 86-byte synthetic roundtrip only. No production archive transfer, restore or reclaim is proved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds receipts. |
-| Settlement / recurring work | The September 8 08:03 chain receipt is terminal and deferred at `ingest_quality_gate` by physical-memory/capture admission, with `rollup_freshness` blocked. The bounded 14-day settlement check flags August 28-31 and September 1, 4-6, affecting up to twelve markets on the worst date. The next chain run does not repair those dates automatically. Full-ledger reconciliation and resource-admitted per-date repair remain open. |
-| Storage | The revised proposal selects June 15-July 30 market detail and full prediction JSONL: 2,154 files / 101.8 GB of recorded allocation. A separately bound 10.2 GB explanation-CSV reserve is conditional only. Weather, replay inputs, settlements, local summary tables and July 31 onward stay local. These estimates require fresh identity/allocation and protected-input checks. The owner approved primary plus conditional reserve. Catalog, restore-cache, reader, housekeeping, cache-cleanup and guarded primary-source reclaim changes passed workstation qualification. Production adoption, headroom feasibility and exact-file reclaim remain on the critical path; item 325 binds approval and proof. |
-| Maker changes | W1 governance at `dc580b330f91a8f098752f23f6058a6c016e3d62`, [PR 16](https://github.com/michaelbooth1/weather/pull/16), passed full Linux CI and guarded adoption; all three capture workers passed before/after checks. W2 identity/config at `5ad48d69c4825bce56b0985f222513d3c7fab3a1`, [PR 17](https://github.com/michaelbooth1/weather/pull/17), passed workstation checks, topic-head Linux CI and guarded production adoption; all three capture workers and the public execution-tape producer passed recovery. Atomic paired configuration publication remains open. Both underwent independent review. |
-| Feasibility | W3's [pure diagnostic calculator](maker-incentive-feasibility.md) is implemented at `85d086992bab8c77ce976a5d255f90902aae03c3`. Independent review, 91 workstation checks and compilation of both changed Python paths passed. W3/G1 remain open: no current campaign/economics collection, evidence qualification, paid or reconciled profit, or consumer/CLI/executor integration. Git, CI and guarded receipts own source-integration status. |
-| Accounting | W4's static source trace is complete. Next is a pure offline accrual-to-wallet-credit matcher within the existing reports family, preserving the cash identity. No account failure or paid incentive is observed; item 330 records the design receipt. |
-| Documentation debt | The status receipt still reports a pending integration-documentation transaction. A draft state rewrite or passing source suite does not close it; reconcile actual pending tips and publish the required documentation before claiming a completed transaction. |
-| First recurring-job reduction | At September 5 00:30, only `WeatherModelMarketDisagreementAnalysis` was disabled after exact task/action and python/pythonw process checks. Before/after XML differs only by task Enabled=false. Stage A rehydration and all report/audit evidence remain; daily-learning freshness still matters. The exact receipt is `scratch/handoffs/model-disagreement-on-demand-20260905.md`. No runtime savings are yet measured. |
-
-September 8 overnight observations use the production-local ignored receipt
-`scratch/handoffs/overnight-status-20260908-0803.json`, timestamp 08:03 local,
-SHA-256 `219f6c89faa0f03bee8652ba43875f8572488fa110d493e43d163a5178d3ac4b`.
-Item 325 binds the later storage/capture receipts; other entries retain their
-own dated evidence. These ignored files need not exist in a clean checkout.
+| Production source | The archive/consumer stack at `562c85ec33d9411af897a04b8aa05401ada28b66` was guardedly adopted as master `e0a00eedf9ad41ee5580913af22d552e05663b96` at September 10 01:57:52 Toronto. The receipt proves three-worker and execution-tape recovery plus publication. Later archive-only execution source is on `codex/bulk-cold-archive-20260909`; do not infer its production adoption from a push. |
+| Archive and recovery | Pilot `e10c00000` completed encryption, private Drive upload, independent download, full restore, key custody, location publication and exact original reclaim: 7,614,464 allocated bytes. `e10d00001` has a complete independent restore and published recovery handback for five Atlanta July 10 files; its original reclaim was still pending at the 05:40 checkpoint. The 100 GB reclaim target is not achieved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds detailed receipts. |
+| Data locations | Production `data/cold_archive/WHERE_DATA_IS.md` and its catalog distinguish ARCHIVED from LOCAL_WITH_CLOUD_COPY. Each catalog entry binds original paths, exact private cloud object IDs and source/archive hashes. Recovery metadata is also on the separate workstation; the recovery keys have an independently verified private Drive backup. Follow [the location and restore runbook](cold-archive-locations.md), not an assumed local path. |
+| Headroom and batching | The scheduled September 10 05:00 CLOB tiering receipt reports 13,717,807,104 bytes reclaimed. This is separate from archive-source reclaim. The archive lane remains reserved away from the 04:45-06:45 tiering window and stops by 09:00. The identical approved selection can be packed into 111 bounded archives; protected queue events and already processed pilot events remain isolated. Source qualification alone counts no reclaimed bytes. |
+| Capture | The guarded adoption proved recovery of all three capture workers and the public execution-tape producer. Fresh capture identities, heartbeat/clean-iteration ages, commit, physical memory and disk reserve are rechecked by every payload phase. These are operational health checks, not graded streak, fleet countability or price-path completeness proofs. |
+| Settlement / recurring work | The September 8 chain was deferred at ingest quality/resource admission. The bounded 14-day settlement check flagged August 28-31 and September 1, 4-6. Full-ledger reconciliation and admitted per-date repair remain open; the next chain does not repair historical omissions automatically. |
+| Maker changes | W0 reporting-pause/baseline restoration, W1 governance, W2 identity/config and W3's offline diagnostic calculator are integrated in the earlier master stack. W3/G1 remain open because no current campaign/economics qualification or paid/reconciled profit is proved. Atomic paired configuration publication and W4's offline accrual-to-wallet-credit matcher remain open. Item 330 owns scope and evidence. |
+| Portable readiness | Portable source integration does not re-prove the portable clone, current qualification, account readiness or fresh live receipts. This task permits no live attempt. |
+| Documentation transaction | The pending transaction names eight guarded integrations through the archive adoption. Complete the canonical documentation transaction after the reviewed documentation tip is published and its required checks pass; a state rewrite alone does not clear it. |
 
 ## Ordered non-live critical path
 
-1. Publish and finish the qualified selective archive workflow, location records
-   and historical consumer changes. Recheck protected inputs and
-   headroom before admitted encrypted transfer, independent complete restore
-   and exact-file reclaim. No production payload has been uploaded or deleted.
-2. Adopt the reviewed storage dependency and archive consumers through the
-   canonical roll verdict and guarded integration path. The new overnight
-   authorization includes required source adoption; capture recovery is mandatory.
-3. Review W0's proposed recurring-job dispositions and mixed daily-chain steps,
-   and scope the remaining fleet/ledger gaps before choosing a resource-admitted
-   repair for the confirmed Toronto omissions. Do not infer ledger rows from a flag.
-4. Qualify exact current campaign, terms, books and adjusted-midpoint provenance,
-   then use the existing W3 calculator with competitor-score scenarios; aggregate
-   depth does not identify a nonlinear per-maker denominator. Continue W4 accounting
-   gaps; no assumed campaign or profit.
-5. Continue offline W5 readiness and accounting fixtures. Real W5-W7 sessions
-   stay blocked by the owner's no-live instruction; a green suite cannot remove it.
+1. Finish the approved archive campaign within admitted windows. Resume already
+   restored archives at fresh source review/reclaim; never repeat a spent upload,
+   download or restore namespace. Verify every event's final settlement before
+   any multi-day reclaim, and stop on failed evidence or admission.
+2. Keep the generated location catalog and independent recovery metadata current.
+   Preserve weather, settlements, replay inputs, local summary tables and July 31
+   onward. Retain failed attempts and all receipts. Count only proved allocation
+   savings; report actual free space separately.
+3. Publish the archive status and close the pending integration-documentation
+   transaction through its canonical manifest/check path.
+4. Review remaining recurring-job dispositions and fleet/ledger gaps, then scope
+   an admitted repair for confirmed omissions. Never infer ledger rows from flags.
+5. Qualify current campaign terms, books and adjusted-midpoint provenance before
+   using W3 for competitor-score scenarios. Continue W4 and offline W5 fixtures;
+   aggregate depth does not prove a per-maker reward denominator or profit.
 
-## Standing decisions that still bind
+## Standing decisions
 
-- International Polymarket only; no paid weather providers or new statistical
-  alpha allocation. Models serve risk/settlement interpretation until a specific
-  measured failure justifies research. No new predictor is on the critical path.
-- Spent reconciliation, live and archive attempts remain immutable evidence;
-  never retry, rewrite or reconstruct a spent namespace as a fresh attempt.
-- Capture-host heavy work remains time-gated, admitted and serial. The separate
-  workstation uses its exact host/principal admission wrapper and shared mutex.
-- Source integration, runtime adoption, release qualification and live authority
-  are distinct. Follow the owning canonical contracts, not superseded dated prose.
-- Native units, WU effective-print cutoffs, probability mass, train/serve parity,
+- International Polymarket only; no paid weather sources or new model-alpha work.
+- Capture-host heavy work is admitted, serial and time-gated. The separate
+  workstation uses its exact host/principal wrapper and shared live/heavy mutex.
+- Source integration follows the canonical roll verdict and guarded adoption.
+  A roll-free branch can merge outside the quiet window; a pushed branch rolls nothing.
+- Native settlement units, WU cutoffs, probability mass, train/serve parity,
   captured-input replay, release binding and evidence retention remain mandatory.
 
 ## Update this file when
 
-Rewrite after source publication/adoption, a storage/restore result or reclaim,
-validated settlement/job dispositions, an economic-feasibility result, or a
-changed owner instruction. Move superseded operational detail to its evidence owner.
+Rewrite after a new owner decision, source adoption, archive/reclaim result,
+validated settlement/job disposition, or economic-feasibility result.
