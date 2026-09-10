@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-09 - ARCHIVE SOURCE QUALIFIED; PRODUCTION TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -6,6 +6,83 @@ verified append-only archive on the workstation host, and never deleting a byte
 that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
+
+## September 10 verified archive and recovery checkpoint
+
+**Checkpoint: September 10 05:40 Toronto. PARTIAL; the 100 GB archive target is
+not achieved.** The owner approved the primary and conditional-reserve proposal
+on September 9 and fully authorized overnight execution, saving keys and using
+the existing PCs plus Google Drive at September 10 03:57 UTC.
+
+The guarded archive/consumer adoption completed at 01:57:52 Toronto:
+topic `562c85ec33d9411af897a04b8aa05401ada28b66`, resulting master
+`e0a00eedf9ad41ee5580913af22d552e05663b96`. Production-local
+`scratch/handoffs/archive-guarded-adoption-562c85ec-a2-20260910.json`
+records capture-worker and public-execution-tape recovery plus publication.
+Later batch/transport improvements use the isolated execution checkout; their
+publication does not establish another runtime adoption.
+
+### Actual archive results
+
+| Archive | Original selection | Proved outcome at checkpoint |
+| --- | --- | --- |
+| `e10c00000` | Atlanta July 1 `clob_tokens.jsonl`; 20,044,462 logical bytes | Full off-site recovery and exact source reclaim passed; **7,614,464 allocated bytes reclaimed**. Its location is ARCHIVED. |
+| `e10d00001` | Five Atlanta July 10 detail/prediction files; 108,901,027 logical bytes | Private upload, independent download, complete workstation restore and recovery-handback publication passed. Original files remain LOCAL_WITH_CLOUD_COPY pending admitted reclaim. |
+
+The pilot campaign progress is
+`data/cold_archive/catalog/reclaims/2878ff1c2e673a539a74f1939a15682c9f624c7f54184ddee63dfb522fc34d7e/progress.json`.
+Its terminal `e10c00000r1/receipt.json` has raw SHA-256
+`0ffd41dc7c0700cb1e12af988f41c335bbf62803dace202658235c759a49dd15`.
+Use its later immutable receipts for subsequent totals.
+
+The second archive's qualified download is
+`scratch/production_cold_archive_transfer/e10d00001d6/transfer/receipt.json`,
+raw SHA-256 `a1eb85c3e50d2c96decd8c3b27523c9f5569692c8f8ca3e27ae3a54da734614a`.
+The complete restore and publication handbacks are
+`scratch/handoffs/e10d00001/restore-4.json` and `publication-4.json`.
+The retained restore record has raw SHA-256
+`95911b432fb8fde456b80da6682a4700319e2be0b33b36a4d795cd286d46fe69`;
+the custody record has raw SHA-256
+`0defc23bacdc8de1c25a9cd27c3b7c403b759077115783904c3f488765d0cedc`.
+The early reclaim attempts refused before deletion because the six-GiB disk
+reserve was unavailable. That reserve remains unchanged. The scheduled 05:00
+CLOB tiering subsequently reported **13,717,807,104 bytes reclaimed**, in
+`data/logs/clob_tiering_task_status.json`; these are separate tiering savings.
+
+### Where the data and recovery keys are
+
+- The production index is `data/cold_archive/WHERE_DATA_IS.md`. Look up the
+  original path there, then its `catalog/archives/<archive-id>/upload.json`.
+  Catalog entries retain exact private cloud IDs, hashes and every proof.
+- The private archive folder is
+  [Google Drive](https://drive.google.com/drive/folders/1WRVV2uljwdu_BO9HlgTHfw5DOYF21F8R).
+  Each archive's ciphertext and manifest/stage/crypt sidecars use its archive ID.
+- The independent recovery catalog is on the workstation under
+  `C:/Users/Michael/Documents/github/weather-bulk-cold-archive-20260909/scratch/production_cold_archive_recovery/e10/data/cold_archive`.
+  Its `handbacks` sibling retains publication receipts. This is a dedicated
+  archive scratch area; the frozen workstation mirror is untouched.
+- Recovery keys are saved privately as
+  `recovery-keys/overnight20260910-recovery-keys.json` in the same Drive remote,
+  object ID `1WL0b-kNSWFVCHLB2nv-tr8-Cww-Up3yN`. An independent download at
+  04:15 UTC verified SHA-256
+  `c480bd9ceb43fba075b11c41190b25d59ca25c5e65c5745715ebce79c42aa2a6`.
+  This paragraph records the location and proof only; no key material is in Git.
+- [The restore runbook](../../operations/cold-archive-locations.md) explains
+  catalog lookup, exporting recovery proofs, independent download, complete
+  workstation restore and verified cache publication. An archived input raises
+  an explicit restore requirement; it must never silently become empty data.
+
+The canonical same-selection packed plan is production-local
+`scratch/handoffs/archive-target-primary-packed-plan-v1-20260910.json`,
+raw SHA-256 `d96e680cf1c9df62d4d8929ef8b6efd5b8e98b137e5f661a5313887156a88c26`.
+It retains all 2,154 approved identities, totals 101,760,323,584 allocated bytes,
+and produces 111 archives under the unchanged 1 GiB / 256-file bounds. Queue
+events and already processed pilot days stay separate. Each multi-day reclaim
+requires direct, hash-bound final-settlement evidence for every included event.
+Weather, replay inputs, settlements, summary tables and July 31 onward stay local.
+All runtime paths above are retained operational evidence and need not exist in
+a clean checkout.
+
 
 ## 2026-09-08 additional capacity recovery approved
 
