@@ -31,11 +31,11 @@ CHILD = '''
 import argparse, json, os, subprocess, sys, time
 from pathlib import Path
 p = argparse.ArgumentParser()
-p.add_argument('command', choices=['stage', 'transfer', 'upload', 'download'])
+p.add_argument('command', choices=['stage', 'transfer', 'upload', 'download', 'reclaim'])
 for key in ('production-repo-root', 'request', 'request-sha256', 'output-root', 'source-git-sha'):
     p.add_argument('--' + key)
 a = p.parse_args()
-assert Path(__file__).stem == ('production_cold_archive_transfer' if a.command != 'stage' else 'production_cold_archive_stage_cli')
+assert Path(__file__).stem == ({'stage': 'production_cold_archive_stage_cli', 'reclaim': 'production_cold_archive_reclaim_cli'}.get(a.command, 'production_cold_archive_transfer'))
 out = Path(a.output_root)
 assert os.environ['WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT'] == str(Path.cwd())
 assert int(os.environ['WEATHER_PRODUCTION_ARCHIVE_OWNER_PID']) > 0
@@ -57,7 +57,7 @@ result = {'status': 'PASS', 'source_git_sha': 'd' * 40 if mode == 'wrong_binding
           'execution_host_id': json.loads(Path('config/international_live_execution_host.json').read_text())['dedicated_capture_execution_host_id']}
 if mode == 'malformed_receipt': result.pop('core_receipt_sha256')
 if mode == 'claim_upload': result['upload_performed'] = True
-if a.command != 'stage':
+if a.command in ('transfer', 'upload', 'download'):
     result.pop('core_receipt_sha256', None)
     result.pop('logical_source_bytes')
     result.pop('source_file_count')
@@ -80,8 +80,45 @@ if a.command != 'stage':
     if mode == 'malformed_hash': result['crypt_receipt_sha256'] = 'not-a-sha256'
     if mode == 'string_ciphertext_bytes': result['ciphertext_bytes'] = '6144'
     if mode == 'string_independent_download': result['independent_download'] = 'True'
+if a.command == 'reclaim':
+    import hashlib
+    proof = Path(a.production_repo_root) / 'data/cold_archive/catalog/reclaims' / ('a' * 64) / 'fixture-a1/receipt.json'
+    proof.parent.mkdir(parents=True)
+    proof.write_text('{"fixture_only": true}')
+    result.update(operation='reclaim', deleted_files=1, reclaimed_bytes=4096, source_retained=False,
+                  archive_id='fixture-archive', attempt_id='fixture-a1',
+                  reclaim_receipt_path=str(proof), reclaim_receipt_sha256=hashlib.sha256(proof.read_bytes()).hexdigest())
+    if mode == 'wrong_receipt_hash': result['reclaim_receipt_sha256'] = '0' * 64
+    if mode == 'string_deleted_count': result['deleted_files'] = '1'
+    if mode == 'bool_reclaimed_count': result['reclaimed_bytes'] = True
+    if mode == 'claim_retained': result['source_retained'] = True
+    if mode == 'wrong_reclaim_phase': result['operation'] = 'upload'
 (out / 'result.json').write_text(json.dumps(result))
 '''
+
+
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("failure", False), ("hang", False), ("source_drift", False),
+    ("wrong_binding", False), ("wrong_receipt_hash", False), ("string_deleted_count", False),
+    ("bool_reclaimed_count", False), ("claim_retained", False), ("wrong_reclaim_phase", False),
+])
+def test_reclaim_wrapper_separates_verified_counts_from_unknown_failure(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation="reclaim")
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+    assert receipt["teardown_proved"] is True
+    if success:
+        assert receipt["reclaim_state"] == "VERIFIED"
+        assert receipt["deleted_files"] == 1 and receipt["reclaimed_bytes"] == 4096
+        assert receipt["source_retained"] is False and receipt["upload_performed"] is False
+    else:
+        assert receipt["status"] == "FAILED" and receipt["reclaim_state"] == "UNKNOWN"
+        assert receipt["deleted_files"] is receipt["reclaimed_bytes"] is receipt["source_retained"] is None
+    if mode == "hang":
+        assert receipt["hard_stop"] is True
+        for pid in json.loads((output / "descendant.json").read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"
 
 
 def command(*args, cwd=None):
@@ -135,6 +172,7 @@ def wrapper_fixture(tmp_path, request):
     (package / "__init__.py").write_text("")
     (package / "production_cold_archive_stage_cli.py").write_text(CHILD)
     (package / "production_cold_archive_transfer.py").write_text(CHILD)
+    (package / "production_cold_archive_reclaim_cli.py").write_text(CHILD)
     (source / "tracked.txt").write_text("original")
     (source / ".gitignore").write_text("__pycache__/\n")
     command("git", "init", str(source))
@@ -150,6 +188,8 @@ def launch(wrapper_fixture, mode, operation=None):
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
     output_dir = "production_cold_archive_transfer" if operation in {"transfer", "upload", "download"} else "production_cold_archive"
+    if operation == "reclaim":
+        output_dir = "production_cold_archive_reclaim"
     output = production / "scratch" / output_dir / "attempt"
     arguments = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                  "-File", str(wrapper), "-ProductionRepoRoot", str(production), "-RequestPath", str(request),

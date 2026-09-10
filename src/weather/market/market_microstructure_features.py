@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
+from weather.cold_archive_locations import resolve_local_path
 from weather.io import normalize_csv_row, read_csv_rows as io_read_csv_rows
 from weather.paths import data_path
 
@@ -134,7 +135,7 @@ def read_csv_rows(path):
 
 
 def read_jsonl_records(path):
-    path = Path(path)
+    path = resolve_local_path(path)
     if not path.exists():
         return []
     records = []

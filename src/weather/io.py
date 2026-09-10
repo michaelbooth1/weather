@@ -15,6 +15,8 @@ from typing import Any, Callable, Iterable
 
 import requests
 
+from weather.cold_archive_locations import resolve_local_path
+
 
 SleepFn = Callable[[float], None]
 CSV_DIAGNOSTIC_COLUMNS = {
@@ -123,7 +125,7 @@ def request_with_retries(
 
 
 def read_json(path: str | Path, default=None):
-    path = Path(path)
+    path = resolve_local_path(path)
     if not path.exists():
         return default
     try:
@@ -686,7 +688,7 @@ def release_writer_lock(lock: dict[str, Any] | None) -> None:
 
 
 def read_jsonl(path: str | Path, *, skip_invalid: bool = True) -> list[Any]:
-    path = Path(path)
+    path = resolve_local_path(path)
     if not path.exists():
         return []
     rows = []
@@ -742,9 +744,10 @@ def read_csv_rows_with_diagnostics(
     fallback_encodings: Iterable[str] = LEGACY_CSV_ENCODINGS,
     attach_diagnostics: bool = False,
 ) -> tuple[list[dict], dict[str, Any]]:
-    path = Path(path)
+    logical_path = Path(path)
+    path = resolve_local_path(path)
     diagnostics: dict[str, Any] = {
-        "path": str(path),
+        "path": str(logical_path),
         "exists": path.exists(),
         "status": "missing",
         "encoding": None,
@@ -833,7 +836,7 @@ def iter_csv_rows(
     the caller may have already aggregated earlier rows.
     """
 
-    path = Path(path)
+    path = resolve_local_path(path)
     if not path.exists():
         return
     try:
@@ -887,8 +890,10 @@ def read_csv_tail_rows_with_diagnostics(
     is the complete tape.
     """
 
-    path = Path(path)
+    logical_path = Path(path)
+    path = resolve_local_path(path)
     diagnostics = _bounded_tail_diagnostics(path, max_bytes)
+    diagnostics["path"] = str(logical_path)
     if not path.exists():
         return [], diagnostics
     try:
@@ -993,8 +998,10 @@ def read_jsonl_tail_with_diagnostics(
 ) -> tuple[list[Any], dict[str, Any]]:
     """Read a complete bounded JSONL suffix and reject malformed evidence."""
 
-    path = Path(path)
+    logical_path = Path(path)
+    path = resolve_local_path(path)
     diagnostics = _bounded_tail_diagnostics(path, max_bytes)
+    diagnostics["path"] = str(logical_path)
     if not path.exists():
         return [], diagnostics
     try:

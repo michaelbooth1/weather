@@ -154,7 +154,11 @@ def build_cleanup_preflight(
     cleanup_manifest: dict[str, Any],
     *,
     root: str | Path | None = None,
+    sha256_reader=None,
 ) -> dict[str, Any]:
+    # Native reclaim supplies a same-handle, fully verified SHA-256 reader.
+    # Ordinary callers continue hashing source bytes through the shared IO API.
+    hash_source = sha256_reader or sha256_file
     root = Path(root or cleanup_manifest.get("root") or DEFAULT_DATA_ROOT).resolve()
     review_pass, review_detail = _review_ok(cleanup_manifest)
     raw_candidates = cleanup_manifest.get("candidates") or cleanup_manifest.get("selected") or []
@@ -182,7 +186,7 @@ def build_cleanup_preflight(
             row_checks.append({"check": "file_exists", "status": "BLOCK", "detail": "candidate file is missing"})
         else:
             size = int(path.stat().st_size)
-            actual_sha = sha256_file(path)
+            actual_sha = hash_source(path)
             if candidate.get("bytes") is not None and int(candidate.get("bytes") or 0) != size:
                 row_checks.append({"check": "bytes", "status": "BLOCK", "expected": candidate.get("bytes"), "actual": size})
             if candidate.get("sha256") and candidate.get("sha256") != actual_sha:

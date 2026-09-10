@@ -32,6 +32,9 @@ MAX_MEMBERS = 256
 MAX_METADATA_BYTES = 16 * MIB
 MAX_FILES = 10000
 FORMAT = "production_sorted_ustar_gzip_level1_v1"
+LEGACY_GROUPING = "sorted_whole_files_v1"
+SELECTIVE_GROUPING = "market_day_file_family_v1"
+CHUNK_GROUPINGS = (LEGACY_GROUPING, SELECTIVE_GROUPING)
 RETENTION = {"source_retained": True, "cleanup_eligible": False,
              "deletion_authorized": False, "upload_performed": False,
              "restore_performed": False, "consumer_closure_proved": False}
@@ -166,17 +169,27 @@ def _rows(files):
     return sorted(result, key=lambda row: row["path"])
 
 
-def _chunks(rows, limit):
-    chunks, members, total = [], [], 0
+def _chunks(rows, limit, grouping=LEGACY_GROUPING):
+    if grouping not in CHUNK_GROUPINGS:
+        raise ArchiveStageError("unknown chunk grouping")
+    chunks, members, total, previous_group = [], [], 0, None
     for row in rows:
+        # Preserve each original representation. CSV and gzip halves share a
+        # retrieval group but remain distinct, independently verified members.
+        path = PurePosixPath(_relative(row["path"]))
+        group = (str(path.parent), path.name.removesuffix(".gz"))
+        if grouping == SELECTIVE_GROUPING and (len(path.parts) != 3 or path.parts[0] != "snapshots"):
+            raise ArchiveStageError("selective grouping requires snapshots/event/file")
         if row["size_bytes"] > limit:
             raise ArchiveStageError("whole source file exceeds chunk limit")
-        if members and (total + row["size_bytes"] > limit or len(members) >= MAX_MEMBERS):
+        if members and (total + row["size_bytes"] > limit or len(members) >= MAX_MEMBERS
+                        or (grouping == SELECTIVE_GROUPING and group != previous_group)):
             chunks.append({"chunk_id": f"chunk-{len(chunks):05d}",
                            "files": members, "logical_bytes": total})
             members, total = [], 0
         members.append(row)
         total += row["size_bytes"]
+        previous_group = group
     if members:
         chunks.append({"chunk_id": f"chunk-{len(chunks):05d}",
                        "files": members, "logical_bytes": total})
@@ -184,7 +197,7 @@ def _chunks(rows, limit):
 
 
 def plan_selection(selection_path, expected_selection_sha256, output_path, *,
-                   chunk_bytes=MAX_CHUNK_BYTES):
+                   chunk_bytes=MAX_CHUNK_BYTES, chunk_grouping=LEGACY_GROUPING):
     """Plan from pinned measured metadata; never open source tape contents."""
     _require_sha256(expected_selection_sha256)
     selection, digest = _load(selection_path, expected_selection_sha256)
@@ -206,7 +219,8 @@ def plan_selection(selection_path, expected_selection_sha256, output_path, *,
     plan = _seal({"schema_version": schema_version("production_cold_archive_plan"),
                   "source_root": root, "selection_sha256": digest,
                   "format": FORMAT, "chunk_bytes": limit,
-                  "file_count": len(rows), "chunks": _chunks(rows, limit),
+                  "file_count": len(rows), "chunks": _chunks(rows, limit, chunk_grouping),
+                  **({"chunk_grouping": chunk_grouping} if chunk_grouping != LEGACY_GROUPING else {}),
                   "source_content_hashes_proved": False, **RETENTION}, "plan_hash")
     _write(output_path, plan)
     return plan
@@ -395,7 +409,8 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
         raise ArchiveStageError("invalid chunks")
     rows = _rows([row for chunk in chunks for row in chunk["files"]])
     limit = _integer(plan["chunk_bytes"], "chunk_bytes", maximum=MAX_CHUNK_BYTES)
-    if not limit or _chunks(rows, limit) != chunks or len(rows) != plan["file_count"]:
+    grouping = plan.get("chunk_grouping", LEGACY_GROUPING)
+    if not limit or _chunks(rows, limit, grouping) != chunks or len(rows) != plan["file_count"]:
         raise ArchiveStageError("plan chunk inventory mismatch")
     matches = [chunk for chunk in chunks if chunk["chunk_id"] == chunk_id]
     if len(matches) != 1:

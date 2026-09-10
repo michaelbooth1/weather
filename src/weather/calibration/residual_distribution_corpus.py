@@ -26,6 +26,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.cold_archive_locations import resolve_local_path
 from weather.io import sha256_file
 from weather.experiment_contract import canonical_json, finalize_self_hash
 from weather.backtesting.settled_days import discover_settled_folders, folder_market_id
@@ -133,13 +134,13 @@ def _json_safe(value: Any) -> Any:
 
 
 def _folder_input_lineage(folder: Path) -> dict[str, Any]:
+    resolved = {filename: resolve_local_path(folder / filename)
+                for filename in QUALIFICATION_INPUT_FILENAMES}
     files = {
-        filename: {
-            "exists": (folder / filename).is_file(),
-            "sha256": sha256_file(folder / filename) if (folder / filename).is_file() else None,
-            "bytes": (folder / filename).stat().st_size if (folder / filename).is_file() else None,
-        }
-        for filename in QUALIFICATION_INPUT_FILENAMES
+        filename: {"exists": path.is_file(),
+                   "sha256": sha256_file(path) if path.is_file() else None,
+                   "bytes": path.stat().st_size if path.is_file() else None}
+        for filename, path in resolved.items()
     }
     missing = [filename for filename, row in files.items() if not row["exists"]]
     manifest_path = folder / "event_day_manifest.json"
@@ -669,7 +670,8 @@ def collapse_to_predeclared_checkpoints(
 
 
 def read_jsonl(path: str | Path) -> Iterable[dict[str, Any]]:
-    with Path(path).open("r", encoding="utf-8") as handle:
+    path = resolve_local_path(path)
+    with path.open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             text = line.strip()
             if not text:
@@ -776,9 +778,11 @@ def captured_comparator_probabilities(
 ) -> dict[str, dict[str, dict[str, float]]]:
     """Load exact served and named challenger simplexes for selected captures."""
 
-    source = Path(path)
     selected = {str(value) for value in snapshot_ids if str(value)}
-    if not source.is_file() or not selected:
+    if not selected:
+        return {}
+    source = resolve_local_path(path)
+    if not source.is_file():
         return {}
     band_keys = [residual_band_key(band) for band in bands]
     values: dict[str, dict[str, dict[str, list[float]]]] = {

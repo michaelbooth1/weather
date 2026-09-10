@@ -649,6 +649,7 @@ PACKAGE_ROOTS = {
 
 SHARED_PACKAGE_ROOTS = {
     "artifacts",
+    "cold_archive_locations",
     "io",
     "paths",
     "runtime_identity",

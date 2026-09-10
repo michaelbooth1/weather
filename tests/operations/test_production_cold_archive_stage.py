@@ -71,6 +71,60 @@ def _run(corpus, name="attempt", **overrides):
     return stage.stage_chunk(plan, _sha(plan), "chunk-00000", base / name, **arguments)
 
 
+def test_selective_grouping_keeps_market_day_and_family_independent():
+    names = ["snapshots/market-a-2026-06-15/order_books_long.csv",
+             "snapshots/market-a-2026-06-15/order_books_long.csv.gz",
+             "snapshots/market-a-2026-06-15/price_history.csv",
+             "snapshots/market-a-2026-06-16/price_history.csv",
+             "snapshots/market-b-2026-06-15/price_history.csv"]
+    rows = [{"path": name, "size_bytes": 10} for name in names]
+    chunks = stage._chunks(rows, 100, stage.SELECTIVE_GROUPING)
+    assert [[row["path"] for row in chunk["files"]] for chunk in chunks] == [
+        names[:2], names[2:3], names[3:4], names[4:]]
+    assert len(stage._chunks(rows, 100)) == 1
+    assert len(stage._chunks(rows, 15, stage.SELECTIVE_GROUPING)) == len(rows)
+
+
+@pytest.mark.parametrize("grouping,names", [
+    ("unsupported", ["snapshots/market/file.csv"]),
+    (stage.SELECTIVE_GROUPING, ["snapshots/file.csv"]),
+    (stage.SELECTIVE_GROUPING, ["other/market/file.csv"]),
+])
+def test_selective_grouping_rejects_ambiguous_scope(grouping, names):
+    with pytest.raises(stage.ArchiveStageError, match="grouping"):
+        stage._chunks([{"path": name, "size_bytes": 1} for name in names], 10, grouping)
+
+
+def test_selective_plan_binds_grouping_without_changing_legacy_bytes(corpus):
+    base, _, selection_path, legacy = corpus
+    legacy_value = json.loads(legacy.read_text())
+    assert "chunk_grouping" not in legacy_value
+    selection = json.loads(selection_path.read_text())
+    for row in selection["files"]:
+        row["path"] = "snapshots/market-2026-06-15/" + row["path"]
+    selection_path.write_text(json.dumps(selection))
+    first, second = base / "grouped-one.json", base / "grouped-two.json"
+    for output in (first, second):
+        stage.plan_selection(selection_path, _sha(selection_path), output,
+                             chunk_grouping=stage.SELECTIVE_GROUPING)
+    assert first.read_bytes() == second.read_bytes()
+    value = json.loads(first.read_text())
+    assert value["chunk_grouping"] == stage.SELECTIVE_GROUPING
+    assert len(value["chunks"]) == 3
+    stage._check_seal(value, "plan_hash")
+
+
+def test_stage_rejects_resealed_unknown_grouping(corpus):
+    _, _, _, plan = corpus
+    value = json.loads(plan.read_text())
+    value.pop("plan_hash")
+    value["chunk_grouping"] = "unsupported"
+    plan.write_text(json.dumps(stage._seal(value, "plan_hash")))
+    with pytest.raises(stage.ArchiveStageError, match="grouping"):
+        _run(corpus)
+    assert not (corpus[0] / "attempt").exists()
+
+
 def test_repeat_staging_is_byte_identical_and_proves_every_source(corpus):
     base, source, _, _ = corpus
     first = _run(corpus, "one")

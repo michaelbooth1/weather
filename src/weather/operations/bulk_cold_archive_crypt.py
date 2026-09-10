@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import tarfile
 import time
 
@@ -93,6 +94,18 @@ def _production(paths, hashes, plan_sha):
                             "production_cold_archive_manifest", "manifest_hash")
     receipt, _ = _evidence(paths["production_receipt"], hashes["production_receipt_sha256"],
                            "production_cold_archive_receipt")
+    return validate_production_evidence(manifest, receipt, plan_sha)
+
+
+def validate_production_evidence(manifest, receipt, plan_sha):
+    """Validate the same complete source proof from files or catalog-held bytes."""
+    core._require_sha256(plan_sha)
+    _require(isinstance(manifest, dict) and isinstance(receipt, dict), "production_evidence_invalid")
+    core._check_seal(manifest, "manifest_hash")
+    core._check_seal(receipt, "receipt_hash")
+    _require(manifest.get("schema_version") == schema_version("production_cold_archive_manifest")
+             and receipt.get("schema_version") == schema_version("production_cold_archive_receipt"),
+             "evidence_schema_invalid")
     _require(manifest.get("format") == core.FORMAT, "production_format_invalid")
     rows = core._rows(manifest.get("files"))
     _require(len(rows) <= core.MAX_MEMBERS
@@ -291,7 +304,7 @@ def _upstream_restore(paths, hashes, result, manifest):
     return cipher
 
 
-def run(operation, *, archive_file, production_manifest, production_manifest_sha256,
+def run(operation, *, archive_file=None, production_manifest, production_manifest_sha256,
         production_receipt, production_receipt_sha256, plan_sha256, archive_id,
         rclone_executable, rclone_config, dpapi_secret, crypt_remote_name,
         ciphertext_root, output_root, restore_id=None, crypt_receipt=None,
@@ -314,9 +327,12 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
              and namespace not in {".", ".."} and not namespace.endswith((".", " ")),
              "attempt_id_invalid")
     paths = {k: core._safe_path(v) for k, v in {
-        "archive_file": archive_file, "production_manifest": production_manifest,
+        "production_manifest": production_manifest,
         "production_receipt": production_receipt, "rclone_executable": rclone_executable,
         "rclone_config": rclone_config, "dpapi_secret": dpapi_secret}.items()}
+    if operation == "encrypt" or archive_file is not None:
+        paths["archive_file"] = core._safe_path(archive_file)
+        _require(paths["archive_file"].name == "archive.tar.gz", "archive_filename_invalid")
     roots = {"ciphertext_root": core._safe_path(ciphertext_root, directory=True),
              "output_root": core._safe_path(output_root, directory=True)}
     hashes = {"production_manifest_sha256": production_manifest_sha256,
@@ -325,10 +341,10 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
         paths.update({k: core._safe_path(v) for k, v in {
             "crypt_receipt": crypt_receipt, "transport_receipt": transport_receipt,
             "downloaded_file": downloaded_file}.items()})
-        roots["original_ciphertext_root"] = core._safe_path(original_ciphertext_root, directory=True)
+        if original_ciphertext_root is not None:
+            roots["original_ciphertext_root"] = core._safe_path(original_ciphertext_root, directory=True)
         hashes.update(crypt_receipt_sha256=crypt_receipt_sha256,
                       transport_receipt_sha256=transport_receipt_sha256)
-    _require(paths["archive_file"].name == "archive.tar.gz", "archive_filename_invalid")
     for digest in (*hashes.values(), plan_sha256):
         core._require_sha256(digest)
     for path in (*paths.values(), *roots.values()):
@@ -350,7 +366,8 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
               "checks": dict.fromkeys(ENCRYPT_CHECKS if operation == "encrypt" else RESTORE_CHECKS,
                                       "NOT_RUN"), "artifacts_retained_on_failure": True}
     if operation == "restore":
-        result["restore_id"] = restore_id
+        result.update(restore_id=restore_id, original_archive_required=False,
+                      original_ciphertext_required=False)
     checks = result["checks"]
     environment, secret, sink = None, None, None
     receipt_attempted = False
@@ -414,10 +431,11 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
             preflight()
             result["rclone_version"] = client.version()
             checks["encryption_preflight"] = "PASS"
-            pin_file("archive_file", paths["archive_file"])
-            core.verify_archive(paths["archive_file"], manifest, admission=stable,
-                                deadline_monotonic=deadline)
-            checks["archive_members"] = "PASS"
+            if "archive_file" in paths:
+                pin_file("archive_file", paths["archive_file"])
+                core.verify_archive(paths["archive_file"], manifest, admission=stable,
+                                    deadline_monotonic=deadline)
+                checks["archive_members"] = "PASS"
             logical = f"{archive_id}/archive.tar.gz"
             original_mapping = restore._relative(client.encrypted_relative_path(logical), parts=2)
             if operation == "restore":
@@ -455,16 +473,24 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
                 _hash(destination, cipher, deadline)
                 checks["cryptcheck"] = "PASS"
             else:
-                original = roots["original_ciphertext_root"].joinpath(*original_mapping.split("/"))
-                pin_file("original_ciphertext", core._safe_path(original))
                 pin_file("downloaded_file", paths["downloaded_file"])
-                original_id, downloaded_id = pins["original_ciphertext"][3], pins["downloaded_file"][3]
-                _require(original_id == cipher.get("file_identity"), "original_ciphertext_identity_drift")
+                downloaded_id = pins["downloaded_file"][3]
+                original_id = cipher.get("file_identity")
+                _require(isinstance(original_id, dict)
+                         and set(original_id) == {"device", "inode", "mode", "bytes", "mtime_ns"}
+                         and all(type(value) is int and value >= 0 for value in original_id.values())
+                         and original_id["mode"] == stat.S_IFREG
+                         and original_id["bytes"] == cipher["bytes"], "original_ciphertext_identity_invalid")
                 _require((original_id["device"], original_id["inode"])
                          != (downloaded_id["device"], downloaded_id["inode"]), "download_not_independent")
-                _require(not stage._contains(roots["original_ciphertext_root"], paths["downloaded_file"]),
-                         "download_original_root_overlap")
-                _hash(original, cipher, deadline)
+                if "original_ciphertext_root" in roots:
+                    original = roots["original_ciphertext_root"].joinpath(*original_mapping.split("/"))
+                    pin_file("original_ciphertext", core._safe_path(original))
+                    _require(pins["original_ciphertext"][3] == original_id,
+                             "original_ciphertext_identity_drift")
+                    _require(not stage._contains(roots["original_ciphertext_root"], paths["downloaded_file"]),
+                             "download_original_root_overlap")
+                    _hash(original, cipher, deadline)
                 _hash(paths["downloaded_file"], cipher, deadline)
                 _require(_cipher_hash(paths["downloaded_file"], deadline, stable)
                          == (cipher["bytes"], cipher["sha256"]), "download_ciphertext_invalid")
@@ -476,8 +502,6 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
                 _hash(destination, cipher, deadline)
                 checks["ciphertext_copy"] = "PASS"
                 preflight()
-                client.check_file(paths["archive_file"], f"{restore_id}/{archive_id}")
-                checks["cryptcheck"] = "PASS"
                 archive_output = attempt / "archive"
                 archive_output.mkdir()
                 stack.enter_context(core._directory_pin(archive_output))
@@ -488,7 +512,12 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
                 _exact(archive_output, [restored])
                 pin_file("restored_archive", restored)
                 core.verify_archive(restored, manifest, admission=stable, deadline_monotonic=deadline)
-                checks["restored_archive_members"] = "PASS"
+                checks["restored_archive_members"] = checks["archive_members"] = "PASS"
+                # Compare the decoded download with the manifest, then check
+                # that the encrypted object encodes those verified bytes.
+                preflight()
+                client.check_file(restored, f"{restore_id}/{archive_id}")
+                checks["cryptcheck"] = "PASS"
                 members = _materialize(restored, attempt / "members", manifest, deadline, stack)
                 checks["materialized_members"] = "PASS"
                 result.update(restored_archive=str(restored), restored_members=members,
@@ -503,8 +532,9 @@ def run(operation, *, archive_file, production_manifest, production_manifest_sha
             if operation == "restore":
                 expected_attempt += [attempt / "archive", attempt / "members"]
             _exact(attempt, expected_attempt)
-            _hash(paths["archive_file"], {"bytes": manifest["archive_bytes"],
-                                         "sha256": manifest["archive_sha256"]}, deadline)
+            if "archive_file" in paths:
+                _hash(paths["archive_file"], {"bytes": manifest["archive_bytes"],
+                                             "sha256": manifest["archive_sha256"]}, deadline)
             stable()
             checks["inputs_stable"] = "PASS"
             _require(tool_identity is not None or _capture_identity(Path(repo_root)) == identity,
@@ -547,7 +577,8 @@ def main(argv=None):
         for flag in common + (("restore_id", "crypt_receipt", "crypt_receipt_sha256",
                 "transport_receipt", "transport_receipt_sha256", "downloaded_file",
                 "original_ciphertext_root") if name == "restore" else ()):
-            command.add_argument("--" + flag.replace("_", "-"), required=True)
+            required = name == "encrypt" or flag not in {"archive_file", "original_ciphertext_root"}
+            command.add_argument("--" + flag.replace("_", "-"), required=required)
     try:
         result = run(**vars(parser.parse_args(argv)))
     except Exception:

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from weather.cold_archive_locations import load_location
 from weather.paths import data_path
 from weather.reporting.formatting import fmt_num, markdown_table
 
@@ -22,6 +23,7 @@ DEFAULT_REPORT = DEFAULT_BACKTEST_ROOT / "clob_coverage_audit_report.md"
 RAW_BOOK_FILES = (
     "order_books_summary.csv",
     "order_books.jsonl",
+    "order_books.jsonl.gz",
     "order_books_long.csv",
     "order_books_long.csv.gz",
 )
@@ -75,10 +77,15 @@ def file_info(folder: Path, names: tuple[str, ...]) -> list[dict[str, Any]]:
     rows = []
     for name in names:
         path = folder / name
+        location = load_location(path) if not path.exists() else None
         rows.append({
             "name": name,
             "exists": path.exists(),
             "bytes": path.stat().st_size if path.exists() else 0,
+            **({"archive_id": location.entry["archive_id"],
+                "archive_entry_sha256": location.entry_sha256,
+                "archived_bytes": location.member["size_bytes"],
+                "location": "ARCHIVED_RESTORE_REQUIRED"} if location else {}),
         })
     return rows
 
@@ -219,6 +226,12 @@ def audit_folder(folder: str | Path) -> dict[str, Any]:
         "features": features,
     }
     summary["classification"] = classify_folder(summary)
+    summary["archived_inputs"] = [
+        row for row in raw_book_files + token_files if row.get("archive_id")
+    ]
+    if (summary["archived_inputs"]
+            and summary["classification"] == "missing_raw_clob_tape_and_token_map"):
+        summary["classification"] = "archived_raw_clob_restore_required"
     return summary
 
 def _coverage_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:

@@ -23,6 +23,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from weather.backtesting.settlement_ledger import ledger_label_for_slug
+from weather.cold_archive_locations import archived_inputs, registered_sources, resolve_local_path
 from weather.io import sha256_file
 from weather.market.market_config import date_from_event_slug, market_id_from_slug
 from weather.operations.closed_market_day_archive_manifest_contract import (
@@ -398,7 +399,7 @@ def _read_source_artifact_result(
             archive_root=str(archive_root),
             manifest_path=str(manifest_path) if manifest_path else None,
             manifest_hash=manifest_hash,
-            source_file_hash=sha256_file(source_path),
+            source_file_hash=sha256_file(resolve_local_path(source_path)),
             fallback_reason=_combine_fallback_reasons(fallback_reason, reader_fallback),
         ),
     )
@@ -661,11 +662,12 @@ def _source_record(path: Path, *, root: Path, role: str) -> dict[str, Any]:
         display_path = path.relative_to(root).as_posix()
     except ValueError:
         display_path = path.as_posix()
-    stat = path.stat()
+    physical = resolve_local_path(path)
+    stat = physical.stat()
     return {
         "path": display_path,
         "bytes": int(stat.st_size),
-        "sha256": sha256_file(path),
+        "sha256": sha256_file(physical),
         "role": role,
     }
 
@@ -674,8 +676,9 @@ def _find_paths(folder: Path, patterns: tuple[str, ...]) -> list[Path]:
     paths: list[Path] = []
     seen: set[Path] = set()
     for pattern in patterns:
-        for path in sorted(folder.glob(pattern)):
-            if path.is_file() and path not in seen:
+        registered = registered_sources(folder, pattern)
+        for path in sorted(set(folder.glob(pattern)) | set(registered)):
+            if (path.is_file() or path in registered) and path not in seen:
                 seen.add(path)
                 paths.append(path)
     return paths
@@ -777,6 +780,7 @@ def _read_csv_decode_fallback_frame(path: Path, exc: Exception) -> pd.DataFrame:
 
 
 def _read_source_frame(path: Path) -> pd.DataFrame:
+    path = resolve_local_path(path)
     name = path.name.lower()
     if name.endswith(".jsonl"):
         return _coerce_oversized_ints(_read_jsonl_frame(path))
@@ -964,6 +968,27 @@ def plan_market_day(
     lock_paths = _writer_lock_paths(folder)
     if lock_paths:
         blockers.append("active_writer_lock")
+    offsite = archived_inputs(folder)
+    if offsite:
+        # Never recompute a complete projection from only its remaining inputs.
+        # This is preservation, not a claim that its old validation is current.
+        partition_root = archive_partition_path(
+            target_date.isoformat() if target_date else "unknown",
+            market_id or "unknown", event_slug, root=archive_root)
+        return {
+            "event_slug": event_slug, "market_id": market_id,
+            "local_date": target_date.isoformat() if target_date else None,
+            "target_date": target_date.isoformat() if target_date else None,
+            "source_folder": str(folder), "partition_root": str(partition_root),
+            "status": "blocked" if blockers else "skipped",
+            "action": "blocked" if blockers else "preserve_archived_sources",
+            "blockers": blockers, "archived_inputs": offsite,
+            "reason": "restore archived inputs before rebuilding",
+            "writer_lock_paths": [str(path) for path in lock_paths],
+            "event_day_manifest": {"status": "ARCHIVED_NOT_REVALIDATED"},
+            "finalization": {}, "artifact_families": [],
+            "convertible_family_count": 0, "source_bytes": 0,
+        }
     event_day_manifest = _event_day_manifest_status(folder, snapshots_root=snapshots_root)
     if not event_day_manifest.get("exists"):
         blockers.append("missing_event_day_manifest")
@@ -1089,8 +1114,12 @@ def apply_market_day(
     codec: str = DEFAULT_PARQUET_CODEC,
     generated_at_utc: str | None = None,
 ) -> dict[str, Any]:
-    if plan.get("blockers"):
+    if plan.get("blockers") or plan.get("action") == "preserve_archived_sources":
         return dict(plan)
+    offsite = archived_inputs(Path(str(plan.get("source_folder") or "")))
+    if offsite:
+        return {**plan, "status": "skipped", "action": "preserve_archived_sources",
+                "reason": "inputs archived since planning", "archived_inputs": offsite}
     current_event_manifest = _event_day_manifest_status(
         Path(str(plan.get("source_folder") or "")),
         snapshots_root=Path(snapshots_root),
@@ -1347,6 +1376,9 @@ def incremental_folder_signature(
     snapshots_root = Path(snapshots_root)
     as_of = _parse_date(as_of_date).isoformat()
     detail = _event_manifest_signature(folder) or _source_stat_signature(folder, snapshots_root)
+    offsite = archived_inputs(folder)
+    if offsite:
+        detail["archived_inputs"] = offsite
     payload = {
         "event_slug": folder.name,
         "as_of_date": as_of,

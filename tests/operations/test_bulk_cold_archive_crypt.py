@@ -16,6 +16,9 @@ from weather.operations import production_cold_archive_stage as core
 from weather.operations import workstation_cold_archive_stage as stage
 from weather.schema_registry import schema_version
 
+NATIVE_FILE_PIN = bulk._file_pin
+NATIVE_DIRECTORY_PIN = core._directory_pin
+
 
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -390,3 +393,143 @@ def test_native_pin_denies_source_write_and_ancestor_rename(tmp_path):
             parent.rename(tmp_path / "renamed")
         assert pin.metadata() == before
         assert source.read_bytes() == b"bounded native pin fixture"
+
+
+
+
+def test_native_complete_restore_after_local_originals_are_removed(corpus, monkeypatch):
+    """Real local crypt and full production bridge; synthetic controller/DPAPI evidence."""
+    import subprocess
+    import sys
+
+    configured = os.environ.get("WEATHER_TEST_RCLONE_EXECUTABLE")
+    if configured is None:
+        pytest.skip("explicit installed rclone required for native local-only fixture")
+    executable = Path(configured)
+    assert executable.is_absolute() and executable.is_file()
+    base, members, args, _ = corpus
+    monkeypatch.setattr(bulk, "_file_pin", NATIVE_FILE_PIN)
+    monkeypatch.setattr(core, "_directory_pin", NATIVE_DIRECTORY_PIN)
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.upper().startswith("RCLONE_")}
+    config = base / "support" / "native-encrypt.conf"
+    config.write_bytes(b"")
+    obscured = stage._subprocess_runner(
+        [str(executable), "--config", str(config), "--ask-password=false",
+         "obscure", "public-synthetic-archive-data-password"],
+        environment, 30, True)
+    assert obscured.returncode == 0
+
+    # Rclone's documented config-encryption command consumes this public fixture
+    # password through a tiny local helper. No provisioned credential is read.
+    # https://rclone.org/commands/rclone_config_encryption_set/
+    helper = base / "support" / "public_fixture_password.py"
+    helper.write_text('print("synthetic-secret")\n', encoding="utf-8")
+    password_command = subprocess.list2cmdline([sys.executable, str(helper)])
+
+    def create_encrypted_config(path, ciphertext_root):
+        path.write_text("[localcrypt]\ntype = crypt\nremote = " + ciphertext_root.as_posix()
+                        + "\nfilename_encryption = standard\ndirectory_name_encryption = true"
+                        + "\nno_data_encryption = false\npassword = "
+                        + obscured.stdout.decode("ascii").strip() + "\n", encoding="utf-8")
+        result = stage._subprocess_runner(
+            [str(executable), "--config", str(path), "--ask-password=false",
+             "--password-command", password_command, "config", "encryption", "set"],
+            environment, 30, False)
+        assert result.returncode == 0
+        assert b"RCLONE_ENCRYPT_V0:" in path.read_bytes()
+
+    def bounded(arguments, env, timeout, capture):
+        return stage._subprocess_runner(arguments, env, min(timeout, 30), capture)
+
+    create_encrypted_config(config, base / "cipher")
+    args.update(rclone_executable=executable, rclone_config=config, runner=bounded)
+    crypt = bulk.run("encrypt", **args)
+    crypt_path = base / "out" / args["archive_id"] / "receipt.json"
+    cipher = crypt["ciphertext"]
+    original_cipher = base / "cipher" / cipher["path_relative_to_ciphertext_root"]
+    downloaded = base / "downloads" / "native-object.bin"
+    downloaded.write_bytes(original_cipher.read_bytes())
+    transport = {
+        "schema_version": schema_version("production_cold_archive_transport_receipt"),
+        "status": "PASS", "crypt_receipt_sha256": sha(crypt_path),
+        "production_manifest_sha256": crypt["production_manifest_sha256"],
+        "plan_sha256": crypt["plan_sha256"], "chunk_id": crypt["chunk_id"],
+        "archive_id": crypt["archive_id"],
+        "ciphertext": {key: cipher[key] for key in ("bytes", "sha256")},
+        "drive": {"root_folder_id": "fixture-root", "object_id": "fixture-object",
+                  "remote_key": "fixture/native-object"},
+        "downloaded_file": {"path": "C:/synthetic-controller/native-object.bin",
+                            **{key: cipher[key] for key in ("bytes", "sha256")}},
+        "independent_download": True,
+    }
+    transport_path = base / "downloads" / "native-transport.json"
+    transport_sha = write_evidence(transport_path, transport)
+    args["archive_file"].unlink()
+    original_cipher.unlink()
+    restore_config = base / "support" / "native-restore.conf"
+    create_encrypted_config(restore_config, base / "restore-cipher")
+    restored_args = {**args, "rclone_config": restore_config,
+                     "ciphertext_root": base / "restore-cipher",
+                     "output_root": base / "restore-out", "restore_id": "native-restore",
+                     "crypt_receipt": crypt_path, "crypt_receipt_sha256": sha(crypt_path),
+                     "transport_receipt": transport_path, "transport_receipt_sha256": transport_sha,
+                     "downloaded_file": downloaded}
+    restored_args.pop("archive_file")
+    restored = bulk.run("restore", **restored_args)
+    assert restored["status"] == "PASS"
+    assert restored["checks"] == dict.fromkeys(bulk.RESTORE_CHECKS, "PASS")
+    assert restored["original_archive_required"] is False
+    assert restored["original_ciphertext_required"] is False
+    for name, content in members.items():
+        assert (base / "restore-out/native-restore/members" / name).read_bytes() == content
+
+
+def test_restore_from_download_without_local_originals(corpus):
+    base, members, args, _ = corpus
+    request = restore_args(corpus)
+    crypt = json.loads(request["crypt_receipt"].read_text())
+    original = base / "cipher" / crypt["ciphertext"]["path_relative_to_ciphertext_root"]
+    args["archive_file"].unlink()
+    original.unlink()
+    request.pop("archive_file")
+    request.pop("original_ciphertext_root")
+    restored = bulk.run("restore", **request)
+    assert restored["status"] == "PASS"
+    assert restored["original_archive_required"] is False
+    assert restored["original_ciphertext_required"] is False
+    assert restored["checks"] == dict.fromkeys(bulk.RESTORE_CHECKS, "PASS")
+    for name, content in members.items():
+        assert (base / "restore-out/restore-a1/members" / name).read_bytes() == content
+    assert not args["archive_file"].exists() and not original.exists()
+
+
+def test_restore_without_original_rejects_corrupt_download(corpus):
+    _, _, args, _ = corpus
+    request = restore_args(corpus)
+    args["archive_file"].unlink()
+    request.pop("archive_file")
+    request.pop("original_ciphertext_root")
+    with request["downloaded_file"].open("ab") as stream:
+        stream.write(b"corruption")
+    with pytest.raises(stage.ArchiveStageError):
+        bulk.run("restore", **request)
+
+
+@pytest.mark.parametrize("field,value", [("inode", True), ("mode", 0), ("bytes", 1)])
+def test_restore_requires_valid_recorded_original_identity(corpus, field, value):
+    _, _, _, _ = corpus
+    request = restore_args(corpus)
+    request.pop("archive_file")
+    request.pop("original_ciphertext_root")
+    crypt = json.loads(request["crypt_receipt"].read_text())
+    crypt["ciphertext"]["file_identity"][field] = value
+    # Fixture-only alteration of upstream records; no production receipt is changed.
+    request["crypt_receipt"].unlink()
+    request["crypt_receipt_sha256"] = write_evidence(request["crypt_receipt"], crypt)
+    transport = json.loads(request["transport_receipt"].read_text())
+    transport["crypt_receipt_sha256"] = request["crypt_receipt_sha256"]
+    request["transport_receipt"].unlink()
+    request["transport_receipt_sha256"] = write_evidence(request["transport_receipt"], transport)
+    with pytest.raises(stage.ArchiveStageError):
+        bulk.run("restore", **request)

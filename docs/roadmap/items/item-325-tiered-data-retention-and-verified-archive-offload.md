@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-08 - OVERNIGHT RECOVERY ARMED; PRODUCTION TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-09 - ARCHIVE SOURCE QUALIFIED; PRODUCTION TARGET OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -1024,6 +1024,156 @@ The owner-facing explanation is archive-target-recommendation-20260909.md.
 
 Source qualification at 3160122d1c09c76a8aea0074e0d0e65dc36b76b5 passed final
 workstation checks, CI 660 and host-load hook 27. These prove the existing
-bridge, not the proposed reader workflow. The revised target awaits owner
-validation. Production payload uploaded, files deleted and space reclaimed
-remain zero.
+bridge, not the proposed reader workflow. At this review the revised target
+awaited owner validation. Production payload uploaded, files deleted and space
+reclaimed remained zero.
+
+## September 9 owner approval and location contract
+
+The owner approved the revised target and conditional reserve: "Yes I approve
+of this plan. Just make sure we keep documented where data is". The exact
+approval record is production-local scratch/handoffs/archive-target-owner-approved-20260909.json,
+SHA-256 2878ff1c2e673a539a74f1939a15682c9f624c7f54184ddee63dfb522fc34d7e.
+It binds both proposal digests above and preserves their original proposed
+status as historical evidence. Target validation is closed; no repeated target
+approval is needed. The reserve remains conditional on actual verified primary
+reclaim falling below 100,000,000,000 bytes.
+
+[Cold archive locations and restore cache](../../operations/cold-archive-locations.md)
+owns the durable locations, exact object identities, original hashes, proof
+retention and reader/cache behavior. Every archived original must remain
+discoverable through local metadata. A local or cloud copy may not be called
+restorable from an upload receipt alone.
+
+Implementation adds explicit event/file-family chunk grouping and removes
+dependencies on original local payload copies from subsequent download/restore.
+Catalog entries retain exact upstream metadata bytes, all four cloud object IDs,
+source member hashes, and separate complete restore receipts. Managed cache
+population verifies every member during copying and readback, enforces its
+byte quota and disk reserve, and retains partial attempts. Cache resolution
+hashes content; Windows creation time and a restored mtime cannot safely memoize
+a previously checked hash.
+
+Workstation qualification retained three source-bound suites:
+- `scratch/handoffs/archive-reader-qualification-a2.xml`: 162 passed, covering
+  readers, maintenance preservation, archive discovery, audits and original
+  timestamp/provenance preservation. SHA-256
+  `3c805bedd13ee6964f4e79dbaae43b2264d4153384029629881ef86370007591`.
+- `scratch/handoffs/archive-reader-qualification-a3.xml`: 368 passed and one
+  expected platform skip. This includes a real local rclone encryption/full
+  restore through native file pins after deleting both original synthetic
+  archive copies; every materialized member matched. Controller transport and
+  DPAPI material in that fixture are synthetic. SHA-256
+  `6102a1a3fbe3960fe420f65b44b6b65182e615015f4bb360dbfbfe5af4530ff1`.
+- `scratch/handoffs/archive-reader-qualification-a4.xml`: 62 passed, including
+  interrupted-marker repair, reconstruction of original proof bytes, persistent
+  inventory publication and cache recovery into a separate local data layout.
+  SHA-256 `7cbfb5716a79a03fb6a385aa8346ece8c6b15304dd814734fce03851fd37fe23`.
+
+`scratch/handoffs/archive-reader-docs-a1.xml` records 18 passing documentation
+and roadmap checks, including the repository agent-doc audit and regenerated
+backlog parity; SHA-256
+`9e87bc8e17817b141b4f0670f64214c46f56ed59a29072ed9271d0e9fc3c3f5c`.
+The admitted workstation compilation of `app`, `src` and `tests` exited zero.
+
+The suites overlap and their counts must not be added as unique tests. All ran
+through the workstation wrapper against the PR 45 worktree rooted at a98f8432.
+The final source bundle `scratch/handoffs/archive-reader-source-a4.json`,
+SHA-256 `03f5cd6cf7bb1b586e369d3cfc982e503ee2220168d3fcdadbd913f666abddb9`,
+records exact qualified file hashes; it is ignored local evidence. The five
+catalog schema registrations are additive only.
+
+Catalog-enabled uploads now publish locations and `WHERE_DATA_IS.md` inside
+their existing admitted job. Historical readers require verified local/cache
+bytes; housekeeping preserves existing Parquet and manifests when raw inputs
+are off-site. Strict audits do not upgrade off-site presence to a fresh PASS.
+
+Catalog and reader source was published as
+dcf714a4aa27eb68c2c51ca4682b5df8c820a291. CI 662 recorded 5,072 passed,
+423 platform skips and one failed schema audit: the two new packing-policy
+identifiers needed explicit non-schema classifications. The follow-up adds
+those two narrow entries without weakening unknown-schema detection.
+
+Managed cache cleanup now pins every member exclusively on native NTFS,
+compares its recorded identity and full SHA-256, journals intent, then removes
+through that same verified handle. Busy, modified, missing or redirected files
+refuse before the first removal. All claims, directories, original files,
+catalog entries and restore receipts remain. A partial cleanup retains
+per-file completion evidence and cannot report a successful batch.
+
+The schema repair, catalog/cache cleanup, native sharing and hardlink checks,
+architecture and documentation checks passed all 98 cases in
+`scratch/handoffs/archive-reader-qualification-a5.xml`, SHA-256
+`6759c64ea28d5ab958a3a42d6a3ab2f7ca3b7229a996859fa31044c6b8cef0c3`.
+The exact 35-file source bundle is
+`scratch/handoffs/archive-reader-source-a5.json`, SHA-256
+`6a87228fea31f0f6fa3427334902f303c07bd01e1cab23c85fbef5d0cc8c4012`.
+The additional cleanup schema is additive only. Native deletion occurred only
+inside synthetic workstation test fixtures.
+
+The schema repair and native cache-cleanup source was published at
+8f4a7cad31ded55805edd986074a0d3fa0fe2991 and CI 663 passed.
+
+### Guarded original-source reclaim qualification
+
+The [reclaim executor](../../operations/cold-archive-locations.md#original-source-reclaim)
+now binds the exact approved proposal, selection, selective plan, archive
+catalog, independent complete restore, fresh protected-input review, external
+key custody and adopted consumers before native original-file removal. It
+journals intent, each removal and cumulative original allocation. Inventory
+publication precedes a successful campaign transition; interrupted attempts
+require reconciliation and cannot report zero deletion by assumption.
+The production runner has a separate `reclaim` operation under its unchanged
+host, workload, time, memory and teardown controls. Other operations retain
+all original sources. The executor currently admits primary selections only;
+conditional reserve requires a separately qualified primary-disposition lane.
+
+The workstation matrix covered 414 checks: 413 passed, and the remaining
+architecture inventory check exposed three new files not yet recorded in the
+test checkout's Git inventory. After exact-hash intent-to-add, all 41
+architecture, source, documentation and roadmap checks passed. Native original
+removal, busy-reader and hardlink refusal, partial-failure journaling, exact
+owner-plan metadata, all retaining wrapper phases, and cleanup regressions
+passed. Focused compilation also passed. These are synthetic and metadata
+qualifications, not production data movement.
+
+Retained ignored receipts are
+`scratch/handoffs/archive-reclaim-qualification-a2.xml`, SHA-256
+`faaa49a9a17480397450f2dbbe495d3e46391a6ec366238196532eff6ac867ff`,
+and `scratch/handoffs/archive-reclaim-qualification-a3.xml`, SHA-256
+`4c9eabd0c799a774e03dc3667b4ccc7b91e6ab790d8f46a41d838f971541f6ea`.
+The 42-file qualified source bundle is
+`scratch/handoffs/archive-reclaim-source-a2.json`, SHA-256
+`4780cc9a4d59f03b1ead369554066ba0800e902a860beed7ead8f332225a0cc9`.
+Later documentation closeout does not change those qualified code bytes.
+
+Original-source reclaim was published at
+e665d42ac63918e348182405ebe272c8169f358c and CI 664 passed. The subsequent
+temporary-payload cleanup and admitted workstation recovery-publication
+changes passed native Windows qualification. The first cleanup matrix's three
+path-limit failures were repaired by keeping cleanup records beside reclaim
+receipts. The expanded matrix then passed 268 of 272 checks; its four failures
+were fixture setup and an omitted workstation adapter copy. After correcting
+those, all 76 focused recovery-publication, routing, source-identity, import,
+schema, documentation and roadmap checks passed with no skips. Compilation
+of all nine changed Python files exited 0 through the workstation wrapper.
+No production files were involved.
+
+The source-only 46-file qualification bundle is
+`scratch/handoffs/archive-recovery-source-a4.json`, SHA-256
+`823c3715e7c4cf08dc9c06d9ebfc394cc8d880d8e3e61732051c773cbffc3b57`.
+Retained workstation receipts are
+`scratch/handoffs/archive-recovery-qualification-a3.xml`, SHA-256
+`4515385f3a4f3f882f54707f96ad6206c62ddf24020b4f3a0023fe58af41e0a4`,
+and `scratch/handoffs/archive-recovery-qualification-a4.xml`, SHA-256
+`aaa982e5003ca9773afb27396262d7313f644fb892fca225f14ca7c24aa4259e`.
+Later documentation closeout does not change those qualified Python bytes.
+Recovery-handback publication and exact temporary-payload cleanup are published at
+b9d7146cc92bbc03dfe082c7fd8ed49a8148fde2 in draft PR 45. CI 665 passed
+all steps, including the full test suite. The run is
+[34431259014](https://github.com/michaelbooth1/weather/actions/runs/34431259014).
+
+Production consumer adoption, concrete headroom, durable key custody, fresh
+per-chunk protection evidence and production full-restore/reclaim remain open. The original exact July plan's
+reserve exception and queued-PR-44 adoption boundary remain unchanged.
+Production archive upload, deletion and reclaim remain zero.

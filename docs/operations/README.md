@@ -121,6 +121,8 @@ Scoped agent instructions also live in `config/AGENTS.md`,
   fixture-only create-only object, verification, restore-drill, and cleanup-plan
   contracts, the default-off provisional workstation encrypted-staging adapter,
   and the still-separate off-site transport boundary.
+- [Cold archive locations and restore cache](cold-archive-locations.md) defines
+  durable original paths, exact private cloud object IDs, recovery proof and cache behavior.
 - [Closed Market-Day Parquet Archive Contract](closed-market-day-parquet-archive-contract.md)
   defines archive eligibility, manifests, and raw-evidence boundaries.
 - [History Data Design](HISTORY_DATA_DESIGN.md) describes Weather Underground
