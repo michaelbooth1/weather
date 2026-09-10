@@ -1168,7 +1168,10 @@ Retained workstation receipts are
 and `scratch/handoffs/archive-recovery-qualification-a4.xml`, SHA-256
 `aaa982e5003ca9773afb27396262d7313f644fb892fca225f14ca7c24aa4259e`.
 Later documentation closeout does not change those qualified Python bytes.
-Follow-up source publication and exact-commit CI remain to be verified.
+Recovery-handback publication and exact temporary-payload cleanup are published at
+b9d7146cc92bbc03dfe082c7fd8ed49a8148fde2 in draft PR 45. CI 665 passed
+all steps, including the full test suite. The run is
+[34431259014](https://github.com/michaelbooth1/weather/actions/runs/34431259014).
 
 Production consumer adoption, concrete headroom, durable key custody, fresh
 per-chunk protection evidence and production full-restore/reclaim remain open. The original exact July plan's
