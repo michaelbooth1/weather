@@ -92,6 +92,9 @@ class MemoryDrive:
         if self.refuse_final_admission and self.preflights == 2:
             self.admitted = False
 
+    def bind_uploaded_objects(self, records):
+        assert len(records) == 4
+
     def object(self, key, *, absent=False):
         self.calls.append(("absence" if absent else "stat", key))
         if absent:

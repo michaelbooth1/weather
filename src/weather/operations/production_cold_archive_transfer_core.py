@@ -111,16 +111,17 @@ class GuardedClient:
         self.environment = environment
         self.admission, self.deadline = admission, deadline
         self.last_failure = None
+        self.committed_objects = {}
 
     def guard(self):
         _require(time.monotonic() < self.deadline and self.admission(), "transfer admission ended")
 
     def run(self, tokens, *, capture=False):
         self.guard()
-        allowed = {("config", "encryption", "check"), ("config", "redacted"),
+        allowed = {("config", "encryption", "check"), ("config", "redacted"), ("config", "dump"),
                    ("lsjson",), ("copyto",)}
         signature = tuple(tokens[:3]) if tokens[:3] == ["config", "encryption", "check"] else (
-            tuple(tokens[:2]) if tokens[:2] == ["config", "redacted"] else tuple(tokens[:1]))
+            tuple(tokens[:2]) if tokens[:2] in (["config", "redacted"], ["config", "dump"]) else tuple(tokens[:1]))
         _require(signature in allowed, "rclone command is outside the transfer allowlist")
         arguments = [str(self.executable), "--config", str(self.config), "--ask-password=false",
                      "--log-level", "ERROR", "--stats", "0", "--contimeout", "15s",
@@ -211,7 +212,14 @@ class GuardedClient:
         # Every invocation supplies the approved folder ID explicitly. Redacted
         # config deliberately hides this sensitive field, so it is not authority.
 
+    def bind_uploaded_objects(self, records):
+        self.committed_objects = {value["remote_key"]: value for value in records.values()}
+
     def object(self, key, *, absent=False):
+        if not absent and key in self.committed_objects:
+            from weather.operations import cold_archive_drive_id
+            return cold_archive_drive_id.object_metadata(
+                self, key, self.committed_objects[key]["object_id"])
         _require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,190}", key) is not None,
                  "noncanonical remote object key")
         for attempt in range(1 if absent else 4):
@@ -233,6 +241,12 @@ class GuardedClient:
                 "hashes": obj.get("Hashes", {})}
 
     def copy(self, source, destination, maximum):
+        if str(source).startswith(self.remote + ":"):
+            key = str(source).split(":", 1)[1]
+            if key in self.committed_objects:
+                from weather.operations import cold_archive_drive_id
+                return cold_archive_drive_id.download(
+                    self, self.committed_objects[key]["object_id"], destination, maximum)
         tokens = [
             "copyto", str(source), str(destination), "--immutable", "--ignore-times",
             "--error-on-no-transfer", "--transfers", "1", "--checkers", "1",
@@ -485,6 +499,8 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
                 result["remote_side_effect_possible"] = True
                 result["upload_performed"] = None
             client.preflight()
+            if not upload_needed:
+                client.bind_uploaded_objects(committed)
             if upload_needed:
                 with inputs["ciphertext"].open("rb") as source:
                     _require(source.read(8) == b"RCLONE\x00\x00", "plaintext or invalid ciphertext refused")
