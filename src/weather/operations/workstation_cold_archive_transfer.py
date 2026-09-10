@@ -17,12 +17,13 @@ import urllib.parse
 import urllib.request
 
 from weather import execution_host
+from weather.operations import workstation_cold_archive_io as local_io
 from weather.operations import cold_archive_drive_id as drive_id
 from weather.operations import production_cold_archive_transfer_core as core
 from weather.paths import REPO_ROOT
 from weather.schema_registry import schema_version
 
-DEADLINE_SECONDS = 300
+DEADLINE_SECONDS = 900
 WORKSTATION_RESERVE_BYTES = 20 * 1024**3
 PATH_FIELDS = ("ciphertext_path", "crypt_receipt_path", "production_manifest_path",
                "production_receipt_path", "rclone_executable", "rclone_config",
@@ -80,6 +81,77 @@ class ExactNameDrive(core.GuardedClient):
         return value
 
 
+class _RefreshClient(core.GuardedClient):
+    # Metadata-only refresh operates on a fresh encrypted copy, before payload work.
+    ALLOWED_COMMANDS = core.GuardedClient.ALLOWED_COMMANDS | {("about",)}
+
+
+def prepare_credentials(*, arguments, attempt, admission, deadline):
+    """Refresh a new encrypted config; never mutate the supplied credential file."""
+    source = Path(arguments["rclone_config"])
+    executable = Path(arguments["rclone_executable"])
+    secret_path = Path(arguments["dpapi_secret"])
+    credential_root = attempt / "credentials"
+    admission()
+    credential_root.mkdir()
+    active = credential_root / "drive.conf"
+    secret, environment = None, {}
+    with ExitStack() as stack:
+        stack.enter_context(core.archive._directory_pin(credential_root))
+        paths = (source, executable, secret_path)
+        pins = [(stack.enter_context(core.bridge._file_pin(path)), path) for path in paths]
+        before = [pin.metadata() for pin, _ in pins]
+        def guard():
+            core._require(admission() is True and time.monotonic() < deadline,
+                          "credential preparation admission ended")
+            core._require([pin.metadata() for pin, _ in pins] == before,
+                          "credential preparation inputs changed")
+            return True
+        raw = core.crypt._read_stable_bytes(
+            source, label="encrypted credential source", maximum_bytes=core.MAX_CONFIG_BYTES)
+        try:
+            with active.open("xb") as target:
+                core._require(target.write(raw) == len(raw), "short credential copy")
+                target.flush()
+                os.fsync(target.fileno())
+        finally:
+            raw.clear()
+        try:
+            secret = core.crypt._load_dpapi_secret(secret_path)
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.upper().startswith("RCLONE_")}
+            environment[core.crypt.CONFIG_PASS_ENV] = secret.text()
+            client = _RefreshClient(
+                executable, active, arguments["drive_remote_name"],
+                arguments["drive_root_folder_id"], environment, guard,
+                min(deadline, time.monotonic() + 45))
+            client.preflight()
+            code, _ = client.run(["about", client.remote + ":", "--json"])
+            core._require(code == 0, "metadata credential refresh failed")
+            # Enough validity for the complete phase plus teardown. Failure is
+            # before payload work and leaves both encrypted copies for inspection.
+            access = drive_id.token(client, minimum_remaining_seconds=DEADLINE_SECONDS + 30)
+            access = ""
+            guard()
+            core.archive._safe_path(active)
+            config = core.crypt._read_stable_bytes(
+                active, label="prepared encrypted credentials", maximum_bytes=core.MAX_CONFIG_BYTES)
+            try:
+                digest = hashlib.sha256(config).hexdigest()
+            finally:
+                config.clear()
+            core.archive._write(credential_root / "receipt.json", core._seal({
+                "status": "PASS", "config_sha256": digest,
+                "source_config_unchanged": True, "archive_payload_bytes_read": 0,
+                "minimum_remaining_seconds": DEADLINE_SECONDS + 30,
+                "completed_at_utc": datetime.now(timezone.utc).isoformat()}))
+            return active
+        finally:
+            environment.pop(core.crypt.CONFIG_PASS_ENV, None)
+            if secret is not None:
+                secret.wipe()
+
+
 def _assignment(repo, stack):
     core._require(os.name == "nt" and os.environ.get(core.crypt.WRAPPER_ENV) == "1",
                   "native workstation wrapper required")
@@ -133,7 +205,8 @@ def run(*, attempt_id, expected_source_tip, repo_root=REPO_ROOT, **arguments):
         attempt.mkdir()
         stack.enter_context(core.archive._directory_pin(attempt))
         modules = (Path(__file__), Path(core.__file__), Path(drive_id.__file__),
-                   Path(core.crypt.__file__), Path(core.bridge.__file__), Path(core.archive.__file__))
+                   Path(core.crypt.__file__), Path(core.bridge.__file__), Path(core.archive.__file__),
+                   Path(local_io.__file__))
         pins = [(stack.enter_context(core.bridge._file_pin(path)), path) for path in modules]
         before = [pin.metadata() for pin, _ in pins]
         claim = {
@@ -158,11 +231,16 @@ def run(*, attempt_id, expected_source_tip, repo_root=REPO_ROOT, **arguments):
 
         try:
             guard()
+            arguments["rclone_config"] = prepare_credentials(
+                arguments=arguments, attempt=attempt, admission=guard, deadline=deadline)
             result = core.transfer_chunk(
                 **arguments, output_root=attempt / "transfer", protected_root=protected,
                 admission=guard, deadline_monotonic=deadline,
                 free_space_reserve_bytes=WORKSTATION_RESERVE_BYTES,
-                client_factory=ExactNameDrive, secret_loader=core.crypt._load_dpapi_secret)
+                client_factory=ExactNameDrive, secret_loader=core.crypt._load_dpapi_secret,
+                read_guard_factory=local_io.ReadGuard,
+                hash_rate_bytes_per_second=local_io.READ_BYTES_PER_SECOND,
+                network_rate_bytes_per_second=local_io.NETWORK_BUDGET_BYTES_PER_SECOND)
             guard()
             core._require(core.crypt._capture_tool_identity(repo) == identity, "source identity drift")
             receipt = attempt / "transfer" / "receipt.json"

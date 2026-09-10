@@ -47,9 +47,16 @@ $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
 $minute = $localNow.Hour * 60 + $localNow.Minute
 $archiveDaytime = $false
 if ($OwnerApprovedException) {
-    if ($OwnerApprovedException -cne 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910' -or
-        $localNow -lt [datetime]'2026-09-10T13:10:38' -or
-        $localNow -ge [datetime]'2026-09-10T18:00:00') {
+    $archiveStart = [datetime]'2026-09-10T13:10:38'
+    $archiveEnd = [datetime]'2026-09-10T18:00:00'
+    if ($OwnerApprovedException -ceq 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING') {
+        $archiveStart = [datetime]'2026-09-10T19:43:24'
+        $archiveEnd = [datetime]'2026-09-11T00:30:00'
+    }
+    elseif ($OwnerApprovedException -cne 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910') {
+        throw 'REFUSED: owner archive exception is invalid or expired'
+    }
+    if ($localNow -lt $archiveStart -or $localNow -ge $archiveEnd) {
         throw 'REFUSED: owner archive exception is invalid or expired'
     }
     $archiveDaytime = $true
@@ -65,7 +72,7 @@ if ($minute -lt 285) {
     $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddMinutes(285), $zone)
 }
 if ($archiveDaytime) {
-    $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddHours(18), $zone)
+    $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($archiveEnd, $zone)
 }
 $deadline = [DateTime]::UtcNow.AddSeconds(300)
 if ($deadline -gt $windowEnd.AddSeconds(-15)) { $deadline = $windowEnd.AddSeconds(-15) }

@@ -51,10 +51,11 @@ def _read_bound(path, digest):
     return archive._load(Path(path), digest)[0]
 
 
-def _sha_file(path, admit, deadline, maximum=MAX_CIPHERTEXT_BYTES):
+def _sha_file(path, admit, deadline, maximum=MAX_CIPHERTEXT_BYTES, *, guard_factory=None):
     digest = hashlib.sha256()
     count = 0
-    guard = archive._Guard(admit, deadline, 16 * MIB)
+    guard = (archive._Guard(admit, deadline, 16 * MIB) if guard_factory is None
+             else guard_factory(admit, deadline))
     with Path(path).open("rb", buffering=0) as stream:
         reader = archive._Reader(stream, guard)
         while True:
@@ -69,7 +70,9 @@ def _sha_file(path, admit, deadline, maximum=MAX_CIPHERTEXT_BYTES):
 
 
 def required_transfer_seconds(total_bytes, *, initial_hash_done=False,
-                              phase="upload_and_independent_download"):
+                              phase="upload_and_independent_download",
+                              hash_rate_bytes_per_second=16 * MIB,
+                              network_rate_bytes_per_second=8 * MIB):
     """Conservative phase-specific rate budget plus client/teardown allowance."""
     _require(type(total_bytes) is int and total_bytes >= 0, "invalid transfer byte budget")
     _require(phase in PHASES, "invalid transfer phase")
@@ -78,7 +81,12 @@ def required_transfer_seconds(total_bytes, *, initial_hash_done=False,
     if initial_hash_done:
         _require(phase != "download_and_verify", "download hash cannot be skipped")
         hash_passes -= 1
-    return hash_passes * total_bytes / (16 * MIB) + copies * total_bytes / (8 * MIB) + 45
+    _require(type(hash_rate_bytes_per_second) is int
+             and 0 < hash_rate_bytes_per_second <= 64 * MIB
+             and type(network_rate_bytes_per_second) is int
+             and 0 < network_rate_bytes_per_second <= 8 * MIB, "invalid phase rate budget")
+    return (hash_passes * total_bytes / hash_rate_bytes_per_second
+            + copies * total_bytes / network_rate_bytes_per_second + 45)
 
 
 def _client_memory_ok(process):
@@ -103,6 +111,10 @@ def _client_memory_ok(process):
 class GuardedClient:
     """Small allowlisted rclone surface, pinned to one explicit Drive folder."""
 
+    ALLOWED_COMMANDS = frozenset({
+        ("config", "encryption", "check"), ("config", "redacted"), ("config", "dump"),
+        ("lsjson",), ("copyto",)})
+
     def __init__(self, executable, config, remote, root_folder_id, environment, admission, deadline):
         _require(REMOTE_RE.fullmatch(remote) is not None, "invalid Drive remote")
         _require(ID_RE.fullmatch(root_folder_id) is not None, "invalid Drive folder ID")
@@ -118,11 +130,9 @@ class GuardedClient:
 
     def run(self, tokens, *, capture=False):
         self.guard()
-        allowed = {("config", "encryption", "check"), ("config", "redacted"), ("config", "dump"),
-                   ("lsjson",), ("copyto",)}
         signature = tuple(tokens[:3]) if tokens[:3] == ["config", "encryption", "check"] else (
             tuple(tokens[:2]) if tokens[:2] in (["config", "redacted"], ["config", "dump"]) else tuple(tokens[:1]))
-        _require(signature in allowed, "rclone command is outside the transfer allowlist")
+        _require(signature in self.ALLOWED_COMMANDS, "rclone command is outside the transfer allowlist")
         arguments = [str(self.executable), "--config", str(self.config), "--ask-password=false",
                      "--log-level", "ERROR", "--stats", "0", "--contimeout", "15s",
                      "--timeout", "30s", "--retries", "1", "--low-level-retries", "1",
@@ -355,9 +365,19 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
                    admission, deadline_monotonic, free_space_reserve_bytes,
                    phase="upload_and_independent_download",
                    upload_receipt_path=None, upload_receipt_sha256=None,
-                   client_factory=GuardedClient, secret_loader=crypt._load_dpapi_secret):
+                   client_factory=GuardedClient, secret_loader=crypt._load_dpapi_secret,
+                   read_guard_factory=None, hash_rate_bytes_per_second=16 * MIB,
+                   network_rate_bytes_per_second=8 * MIB):
     """Transfer one encrypted chunk in a roundtrip or separately bounded phases."""
     _require(phase in PHASES, "invalid transfer phase")
+    def budget(total_bytes, *, initial_hash_done=False, phase=phase):
+        return required_transfer_seconds(
+            total_bytes, initial_hash_done=initial_hash_done, phase=phase,
+            hash_rate_bytes_per_second=hash_rate_bytes_per_second,
+            network_rate_bytes_per_second=network_rate_bytes_per_second)
+    budget(0)  # Validate before any attempt or payload read.
+    _require(read_guard_factory is not None or hash_rate_bytes_per_second <= 16 * MIB,
+             "faster local budget requires an explicit workstation read profile")
     upload_needed = phase != "download_and_verify"
     download_needed = phase != "upload_only"
     if upload_needed:
@@ -425,7 +445,7 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
     reservation = needed if download_needed else 0
     _require(shutil.disk_usage(output.parent).free >= reserve + reservation + 2 * MIB,
              "transfer evidence would breach capture reserve")
-    _require(deadline_monotonic - time.monotonic() >= required_transfer_seconds(needed, phase=phase),
+    _require(deadline_monotonic - time.monotonic() >= budget(needed),
              "chunk cannot fit the remaining transfer deadline")
 
     receipt_schema = ("production_cold_archive_upload_receipt" if phase == "upload_only"
@@ -504,7 +524,8 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
             if upload_needed:
                 with inputs["ciphertext"].open("rb") as source:
                     _require(source.read(8) == b"RCLONE\x00\x00", "plaintext or invalid ciphertext refused")
-                count, digest = _sha_file(inputs["ciphertext"], guard, deadline_monotonic)
+                count, digest = _sha_file(inputs["ciphertext"], guard, deadline_monotonic,
+                                          guard_factory=read_guard_factory)
                 _require((count, digest) == (cipher["bytes"], cipher["sha256"]), "ciphertext input mismatch")
                 # Every new namespace is proved absent before the first upload.
                 for _, key, _, _ in files:
@@ -515,7 +536,7 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
                     remote = _remote_record(client.object(key), key=key, expected_bytes=expected_bytes)
                     _require(remote == committed[name], "committed upload object changed")
             _require(deadline_monotonic - time.monotonic() >=
-                     required_transfer_seconds(needed, initial_hash_done=upload_needed, phase=phase),
+                     budget(needed, initial_hash_done=upload_needed),
                      "remaining transfer cannot fit deadline before copy")
             uploaded, object_ids = {}, set()
             for name, key, expected_sha, expected_bytes in files:
@@ -541,7 +562,7 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
                     pins[pin_name] = stack.enter_context(bridge._file_pin(downloaded))
                     identities[pin_name] = pins[pin_name].metadata()
                     actual = _sha_file(downloaded, guard, deadline_monotonic,
-                                       maximum=max(expected_bytes, 1))
+                                       maximum=max(expected_bytes, 1), guard_factory=read_guard_factory)
                     _require(actual == (expected_bytes, expected_sha), "independent download mismatch")
                     after = client.object(key)
                     _require(after == remote, "remote object changed across download")

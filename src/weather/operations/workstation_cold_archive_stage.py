@@ -1566,6 +1566,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     tokens = list(sys.argv[1:] if argv is None else argv)
+    if "--backup-recovery" in tokens:
+        from weather.operations import workstation_cold_archive_backup
+        tokens.remove("--backup-recovery")
+        return workstation_cold_archive_backup.main(tokens)
     if "--production-transfer" in tokens:
         from weather.operations import workstation_cold_archive_transfer
         tokens.remove("--production-transfer")

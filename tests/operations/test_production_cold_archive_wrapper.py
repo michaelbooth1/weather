@@ -420,3 +420,22 @@ def test_copy_wrapper_binds_retention_and_cleans_complete_job(wrapper_fixture, m
     if mode in {"hang", "residual_success"}:
         for pid in json.loads((output / "descendant.json").read_text()).values():
             assert observe_process_identity(pid)["state"] == "not_found"
+
+@pytest.mark.parametrize("wrapper_fixture,exception,success", [
+    ("2026-09-10T19:43:24", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", True),
+    ("2026-09-10T23:55:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", True),
+    ("2026-09-11T00:20:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", True),
+    ("2026-09-10T19:43:23", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", False),
+    ("2026-09-10T19:43:24", None, False),
+    ("2026-09-11T00:30:00", "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING", False),
+], indirect=["wrapper_fixture"])
+def test_archive_evening_wrapper_keeps_explicit_window_and_teardown(wrapper_fixture, exception, success):
+    process, output = launch(wrapper_fixture, "success", exception=exception)
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    if success:
+        receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+        assert receipt["owner_approved_exception"] == exception
+        assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
+    else:
+        assert not output.exists()

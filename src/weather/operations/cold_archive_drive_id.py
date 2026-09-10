@@ -32,7 +32,9 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # Never forward a service credential to a redirect target.
 
 
-def token(client):
+def token(client, *, minimum_remaining_seconds=30):
+    require(type(minimum_remaining_seconds) is int
+            and 30 <= minimum_remaining_seconds <= 960, "invalid credential lifetime bound")
     code, raw = client.run(["config", "dump"], capture=True)
     require(code == 0 and len(raw) <= MAX_METADATA, "private Drive credential read failed")
     config = json.loads(raw)
@@ -43,7 +45,7 @@ def token(client):
     value = json.loads(remote["token"])
     expiry = datetime.fromisoformat(value["expiry"].replace("Z", "+00:00"))
     require(expiry.tzinfo is not None
-            and expiry > datetime.now(timezone.utc) + timedelta(seconds=30),
+            and expiry > datetime.now(timezone.utc) + timedelta(seconds=minimum_remaining_seconds),
             "Drive credential needs separate refresh")
     access = value.get("access_token")
     require(isinstance(access, str) and 1 <= len(access) <= 8192

@@ -106,6 +106,8 @@ def setup_run(f, tmp_path, monkeypatch):
     monkeypatch.setattr(transport, "_assignment", assignment_proof)
     monkeypatch.setattr(core.crypt, "_capture_tool_identity", lambda repo: {"git_commit": "2" * 40})
     monkeypatch.setattr(transport, "ExactNameDrive", f.drive.factory)
+    monkeypatch.setattr(transport, "prepare_credentials",
+                        lambda **kw: kw["arguments"]["rclone_config"])
     monkeypatch.setattr(core.crypt, "_load_dpapi_secret", f.args["secret_loader"])
     monkeypatch.setattr(core.shutil, "disk_usage", lambda p: SimpleNamespace(free=30 * 1024**3))
     monkeypatch.setenv(stage.WRAPPER_ENV, "1")
@@ -152,3 +154,56 @@ def test_stage_routes_only_explicit_transfer_mode(monkeypatch):
     monkeypatch.setattr(transport, "main", lambda args: seen.append(args) or 2)
     assert stage.main(["--production-transfer", "upload_only"]) == 2
     assert seen == [["upload_only"]]
+
+
+def test_credential_failure_precedes_payload_transfer(transfer_fixture, tmp_path, monkeypatch):
+    f = transfer_fixture
+    repo, args = setup_run(f, tmp_path, monkeypatch)
+    def refuse(**kwargs):
+        raise ValueError("credential lifetime unavailable")
+    monkeypatch.setattr(transport, "prepare_credentials", refuse)
+    with pytest.raises(core.TransferError, match="retained"):
+        transport.run(**args, attempt_id="credential-a1", phase="upload_only")
+    assert not f.drive.calls
+    assert not (repo / "scratch/production_cold_archive_transport/credential-a1/transfer").exists()
+
+
+def test_fresh_encrypted_credentials_leave_source_unchanged(transfer_fixture, tmp_path, monkeypatch):
+    f = transfer_fixture
+    attempt = tmp_path / "credential"; attempt.mkdir()
+    args = {**f.args}
+    before = Path(args["rclone_config"]).read_bytes()
+    events = []
+    class Client:
+        def __init__(self, executable, config, remote, folder, environment, admission, deadline):
+            self.config, self.remote, self.admission = config, remote, admission
+        def preflight(self):
+            events.append("preflight")
+        def run(self, tokens):
+            assert tokens == ["about", self.remote + ":", "--json"]
+            assert self.admission()
+            self.config.write_bytes(b"encrypted refreshed fixture")
+            events.append("refresh")
+            return 0, b""
+    monkeypatch.setattr(transport, "_RefreshClient", Client)
+    monkeypatch.setattr(core.crypt, "_load_dpapi_secret", f.args["secret_loader"])
+    def token(client, *, minimum_remaining_seconds):
+        assert minimum_remaining_seconds == 930
+        events.append("lifetime")
+        return "synthetic"
+    monkeypatch.setattr(transport.drive_id, "token", token)
+    active = transport.prepare_credentials(
+        arguments=args, attempt=attempt, admission=lambda: True, deadline=time.monotonic() + 60)
+    assert active.read_bytes() == b"encrypted refreshed fixture"
+    assert Path(args["rclone_config"]).read_bytes() == before
+    assert events == ["preflight", "refresh", "lifetime"]
+    assert f.secret.wiped
+    proof = json.loads((active.parent / "receipt.json").read_text())
+    assert proof["archive_payload_bytes_read"] == 0 and proof["source_config_unchanged"]
+
+
+def test_production_client_cannot_use_refresh_command(tmp_path):
+    c = core.GuardedClient(tmp_path / "rclone", tmp_path / "config", "r",
+                          "fixture_root_12345", {}, lambda: True, time.monotonic() + 10)
+    with pytest.raises(core.TransferError, match="allowlist"):
+        c.run(["about", "r:", "--json"])

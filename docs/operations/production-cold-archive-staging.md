@@ -37,6 +37,11 @@ A failure preserves partial evidence and spends that attempt path.
 
 ## Execution
 
+For an approved multi-batch run, use the
+[resumable campaign controller](cold-archive-campaign.md). It derives phase
+requests from receipts and retains the existing individual phase gates.
+
+
 Use the project interpreter and exact reviewed source checkout. Metadata-only
 planning is:
 
@@ -61,8 +66,13 @@ excluding 04:45-06:45 for existing tiering jobs. Dated inventory/compression
 exceptions do not admit it. It holds the shared workload lease, owns the whole
 child tree in a kill-on-close Windows Job, and stops within 300 seconds with
 teardown reserved before the window boundary. Streaming is throttled to
-16 MiB/s; admission requires healthy capture, commit below 70%, at least
+16 MiB/s; admission requires healthy capture, system commit below 80%, at least
 4 GiB physical memory available, and the bounded process memory checks.
+Archive memory admission uses system-wide `GetPerformanceInfo` commit and
+physical-page counters. The archive-only 80% threshold leaves the shared
+70% default and the emergency watchdog unchanged. The campaign requires five
+good samples two seconds apart below 78% before starting a capture phase;
+missing counters, less than 4 GiB available, or unhealthy capture still block.
 The core reserves worst-case output plus 50 GiB capture headroom and 16 MiB
 evidence headroom, then checks remaining reserve on every write.
 
@@ -252,12 +262,20 @@ workstation host/principal lease and Windows Job. Supply `--attempt-id`,
 plan and private Drive bindings. Inputs must be outside data and mirror trees;
 only already copied archive inputs are eligible.
 
-Each phase has a 300-second deadline, 20 GiB of workstation reserve, native
+Each workstation network phase has a 900-second deadline, 20 GiB of reserve, native
 input/config/source pins, the unchanged bounded transfer client, and a fresh
 attempt beneath `scratch/production_cold_archive_transport`. Its parent and
 the checkout's empty protected `data` directory must exist. Never populate
 that data directory from a mirror. Exact name lookups must be complete and
 unambiguous before upload; subsequent reads use immutable object IDs.
+
+Before payload reads, the workstation prepares a new encrypted credential copy,
+performs a bounded metadata-only refresh, and verifies at least 930 seconds of
+token validity. The supplied credential file remains unchanged; the prepared
+copy is pinned during transport. Local verification uses the workstation-only
+64 MiB/s profile. Network transfer remains capped at 8 MiB/s; admission budgets
+2 MiB/s as a conservative measured baseline, rather than treating the cap as
+a guaranteed minimum. Production transfer rates and deadlines are unchanged.
 
 The core upload and independent-download receipts retain their existing
 schemas. A separate workstation execution receipt binds the clean source tip,
@@ -379,3 +397,9 @@ exceptions. Copy receipts live under a fresh immediate
 
 Update when chunk format, request fields, admission, output evidence or the
 relationship to transport and verified reclaim changes.
+
+The September 10 evening renewal uses the distinct
+`OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING` token from 23:43:24 UTC
+through September 11 04:30 UTC. It preserves the same three pinned plans,
+6 GiB reserve and archive guards; see the [dated host-policy renewal](HOST_LOAD_POLICY.md#september-10-evening-archive-renewal).
+An evening job still reserves 15 seconds for teardown before the exception ends.

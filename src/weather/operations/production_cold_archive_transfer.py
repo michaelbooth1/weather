@@ -201,7 +201,8 @@ def _run_pinned(args, root, output, request_path):
             last_admission = observe_capture_admission(
                 root, lambda **observed: staging.check_resources(
                     output_reservation=0, source_reserve_bytes=reserve,
-                                               owner_approved_exception=exception, **observed))
+                                               owner_approved_exception=exception, **observed),
+                memory_reader=staging.resource_policy.read_host_memory)
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":
                 write_receipt(output / "admission-refusal.json", last_admission)

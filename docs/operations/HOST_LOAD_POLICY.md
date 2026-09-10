@@ -333,7 +333,7 @@ the token to the actual live lease and exact approved plan and selection.
 The three already pinned primary-plan layouts retain the authorized 6 GiB
 capture reserve plus evidence and complete output reservations.
 
-All capture identities and freshness, commit below 70%, 4 GiB physical
+All capture identities and freshness, the archive-only commit policy below, 4 GiB physical
 availability, serial lease, 384 MiB child limit, BelowNormal priority,
 16 MiB/s payload limit, 1 GiB chunk limit and 300-second job bound remain.
 The absolute deadline reserves 15 seconds for teardown before 18:00.
@@ -342,6 +342,23 @@ protection and custody checks still precede source reclaim. Failed attempts
 remain immutable. This does not authorize other plans or workloads, merge,
 capture restart, hook/watchdog changes, or live trading. The ordinary
 timetable applies automatically at expiry.
+
+## Archive-only memory policy approved September 10
+
+At 19:37 UTC the owner approved the archive reliability plan and its 80%
+system-commit threshold. Only the staging/copy/transfer/publication/reclaim
+resource callbacks opt into it. Other workloads retain the 70% default, and
+the emergency watchdog retains its existing 85% warning and 92% action levels.
+Archive measurement uses coherent system-wide `GetPerformanceInfo` counters,
+including the available physical-page count. Unknown/invalid values block.
+
+The [campaign controller](cold-archive-campaign.md) starts a capture phase only
+after five observations two seconds apart below 78%, with at least 4 GiB
+physical memory and every capture check passing. The running archive phase
+still stops at 80%. The 384 MiB per-process checks, complete-child Jobs, shared
+lease, serial execution, byte/rate limits and dated windows remain. An archive
+refusal terminates its owned phase; it does not instruct the controller to kill
+capture workers or alter the host watchdog.
 
 ## Rules
 
@@ -453,3 +470,15 @@ Contributing factors worth fixing structurally:
 - Disk headroom is ~6-7 days at current burn. The parquet/archive conversion
   backlog (item-321 Phase 3) is the sanctioned drain; deletion of canonical
   tape is prohibited before off-machine copy proof.
+
+## September 10 evening archive renewal
+
+The owner explicitly renewed this archive-only exception on September 10 at
+23:43 UTC. The distinct `OWNER_APPROVED_ARCHIVE_RECOVERY_20260910_EVENING`
+token admits only the existing exact archive plans from 23:43:24 UTC through
+September 11 04:30 UTC (19:43:24–00:30 Toronto). The earlier 18:00 Toronto
+expiry remains unchanged; the intervening gap is not retrospectively admitted.
+At 00:30 the ordinary overnight lane and the already approved September 11
+6 GiB reserve apply, with the unchanged 04:45–06:45 tiering exclusion.
+All archive memory, capture, lease, throughput, deadline, restore and exact-source
+reclaim requirements remain. Other workloads, hosts and Stage A cannot use it.

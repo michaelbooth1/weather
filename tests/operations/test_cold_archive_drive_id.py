@@ -109,3 +109,15 @@ def test_response_uses_only_exact_google_id_and_clears_auth_header(monkeypatch):
         assert stream.read() == b"abc"
     assert seen[0].full_url == "https://www.googleapis.com/drive/v3/files/object_123456789?alt=media"
     assert seen[0].get_header("Authorization") is None
+
+
+
+def test_phase_lifetime_is_checked_before_payload():
+    c = client()
+    value = {"r": {"type": "drive", "scope": "drive.file", "token": json.dumps({
+        "access_token": "synthetic", "expiry": (
+            datetime.now(timezone.utc) + timedelta(seconds=600)).isoformat()})}}
+    c.run = lambda *a, **kw: (0, json.dumps(value).encode())
+    assert drive.token(c) == "synthetic"
+    with pytest.raises(ValueError, match="separate refresh"):
+        drive.token(c, minimum_remaining_seconds=930)

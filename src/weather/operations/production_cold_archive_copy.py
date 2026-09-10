@@ -284,7 +284,8 @@ def run_copy(args):
                 verify_current_lease(lease, owner, lease_path, workload=WORKLOAD)
                 admission = observe_capture_admission(root, lambda **values: staging.check_resources(
                     output_reservation=reservation, source_reserve_bytes=reserve,
-                    owner_approved_exception=exception, **values))
+                    owner_approved_exception=exception, **values),
+                    memory_reader=staging.resource_policy.read_host_memory)
                 last_check = time.monotonic()
                 if admission["status"] != "PASS":
                     write_receipt(output / "admission-refusal.json", admission)

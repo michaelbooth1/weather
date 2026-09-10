@@ -1447,4 +1447,20 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Verified native removal of workstation archive copies with retained recovery custody and separate accounting.",
     ),
+
+    SchemaSpec(
+        "cold_archive_campaign_config", "cold_archive_campaign_config_v0.1",
+        "weather.operations.cold_archive_campaign", "active",
+        "Immutable host, source, window and selection bindings for a serial resumable archive campaign.",
+    ),
+    SchemaSpec(
+        "cold_archive_campaign_backup", "cold_archive_campaign_backup_v0.1",
+        "weather.operations.workstation_cold_archive_backup", "active",
+        "Private recovery metadata upload with independent exact-byte download verification.",
+    ),
+    SchemaSpec(
+        "cold_archive_campaign_record", "cold_archive_campaign_record_v0.1",
+        "weather.operations.cold_archive_campaign_state", "active",
+        "Immutable bound phase claims and completions; started mutations are never dispatched twice.",
+    ),
 )

@@ -254,7 +254,9 @@ For a reclaim batch that also releases its temporary payload space, include a
 sealed `cold_archive_spool_inventory` bound to the same archive ID and entry
 SHA-256. For a production-host download its three ordered rows are
 `staged_archive`, `upload_ciphertext` and `downloaded_ciphertext`. A successful
-workstation transport instead requires exactly the first two local rows. The
+workstation transport permits the single `staged_archive` row only when its
+complete restore proves the workstation layout and production ciphertext is
+absent. Existing production ciphertext still requires the first two rows. The
 complete restore binds that separate workstation's fixed download layout; its
 payloads stay outside this production inventory and use the workstation
 cleanup lane below. Each row records its repository-relative path, full
@@ -297,7 +299,10 @@ restored archive and every materialized member. All must remain in their fixed
 scratch layouts. Every file is exclusively pinned and fully hashed before any
 deletion; the produced and downloaded ciphertext also retain their original
 native identities. It uses the same-handle NTFS remover and the workstation's
-shared live/heavy mutex, with a five-minute deadline. It never scans or deletes
+shared live/heavy mutex, with a ten-minute deadline and a workstation-only
+64 MiB/s local verification profile. The byte budget includes every archive,
+ciphertext and materialized-member pass; scratch savings stay separate from
+original-data reclaim. It never scans or deletes
 directories, originals, metadata, credentials, cloud objects or failed-attempt
 outputs.
 

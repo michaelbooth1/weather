@@ -5,6 +5,8 @@ operation exists here. Each attempt remains spent, including every partial.
 """
 from __future__ import annotations
 
+from weather.operations import workstation_cold_archive_io as local_io
+
 import argparse
 from contextlib import ExitStack
 import ctypes
@@ -407,7 +409,8 @@ def run(operation, *, archive_file=None, production_manifest, production_manifes
                 if name not in {"archive_file", "downloaded_file"}:
                     pin_file(name, path)
             for index, module in enumerate((Path(__file__), Path(core.__file__),
-                                             Path(stage.__file__), Path(restore.__file__))):
+                                             Path(stage.__file__), Path(restore.__file__),
+                                             Path(local_io.__file__))):
                 pin_file(f"tool_module_{index}", module)
             manifest = _production(paths, hashes, plan_sha256)
             result.update(chunk_id=manifest["chunk_id"], archive_bytes=manifest["archive_bytes"],
@@ -434,7 +437,7 @@ def run(operation, *, archive_file=None, production_manifest, production_manifes
             if "archive_file" in paths:
                 pin_file("archive_file", paths["archive_file"])
                 core.verify_archive(paths["archive_file"], manifest, admission=stable,
-                                    deadline_monotonic=deadline)
+                                    deadline_monotonic=deadline, guard_factory=local_io.ReadGuard)
                 checks["archive_members"] = "PASS"
             logical = f"{archive_id}/archive.tar.gz"
             original_mapping = restore._relative(client.encrypted_relative_path(logical), parts=2)
@@ -511,7 +514,8 @@ def run(operation, *, archive_file=None, production_manifest, production_manifes
                 restored = archive_output / "archive.tar.gz"
                 _exact(archive_output, [restored])
                 pin_file("restored_archive", restored)
-                core.verify_archive(restored, manifest, admission=stable, deadline_monotonic=deadline)
+                core.verify_archive(restored, manifest, admission=stable, deadline_monotonic=deadline,
+                                    guard_factory=local_io.ReadGuard)
                 checks["restored_archive_members"] = checks["archive_members"] = "PASS"
                 # Compare the decoded download with the manifest, then check
                 # that the encrypted object encodes those verified bytes.
