@@ -2707,6 +2707,18 @@ SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
     SchemaLiteralExclusion(
+        "sorted_whole_files_v1",
+        "weather.operations.production_cold_archive_stage",
+        "archive_chunk_grouping",
+        "Whole-file sorted packing algorithm identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "market_day_file_family_v1",
+        "weather.operations.production_cold_archive_stage",
+        "archive_chunk_grouping",
+        "Market-day and file-family packing algorithm identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "production_sorted_ustar_gzip_level1_v1",
         "weather.operations.production_cold_archive_stage",
         "archive_format_identifier",

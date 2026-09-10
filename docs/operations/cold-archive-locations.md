@@ -126,6 +126,20 @@ cache preserves original timestamps and logical provenance. Data-layer and CLOB
 audits expose archived locations and restore actions while local training
 eligibility continues to require local inputs.
 
+Managed cache cleanup uses
+`weather.operations.cold_archive_cache_cleanup.clear_cache` with an exact entry
+hash, published cache hash and fresh attempt ID. The caller holds the same
+host lease as cache readers. Cleanup takes exclusive native NTFS handles for
+every member, verifies identity and full content before any deletion, and
+removes through those same handles. In-use, missing, changed, hardlinked or
+redirected members refuse the complete batch before its first removal.
+Claims, catalog pointers, prior cache records, restore proofs and directories
+remain; an absent cache member correctly requires restore again.
+Immutable intent, per-file completion and final receipts live under
+`catalog/archives/<archive-id>/cache_cleanup/<attempt-id>/`.
+An interrupted cleanup requires explicit reconciliation from those records;
+a missing final receipt is never a successful batch or automatic retry authority.
+
 Original-source reclaim is a separate, exact-file operation. It requires owner
 selection authority, current protected-input checks, consumer compatibility,
 independent full restore, a durable location record and fresh native source

@@ -1,4 +1,4 @@
-"""Catalog, full-restore bindings and bounded cache on synthetic local files."""
+"""Catalog, full-restore bindings, bounded cache and cleanup on synthetic files."""
 from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
@@ -606,3 +606,129 @@ def test_duplicate_json_key_is_rejected(tmp_path):
     path.write_bytes(b'{"a":1,"a":2,"receipt_hash":"bad"}')
     with pytest.raises(locations.CatalogIntegrityError):
         locations.read_record(path)
+
+# Cache cleanup tests deliberately use synthetic members only.
+class FixtureRemoval(FixturePin):
+    def metadata(self):
+        return metadata(self.path)
+
+    def digest(self, *, guard):
+        guard.admit()
+        return sha(self.path)
+
+    def remove(self):
+        self.path.unlink()
+
+
+def cleanup_args(corpus, monkeypatch, *, native=False):
+    from weather.operations import cold_archive_cache_cleanup as cleanup
+    if not native:
+        monkeypatch.setattr(cleanup, "_removal_pin", FixtureRemoval)
+    args = cached(corpus)
+    result = catalog.publish_cache(**args)
+    return cleanup, dict(entry_path=corpus.entry_path, entry_sha256=corpus.entry_sha,
+                         cache_id=args["cache_id"], cache_sha256=result["cache_sha256"],
+                         attempt_id="clear-fixture-a1", admission=lambda: True,
+                         deadline_monotonic=time.monotonic() + 30)
+
+
+def test_cache_cleanup_preserves_originals_catalog_and_restore_receipts(corpus, monkeypatch):
+    cleanup, args = cleanup_args(corpus, monkeypatch)
+    original = corpus.day / "order_books_long.csv"
+    expected = locations.cached_path(locations.load_location(original))
+    catalog_before = {str(path): sha(path) for path in corpus.entry_path.parent.rglob("*.json")}
+    result = cleanup.clear_cache(**args)
+    assert result["status"] == "PASS" and result["deleted_files"] == len(corpus.contents)
+    assert not expected.exists() and original.read_bytes() == corpus.contents[original.name]
+    assert all(sha(Path(path)) == digest for path, digest in catalog_before.items())
+    assert locations.cached_path(locations.load_location(original)) is None
+    assert Path(result["receipt_path"]).exists()
+
+
+@pytest.mark.parametrize("fault", ["changed", "missing", "escaped", "wrong_hash", "expired"])
+def test_cache_cleanup_refuses_before_removing_any_member(corpus, monkeypatch, fault):
+    cleanup, args = cleanup_args(corpus, monkeypatch)
+    cache_record = corpus.entry_path.parent / "caches" / (args["cache_id"] + ".json")
+    cache = json.loads(cache_record.read_bytes())
+    member = corpus.root / cache["files"][-1]["cache_path"]
+    first = corpus.root / cache["files"][0]["cache_path"]
+    if fault == "changed":
+        before = member.stat()
+        member.write_bytes(b"x" * before.st_size)
+        os.utime(member, ns=(before.st_atime_ns, before.st_mtime_ns))
+    elif fault == "missing":
+        member.unlink()
+    elif fault == "escaped":
+        cache["files"][-1]["cache_path"] = cache["files"][-1]["source_path"]
+        cache_record.write_bytes(locations.canonical(locations.sealed(cache)) + b"\n")
+        args["cache_sha256"] = sha(cache_record)
+    elif fault == "wrong_hash":
+        args["cache_sha256"] = "0" * 64
+    elif fault == "expired":
+        args["deadline_monotonic"] = time.monotonic() - 1
+    with pytest.raises((locations.CatalogIntegrityError, OSError)):
+        cleanup.clear_cache(**args)
+    assert first.exists()
+    assert not (corpus.entry_path.parent / "cache_cleanup").exists()
+    assert all((corpus.day / name).exists() for name in corpus.contents)
+
+
+def test_cache_cleanup_partial_failure_keeps_intent_and_completed_file_receipt(corpus, monkeypatch):
+    cleanup, args = cleanup_args(corpus, monkeypatch)
+
+    class InterruptedRemoval(FixtureRemoval):
+        calls = 0
+        def remove(self):
+            type(self).calls += 1
+            if self.calls == 2:
+                raise OSError("synthetic interruption")
+            super().remove()
+
+    monkeypatch.setattr(cleanup, "_removal_pin", InterruptedRemoval)
+    with pytest.raises(OSError, match="synthetic interruption"):
+        cleanup.clear_cache(**args)
+    attempt = corpus.entry_path.parent / "cache_cleanup" / args["attempt_id"]
+    assert (attempt / "intent.json").exists()
+    assert (attempt / "file-00000.json").exists()
+    assert not (attempt / "receipt.json").exists()
+    assert all((corpus.day / name).exists() for name in corpus.contents)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native NTFS removal requires Windows")
+def test_native_cache_cleanup_removes_only_verified_cache_members(corpus, monkeypatch):
+    cleanup, args = cleanup_args(corpus, monkeypatch, native=True)
+    result = cleanup.clear_cache(**args)
+    assert result["status"] == "PASS" and result["deleted_files"] == len(corpus.contents)
+    assert all((corpus.day / name).exists() for name in corpus.contents)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native NTFS sharing requires Windows")
+def test_native_cache_cleanup_refuses_an_open_reader_before_any_removal(corpus, monkeypatch):
+    cleanup, args = cleanup_args(corpus, monkeypatch, native=True)
+    cache, _ = locations.read_record(corpus.entry_path.parent / "caches" / (args["cache_id"] + ".json"))
+    paths = [corpus.root / row["cache_path"] for row in cache["files"]]
+    with paths[-1].open("rb") as reader:
+        with pytest.raises(OSError):
+            cleanup.clear_cache(**args)
+        assert reader.read(1)
+    assert all(path.exists() for path in paths)
+    assert not (corpus.entry_path.parent / "cache_cleanup").exists()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="native NTFS removal requires Windows")
+def test_native_removal_rejects_hardlinks_and_ancestor_replacement(tmp_path):
+    from weather.operations.cold_archive_native_removal import ExactNtfsRemoval
+    source = tmp_path / "member"
+    source.write_bytes(b"synthetic file")
+    linked = tmp_path / "hardlink"
+    os.link(source, linked)
+    with pytest.raises((ValueError, OSError)):
+        with ExactNtfsRemoval(source):
+            pytest.fail("hardlinked source was admitted")
+    linked.unlink()
+    with ExactNtfsRemoval(source) as pin:
+        guard = archive._Guard(lambda: True, time.monotonic() + 10, 16 * archive.MIB)
+        assert pin.digest(guard=guard) == hashlib.sha256(b"synthetic file").hexdigest()
+        with pytest.raises(OSError):
+            source.parent.rename(source.parent.with_name(source.parent.name + "-moved"))
+    assert source.exists()

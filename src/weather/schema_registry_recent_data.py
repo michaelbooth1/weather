@@ -7,6 +7,11 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "cold_archive_cache_cleanup", "cold_archive_cache_cleanup_v0.1",
+        "weather.operations.cold_archive_cache_cleanup", "active",
+        "Exact verified cache-member removal intent, per-file results and completion receipt.",
+    ),
+    SchemaSpec(
         "cold_archive_recovery_export", "cold_archive_recovery_export_v0.1",
         "weather.operations.cold_archive_catalog", "active",
         "Exact recovered proof bytes and object IDs exported from an immutable archive catalog.",

@@ -1088,9 +1088,32 @@ their existing admitted job. Historical readers require verified local/cache
 bytes; housekeeping preserves existing Parquet and manifests when raw inputs
 are off-site. Strict audits do not upgrade off-site presence to a fresh PASS.
 
-Source publication/CI, production consumer adoption, concrete headroom, durable
-key custody, production full-restore qualification, managed cache cleanup and
-exact-file reclaim remain open.
+Catalog and reader source was published as
+dcf714a4aa27eb68c2c51ca4682b5df8c820a291. CI 662 recorded 5,072 passed,
+423 platform skips and one failed schema audit: the two new packing-policy
+identifiers needed explicit non-schema classifications. The follow-up adds
+those two narrow entries without weakening unknown-schema detection.
+
+Managed cache cleanup now pins every member exclusively on native NTFS,
+compares its recorded identity and full SHA-256, journals intent, then removes
+through that same verified handle. Busy, modified, missing or redirected files
+refuse before the first removal. All claims, directories, original files,
+catalog entries and restore receipts remain. A partial cleanup retains
+per-file completion evidence and cannot report a successful batch.
+
+The schema repair, catalog/cache cleanup, native sharing and hardlink checks,
+architecture and documentation checks passed all 98 cases in
+`scratch/handoffs/archive-reader-qualification-a5.xml`, SHA-256
+`6759c64ea28d5ab958a3a42d6a3ab2f7ca3b7229a996859fa31044c6b8cef0c3`.
+The exact 35-file source bundle is
+`scratch/handoffs/archive-reader-source-a5.json`, SHA-256
+`6a87228fea31f0f6fa3427334902f303c07bd01e1cab23c85fbef5d0cc8c4012`.
+The additional cleanup schema is additive only. Native deletion occurred only
+inside synthetic workstation test fixtures.
+
+Exact-head publication/CI, production consumer adoption, concrete headroom,
+durable key custody, production full-restore qualification and original-source
+reclaim remain open.
 The original exact July plan's reserve exception and the queued-PR-44 adoption
 boundary remain unchanged. Production archive upload, deletion and reclaim
 remain zero.
