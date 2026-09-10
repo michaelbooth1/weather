@@ -6,20 +6,21 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [ValidateSet('stage', 'transfer', 'upload', 'download', 'reclaim')][string]$Operation = 'stage'
+    [ValidateSet('stage', 'transfer', 'upload', 'download', 'publish', 'reclaim')][string]$Operation = 'stage'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $isReclaim = $Operation -eq 'reclaim'
-$isTransfer = $Operation -in @('transfer', 'upload', 'download')
-$expectedUpload = $Operation -ne 'download'
-$expectedDownload = $Operation -ne 'upload'
+$isTransfer = $Operation -in @('transfer', 'upload', 'download', 'publish')
+$expectedUpload = $Operation -notin @('download', 'publish')
+$expectedDownload = $Operation -notin @('upload', 'publish')
 $expectedPhase = 'upload_and_independent_download'
 $proofProperty = 'transport_receipt_sha256'
 if ($Operation -eq 'upload') { $expectedPhase = 'upload_only'; $proofProperty = 'upload_receipt_sha256' }
 if ($Operation -eq 'download') { $expectedPhase = 'download_and_verify' }
+if ($Operation -eq 'publish') { $expectedPhase = 'publish_uploaded'; $proofProperty = 'upload_receipt_sha256' }
 $workload = 'production_cold_archive_stage'
 $module = 'weather.operations.production_cold_archive_stage_cli'
 $outputDirectory = 'scratch\production_cold_archive'
@@ -132,7 +133,8 @@ if ($isTransfer) {
     # A terminated or malformed child cannot prove that a remote upload did not occur.
     $receipt.upload_performed = $null
     $receipt.upload_state = 'UNKNOWN'
-    $receipt.remote_side_effect_possible = $true
+    $receipt.remote_side_effect_possible = $Operation -ne 'publish'
+    if ($Operation -eq 'publish') { $receipt.upload_performed = $false; $receipt.upload_state = 'NOT_PERFORMED' }
 }
 try {
     # Identity, time and live lease precede even create-only attempt evidence.
@@ -221,6 +223,11 @@ try {
                 $result.$proofProperty -isnot [string] -or $result.$proofProperty -cnotmatch '^[0-9a-f]{64}$') {
                 throw 'transfer child receipt verification mismatch'
             }
+            if ($Operation -eq 'publish' -and ($result.remote_side_effect_possible -ne $false -or
+                $result.committed_upload_reused -ne $true -or $result.catalog.status -cne 'UPLOADED' -or
+                $result.catalog.entry_sha256 -cnotmatch '^[0-9a-f]{64}$')) {
+                throw 'committed upload publication proof mismatch'
+            }
         }
         elseif ($result.upload_performed -ne $false) { throw 'stage child receipt claimed upload' }
         $finalTip = [string](git -C $sourceRoot rev-parse HEAD)
@@ -252,6 +259,11 @@ try {
             $receipt.upload_state = 'VERIFIED'
             if ($Operation -eq 'upload') { $receipt.upload_state = 'UPLOADED_NOT_DOWNLOADED' }
             if ($Operation -eq 'download') { $receipt.upload_state = 'NOT_PERFORMED' }
+            if ($Operation -eq 'publish') {
+                $receipt.upload_state = 'NOT_PERFORMED'
+                $receipt.catalog_entry_sha256 = $result.catalog.entry_sha256
+                $receipt.committed_upload_reused = $true
+            }
         }
         elseif (-not $isReclaim) {
             $receipt.logical_source_bytes = $result.logical_source_bytes
@@ -271,7 +283,7 @@ catch {
         $receipt.deleted_files = $null; $receipt.reclaimed_bytes = $null
         $receipt.source_retained = $null; $receipt.reclaim_state = 'UNKNOWN'
     }
-    if ($isTransfer) { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
+    if ($isTransfer -and $Operation -ne 'publish') { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
     $receipt.error = $_.Exception.Message
     $exitCode = 1
 }
@@ -289,7 +301,7 @@ finally {
                 $receipt.deleted_files = $null; $receipt.reclaimed_bytes = $null
                 $receipt.source_retained = $null; $receipt.reclaim_state = 'UNKNOWN'
             }
-            if ($isTransfer) { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
+            if ($isTransfer -and $Operation -ne 'publish') { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
         }
         if ($job) { $job.Dispose() }
         if ($process) { $process.Dispose() }

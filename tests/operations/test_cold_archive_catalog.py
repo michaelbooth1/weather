@@ -740,3 +740,107 @@ def test_native_removal_rejects_hardlinks_and_ancestor_replacement(tmp_path):
         with pytest.raises(OSError):
             source.parent.rename(source.parent.with_name(source.parent.name + "-moved"))
     assert source.exists()
+
+
+def committed_publication(corpus):
+    from weather.operations import production_cold_archive_transfer as cli
+    request = {"publish_catalog": True, "operation": cli.MODES["publish"], **corpus.bound,
+               "drive_root_folder_id": corpus.uploaded["drive"]["root_folder_id"],
+               "upload_receipt_path": str(corpus.args["upload_receipt"]),
+               "upload_receipt_sha256": corpus.args["upload_receipt_sha256"]}
+    for name in ("production_manifest", "production_receipt", "crypt_receipt"):
+        request[name + "_path"] = str(corpus.args[name])
+    return cli, request
+
+
+def test_committed_upload_publication_preserves_objects_and_originals(corpus, monkeypatch):
+    cli, request = committed_publication(corpus)
+    def forbidden(*args, **kwargs):
+        pytest.fail("publication must not initialize any transfer or decrypt payload")
+    monkeypatch.setattr(cli.transfer, "transfer_chunk", forbidden)
+    before_upload = Path(request["upload_receipt_path"]).read_bytes()
+    uploaded, raw = cli.committed_upload(request)
+    assert raw == before_upload
+    result = cli.publish_upload_location(
+        request, request["upload_receipt_path"], request["upload_receipt_sha256"],
+        source_root=corpus.root, admission=lambda: True, deadline_monotonic=time.monotonic() + 30)
+    entry, _, _ = catalog._entry(result["entry_path"], result["entry_sha256"])
+    assert entry["drive_root_folder_id"] == request["drive_root_folder_id"]
+    assert entry["objects"][0]["object_id"] == uploaded["drive"]["object_id"]
+    assert Path(request["upload_receipt_path"]).read_bytes() == before_upload
+    assert all((corpus.day / name).read_bytes() == content for name, content in corpus.contents.items())
+    assert all(locations.load_location(corpus.day / name).entry_sha256 == result["entry_sha256"]
+               for name in corpus.contents)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("status", "FAILED"), ("phase", "download_and_verify"), ("upload_performed", False),
+    ("independent_download", True), ("archive_id", "other-archive"), ("chunk_id", "chunk-00001"),
+    ("plan_sha256", "0" * 64), ("crypt_receipt_sha256", "0" * 64),
+])
+def test_publication_rejects_wrong_or_failed_committed_upload(corpus, field, value):
+    cli, request = committed_publication(corpus)
+    changed = dict(corpus.uploaded)
+    changed[field] = value
+    changed_path = corpus.tmp / "changed-upload.json"
+    request["upload_receipt_path"] = str(changed_path)
+    request["upload_receipt_sha256"] = save(changed_path, changed)
+    with pytest.raises(ValueError, match="committed upload"):
+        cli.committed_upload(request)
+    assert not (corpus.root / "cold_archive").exists()
+
+
+def test_publication_rejects_different_destination_folder(corpus):
+    cli, request = committed_publication(corpus)
+    request["drive_root_folder_id"] = "another_private_folder_1234"
+    with pytest.raises(ValueError, match="committed upload"):
+        cli.committed_upload(request)
+
+
+@pytest.mark.parametrize("capture_allowed", [True, False])
+def test_publication_runner_reuses_proof_under_capture_admission(corpus, monkeypatch, capture_allowed):
+    from datetime import timedelta
+    cli, request = committed_publication(corpus)
+    now = datetime.now(timezone.utc)
+    root = corpus.root.parent
+    request.update(
+        schema_version=schema_version("production_cold_archive_transfer_request"),
+        production_repo_root=str(root), execution_host_id="e" * 64,
+        approved_by="synthetic publication owner",
+        approved_at_utc=(now - timedelta(minutes=1)).isoformat(),
+        expires_at_utc=(now + timedelta(hours=1)).isoformat(),
+        plan_path=str(root / "plan.json"), source_git_sha="f" * 40)
+    request_path = root / "publish-request.json"
+    request_path.write_text(json.dumps(request))
+    output = root / "scratch" / cli.WORKLOAD / "publication-a1"
+    output.mkdir(parents=True)
+    lease_path = corpus.root / "logs" / "heavy_workload.lock"
+    lease_path.parent.mkdir()
+    lease_path.write_text(json.dumps({"execution_host_id": "e" * 64, "policy_window": "agent_heavy"}))
+    monkeypatch.setenv(cli.staging.ENV_PREFIX + "SOURCE_ROOT", str(cli.repo_path()))
+    monkeypatch.setenv(cli.staging.ENV_PREFIX + "OWNER_PID", "1")
+    monkeypatch.setenv(cli.staging.ENV_PREFIX + "DEADLINE_UTC", (now + timedelta(seconds=120)).isoformat())
+    leases = []
+    monkeypatch.setattr(cli, "verify_current_lease", lambda *a, **kw: leases.append(kw["workload"]))
+    monkeypatch.setattr(cli, "set_current_process_below_normal", lambda: None)
+    monkeypatch.setattr(cli, "observe_capture_admission",
+                        lambda *a, **kw: {"status": "PASS" if capture_allowed else "REFUSED"})
+    monkeypatch.setattr(cli.transfer, "transfer_chunk",
+                        lambda **kw: pytest.fail("publication attempted a network/payload transfer"))
+    args = SimpleNamespace(operation="publish", request_sha256=sha(request_path), source_git_sha="f" * 40)
+    if not capture_allowed:
+        with pytest.raises(ValueError, match="capture resource admission"):
+            cli._run_pinned(args, root, output, request_path)
+        assert not (corpus.root / "cold_archive").exists()
+        assert not (output / "result.json").exists()
+        return
+    assert cli._run_pinned(args, root, output, request_path) == 0
+    result = json.loads((output / "result.json").read_text())
+    assert result["operation"] == "publish_uploaded"
+    assert result["upload_performed"] is result["independent_download"] is False
+    assert result["remote_side_effect_possible"] is False
+    assert result["committed_upload_reused"] is True
+    assert result["upload_receipt_sha256"] == request["upload_receipt_sha256"]
+    assert result["catalog"]["status"] == "UPLOADED"
+    assert leases and all(value == cli.WORKLOAD + "_publish" for value in leases)
+    assert all((corpus.day / name).read_bytes() == content for name, content in corpus.contents.items())
