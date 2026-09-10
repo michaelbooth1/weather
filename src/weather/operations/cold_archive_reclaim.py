@@ -113,6 +113,38 @@ def _approval(request, stack, entry):
     return approval, approval_sha, kind, target
 
 
+def _market_day_evidence(review, entry, stack):
+    events = sorted({locations.relative_path(row["path"]).parts[1] for row in entry["files"]})
+    _require(1 <= len(events) <= 16, "reclaim market-day evidence exceeds bound")
+    if len(events) == 1 and "market_days" not in review:
+        return  # Existing single-day reviews retain their original contract.
+    rows = review.get("market_days")
+    _require(isinstance(rows, list) and len(rows) == len(events)
+             and all(isinstance(row, dict) for row in rows)
+             and [row.get("event_slug") for row in rows] == events,
+             "reclaim requires exact ordered evidence for every market day")
+    for event, row in zip(events, rows):
+        _require(set(row) == {"event_slug", "target_date", "settlement"}
+                 and row["target_date"] == event_date(event).isoformat(),
+                 "market-day settlement identity differs")
+        spec = row["settlement"]
+        _require(isinstance(spec, dict) and Path(spec.get("path", "")) ==
+                 Path(entry["source_root"]) / "snapshots" / event / "settlement.json",
+                 "market-day settlement evidence path differs")
+        settlement, _ = _load(spec, stack, sealed=False)
+        reconciliation = settlement.get("polymarket_reconciliation")
+        _require(settlement.get("target_date") == row["target_date"]
+                 and isinstance(reconciliation, dict)
+                 and reconciliation.get("event_closed") is True
+                 and reconciliation.get("status") == "match",
+                 "market-day final settlement is not proved")
+        winners = reconciliation.get("winning_markets")
+        _require(isinstance(winners, list) and 1 <= len(winners) <= 256
+                 and all(isinstance(winner, dict) and winner.get("closed") is True
+                         and winner.get("resolved") is True for winner in winners),
+                 "market-day winning markets are not finally resolved")
+
+
 def _review(spec, stack, entry, entry_sha, now):
     review, digest = _load(spec, stack)
     _require(review.get("schema_version") == schema_version("cold_archive_source_review")
@@ -124,6 +156,7 @@ def _review(spec, stack, entry, entry_sha, now):
     checked, expires = _utc(review.get("checked_at_utc")), _utc(review.get("expires_at_utc"))
     _require(checked <= now < expires and expires - checked <= timedelta(minutes=5),
              "protected-input review is expired, future-dated or overlong")
+    _market_day_evidence(review, entry, stack)
     checks = review.get("checks")
     _require(isinstance(checks, dict) and set(checks) == set(SELECTION_CHECKS),
              "protected-input review lacks required checks")
@@ -309,8 +342,6 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
         _require(local_root == production_root / "data", "reclaim cannot use a relocated recovery catalog")
         approval, approval_sha, kind, target = _approval(request, stack, entry)
         _require(kind == "primary", "conditional reserve needs a qualified complete primary-disposition proof")
-        _require(len({locations.relative_path(row["path"]).parts[1] for row in entry["files"]}) == 1,
-                 "reclaim supports one market day per archive")
         for row in entry["files"]:
             parts = locations.relative_path(row["path"]).parts
             _require(len(parts) == 3 and parts[0] == "snapshots"

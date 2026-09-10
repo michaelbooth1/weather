@@ -63,9 +63,10 @@ def corpus(tmp_path, monkeypatch, request):
     contents = getattr(request, "param", {"order_books_long.csv": b"a,b\n" + b"1,2\n" * 8,
                 "order_books_long.csv.gz": gzip.compress(b"a,b\n" + b"1,2\n" * 8)})
     for name, content in contents.items():
+        (day / name).parent.mkdir(parents=True, exist_ok=True)
         (day / name).write_bytes(content)
-    rows = [{"path": path.relative_to(root).as_posix(), **metadata(path)}
-            for path in sorted(day.iterdir())]
+    paths = sorted((day / name).resolve() for name in contents)
+    rows = [{"path": path.relative_to(root.resolve()).as_posix(), **metadata(path)} for path in paths]
     selection = {"schema_version": schema_version("large_archive_candidate_selection"),
                  "status": "MEASURED_CANDIDATE_NOT_DELETE_AUTHORITY", "source_root": str(root),
                  "files": rows, "file_count": len(rows),
@@ -74,7 +75,8 @@ def corpus(tmp_path, monkeypatch, request):
     selection_path, plan_path = tmp_path / "selection.json", tmp_path / "plan.json"
     selection_path.write_text(json.dumps(selection))
     archive.plan_selection(selection_path, sha(selection_path), plan_path,
-                           chunk_grouping=archive.SELECTIVE_GROUPING)
+                           chunk_grouping=(archive.PARTITIONED_GROUPING if len({p.parent for p in paths}) > 1
+                                           else archive.SELECTIVE_GROUPING))
     admission = lambda: True
     deadline = time.monotonic() + 30
     stage_directory = tmp_path / "scratch" / "production_cold_archive" / "fixture-stage-a1" / "stage"
