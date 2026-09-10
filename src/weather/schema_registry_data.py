@@ -2713,6 +2713,12 @@ EXCLUDED_SCHEMA_LITERALS = (
         "Whole-file sorted packing algorithm identifier, not a serialized artifact schema.",
     ),
     SchemaLiteralExclusion(
+        "market_day_v1",
+        "weather.operations.production_cold_archive_stage",
+        "archive_chunk_grouping",
+        "Single-market-day packing algorithm identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
         "market_day_file_family_v1",
         "weather.operations.production_cold_archive_stage",
         "archive_chunk_grouping",
