@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED SMALL RECLAIM; UPLOAD QUOTA BLOCKED]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -6,6 +6,96 @@ verified append-only archive on the workstation host, and never deleting a byte
 that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
+
+## September 10 07:40 actual reclaim and stopped campaign
+
+The 100 GB archive-source capacity target remains unmet. Exact original reclaim
+is **116,523,008 allocated bytes**: the first pilot's 7,614,464 bytes plus
+108,908,544 bytes from the five Atlanta July 10 files in `e10d00001`.
+
+`e10d00001r7` committed its canonical reclaim receipt, all five original-file
+removals, the three qualified production-spool removals and READY progress.
+Its final wrapper health check then refused because the snapshot heartbeat
+was 186 seconds old, above the unchanged 180-second limit. The scheduled
+campaign therefore stopped with a failed wrapper result. A bounded metadata
+reconciliation verified the committed receipt and progress hashes, five source
+absences and three temporary-file absences. It performed no additional deletion
+and preserved the failed wrapper evidence. **Do not retry this reclaim.**
+
+Production-local evidence:
+
+- `scratch/handoffs/e10d00001-r7-reconciled-20260910.json`:
+  `RECONCILED_COMMITTED_RECLAIM_WRAPPER_FAILED`, cumulative 116,523,008 bytes.
+- The canonical `e10d00001r7/receipt.json` under
+  `data/cold_archive/catalog/reclaims/2878ff1c2e673a539a74f1939a15682c9f624c7f54184ddee63dfb522fc34d7e/`
+  has SHA-256 `43cac04b0df249005cb714924dcf3aa28f80cb92c6e96ef3462d77a85c1b47a7`;
+  the READY progress snapshot at that checkpoint has SHA-256
+  `d49c9b9df0c7e7f9173d15cf4717a71729a2219dc16b08ee00d30ab132f2be48`.
+- `data/cold_archive/WHERE_DATA_IS.md` reports all six original members as
+  ARCHIVED and points to the immutable catalog entries and private Drive folder.
+  Full independent restores, workstation recovery metadata and private recovery-key
+  backup were already verified before reclaim.
+
+The 17-record recovery/closure metadata snapshot, including the current location
+inventory, exact upload catalogs, committed reclaim proofs and failed third-archive
+receipts, is now independently retained:
+
+- Production: `scratch/handoffs/archive-closure-metadata-20260910.json`.
+- Workstation: `C:/Users/Michael/Documents/github/weather-bulk-cold-archive-20260909/scratch/ac-in/e10d19997/closure.json`.
+- [Private Drive copy](https://drive.google.com/file/d/1o2nUQjrBexCTnok9HZHur9K7Bk5JMNUQ/view).
+  The connector confirmed the same owner-only archive folder, 56,648 bytes and
+  no sharing. An independent raw download and the workstation file both matched
+  SHA-256 `030d2ea6f13f6c191004dca141dc11cc751ca8a47392d68308c975b46c0bfa2a`.
+  `scratch/handoffs/archive-closure-replication-20260910.json` records verification.
+  This metadata snapshot contains no recovery key or credential; their previously
+  verified private custody remains separate.
+
+Packed `chunk-00002` attempts `e10d10002s1` and `e10d20002s1` both stopped at
+the unchanged 70% host commit gate. They uploaded nothing and retain their
+partial staging output and all originals. Smaller day-plan `chunk-00031`,
+archive `e10d30031`, contains two Atlanta June 16 files with 212,979,712 allocated
+bytes. Its stage, workstation encryption and bounded ciphertext return all
+passed. Its three upload attempts remain failed and spent:
+
+| Attempt | Evidence and disposition |
+| --- | --- |
+| `e10d30031u1` | Upload client reported quota failure and possible remote side effect. Subsequent exact-name metadata proved the ciphertext absent. |
+| `e10d30031u2` | Destination metadata check failed before upload; the inner receipt reports no remote side effect. |
+| `e10d30031u3` | A direct four-name query first proved all destinations absent, then the upload client again reported quota failure. A final complete four-name query at 07:42 proved all four absent; preserve both the failed receipt and this later observation. |
+
+The receipts are under `scratch/production_cold_archive_transfer/<attempt>/`.
+The third attempt's receipt hash is
+`e6ed6117a88503452c5eeae6a216bebe669e00847b64c64c3d58e1bc3ba86380`.
+A direct, credential-safe Google API probe returned HTTP 403 `rateLimitExceeded`
+at 07:30; another direct query returned complete empty results at 07:34.
+This intermittent service admission is not evidence of a storage-capacity
+shortage. Three failed uploads do not qualify cloud custody, restore, or deletion.
+
+The production-private configuration still uses rclone's shared OAuth project.
+Its project quota was identified in the retained sanitized diagnostics. Rclone's
+[Drive client documentation](https://rclone.org/drive/#making-your-own-client-id)
+recommends a dedicated client and documents retirement of its shared client
+during 2026. Direct exact-ID reads already reduce lookup cost, but use the same
+project quota. No archive source change was made merely to retry that project.
+A browser connection failed with `Transport closed`; the desktop helper failed
+with `0xc0000142` both before and after reset. No dedicated OAuth client was
+created. Existing credential and recovery-key files remain retained privately.
+
+`archive-day-controller-v7-20260910.ps1` adds only an encrypted-archive resume
+point; it preserves the stricter snapshot-start check and all canonical phase
+gates. The bounded metadata/backoff controller has terminated. The packed
+scheduled one-shot is terminal, and the prepared small campaign was never
+armed. All payload phases retain the September 10 09:00 Toronto deadline;
+expired requests, approvals or dated reserve exceptions must not be reused.
+
+Separately, the September 10 05:00 CLOB projection tiering and recovered 06:00
+raw-tape tiering receipts report **16,682,553,344 bytes reclaimed** in total.
+At 07:36 Toronto production had **24,477,642,752 bytes free**, 62.6% commit
+and 6,241 MB available physical memory; the three capture status files showed
+no pause or consecutive error. These are point-in-time resource/health checks,
+not graded countability. The canonical documentation transaction still needs
+its manifest and required production checks; its ordinary 50 GB free-space
+admission floor is not met and was not weakened.
 
 ## September 10 06:30 scheduled-run readiness
 
