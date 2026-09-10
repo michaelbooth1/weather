@@ -14,6 +14,7 @@ in `weather.cold_archive_locations` and `weather.operations.cold_archive_catalog
 | `data/cold_archive/catalog/archives/<archive-id>/upload.json` | Immutable original members, hashes, exact private Drive folder/object IDs, and exact upstream proof bytes. |
 | `data/snapshots/<event>/.cold_archive/<filename>.json` | Small location marker binding the original path and hash to one catalog entry. It is metadata, not a replacement data file. |
 | `data/cold_archive/catalog/archives/<archive-id>/restores/<receipt-sha256>.json` | Independent download and complete materialized restore proof, retained after cache removal. |
+| `data/cold_archive/catalog/archives/<archive-id>/custody/<record-sha256>.json` | Verified workstation metadata copies and the owner's external recovery-key custody confirmation. No keys are stored here. |
 | `data/cold_archive/catalog/archives/<archive-id>/caches/<cache-id>.json` | Immutable record of one fully verified local cache population. |
 | `data/cold_archive/catalog/archives/<archive-id>/cache.json` | Current cache pointer; earlier cache records remain. |
 | `data/cold_archive/catalog/reclaims/<approval-sha256>/<attempt-id>/` | Immutable original-reclaim intent, canonical cleanup preflight, per-file completion and final receipt. |
@@ -97,8 +98,44 @@ host and mirror boundaries still apply to the selected recovery root.
 
 Catalog publication and cache population are orchestration APIs. Their caller
 must own the correct host workload lease and provide its live admission and
-deadline callback. The current catalog CLI is read-only. A callback that simply
+deadline callback. The catalog CLI is read-only. The workstation publication
+route below supplies admitted metadata publication. A callback that simply
 returns true is a synthetic fixture seam, not production admission.
+
+### Workstation recovery handback
+
+Run the existing workstation wrapper with `-Kind weather_heavy` and Python
+module `weather.operations.workstation_cold_archive_restore`, selecting
+`--publish-recovery`. This metadata operation requires the wrapper environment,
+the assigned non-capture Windows installation and attending principal, a pinned
+assignment and a 60-second deadline. It performs no download, decryption or
+original deletion.
+
+Bind each input with its absolute path and raw SHA-256: `--entry-path` /
+`--entry-sha256`, `--transport-receipt` / `--transport-receipt-sha256`,
+`--restore-receipt` / `--restore-receipt-sha256`, and `--key-custody` /
+`--key-custody-sha256`. Supply a fresh `--attempt-id` and an existing
+`--recovery-data-root` at the reviewed workstation checkout's
+`scratch/production_cold_archive_recovery/<campaign>/data`. Use short campaign
+and archive IDs; paths that exceed ordinary Windows limits are refused.
+This dedicated layout never writes the frozen mirror.
+
+The key-custody input is an exact JSON object with schema
+`cold_archive_key_custody`, `confirmed=true`, `outside_both_pcs=true`,
+`approved_by`, timezone-aware `confirmed_at_utc` and `storage_reference`.
+These fields record the owner's actual confirmation that the archive recovery
+keys and required client configuration are stored outside both PCs. Store a
+location reference, never a password, token or key. Extra fields are rejected.
+
+The operation imports the exact entry and logical markers, validates and
+publishes complete restore proof, verifies both copied metadata hashes and
+writes custody plus a location inventory. Its create-only handback lives at
+`scratch/production_cold_archive_recovery/<campaign>/handbacks/<attempt-id>/`.
+A failure preserves the claim and all partial metadata; it is not an
+automatic retry instruction. Copy the returned restore/custody records back
+by their exact hashes. Original reclaim retains both in the production catalog
+before any source removal; the workstation copies remain independent.
+
 
 ## Readers, housekeeping and cleanup
 
@@ -165,7 +202,7 @@ The request uses `production_cold_archive_reclaim_request`, operation
 expiry fields, and a unique `attempt_id`. Each of `catalog_entry`,
 `owner_approval`, `proposal`, `selection`, `plan`, `source_review`,
 `restore_record` and `custody_record` is exactly an absolute `path` and
-raw `sha256`. The executor recomputes the complete selective plan and binds
+raw `sha256`. Optional `spool_inventory` has the same path/hash form. The executor recomputes the complete selective plan and binds
 the archive's original members to the approved proposal. Conditional-reserve
 execution remains refused until a qualified complete primary-disposition proof
 is supplied by a separately implemented lane.
@@ -197,6 +234,34 @@ a killed or malformed child reports unknown deletion counts. Reconcile its
 exact intent, native paths and completion records before authorizing another
 attempt. Catalog entries, markers, recovery receipts, cloud objects and
 staging/transfer evidence remain retained.
+
+### Temporary payload lifecycle
+
+For a reclaim batch that also releases its temporary payload space, include a
+sealed `cold_archive_spool_inventory` bound to the same archive ID and entry
+SHA-256. Its three ordered rows are `staged_archive`, `upload_ciphertext` and
+`downloaded_ciphertext`. Each row records its repository-relative path, full
+SHA-256, size, modification time, native device/file ID and allocated bytes.
+
+Only these exact payload paths can be selected:
+
+- `scratch/production_cold_archive/<stage-attempt>/stage/archive.tar.gz`, bound
+  to the original stage receipt and manifest;
+- `scratch/production_cold_archive_ingress/<archive-id>/archive.rclone.bin`,
+  bound to the committed ciphertext identity;
+- `scratch/production_cold_archive_transfer/<download-attempt>/transfer/downloaded-<archive-id>.rclone.bin`,
+  bound to the independently verified download receipt.
+
+The executor pins and fully hashes every source and temporary payload before
+any deletion. After approval, complete restore, custody and consumer checks,
+it journals campaign intent, removes those temporary copies, then reclaims
+originals. `spool-intent.json`, `spool-file-*.json` and `spool-receipt.json` sit
+beside the original-reclaim receipts. A failure keeps the campaign in
+`IN_PROGRESS` for reconciliation. Directories, encrypted configuration,
+metadata sidecars, catalog entries, cloud objects and workstation copies stay
+retained. Temporary bytes are reported separately and never added to the
+approved original-data target. Check the actual volume free space to establish
+the net result before proceeding to another batch.
 
 ## Update when
 

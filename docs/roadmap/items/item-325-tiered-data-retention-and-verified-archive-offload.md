@@ -1147,8 +1147,30 @@ The 42-file qualified source bundle is
 `4780cc9a4d59f03b1ead369554066ba0800e902a860beed7ead8f332225a0cc9`.
 Later documentation closeout does not change those qualified code bytes.
 
-Exact reclaim-source publication/CI, production consumer adoption, concrete
-headroom, durable key custody, fresh per-chunk protection evidence and
-production full-restore/reclaim remain open. The original exact July plan's
+Original-source reclaim was published at
+e665d42ac63918e348182405ebe272c8169f358c and CI 664 passed. The subsequent
+temporary-payload cleanup and admitted workstation recovery-publication
+changes passed native Windows qualification. The first cleanup matrix's three
+path-limit failures were repaired by keeping cleanup records beside reclaim
+receipts. The expanded matrix then passed 268 of 272 checks; its four failures
+were fixture setup and an omitted workstation adapter copy. After correcting
+those, all 76 focused recovery-publication, routing, source-identity, import,
+schema, documentation and roadmap checks passed with no skips. Compilation
+of all nine changed Python files exited 0 through the workstation wrapper.
+No production files were involved.
+
+The source-only 46-file qualification bundle is
+`scratch/handoffs/archive-recovery-source-a4.json`, SHA-256
+`823c3715e7c4cf08dc9c06d9ebfc394cc8d880d8e3e61732051c773cbffc3b57`.
+Retained workstation receipts are
+`scratch/handoffs/archive-recovery-qualification-a3.xml`, SHA-256
+`4515385f3a4f3f882f54707f96ad6206c62ddf24020b4f3a0023fe58af41e0a4`,
+and `scratch/handoffs/archive-recovery-qualification-a4.xml`, SHA-256
+`aaa982e5003ca9773afb27396262d7313f644fb892fca225f14ca7c24aa4259e`.
+Later documentation closeout does not change those qualified Python bytes.
+Follow-up source publication and exact-commit CI remain to be verified.
+
+Production consumer adoption, concrete headroom, durable key custody, fresh
+per-chunk protection evidence and production full-restore/reclaim remain open. The original exact July plan's
 reserve exception and queued-PR-44 adoption boundary remain unchanged.
 Production archive upload, deletion and reclaim remain zero.

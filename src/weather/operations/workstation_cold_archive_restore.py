@@ -601,6 +601,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     tokens = list(sys.argv[1:] if argv is None else argv)
+    if "--publish-recovery" in tokens:
+        from weather.operations import cold_archive_recovery_publication
+        tokens.remove("--publish-recovery")
+        return cold_archive_recovery_publication.main(tokens)
     if "--production-chunk" in tokens:
         from weather.operations import bulk_cold_archive_crypt
         tokens.remove("--production-chunk")

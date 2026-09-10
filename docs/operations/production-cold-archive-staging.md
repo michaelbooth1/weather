@@ -150,7 +150,9 @@ Copy that downloaded object and the hash-bound transport receipt to the
 workstation; restore into a fresh crypt namespace and plaintext tree. Complete
 ordered archive verification, materialization and per-file rehash are required.
 Drive provenance remains controller-supplied evidence on the workstation.
-Recovery keys/configuration need separate durable custody.
+Recovery keys/configuration need separate durable custody. Use the admitted
+[workstation recovery handback](cold-archive-locations.md#workstation-recovery-handback)
+to publish the complete restore and verified off-host metadata copies.
 
 All phases retain production sources and set cleanup eligibility false. Neither
 transport nor restore establishes fresh production identity or consumer closure.
@@ -201,7 +203,10 @@ A successful upload is never presented as independent recovery. The existing
 Keep each original discoverable through the [cold archive location catalog](cold-archive-locations.md).
 Publish exact cloud object identities and upstream proof bytes while original
 source identities still match; retain independent full restore receipts
-separately from temporary cache copies. These records do not grant deletion
+separately from temporary cache copies. The [temporary payload lifecycle](cold-archive-locations.md#temporary-payload-lifecycle)
+releases only the exact three reviewed production staging/transfer payloads after
+complete recovery and custody checks; retaining them indefinitely defeats net
+headroom recovery. These records do not grant deletion
 authority or prove historical consumer closure.
 
 ## Update when

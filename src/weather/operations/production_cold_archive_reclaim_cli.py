@@ -30,6 +30,8 @@ def validate_request(payload, *, production_root, now, source_git_sha):
     required = {"schema_version", "production_repo_root", "execution_host_id", "operation",
                 "approved_by", "approved_at_utc", "expires_at_utc", "source_git_sha",
                 "attempt_id", *EVIDENCE_FIELDS}
+    if isinstance(payload, dict) and "spool_inventory" in payload:
+        required.add("spool_inventory")
     if not isinstance(payload, dict) or set(payload) != required:
         raise ValueError("request fields differ from the exact archive reclaim contract")
     if (payload["schema_version"] != schema_version("production_cold_archive_reclaim_request")
@@ -49,7 +51,8 @@ def validate_request(payload, *, production_root, now, source_git_sha):
     approved, expires = _utc(payload["approved_at_utc"]), _utc(payload["expires_at_utc"])
     if not approved <= now < expires or expires - approved > timedelta(hours=72):
         raise ValueError("reclaim request is expired, future-dated or overlong")
-    for field in EVIDENCE_FIELDS:
+    evidence_fields = EVIDENCE_FIELDS + (("spool_inventory",) if "spool_inventory" in payload else ())
+    for field in evidence_fields:
         spec = payload[field]
         if (not isinstance(spec, dict) or set(spec) != {"path", "sha256"}
                 or not isinstance(spec["path"], str) or not Path(spec["path"]).is_absolute()):
@@ -94,6 +97,7 @@ def _run_pinned(args, root, output, request_path, stack):
         raise ValueError("Python import root is not wrapper-bound")
     for module in (__file__, reclaim.__file__, native.__file__, reclaim.archive.__file__,
                    reclaim.bridge.__file__, reclaim.catalog.__file__, reclaim.locations.__file__,
+                   reclaim.spool.__file__,
                    staging.__file__, metadata.__file__):
         if not Path(module).resolve().is_relative_to(source / "src" / "weather"):
             raise ValueError("reclaim module escaped the reviewed source checkout")
@@ -160,6 +164,7 @@ def _run_pinned(args, root, output, request_path, stack):
              "chunk_id": result["chunk_id"], "deleted_files": result["deleted_files"],
              "reclaimed_bytes": result["reclaimed_allocated_bytes"],
              "source_retained": result["source_retained"], "cleanup_eligible": False,
+             "spool_cleanup": result.get("spool_cleanup"),
              "upload_performed": False, "reclaim_receipt_path": result["receipt_path"],
              "reclaim_receipt_sha256": result["receipt_sha256"], "final_admission": last_admission}
     write_receipt(output / "result.json", final)

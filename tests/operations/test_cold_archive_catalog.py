@@ -18,6 +18,9 @@ from weather.operations import bulk_cold_archive_crypt as bridge
 from weather.schema_registry import schema_version
 
 
+CIPHER_BYTES = b"synthetic ciphertext".ljust(128, b"x")
+
+
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -74,17 +77,19 @@ def corpus(tmp_path, monkeypatch, request):
                            chunk_grouping=archive.SELECTIVE_GROUPING)
     admission = lambda: True
     deadline = time.monotonic() + 30
-    archive.stage_chunk(plan_path, sha(plan_path), "chunk-00000", tmp_path / "stage",
+    stage_directory = tmp_path / "scratch" / "production_cold_archive" / "fixture-stage-a1" / "stage"
+    stage_directory.parent.mkdir(parents=True)
+    archive.stage_chunk(plan_path, sha(plan_path), "chunk-00000", stage_directory,
                         source_root=root, admission=admission, deadline_monotonic=deadline,
                         free_space_reserve_bytes=0)
-    manifest_path, stage_path = tmp_path / "stage/manifest.json", tmp_path / "stage/receipt.json"
+    manifest_path, stage_path = stage_directory / "manifest.json", stage_directory / "receipt.json"
     manifest = json.loads(manifest_path.read_text())
     archive_id = "catalog-fixture-a1"
     crypt_path, upload_path = tmp_path / "crypt.json", tmp_path / "upload.json"
     tool = {"tool": bridge.TOOL, "module_sha256": "1" * 64, "module_bytes": 1,
             "git_commit": "2" * 40, "git_tree": "3" * 40, "git_branch": "fixture",
             "git_dirty": False, "python": "3.12"}
-    cipher = {"bytes": 128, "sha256": "a" * 64,
+    cipher = {"bytes": 128, "sha256": hashlib.sha256(CIPHER_BYTES).hexdigest(),
               "path_relative_to_ciphertext_root": "directory/object",
               "file_identity": {"device": 1, "inode": 2, "mode": 0o100000, "bytes": 128, "mtime_ns": 3}}
     bound = {"archive_id": archive_id, "chunk_id": "chunk-00000", "plan_sha256": sha(plan_path),

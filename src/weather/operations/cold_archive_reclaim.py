@@ -16,6 +16,7 @@ from weather import cold_archive_locations as locations
 from weather import runtime_identity
 from weather.operations import bulk_cold_archive_crypt as bridge
 from weather.operations import cold_archive_catalog as catalog
+from weather.operations import cold_archive_spool_cleanup as spool
 from weather.operations import production_cold_archive_stage as archive
 from weather.operations.cleanup_preflight import build_cleanup_preflight
 from weather.operations.cold_archive_native_removal import ExactNtfsRemoval
@@ -242,6 +243,25 @@ def verify_consumer_adoption(source_root, production_root, stack, loops):
             "capture has not adopted the current consumer source")
 
 
+def _retain_recovery(entry_path, record, record_sha, custody, custody_sha, stack, guard):
+    """Keep complete off-host handback proof in the production catalog."""
+    guard.admit()
+    entry_parent = Path(entry_path).parent
+    destinations = ((entry_parent / "restores" / (record["restore"]["sha256"] + ".json"), record, record_sha),
+                    (entry_parent / "custody" / (custody_sha + ".json"), custody, custody_sha))
+    for path, value, digest in destinations:
+        parent = catalog._mkdir(path.parent)
+        stack.enter_context(archive._directory_pin(parent))
+        guard.admit()
+        if path.exists():
+            locations.read_record(path, digest)
+        else:
+            _, copied_sha = catalog._write_record(path, value)
+            _require(copied_sha == digest, "retained recovery proof bytes differ")
+        stack.enter_context(bridge._file_pin(path))
+    return {"restore_record": str(destinations[0][0]), "custody_record": str(destinations[1][0])}
+
+
 def _removal_pin(path):
     return ExactNtfsRemoval(path)
 
@@ -296,9 +316,11 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
                      and event_date(parts[1]) < now.astimezone(ZoneInfo("America/Toronto")).date() - timedelta(days=30),
                      "reclaim target is not an old immediate market-day source")
         review, review_sha, review_expires = _review(request["source_review"], stack, entry, entry_sha, now)
-        _, restore_sha = _restore(request["restore_record"], stack, entry, entry_sha, now)
-        _, custody_sha = _custody(request["custody_record"], stack, entry_sha, restore_sha, backup_host_id, now)
+        restore_record, restore_sha = _restore(request["restore_record"], stack, entry, entry_sha, now)
+        custody, custody_sha = _custody(request["custody_record"], stack, entry_sha, restore_sha, backup_host_id, now)
         verify_consumer_adoption(source_root, production_root, stack, capture_loops)
+        retained_recovery = _retain_recovery(request["catalog_entry"]["path"], restore_record, restore_sha,
+                                             custody, custody_sha, stack, guard)
         campaign = catalog._mkdir(local_root / "cold_archive" / "catalog" / "reclaims" / approval_sha)
         stack.enter_context(archive._directory_pin(campaign))
         state, state_sha = _progress(campaign, approval_sha, target)
@@ -321,6 +343,12 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
             pins.append(pin)
             planned.append({**row, **native})
             hashes[path.resolve()] = digest
+        spool_sha, spool_pins, spool_files = None, [], []
+        if "spool_inventory" in request:
+            inventory, spool_sha = _load(request["spool_inventory"], stack)
+            spool_pins, spool_files = spool.prepare_spool(
+                inventory, entry=entry, entry_sha256=entry_sha, restore_record=restore_record,
+                production_root=production_root, stack=stack, guard=guard)
         candidates = []
         for row in planned:
             classified = classification_payload(row["path"])
@@ -353,6 +381,10 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
         catalog._write_record(attempt / "preflight.json", preflight)
         catalog._write_record(attempt / "intent.json", {**base, "status": "INTENT", "files": planned})
         state, state_sha = _advance(campaign, {**state, "status": "IN_PROGRESS", "attempt_id": attempt_id}, state_sha)
+        spool_result = None
+        if spool_pins:
+            spool_result = spool.remove_prepared(spool_pins, spool_files, attempt=attempt,
+                                                binding=base, inventory_sha256=spool_sha, guard=guard)
         removed = []
         for index, (pin, row) in enumerate(zip(pins, planned)):
             guard.admit()
@@ -369,6 +401,7 @@ def reclaim_chunk(*, request, source_root, production_root, backup_host_id,
             **base, "status": "PASS", "files": removed, "deleted_files": len(removed),
             "reclaimed_allocated_bytes": sum(row["allocated_bytes"] for row in removed),
             "source_retained": len(removed) == 0, "inventory": inventory,
+            "spool_cleanup": spool_result, "retained_recovery": retained_recovery,
             "completed_at_utc": datetime.now(timezone.utc).isoformat()})
         _advance(campaign, {**state, "status": "READY", "sequence": state["sequence"] + 1,
                            "deleted_files": state["deleted_files"] + len(removed),

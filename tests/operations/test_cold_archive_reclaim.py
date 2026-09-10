@@ -119,6 +119,8 @@ def test_original_reclaim_preserves_locations_and_complete_recovery_evidence(cor
     assert state["status"] == "READY" and state["deleted_files"] == len(corpus.contents)
     assert state["reclaimed_allocated_bytes"] == result["reclaimed_allocated_bytes"]
     assert (corpus.root / "cold_archive" / "WHERE_DATA_IS.md").exists()
+    assert Path(result["retained_recovery"]["restore_record"]).is_file()
+    assert Path(result["retained_recovery"]["custody_record"]).is_file()
 
 
 @pytest.mark.parametrize("fault", [
@@ -460,3 +462,147 @@ def test_reclaim_cli_rejects_ambiguous_request(tmp_path, fault):
     with pytest.raises((ValueError, RuntimeError)):
         cli.validate_request(request, production_root=tmp_path, now=datetime.now(timezone.utc),
                              source_git_sha="f" * 40)
+
+
+def spool_reclaim_args(corpus, monkeypatch, *, native=False):
+    args = reclaim_args(corpus, monkeypatch, native=native)
+    req = args["request"]
+    entry, _ = locations.read_record(corpus.entry_path, corpus.entry_sha)
+    ingress = corpus.tmp / "scratch" / "production_cold_archive_ingress" / entry["archive_id"] / "archive.rclone.bin"
+    downloaded = (corpus.tmp / "scratch" / "production_cold_archive_transfer" / "fixture-download-a1"
+                  / "transfer" / ("downloaded-" + entry["archive_id"] + ".rclone.bin"))
+    for path in (ingress, downloaded):
+        path.parent.mkdir(parents=True)
+        path.write_bytes(fixtures.CIPHER_BYTES)
+    spec = req["restore_record"]
+    rewrite_restore(spec, "transport", lambda v: v.update(downloaded_file={
+        "path": str(downloaded), "bytes": downloaded.stat().st_size, "sha256": fixtures.sha(downloaded)}))
+    transport_sha = json.loads(Path(spec["path"]).read_bytes())["transport"]["sha256"]
+    rewrite_restore(spec, "restore", lambda v: v.update(transport_receipt_sha256=transport_sha))
+    def update_custody(value):
+        value["restore_record_sha256"] = spec["sha256"]
+        value["verified_backups"]["restore_record"]["sha256"] = spec["sha256"]
+    amend(req["custody_record"], update_custody)
+    staged = Path(corpus.args["production_manifest"]).parent / "archive.tar.gz"
+    paths = (staged, ingress, downloaded)
+    rows = [{"role": role, "path": path.relative_to(corpus.tmp).as_posix(),
+             "sha256": fixtures.sha(path), **fixtures.metadata(path)}
+            for role, path in zip(subject.spool.ROLES, paths)]
+    req["spool_inventory"] = record(corpus.tmp / "spool-inventory.json", {
+        "schema_version": schema_version("cold_archive_spool_inventory"),
+        "archive_id": entry["archive_id"], "entry_sha256": corpus.entry_sha, "files": rows})
+    if not native:
+        monkeypatch.setattr(subject.spool, "_removal_pin", fixtures.FixtureRemoval)
+    return args, paths
+
+
+def test_reclaim_with_spool_preserves_all_recovery_metadata_and_separates_counters(corpus, monkeypatch):
+    args, paths = spool_reclaim_args(corpus, monkeypatch)
+    metadata = {path: fixtures.sha(path) for path in corpus.tmp.rglob("*.json")}
+    result = subject.reclaim_chunk(**args)
+    assert all(not path.exists() for path in paths)
+    assert all(path.exists() and fixtures.sha(path) == digest for path, digest in metadata.items())
+    assert result["spool_cleanup"]["deleted_files"] == 3
+    assert result["spool_cleanup"]["originals_deleted"] == 0
+    assert result["deleted_files"] == len(corpus.contents)
+    state, _ = locations.read_record(campaign(corpus) / "progress.json")
+    assert state["reclaimed_allocated_bytes"] == sum(row["allocated_bytes"] for row in corpus.manifest["files"])
+    assert state["status"] == "READY"
+    assert all(path.parent.is_dir() for path in paths)
+
+
+@pytest.mark.parametrize("fault", ["changed_payload", "changed_identity", "changed_allocation",
+                                   "source_path", "metadata_path", "duplicate_role", "missing_role",
+                                   "wrong_archive", "wrong_entry", "wrong_sha", "missing_file"])
+def test_spool_fault_retains_every_original_before_any_reclaim(corpus, monkeypatch, fault):
+    args, paths = spool_reclaim_args(corpus, monkeypatch)
+    spec = args["request"]["spool_inventory"]
+    if fault == "changed_payload":
+        info = paths[-1].stat()
+        paths[-1].write_bytes(b"z" * info.st_size)
+        os.utime(paths[-1], ns=(info.st_atime_ns, info.st_mtime_ns))
+    elif fault == "missing_file":
+        paths[-1].unlink()
+    else:
+        def change(value):
+            rows = value["files"]
+            if fault == "changed_identity":
+                rows[-1]["file_id"] += 1
+            elif fault == "changed_allocation":
+                rows[-1]["allocated_bytes"] += 4096
+            elif fault == "source_path":
+                rows[-1]["path"] = (corpus.day / sorted(corpus.contents)[0]).relative_to(corpus.tmp).as_posix()
+            elif fault == "metadata_path":
+                rows[-1]["path"] = corpus.entry_path.relative_to(corpus.tmp).as_posix()
+            elif fault == "duplicate_role":
+                rows[-1]["role"] = rows[0]["role"]
+            elif fault == "missing_role":
+                rows.pop()
+            elif fault == "wrong_archive":
+                value["archive_id"] = "different-a1"
+            elif fault == "wrong_entry":
+                value["entry_sha256"] = "0" * 64
+            else:
+                rows[-1]["sha256"] = "0" * 64
+        amend(spec, change)
+    with pytest.raises((RuntimeError, ValueError, OSError)):
+        subject.reclaim_chunk(**args)
+    assert_sources_retained(corpus)
+    assert paths[0].exists() and paths[1].exists()
+    assert not (campaign(corpus) / args["request"]["attempt_id"] / "intent.json").exists()
+
+
+def test_partial_spool_cleanup_journals_progress_and_blocks_automatic_retry(corpus, monkeypatch):
+    args, paths = spool_reclaim_args(corpus, monkeypatch)
+    class FailsSecond(fixtures.FixtureRemoval):
+        def remove(self):
+            if self.path == paths[1]:
+                raise OSError("fixture second temporary removal failure")
+            super().remove()
+    monkeypatch.setattr(subject.spool, "_removal_pin", FailsSecond)
+    with pytest.raises(OSError):
+        subject.reclaim_chunk(**args)
+    assert not paths[0].exists() and paths[1].exists() and paths[2].exists()
+    assert_sources_retained(corpus)
+    attempt = campaign(corpus) / args["request"]["attempt_id"]
+    assert (attempt / "spool-file-00000.json").is_file()
+    assert not (attempt / "spool-receipt.json").exists()
+    state, _ = locations.read_record(campaign(corpus) / "progress.json")
+    assert state["status"] == "IN_PROGRESS" and state["reclaimed_allocated_bytes"] == 0
+    args["request"]["attempt_id"] = "reclaim-fixture-a2"
+    with pytest.raises(RuntimeError, match="reconciliation"):
+        subject.reclaim_chunk(**args)
+
+
+def test_native_reclaim_with_spool_deletes_exact_payloads_under_real_ntfs_handles(corpus, monkeypatch):
+    args, paths = spool_reclaim_args(corpus, monkeypatch, native=True)
+    result = subject.reclaim_chunk(**args)
+    assert result["status"] == "PASS" and all(not path.exists() for path in paths)
+    assert result["spool_cleanup"]["deleted_files"] == 3
+    assert result["reclaimed_allocated_bytes"] == sum(row["allocated_bytes"] for row in corpus.manifest["files"])
+
+
+def test_native_busy_spool_refuses_before_deleting_any_original_or_payload(corpus, monkeypatch):
+    args, paths = spool_reclaim_args(corpus, monkeypatch, native=True)
+    with paths[-1].open("rb"), pytest.raises(OSError):
+        subject.reclaim_chunk(**args)
+    assert_sources_retained(corpus)
+    assert all(path.exists() for path in paths)
+
+
+def test_native_hardlinked_spool_refuses_before_deleting_any_original(corpus, monkeypatch):
+    args, paths = spool_reclaim_args(corpus, monkeypatch, native=True)
+    os.link(paths[-1], corpus.tmp / "spool-alias")
+    with pytest.raises((RuntimeError, ValueError, OSError), match="hardlink|unsupported"):
+        subject.reclaim_chunk(**args)
+    assert_sources_retained(corpus)
+    assert all(path.exists() for path in paths)
+
+
+def test_reclaim_cli_accepts_only_hash_bound_spool_inventory(tmp_path):
+    request = cli_request(tmp_path)
+    request["spool_inventory"] = {"path": str(tmp_path / "spool.json"), "sha256": "a" * 64}
+    cli.validate_request(request, production_root=tmp_path, now=datetime.now(timezone.utc), source_git_sha="f" * 40)
+    request["spool_inventory"]["path"] = "relative.json"
+    with pytest.raises(ValueError, match="absolute"):
+        cli.validate_request(request, production_root=tmp_path, now=datetime.now(timezone.utc), source_git_sha="f" * 40)
