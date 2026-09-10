@@ -298,7 +298,8 @@ def approved_plan(tmp_path, kind="primary", target=TARGET, grouping=archive.SELE
     return request, entry
 
 
-@pytest.mark.parametrize("grouping", [archive.SELECTIVE_GROUPING, archive.MARKET_DAY_GROUPING])
+@pytest.mark.parametrize("grouping", [archive.SELECTIVE_GROUPING, archive.MARKET_DAY_GROUPING,
+                                        archive.PARTITIONED_GROUPING])
 @pytest.mark.parametrize("proposal_kind,expected_kind", [("primary", "primary"), ("standby", "conditional_reserve")])
 def test_approval_binds_exact_proposal_selection_and_plan(tmp_path, monkeypatch, proposal_kind, expected_kind, grouping):
     monkeypatch.setattr(subject.bridge, "_file_pin", fixtures.FixturePin)
@@ -607,3 +608,13 @@ def test_reclaim_cli_accepts_only_hash_bound_spool_inventory(tmp_path):
     request["spool_inventory"]["path"] = "relative.json"
     with pytest.raises(ValueError, match="absolute"):
         cli.validate_request(request, production_root=tmp_path, now=datetime.now(timezone.utc), source_git_sha="f" * 40)
+
+
+def test_reclaim_failure_locations_exclude_exception_text_and_full_paths():
+    try:
+        raise ValueError("fixture-private-value-must-not-be-published")
+    except ValueError as exc:
+        rows = cli._failure_locations(exc)
+    assert rows and all(set(row) == {"module", "line"} for row in rows)
+    assert all(row["module"] == "test_cold_archive_reclaim.py" for row in rows)
+    assert "fixture-private-value" not in json.dumps(rows)

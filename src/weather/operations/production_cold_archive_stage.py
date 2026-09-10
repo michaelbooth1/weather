@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -35,7 +36,8 @@ FORMAT = "production_sorted_ustar_gzip_level1_v1"
 LEGACY_GROUPING = "sorted_whole_files_v1"
 SELECTIVE_GROUPING = "market_day_file_family_v1"
 MARKET_DAY_GROUPING = "market_day_v1"
-CHUNK_GROUPINGS = (LEGACY_GROUPING, SELECTIVE_GROUPING, MARKET_DAY_GROUPING)
+PARTITIONED_GROUPING = "whole_files_with_isolated_events_v1"
+CHUNK_GROUPINGS = (LEGACY_GROUPING, SELECTIVE_GROUPING, MARKET_DAY_GROUPING, PARTITIONED_GROUPING)
 RETENTION = {"source_retained": True, "cleanup_eligible": False,
              "deletion_authorized": False, "upload_performed": False,
              "restore_performed": False, "consumer_closure_proved": False}
@@ -170,9 +172,19 @@ def _rows(files):
     return sorted(result, key=lambda row: row["path"])
 
 
-def _chunks(rows, limit, grouping=LEGACY_GROUPING):
+def _isolated_events(values, grouping):
+    if (not isinstance(values, (list, tuple)) or len(values) > MAX_MEMBERS
+            or any(not isinstance(v, str) or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,159}", v)
+                   for v in values) or list(values) != sorted(set(values))
+            or (values and grouping != PARTITIONED_GROUPING)):
+        raise ArchiveStageError("invalid isolated event grouping")
+    return tuple(values)
+
+
+def _chunks(rows, limit, grouping=LEGACY_GROUPING, isolated_events=()):
     if grouping not in CHUNK_GROUPINGS:
         raise ArchiveStageError("unknown chunk grouping")
+    isolated_events = _isolated_events(isolated_events, grouping)
     chunks, members, total, previous_group = [], [], 0, None
     for row in rows:
         # Preserve each original representation. CSV and gzip halves share a
@@ -181,12 +193,14 @@ def _chunks(rows, limit, grouping=LEGACY_GROUPING):
         group = (str(path.parent), path.name.removesuffix(".gz"))
         if grouping == MARKET_DAY_GROUPING:
             group = (str(path.parent),)
-        if grouping in (SELECTIVE_GROUPING, MARKET_DAY_GROUPING) and (len(path.parts) != 3 or path.parts[0] != "snapshots"):
+        if grouping != LEGACY_GROUPING and (len(path.parts) != 3 or path.parts[0] != "snapshots"):
             raise ArchiveStageError("selective grouping requires snapshots/event/file")
+        if grouping == PARTITIONED_GROUPING:
+            group = path.parts[1] if path.parts[1] in isolated_events else None
         if row["size_bytes"] > limit:
             raise ArchiveStageError("whole source file exceeds chunk limit")
         if members and (total + row["size_bytes"] > limit or len(members) >= MAX_MEMBERS
-                        or (grouping in (SELECTIVE_GROUPING, MARKET_DAY_GROUPING) and group != previous_group)):
+                        or (grouping != LEGACY_GROUPING and group != previous_group)):
             chunks.append({"chunk_id": f"chunk-{len(chunks):05d}",
                            "files": members, "logical_bytes": total})
             members, total = [], 0
@@ -200,7 +214,7 @@ def _chunks(rows, limit, grouping=LEGACY_GROUPING):
 
 
 def plan_selection(selection_path, expected_selection_sha256, output_path, *,
-                   chunk_bytes=MAX_CHUNK_BYTES, chunk_grouping=LEGACY_GROUPING):
+                   chunk_bytes=MAX_CHUNK_BYTES, chunk_grouping=LEGACY_GROUPING, isolated_events=()):
     """Plan from pinned measured metadata; never open source tape contents."""
     _require_sha256(expected_selection_sha256)
     selection, digest = _load(selection_path, expected_selection_sha256)
@@ -213,6 +227,7 @@ def plan_selection(selection_path, expected_selection_sha256, output_path, *,
     limit = _integer(chunk_bytes, "chunk_bytes", maximum=MAX_CHUNK_BYTES)
     if not limit:
         raise ArchiveStageError("positive chunk bound required")
+    isolated_events = _isolated_events(isolated_events, chunk_grouping)
     rows = _rows(selection.get("files"))
     for key, actual in (("file_count", len(rows)),
                         ("logical_bytes", sum(r["size_bytes"] for r in rows)),
@@ -222,7 +237,8 @@ def plan_selection(selection_path, expected_selection_sha256, output_path, *,
     plan = _seal({"schema_version": schema_version("production_cold_archive_plan"),
                   "source_root": root, "selection_sha256": digest,
                   "format": FORMAT, "chunk_bytes": limit,
-                  "file_count": len(rows), "chunks": _chunks(rows, limit, chunk_grouping),
+                  "file_count": len(rows), "chunks": _chunks(rows, limit, chunk_grouping, isolated_events),
+                  **({"isolated_events": list(isolated_events)} if chunk_grouping == PARTITIONED_GROUPING else {}),
                   **({"chunk_grouping": chunk_grouping} if chunk_grouping != LEGACY_GROUPING else {}),
                   "source_content_hashes_proved": False, **RETENTION}, "plan_hash")
     _write(output_path, plan)
@@ -413,7 +429,8 @@ def stage_chunk(plan_path, expected_plan_sha256, chunk_id, attempt_root, *,
     rows = _rows([row for chunk in chunks for row in chunk["files"]])
     limit = _integer(plan["chunk_bytes"], "chunk_bytes", maximum=MAX_CHUNK_BYTES)
     grouping = plan.get("chunk_grouping", LEGACY_GROUPING)
-    if not limit or _chunks(rows, limit, grouping) != chunks or len(rows) != plan["file_count"]:
+    if (not limit or _chunks(rows, limit, grouping, plan.get("isolated_events", ())) != chunks
+            or len(rows) != plan["file_count"]):
         raise ArchiveStageError("plan chunk inventory mismatch")
     matches = [chunk for chunk in chunks if chunk["chunk_id"] == chunk_id]
     if len(matches) != 1:

@@ -49,6 +49,12 @@ historical Markdown snapshot is a fresh presence check.
 
 1. Plan whole-file chunks with `--chunk-grouping market_day_file_family_v1`
    for individual-family retrieval or `market_day_v1` for bulk recovery.
+   `whole_files_with_isolated_events_v1` packs ordinary days together and uses
+   repeated `--isolate-event <event-slug>` arguments to keep specified days
+   in separate chunks. The sealed plan retains every approved file identity,
+   binds the isolation list, and recomputes chunk membership before staging
+   and reclaim. Isolation is a packing boundary; protected-input checks still
+   apply independently before any source is removed.
    Both keep one event folder per archive; the latter combines selected families
    within it. CSV and gzip halves remain independent members, and both policies
    retain the same 1 GiB and 256-member bounds.
@@ -269,3 +275,8 @@ the net result before proceeding to another batch.
 
 Update when catalog paths or schemas, location states, chunk grouping, proof
 requirements, consumer behavior, cache bounds or cleanup authority change.
+
+Reclaim refusals retain bounded module/line locations without exception text or
+absolute traceback paths. A failed resource check also retains the exact
+`admission-refusal.json` sample. These diagnostics do not establish zero deletion;
+reconcile the immutable attempt and per-file records before a new attempt.

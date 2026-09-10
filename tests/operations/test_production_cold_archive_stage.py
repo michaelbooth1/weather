@@ -132,6 +132,55 @@ def test_market_day_grouping_retains_families_and_never_crosses_days():
         stage._chunks([{"path": "elsewhere/file", "size_bytes": 1}], 10, stage.MARKET_DAY_GROUPING)
 
 
+def test_partitioned_grouping_packs_ordinary_days_and_isolates_protected_days():
+    rows = [{"path": f"snapshots/{event}/{name}", "size_bytes": size}
+            for event, name, size in [
+                ("day-a", "market_ws.jsonl", 2), ("day-b", "order_books_long.csv", 3),
+                ("day-b", "order_books_long.csv.gz", 4),
+                ("day-c", "clob_tokens.jsonl", 1), ("day-c", "market_ws.jsonl", 1),
+                ("day-d", "clob_tokens.jsonl", 2), ("day-e", "market_ws.jsonl", 3)]]
+    chunks = stage._chunks(rows, 20, stage.PARTITIONED_GROUPING, ["day-c"])
+    assert [c["files"] for c in chunks] == [rows[:3], rows[3:5], rows[5:]]
+    assert [c["logical_bytes"] for c in chunks] == [9, 2, 5]
+    assert [r for c in chunks for r in c["files"]] == rows
+    small = stage._chunks(rows, 5, stage.PARTITIONED_GROUPING, ["day-c"])
+    assert all(c["logical_bytes"] <= 5 for c in small)
+    many = [{"path": f"snapshots/day-{i:04d}/market_ws.jsonl", "size_bytes": 1}
+            for i in range(257)]
+    assert [len(c["files"]) for c in stage._chunks(many, 1024, stage.PARTITIONED_GROUPING)] == [256, 1]
+
+
+@pytest.mark.parametrize("events", [["day-b", "day-a"], ["day-a", "day-a"],
+                                   ["../day"], ["DAY"], [False], "day-a", ["a"] * 257])
+def test_partitioned_grouping_refuses_invalid_isolation(events):
+    with pytest.raises(stage.ArchiveStageError, match="isolated"):
+        stage._chunks([], 10, stage.PARTITIONED_GROUPING, events)
+
+
+def test_partitioned_plan_binds_isolation_and_rechecks_resealed_changes(corpus):
+    base, _, selection_path, _ = corpus
+    selection = json.loads(selection_path.read_text())
+    for i, row in enumerate(selection["files"]):
+        row["path"] = f"snapshots/day-{i}/" + row["path"]
+    selection_path.write_text(json.dumps(selection))
+    plan = base / "partitioned.json"
+    value = stage.plan_selection(selection_path, _sha(selection_path), plan,
+                                 chunk_grouping=stage.PARTITIONED_GROUPING,
+                                 isolated_events=["day-1"])
+    assert value["isolated_events"] == ["day-1"]
+    assert len(value["chunks"]) == 3
+    stage._check_seal(value, "plan_hash")
+    value.pop("plan_hash")
+    value["isolated_events"] = []
+    plan.write_text(json.dumps(stage._seal(value, "plan_hash")))
+    with pytest.raises(stage.ArchiveStageError, match="inventory"):
+        _run((*corpus[:3], plan))
+    assert not (base / "attempt").exists()
+    with pytest.raises(stage.ArchiveStageError, match="isolated"):
+        stage.plan_selection(selection_path, _sha(selection_path), base / "bad-isolation.json",
+                             isolated_events=["day-1"])
+
+
 def test_stage_rejects_resealed_unknown_grouping(corpus):
     _, _, _, plan = corpus
     value = json.loads(plan.read_text())
