@@ -214,7 +214,13 @@ class GuardedClient:
     def object(self, key, *, absent=False):
         _require(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,190}", key) is not None,
                  "noncanonical remote object key")
-        code, raw = self.run(["lsjson", f"{self.remote}:{key}", "--stat", "--hash"], capture=True)
+        for attempt in range(1 if absent else 4):
+            code, raw = self.run(["lsjson", f"{self.remote}:{key}", "--stat", "--hash"], capture=True)
+            transient_absence = (code == 3 and not raw.strip()) or (code == 1 and raw.strip() == b"null")
+            if absent or not transient_absence or attempt == 3:
+                break
+            self.guard()
+            time.sleep(0.2)
         if absent:
             _require(code == 3 and not raw.strip(), "remote object absence not proved")
             return None
@@ -227,12 +233,21 @@ class GuardedClient:
                 "hashes": obj.get("Hashes", {})}
 
     def copy(self, source, destination, maximum):
-        code, _ = self.run([
+        tokens = [
             "copyto", str(source), str(destination), "--immutable", "--ignore-times",
             "--error-on-no-transfer", "--transfers", "1", "--checkers", "1",
             "--multi-thread-streams", "0", "--buffer-size", "1M", "--drive-chunk-size", "8M",
             "--bwlimit", "8M", "--max-transfer", str(maximum + 1), "--cutoff-mode", "HARD",
-            "--partial-suffix", ".partial.cold"])
+            "--partial-suffix", ".partial.cold"]
+        download = str(source).startswith(self.remote + ":")
+        for attempt in range(4 if download else 1):
+            code, _ = self.run(tokens)
+            if (code == 0 or not download or attempt == 3 or Path(destination).exists()
+                    or (self.last_failure or {}).get("exit_code") not in {1, 3}
+                    or (self.last_failure or {}).get("stderr_bytes") != 0):
+                break
+            self.guard()
+            time.sleep(0.2)
         _require(code == 0, "create-only transfer failed")
 
 

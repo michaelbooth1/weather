@@ -93,7 +93,11 @@ add rclone size filters: rclone 1.75 rejects filters for single-file copies.
 Pinned source size/hash and the independently checked remote size retain the
 per-object bounds. Failed transfers retain only source module/line locations,
 never exception messages or client output; a capture refusal also retains its
-bounded resource observation.
+bounded resource observation. A committed-object lookup may retry a transient
+empty not-found response at most four times under the same deadline. A download
+may retry only while its destination is still absent; uploads and partially
+created downloads are never automatically retried. Every returned object must
+still match its committed ID, size and hashes.
 
 ## What a PASS establishes
 
