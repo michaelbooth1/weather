@@ -753,3 +753,44 @@ def test_workstation_spool_host_or_role_mismatch_prevents_all_deletion(corpus, m
     assert_sources_retained(corpus)
     assert all(path.exists() for path in paths)
     assert not (campaign(corpus) / req["attempt_id"] / "intent.json").exists()
+
+
+def assert_single_production_stage(corpus, monkeypatch, *, native):
+    args, paths, remote = workstation_spool_args(corpus, monkeypatch, native=native)
+    paths[1].unlink()  # This topology never placed ciphertext on production.
+    amend(args["request"]["spool_inventory"], lambda value: value["files"].pop())
+    result = subject.reclaim_chunk(**args)
+    assert result["status"] == "PASS" and result["spool_cleanup"]["deleted_files"] == 1
+    assert not paths[0].exists() and not remote.exists()
+    assert paths[2].read_bytes() == fixtures.CIPHER_BYTES
+    assert result["reclaimed_allocated_bytes"] == sum(row["allocated_bytes"] for row in corpus.manifest["files"])
+
+
+def test_workstation_only_transport_reclaims_sole_production_stage(corpus, monkeypatch):
+    assert_single_production_stage(corpus, monkeypatch, native=False)
+
+
+def test_native_workstation_only_transport_reclaims_sole_production_stage(corpus, monkeypatch):
+    assert_single_production_stage(corpus, monkeypatch, native=True)
+
+
+def test_single_spool_cannot_hide_existing_production_ciphertext(corpus, monkeypatch):
+    args, paths, _ = workstation_spool_args(corpus, monkeypatch)
+    amend(args["request"]["spool_inventory"], lambda value: value["files"].pop())
+    with pytest.raises((ValueError, RuntimeError), match="ordered payload roles"):
+        subject.reclaim_chunk(**args)
+    assert_sources_retained(corpus)
+    assert all(path.exists() for path in paths)
+
+
+def test_single_spool_rejects_different_path_even_without_production_ciphertext(corpus, monkeypatch):
+    args, paths, _ = workstation_spool_args(corpus, monkeypatch)
+    paths[1].unlink()
+    def change(value):
+        value["files"].pop()
+        value["files"][0]["path"] = paths[2].relative_to(corpus.tmp).as_posix()
+    amend(args["request"]["spool_inventory"], change)
+    with pytest.raises((ValueError, RuntimeError), match="path, content or size"):
+        subject.reclaim_chunk(**args)
+    assert_sources_retained(corpus)
+    assert paths[0].exists() and paths[2].exists()

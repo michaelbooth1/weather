@@ -359,6 +359,13 @@ process limits and 300-second complete-child Job remain mandatory. Source
 hashing is limited to 16 MiB/s and SCP to 8 MiB/s. No ambient SSH configuration,
 proxy, forwarding or unpinned host-key acceptance is allowed.
 
+When upload and independent download both occur on the workstation, production
+retains only its staged archive payload. The reclaim spool inventory may contain
+that single stage role only when the successful restore proves the separate
+workstation layout and the fixed production ciphertext path is absent. Existing
+local ciphertext still requires the ordinary two-role inventory. All selected
+spools remain native-pinned and hash-checked before any original is removed.
+
 A successful copy retains every source and reports
 `destination_hash_verified=false`. The existing workstation cryptographic
 bridge must independently verify all three received files before encryption.
