@@ -170,6 +170,12 @@ def test_approved_plan_without_exact_selection_keeps_general_reserve(tmp_path, m
     ("2026-09-10T04:00:00+00:00", 6),
     ("2026-09-10T12:59:59+00:00", 6),
     ("2026-09-10T13:00:00+00:00", 50),
+    ("2026-09-10T23:59:59+00:00", 50),
+    ("2026-09-11T04:29:59+00:00", 50),
+    ("2026-09-11T04:30:00+00:00", 6),
+    ("2026-09-11T12:59:59+00:00", 6),
+    ("2026-09-11T13:00:00+00:00", 50),
+    ("2026-09-12T04:30:00+00:00", 50),
 ])
 def test_overnight_reserve_expires_and_binds_actual_plan(tmp_path, monkeypatch, checked, expected, binding):
     path = tmp_path / "overnight.json"
@@ -186,12 +192,13 @@ def test_overnight_reserve_expires_and_binds_actual_plan(tmp_path, monkeypatch, 
     assert subject.load_plan_with_reserve(path, changed, now=now)[1] == 50 * 1024**3
 
 
-def test_overnight_reserve_requires_exact_selection(tmp_path, monkeypatch):
+@pytest.mark.parametrize("day", [10, 11])
+def test_overnight_reserve_requires_exact_selection(tmp_path, monkeypatch, day):
     path = tmp_path / "wrong-selection.json"
     path.write_text(json.dumps({"selection_sha256": "f" * 64}), encoding="utf-8")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     monkeypatch.setattr(subject, "OVERNIGHT_PLAN_SHA256", digest)
-    now = subject.datetime(2026, 9, 10, 5, tzinfo=subject.timezone.utc)
+    now = subject.datetime(2026, 9, day, 5, tzinfo=subject.timezone.utc)
     assert subject.load_plan_with_reserve(path, digest, now=now)[1] == 50 * 1024**3
 
 
