@@ -1430,4 +1430,11 @@ RECENT_REGISTERED_SCHEMAS = (
         "active",
         "Exact-source workstation transfer execution; capture data and mirrors remain untouched.",
     ),
+    SchemaSpec(
+        "workstation_cold_archive_cleanup",
+        "workstation_cold_archive_cleanup_v0.1",
+        "weather.operations.workstation_cold_archive_cleanup",
+        "active",
+        "Verified native removal of workstation archive copies with retained recovery custody and separate accounting.",
+    ),
 )

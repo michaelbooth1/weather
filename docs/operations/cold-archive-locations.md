@@ -276,6 +276,33 @@ retained. Temporary bytes are reported separately and never added to the
 approved original-data target. Check the actual volume free space to establish
 the net result before proceeding to another batch.
 
+### Verified workstation copy cleanup
+
+After catalog publication, complete independent restore and recovery custody,
+run `weather.operations.workstation_cold_archive_restore --cleanup-verified`
+through `scripts/ops/workstation_heavy.ps1`. The command requires the exact clean
+`--expected-source-tip`, a fresh `--attempt-id`, the fixed `--ciphertext-root`,
+and `--entry-path`, `--restore-record`, `--custody-record` with their corresponding
+SHA-256 arguments. The three records must be the actual verified recovery
+copies in that workstation's scratch tree; the restore must be at most 24 hours
+old and custody must bind that host and keys saved outside both PCs.
+
+The executor derives its payload names from those successful receipts: the
+copied archive, original ciphertext, independent download, restore ciphertext,
+restored archive and every materialized member. All must remain in their fixed
+scratch layouts. Every file is exclusively pinned and fully hashed before any
+deletion; the produced and downloaded ciphertext also retain their original
+native identities. It uses the same-handle NTFS remover and the workstation's
+shared live/heavy mutex, with a five-minute deadline. It never scans or deletes
+directories, originals, metadata, credentials, cloud objects or failed-attempt
+outputs.
+
+Each fresh `scratch/ac-clean/<attempt-id>` retains a claim, exact intent, per-file
+journals and a terminal receipt. A partial failure spends the attempt and
+requires reconciliation; never rerun it. Working-copy allocated and logical
+bytes, plus volume free space before and after, are separate from archive-source
+reclamation. Verify remaining capacity before staging the next batch.
+
 ## Update when
 
 Update when catalog paths or schemas, location states, chunk grouping, proof
