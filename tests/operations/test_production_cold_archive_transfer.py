@@ -203,7 +203,7 @@ def test_bound_object_read_retries_transient_absence_without_accepting_absence(t
     client = core.GuardedClient(tmp_path / "rclone.exe", tmp_path / "client.conf",
                                 "archive_drive", "fixture_root_12345", {}, lambda: True,
                                 time.monotonic() + 250)
-    replies = iter([(3, b""), (1, b"null"), (0, json.dumps({
+    replies = iter([(3, b""), (1, b"null"), (1, b""), (0, json.dumps({
         "Name": "bound.bin", "IsDir": False, "Size": 7, "ID": "fixture_object_12345",
         "Hashes": {"sha256": "a" * 64}}).encode())])
     calls = []
@@ -213,16 +213,17 @@ def test_bound_object_read_retries_transient_absence_without_accepting_absence(t
         return next(replies)
     monkeypatch.setattr(client, "run", run)
     assert client.object("bound.bin")["object_id"] == "fixture_object_12345"
-    assert len(calls) == 3
+    assert len(calls) == 4
 
 
-def test_bound_object_read_stops_after_four_absent_results(tmp_path, monkeypatch):
+@pytest.mark.parametrize("code", [1, 3])
+def test_bound_object_read_stops_after_four_absent_results(tmp_path, monkeypatch, code):
     client = core.GuardedClient(tmp_path / "rclone.exe", tmp_path / "client.conf",
                                 "archive_drive", "fixture_root_12345", {}, lambda: True,
                                 time.monotonic() + 250)
     calls = []
     monkeypatch.setattr(core.time, "sleep", lambda seconds: None)
-    monkeypatch.setattr(client, "run", lambda *args, **kwargs: (calls.append(1) or 3, b""))
+    monkeypatch.setattr(client, "run", lambda *args, **kwargs: (calls.append(1) or code, b""))
     with pytest.raises(core.TransferError, match="metadata unavailable"):
         client.object("bound.bin")
     assert len(calls) == 4

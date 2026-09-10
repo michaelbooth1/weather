@@ -216,7 +216,7 @@ class GuardedClient:
                  "noncanonical remote object key")
         for attempt in range(1 if absent else 4):
             code, raw = self.run(["lsjson", f"{self.remote}:{key}", "--stat", "--hash"], capture=True)
-            transient_absence = (code == 3 and not raw.strip()) or (code == 1 and raw.strip() == b"null")
+            transient_absence = (code == 3 and not raw.strip()) or (code == 1 and raw.strip() in (b"", b"null"))
             if absent or not transient_absence or attempt == 3:
                 break
             self.guard()
