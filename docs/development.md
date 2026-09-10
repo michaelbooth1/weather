@@ -119,8 +119,10 @@ Scheduler or deletion authority.
 The controller also admits the exact offline module
 `weather.operations.workstation_cold_archive_stage` through this transport.
 The reviewed remote checkout must contain the adapter and independently admit
-it in its workstation wrapper. This module stages only an explicitly declared
-provisional mirror copy; its validation, encryption, create-only evidence and
+it in its workstation wrapper. The stage/restore entrypoints accept explicit
+provisional mirror copies or the hash-bound production chunk bridge described
+in the [archive runbook](operations/production-cold-archive-staging.md).
+Their validation, encryption, create-only evidence and
 source-retention gates remain mandatory. This controller admission does not
 install the adapter on production or authorize production hashing, upload,
 restore or deletion. Those actions retain their separate mission and host-load

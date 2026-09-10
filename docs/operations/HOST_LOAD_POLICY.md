@@ -61,6 +61,13 @@ or live-order authority.
 > window as "steady-state capture only" that by then held nine scheduled jobs. A stale operations
 > document is worse than a missing one, because it gets believed.
 
+The [bounded storage recovery inventory](storage-recovery-inventory.md) and
+[cold snapshot NTFS compression](cold-snapshot-compression.md) have dedicated
+capture wrappers and exact per-lane disk reservations. They retain the shared
+lease, protected windows, capture health and memory gates; neither permits
+source deletion or changes ordinary heavy-work admission. Direct module
+launches remain classified as heavy by the Codex launch guard.
+
 ## Host capacity (measured 2026-07-12 — A DATED SAMPLE, NOT CURRENT STATE)
 
 **Do not plan against these.** `scripts\ops\status.ps1` reports live RAM, disk, and the daily
@@ -73,7 +80,43 @@ growth trend; use it. Retained because the *ratios* explain why the policy exist
 | Disk free | ~385 GB | **stale — was 124.6 GB on 2026-08-08.** Read it live |
 | data/ growth (24h sample) | snapshots 23.4 GB, taker_runs 2.7, reanalysis 2.5, backtest 1.6, wunderground 1.4 | snapshots dominate; the taker is since PAUSED |
 
+## Approved July archive disk reserve
+
+Owner decision, September 9, 2026: the selected July 16-31 cold-snapshot archive
+may retain 20 GiB of capture disk reserve plus 16 MiB of evidence headroom and
+its bounded worst-case output reservation. This exception belongs only to the
+exact plan and selection digests pinned by
+`weather.operations.production_cold_archive_stage_cli`; it verifies the raw
+plan bytes before applying the reserve. Different or regenerated plans retain
+the general floor. See [the staging runbook](production-cold-archive-staging.md).
+
+This approval keeps serial chunks of at most 1 GiB, 300-second jobs, 16 MiB/s
+throttling, the ordinary overnight window excluding scheduled tiering, the
+shared lease, healthy capture, commit below 70%, at least 4 GiB available
+physical memory and complete child-tree teardown. It does not extend the
+separate dated daytime inventory/compression exception to this archive lane
+or weaken any general heavy-work threshold.
+
+## September 10 bounded archive recovery
+
+The owner's September 10 full overnight authorization includes saving recovery
+keys and using only existing PC storage plus private Google Drive. The exact
+primary plan and selection pinned by the archive CLI may use an 8 GiB reserve
+through 13:00 UTC that day. All chunk, evidence/output, memory, capture, lease,
+time-window and teardown checks remain required. The controller must account
+for every temporary local copy before admitting ingress.
+See [the staging runbook](production-cold-archive-staging.md) for the bounded
+unattended archive credential and workstation launch path.
+
 ## The 24-hour map (America/Toronto)
+
+The [bounded replay-cache compression lane](replay-cache-compression.md) has a
+reclaim-specific disk reservation: 20 GiB of capture reserve plus two 64 MiB
+file images and 1 MiB of receipts. It permits only exact cold cache paths,
+at most 64 MiB per file / 512 MiB per request, with no deletion. It preserves
+the ordinary 00:30–09:00 window, shared lease, healthy capture, 4 GiB physical
+availability and commit below 70%. It does not lower the general heavy-work
+disk threshold or authorize protected-window compression.
 
 **Load classes are policy and live here. What actually runs in each window is host state** — see
 `data/alerts/OPERATING_SCHEDULE.md` and verify current Task Scheduler state rather than relying on
@@ -240,6 +283,43 @@ Do not enable the reservation merely to re-prove a stable blocker. Keep it held
 until the blocking input contract changes or a reviewed preflight can prove
 useful work before capture is stopped. The independent
 `WeatherTrainingWindowRestore` task stays enabled while the reservation is held.
+
+## Owner storage exception: September 8, 2026
+
+At 11:47 Toronto the owner authorized capacity recovery now rather than waiting
+another day, conditional on the agent judging the risk reasonable. The literal
+`OWNER_APPROVED_STORAGE_RECOVERY_20260908` token permits only
+`storage_recovery_inventory` and `cold_snapshot_compression` on the assigned
+dedicated capture host from 09:00 until 18:00 Toronto on that date.
+Both attended wrappers require the explicit `-OwnerApprovedException` token;
+the child must match its dated policy against the independently proved live lease.
+This is a one-date inventory/compress-and-retain exception, not archive/delete,
+cache, testing, training, merge, Stage-A, workstation, or live authority.
+
+All ordinary resource and capture checks remain: shared lease, BelowNormal
+priority, 384 MiB child ceiling, at least 4 GiB available RAM, commit below 70%,
+fresh healthy capture identities, lane-specific disk reserve, and bounded
+kill-on-close teardown. The absolute deadline reserves teardown before 18:00.
+Stop on any failed admission, changed content/identity, or nonpositive pilot
+savings. No source file is deleted. The ordinary timetable resumes at expiry.
+
+## Owner storage exception: September 9, 2026
+
+After reviewing the failed overnight attempt and a verified attended pilot,
+the owner explicitly authorized bounded storage work on September 9 until
+18:00 Toronto. The literal `OWNER_APPROVED_STORAGE_RECOVERY_20260909` token
+permits only `storage_recovery_inventory` and `cold_snapshot_compression`
+on the assigned dedicated capture host from 09:00 until 18:00 that date.
+It is independent of the expired September 8 token; neither token authorizes
+another date.
+
+Both wrappers require the explicit token, and the child independently binds
+it to the matching live lease policy. The shared lease, healthy capture,
+commit below 70%, at least 4 GiB available RAM, BelowNormal priority, child
+memory ceiling, disk reservation, retained-file verification and complete
+bounded teardown remain unchanged. The absolute deadline reserves teardown
+before 18:00. No source deletion, archive export, training, test, merge,
+Stage-A, workstation or live authority is added.
 
 ## Rules
 

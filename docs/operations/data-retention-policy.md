@@ -51,6 +51,10 @@ The normal daily refresh also writes the same artifacts:
   manifest when paired reports or manifests exist.
 - Prefer gzip tiering or externalization for large historical JSONL/CSV
   evidence before deleting local copies.
+- Explicitly approved cold replay-cache files may use the separate
+  [bounded NTFS compression lane](replay-cache-compression.md). It preserves
+  paths and bytes, has its own narrow disk reservation and retains all ordinary
+  capture-window, memory and lease gates. It grants no cache eviction authority.
 
 Routine provider caches may be pruned after TTL expiry when no replay,
 promotion, or incident report references them. Forecast archives used for
@@ -110,6 +114,25 @@ compression cannot starve the capture loops.
 
 The workstation storage-pressure tools are manual and dry-run first. They are
 not scheduled and a code merge performs no cleanup.
+
+The [Verified Cold-Archive Foundation](verified-cold-archive.md) adds a separate
+fixture-only path for preserving an entire sealed market-day as one
+deterministic create-only object. It reuses the event-day manifest,
+storage-class classification, and cleanup-manifest helper; requires a minimum
+30-day hot window plus explicit settled/closed/barrier/queue/window evidence;
+and gates cleanup-plan generation on exact archive verification and a successful
+restore receipt. It contains no production transport or delete executor and
+does not change any retention period or current reader.
+
+The same contract now owns a separate provisional workstation staging adapter
+for one already-rotated mirror file. It deterministically compresses at most
+1 GiB, proves that an encrypted rclone config wraps the exact explicit local
+ciphertext root, copies with immutable/create-only flags, cryptchecks the
+result, and writes self-hashed terminal evidence. The adapter is admitted only
+as the literal `weather.operations.workstation_cold_archive_stage` module under
+the workstation-heavy wrapper. Every receipt remains
+production-identity-unproved and deletion-ineligible; no real source, key,
+cloud target, restore, or cleanup is part of the build-and-test evidence.
 
 `config/storage_pressure.json` owns the capture switch. The checked-in value
 `capture.write_order_books_long_csv=true` preserves current behavior. Missing,

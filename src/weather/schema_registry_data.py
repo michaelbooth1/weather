@@ -808,6 +808,76 @@ REGISTERED_SCHEMAS = (
         "Versioned manifest contract for closed market-day Parquet archive partitions.",
     ),
     SchemaSpec(
+        "verified_cold_archive_format",
+        "deterministic_tar_gzip_v0.1",
+        "weather.operations.verified_cold_archive",
+        "active",
+        "Normalized tar and gzip byte-format identity for deterministic cold-archive objects.",
+    ),
+    SchemaSpec(
+        "verified_cold_archive_selection_proof",
+        "verified_cold_archive_selection_proof_v0.1",
+        "weather.operations.verified_cold_archive",
+        "active",
+        "Source-bound closed, settled, and open-reference proof consumed by the fixture-only cold-archive planner.",
+    ),
+    SchemaSpec(
+        "verified_cold_archive_plan",
+        "verified_cold_archive_plan_v0.1",
+        "weather.operations.verified_cold_archive",
+        "active",
+        "Deterministic one-market-day create-only cold-archive selection plan.",
+    ),
+    SchemaSpec(
+        "verified_cold_archive_manifest",
+        "verified_cold_archive_manifest_v0.1",
+        "weather.operations.verified_cold_archive",
+        "active",
+        "Sidecar manifest binding a deterministic compressed object to source and selection identities.",
+    ),
+    SchemaSpec(
+        "verified_cold_archive_verification_receipt",
+        "verified_cold_archive_verification_receipt_v0.1",
+        "weather.operations.verified_cold_archive",
+        "active",
+        "Append-only destination object and member-parity verification receipt.",
+    ),
+    SchemaSpec(
+        "verified_cold_archive_restore_receipt",
+        "verified_cold_archive_restore_receipt_v0.1",
+        "weather.operations.verified_cold_archive",
+        "active",
+        "Create-only restore-drill receipt with exact archive and restored-file parity.",
+    ),
+    SchemaSpec(
+        "workstation_cold_archive_stage_manifest",
+        "workstation_cold_archive_stage_manifest_v0.1",
+        "weather.operations.workstation_cold_archive_stage",
+        "active",
+        "Create-only provisional mirror-copy compression, encrypted staging, and exact ciphertext identity manifest.",
+    ),
+    SchemaSpec(
+        "workstation_cold_archive_stage_receipt",
+        "workstation_cold_archive_stage_receipt_v0.1",
+        "weather.operations.workstation_cold_archive_stage",
+        "active",
+        "Terminal success or fail-closed receipt for one workstation encrypted-staging attempt.",
+    ),
+    SchemaSpec(
+        "workstation_cold_archive_download_receipt",
+        "workstation_cold_archive_download_receipt_v0.1",
+        "weather.operations.workstation_cold_archive_restore",
+        "active",
+        "Controller evidence for one private independent ciphertext download and workstation input binding.",
+    ),
+    SchemaSpec(
+        "workstation_cold_archive_restore_receipt",
+        "workstation_cold_archive_restore_receipt_v0.1",
+        "weather.operations.workstation_cold_archive_restore",
+        "active",
+        "Create-only provisional independent restore with ciphertext, archive, and source byte parity; no cleanup authority.",
+    ),
+    SchemaSpec(
         "event_day_manifest",
         "event_day_manifest_v0.1",
         "weather.operations.event_day_manifest",
@@ -2636,6 +2706,24 @@ SCHEMAS_BY_NAME = {spec.name: spec for spec in REGISTERED_SCHEMAS}
 SCHEMAS_BY_VERSION = {spec.version: spec for spec in REGISTERED_SCHEMAS}
 
 EXCLUDED_SCHEMA_LITERALS = (
+    SchemaLiteralExclusion(
+        "sorted_whole_files_v1",
+        "weather.operations.production_cold_archive_stage",
+        "archive_chunk_grouping",
+        "Whole-file sorted packing algorithm identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "market_day_file_family_v1",
+        "weather.operations.production_cold_archive_stage",
+        "archive_chunk_grouping",
+        "Market-day and file-family packing algorithm identifier, not a serialized artifact schema.",
+    ),
+    SchemaLiteralExclusion(
+        "production_sorted_ustar_gzip_level1_v1",
+        "weather.operations.production_cold_archive_stage",
+        "archive_format_identifier",
+        "Deterministic USTAR and gzip encoding contract, not a serialized JSON schema.",
+    ),
     SchemaLiteralExclusion(
         "native_station_pressure_train_serve_v1",
         "weather.calibration.feature_training_policy",

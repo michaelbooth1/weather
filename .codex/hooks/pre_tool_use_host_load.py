@@ -62,6 +62,7 @@ _OFFLINE_WEATHER_MODULES = frozenset(
         "weather.operations.nightly_retrain",
         "weather.operations.replay_status_backfill",
         "weather.operations.workstation_cold_archive_stage",
+        "weather.operations.workstation_cold_archive_restore",
         "weather.reporting.scorecards.train_serve_feature_parity",
     }
 )
@@ -135,7 +136,7 @@ _DIRECT_HEAVY_WEATHER = re.compile(
     + r"[^;&|\r\n{}()]*?\s"
     + _MODULE_SWITCH
     + r"\s+['\"]?weather\.[^\s;&|{}()'\"]*"
-    + r"(?:retrain|training|replay|backtest|daily_refresh|score_all)"
+    + r"(?:retrain|training|replay|backtest|daily_refresh|score_all|cold_snapshot_compression|storage_recovery_inventory|storage_recovery_night)"
     + r"[^\s;&|{}()'\"]*['\"]?"
     + _COMMAND_TOKEN_END,
     re.IGNORECASE,
@@ -191,7 +192,7 @@ _LOOSE_CLUSTERED_MODULE_SWITCH = re.compile(
 )
 _HEURISTIC_HEAVY_WEATHER_NAME = re.compile(
     r"\Aweather\.[A-Za-z0-9_.-]*"
-    r"(?:retrain|training|replay|backtest|daily_refresh|score_all)"
+    r"(?:retrain|training|replay|backtest|daily_refresh|score_all|cold_snapshot_compression|storage_recovery_inventory|storage_recovery_night)"
     r"[A-Za-z0-9_.-]*\Z",
     re.IGNORECASE,
 )
@@ -349,7 +350,7 @@ _LOOSE_ALLOWLISTED_WEATHER_MODULE = re.compile(
 _LOOSE_HEAVY_WEATHER_MODULE = re.compile(
     r"(?i)(?<![A-Za-z0-9_-])-m(?:\s|[,;'\"\(\)=])+"
     r"weather\.[A-Za-z0-9_.-]*"
-    r"(?:retrain|training|replay|backtest|daily_refresh|score_all)"
+    r"(?:retrain|training|replay|backtest|daily_refresh|score_all|cold_snapshot_compression|storage_recovery_inventory|storage_recovery_night)"
     r"[A-Za-z0-9_.-]*(?=$|[\s,;'\"()&|{}])"
 )
 _LOOSE_TEST_EXECUTABLE = re.compile(

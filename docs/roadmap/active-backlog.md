@@ -4,7 +4,7 @@ Generated from numbered roadmap item files. Completed historical items
 remain searchable in `docs/roadmap/items/` but are intentionally omitted
 from this default active backlog scan.
 
-Generated: 2026-09-05T05:34:33.442747+00:00
+Generated: 2026-09-10T03:05:46.069119+00:00
 Status: `OK`
 
 ## Summary
@@ -13,8 +13,8 @@ Status: `OK`
 | :--- | :--- |
 | Items | 324 |
 | Active items | 35 |
-| OPEN | 4 |
-| PARTIAL | 31 |
+| OPEN | 3 |
+| PARTIAL | 32 |
 | COMPLETE | 289 |
 | ROADMAP rows | 324 |
 | ROADMAP primary rows | 324 |
@@ -56,7 +56,7 @@ Status: `OK`
 | 322 | PARTIAL | 2026-07-16 | INPUT DISCOVERY BOUNDED; POPULATED SOAK PENDING | [Bounded Taker Long-Loop Memory And Incremental Tape Persistence](items/item-322-bounded-taker-long-loop-memory-and-incremental-tape-persistence.md) |
 | 323 | PARTIAL | 2026-07-15 | CONTROLLED STORAGE HOUR PASSED; HARDENING ON ISOLATED BRANCH; LIVE NETWORK PROOF AND REAL-ROOT INVENTORY PENDING | [Shared Forecast Payload CAS And Single-Fetch Fan-Out](items/item-323-shared-forecast-payload-cas-and-single-fetch-fan-out.md) |
 | 324 | PARTIAL | 2026-08-22 | WORKFLOW REPAIR ADOPTED; FIRST TERMINAL MORNING RECEIPT PROVED | [Bounded Daily Settlement Refresh Resource Admission And Step Isolation](items/item-324-bounded-daily-settlement-refresh-resource-admission-and-step-isolation.md) |
-| 325 | OPEN | 2026-07-21 | DESIGN RECORDED; NO DELETION AUTHORIZED YET | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
+| 325 | PARTIAL | 2026-09-09 | ARCHIVE SOURCE QUALIFIED; PRODUCTION TARGET OPEN | [Tiered Data Retention And Verified Archive Offload](items/item-325-tiered-data-retention-and-verified-archive-offload.md) |
 | 326 | PARTIAL | 2026-08-15 | ADOPTED; FORWARD CLEAN-INTERVAL QUALIFICATION OPEN | [Supervised Continuous Public Execution Tape](items/item-326-supervised-continuous-public-execution-tape.md) |
 | 328 | PARTIAL | 2026-08-19 | INTEGRATED; FRESH SAFE CANDIDATE AND REAL ECONOMICS OPEN | [Paper-Only Market-Harvest Permission Lane](items/item-328-paper-only-market-harvest-permission-lane.md) |
 | 330 | PARTIAL | 2026-09-05 | NON-LIVE IMPLEMENTATION STARTED; ECONOMIC PROOF OPEN | [Maker Economics And Liquidity Rewards Refocus Master Plan](items/item-330-maker-economics-refocus-master-plan.md) |

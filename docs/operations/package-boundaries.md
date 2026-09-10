@@ -12,6 +12,7 @@ listed as a transitional edge in `tests/operations/test_import_architecture.py`.
 These packages are intentionally importable by any owner package:
 
 - `weather.artifacts`
+- `weather.cold_archive_locations` (read-only archive discovery and verified local-cache resolution)
 - `weather.io`
 - `weather.paths`
 - `weather.runtime_identity`
