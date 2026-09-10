@@ -298,7 +298,8 @@ def approved_plan(tmp_path, kind="primary", target=TARGET, grouping=archive.SELE
     return request, entry
 
 
-@pytest.mark.parametrize("grouping", [archive.SELECTIVE_GROUPING, archive.MARKET_DAY_GROUPING])
+@pytest.mark.parametrize("grouping", [archive.SELECTIVE_GROUPING, archive.MARKET_DAY_GROUPING,
+                                        archive.PARTITIONED_GROUPING])
 @pytest.mark.parametrize("proposal_kind,expected_kind", [("primary", "primary"), ("standby", "conditional_reserve")])
 def test_approval_binds_exact_proposal_selection_and_plan(tmp_path, monkeypatch, proposal_kind, expected_kind, grouping):
     monkeypatch.setattr(subject.bridge, "_file_pin", fixtures.FixturePin)

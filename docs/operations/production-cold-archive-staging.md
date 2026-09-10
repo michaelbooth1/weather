@@ -16,6 +16,11 @@ market_day_file_family_v1`: chunks do not mix event folders or file families.
 For bulk recovery, `market_day_v1` combines selected file families from one
 event folder under the same 1 GiB and 256-member bounds. It never mixes market
 days, and every member retains its independent path, native identity and hash.
+For larger campaigns, `whole_files_with_isolated_events_v1` packs ordinary
+folders together while repeated `--isolate-event <event-slug>` arguments keep
+specified folders separate. All file representations and existing byte/member
+bounds remain. The sealed isolation list and canonical membership are checked
+again before staging and reclaim; isolation never supplies deletion authority.
 The default `sorted_whole_files_v1` preserves existing plan bytes and grouping.
 Unknown grouping policies are refused. The grouping is included in the plan hash.
 
@@ -73,9 +78,9 @@ records `source_disk_reserve_bytes`.
 
 For the owner's September 10 overnight recovery using only the existing PCs
 and Drive, the exact approved primary plan or its identical-selection same-day
-regrouping use a 6 GiB capture
-reserve between 04:00 and 13:00 UTC on September 10 only. The CLI binds both
-digests and verifies the actual plan bytes; other plans keep their existing
+or isolated-event regroupings use a 6 GiB capture
+reserve between 04:00 and 13:00 UTC on September 10 only. The CLI binds each exact plan
+digest and verifies the actual plan bytes; other plans keep their existing
 reserve. Each chunk remains at most 1 GiB, with evidence and worst-case output
 reserved separately. The controller must also reserve ingress and download
 copies before copying them onto the capture disk.

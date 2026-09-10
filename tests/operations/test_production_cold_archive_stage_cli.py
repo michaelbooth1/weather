@@ -163,7 +163,8 @@ def test_approved_plan_without_exact_selection_keeps_general_reserve(tmp_path, m
     assert subject.load_plan_with_reserve(path, digest)[1] == 50 * 1024**3
 
 
-@pytest.mark.parametrize("binding", ["OVERNIGHT_PLAN_SHA256", "OVERNIGHT_DAY_PLAN_SHA256"])
+@pytest.mark.parametrize("binding", ["OVERNIGHT_PLAN_SHA256", "OVERNIGHT_DAY_PLAN_SHA256",
+                                     "OVERNIGHT_PACKED_PLAN_SHA256"])
 @pytest.mark.parametrize("checked,expected", [
     ("2026-09-10T03:59:59+00:00", 50),
     ("2026-09-10T04:00:00+00:00", 6),

@@ -40,6 +40,7 @@ APPROVED_ARCHIVE_RESERVE_BYTES = 20 * GIB
 # Owner 2026-09-10: bounded overnight recovery using existing disk only.
 OVERNIGHT_PLAN_SHA256 = "41ee8e81d795e56213c1d2ee3a73ef78049c6425e659b66d9e5b6c5a15738a4c"
 OVERNIGHT_DAY_PLAN_SHA256 = "96105932f57c12943de26c51e0a33c6ec6082dea20adcbcb4a9bcfe1fa0fe16b"
+OVERNIGHT_PACKED_PLAN_SHA256 = "d96e680cf1c9df62d4d8929ef8b6efd5b8e98b137e5f661a5313887156a88c26"
 OVERNIGHT_SELECTION_SHA256 = "566e0fd15a0095c131068cc4ef3cf09e715ca570b1205286e6e6fd6927f607c9"
 OVERNIGHT_RESERVE_BYTES = 6 * GIB
 EVIDENCE_RESERVE_BYTES = 16 * 1024**2
@@ -145,7 +146,7 @@ def load_plan_with_reserve(path, expected_hash, *, now=None):
             plan.get("selection_sha256") == APPROVED_ARCHIVE_SELECTION_SHA256):
         reserve = APPROVED_ARCHIVE_RESERVE_BYTES
     current = now or datetime.now(timezone.utc)
-    if (expected_hash in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256)
+    if (expected_hash in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256, OVERNIGHT_PACKED_PLAN_SHA256)
             and plan.get("selection_sha256") == OVERNIGHT_SELECTION_SHA256
             and datetime(2026, 9, 10, 4, tzinfo=timezone.utc) <= current
             < datetime(2026, 9, 10, 13, tzinfo=timezone.utc)):
@@ -289,6 +290,7 @@ def main(argv=None):
     for name in ("selection", "selection-sha256", "output-path"):
         plan.add_argument("--" + name, required=True)
     plan.add_argument("--chunk-grouping", choices=stage.CHUNK_GROUPINGS, default=stage.LEGACY_GROUPING)
+    plan.add_argument("--isolate-event", action="append", default=[])
     run = sub.add_parser("stage", help="Stage one request-bound chunk through the production wrapper.")
     for name in ("production-repo-root", "request", "request-sha256", "output-root", "source-git-sha"):
         run.add_argument("--" + name, required=True)
@@ -296,7 +298,8 @@ def main(argv=None):
     try:
         if args.operation == "plan":
             result = stage.plan_selection(Path(args.selection), args.selection_sha256,
-                                          Path(args.output_path), chunk_grouping=args.chunk_grouping)
+                                          Path(args.output_path), chunk_grouping=args.chunk_grouping,
+                                          isolated_events=sorted(set(args.isolate_event)))
             print(json.dumps({"status": "PLANNED", "chunks": len(result["chunks"]),
                               "files": result["file_count"], "cleanup_eligible": False}))
             return 0
