@@ -216,7 +216,7 @@ class GuardedClient:
             "--error-on-no-transfer", "--transfers", "1", "--checkers", "1",
             "--multi-thread-streams", "0", "--buffer-size", "1M", "--drive-chunk-size", "8M",
             "--bwlimit", "8M", "--max-transfer", str(maximum + 1), "--cutoff-mode", "HARD",
-            "--max-size", str(maximum), "--partial-suffix", ".partial.cold"])
+            "--partial-suffix", ".partial.cold"])
         _require(code == 0, "create-only transfer failed")
 
 

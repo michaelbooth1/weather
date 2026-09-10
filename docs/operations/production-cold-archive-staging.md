@@ -88,6 +88,11 @@ private off-PC copy before reclaim. The archive owner authorized the agent to
 save and independently verify that backup; the custody record must identify
 the actual backup and verification evidence.
 
+Exact-file transport uses `copyto` with its hard transfer-byte cap. It must not
+add rclone size filters: rclone 1.75 rejects filters for single-file copies.
+Pinned source size/hash and the independently checked remote size retain the
+per-object bounds.
+
 ## What a PASS establishes
 
 A staging PASS proves byte identity during its pinned reads and local archive
