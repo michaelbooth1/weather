@@ -13,6 +13,9 @@ chunks of at most 1 GiB and 256 files. Files larger than 1 GiB are refused.
 Plain CSV and compressed CSV halves are independent selected objects.
 For selective historical retrieval, choose `--chunk-grouping
 market_day_file_family_v1`: chunks do not mix event folders or file families.
+For bulk recovery, `market_day_v1` combines selected file families from one
+event folder under the same 1 GiB and 256-member bounds. It never mixes market
+days, and every member retains its independent path, native identity and hash.
 The default `sorted_whole_files_v1` preserves existing plan bytes and grouping.
 Unknown grouping policies are refused. The grouping is included in the plan hash.
 
@@ -69,7 +72,8 @@ memory, capture health and teardown guards all remain. Final admission evidence
 records `source_disk_reserve_bytes`.
 
 For the owner's September 10 overnight recovery using only the existing PCs
-and Drive, the exact approved primary plan and selection use an 8 GiB capture
+and Drive, the exact approved primary plan or its identical-selection same-day
+regrouping use a 6 GiB capture
 reserve between 04:00 and 13:00 UTC on September 10 only. The CLI binds both
 digests and verifies the actual plan bytes; other plans keep their existing
 reserve. Each chunk remains at most 1 GiB, with evidence and worst-case output
@@ -239,6 +243,14 @@ releases only the exact three reviewed production staging/transfer payloads afte
 complete recovery and custody checks; retaining them indefinitely defeats net
 headroom recovery. These records do not grant deletion
 authority or prove historical consumer closure.
+
+The September 10 staging path additionally reserves two complete worst-case
+encrypted payload copies before opening any original: the ingress copy and the
+independent download. The archive writer separately reserves its own complete
+worst-case output. Thus the lower fixed reserve includes explicit working-space
+accounting for all three production payloads. Requests that cannot fit remain
+source-retaining refusals. Upload, download and reclaim still recheck capture
+and headroom throughout their bounded jobs.
 
 ## Update when
 

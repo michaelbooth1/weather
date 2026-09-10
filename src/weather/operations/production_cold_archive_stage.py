@@ -34,7 +34,8 @@ MAX_FILES = 10000
 FORMAT = "production_sorted_ustar_gzip_level1_v1"
 LEGACY_GROUPING = "sorted_whole_files_v1"
 SELECTIVE_GROUPING = "market_day_file_family_v1"
-CHUNK_GROUPINGS = (LEGACY_GROUPING, SELECTIVE_GROUPING)
+MARKET_DAY_GROUPING = "market_day_v1"
+CHUNK_GROUPINGS = (LEGACY_GROUPING, SELECTIVE_GROUPING, MARKET_DAY_GROUPING)
 RETENTION = {"source_retained": True, "cleanup_eligible": False,
              "deletion_authorized": False, "upload_performed": False,
              "restore_performed": False, "consumer_closure_proved": False}
@@ -178,12 +179,14 @@ def _chunks(rows, limit, grouping=LEGACY_GROUPING):
         # retrieval group but remain distinct, independently verified members.
         path = PurePosixPath(_relative(row["path"]))
         group = (str(path.parent), path.name.removesuffix(".gz"))
-        if grouping == SELECTIVE_GROUPING and (len(path.parts) != 3 or path.parts[0] != "snapshots"):
+        if grouping == MARKET_DAY_GROUPING:
+            group = (str(path.parent),)
+        if grouping in (SELECTIVE_GROUPING, MARKET_DAY_GROUPING) and (len(path.parts) != 3 or path.parts[0] != "snapshots"):
             raise ArchiveStageError("selective grouping requires snapshots/event/file")
         if row["size_bytes"] > limit:
             raise ArchiveStageError("whole source file exceeds chunk limit")
         if members and (total + row["size_bytes"] > limit or len(members) >= MAX_MEMBERS
-                        or (grouping == SELECTIVE_GROUPING and group != previous_group)):
+                        or (grouping in (SELECTIVE_GROUPING, MARKET_DAY_GROUPING) and group != previous_group)):
             chunks.append({"chunk_id": f"chunk-{len(chunks):05d}",
                            "files": members, "logical_bytes": total})
             members, total = [], 0

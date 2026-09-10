@@ -47,9 +47,11 @@ historical Markdown snapshot is a fresh presence check.
 
 ## Publication and recovery
 
-1. Plan whole-file chunks with `--chunk-grouping market_day_file_family_v1`.
-   Each chunk contains one event folder and file family. CSV and gzip halves
-   remain independent members; a byte bound may split a family further.
+1. Plan whole-file chunks with `--chunk-grouping market_day_file_family_v1`
+   for individual-family retrieval or `market_day_v1` for bulk recovery.
+   Both keep one event folder per archive; the latter combines selected families
+   within it. CSV and gzip halves remain independent members, and both policies
+   retain the same 1 GiB and 256-member bounds.
 2. Stage, encrypt and upload through the existing admitted paths in
    [Production cold-archive staging](production-cold-archive-staging.md).
    An upload receipt commits all four cloud object identities. Publish its

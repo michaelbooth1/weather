@@ -114,6 +114,24 @@ def test_selective_plan_binds_grouping_without_changing_legacy_bytes(corpus):
     stage._check_seal(value, "plan_hash")
 
 
+
+def test_market_day_grouping_retains_families_and_never_crosses_days():
+    rows = [
+        {"path": "snapshots/day-a/clob_tokens.jsonl", "size_bytes": 2},
+        {"path": "snapshots/day-a/market_ws.jsonl", "size_bytes": 3},
+        {"path": "snapshots/day-a/order_books_long.csv.gz", "size_bytes": 4},
+        {"path": "snapshots/day-b/clob_tokens.jsonl", "size_bytes": 1},
+    ]
+    grouped = stage._chunks(rows, 20, stage.MARKET_DAY_GROUPING)
+    assert [[row["path"] for row in chunk["files"]] for chunk in grouped] == [
+        [row["path"] for row in rows[:3]], [rows[3]["path"]]]
+    assert [chunk["logical_bytes"] for chunk in grouped] == [9, 1]
+    assert [len(chunk["files"]) for chunk in stage._chunks(rows, 5, stage.MARKET_DAY_GROUPING)] == [2, 1, 1]
+    assert len(stage._chunks(rows, 20, stage.SELECTIVE_GROUPING)) == 4
+    with pytest.raises(stage.ArchiveStageError, match="snapshots/event/file"):
+        stage._chunks([{"path": "elsewhere/file", "size_bytes": 1}], 10, stage.MARKET_DAY_GROUPING)
+
+
 def test_stage_rejects_resealed_unknown_grouping(corpus):
     _, _, _, plan = corpus
     value = json.loads(plan.read_text())
