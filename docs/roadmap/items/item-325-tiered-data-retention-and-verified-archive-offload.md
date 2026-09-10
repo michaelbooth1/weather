@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-08 - OVERNIGHT RECOVERY ARMED; PRODUCTION TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-09 - ARCHIVE SOURCE QUALIFIED; PRODUCTION TARGET OPEN]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -1111,9 +1111,44 @@ The exact 35-file source bundle is
 The additional cleanup schema is additive only. Native deletion occurred only
 inside synthetic workstation test fixtures.
 
-Exact-head publication/CI, production consumer adoption, concrete headroom,
-durable key custody, production full-restore qualification and original-source
-reclaim remain open.
-The original exact July plan's reserve exception and the queued-PR-44 adoption
-boundary remain unchanged. Production archive upload, deletion and reclaim
-remain zero.
+The schema repair and native cache-cleanup source was published at
+8f4a7cad31ded55805edd986074a0d3fa0fe2991 and CI 663 passed.
+
+### Guarded original-source reclaim qualification
+
+The [reclaim executor](../../operations/cold-archive-locations.md#original-source-reclaim)
+now binds the exact approved proposal, selection, selective plan, archive
+catalog, independent complete restore, fresh protected-input review, external
+key custody and adopted consumers before native original-file removal. It
+journals intent, each removal and cumulative original allocation. Inventory
+publication precedes a successful campaign transition; interrupted attempts
+require reconciliation and cannot report zero deletion by assumption.
+The production runner has a separate `reclaim` operation under its unchanged
+host, workload, time, memory and teardown controls. Other operations retain
+all original sources. The executor currently admits primary selections only;
+conditional reserve requires a separately qualified primary-disposition lane.
+
+The workstation matrix covered 414 checks: 413 passed, and the remaining
+architecture inventory check exposed three new files not yet recorded in the
+test checkout's Git inventory. After exact-hash intent-to-add, all 41
+architecture, source, documentation and roadmap checks passed. Native original
+removal, busy-reader and hardlink refusal, partial-failure journaling, exact
+owner-plan metadata, all retaining wrapper phases, and cleanup regressions
+passed. Focused compilation also passed. These are synthetic and metadata
+qualifications, not production data movement.
+
+Retained ignored receipts are
+`scratch/handoffs/archive-reclaim-qualification-a2.xml`, SHA-256
+`faaa49a9a17480397450f2dbbe495d3e46391a6ec366238196532eff6ac867ff`,
+and `scratch/handoffs/archive-reclaim-qualification-a3.xml`, SHA-256
+`4c9eabd0c799a774e03dc3667b4ccc7b91e6ab790d8f46a41d838f971541f6ea`.
+The 42-file qualified source bundle is
+`scratch/handoffs/archive-reclaim-source-a2.json`, SHA-256
+`4780cc9a4d59f03b1ead369554066ba0800e902a860beed7ead8f332225a0cc9`.
+Later documentation closeout does not change those qualified code bytes.
+
+Exact reclaim-source publication/CI, production consumer adoption, concrete
+headroom, durable key custody, fresh per-chunk protection evidence and
+production full-restore/reclaim remain open. The original exact July plan's
+reserve exception and queued-PR-44 adoption boundary remain unchanged.
+Production archive upload, deletion and reclaim remain zero.

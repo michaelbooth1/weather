@@ -16,6 +16,8 @@ in `weather.cold_archive_locations` and `weather.operations.cold_archive_catalog
 | `data/cold_archive/catalog/archives/<archive-id>/restores/<receipt-sha256>.json` | Independent download and complete materialized restore proof, retained after cache removal. |
 | `data/cold_archive/catalog/archives/<archive-id>/caches/<cache-id>.json` | Immutable record of one fully verified local cache population. |
 | `data/cold_archive/catalog/archives/<archive-id>/cache.json` | Current cache pointer; earlier cache records remain. |
+| `data/cold_archive/catalog/reclaims/<approval-sha256>/<attempt-id>/` | Immutable original-reclaim intent, canonical cleanup preflight, per-file completion and final receipt. |
+| `data/cold_archive/catalog/reclaims/<approval-sha256>/progress.json` | Campaign pointer; immutable earlier revisions remain under `progress/`. |
 | `data/cold_archive/restore_cache/<cache-id>/members/<original-relative-path>` | Temporary restored files for an admitted historical job. |
 
 `data/` is ignored runtime state. These paths need not exist in a clean checkout.
@@ -146,6 +148,55 @@ independent full restore, a durable location record and fresh native source
 identity/hash/allocation. Stop at the approved measured reclaim target; use a
 conditional reserve only when primary exclusions or fresh allocation require it.
 Neither this catalog nor the cache publisher deletes original or remote data.
+
+## Original-source reclaim
+
+The separate `weather.operations.cold_archive_reclaim` API removes approved
+primary sources only after the full recovery chain passes. Its production
+entrypoint is `production_cold_archive_run.ps1 -Operation reclaim`, with the
+same mandatory wrapper arguments as staging and a new output attempt under
+`scratch/production_cold_archive_reclaim`. The unchanged capture-host window,
+tiering exclusion, shared lease, memory ceiling, BelowNormal child and
+300-second whole-tree deadline apply. The exact plan selects the disk reserve;
+a new target does not inherit an earlier plan's exception.
+
+The request uses `production_cold_archive_reclaim_request`, operation
+`reclaim`, the common production root, host, source tip, named approval and
+expiry fields, and a unique `attempt_id`. Each of `catalog_entry`,
+`owner_approval`, `proposal`, `selection`, `plan`, `source_review`,
+`restore_record` and `custody_record` is exactly an absolute `path` and
+raw `sha256`. The executor recomputes the complete selective plan and binds
+the archive's original members to the approved proposal. Conditional-reserve
+execution remains refused until a qualified complete primary-disposition proof
+is supplied by a separately implemented lane.
+
+The source review covers this exact archive and expires within five minutes.
+It requires a closed market day, final settled/countability disposition, and
+clear barriers, queues, point-in-time windows and protected release/replay
+inputs, each supported by bounded hash-bound evidence. An operator must
+actually review those controls; synthetic PASS flags are not production proof.
+A catalog-bound independent complete restore must have finished within
+24 hours. Custody evidence binds verified workstation copies of the catalog
+entry and restore record and the owner's confirmation that recovery keys are
+stored outside both PCs. Store only the custody location and confirmation,
+never the keys or password.
+
+Before removal, reviewed archive-aware consumers must be present in production
+and all three capture identities must match current source. Every selected
+original is exclusively pinned and checked for exact native identity,
+allocation and full content SHA-256 before any removal starts. The canonical
+cleanup preflight runs over those same-handle hashes. Intent and campaign
+`IN_PROGRESS` precede native handle-based deletion. Each completed file gets
+its own receipt; the updated location inventory and final receipt must exist
+before the campaign returns to `READY`.
+
+Counters track verified original NTFS allocation, not a promised net volume
+free-space increase. Reclaim stops at the approved target at a whole-file
+boundary. Failures preserve all evidence and block automatic continuation;
+a killed or malformed child reports unknown deletion counts. Reconcile its
+exact intent, native paths and completion records before authorizing another
+attempt. Catalog entries, markers, recovery receipts, cloud objects and
+staging/transfer evidence remain retained.
 
 ## Update when
 

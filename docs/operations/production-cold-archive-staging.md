@@ -78,8 +78,9 @@ child-tree teardown. It reports zero reclaimed bytes.
 
 Transport must separately prove encryption and recovery-key custody, private
 remote destination and exact object identity, independent remote download and
-full restore. A later deletion lane must also prove consumer closure, retained
-restore metadata and fresh exact source identity. This staging CLI exposes no
+full restore. The separate [original reclaim lane](cold-archive-locations.md#original-source-reclaim)
+also requires consumer adoption, retained restore metadata, custody and fresh
+exact source identity. This staging CLI exposes no
 upload or source deletion operation.
 
 
@@ -155,7 +156,9 @@ All phases retain production sources and set cleanup eligibility false. Neither
 transport nor restore establishes fresh production identity or consumer closure.
 In particular, historical replay-status backfills and rotating conversions can
 still reference old folders; recent date alone does not clear those consumers.
-There is no production deletion executor in this bridge.
+Original deletion is owned by the separately gated
+[reclaim executor](cold-archive-locations.md#original-source-reclaim). The
+staging, encryption, transport and restore bridge retains its sources.
 
 
 ### Separate upload and download jobs

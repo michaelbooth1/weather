@@ -152,6 +152,7 @@ def recovery(corpus):
                 "status": "PASS", **corpus.bound, **bridge.RETENTION, "tool_identity": corpus.tool,
                 "checks": dict.fromkeys(bridge.RESTORE_CHECKS, "PASS"), "restore_performed": True,
                 "verified_file_count": len(corpus.contents), "transport_receipt_sha256": transport_sha,
+                "completed_at_utc": datetime.now(timezone.utc).isoformat(),
                 "ciphertext": corpus.cipher, "drive": transport["drive"],
                 "restored_members": [{"path": row["path"], "bytes": row["size_bytes"], "sha256": row["sha256"]}
                                      for row in corpus.manifest["files"]]}

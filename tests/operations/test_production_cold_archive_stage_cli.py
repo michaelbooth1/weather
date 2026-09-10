@@ -95,6 +95,13 @@ def plan(root):
     }]}
 
 
+@pytest.mark.skipif(__import__("os").name != "nt", reason="native Windows path equivalence")
+def test_windows_source_root_accepts_forward_slashes_from_approved_plan(tmp_path):
+    payload = plan(tmp_path)
+    payload["source_root"] = (tmp_path / "data").as_posix()
+    assert subject.validate_chunk(payload, "chunk-00000", tmp_path, NOW) == payload["chunks"][0]
+
+
 def test_exact_immediate_old_whole_file_chunk(tmp_path):
     payload = plan(tmp_path)
     assert subject.validate_chunk(payload, "chunk-00000", tmp_path, NOW) == payload["chunks"][0]

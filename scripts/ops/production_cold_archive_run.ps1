@@ -1,4 +1,4 @@
-# Attended, bounded archive staging or verified encrypted transfer. Retains every source.
+# Attended, bounded staging, transfer, or separately evidence-gated exact original reclaim.
 # Source may be a clean reviewed worktree; production capture source is untouched.
 param(
     [Parameter(Mandatory = $true)][string]$ProductionRepoRoot,
@@ -6,13 +6,14 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [ValidateSet('stage', 'transfer', 'upload', 'download')][string]$Operation = 'stage'
+    [ValidateSet('stage', 'transfer', 'upload', 'download', 'reclaim')][string]$Operation = 'stage'
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$isTransfer = $Operation -ne 'stage'
+$isReclaim = $Operation -eq 'reclaim'
+$isTransfer = $Operation -in @('transfer', 'upload', 'download')
 $expectedUpload = $Operation -ne 'download'
 $expectedDownload = $Operation -ne 'upload'
 $expectedPhase = 'upload_and_independent_download'
@@ -27,6 +28,11 @@ if ($isTransfer) {
     if ($Operation -ne 'transfer') { $workload += '_' + $Operation }
     $module = 'weather.operations.production_cold_archive_transfer'
     $outputDirectory = 'scratch\production_cold_archive_transfer'
+}
+if ($isReclaim) {
+    $workload = 'production_cold_archive_reclaim'
+    $module = 'weather.operations.production_cold_archive_reclaim_cli'
+    $outputDirectory = 'scratch\production_cold_archive_reclaim'
 }
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
@@ -116,6 +122,12 @@ $receipt = [ordered]@{
     hard_stop = $false; teardown_proved = $false; deleted_files = 0
     reclaimed_bytes = 0; cleanup_eligible = $false; source_retained = $true; upload_performed = $false
 }
+if ($isReclaim) {
+    $receipt.deleted_files = $null
+    $receipt.reclaimed_bytes = $null
+    $receipt.source_retained = $null
+    $receipt.reclaim_state = 'UNKNOWN'
+}
 if ($isTransfer) {
     # A terminated or malformed child cannot prove that a remote upload did not occur.
     $receipt.upload_performed = $null
@@ -162,9 +174,38 @@ try {
         $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
         if ($result.status -cne 'PASS' -or $result.request_sha256 -cne $RequestSha256 -or
             $result.source_git_sha -cne $ExpectedSourceTip -or
-            $result.deleted_files -ne 0 -or $result.reclaimed_bytes -ne 0 -or
-            $result.cleanup_eligible -ne $false -or $result.source_retained -ne $true -or
+            $result.cleanup_eligible -ne $false -or
             $result.execution_host_id -cne $hostIdentity) { throw 'child receipt binding mismatch' }
+        if ($isReclaim) {
+            if ($result.operation -cne 'reclaim' -or $result.upload_performed -ne $false -or
+                ($result.deleted_files -isnot [int] -and $result.deleted_files -isnot [long]) -or
+                ($result.reclaimed_bytes -isnot [int] -and $result.reclaimed_bytes -isnot [long]) -or
+                $result.deleted_files -lt 1 -or $result.deleted_files -gt 256 -or
+                $result.reclaimed_bytes -lt 0 -or $result.reclaimed_bytes -gt 1TB -or
+                $result.source_retained -isnot [bool] -or $result.source_retained -ne $false -or
+                $result.reclaim_receipt_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                $result.archive_id -isnot [string] -or $result.chunk_id -cnotmatch '^chunk-[0-9]{5}$' -or
+                $result.attempt_id -isnot [string] -or $result.attempt_id -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$') {
+                throw 'reclaim child receipt verification mismatch'
+            }
+            $reclaimReceiptPath = [IO.Path]::GetFullPath([string]$result.reclaim_receipt_path)
+            $reclaimParent = Join-Path $ProductionRepoRoot 'data\cold_archive\catalog\reclaims'
+            if (-not $reclaimReceiptPath.StartsWith($reclaimParent + '\', [StringComparison]::OrdinalIgnoreCase) -or
+                (Split-Path -Leaf $reclaimReceiptPath) -cne 'receipt.json') {
+                throw 'reclaim receipt escaped the production catalog'
+            }
+            Assert-ArchiveEvidenceAncestors -Path (Split-Path -Parent $reclaimReceiptPath)
+            $reclaimInfo = Get-Item -LiteralPath $reclaimReceiptPath
+            if (($reclaimInfo.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                $reclaimInfo.Length -gt 2MB -or
+                (Get-FileHash -LiteralPath $reclaimReceiptPath -Algorithm SHA256).Hash.ToLowerInvariant() -cne $result.reclaim_receipt_sha256) {
+                throw 'reclaim receipt readback mismatch'
+            }
+        }
+        elseif ($result.deleted_files -ne 0 -or $result.reclaimed_bytes -ne 0 -or
+                $result.source_retained -ne $true) {
+            throw 'retaining operation reported source deletion'
+        }
         if ($isTransfer) {
             if ($result.upload_performed -isnot [bool] -or $result.upload_performed -ne $expectedUpload -or
                 $result.independent_download -isnot [bool] -or $result.independent_download -ne $expectedDownload -or
@@ -191,6 +232,15 @@ try {
         }
         $receipt.child_result_sha256 = (Get-FileHash -LiteralPath $resultPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $receipt.reclaimed_bytes = 0
+        if ($isReclaim) {
+            $receipt.deleted_files = $result.deleted_files
+            $receipt.reclaimed_bytes = $result.reclaimed_bytes
+            $receipt.source_retained = $false
+            $receipt.reclaim_state = 'VERIFIED'
+            $receipt.archive_id = $result.archive_id
+            $receipt.attempt_id = $result.attempt_id
+            $receipt.reclaim_receipt_sha256 = $result.reclaim_receipt_sha256
+        }
         $receipt.chunk_id = $result.chunk_id
         if ($isTransfer) {
             $receipt.archive_id = $result.archive_id
@@ -203,7 +253,7 @@ try {
             if ($Operation -eq 'upload') { $receipt.upload_state = 'UPLOADED_NOT_DOWNLOADED' }
             if ($Operation -eq 'download') { $receipt.upload_state = 'NOT_PERFORMED' }
         }
-        else {
+        elseif (-not $isReclaim) {
             $receipt.logical_source_bytes = $result.logical_source_bytes
             $receipt.source_file_count = $result.source_file_count
             $receipt.core_receipt_sha256 = $result.core_receipt_sha256
@@ -217,6 +267,10 @@ try {
 }
 catch {
     $receipt.status = 'FAILED'
+    if ($isReclaim) {
+        $receipt.deleted_files = $null; $receipt.reclaimed_bytes = $null
+        $receipt.source_retained = $null; $receipt.reclaim_state = 'UNKNOWN'
+    }
     if ($isTransfer) { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
     $receipt.error = $_.Exception.Message
     $exitCode = 1
@@ -231,6 +285,10 @@ finally {
         $receipt.completed_at_utc = [DateTime]::UtcNow.ToString('o')
         if (-not $teardownProved) {
             $receipt.status = 'TEARDOWN_UNPROVED'; $exitCode = 1
+            if ($isReclaim) {
+                $receipt.deleted_files = $null; $receipt.reclaimed_bytes = $null
+                $receipt.source_retained = $null; $receipt.reclaim_state = 'UNKNOWN'
+            }
             if ($isTransfer) { $receipt.upload_performed = $null; $receipt.upload_state = 'UNKNOWN' }
         }
         if ($job) { $job.Dispose() }

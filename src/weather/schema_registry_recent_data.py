@@ -7,6 +7,46 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",
+        "weather.operations.production_cold_archive_reclaim_cli", "active",
+        "Expiring host-bound original reclaim request with exact selection, recovery and custody evidence.",
+    ),
+    SchemaSpec(
+        "production_cold_archive_reclaim_execution_receipt", "production_cold_archive_reclaim_execution_receipt_v0.1",
+        "weather.operations.production_cold_archive_reclaim_cli", "active",
+        "Bounded exact-file original reclaim execution outcome; interrupted counts remain unknown.",
+    ),
+    SchemaSpec(
+        "archive_target_owner_approval", "archive_target_owner_approval_v1",
+        "weather.operations.cold_archive_reclaim", "active",
+        "Recorded owner approval binding an exact primary and conditional reserve proposal.",
+    ),
+    SchemaSpec(
+        "archive_target_owner_review_proposal", "archive_target_owner_review_proposal_v1",
+        "weather.operations.cold_archive_reclaim", "active",
+        "Original exact-path archive proposal; approval is a separately hash-bound record.",
+    ),
+    SchemaSpec(
+        "cold_archive_source_review", "cold_archive_source_review_v0.1",
+        "weather.operations.cold_archive_reclaim", "active",
+        "Fresh evidence-backed closure and protected-input review for one exact archive.",
+    ),
+    SchemaSpec(
+        "cold_archive_custody", "cold_archive_custody_v0.1",
+        "weather.operations.cold_archive_reclaim", "active",
+        "Verified off-host catalog/restore backup and owner-confirmed external recovery-key custody.",
+    ),
+    SchemaSpec(
+        "cold_archive_reclaim_progress", "cold_archive_reclaim_progress_v0.1",
+        "weather.operations.cold_archive_reclaim", "active",
+        "Hash-linked reclaim progress; an interrupted transition blocks automatic continuation.",
+    ),
+    SchemaSpec(
+        "cold_archive_reclaim_receipt", "cold_archive_reclaim_receipt_v0.1",
+        "weather.operations.cold_archive_reclaim", "active",
+        "Exact native original-source removal intent, per-file results and measured allocation.",
+    ),
+    SchemaSpec(
         "cold_archive_cache_cleanup", "cold_archive_cache_cleanup_v0.1",
         "weather.operations.cold_archive_cache_cleanup", "active",
         "Exact verified cache-member removal intent, per-file results and completion receipt.",

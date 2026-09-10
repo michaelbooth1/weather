@@ -74,7 +74,7 @@ def validate_request(payload, *, production_root, now, source_git_sha):
 
 
 def validate_chunk(plan, chunk_id, production_root, now):
-    if plan.get("source_root") != str(production_root / "data"):
+    if not isinstance(plan.get("source_root"), str) or Path(plan["source_root"]) != production_root / "data":
         raise ValueError("plan source root differs from production data")
     chunks = plan.get("chunks")
     if not isinstance(chunks, list) or not 1 <= len(chunks) <= 20000:

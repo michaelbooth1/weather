@@ -78,7 +78,7 @@ def validate_request(payload, *, production_root, now, source_git_sha):
 def validate_manifest_plan(manifest, plan, chunk):
     """Bind the staged member identities to the actual approved plan bytes."""
     if (manifest.get("plan_hash") != plan.get("plan_hash")
-            or manifest.get("source_root") != plan.get("source_root")
+            or Path(manifest.get("source_root", "")) != Path(plan.get("source_root", ""))
             or manifest.get("chunk_id") != chunk.get("chunk_id")
             or transfer.archive._rows(manifest.get("files")) != chunk["files"]):
         raise ValueError("staged manifest does not match the approved chunk")
