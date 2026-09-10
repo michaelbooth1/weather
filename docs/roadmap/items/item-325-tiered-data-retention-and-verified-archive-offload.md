@@ -7,6 +7,53 @@ that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
 
+## September 10 06:30 scheduled-run readiness
+
+The one-shot `WeatherColdArchivePacked_20260910_a1` is registered for 06:45
+Toronto, with `StartWhenAvailable=false`, S4U logon and a 09:00 end boundary.
+Its exact script hash, action XML and execution source
+`811efd4c2c489e6d89a6a9771143ce32c69afadc` are sealed in production-local
+`scratch/handoffs/archive-packed-campaign-a1-scheduled-20260910.json`.
+The isolated checkout must remain exact and clean. The current canonical roll
+verdict classifies this later source as roll-sensitive; runtime adoption is
+still the earlier guarded archive/consumer stack described below.
+
+The runner first finishes the already restored `e10d00001` at fresh review
+attempt `r7`, then selects 104 packed chunks. It skips the isolated pilot
+days and currently protected queue chunks. It records per-archive results at
+`scratch/archive_day_campaign/<archive-id>f<attempt>/result.json` and campaign
+progress at `scratch/archive_bulk_campaign/e10-packed-a1/status.json`.
+Every payload phase retains the canonical admission, memory, disk, source,
+recovery and teardown checks. A failed phase stops the run and preserves the
+spent namespace. A scheduled task is not proof of transfer or reclaim.
+
+Readiness evidence, all production-local:
+
+- `scratch/handoffs/archive-campaign-s4u-ssh-probe-20260910.json`: the scheduled
+  account completed the bounded workstation metadata command with exit zero
+  and proved child teardown.
+- `scratch/handoffs/archive-campaign-s4u-drive-probe-20260910.json`: S4U recovered
+  the machine-protected configuration password, read the exact private recovery
+  key object's metadata and left the encrypted configuration unchanged. It
+  printed no credential and created no remote object.
+- `scratch/handoffs/archive-first-packed-native-preflight-20260910.json`: all 18
+  files in `chunk-00002` matched the approved size, allocation, volume, file ID
+  and mtime. No source payload was read. The staging phase repeats these checks.
+- Four admitted workstation interoperability checks accepted the actual
+  PowerShell-produced review and spool seals and their exact integer strings.
+  The test inputs are retained in the dedicated workstation scratch directory
+  `scratch/ac-in/e10d19996/`.
+
+The documentation adoption completed as master
+`2fa326462a323a28fbc8b2165a3b92be8c1a95d3`, with all three capture workers
+healthy before/after and publication confirmed. Its five-minute observation
+overlapped the 06:00 raw-tape tiering trigger, which correctly recorded
+`SKIPPED_WORKLOAD_LEASE_BUSY`. After lease release, the unchanged canonical
+tiering command completed at 06:06:27, reporting another **2,964,746,240 bytes
+reclaimed** and **26,203,512,832 bytes free**. The retained task receipt is
+`data/logs/clob_raw_tape_tiering_task_status.json`. These savings are separate
+from archive-source reclaim; the 100 GB archive target remains open.
+
 ## September 10 verified archive and recovery checkpoint
 
 **Checkpoint: September 10 05:40 Toronto. PARTIAL; the 100 GB archive target is
