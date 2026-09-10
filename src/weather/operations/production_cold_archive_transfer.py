@@ -174,15 +174,16 @@ def _run_pinned(args, root, output, request_path):
     owner = int(os.environ.get(staging.ENV_PREFIX + "OWNER_PID", "0"))
     lease_path = root / "data" / "logs" / "heavy_workload.lock"
     lease, _ = read_bounded_json(lease_path, 16384)
-    if lease.get("execution_host_id") != request["execution_host_id"] or lease.get("policy_window") != "agent_heavy":
-        raise ValueError("transfer requires its exact ordinary overnight host lease")
+    if lease.get("execution_host_id") != request["execution_host_id"]:
+        raise ValueError("transfer requires its exact host lease")
     verify_current_lease(lease, owner, lease_path, workload=workload)
+    exception = staging.verify_archive_exception(lease, now)
     set_current_process_below_normal()
     deadline = _utc(os.environ[staging.ENV_PREFIX + "DEADLINE_UTC"])
-    if not 0 < (deadline - now).total_seconds() <= staging.MAX_SECONDS:
-        raise ValueError("wrapper deadline is outside its bounded interval")
+    staging.verify_archive_deadline(deadline, now, exception)
     plan_path = Path(request["plan_path"])
-    plan, reserve = staging.load_plan_with_reserve(plan_path, request["plan_sha256"])
+    plan, reserve = staging.load_plan_with_reserve(
+        plan_path, request["plan_sha256"], owner_approved_exception=exception)
     chunk = staging.validate_chunk(plan, request["chunk_id"], root, now)
     manifest = transfer._read_bound(request["production_manifest_path"], request["production_manifest_sha256"])
     validate_manifest_plan(manifest, plan, chunk)
@@ -199,7 +200,8 @@ def _run_pinned(args, root, output, request_path):
         if force or time.monotonic() - last_check >= 1:
             last_admission = observe_capture_admission(
                 root, lambda **observed: staging.check_resources(
-                    output_reservation=0, source_reserve_bytes=reserve, **observed))
+                    output_reservation=0, source_reserve_bytes=reserve,
+                                               owner_approved_exception=exception, **observed))
             last_check = time.monotonic()
             if last_admission["status"] != "PASS":
                 write_receipt(output / "admission-refusal.json", last_admission)

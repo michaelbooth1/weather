@@ -2464,3 +2464,59 @@ catch { $expired = $true }
     assert result.stdout.strip() == (
         '{"accepted":"owner_approved_merge_20260823","expired":true}'
     )
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+def test_archive_daytime_policy_is_exact_dated_and_cannot_combine_stage_a():
+    env = {**os.environ, "WEATHER_LEASE_SCRIPT": str(LEASE_SCRIPT)}
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+$token = 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910'
+$accepted = Get-WeatherHeavyWorkloadPolicyWindow -Now '2026-09-10T13:10:38' -OwnerApprovedException $token
+$refused = 0
+foreach ($stamp in @('2026-09-10T13:10:37','2026-09-10T18:00:00','2026-09-11T13:30:00')) {
+    try { Get-WeatherHeavyWorkloadPolicyWindow -Now $stamp -OwnerApprovedException $token | Out-Null }
+    catch { $refused += 1 }
+}
+try { Get-WeatherHeavyWorkloadPolicyWindow -Now '2026-09-10T14:00:00' -OwnerApprovedException $token -AllowStageAWindow | Out-Null }
+catch { $refused += 1 }
+[pscustomobject]@{ accepted=$accepted; refused=$refused } | ConvertTo-Json -Compress
+"""
+    result = subprocess.run([*POWERSHELL, "-Command", script], capture_output=True, text=True,
+                            env=env, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "accepted": "owner_approved_archive_recovery_20260910", "refused": 4}
+
+
+@pytest.mark.skipif(os.name != "nt" or shutil.which("powershell") is None, reason="Windows lease")
+@pytest.mark.parametrize("workload,host,stage_a", [
+    ("quiet_window_merge", "a", False),
+    ("storage_recovery_inventory", "a", False),
+    ("cold_snapshot_compression", "a", False),
+    ("production_cold_archive_reclaim", "b", False),
+    ("production_cold_archive_stage", "a", True),
+])
+def test_archive_daytime_lease_refuses_other_workloads_hosts_and_stage_a(tmp_path, workload, host, stage_a):
+    env = {**os.environ, "WEATHER_LEASE_SCRIPT": str(LEASE_SCRIPT),
+           "ARCHIVE_FIXTURE_ROOT": str(tmp_path), "ARCHIVE_FIXTURE_WORKLOAD": workload,
+           "ARCHIVE_FIXTURE_HOST": host * 64, "ARCHIVE_FIXTURE_STAGE_A": str(stage_a)}
+    script = r"""
+$ErrorActionPreference = 'Stop'
+. $env:WEATHER_LEASE_SCRIPT
+function Get-WeatherExecutionHostId { return $env:ARCHIVE_FIXTURE_HOST }
+function Get-WeatherExecutionHostAssignment { return [pscustomobject]@{ dedicated_capture_execution_host_id=('a'*64) } }
+try {
+    Enter-WeatherHeavyWorkloadLease -RepoRoot $env:ARCHIVE_FIXTURE_ROOT -Workload $env:ARCHIVE_FIXTURE_WORKLOAD -OwnerApprovedException 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910' -AllowStageAWindow:($env:ARCHIVE_FIXTURE_STAGE_A -ceq 'True')
+    throw 'fixture unexpectedly admitted'
+}
+catch {
+    if ($_.Exception.Message -cne 'owner-approved archive exception requires the dedicated capture archive lane') { throw }
+    Write-Output 'REFUSED_BEFORE_LEASE'
+}
+"""
+    result = subprocess.run([*POWERSHELL, "-Command", script], capture_output=True, text=True,
+                            env=env, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "REFUSED_BEFORE_LEASE"
+    assert list(tmp_path.iterdir()) == []

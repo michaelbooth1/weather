@@ -6,7 +6,8 @@ param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$RequestSha256,
     [Parameter(Mandatory = $true)][string]$OutputRoot,
     [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{40}$')][string]$ExpectedSourceTip,
-    [ValidateSet('stage', 'transfer', 'upload', 'download', 'publish', 'reclaim')][string]$Operation = 'stage'
+    [ValidateSet('stage', 'transfer', 'upload', 'download', 'publish', 'reclaim')][string]$Operation = 'stage',
+    [string]$OwnerApprovedException = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,7 +39,16 @@ if ($isReclaim) {
 $zone = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
 $localNow = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $zone)
 $minute = $localNow.Hour * 60 + $localNow.Minute
-if ($minute -lt 30 -or $minute -ge 540) {
+$archiveDaytime = $false
+if ($OwnerApprovedException) {
+    if ($OwnerApprovedException -cne 'OWNER_APPROVED_ARCHIVE_RECOVERY_20260910' -or
+        $localNow -lt [datetime]'2026-09-10T13:10:38' -or
+        $localNow -ge [datetime]'2026-09-10T18:00:00') {
+        throw 'REFUSED: owner archive exception is invalid or expired'
+    }
+    $archiveDaytime = $true
+}
+if (-not $archiveDaytime -and ($minute -lt 30 -or $minute -ge 540)) {
     throw 'REFUSED: archive operations are restricted to 00:30-09:00 America/Toronto'
 }
 if ($minute -ge 285 -and $minute -lt 405) {
@@ -47,6 +57,9 @@ if ($minute -ge 285 -and $minute -lt 405) {
 $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddHours(9), $zone)
 if ($minute -lt 285) {
     $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddMinutes(285), $zone)
+}
+if ($archiveDaytime) {
+    $windowEnd = [TimeZoneInfo]::ConvertTimeToUtc($localNow.Date.AddHours(18), $zone)
 }
 $deadline = [DateTime]::UtcNow.AddSeconds(300)
 if ($deadline -gt $windowEnd.AddSeconds(-15)) { $deadline = $windowEnd.AddSeconds(-15) }
@@ -105,7 +118,8 @@ if ($hostIdentity -cne [string]$assignment.dedicated_capture_execution_host_id) 
 $python = Join-Path $ProductionRepoRoot 'venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { throw 'production project interpreter missing' }
 $lease = Enter-WeatherHeavyWorkloadLease -RepoRoot $ProductionRepoRoot `
-    -Workload $workload -ExpectedExecutionHostId $hostIdentity
+    -Workload $workload -ExpectedExecutionHostId $hostIdentity `
+    -OwnerApprovedException $OwnerApprovedException
 if ($null -eq $lease) { throw 'REFUSED: shared workload lease is busy' }
 
 $job = $null
@@ -116,9 +130,11 @@ $oldPythonPath = $env:PYTHONPATH
 $oldSource = $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT
 $oldOwner = $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID
 $oldDeadline = $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC
+$oldException = $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_EXCEPTION
 $receipt = [ordered]@{
     source_git_sha = $ExpectedSourceTip; request_sha256 = $RequestSha256
     execution_host_id = $hostIdentity; operation = $Operation
+    owner_approved_exception = $OwnerApprovedException
     started_at_utc = [DateTime]::UtcNow.ToString('o'); status = 'FAILED'
     hard_stop = $false; teardown_proved = $false; deleted_files = 0
     reclaimed_bytes = 0; cleanup_eligible = $false; source_retained = $true; upload_performed = $false
@@ -143,6 +159,7 @@ try {
     $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT = $sourceRoot
     $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID = [string]$PID
     $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC = $deadline.ToString('o')
+    $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_EXCEPTION = $OwnerApprovedException
     $arguments = @('-m', $module, $Operation,
         '--production-repo-root', $ProductionRepoRoot, '--request', $RequestPath,
         '--request-sha256', $RequestSha256, '--output-root', $OutputRoot,
@@ -309,6 +326,7 @@ finally {
         $env:WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT = $oldSource
         $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_PID = $oldOwner
         $env:WEATHER_PRODUCTION_ARCHIVE_DEADLINE_UTC = $oldDeadline
+        $env:WEATHER_PRODUCTION_ARCHIVE_OWNER_EXCEPTION = $oldException
         if ($teardownProved) { Exit-WeatherHeavyWorkloadLease -Lease $lease }
         else { Set-WeatherHeavyWorkloadLeasePoisoned -Lease $lease }
         if (Test-Path -LiteralPath $OutputRoot -PathType Container) {

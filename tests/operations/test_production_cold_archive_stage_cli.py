@@ -229,3 +229,72 @@ def test_approved_reserve_keeps_evidence_memory_and_time_guards():
     args["commit"] = 50
     args["available"] = 4 * 1024**3 - 1
     assert subject.check_resources(**args)["status"] == "BLOCK"
+
+
+@pytest.mark.parametrize("stamp,allowed", [
+    ("2026-09-10T17:10:37+00:00", False),
+    ("2026-09-10T17:10:38+00:00", True),
+    ("2026-09-10T21:59:44+00:00", True),
+    ("2026-09-10T22:00:00+00:00", False),
+    ("2026-09-11T17:30:00+00:00", False),
+])
+def test_archive_daytime_resources_require_dated_explicit_authority(stamp, allowed):
+    args = resources()
+    args["now"] = datetime.fromisoformat(stamp)
+    assert subject.check_resources(**args)["status"] == "BLOCK"
+    args["owner_approved_exception"] = subject.ARCHIVE_DAYTIME_EXCEPTION
+    assert (subject.check_resources(**args)["status"] == "PASS") is allowed
+    if allowed:
+        for key, value in (("commit", 70), ("available", 4 * 1024**3 - 1),
+                           ("loops", []), ("free_disk", 0)):
+            assert subject.check_resources(**{**args, key: value})["status"] == "BLOCK"
+
+
+def test_archive_daytime_rejects_other_lane_tokens_and_mismatched_lease():
+    now = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
+    token = subject.ARCHIVE_DAYTIME_EXCEPTION
+    lease = {"policy_window": token.lower()}
+    assert subject.verify_archive_exception(lease, now, exception=token) == token
+    for policy, exception in (("agent_heavy", token), (token.lower(), ""),
+                               (token.lower(), "OWNER_APPROVED_STORAGE_RECOVERY_20260909")):
+        with pytest.raises(ValueError):
+            subject.verify_archive_exception({"policy_window": policy}, now, exception=exception)
+    with pytest.raises(ValueError):
+        subject.verify_archive_exception(lease, now + timedelta(days=1), exception=token)
+    args = {**resources(), "owner_approved_exception": "OWNER_APPROVED_STORAGE_RECOVERY_20260909"}
+    with pytest.raises(ValueError, match="another workload"):
+        subject.check_resources(**args)
+
+
+def test_archive_daytime_deadline_preserves_teardown():
+    token = subject.ARCHIVE_DAYTIME_EXCEPTION
+    now = datetime(2026, 9, 10, 21, 59, tzinfo=timezone.utc)
+    subject.verify_archive_deadline(now + timedelta(seconds=45), now, token)
+    with pytest.raises(ValueError, match="teardown"):
+        subject.verify_archive_deadline(now + timedelta(seconds=46), now, token)
+    with pytest.raises(ValueError, match="bounded"):
+        subject.verify_archive_deadline(now + timedelta(seconds=301), now, token)
+
+
+@pytest.mark.parametrize("binding", ["OVERNIGHT_PLAN_SHA256", "OVERNIGHT_DAY_PLAN_SHA256",
+                                     "OVERNIGHT_PACKED_PLAN_SHA256"])
+def test_archive_daytime_reserve_requires_actual_approved_plan_and_selection(tmp_path, monkeypatch, binding):
+    path = tmp_path / "daytime-plan.json"
+    path.write_text(json.dumps({"selection_sha256": subject.OVERNIGHT_SELECTION_SHA256}))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(subject, binding, digest)
+    now = datetime(2026, 9, 10, 18, tzinfo=timezone.utc)
+    kwargs = {"now": now, "owner_approved_exception": subject.ARCHIVE_DAYTIME_EXCEPTION}
+    assert subject.load_plan_with_reserve(path, digest, **kwargs)[1] == 6 * 1024**3
+    assert subject.load_plan_with_reserve(path, digest, now=now)[1] == 50 * 1024**3
+    with pytest.raises(ValueError, match="authority"):
+        subject.load_plan_with_reserve(path, digest, **{**kwargs, "now": now + timedelta(days=1)})
+    path.write_text(json.dumps({"selection_sha256": "0" * 64}))
+    with pytest.raises(ValueError, match="digest mismatch"):
+        subject.load_plan_with_reserve(path, digest, **kwargs)
+    changed_digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(ValueError, match="authority"):
+        subject.load_plan_with_reserve(path, changed_digest, **kwargs)
+    monkeypatch.setattr(subject, binding, changed_digest)
+    with pytest.raises(ValueError, match="authority"):
+        subject.load_plan_with_reserve(path, changed_digest, **kwargs)

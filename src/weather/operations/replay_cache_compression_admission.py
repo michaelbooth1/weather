@@ -43,7 +43,11 @@ def check_resources(*, now, available, commit, free_disk, loops):
 
 STORAGE_DAYTIME_EXCEPTION = "OWNER_APPROVED_STORAGE_RECOVERY_20260908"
 STORAGE_DAYTIME_POLICY = "owner_approved_storage_recovery_20260908"
+ARCHIVE_DAYTIME_EXCEPTION = "OWNER_APPROVED_ARCHIVE_RECOVERY_20260910"
+ARCHIVE_DAYTIME_START = datetime(2026, 9, 10, 17, 10, 38, tzinfo=timezone.utc)
+ARCHIVE_DAYTIME_END = datetime(2026, 9, 10, 22, tzinfo=timezone.utc)
 STORAGE_DAYTIME_EXCEPTIONS = {
+    ARCHIVE_DAYTIME_EXCEPTION: ("2026-09-10", ARCHIVE_DAYTIME_EXCEPTION.lower()),
     STORAGE_DAYTIME_EXCEPTION: ("2026-09-08", STORAGE_DAYTIME_POLICY),
     "OWNER_APPROVED_STORAGE_RECOVERY_20260909":
         ("2026-09-09", "owner_approved_storage_recovery_20260909"),
@@ -51,6 +55,8 @@ STORAGE_DAYTIME_EXCEPTIONS = {
 
 
 def storage_daytime_authorized(now, exception):
+    if exception == ARCHIVE_DAYTIME_EXCEPTION:
+        return ARCHIVE_DAYTIME_START <= now < ARCHIVE_DAYTIME_END
     local = now.astimezone(ZoneInfo("America/Toronto"))
     authorization = STORAGE_DAYTIME_EXCEPTIONS.get(exception)
     return (authorization is not None and local.date().isoformat() == authorization[0]
