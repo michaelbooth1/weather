@@ -54,7 +54,12 @@ historical Markdown snapshot is a fresh presence check.
    in separate chunks. The sealed plan retains every approved file identity,
    binds the isolation list, and recomputes chunk membership before staging
    and reclaim. Isolation is a packing boundary; protected-input checks still
-   apply independently before any source is removed.
+   apply independently before any source is removed. A multi-day reclaim also
+   requires an exact ordered `market_days` review for every included event,
+   with its canonical date and the hash-bound `settlement.json` at that event
+   path. The executor directly checks final matching reconciliation and every
+   winning market. Missing, changed, open or misbound evidence refuses the whole
+   archive before deletion; at most sixteen event days may be reviewed together.
    Both keep one event folder per archive; the latter combines selected families
    within it. CSV and gzip halves remain independent members, and both policies
    retain the same 1 GiB and 256-member bounds.

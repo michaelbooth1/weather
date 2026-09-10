@@ -103,6 +103,72 @@ def assert_sources_retained(corpus):
     assert all((corpus.day / name).read_bytes() == content for name, content in corpus.contents.items())
 
 
+
+MULTI_FILES = {"order_books_long.csv": b"a,b\n1,2\n",
+              "../highest-temperature-in-nyc-on-june-16-2026/order_books_long.csv": b"a,b\n3,4\n"}
+
+
+def multi_day_args(corpus, monkeypatch, *, native=False):
+    args = reclaim_args(corpus, monkeypatch, native=native)
+    entry, _ = locations.read_record(corpus.entry_path, corpus.entry_sha)
+    days = []
+    for event in sorted({Path(row["path"]).parts[1] for row in entry["files"]}):
+        target = subject.event_date(event).isoformat()
+        evidence = record(corpus.root / "snapshots" / event / "settlement.json", {
+            "target_date": target, "polymarket_reconciliation": {
+                "event_closed": True, "status": "match",
+                "winning_markets": [{"closed": True, "resolved": True}]}}, sealed=False)
+        days.append({"event_slug": event, "target_date": target, "settlement": evidence})
+    amend(args["request"]["source_review"], lambda value: value.update(market_days=days))
+    return args
+
+
+@pytest.mark.parametrize("corpus", [MULTI_FILES], indirect=True)
+def test_native_multiday_reclaim_requires_each_settlement_and_retains_locations(corpus, monkeypatch):
+    args = multi_day_args(corpus, monkeypatch, native=True)
+    result = subject.reclaim_chunk(**args)
+    assert result["status"] == "PASS" and result["deleted_files"] == 2
+    for row in corpus.manifest["files"]:
+        path = corpus.root / row["path"]
+        assert not path.exists()
+        assert locations.load_location(path).entry_sha256 == corpus.entry_sha
+        assert (path.parent / "settlement.json").is_file()
+
+
+@pytest.mark.parametrize("corpus", [MULTI_FILES], indirect=True)
+@pytest.mark.parametrize("fault", ["missing", "omitted_day", "duplicate_day", "wrong_date",
+                                   "wrong_path", "changed_evidence", "unmatched", "open_winner"])
+def test_multiday_reclaim_refuses_incomplete_or_changed_settlement(corpus, monkeypatch, fault):
+    args = multi_day_args(corpus, monkeypatch)
+    spec = args["request"]["source_review"]
+    value = json.loads(Path(spec["path"]).read_bytes())
+    days = value["market_days"]
+    if fault == "missing":
+        value.pop("market_days")
+    elif fault == "omitted_day":
+        days.pop()
+    elif fault == "duplicate_day":
+        days[1] = copy.deepcopy(days[0])
+    elif fault == "wrong_date":
+        days[1]["target_date"] = "2026-06-17"
+    elif fault == "wrong_path":
+        days[1]["settlement"] = days[0]["settlement"]
+    else:
+        evidence = days[1]["settlement"]
+        payload = json.loads(Path(evidence["path"]).read_bytes())
+        if fault == "open_winner":
+            payload["polymarket_reconciliation"]["winning_markets"][0]["resolved"] = False
+        else:
+            payload["polymarket_reconciliation"]["status"] = "mismatch"
+        updated = record(Path(evidence["path"]), payload, sealed=False)
+        if fault != "changed_evidence":
+            evidence.update(updated)
+    spec.update(record(Path(spec["path"]), value))
+    with pytest.raises((ValueError, RuntimeError)):
+        subject.reclaim_chunk(**args)
+    assert_sources_retained(corpus)
+
+
 def test_original_reclaim_preserves_locations_and_complete_recovery_evidence(corpus, monkeypatch):
     args = reclaim_args(corpus, monkeypatch)
     before = {str(path): fixtures.sha(path) for path in corpus.entry_path.parent.rglob("*.json")}
