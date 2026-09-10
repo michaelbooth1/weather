@@ -523,8 +523,6 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
                           completed_at_utc=datetime.now(timezone.utc).isoformat())
         except BaseException as exc:
             result.update(status="FAIL_CLOSED", error_type=type(exc).__name__)
-            if type(exc) is TransferError:
-                result["refusal_reason"] = str(exc)
             archive._write(output / "receipt.json", _seal(result))
             raise
         finally:
