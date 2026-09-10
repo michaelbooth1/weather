@@ -684,3 +684,72 @@ def test_reclaim_failure_locations_exclude_exception_text_and_full_paths():
     assert rows and all(set(row) == {"module", "line"} for row in rows)
     assert all(row["module"] == "test_cold_archive_reclaim.py" for row in rows)
     assert "fixture-private-value" not in json.dumps(rows)
+
+def workstation_spool_args(corpus, monkeypatch, *, native=False):
+    args, paths = spool_reclaim_args(corpus, monkeypatch, native=native)
+    req = args["request"]
+    # The extra synthetic production download is deliberately retained: it is
+    # not selected by the workstation-backed inventory.
+    remote_root = corpus.tmp.parent / (corpus.tmp.name + "-ws")
+    remote_download = (remote_root / "scratch" / "production_cold_archive_transport" / "wd1"
+                       / "transfer" / ("downloaded-" + corpus.bound["archive_id"] + ".rclone.bin"))
+    spec = req["restore_record"]
+    rewrite_restore(spec, "transport", lambda value: value["downloaded_file"].update(path=str(remote_download)))
+    transport_sha = json.loads(Path(spec["path"]).read_bytes())["transport"]["sha256"]
+    rewrite_restore(spec, "restore", lambda value: value.update(
+        transport_receipt_sha256=transport_sha, restore_id="wr1",
+        restored_archive=str(remote_root / "scratch" / "ac-rest" / "wr1" / "archive" / "archive.tar.gz")))
+    def update_custody(value):
+        value["restore_record_sha256"] = spec["sha256"]
+        value["verified_backups"]["restore_record"]["sha256"] = spec["sha256"]
+    amend(req["custody_record"], update_custody)
+    amend(req["spool_inventory"], lambda value: value["files"].pop())
+    return args, paths, remote_root
+
+
+def assert_workstation_spool_reclaim(corpus, monkeypatch, *, native):
+    args, paths, remote = workstation_spool_args(corpus, monkeypatch, native=native)
+    result = subject.reclaim_chunk(**args)
+    assert result["status"] == "PASS"
+    assert result["spool_cleanup"]["deleted_files"] == 2
+    assert not paths[0].exists() and not paths[1].exists()
+    assert paths[2].read_bytes() == fixtures.CIPHER_BYTES
+    assert not remote.exists()  # Metadata proof did not access/create a remote tree.
+    assert result["reclaimed_allocated_bytes"] == sum(row["allocated_bytes"] for row in corpus.manifest["files"])
+
+
+def test_workstation_transport_reclaims_only_two_local_spools(corpus, monkeypatch):
+    assert_workstation_spool_reclaim(corpus, monkeypatch, native=False)
+
+
+def test_native_workstation_transport_reclaims_only_two_local_spools(corpus, monkeypatch):
+    assert_workstation_spool_reclaim(corpus, monkeypatch, native=True)
+
+
+@pytest.mark.parametrize("fault", ["third_role", "wrong_download_root", "wrong_restore_layout"])
+def test_workstation_spool_host_or_role_mismatch_prevents_all_deletion(corpus, monkeypatch, fault):
+    args, paths, remote = workstation_spool_args(corpus, monkeypatch)
+    req = args["request"]
+    if fault == "third_role":
+        amend(req["spool_inventory"], lambda value: value["files"].append({
+            "role": "downloaded_ciphertext", "path": paths[2].relative_to(corpus.tmp).as_posix(),
+            "sha256": fixtures.sha(paths[2]), **fixtures.metadata(paths[2])}))
+    else:
+        spec = req["restore_record"]
+        if fault == "wrong_download_root":
+            rewrite_restore(spec, "transport", lambda value: value["downloaded_file"].update(
+                path=str(remote.parent / "wrong" / "downloaded.rclone.bin")))
+            transport_sha = json.loads(Path(spec["path"]).read_bytes())["transport"]["sha256"]
+            rewrite_restore(spec, "restore", lambda value: value.update(transport_receipt_sha256=transport_sha))
+        else:
+            rewrite_restore(spec, "restore", lambda value: value.update(
+                restored_archive=str(remote / "scratch" / "failed" / "wr1" / "archive" / "archive.tar.gz")))
+        def update_custody(value):
+            value["restore_record_sha256"] = spec["sha256"]
+            value["verified_backups"]["restore_record"]["sha256"] = spec["sha256"]
+        amend(req["custody_record"], update_custody)
+    with pytest.raises((RuntimeError, ValueError, OSError)):
+        subject.reclaim_chunk(**args)
+    assert_sources_retained(corpus)
+    assert all(path.exists() for path in paths)
+    assert not (campaign(corpus) / req["attempt_id"] / "intent.json").exists()
