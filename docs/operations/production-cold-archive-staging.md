@@ -252,6 +252,11 @@ accounting for all three production payloads. Requests that cannot fit remain
 source-retaining refusals. Upload, download and reclaim still recheck capture
 and headroom throughout their bounded jobs.
 
+Read-only queries for an already-bound Drive object may retry an empty or null
+transient response at most four times within the unchanged job deadline. Every
+successful query must still match the exact object identity and size. Uploads
+are never retried automatically, and a materialized download is never overwritten.
+
 ## Update when
 
 Update when chunk format, request fields, admission, output evidence or the
