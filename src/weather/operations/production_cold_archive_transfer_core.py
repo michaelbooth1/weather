@@ -110,6 +110,7 @@ class GuardedClient:
         self.remote, self.root_folder_id = remote, root_folder_id
         self.environment = environment
         self.admission, self.deadline = admission, deadline
+        self.last_failure = None
 
     def guard(self):
         _require(time.monotonic() < self.deadline and self.admission(), "transfer admission ended")
@@ -128,26 +129,28 @@ class GuardedClient:
         process = subprocess.Popen(
             arguments, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL, env=self.environment, shell=False,
+            stderr=subprocess.PIPE, env=self.environment, shell=False,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
-        output, overflow = bytearray(), threading.Event()
+        output, errors, overflow = bytearray(), bytearray(), threading.Event()
 
-        def drain():
+        def drain(stream, destination):
             try:
                 while True:
-                    block = process.stdout.read(4096)
+                    block = stream.read(4096)
                     if not block:
                         return
-                    if len(output) + len(block) > MAX_CLIENT_OUTPUT:
+                    if len(destination) + len(block) > MAX_CLIENT_OUTPUT:
                         overflow.set()
                         return
-                    output.extend(block)
+                    destination.extend(block)
             except (OSError, ValueError):
                 overflow.set()
 
-        reader = threading.Thread(target=drain, daemon=True) if capture else None
+        reader = threading.Thread(target=drain, args=(process.stdout, output), daemon=True) if capture else None
+        error_reader = threading.Thread(target=drain, args=(process.stderr, errors), daemon=True)
         if reader:
             reader.start()
+        error_reader.start()
         try:
             while process.poll() is None:
                 self.guard()
@@ -160,7 +163,18 @@ class GuardedClient:
             if reader:
                 reader.join(timeout=2)
                 _require(not reader.is_alive() and not overflow.is_set(), "client output was not bounded")
+            error_reader.join(timeout=2)
+            _require(not error_reader.is_alive() and not overflow.is_set(), "client errors were not bounded")
             self.guard()
+            if process.returncode != 0:
+                message = errors.decode("utf-8", errors="replace").lower()
+                categories = ("max transfer", "rate limit", "quota", "not found", "permission",
+                              "token", "oauth", "config", "timeout", "connection", "sharing",
+                              "access is denied", "failed to save", "cannot find", "does not exist")
+                self.last_failure = {"exit_code": process.returncode,
+                                     "command": list(signature), "stderr_bytes": len(errors),
+                                     "stdout_bytes": len(output),
+                                     "categories": [word for word in categories if word in message]}
             return process.returncode, bytes(output)
         finally:
             if process.poll() is None:
@@ -171,6 +185,8 @@ class GuardedClient:
                     raise TransferError("client teardown unproved") from exc
             if process.stdout:
                 process.stdout.close()
+            if process.stderr:
+                process.stderr.close()
 
     def preflight(self):
         code, _ = self.run(["config", "encryption", "check"])
@@ -397,7 +413,7 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
               "independent_download": False, "remote_side_effect_possible": False}
     if not upload_needed:
         result["upload_receipt_sha256"] = upload_receipt_sha256
-    secret, environment = None, None
+    secret, environment, client = None, None, None
     with ExitStack() as stack:
         stack.enter_context(archive._directory_pin(output.parent))
         pins = {name: stack.enter_context(bridge._file_pin(path)) for name, path in inputs.items()}
@@ -529,6 +545,8 @@ def transfer_chunk(*, ciphertext_path=None, crypt_receipt_path, crypt_receipt_sh
                                "line": trace.tb_lineno})
                 trace = trace.tb_next
             result["failure_locations"] = frames
+            if client is not None and getattr(client, "last_failure", None) is not None:
+                result["client_failure"] = client.last_failure
             archive._write(output / "receipt.json", _seal(result))
             raise
         finally:
