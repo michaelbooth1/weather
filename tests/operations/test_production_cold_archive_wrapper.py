@@ -31,11 +31,11 @@ CHILD = '''
 import argparse, json, os, subprocess, sys, time
 from pathlib import Path
 p = argparse.ArgumentParser()
-p.add_argument('command', choices=['stage', 'transfer', 'upload', 'download', 'reclaim'])
+p.add_argument('command', choices=['stage', 'transfer', 'upload', 'download', 'reclaim', 'copy'])
 for key in ('production-repo-root', 'request', 'request-sha256', 'output-root', 'source-git-sha'):
     p.add_argument('--' + key)
 a = p.parse_args()
-assert Path(__file__).stem == ({'stage': 'production_cold_archive_stage_cli', 'reclaim': 'production_cold_archive_reclaim_cli'}.get(a.command, 'production_cold_archive_transfer'))
+assert Path(__file__).stem == ({'stage': 'production_cold_archive_stage_cli', 'reclaim': 'production_cold_archive_reclaim_cli', 'copy': 'production_cold_archive_copy'}.get(a.command, 'production_cold_archive_transfer'))
 out = Path(a.output_root)
 assert os.environ['WEATHER_PRODUCTION_ARCHIVE_SOURCE_ROOT'] == str(Path.cwd())
 assert int(os.environ['WEATHER_PRODUCTION_ARCHIVE_OWNER_PID']) > 0
@@ -80,6 +80,14 @@ if a.command in ('transfer', 'upload', 'download'):
     if mode == 'malformed_hash': result['crypt_receipt_sha256'] = 'not-a-sha256'
     if mode == 'string_ciphertext_bytes': result['ciphertext_bytes'] = '6144'
     if mode == 'string_independent_download': result['independent_download'] = 'True'
+if a.command == 'copy':
+    result.update(operation='copy', direction='to_workstation', archive_id='fixture-copy',
+                  copied_files=3, copied_bytes=6144, destination_hash_verified=False,
+                  remote_side_effect_possible=True)
+    if mode == 'bad_count': result['copied_files'] = 2
+    if mode == 'bad_bytes': result['copied_bytes'] = '6144'
+    if mode == 'claim_destination_hash': result['destination_hash_verified'] = True
+    if mode == 'wrong_copy_direction': result['direction'] = 'from_workstation'
 if a.command == 'reclaim':
     import hashlib
     proof = Path(a.production_repo_root) / 'data/cold_archive/catalog/reclaims' / ('a' * 64) / 'fixture-a1/receipt.json'
@@ -173,6 +181,7 @@ def wrapper_fixture(tmp_path, request):
     (package / "production_cold_archive_stage_cli.py").write_text(CHILD)
     (package / "production_cold_archive_transfer.py").write_text(CHILD)
     (package / "production_cold_archive_reclaim_cli.py").write_text(CHILD)
+    (package / "production_cold_archive_copy.py").write_text(CHILD)
     (source / "tracked.txt").write_text("original")
     (source / ".gitignore").write_text("__pycache__/\n")
     command("git", "init", str(source))
@@ -188,8 +197,8 @@ def launch(wrapper_fixture, mode, operation=None, exception=None):
     request = production / "request.json"
     request.write_text(json.dumps({"mode": mode}))
     output_dir = "production_cold_archive_transfer" if operation in {"transfer", "upload", "download"} else "production_cold_archive"
-    if operation == "reclaim":
-        output_dir = "production_cold_archive_reclaim"
+    if operation in {"reclaim", "copy"}:
+        output_dir = "production_cold_archive_" + operation
     output = production / "scratch" / output_dir / "attempt"
     arguments = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                  "-File", str(wrapper), "-ProductionRepoRoot", str(production), "-RequestPath", str(request),
@@ -387,3 +396,27 @@ def test_archive_daytime_wrapper_requires_explicit_unexpired_token(wrapper_fixtu
         assert receipt["status"] == "PASS" and receipt["teardown_proved"] is True
     else:
         assert not output.exists()
+
+@pytest.mark.parametrize("mode,success", [
+    ("success", True), ("residual_success", True), ("failure", False), ("hang", False),
+    ("source_drift", False), ("request_drift", False), ("wrong_binding", False),
+    ("bad_count", False), ("bad_bytes", False), ("claim_destination_hash", False),
+    ("wrong_copy_direction", False), ("claim_upload", False),
+])
+def test_copy_wrapper_binds_retention_and_cleans_complete_job(wrapper_fixture, mode, success):
+    process, output = launch(wrapper_fixture, mode, operation="copy")
+    code, log = finish(process)
+    assert (code == 0) is success, log
+    receipt = json.loads((output / "wrapper-result.json").read_text(encoding="utf-8-sig"))
+    assert receipt["teardown_proved"] is True
+    assert receipt["source_retained"] is True and receipt["deleted_files"] == 0
+    assert receipt["upload_performed"] is False
+    assert receipt["remote_side_effect_possible"] is True
+    if success:
+        assert receipt["copied_files"] == 3 and receipt["copied_bytes"] == 6144
+        assert receipt["destination_hash_verified"] is False
+    else:
+        assert receipt["copied_files"] is receipt["copied_bytes"] is None
+    if mode in {"hang", "residual_success"}:
+        for pid in json.loads((output / "descendant.json").read_text()).values():
+            assert observe_process_identity(pid)["state"] == "not_found"

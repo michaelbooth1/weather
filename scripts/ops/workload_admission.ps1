@@ -1475,7 +1475,8 @@ function Enter-WeatherHeavyWorkloadLease {
             if ($AllowStageAWindow -or $Workload -cnotin @(
                 'production_cold_archive_stage', 'production_cold_archive_transfer',
                 'production_cold_archive_transfer_upload', 'production_cold_archive_transfer_download',
-                'production_cold_archive_transfer_publish', 'production_cold_archive_reclaim'
+                'production_cold_archive_transfer_publish', 'production_cold_archive_reclaim',
+                'production_cold_archive_copy'
             ) -or $executionHostId -cne [string]$assignment.dedicated_capture_execution_host_id) {
                 throw 'owner-approved archive exception requires the dedicated capture archive lane'
             }

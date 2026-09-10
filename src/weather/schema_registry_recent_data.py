@@ -7,6 +7,16 @@ from weather.schema_registry_types import SchemaSpec
 
 RECENT_REGISTERED_SCHEMAS = (
     SchemaSpec(
+        "production_cold_archive_copy_request", "production_cold_archive_copy_request_v0.1",
+        "weather.operations.production_cold_archive_copy", "active",
+        "Expiring host-bound copy of three verified archive staging files to a fresh PC scratch namespace.",
+    ),
+    SchemaSpec(
+        "production_cold_archive_copy_execution_receipt", "production_cold_archive_copy_execution_receipt_v0.1",
+        "weather.operations.production_cold_archive_copy", "active",
+        "Admitted source-retaining PC copy; destination verification remains a separate cryptographic step.",
+    ),
+    SchemaSpec(
         "production_cold_archive_reclaim_request", "production_cold_archive_reclaim_request_v0.1",
         "weather.operations.production_cold_archive_reclaim_cli", "active",
         "Expiring host-bound original reclaim request with exact selection, recovery and custody evidence.",
