@@ -165,7 +165,7 @@ def _receipt(layout: dict[str, Path]) -> dict:
 
 
 def _protect_windows_powershell_fixture(
-    tmp_path: Path, plaintext: str
+    tmp_path: Path, plaintext: str, *, machine: bool = False
 ) -> Path:
     """Use the real default PowerShell DPAPI format for synthetic text only."""
 
@@ -178,13 +178,20 @@ def _protect_windows_powershell_fixture(
     secret_path = tmp_path / "fixture-pass.dpapi"
     script.write_text(
         r'''
-param([string]$OutputPath, [string]$FixtureUtf16Base64)
+param([string]$OutputPath, [string]$FixtureUtf16Base64, [switch]$Machine)
 $ErrorActionPreference = "Stop"
 $fixtureBytes = [Convert]::FromBase64String($FixtureUtf16Base64)
 $fixtureText = [Text.Encoding]::Unicode.GetString($fixtureBytes)
 $fixtureSecure = ConvertTo-SecureString -String $fixtureText -AsPlainText -Force
 try {
-    $protected = ConvertFrom-SecureString -SecureString $fixtureSecure
+    if ($Machine) {
+        Add-Type -AssemblyName System.Security
+        $native = [Security.Cryptography.ProtectedData]::Protect(
+            $fixtureBytes, $null, [Security.Cryptography.DataProtectionScope]::LocalMachine)
+        $protected = 'weather-archive-machine-v1:' + [BitConverter]::ToString($native).Replace('-', '')
+    } else {
+        $protected = ConvertFrom-SecureString -SecureString $fixtureSecure
+    }
     [IO.File]::WriteAllText($OutputPath, $protected + "`r`n", [Text.Encoding]::ASCII)
 }
 finally {
@@ -206,6 +213,7 @@ finally {
             str(script),
             str(secret_path),
             base64.b64encode(plaintext.encode("utf-16-le")).decode("ascii"),
+            *(["-Machine"] if machine else []),
         ],
         stdin=subprocess.DEVNULL,
         capture_output=True,
@@ -225,10 +233,11 @@ finally {
 
 @pytest.mark.skipif(os.name != "nt", reason="real CurrentUser DPAPI requires Windows")
 @pytest.mark.parametrize("plaintext", ("fixture-passphrase", "fixture-\u00e9-\u96e8-\U0001f512"))
+@pytest.mark.parametrize("machine", (False, True))
 def test_dpapi_recovers_real_windows_powershell_fixtures(
-    tmp_path: Path, plaintext: str, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, plaintext: str, machine: bool, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    path = _protect_windows_powershell_fixture(tmp_path, plaintext)
+    path = _protect_windows_powershell_fixture(tmp_path, plaintext, machine=machine)
     protected_before = path.read_bytes()
 
     material = stage._load_dpapi_secret(path)

@@ -455,7 +455,7 @@ def _read_stable_bytes(path: Path, *, label: str, maximum_bytes: int) -> bytearr
 
 
 def _load_dpapi_secret(path: Path) -> SecretMaterial:
-    """Recover ASCII-hex CurrentUser DPAPI over UTF-16LE, with no entropy."""
+    """Recover legacy CurrentUser or explicitly tagged archive-machine DPAPI."""
 
     if os.name != "nt":
         raise ArchiveStageError(
@@ -478,6 +478,9 @@ def _load_dpapi_secret(path: Path) -> SecretMaterial:
             raise ArchiveStageError(
                 "dpapi_secret_invalid", "DPAPI secret is invalid"
             ) from exc
+        machine_prefix = "weather-archive-machine-v1:"
+        if text.startswith(machine_prefix):
+            text = text[len(machine_prefix):]
         if not text or len(text) % 2 or not re.fullmatch(r"[0-9A-Fa-f]+", text):
             raise ArchiveStageError("dpapi_secret_invalid", "DPAPI secret is invalid")
         encrypted.extend(bytes.fromhex(text))

@@ -68,6 +68,26 @@ reservation. Evidence headroom, worst-case output reservation, time, lease,
 memory, capture health and teardown guards all remain. Final admission evidence
 records `source_disk_reserve_bytes`.
 
+For the owner's September 10 overnight recovery using only the existing PCs
+and Drive, the exact approved primary plan and selection use an 8 GiB capture
+reserve between 04:00 and 13:00 UTC on September 10 only. The CLI binds both
+digests and verifies the actual plan bytes; other plans keep their existing
+reserve. Each chunk remains at most 1 GiB, with evidence and worst-case output
+reserved separately. The controller must also reserve ingress and download
+copies before copying them onto the capture disk.
+
+The archive workstation wrapper accepts one `--archive-unattended` token
+inside its encoded Python arguments only for the archive stage and restore
+modules. It removes the token and launches under the same host/principal lease
+and kill-on-close Job without requesting an interactive user token. This does
+not change other workstation workloads or any live-execution admission.
+Dedicated archive credentials may use the explicitly tagged
+`weather-archive-machine-v1:` DPAPI format in a directory restricted to the
+owning Windows account and SYSTEM. Recovery keys must also have a verified
+private off-PC copy before reclaim. The archive owner authorized the agent to
+save and independently verify that backup; the custody record must identify
+the actual backup and verification evidence.
+
 ## What a PASS establishes
 
 A staging PASS proves byte identity during its pinned reads and local archive

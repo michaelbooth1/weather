@@ -163,6 +163,36 @@ def test_approved_plan_without_exact_selection_keeps_general_reserve(tmp_path, m
     assert subject.load_plan_with_reserve(path, digest)[1] == 50 * 1024**3
 
 
+@pytest.mark.parametrize("checked,expected", [
+    ("2026-09-10T03:59:59+00:00", 50),
+    ("2026-09-10T04:00:00+00:00", 8),
+    ("2026-09-10T12:59:59+00:00", 8),
+    ("2026-09-10T13:00:00+00:00", 50),
+])
+def test_overnight_reserve_expires_and_binds_actual_plan(tmp_path, monkeypatch, checked, expected):
+    path = tmp_path / "overnight.json"
+    payload = {"selection_sha256": subject.OVERNIGHT_SELECTION_SHA256}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(subject, "OVERNIGHT_PLAN_SHA256", digest)
+    now = subject.datetime.fromisoformat(checked)
+    assert subject.load_plan_with_reserve(path, digest, now=now)[1] == expected * 1024**3
+    path.write_text(json.dumps({**payload, "changed": True}), encoding="utf-8")
+    with pytest.raises(ValueError, match="digest mismatch"):
+        subject.load_plan_with_reserve(path, digest, now=now)
+    changed = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert subject.load_plan_with_reserve(path, changed, now=now)[1] == 50 * 1024**3
+
+
+def test_overnight_reserve_requires_exact_selection(tmp_path, monkeypatch):
+    path = tmp_path / "wrong-selection.json"
+    path.write_text(json.dumps({"selection_sha256": "f" * 64}), encoding="utf-8")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(subject, "OVERNIGHT_PLAN_SHA256", digest)
+    now = subject.datetime(2026, 9, 10, 5, tzinfo=subject.timezone.utc)
+    assert subject.load_plan_with_reserve(path, digest, now=now)[1] == 50 * 1024**3
+
+
 def test_approved_reserve_keeps_evidence_memory_and_time_guards():
     args = resources()
     args["source_reserve_bytes"] = 20 * 1024**3

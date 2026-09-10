@@ -13,11 +13,11 @@ refocus in [item 330](../roadmap/items/item-330-maker-economics-refocus-master-p
 
 ## Current authority
 
-On September 9 the owner approved the revised 101.8 GB primary archive target
-and conditional 10.2 GB reserve, requiring documentation of every data location.
-Implement selective restore and consumer handling before reclaim. The 20 GiB
-reserve exception remains bound to the original exact July plan; this approval
-does not change host, headroom, full-restore or exact-file deletion gates.
+At September 10 03:57 UTC the owner fully authorized preparing and executing
+the overnight archive, saving its recovery keys, and using only existing PC
+storage and Google Drive. This extends the approved 101.8 GB primary target
+and conditional 10.2 GB reserve. Prepare a bounded low-space plan and unattended
+credential handling; retain full restore, exact-file deletion and capture gates.
 
 The owner authorized the plan's implementation, source-control integration,
 and takeover of unfinished cold-storage work on September 4. Ordinary authorized
@@ -56,9 +56,9 @@ own dated evidence. These ignored files need not exist in a clean checkout.
    and historical consumer changes. Recheck protected inputs and
    headroom before admitted encrypted transfer, independent complete restore
    and exact-file reclaim. No production payload has been uploaded or deleted.
-2. Keep storage [PR 44](https://github.com/michaelbooth1/weather/pull/44) queued
-   as requested. Production adoption is not authorized by the night plan.
-   Other integrations still require their canonical verdict and guarded path.
+2. Adopt the reviewed storage dependency and archive consumers through the
+   canonical roll verdict and guarded integration path. The new overnight
+   authorization includes required source adoption; capture recovery is mandatory.
 3. Review W0's proposed recurring-job dispositions and mixed daily-chain steps,
    and scope the remaining fleet/ledger gaps before choosing a resource-admitted
    repair for the confirmed Toronto omissions. Do not infer ledger rows from a flag.

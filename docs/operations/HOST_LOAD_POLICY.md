@@ -97,6 +97,17 @@ physical memory and complete child-tree teardown. It does not extend the
 separate dated daytime inventory/compression exception to this archive lane
 or weaken any general heavy-work threshold.
 
+## September 10 bounded archive recovery
+
+The owner's September 10 full overnight authorization includes saving recovery
+keys and using only existing PC storage plus private Google Drive. The exact
+primary plan and selection pinned by the archive CLI may use an 8 GiB reserve
+through 13:00 UTC that day. All chunk, evidence/output, memory, capture, lease,
+time-window and teardown checks remain required. The controller must account
+for every temporary local copy before admitting ingress.
+See [the staging runbook](production-cold-archive-staging.md) for the bounded
+unattended archive credential and workstation launch path.
+
 ## The 24-hour map (America/Toronto)
 
 The [bounded replay-cache compression lane](replay-cache-compression.md) has a

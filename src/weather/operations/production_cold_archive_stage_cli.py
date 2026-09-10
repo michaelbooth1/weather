@@ -37,6 +37,10 @@ SOURCE_RESERVE_BYTES = 50 * GIB
 APPROVED_ARCHIVE_PLAN_SHA256 = "b2f94bbe51ff31b40b1d43d5737f96ef721a3858bd37fdd460c9dcb66adf2b30"
 APPROVED_ARCHIVE_SELECTION_SHA256 = "ba1f3a81d083db6bb85141c0a867d0afa4508c66bb0b88dfd6c18437d7c0c8db"
 APPROVED_ARCHIVE_RESERVE_BYTES = 20 * GIB
+# Owner 2026-09-10: bounded overnight recovery using existing disk only.
+OVERNIGHT_PLAN_SHA256 = "41ee8e81d795e56213c1d2ee3a73ef78049c6425e659b66d9e5b6c5a15738a4c"
+OVERNIGHT_SELECTION_SHA256 = "566e0fd15a0095c131068cc4ef3cf09e715ca570b1205286e6e6fd6927f607c9"
+OVERNIGHT_RESERVE_BYTES = 8 * GIB
 EVIDENCE_RESERVE_BYTES = 16 * 1024**2
 MAX_CHUNK_BYTES = GIB
 
@@ -131,7 +135,7 @@ def _read_pinned_json(path, maximum, expected_hash):
     return value, raw
 
 
-def load_plan_with_reserve(path, expected_hash):
+def load_plan_with_reserve(path, expected_hash, *, now=None):
     # Verify actual bytes before granting the exception; a claimed digest is
     # insufficient. Every different or regenerated plan retains the normal floor.
     plan, _ = _read_pinned_json(path, MAX_PLAN_BYTES, expected_hash)
@@ -139,6 +143,12 @@ def load_plan_with_reserve(path, expected_hash):
     if (expected_hash == APPROVED_ARCHIVE_PLAN_SHA256 and
             plan.get("selection_sha256") == APPROVED_ARCHIVE_SELECTION_SHA256):
         reserve = APPROVED_ARCHIVE_RESERVE_BYTES
+    current = now or datetime.now(timezone.utc)
+    if (expected_hash == OVERNIGHT_PLAN_SHA256
+            and plan.get("selection_sha256") == OVERNIGHT_SELECTION_SHA256
+            and datetime(2026, 9, 10, 4, tzinfo=timezone.utc) <= current
+            < datetime(2026, 9, 10, 13, tzinfo=timezone.utc)):
+        reserve = OVERNIGHT_RESERVE_BYTES
     return plan, reserve
 
 
