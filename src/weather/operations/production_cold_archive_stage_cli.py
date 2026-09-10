@@ -39,8 +39,9 @@ APPROVED_ARCHIVE_SELECTION_SHA256 = "ba1f3a81d083db6bb85141c0a867d0afa4508c66bb0
 APPROVED_ARCHIVE_RESERVE_BYTES = 20 * GIB
 # Owner 2026-09-10: bounded overnight recovery using existing disk only.
 OVERNIGHT_PLAN_SHA256 = "41ee8e81d795e56213c1d2ee3a73ef78049c6425e659b66d9e5b6c5a15738a4c"
+OVERNIGHT_DAY_PLAN_SHA256 = "46fc281f969fd551ee8ffd543a7792051ce371b55f9642b04d3ad2fd04e9845d"
 OVERNIGHT_SELECTION_SHA256 = "566e0fd15a0095c131068cc4ef3cf09e715ca570b1205286e6e6fd6927f607c9"
-OVERNIGHT_RESERVE_BYTES = 8 * GIB
+OVERNIGHT_RESERVE_BYTES = 6 * GIB
 EVIDENCE_RESERVE_BYTES = 16 * 1024**2
 MAX_CHUNK_BYTES = GIB
 
@@ -144,12 +145,21 @@ def load_plan_with_reserve(path, expected_hash, *, now=None):
             plan.get("selection_sha256") == APPROVED_ARCHIVE_SELECTION_SHA256):
         reserve = APPROVED_ARCHIVE_RESERVE_BYTES
     current = now or datetime.now(timezone.utc)
-    if (expected_hash == OVERNIGHT_PLAN_SHA256
+    if (expected_hash in (OVERNIGHT_PLAN_SHA256, OVERNIGHT_DAY_PLAN_SHA256)
             and plan.get("selection_sha256") == OVERNIGHT_SELECTION_SHA256
             and datetime(2026, 9, 10, 4, tzinfo=timezone.utc) <= current
             < datetime(2026, 9, 10, 13, tzinfo=timezone.utc)):
         reserve = OVERNIGHT_RESERVE_BYTES
     return plan, reserve
+
+
+def staging_reserve(chunk, source_reserve_bytes):
+    """Reserve capture space and both subsequent worst-case ciphertext copies."""
+    reserve = source_reserve_bytes + EVIDENCE_RESERVE_BYTES
+    if source_reserve_bytes == OVERNIGHT_RESERVE_BYTES:
+        ciphertext_bound = chunk["logical_bytes"] + chunk["logical_bytes"] // 100 + 4 * stage.MIB
+        reserve += 2 * ciphertext_bound
+    return reserve
 
 
 def run_staging(args):
@@ -241,7 +251,7 @@ def _run_pinned(args, production_root, output, request_path):
             source_root=production_root / "data", admission=guard,
             deadline_monotonic=time.monotonic() + (deadline - datetime.now(timezone.utc)).total_seconds(),
             rate_bytes_per_second=16 * 1024**2,
-            free_space_reserve_bytes=source_reserve_bytes + EVIDENCE_RESERVE_BYTES,
+            free_space_reserve_bytes=staging_reserve(chunk, source_reserve_bytes),
         )
     guard(force=True)
     verify_current_lease(lease, owner_pid, lease_path, workload=WORKLOAD)

@@ -92,7 +92,7 @@ def _approval(request, stack, entry):
     archive._check_seal(plan, "plan_hash")
     _require(plan.get("schema_version") == schema_version("production_cold_archive_plan")
              and plan.get("selection_sha256") == selection_sha and plan_sha == entry["plan_sha256"]
-             and plan.get("chunk_grouping") == archive.SELECTIVE_GROUPING,
+             and plan.get("chunk_grouping") in (archive.SELECTIVE_GROUPING, archive.MARKET_DAY_GROUPING),
              "reclaim requires the exact selective plan")
     matches = [chunk for chunk in plan.get("chunks", []) if chunk.get("chunk_id") == entry["chunk_id"]]
     _require(len(matches) == 1 and archive._rows(matches[0].get("files")) == archive._rows(entry["files"]),
@@ -100,7 +100,7 @@ def _approval(request, stack, entry):
     plan_rows = archive._rows([row for chunk in plan["chunks"] for row in chunk["files"]])
     limit = archive._integer(plan.get("chunk_bytes"), "chunk_bytes", maximum=archive.MAX_CHUNK_BYTES)
     _require(limit > 0 and plan.get("format") == archive.FORMAT
-             and archive._chunks(plan_rows, limit, archive.SELECTIVE_GROUPING) == plan["chunks"]
+             and archive._chunks(plan_rows, limit, plan["chunk_grouping"]) == plan["chunks"]
              and plan.get("file_count") == len(plan_rows), "reclaim plan grouping or count changed")
     _require(plan_rows
              == archive._rows(selection["files"])

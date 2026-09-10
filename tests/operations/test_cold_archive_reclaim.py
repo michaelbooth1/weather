@@ -268,7 +268,7 @@ def test_target_stops_at_whole_file_and_refuses_further_reclaim(corpus, monkeypa
         subject.reclaim_chunk(**args)
 
 
-def approved_plan(tmp_path, kind="primary", target=TARGET):
+def approved_plan(tmp_path, kind="primary", target=TARGET, grouping=archive.SELECTIVE_GROUPING):
     root = tmp_path / "data"
     row = {"path": "snapshots/highest-temperature-in-toronto-on-june-15-2026/order_books_long.csv",
            "size_bytes": 4, "mtime_ns": 1, "device": 1, "file_id": 2, "allocated_bytes": 4096}
@@ -290,7 +290,7 @@ def approved_plan(tmp_path, kind="primary", target=TARGET):
     selection_spec = record(tmp_path / "approved-selection.json", selection, sealed=False)
     plan_path = tmp_path / "approved-plan.json"
     archive.plan_selection(selection_spec["path"], selection_spec["sha256"], plan_path,
-                           chunk_grouping=archive.SELECTIVE_GROUPING)
+                           chunk_grouping=grouping)
     request = {"owner_approval": approval_spec, "proposal": proposal_spec,
                "selection": selection_spec, "plan": {"path": str(plan_path), "sha256": fixtures.sha(plan_path)}}
     entry = {"source_root": str(root), "files": [{**row, "sha256": "a" * 64}],
@@ -298,10 +298,11 @@ def approved_plan(tmp_path, kind="primary", target=TARGET):
     return request, entry
 
 
+@pytest.mark.parametrize("grouping", [archive.SELECTIVE_GROUPING, archive.MARKET_DAY_GROUPING])
 @pytest.mark.parametrize("proposal_kind,expected_kind", [("primary", "primary"), ("standby", "conditional_reserve")])
-def test_approval_binds_exact_proposal_selection_and_plan(tmp_path, monkeypatch, proposal_kind, expected_kind):
+def test_approval_binds_exact_proposal_selection_and_plan(tmp_path, monkeypatch, proposal_kind, expected_kind, grouping):
     monkeypatch.setattr(subject.bridge, "_file_pin", fixtures.FixturePin)
-    request, entry = approved_plan(tmp_path, kind=proposal_kind)
+    request, entry = approved_plan(tmp_path, kind=proposal_kind, grouping=grouping)
     with ExitStack() as stack:
         _, digest, kind, target = subject._approval(request, stack, entry)
     assert digest == request["owner_approval"]["sha256"] and kind == expected_kind and target == TARGET
