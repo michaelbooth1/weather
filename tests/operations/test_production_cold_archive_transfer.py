@@ -197,6 +197,70 @@ def retained_receipt(fixture):
     return value
 
 
+
+
+def test_bound_object_read_retries_transient_absence_without_accepting_absence(tmp_path, monkeypatch):
+    client = core.GuardedClient(tmp_path / "rclone.exe", tmp_path / "client.conf",
+                                "archive_drive", "fixture_root_12345", {}, lambda: True,
+                                time.monotonic() + 250)
+    replies = iter([(3, b""), (1, b"null"), (0, json.dumps({
+        "Name": "bound.bin", "IsDir": False, "Size": 7, "ID": "fixture_object_12345",
+        "Hashes": {"sha256": "a" * 64}}).encode())])
+    calls = []
+    monkeypatch.setattr(core.time, "sleep", lambda seconds: None)
+    def run(tokens, *, capture=False):
+        calls.append(tokens)
+        return next(replies)
+    monkeypatch.setattr(client, "run", run)
+    assert client.object("bound.bin")["object_id"] == "fixture_object_12345"
+    assert len(calls) == 3
+
+
+def test_bound_object_read_stops_after_four_absent_results(tmp_path, monkeypatch):
+    client = core.GuardedClient(tmp_path / "rclone.exe", tmp_path / "client.conf",
+                                "archive_drive", "fixture_root_12345", {}, lambda: True,
+                                time.monotonic() + 250)
+    calls = []
+    monkeypatch.setattr(core.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(client, "run", lambda *args, **kwargs: (calls.append(1) or 3, b""))
+    with pytest.raises(core.TransferError, match="metadata unavailable"):
+        client.object("bound.bin")
+    assert len(calls) == 4
+
+
+def test_download_retry_never_overwrites_a_partially_created_destination(tmp_path, monkeypatch):
+    client = core.GuardedClient(tmp_path / "rclone.exe", tmp_path / "client.conf",
+                                "archive_drive", "fixture_root_12345", {}, lambda: True,
+                                time.monotonic() + 250)
+    target = tmp_path / "download.bin"
+    calls = []
+    def run(tokens, *, capture=False):
+        calls.append(tokens)
+        target.write_bytes(b"partial")
+        client.last_failure = {"exit_code": 3, "stderr_bytes": 0}
+        return 3, b""
+    monkeypatch.setattr(client, "run", run)
+    with pytest.raises(core.TransferError, match="create-only transfer failed"):
+        client.copy("archive_drive:bound.bin", target, 20)
+    assert len(calls) == 1
+    assert target.read_bytes() == b"partial"
+
+
+def test_upload_is_never_automatically_retried(tmp_path, monkeypatch):
+    client = core.GuardedClient(tmp_path / "rclone.exe", tmp_path / "client.conf",
+                                "archive_drive", "fixture_root_12345", {}, lambda: True,
+                                time.monotonic() + 250)
+    calls = []
+    def run(tokens, *, capture=False):
+        calls.append(tokens)
+        client.last_failure = {"exit_code": 3, "stderr_bytes": 0}
+        return 3, b""
+    monkeypatch.setattr(client, "run", run)
+    with pytest.raises(core.TransferError, match="create-only transfer failed"):
+        client.copy(tmp_path / "input.bin", "archive_drive:bound.bin", 20)
+    assert len(calls) == 1
+
+
 def test_four_object_roundtrip_retains_sources_and_clears_private_secret(transfer_fixture):
     f = transfer_fixture
     before = {name: path.read_bytes() for name, path in f.paths.items()}
