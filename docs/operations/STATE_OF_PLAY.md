@@ -1,6 +1,6 @@
 # State of play
 
-**Last updated: 2026-09-10 America/Toronto (verified archive pilot; campaign active).**
+**Last updated: 2026-09-10 America/Toronto (archive attempts stopped; capacity target unmet).**
 Read this first, then the established findings and retractions before research.
 
 > **REWRITTEN, never appended. Capped at about 90 lines.** This file owns the
@@ -30,9 +30,9 @@ may continue. Source integration, runtime adoption and live authority are separa
 | Area | Verified state / remaining limit |
 | --- | --- |
 | Production source | The archive/consumer stack at `562c85ec33d9411af897a04b8aa05401ada28b66` was guardedly adopted as master `e0a00eedf9ad41ee5580913af22d552e05663b96` at September 10 01:57:52 Toronto. The receipt proves three-worker and execution-tape recovery plus publication. Later archive-only execution source is on `codex/bulk-cold-archive-20260909`; do not infer its production adoption from a push. |
-| Archive and recovery | Pilot `e10c00000` completed encryption, private Drive upload, independent download, full restore, key custody, location publication and exact original reclaim: 7,614,464 allocated bytes. `e10d00001` has a complete independent restore and published recovery handback for five Atlanta July 10 files; its original reclaim was still pending at the 05:40 checkpoint. The 100 GB reclaim target is not achieved. [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) binds detailed receipts. |
-| Data locations | Production `data/cold_archive/WHERE_DATA_IS.md` and its catalog distinguish ARCHIVED from LOCAL_WITH_CLOUD_COPY. Each catalog entry binds original paths, exact private cloud object IDs and source/archive hashes. Recovery metadata is also on the separate workstation; the recovery keys have an independently verified private Drive backup. Follow [the location and restore runbook](cold-archive-locations.md), not an assumed local path. |
-| Headroom and batching | The scheduled September 10 05:00 CLOB tiering receipt reports 13,717,807,104 bytes reclaimed. This is separate from archive-source reclaim. The archive lane remains reserved away from the 04:45-06:45 tiering window and stops by 09:00. The same selection is packed into 111 bounded archives with protected queue events and pilot events isolated. The exact-source one-shot is scheduled for 06:45 with an absolute 09:00 end; item 325 records its S4U, Drive and native-identity readiness proofs. Source qualification alone counts no reclaimed bytes. |
+| Archive and recovery | Two archives completed independent restores and verified original reclaim: **116.5 MB across six files**. One reclaim committed before its final wrapper health check failed; a subsequent reconciliation proved the completed removal without further deletion. A third archive is staged and encrypted, but three upload attempts failed at Google API quota/metadata checks. Its originals remain local. **The 100 GB target is not achieved.** [Item 325](../roadmap/items/item-325-tiered-data-retention-and-verified-archive-offload.md) records the outcome; exact identifiers and receipts are in the private recovery handback. |
+| Data locations | The location catalog records the six removed original files as ARCHIVED and binds their exact cloud objects and recovery proofs. The final recovery/status handback is independently verified on both PCs and in the owner-only Drive folder. Recovery keys have a separate verified private backup. Exact object identifiers, native file metadata and detailed receipts remain in private custody. Follow [the location and restore runbook](cold-archive-locations.md) and its generated local inventory. |
+| Headroom and batching | The two September 10 CLOB tiering receipts report **16.68 GB reclaimed**, separately from archive-source reclaim. Production had **24.48 GB free at 07:36 Toronto**. The scheduled one-shot stopped after the reconciled reclaim. Two larger staging attempts hit the unchanged memory gate; a smaller day chunk staged successfully. The prepared small-chunk campaign was never armed. Failed attempts and temporary payloads remain retained; no future archive run is armed. |
 | Capture | The guarded adoption proved recovery of all three capture workers and the public execution-tape producer. Fresh capture identities, heartbeat/clean-iteration ages, commit, physical memory and disk reserve are rechecked by every payload phase. These are operational health checks, not graded streak, fleet countability or price-path completeness proofs. |
 | Settlement / recurring work | The September 8 chain was deferred at ingest quality/resource admission. The bounded 14-day settlement check flagged August 28-31 and September 1, 4-6. Full-ledger reconciliation and admitted per-date repair remain open; the next chain does not repair historical omissions automatically. |
 | Maker changes | W0 reporting-pause/baseline restoration, W1 governance, W2 identity/config and W3's offline diagnostic calculator are integrated in the earlier master stack. W3/G1 remain open because no current campaign/economics qualification or paid/reconciled profit is proved. Atomic paired configuration publication and W4's offline accrual-to-wallet-credit matcher remain open. Item 330 owns scope and evidence. |
@@ -41,10 +41,11 @@ may continue. Source integration, runtime adoption and live authority are separa
 
 ## Ordered non-live critical path
 
-1. Finish the approved archive campaign within admitted windows. Resume already
-   restored archives at fresh source review/reclaim; never repeat a spent upload,
-   download or restore namespace. Verify every event's final settlement before
-   any multi-day reclaim, and stop on failed evidence or admission.
+1. Resolve the archive upload quota bottleneck and qualify sustainable admitted
+   batching before resuming. The shared rclone OAuth project returned a direct
+   Google API rate-limit error; browser tooling could not provision a dedicated
+   client. Use the private handback for exact attempt and recovery bindings.
+   Never repeat a committed reclaim or reuse expired requests/reserve exceptions.
 2. Keep the generated location catalog and independent recovery metadata current.
    Preserve weather, settlements, replay inputs, local summary tables and July 31
    onward. Retain failed attempts and all receipts. Count only proved allocation

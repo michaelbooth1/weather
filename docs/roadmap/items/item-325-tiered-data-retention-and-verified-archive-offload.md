@@ -1,4 +1,4 @@
-# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED ARCHIVE PILOT; CAPACITY TARGET OPEN]
+# 325. Tiered Data Retention And Verified Archive Offload [PARTIAL 2026-09-10 - VERIFIED SMALL RECLAIM; UPLOAD QUOTA BLOCKED]
 
 Goal: keep the production capture host permanently inside its disk budget by
 holding only the operating window locally, offloading everything older to a
@@ -6,6 +6,45 @@ verified append-only archive on the workstation host, and never deleting a byte
 that has not been proven durable elsewhere.
 
 Owner/package: weather.operations, weather.collection
+
+## September 10 stopped campaign outcome
+
+The 100 GB archive-source target remains unmet. Two fully restored archives
+released **116.5 MB of original allocated storage across six files**. One reclaim
+committed before its final wrapper health check failed; a bounded reconciliation
+verified the completed removals and retained all failure evidence. It performed
+no additional deletion. This reclaim must not be repeated.
+
+Two larger staging attempts stopped at the unchanged memory admission limit.
+A smaller archive passed staging and workstation encryption, but three upload
+attempts failed at Google API quota or destination-metadata checks. A final
+complete destination query found none of that archive's expected objects.
+Its originals and all failed attempts remain retained.
+
+A direct Google API check confirmed an intermittent rate-limit error from the
+shared rclone OAuth project. Rclone's
+[Drive client documentation](https://rclone.org/drive/#making-your-own-client-id)
+describes dedicated clients and retirement of its shared client during 2026.
+A dedicated client was not created because browser/desktop automation was
+unavailable. Existing keys and credentials remain privately retained.
+
+The detailed recovery handback includes current data locations, exact object
+identifiers, native metadata, hashes and receipt contents. Its copies on both
+PCs and in the owner-only Drive folder were independently verified. Recovery
+keys have a separate verified private backup. These detailed records remain
+private; consult the existing [location and restore runbook](../../operations/cold-archive-locations.md)
+for the local inventory and recovery-catalog entry points.
+
+Separately, the two September 10 CLOB tiering runs report **16.68 GB reclaimed**.
+Production had **24.48 GB free at 07:36 Toronto**. These savings are separate
+from archive-source reclaim. Capture resource, heartbeat, exact-file removal
+and full-restore requirements were not weakened.
+
+The archive controllers have stopped. The prepared smaller campaign was never
+armed, and no future archive run is armed. Resume only from reviewed private
+attempt records within a newly admitted window; never reuse expired dated
+requests. The documentation-completion transaction remains pending because
+its required production checks still need the ordinary disk-admission floor.
 
 ## September 10 06:30 scheduled-run readiness
 
