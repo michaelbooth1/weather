@@ -1,8 +1,9 @@
 """Restore one independently downloaded provisional archive on the workstation.
 
 Drive facts are supplied by a separately reviewed controller receipt. This
-module has no cloud client, production mode, credential provisioning, or delete
-executor. Every output belongs to a fresh, create-only restore attempt.
+module has no cloud client, production mode or credential provisioning.
+Separate dispatch routes own production-chunk restore, recovery publication and
+verified workstation-copy cleanup. Every output belongs to a fresh attempt.
 """
 
 from __future__ import annotations
@@ -602,6 +603,10 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     tokens = list(sys.argv[1:] if argv is None else argv)
+    if "--cleanup-verified" in tokens:
+        from weather.operations import workstation_cold_archive_cleanup
+        tokens.remove("--cleanup-verified")
+        return workstation_cold_archive_cleanup.main(tokens)
     if "--publish-recovery" in tokens:
         from weather.operations import cold_archive_recovery_publication
         tokens.remove("--publish-recovery")
