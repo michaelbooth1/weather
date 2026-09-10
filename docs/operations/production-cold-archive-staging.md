@@ -257,6 +257,14 @@ transient response at most four times within the unchanged job deadline. Every
 successful query must still match the exact object identity and size. Uploads
 are never retried automatically, and a materialized download is never overwritten.
 
+The separate download phase resolves each already-committed object directly by
+its Drive file ID. Authenticated GET requests remain restricted to the Google
+Drive API host, reject redirects, verify the exact parent/name/size/checksums,
+and stream create-only payloads at 8 MiB/s under the existing lease, resource
+and deadline guards. This avoids repeated filename listings against the shared
+client quota. Credential refresh remains a separate preparation step; no
+plaintext credential is written into an archive receipt.
+
 ## Update when
 
 Update when chunk format, request fields, admission, output evidence or the
