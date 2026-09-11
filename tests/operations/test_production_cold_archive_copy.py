@@ -146,7 +146,7 @@ def test_partial_copy_records_only_completed_file_and_retains_every_source(fixtu
     assert (tmp_path / "file-000.json").is_file()
     assert not (tmp_path / "file-001.json").exists()
     assert all(Path(row["local"]).is_file() for row in request["files"])
-    assert calls[1][calls[1].index("-l") + 1] == "65536"
+    assert calls[1][calls[1].index("-l") + 1] == "131072"
 
 
 def test_admission_failure_prevents_transport(fixture, tmp_path):

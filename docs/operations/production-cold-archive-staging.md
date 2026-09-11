@@ -374,7 +374,9 @@ the approved workstation root. Existing namespaces, redirected ancestors,
 different files, hashes or plan members refuse; interrupted destinations remain
 spent evidence. The native production lease, current capture checks, 384 MiB
 process limits and 300-second complete-child Job remain mandatory. Source
-hashing is limited to 16 MiB/s and SCP to 8 MiB/s. No ambient SSH configuration,
+hashing and SCP each use the existing 16 MiB/s payload ceiling and run serially.
+The copy phase retains native source pins and a complete pre-copy SHA-256 check.
+No ambient SSH configuration,
 proxy, forwarding or unpinned host-key acceptance is allowed.
 
 When upload and independent download both occur on the workstation, production
